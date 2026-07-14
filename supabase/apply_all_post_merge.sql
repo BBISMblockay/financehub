@@ -6411,3 +6411,77 @@ update public.entity_memberships em
 
 REVOKE ALL ON FUNCTION public.active_membership_role() FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.active_membership_role() TO authenticated;
+
+-- ============================================================
+-- 20260714220000_stamp_created_by.sql
+-- Insert-side created_by / changed_by stamping triggers
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.stamp_created_by()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.created_by IS NULL THEN
+    NEW.created_by := auth.uid();
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stamp_changed_by()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.changed_by IS NULL THEN
+    NEW.changed_by := auth.uid();
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DO $$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'ar_contact_log',
+    'employee_goals',
+    'entities',
+    'entity_comments',
+    'intern_workbench_items',
+    'launch_calendar',
+    'launch_channel_items',
+    'launch_product_readiness',
+    'launch_system_links',
+    'launch_tasks',
+    'locations',
+    'marketing_campaign_bank',
+    'payment_request_activity',
+    'payment_request_files',
+    'payment_requests',
+    'po_headers',
+    'product_samples',
+    'revenue_projections',
+    'review_templates',
+    'saved_views',
+    'shopify_connections',
+    'sync_jobs'
+  ] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS stamp_created_by ON public.%I', t);
+    EXECUTE format('CREATE TRIGGER stamp_created_by BEFORE INSERT ON public.%I FOR EACH ROW EXECUTE FUNCTION public.stamp_created_by()', t);
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY[
+    'po_status_history',
+    'revenue_projection_history'
+  ] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS stamp_changed_by ON public.%I', t);
+    EXECUTE format('CREATE TRIGGER stamp_changed_by BEFORE INSERT ON public.%I FOR EACH ROW EXECUTE FUNCTION public.stamp_changed_by()', t);
+  END LOOP;
+END $$;

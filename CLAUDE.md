@@ -379,7 +379,9 @@ function setStatus(msg, type = 'info', ms = 0) {
 ### Multi-tenant isolation — Phase 1 complete
 DB-level company isolation is live. Users in multiple companies pick a company at login; all data reads are scoped to `profiles.active_company_id`. See `supabase/README.md` for migration details.
 
-**Deferred:** `inventory_on_hand` and `sales_by_day` backfill, per-company sync pipelines, insert-side `company_entity_id` auto-stamping, company switcher in sidebar.
+**Deferred:** `inventory_on_hand` and `sales_by_day` backfill, per-company sync pipelines, company switcher in sidebar.
+
+**Attribution:** every table with a `created_by`/`changed_by` column has a `stamp_created_by`/`stamp_changed_by` BEFORE INSERT trigger (auth.uid() when not explicitly passed; service-role syncs stay null). Rows created before 2026-07-14 are unattributed and unrecoverable.
 
 ### Tools fully on Beacon shell (Pattern 1)
 `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `backend.html`, `reviews.html`, `review-templates.html`, `review-editor.html`, `my-review.html`
