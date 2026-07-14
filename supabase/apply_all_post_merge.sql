@@ -5284,3 +5284,96 @@ create policy review_template_questions_employee_select on public.review_templat
         and r.status <> 'draft'
     )
   );
+
+-- ============================================================
+-- 20260714180000_admin_update_profile_entity_membership.sql
+-- Backend role toggles ensure an entity membership + backfill
+-- ============================================================
+
+-- Direct-signup users granted a role via /v2/backend.html never got an
+-- entity_memberships row, so active_company_id stayed NULL and every
+-- company-scoped RLS policy locked them out (e.g. couldn't submit a
+-- payment request). Mirror of the 20260713180000 approve_access_request
+-- fix for the admin_update_profile path, plus a backfill.
+
+CREATE OR REPLACE FUNCTION public.admin_update_profile(p_user_id uuid, p_name text DEFAULT NULL::text, p_department text DEFAULT NULL::text, p_role text DEFAULT NULL::text, p_is_active boolean DEFAULT NULL::boolean, p_notes text DEFAULT NULL::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role app_role;
+  v_final_role app_role;
+  v_final_active boolean;
+  v_company_id uuid;
+  v_membership_role text;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  v_role := case
+    when p_role is null or trim(p_role) = '' then null
+    when lower(p_role) = 'owner' then 'owner'::app_role
+    when lower(p_role) = 'admin' then 'admin'::app_role
+    else 'user'::app_role
+  end;
+
+  update public.profiles
+     set name = coalesce(p_name, name),
+         department = coalesce(p_department, department),
+         role = coalesce(v_role, role),
+         is_active = coalesce(p_is_active, is_active),
+         updated_at = now()
+   where id = p_user_id
+   returning role, is_active into v_final_role, v_final_active;
+
+  if not found then
+    raise exception 'profile not found';
+  end if;
+
+  if v_final_active then
+    v_company_id := coalesce(public.active_company_id(), '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid);
+
+    v_membership_role := case v_final_role
+                            when 'owner' then 'owner_admin'
+                            when 'admin' then 'admin'
+                            else 'member'
+                          end;
+
+    insert into public.entity_memberships (entity_id, user_id, role)
+    values (v_company_id, p_user_id, v_membership_role)
+    on conflict (entity_id, user_id) do update
+      set role = excluded.role;
+
+    update public.profiles
+       set active_company_id = v_company_id
+     where id = p_user_id
+       and active_company_id is null;
+  end if;
+end;
+$function$;
+
+ALTER FUNCTION public.admin_update_profile(uuid, text, text, text, boolean, text) SET search_path = public;
+
+insert into public.entity_memberships (entity_id, user_id, role)
+select
+  '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid,
+  p.id,
+  case p.role::text
+    when 'owner' then 'owner_admin'
+    when 'admin' then 'admin'
+    else 'member'
+  end
+from public.profiles p
+where p.is_active
+  and not exists (select 1 from public.entity_memberships em where em.user_id = p.id)
+on conflict (entity_id, user_id) do nothing;
+
+update public.profiles p
+   set active_company_id = em.entity_id
+  from public.entity_memberships em
+ where em.user_id = p.id
+   and p.active_company_id is null
+   and (select count(*) from public.entity_memberships em2 where em2.user_id = p.id) = 1;

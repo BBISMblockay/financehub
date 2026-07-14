@@ -391,6 +391,23 @@ select
     else 'MISSING — run 20260714170000_reviews_employee_template_read.sql'
   end as reviews_employee_template_read;
 
+select
+  case
+    when exists (
+        select 1
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname = 'admin_update_profile'
+          and pg_get_functiondef(p.oid) ilike '%entity_memberships%')
+     and not exists (
+        select 1 from public.profiles p
+        where p.is_active
+          and not exists (select 1 from public.entity_memberships em where em.user_id = p.id))
+    then 'ok'
+    else 'MISSING — run 20260714180000_admin_update_profile_entity_membership.sql'
+  end as admin_update_profile_entity_membership;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
