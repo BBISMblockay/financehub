@@ -172,6 +172,13 @@ supabase/
     20260709040000_slack_skip_draft_po_posts.sql
     20260709050000_silo_insights_engine.sql
     20260710000000_accounting_tax_income_wash.sql
+    20260713180000_approve_access_request_entity_membership.sql
+    20260713190000_harden_active_company_function_grants.sql
+    20260713200000_performance_reviews_phase1.sql
+    20260714170000_reviews_employee_template_read.sql
+    20260714180000_admin_update_profile_entity_membership.sql
+    20260714190000_new_org_signup_flow.sql
+    20260714200000_org_invites.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

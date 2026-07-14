@@ -5284,3 +5284,678 @@ create policy review_template_questions_employee_select on public.review_templat
         and r.status <> 'draft'
     )
   );
+
+-- ============================================================
+-- 20260714180000_admin_update_profile_entity_membership.sql
+-- Backend role toggles ensure an entity membership + backfill
+-- ============================================================
+
+-- Direct-signup users granted a role via /v2/backend.html never got an
+-- entity_memberships row, so active_company_id stayed NULL and every
+-- company-scoped RLS policy locked them out (e.g. couldn't submit a
+-- payment request). Mirror of the 20260713180000 approve_access_request
+-- fix for the admin_update_profile path, plus a backfill.
+
+CREATE OR REPLACE FUNCTION public.admin_update_profile(p_user_id uuid, p_name text DEFAULT NULL::text, p_department text DEFAULT NULL::text, p_role text DEFAULT NULL::text, p_is_active boolean DEFAULT NULL::boolean, p_notes text DEFAULT NULL::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role app_role;
+  v_final_role app_role;
+  v_final_active boolean;
+  v_company_id uuid;
+  v_membership_role text;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  v_role := case
+    when p_role is null or trim(p_role) = '' then null
+    when lower(p_role) = 'owner' then 'owner'::app_role
+    when lower(p_role) = 'admin' then 'admin'::app_role
+    else 'user'::app_role
+  end;
+
+  update public.profiles
+     set name = coalesce(p_name, name),
+         department = coalesce(p_department, department),
+         role = coalesce(v_role, role),
+         is_active = coalesce(p_is_active, is_active),
+         updated_at = now()
+   where id = p_user_id
+   returning role, is_active into v_final_role, v_final_active;
+
+  if not found then
+    raise exception 'profile not found';
+  end if;
+
+  if v_final_active then
+    v_company_id := coalesce(public.active_company_id(), '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid);
+
+    v_membership_role := case v_final_role
+                            when 'owner' then 'owner_admin'
+                            when 'admin' then 'admin'
+                            else 'member'
+                          end;
+
+    insert into public.entity_memberships (entity_id, user_id, role)
+    values (v_company_id, p_user_id, v_membership_role)
+    on conflict (entity_id, user_id) do update
+      set role = excluded.role;
+
+    update public.profiles
+       set active_company_id = v_company_id
+     where id = p_user_id
+       and active_company_id is null;
+  end if;
+end;
+$function$;
+
+ALTER FUNCTION public.admin_update_profile(uuid, text, text, text, boolean, text) SET search_path = public;
+
+insert into public.entity_memberships (entity_id, user_id, role)
+select
+  '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid,
+  p.id,
+  case p.role::text
+    when 'owner' then 'owner_admin'
+    when 'admin' then 'admin'
+    else 'member'
+  end
+from public.profiles p
+where p.is_active
+  and not exists (select 1 from public.entity_memberships em where em.user_id = p.id)
+on conflict (entity_id, user_id) do nothing;
+
+update public.profiles p
+   set active_company_id = em.entity_id
+  from public.entity_memberships em
+ where em.user_id = p.id
+   and p.active_company_id is null
+   and (select count(*) from public.entity_memberships em2 where em2.user_id = p.id) = 1;
+
+-- ============================================================
+-- 20260714190000_new_org_signup_flow.sql
+-- Create-account = new organization; company-scope admin RPCs
+-- ============================================================
+
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_org_name text;
+  v_key text;
+  v_entity_id uuid;
+begin
+  v_org_name := nullif(trim(coalesce(new.raw_user_meta_data->>'org_name', '')), '');
+
+  if v_org_name is null then
+    -- Invited/legacy path: bare profile, authorized later by an org admin.
+    insert into public.profiles (id, email, name)
+    values (new.id, new.email, coalesce(new.raw_user_meta_data->>'name', null))
+    on conflict (id) do update
+      set email = excluded.email;
+    return new;
+  end if;
+
+  -- Founding path: create the organization and make this user its owner.
+  v_key := trim(both '-' from regexp_replace(lower(v_org_name), '[^a-z0-9]+', '-', 'g'));
+  if v_key = '' then
+    v_key := 'org';
+  end if;
+  if exists (select 1 from public.entities e where e.entity_type = 'company' and e.entity_key = v_key) then
+    v_key := v_key || '-' || substr(replace(new.id::text, '-', ''), 1, 6);
+  end if;
+
+  insert into public.entities (module, entity_type, entity_key, source, title, meta, created_by)
+  values ('finance_hub', 'company', v_key, 'self_signup', v_org_name, jsonb_build_object('self_signup', true), new.id)
+  returning id into v_entity_id;
+
+  insert into public.profiles (id, email, name, role, department, is_active, active_company_id)
+  values (new.id, new.email, coalesce(new.raw_user_meta_data->>'name', null), 'owner'::app_role, 'exec', true, v_entity_id)
+  on conflict (id) do update
+    set email = excluded.email,
+        role = excluded.role,
+        department = excluded.department,
+        is_active = true,
+        active_company_id = excluded.active_company_id;
+
+  insert into public.entity_memberships (entity_id, user_id, role)
+  values (v_entity_id, new.id, 'owner_admin')
+  on conflict (entity_id, user_id) do update
+    set role = excluded.role;
+
+  return new;
+end;
+$function$;
+
+ALTER FUNCTION public.handle_new_user() SET search_path = public;
+
+-- ── 2. Company-scope the backend admin RPCs ──────────────────
+-- Scope rule: an admin can see/manage users who are members of the
+-- admin's own active company, plus "unclaimed" profiles that have no
+-- membership anywhere (pre-flow signups awaiting adoption). Managing an
+-- unclaimed profile pulls it into the caller's company (membership upsert
+-- in admin_update_profile).
+
+CREATE OR REPLACE FUNCTION public.admin_list_profiles()
+ RETURNS SETOF profiles
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  return query
+  select p.*
+  from public.profiles p
+  where exists (select 1 from public.entity_memberships em
+                where em.user_id = p.id and em.entity_id = public.active_company_id())
+     or not exists (select 1 from public.entity_memberships em where em.user_id = p.id)
+  order by coalesce(p.updated_at, p.created_at) desc nulls last, p.email asc;
+end;
+$function$;
+
+ALTER FUNCTION public.admin_list_profiles() SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.admin_counts()
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_profiles_count int;
+  v_profiles_updated_at timestamptz;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  select count(*)::int, max(p.updated_at)
+    into v_profiles_count, v_profiles_updated_at
+  from public.profiles p
+  where exists (select 1 from public.entity_memberships em
+                where em.user_id = p.id and em.entity_id = public.active_company_id())
+     or not exists (select 1 from public.entity_memberships em where em.user_id = p.id);
+
+  return json_build_object(
+    'profiles_count', v_profiles_count,
+    'profiles_updated_at', v_profiles_updated_at
+  );
+end;
+$function$;
+
+ALTER FUNCTION public.admin_counts() SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.admin_update_profile(p_user_id uuid, p_name text DEFAULT NULL::text, p_department text DEFAULT NULL::text, p_role text DEFAULT NULL::text, p_is_active boolean DEFAULT NULL::boolean, p_notes text DEFAULT NULL::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role app_role;
+  v_final_role app_role;
+  v_final_active boolean;
+  v_company_id uuid;
+  v_membership_role text;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  -- Cross-tenant guard: the target must belong to the caller's active
+  -- company, or be unclaimed (no membership anywhere).
+  if exists (select 1 from public.entity_memberships em where em.user_id = p_user_id)
+     and not exists (select 1 from public.entity_memberships em
+                     where em.user_id = p_user_id and em.entity_id = public.active_company_id()) then
+    raise exception 'not authorized';
+  end if;
+
+  v_role := case
+    when p_role is null or trim(p_role) = '' then null
+    when lower(p_role) = 'owner' then 'owner'::app_role
+    when lower(p_role) = 'admin' then 'admin'::app_role
+    else 'user'::app_role
+  end;
+
+  update public.profiles
+     set name = coalesce(p_name, name),
+         department = coalesce(p_department, department),
+         role = coalesce(v_role, role),
+         is_active = coalesce(p_is_active, is_active),
+         updated_at = now()
+   where id = p_user_id
+   returning role, is_active into v_final_role, v_final_active;
+
+  if not found then
+    raise exception 'profile not found';
+  end if;
+
+  -- Active users must have a company membership or RLS locks them out of
+  -- everything (see 20260714180000).
+  if v_final_active then
+    v_company_id := coalesce(public.active_company_id(), '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid);
+
+    v_membership_role := case v_final_role
+                            when 'owner' then 'owner_admin'
+                            when 'admin' then 'admin'
+                            else 'member'
+                          end;
+
+    insert into public.entity_memberships (entity_id, user_id, role)
+    values (v_company_id, p_user_id, v_membership_role)
+    on conflict (entity_id, user_id) do update
+      set role = excluded.role;
+
+    update public.profiles
+       set active_company_id = v_company_id
+     where id = p_user_id
+       and active_company_id is null;
+  end if;
+end;
+$function$;
+
+ALTER FUNCTION public.admin_update_profile(uuid, text, text, text, boolean, text) SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.admin_list_access_requests(p_status text)
+ RETURNS SETOF access_requests
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  return query
+  select ar.*
+  from public.access_requests ar
+  left join public.profiles p
+    on (
+      (ar.user_id is not null and p.id = ar.user_id)
+      or (ar.user_id is null and lower(p.email) = lower(ar.email))
+    )
+  where lower(coalesce(ar.status,'')) = lower(coalesce(p_status,'pending'))
+    and p.id is null -- only requests without a profile
+    and (ar.company_entity_id is null or ar.company_entity_id = public.active_company_id());
+end;
+$function$;
+
+ALTER FUNCTION public.admin_list_access_requests(text) SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.approve_access_request(p_request_id uuid, p_department text DEFAULT NULL::text, p_role text DEFAULT NULL::text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_req public.access_requests%rowtype;
+  v_dept text;
+  v_role app_role;
+  v_membership_role text;
+  v_company_id uuid;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  select * into v_req
+  from public.access_requests
+  where id = p_request_id;
+
+  if not found then
+    raise exception 'request not found';
+  end if;
+
+  -- Cross-tenant guard: an admin can only approve requests aimed at their
+  -- own active company (legacy rows with no company count as the caller's).
+  if v_req.company_entity_id is not null
+     and v_req.company_entity_id <> public.active_company_id() then
+    raise exception 'not authorized';
+  end if;
+
+  if v_req.user_id is null then
+    raise exception 'request missing user_id (user must authenticate once so we can capture auth.uid())';
+  end if;
+
+  v_dept := coalesce(nullif(trim(p_department), ''), v_req.department, 'ops');
+
+  v_role := case lower(coalesce(nullif(trim(p_role), ''), v_req.requested_role, 'user'))
+              when 'owner' then 'owner'::app_role
+              when 'admin' then 'admin'::app_role
+              else 'user'::app_role
+            end;
+
+  insert into public.profiles (id, email, name, role, department, is_active, created_at, updated_at)
+  values (v_req.user_id, v_req.email, v_req.full_name, v_role, v_dept, true, now(), now())
+  on conflict (id) do update
+    set email = excluded.email,
+        name = coalesce(excluded.name, public.profiles.name),
+        role = excluded.role,
+        department = excluded.department,
+        is_active = true,
+        updated_at = now();
+
+  v_company_id := coalesce(v_req.company_entity_id, public.active_company_id(), '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid);
+
+  v_membership_role := case v_role
+                          when 'owner' then 'owner_admin'
+                          when 'admin' then 'admin'
+                          else 'member'
+                        end;
+
+  insert into public.entity_memberships (entity_id, user_id, role)
+  values (v_company_id, v_req.user_id, v_membership_role)
+  on conflict (entity_id, user_id) do update
+    set role = excluded.role;
+
+  update public.access_requests
+     set status = 'approved'
+   where id = p_request_id;
+
+  return json_build_object(
+    'ok', true,
+    'user_id', v_req.user_id,
+    'role', v_role::text,
+    'department', v_dept,
+    'company_entity_id', v_company_id
+  );
+end;
+$function$;
+
+ALTER FUNCTION public.approve_access_request(uuid, text, text) SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.deny_access_request(p_request_id uuid)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_company uuid;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  select company_entity_id into v_company
+  from public.access_requests
+  where id = p_request_id;
+
+  if not found then
+    raise exception 'request not found';
+  end if;
+
+  if v_company is not null and v_company <> public.active_company_id() then
+    raise exception 'not authorized';
+  end if;
+
+  update public.access_requests
+     set status = 'denied'
+   where id = p_request_id;
+
+  return json_build_object('ok', true);
+end;
+$function$;
+
+ALTER FUNCTION public.deny_access_request(uuid) SET search_path = public;
+
+-- ============================================================
+-- 20260714200000_org_invites.sql
+-- Org invites: token links to join an existing organization
+-- ============================================================
+
+create table if not exists public.org_invites (
+  id uuid primary key default gen_random_uuid(),
+  entity_id uuid not null references public.entities(id) on delete cascade,
+  email text not null,
+  role text not null default 'user',
+  department text not null default 'ops',
+  token_hash text not null unique,
+  status text not null default 'pending' check (status in ('pending','accepted','revoked','expired')),
+  invited_by uuid references public.profiles(id),
+  accepted_by uuid,
+  expires_at timestamptz not null default now() + interval '14 days',
+  created_at timestamptz not null default now(),
+  accepted_at timestamptz
+);
+
+create index if not exists org_invites_entity_status_idx on public.org_invites (entity_id, status);
+
+alter table public.org_invites enable row level security;
+-- deliberately no policies: RPC-only access
+
+-- ── create_org_invite ─────────────────────────────────────────
+-- Admin-only, scoped to the caller's active company. Revokes any prior
+-- pending invite for the same email+company so exactly one link is live.
+
+CREATE OR REPLACE FUNCTION public.create_org_invite(p_email text, p_role text DEFAULT 'user', p_department text DEFAULT 'ops')
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_company uuid;
+  v_email text;
+  v_role text;
+  v_token text;
+  v_invite public.org_invites%rowtype;
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  v_company := public.active_company_id();
+  if v_company is null then
+    raise exception 'no active company';
+  end if;
+
+  v_email := lower(trim(coalesce(p_email, '')));
+  if v_email = '' or position('@' in v_email) = 0 then
+    raise exception 'valid email required';
+  end if;
+
+  v_role := case lower(coalesce(nullif(trim(p_role), ''), 'user'))
+              when 'owner' then 'owner'
+              when 'admin' then 'admin'
+              else 'user'
+            end;
+
+  if exists (
+    select 1
+    from public.entity_memberships em
+    join public.profiles pr on pr.id = em.user_id
+    where em.entity_id = v_company and lower(pr.email) = v_email
+  ) then
+    raise exception 'already a member of this organization';
+  end if;
+
+  update public.org_invites
+     set status = 'revoked'
+   where entity_id = v_company and lower(email) = v_email and status = 'pending';
+
+  v_token := encode(extensions.gen_random_bytes(24), 'hex');
+
+  insert into public.org_invites (entity_id, email, role, department, token_hash, invited_by)
+  values (v_company, v_email, v_role, coalesce(nullif(trim(p_department), ''), 'ops'),
+          encode(extensions.digest(v_token, 'sha256'), 'hex'), auth.uid())
+  returning * into v_invite;
+
+  return json_build_object(
+    'ok', true,
+    'invite_id', v_invite.id,
+    'email', v_invite.email,
+    'role', v_invite.role,
+    'department', v_invite.department,
+    'expires_at', v_invite.expires_at,
+    'token', v_token
+  );
+end;
+$function$;
+
+-- ── accept_org_invite ─────────────────────────────────────────
+-- Called by the invitee themselves after auth. Not admin-gated: the token
+-- is the authorization. Bound to the invited email so a leaked link can't
+-- be redeemed by a different account.
+
+CREATE OR REPLACE FUNCTION public.accept_org_invite(p_token text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_invite public.org_invites%rowtype;
+  v_profile_email text;
+  v_role app_role;
+  v_membership_role text;
+  v_org_title text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_invite
+  from public.org_invites
+  where token_hash = encode(extensions.digest(coalesce(p_token, ''), 'sha256'), 'hex')
+    and status = 'pending';
+
+  if not found then
+    raise exception 'invite not found or no longer valid';
+  end if;
+
+  if v_invite.expires_at < now() then
+    update public.org_invites set status = 'expired' where id = v_invite.id;
+    raise exception 'invite has expired — ask your admin for a new one';
+  end if;
+
+  select lower(email) into v_profile_email from public.profiles where id = auth.uid();
+  if v_profile_email is null then
+    raise exception 'profile not found';
+  end if;
+  if v_profile_email <> lower(v_invite.email) then
+    raise exception 'this invite was issued for a different email address';
+  end if;
+
+  v_role := case v_invite.role
+              when 'owner' then 'owner'::app_role
+              when 'admin' then 'admin'::app_role
+              else 'user'::app_role
+            end;
+
+  v_membership_role := case v_invite.role
+                          when 'owner' then 'owner_admin'
+                          when 'admin' then 'admin'
+                          else 'member'
+                        end;
+
+  update public.profiles
+     set role = v_role,
+         department = v_invite.department,
+         is_active = true,
+         active_company_id = coalesce(active_company_id, v_invite.entity_id),
+         updated_at = now()
+   where id = auth.uid();
+
+  insert into public.entity_memberships (entity_id, user_id, role)
+  values (v_invite.entity_id, auth.uid(), v_membership_role)
+  on conflict (entity_id, user_id) do update
+    set role = excluded.role;
+
+  update public.org_invites
+     set status = 'accepted',
+         accepted_by = auth.uid(),
+         accepted_at = now()
+   where id = v_invite.id;
+
+  select title into v_org_title from public.entities where id = v_invite.entity_id;
+
+  return json_build_object(
+    'ok', true,
+    'entity_id', v_invite.entity_id,
+    'org_title', v_org_title,
+    'role', v_role::text,
+    'department', v_invite.department
+  );
+end;
+$function$;
+
+-- ── list_org_invites / revoke_org_invite ─────────────────────
+
+CREATE OR REPLACE FUNCTION public.list_org_invites()
+ RETURNS TABLE(id uuid, email text, role text, department text, status text, expires_at timestamptz, created_at timestamptz)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  return query
+  select i.id, i.email, i.role, i.department, i.status, i.expires_at, i.created_at
+  from public.org_invites i
+  where i.entity_id = public.active_company_id()
+    and i.status = 'pending'
+  order by i.created_at desc;
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.revoke_org_invite(p_invite_id uuid)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not public.is_admin() then
+    raise exception 'not authorized';
+  end if;
+
+  update public.org_invites
+     set status = 'revoked'
+   where id = p_invite_id
+     and entity_id = public.active_company_id()
+     and status = 'pending';
+
+  if not found then
+    raise exception 'invite not found';
+  end if;
+
+  return json_build_object('ok', true);
+end;
+$function$;
+
+-- ── grants ────────────────────────────────────────────────────
+
+REVOKE ALL ON FUNCTION public.create_org_invite(text, text, text) FROM public, anon;
+REVOKE ALL ON FUNCTION public.accept_org_invite(text) FROM public, anon;
+REVOKE ALL ON FUNCTION public.list_org_invites() FROM public, anon;
+REVOKE ALL ON FUNCTION public.revoke_org_invite(uuid) FROM public, anon;
+
+GRANT EXECUTE ON FUNCTION public.create_org_invite(text, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.accept_org_invite(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.list_org_invites() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.revoke_org_invite(uuid) TO authenticated;
+
+ALTER FUNCTION public.create_org_invite(text, text, text) SET search_path = public;
+ALTER FUNCTION public.accept_org_invite(text) SET search_path = public;
+ALTER FUNCTION public.list_org_invites() SET search_path = public;
+ALTER FUNCTION public.revoke_org_invite(uuid) SET search_path = public;

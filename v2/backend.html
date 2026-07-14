@@ -288,6 +288,58 @@
           <section class="panel">
             <div class="panel-head">
               <div>
+                <div class="section-title">Invites</div>
+                <div class="panel-title">Invite to this organization</div>
+                <div class="panel-sub">Send the link to a teammate — they sign in or sign up with the invited email and land authorized in this org.</div>
+              </div>
+              <div class="panel-actions">
+                <button id="invReloadBtn" class="btn btn-soft">Reload</button>
+              </div>
+            </div>
+            <div class="toolbar-row">
+              <input id="invEmail" class="input" type="email" placeholder="teammate@company.com" />
+              <select id="invRole" class="select">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+              <select id="invDept" class="select">
+                <option value="ops">ops</option>
+                <option value="finance">finance</option>
+                <option value="logistics">logistics</option>
+                <option value="marketing">marketing</option>
+                <option value="retail">retail</option>
+                <option value="exec">exec</option>
+              </select>
+              <button id="invCreateBtn" class="btn btn-primary">Create invite</button>
+            </div>
+            <div id="invLinkBox" class="px-4 py-3 text-xs border-t" style="border-color:var(--line); display:none;">
+              <div class="muted2" style="margin-bottom:.35rem;">Invite link — copy it now, it is only shown once:</div>
+              <div class="flex items-center gap-2">
+                <input id="invLink" class="input mono" readonly style="flex:1;" />
+                <button id="invCopyBtn" class="btn">Copy</button>
+              </div>
+            </div>
+            <div class="scrollbar">
+              <table class="table min-w-full">
+                <thead>
+                  <tr>
+                    <th class="text-left">Email</th>
+                    <th class="text-left">Created</th>
+                    <th class="text-right">Expires</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="invTbody">
+                  <tr><td colspan="4" class="muted2">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="invMsg" class="px-4 py-3 text-xs muted2 border-t" style="border-color:var(--line);">—</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
                 <div class="section-title">Directory</div>
                 <div class="panel-title">Profiles</div>
                 <div class="panel-sub">Search, filter, and adjust department, role, and active status.</div>
@@ -361,9 +413,9 @@
               </div>
             </div>
             <div class="panel-body text-xs muted leading-6">
-              <div><b>1.</b> User logs in and creates an access_requests row.</div>
-              <div><b>2.</b> Admin approves and upserts public.profiles.</div>
-              <div><b>3.</b> App pages gate by profiles.role and is_active.</div>
+              <div><b>Invite (preferred):</b> create an invite above, send the link — the user signs up with that email and lands authorized in this org.</div>
+              <div><b>Access request:</b> user asks, admin approves; approval activates the profile and creates the org membership.</div>
+              <div><b>Note:</b> "Create account" on the login page founds a NEW organization — it is not how teammates join this one.</div>
               <div class="divider my-3"></div>
               <div class="muted2">If profile lists fail, confirm admin_list_profiles and admin_update_profile RPCs exist.</div>
             </div>
@@ -742,6 +794,104 @@
       setTimeout(() => approveDialog.close(), 450);
     }
 
+    // ====== Invites ======
+    let INVITES = [];
+
+    function renderInvites(){
+      const tbody = el("invTbody");
+      const msg = el("invMsg");
+      if (!tbody) return;
+
+      if (!INVITES.length){
+        tbody.innerHTML = `<tr><td colspan="4" class="muted2">No pending invites.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = INVITES.map(i => `
+        <tr>
+          <td>
+            <div class="font-black">${escapeHtml(i.email)}</div>
+            <div class="text-xs muted2"><span class="mono">${escapeHtml(i.role)}</span> · <span class="mono">${escapeHtml(i.department)}</span></div>
+          </td>
+          <td class="mono muted">${escapeHtml(fmt.dt(i.created_at))}</td>
+          <td class="mono muted text-right">${escapeHtml(fmt.dt(i.expires_at))}</td>
+          <td class="text-right">
+            <button class="btn" data-action="revoke-invite" data-id="${escapeHtml(i.id)}">Revoke</button>
+          </td>
+        </tr>
+      `).join("");
+
+      tbody.querySelectorAll("[data-action='revoke-invite']").forEach(btn => {
+        btn.addEventListener("click", () => revokeInvite(btn.getAttribute("data-id")));
+      });
+
+      if (msg) msg.textContent = `${INVITES.length} pending.`;
+    }
+
+    async function loadInvites(){
+      const msg = el("invMsg");
+      const { data, error } = await supabaseClient.rpc("list_org_invites");
+      if (error){
+        console.warn("list_org_invites error:", error);
+        INVITES = [];
+        renderInvites();
+        if (msg) msg.textContent = `Invites failed: ${error.message}`;
+        return;
+      }
+      INVITES = Array.isArray(data) ? data : [];
+      renderInvites();
+    }
+
+    async function createInvite(){
+      const msg = el("invMsg");
+      const email = String(el("invEmail")?.value || "").trim();
+      if (!email){ if (msg) msg.textContent = "Enter an email to invite."; return; }
+
+      if (msg) msg.textContent = "Creating invite…";
+      const { data, error } = await supabaseClient.rpc("create_org_invite", {
+        p_email: email,
+        p_role: String(el("invRole")?.value || "user"),
+        p_department: String(el("invDept")?.value || "ops")
+      });
+
+      if (error){
+        if (msg) msg.textContent = `Invite failed: ${error.message}`;
+        return;
+      }
+
+      const link = `${window.location.origin}/pages/login.html?invite=${encodeURIComponent(data?.token || "")}`;
+      el("invLink").value = link;
+      el("invLinkBox").style.display = "";
+      el("invEmail").value = "";
+      if (msg) msg.textContent = `Invite created for ${data?.email || email}.`;
+      await loadInvites();
+    }
+
+    async function copyInviteLink(){
+      const input = el("invLink");
+      const link = input?.value || "";
+      if (!link) return;
+      try {
+        await navigator.clipboard.writeText(link);
+        el("invMsg").textContent = "Link copied.";
+      } catch (e) {
+        input.select();
+        document.execCommand("copy");
+        el("invMsg").textContent = "Link copied.";
+      }
+    }
+
+    async function revokeInvite(inviteId){
+      const msg = el("invMsg");
+      if (msg) msg.textContent = "Revoking…";
+      const { error } = await supabaseClient.rpc("revoke_org_invite", { p_invite_id: inviteId });
+      if (error){
+        if (msg) msg.textContent = `Revoke failed: ${error.message}`;
+        return;
+      }
+      await loadInvites();
+    }
+
     // ====== Users / profiles ======
     let USERS = [];
 
@@ -911,7 +1061,7 @@
     // ====== Boot / UI wiring ======
     async function refreshAll(){
       setText("lastRefresh", new Date().toLocaleString());
-      await Promise.allSettled([ loadHealth(), loadRequests(), loadUsers() ]);
+      await Promise.allSettled([ loadHealth(), loadRequests(), loadInvites(), loadUsers() ]);
     }
 
     function initUi(){
@@ -928,6 +1078,12 @@
       // reload buttons
       el("reqReloadBtn")?.addEventListener("click", loadRequests);
       el("usersReloadBtn")?.addEventListener("click", loadUsers);
+      el("invReloadBtn")?.addEventListener("click", loadInvites);
+
+      // invites
+      el("invCreateBtn")?.addEventListener("click", createInvite);
+      el("invCopyBtn")?.addEventListener("click", copyInviteLink);
+      el("invEmail")?.addEventListener("keydown", (e) => { if (e.key === "Enter"){ e.preventDefault(); createInvite(); } });
 
       // filters
       ["userSearch","roleFilter","deptFilter"].forEach(id => {

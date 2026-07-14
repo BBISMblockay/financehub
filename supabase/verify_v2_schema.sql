@@ -391,6 +391,59 @@ select
     else 'MISSING — run 20260714170000_reviews_employee_template_read.sql'
   end as reviews_employee_template_read;
 
+select
+  case
+    when exists (
+        select 1
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname = 'admin_update_profile'
+          and pg_get_functiondef(p.oid) ilike '%entity_memberships%')
+     and not exists (
+        select 1 from public.profiles p
+        where p.is_active
+          and not exists (select 1 from public.entity_memberships em where em.user_id = p.id))
+    then 'ok'
+    else 'MISSING — run 20260714180000_admin_update_profile_entity_membership.sql'
+  end as admin_update_profile_entity_membership;
+
+select
+  case
+    when exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'handle_new_user'
+          and pg_get_functiondef(p.oid) ilike '%org_name%')
+     and exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'admin_list_profiles'
+          and pg_get_functiondef(p.oid) ilike '%entity_memberships%')
+     and exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'admin_update_profile'
+          and pg_get_functiondef(p.oid) ilike '%Cross-tenant guard%')
+    then 'ok'
+    else 'MISSING — run 20260714190000_new_org_signup_flow.sql'
+  end as new_org_signup_flow;
+
+select
+  case
+    when exists (
+        select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = 'org_invites' and c.relkind = 'r')
+     and exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'create_org_invite')
+     and exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'accept_org_invite')
+     and not exists (
+        -- deliberately RPC-only: no policies should exist on org_invites
+        select 1 from pg_policies where schemaname = 'public' and tablename = 'org_invites')
+    then 'ok'
+    else 'MISSING — run 20260714200000_org_invites.sql'
+  end as org_invites;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
