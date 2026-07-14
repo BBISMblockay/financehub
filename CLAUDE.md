@@ -210,11 +210,12 @@ if (_co?.id) query = query.eq('company_entity_id', _co.id);
 **Not yet isolated:** `inventory_on_hand`, `sales_by_day` — backfill deferred. These depend on Baseballism-specific Google Sheets / Better Reports sync pipelines. New companies need their own data pipeline before these tables can be partitioned.
 
 ### Role system
-`profiles.role` is a Postgres enum (`app_role`) with values: `owner`, `admin`, `executive`, `user`.
-- `owner` and `admin` get write access to PO tables
-- `executive` outranks `admin`: it passes `is_admin()` and additionally gates review-template building
-- `user` is read-only on PO tables
-- blake@baseballism.com is `owner`; the other 6 users are `admin`
+Roles are **per-company**: permission gates judge by `entity_memberships.role` (`owner_admin` | `admin` | `member` | `viewer`) for the caller's ACTIVE company. `profiles.role` (enum `app_role`: `owner`, `admin`, `executive`, `user`) is the legacy global role — gates fall back to it only when the user has no membership row, and the profile-level `executive` still passes exec gates everywhere.
+- membership `owner_admin`/`admin` (or profile fallback `owner`/`admin`) get write access to PO tables
+- `executive` (profile-level) outranks `admin`: it passes `is_admin()` and additionally gates review-template building; `owner_admin` also passes `is_exec_or_owner()`
+- `member`/`viewer` (or profile `user`) are read-only on PO tables
+- Invites and backend role grants set the membership role for that org; they only touch the global profile role/department when the user belongs to no other org
+- blake@baseballism.com is `owner` (membership `owner_admin`); the other 6 users are `admin`
 
 **Important:** `profiles.role` is an ENUM, not TEXT. Always cast with `role::text` when comparing in SQL.
 
