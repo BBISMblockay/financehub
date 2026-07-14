@@ -469,7 +469,22 @@
         return raw;
       }
 
+      // Guarded so the explicit sign-in handlers and the SIGNED_IN auth event
+      // (which fires for the same login) can both call it without racing the
+      // invite redemption or double-redirecting.
+      let REDIRECT_STARTED = false;
       async function resolveAndRedirect(userId) {
+        if (REDIRECT_STARTED) return;
+        REDIRECT_STARTED = true;
+        try {
+          await doResolveAndRedirect(userId);
+        } catch (err) {
+          REDIRECT_STARTED = false;
+          throw err;
+        }
+      }
+
+      async function doResolveAndRedirect(userId) {
         // Redeem a pending invite before reading the profile — acceptance
         // is what activates the profile and creates the org membership.
         const inviteToken = getInviteToken();
@@ -700,6 +715,17 @@
 
       supabaseClient.auth.onAuthStateChange((event, session) => {
         if (session) btnSignout.classList.remove("hidden");
+
+        // Email-confirmation links land back here and the session is
+        // established asynchronously (detectSessionInUrl) AFTER bootstrap()
+        // has already run — without this, the confirmed user just sits on
+        // the form. resolveAndRedirect is guarded, so the explicit sign-in
+        // handlers calling it too is harmless.
+        if (event === "SIGNED_IN" && session?.user) {
+          resolveAndRedirect(session.user.id).catch((err) => {
+            showStatus(err?.message || "Could not determine user route.", "error");
+          });
+        }
       });
     })();
   </script>
