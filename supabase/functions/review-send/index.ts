@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
       .eq('id', review_id);
     if (uErr) return new Response(JSON.stringify({ error: `Status update failed: ${uErr.message}` }), { status: 500, headers: CORS });
 
-    const origin = req.headers.get('origin') || Deno.env.get('SILO_SITE_URL') || '';
+    const origin = Deno.env.get('SILO_SITE_URL') || 'https://silo-baseballism.com';
     const link = `${origin}/pages/review.html?token=${raw}`;
 
     // Manager profile name for the email; fall back to the review's manager.

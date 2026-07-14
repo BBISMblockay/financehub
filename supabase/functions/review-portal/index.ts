@@ -88,7 +88,7 @@ Deno.serve(async (req: Request) => {
       });
       if (tErr) return json({ error: 'Could not issue a new link.' }, 500);
 
-      const origin = req.headers.get('origin') || Deno.env.get('SILO_SITE_URL') || '';
+      const origin = Deno.env.get('SILO_SITE_URL') || 'https://silo-baseballism.com';
       const link = `${origin}/pages/review.html?token=${raw}`;
       const sent = await sendEmail(
         review.employees.email,
