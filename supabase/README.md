@@ -65,6 +65,9 @@ Run in order:
 17. **`migrations/20260713200000_performance_reviews_phase1.sql`** — performance reviews (Phase 1)  
     Adds `executive` to `app_role` (also passes `is_admin()` now), `is_exec_or_owner()` / `reviews_can_manage()` helpers, and 8 tables: `employees` (roster, auto-links `profiles` by email), `review_templates` + `review_template_questions` (exec-only writes), `reviews`, `review_answers`, `review_private_notes` (author-only, not even exec), `employee_goals`, `review_access_tokens` (RLS deny-all — edge-function/service-role only). Manager-scoped RLS: managers see only rows where they're `employees.manager_user_id`; exec/owner see all; linked employees see their own non-draft reviews.
 
+18. **`migrations/20260714170000_reviews_employee_template_read.sql`** — my-review page read access  
+    Lets a SILO-authenticated employee read the template title and question labels for templates used by one of their own non-draft reviews (previously manager-only), so `/v2/my-review.html` can render. Template contents never leak ahead of a sent review.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)

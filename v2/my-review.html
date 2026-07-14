@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · My Reviews</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .mr-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
+    .mr-content > .bcn-card { flex-shrink:0; }
+
+    .mr-row { display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid var(--bcn-border); cursor:pointer; }
+    .mr-row:hover { background:var(--bcn-sunken); }
+    .mr-row:last-child { border-bottom:none; }
+    .mr-row-title { font-weight:650; color:var(--bcn-ink); font-size:13px; }
+    .mr-row-sub { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
+    .mr-spacer { flex:1; }
+
+    .mr-q { padding:14px 16px; border-bottom:1px solid var(--bcn-border); }
+    .mr-q:last-child { border-bottom:none; }
+    .mr-q-label { font-weight:650; font-size:13.5px; color:var(--bcn-ink); }
+    .mr-q-help { font-size:11.5px; color:var(--bcn-ink-3); margin-top:2px; }
+    .mr-answer { margin-top:8px; font-size:13px; color:var(--bcn-ink-2); line-height:1.6; white-space:pre-wrap; }
+    .mr-score { font-family:var(--bcn-mono); font-size:19px; font-weight:600; color:var(--bcn-ink); }
+    .mr-score small { font-size:11px; color:var(--bcn-ink-3); font-weight:400; }
+    .mr-muted { color:var(--bcn-ink-3); font-style:italic; }
+    ul.mr-list { margin:8px 0 0; padding-left:20px; }
+    ul.mr-list li { margin:2px 0; color:var(--bcn-ink-2); font-size:13px; }
+
+    .mr-goal { display:flex; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px dashed var(--bcn-border); font-size:13px; }
+    .mr-goal:last-child { border-bottom:none; }
+    .mr-subhead { font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--bcn-ink-3); margin:12px 0 4px; }
+    .mr-subhead:first-child { margin-top:0; }
+
+    .mr-signed { background:var(--bcn-pos-soft); border:1px solid var(--bcn-pos-border); border-radius:var(--bcn-radius); padding:12px 14px; }
+    .mr-signed-name { font-weight:700; font-size:13px; }
+    .mr-signed-at { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); margin-top:3px; }
+
+    .mr-ack textarea { width:100%; min-height:96px; resize:vertical; }
+    .mr-empty { padding:32px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+
+    @media print {
+      .silo-sidebar, .bcn-header-actions, #ackCard .bcn-card-header, #listCard, .bcn-status { display:none !important; }
+      .mr-content { overflow:visible; }
+      .bcn-card { break-inside:avoid; border:none; }
+      .mr-q { break-inside:avoid; }
+    }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Team</span>
+        </div>
+        <h1>My Reviews</h1>
+        <div class="bcn-header-sub">Performance reviews shared with you, and your goals across cycles.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--ghost" id="btnPrint" hidden onclick="window.print()">Print / save as PDF</button>
+        <button class="bcn-btn bcn-btn--ghost" id="btnBack" hidden>← All reviews</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="mr-content">
+      <div class="bcn-card" id="listCard">
+        <div class="bcn-card-header"><span>Your reviews</span></div>
+        <div class="bcn-card-body" style="padding:0" id="reviewList">
+          <div class="mr-empty">Loading…</div>
+        </div>
+      </div>
+
+      <div class="bcn-card" id="goalsListCard" hidden>
+        <div class="bcn-card-header"><span>Your goals</span></div>
+        <div class="bcn-card-body" id="goalsListBody"></div>
+      </div>
+
+      <div id="detail" hidden>
+        <div class="bcn-card" style="margin-bottom:14px">
+          <div class="bcn-card-body">
+            <div style="font-weight:800;font-size:17px;letter-spacing:-.01em" id="dTitle"></div>
+            <div class="mr-row-sub" id="dMeta"></div>
+          </div>
+        </div>
+
+        <div class="bcn-card" style="margin-bottom:14px">
+          <div class="bcn-card-header"><span>Review</span></div>
+          <div class="bcn-card-body" style="padding:0" id="dQuestions"></div>
+        </div>
+
+        <div class="bcn-card" style="margin-bottom:14px">
+          <div class="bcn-card-header"><span>Goals</span></div>
+          <div class="bcn-card-body" id="dGoals"></div>
+        </div>
+
+        <div class="bcn-card" id="ackCard">
+          <div class="bcn-card-header"><span>Your acknowledgment</span></div>
+          <div class="bcn-card-body" id="dAck"></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('Missing Supabase config');
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+
+  function setStatus(msg, type='info', ms=0){
+    const s = document.getElementById('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+  }
+
+  let UID = null, MY_EMPLOYEE_IDS = [], REVIEWS = [], GOALS = [], CURRENT = null;
+
+  function pill(s){
+    if (s === 'finished') return '<span class="bcn-pill bcn-pill--pos">Signed</span>';
+    return '<span class="bcn-pill bcn-pill--accent">Awaiting your signature</span>';
+  }
+
+  function showList(){
+    CURRENT = null;
+    document.getElementById('detail').hidden = true;
+    document.getElementById('listCard').hidden = false;
+    document.getElementById('goalsListCard').hidden = GOALS.length === 0;
+    document.getElementById('btnBack').hidden = true;
+    document.getElementById('btnPrint').hidden = true;
+  }
+
+  function renderList(){
+    const el = document.getElementById('reviewList');
+    if (!REVIEWS.length){
+      el.innerHTML = `<div class="mr-empty">No reviews yet — when your manager sends one, it shows up here (and in your email).</div>`;
+      return;
+    }
+    el.innerHTML = REVIEWS.map(r => `
+      <div class="mr-row" data-id="${esc(r.id)}">
+        <div>
+          <div class="mr-row-title">${esc(r.period_label || 'Performance review')}</div>
+          <div class="mr-row-sub">${esc(r.review_templates?.title || '')}${r.sent_at ? ' · delivered ' + new Date(r.sent_at).toLocaleDateString('en-US',{dateStyle:'medium'}) : ''}</div>
+        </div>
+        <div class="mr-spacer"></div>
+        ${pill(r.status)}
+      </div>`).join('');
+    el.querySelectorAll('.mr-row').forEach(row => row.addEventListener('click', () => openDetail(row.dataset.id)));
+  }
+
+  function renderGoalsCard(){
+    const body = document.getElementById('goalsListBody');
+    const open = GOALS.filter(g => ['open','carried'].includes(g.status));
+    const done = GOALS.filter(g => g.status === 'achieved');
+    const row = (g) => `<div class="mr-goal"><div>${esc(g.title)}${g.target_date ? ` <span class="mr-row-sub">target ${esc(g.target_date)}</span>` : ''}</div><span class="bcn-pill ${g.status==='achieved'?'bcn-pill--pos':''}">${esc(g.status)}</span></div>`;
+    let html = '';
+    if (open.length) html += `<div class="mr-subhead">Current goals</div>` + open.map(row).join('');
+    if (done.length) html += `<div class="mr-subhead">Achieved</div>` + done.map(row).join('');
+    body.innerHTML = html || '<div class="mr-empty" style="padding:8px">No goals recorded yet.</div>';
+    document.getElementById('goalsListCard').hidden = GOALS.length === 0;
+  }
+
+  function answerHtml(q, ansMap){
+    const v = ansMap[q.id] || {};
+    if (q.kind === 'free_text')
+      return v.text ? `<div class="mr-answer">${esc(v.text)}</div>` : `<div class="mr-answer mr-muted">No answer</div>`;
+    if (q.kind === 'scale_1_10')
+      return v.score ? `<div class="mr-answer mr-score">${v.score}<small> / 10</small></div>` : `<div class="mr-answer mr-muted">Not rated</div>`;
+    if (q.kind === 'single_choice')
+      return v.choice ? `<div class="mr-answer">${esc(v.choice)}</div>` : `<div class="mr-answer mr-muted">No selection</div>`;
+    if (q.kind === 'multi_choice')
+      return (v.choices||[]).length ? `<ul class="mr-list">${v.choices.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>` : `<div class="mr-answer mr-muted">No selection</div>`;
+    return '';
+  }
+
+  async function openDetail(id){
+    const r = REVIEWS.find(x => x.id === id);
+    if (!r) return;
+    CURRENT = r;
+
+    const [{ data: qs }, { data: ans }] = await Promise.all([
+      sb.from('review_template_questions').select('*').eq('template_id', r.template_id).order('position'),
+      sb.from('review_answers').select('question_id, value').eq('review_id', r.id),
+    ]);
+    const ansMap = {};
+    (ans || []).forEach(a => { ansMap[a.question_id] = a.value || {}; });
+
+    document.getElementById('dTitle').textContent = r.period_label || 'Performance review';
+    document.getElementById('dMeta').textContent =
+      `${r.review_templates?.title || ''}${r.sent_at ? ' · delivered ' + new Date(r.sent_at).toLocaleDateString('en-US',{dateStyle:'long'}) : ''}`;
+
+    document.getElementById('dQuestions').innerHTML =
+      (qs || []).filter(q => q.kind !== 'goals').map(q => `
+        <div class="mr-q">
+          <div class="mr-q-label">${esc(q.label)}</div>
+          ${q.help_text ? `<div class="mr-q-help">${esc(q.help_text)}</div>` : ''}
+          ${answerHtml(q, ansMap)}
+        </div>`).join('') || '<div class="mr-empty">No questions.</div>';
+
+    const inReview = GOALS.filter(g => g.review_id === r.id);
+    const others = GOALS.filter(g => g.review_id !== r.id && ['open','carried','achieved','dropped'].includes(g.status));
+    const goalRow = (g) => `<div class="mr-goal"><div>${esc(g.title)}${g.target_date ? ` <span class="mr-row-sub">target ${esc(g.target_date)}</span>` : ''}</div><span class="bcn-pill ${g.status==='achieved'?'bcn-pill--pos':''}">${esc(g.status)}</span></div>`;
+    let goalsHtml = '';
+    if (others.length) goalsHtml += `<div class="mr-subhead">Goals from prior periods</div>` + others.map(goalRow).join('');
+    if (inReview.length) goalsHtml += `<div class="mr-subhead">Goals set in this review</div>` + inReview.map(goalRow).join('');
+    document.getElementById('dGoals').innerHTML = goalsHtml || '<div class="mr-empty" style="padding:8px">No goals recorded.</div>';
+
+    renderAck(r);
+
+    document.getElementById('listCard').hidden = true;
+    document.getElementById('goalsListCard').hidden = true;
+    document.getElementById('detail').hidden = false;
+    document.getElementById('btnBack').hidden = false;
+    document.getElementById('btnPrint').hidden = false;
+  }
+
+  function renderAck(r){
+    const el = document.getElementById('dAck');
+    if (r.status === 'finished'){
+      el.innerHTML = `
+        ${r.employee_response ? `<div class="mr-subhead">Your response</div><div class="mr-answer" style="margin-bottom:12px">${esc(r.employee_response)}</div>` : ''}
+        <div class="mr-signed">
+          <div class="mr-signed-name">✓ Signed by ${esc(r.employee_signed_name || 'you')}</div>
+          <div class="mr-signed-at">${r.employee_signed_at ? new Date(r.employee_signed_at).toLocaleString('en-US',{dateStyle:'long',timeStyle:'short'}) : ''}</div>
+        </div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="mr-ack">
+        <p style="color:var(--bcn-ink-3);font-size:12.5px;line-height:1.6;margin:0 0 10px">
+          Signing confirms you've read and discussed this review with your manager — it doesn't have to mean you agree with every point.
+          You can add a written response; your manager will see it.
+        </p>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="ackResponse">Your response (optional)</label>
+          <textarea class="bcn-field" id="ackResponse" placeholder="Anything you'd like to add or clarify…"></textarea>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="ackName">Type your full name to sign</label>
+          <input class="bcn-field" id="ackName" type="text" autocomplete="name" />
+        </div>
+        <button class="bcn-btn bcn-btn--dark" id="btnSign" style="margin-top:6px">Acknowledge &amp; sign</button>
+      </div>`;
+    document.getElementById('btnSign').addEventListener('click', async () => {
+      const btn = document.getElementById('btnSign');
+      const name = document.getElementById('ackName').value.trim();
+      if (!name) return setStatus('Type your full name to sign.', 'neg');
+      btn.disabled = true; btn.textContent = 'Signing…';
+      try {
+        const sess = await sb.auth.getSession();
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/review-finish`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${sess.data.session.access_token}`,
+            'apikey': SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            review_id: CURRENT.id,
+            response: document.getElementById('ackResponse').value,
+            signed_name: name,
+          }),
+        });
+        const out = await res.json();
+        if (!res.ok || out.error) throw new Error(out.error || `HTTP ${res.status}`);
+        setStatus('Signed — your manager has been notified.', 'pos', 4000);
+        await loadData();
+        await openDetail(CURRENT.id);
+      } catch (err) {
+        setStatus(`Could not sign: ${err.message}`, 'neg');
+        btn.disabled = false; btn.textContent = 'Acknowledge & sign';
+      }
+    });
+  }
+
+  async function loadData(){
+    const { data: emps } = await sb.from('employees').select('id').eq('profile_id', UID);
+    MY_EMPLOYEE_IDS = (emps || []).map(e => e.id);
+
+    if (!MY_EMPLOYEE_IDS.length){
+      REVIEWS = []; GOALS = [];
+      renderList(); renderGoalsCard();
+      return;
+    }
+
+    const [{ data: reviews }, { data: goals }] = await Promise.all([
+      sb.from('reviews').select('*, review_templates(title)')
+        .in('employee_id', MY_EMPLOYEE_IDS).neq('status', 'draft')
+        .order('sent_at', { ascending: false }),
+      sb.from('employee_goals').select('*').in('employee_id', MY_EMPLOYEE_IDS).order('created_at'),
+    ]);
+    // RLS also hands managers the reviews they run — keep only reviews where
+    // the signed-in user is the EMPLOYEE.
+    REVIEWS = (reviews || []).filter(r => MY_EMPLOYEE_IDS.includes(r.employee_id));
+    GOALS = goals || [];
+    renderList();
+    renderGoalsCard();
+  }
+
+  document.getElementById('btnBack').addEventListener('click', showList);
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname); return; }
+    const user = sess.data.session.user;
+    UID = user.id;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'team/my-review',
+        user:{ email:user?.email||'', role:'user' },
+        crumbs:['Team','My Reviews'],
+        supabaseClient:sb,
+      });
+    }
+    await loadData();
+  }
+
+  boot().catch(err => {
+    console.error(err);
+    setStatus(`Unexpected error: ${err?.message || err}`, 'neg');
+  });
+</script>
+</body>
+</html>

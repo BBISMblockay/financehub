@@ -381,6 +381,16 @@ select
     else 'MISSING — run 20260713200000_performance_reviews_phase1.sql'
   end as performance_reviews_phase1;
 
+select
+  case
+    when exists (select 1 from pg_policies where schemaname = 'public'
+                   and tablename = 'review_templates' and policyname = 'review_templates_employee_select')
+     and exists (select 1 from pg_policies where schemaname = 'public'
+                   and tablename = 'review_template_questions' and policyname = 'review_template_questions_employee_select')
+    then 'ok'
+    else 'MISSING — run 20260714170000_reviews_employee_template_read.sql'
+  end as reviews_employee_template_read;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
