@@ -152,6 +152,7 @@
       </div>
     </div>
     <div class="rv-dialog-foot">
+      <button type="button" class="bcn-btn bcn-btn--danger" id="btnDeleteEmployee" hidden style="margin-right:auto">Delete…</button>
       <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgEmployee">Cancel</button>
       <button type="submit" class="bcn-btn bcn-btn--primary" id="btnSaveEmployee">Save</button>
     </div>
@@ -347,8 +348,28 @@
         <td>${esc(r.period_label || '') || '<span class="rv-muted">—</span>'}</td>
         <td>${reviewStatusPill(r.status)}</td>
         <td class="rv-sub">${new Date(r.updated_at).toLocaleDateString('en-US',{dateStyle:'medium'})}</td>
-        <td style="text-align:right"><a class="bcn-btn bcn-btn--ghost" href="/v2/review-editor.html?id=${esc(r.id)}">Open</a></td>
+        <td style="text-align:right;white-space:nowrap">
+          ${r.status === 'draft' ? `<button class="bcn-btn bcn-btn--danger" data-del-review="${esc(r.id)}">Delete</button> ` : ''}
+          <a class="bcn-btn bcn-btn--ghost" href="/v2/review-editor.html?id=${esc(r.id)}">Open</a>
+        </td>
       </tr>`).join('');
+
+    // Drafts only — sent/finished reviews are signed records and the DB
+    // policy refuses to delete them.
+    body.querySelectorAll('[data-del-review]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.delReview;
+        const r = BOARD.find(x => x.id === id);
+        if (!confirm(`Delete this draft review for ${r?.employees?.name || 'employee'}? Goals added in this draft are removed too. This cannot be undone.`)) return;
+        // Remove goals born in this draft first (FK would just orphan them).
+        const { error: gErr } = await sb.from('employee_goals').delete().eq('review_id', id);
+        if (gErr) return setStatus(`Delete failed: ${gErr.message}`, 'neg');
+        const { error } = await sb.from('reviews').delete().eq('id', id);
+        if (error) return setStatus(`Delete failed: ${error.message}`, 'neg');
+        setStatus('Draft review deleted.', 'pos', 2500);
+        await loadBoard();
+      });
+    });
   }
 
   // ---- start review -------------------------------------------------------
@@ -402,6 +423,7 @@
     const emp = id ? ROSTER.find(e => e.id === id) : null;
     document.getElementById('formEmployee').reset();
     document.getElementById('dlgEmployeeTitle').textContent = emp ? 'Edit employee' : 'Add employee';
+    document.getElementById('btnDeleteEmployee').hidden = !emp;
     if (emp){
       document.getElementById('empName').value = emp.name;
       document.getElementById('empEmail').value = emp.email;
@@ -411,6 +433,24 @@
     }
     document.getElementById('dlgEmployee').showModal();
   }
+
+  // Hard delete cascades to the employee's reviews (including signed ones)
+  // and goals — meant for mistakes and test data. Real departures should
+  // use Deactivate, which preserves the review history.
+  document.getElementById('btnDeleteEmployee').addEventListener('click', async () => {
+    if (!EDITING_ID) return;
+    const emp = ROSTER.find(e => e.id === EDITING_ID);
+    const { count } = await sb.from('reviews').select('id', { count:'exact', head:true }).eq('employee_id', EDITING_ID);
+    const warning = count > 0
+      ? `Permanently delete ${emp.name} AND their ${count} review${count === 1 ? '' : 's'} — including any signed ones?\n\nIf ${emp.name} is leaving the company, use Deactivate instead to keep the review history.\n\nThis cannot be undone.`
+      : `Permanently delete ${emp.name}? This cannot be undone.`;
+    if (!confirm(warning)) return;
+    const { error } = await sb.from('employees').delete().eq('id', EDITING_ID);
+    if (error) return setStatus(`Delete failed: ${error.message}`, 'neg');
+    document.getElementById('dlgEmployee').close();
+    setStatus(`${emp.name} deleted.`, 'pos', 2500);
+    await Promise.all([loadRoster(), loadBoard()]);
+  });
 
   document.getElementById('btnAddEmployee').addEventListener('click', () => openEmployeeDialog(null));
 
