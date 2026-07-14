@@ -444,6 +444,24 @@ select
     else 'MISSING — run 20260714200000_org_invites.sql'
   end as org_invites;
 
+select
+  case
+    when exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'active_membership_role')
+     and exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'is_admin'
+          and pg_get_functiondef(p.oid) ilike '%entity_memberships%')
+     and exists (
+        select 1 from pg_policies
+        where schemaname = 'public' and tablename = 'payment_requests'
+          and policyname = 'payment_requests_internal_update'
+          and qual ilike '%active_company_id%')
+    then 'ok'
+    else 'MISSING — run 20260714210000_per_company_roles.sql'
+  end as per_company_roles;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,

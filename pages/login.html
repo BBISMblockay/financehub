@@ -447,10 +447,15 @@
           .from("profiles")
           .select("role, department, is_active")
           .eq("id", userId)
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
-        if (!data) throw new Error("No profile found for this user.");
+        if (!data) {
+          // Stale session for a deleted account — clean up instead of
+          // surfacing a raw "cannot coerce" error and blocking the form.
+          try { await supabaseClient.auth.signOut(); } catch {}
+          throw new Error("That session belonged to an account that no longer exists — you've been signed out. Sign in again or use your invite link.");
+        }
         if (!data.is_active) throw new Error("Your account is inactive.");
 
         return data;
