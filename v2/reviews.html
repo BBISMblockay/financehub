@@ -281,6 +281,7 @@
         <td>${e.profile_id ? '<span class="bcn-pill bcn-pill--pos">Linked</span>' : '<span class="bcn-pill">Email only</span>'}</td>
         <td>${e.is_active ? '<span class="bcn-status--pos" style="font-size:11px;font-weight:600">Active</span>' : '<span class="rv-muted" style="font-size:11px">Inactive</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
+          <button class="bcn-btn bcn-btn--ghost" data-act="edit">Edit</button>
           <button class="bcn-btn bcn-btn--ghost" data-act="toggle">${e.is_active ? 'Deactivate' : 'Reactivate'}</button>
         </td>
       </tr>`).join('');
@@ -294,6 +295,16 @@
         await loadRoster();
       });
     });
+
+    body.querySelectorAll('[data-act="edit"]').forEach(btn => {
+      btn.addEventListener('click', () => openEmployeeDialog(btn.closest('tr').dataset.id));
+    });
+  }
+
+  // Browser type=email accepts dotless domains ("blake@baseballism"), which
+  // Resend can't deliver to — require a real-looking domain.
+  function validEmail(s){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
   }
 
   async function loadRoster(){
@@ -383,31 +394,58 @@
     }
   });
 
-  // ---- add employee -----------------------------------------------------
-  document.getElementById('btnAddEmployee').addEventListener('click', () => {
+  // ---- add / edit employee ------------------------------------------------
+  let EDITING_ID = null;   // null = adding; otherwise the employee row being edited
+
+  function openEmployeeDialog(id){
+    EDITING_ID = id || null;
+    const emp = id ? ROSTER.find(e => e.id === id) : null;
     document.getElementById('formEmployee').reset();
+    document.getElementById('dlgEmployeeTitle').textContent = emp ? 'Edit employee' : 'Add employee';
+    if (emp){
+      document.getElementById('empName').value = emp.name;
+      document.getElementById('empEmail').value = emp.email;
+      document.getElementById('empLocation').value = emp.location || '';
+      document.getElementById('empTitle').value = emp.job_title || '';
+      if (IS_EXEC) document.getElementById('empManager').value = emp.manager_user_id;
+    }
     document.getElementById('dlgEmployee').showModal();
-  });
+  }
+
+  document.getElementById('btnAddEmployee').addEventListener('click', () => openEmployeeDialog(null));
 
   document.getElementById('formEmployee').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('btnSaveEmployee');
+    const email = document.getElementById('empEmail').value.trim().toLowerCase();
+    if (!validEmail(email)){
+      return setStatus(`"${email}" doesn't look like a deliverable email — check the domain (e.g. .com).`, 'neg');
+    }
     btn.disabled = true;
     try {
-      const row = cfg.withCompany({
+      const fields = {
         name: document.getElementById('empName').value.trim(),
-        email: document.getElementById('empEmail').value.trim().toLowerCase(),
+        email,
         location: document.getElementById('empLocation').value.trim() || null,
         job_title: document.getElementById('empTitle').value.trim() || null,
         manager_user_id: IS_EXEC ? (document.getElementById('empManager').value || ME.id) : ME.id,
-      });
-      const { error } = await sb.from('employees').insert(row);
-      if (error) throw new Error(error.message);
+      };
+      if (EDITING_ID){
+        // Clear a stale profile link when the email changes; the DB trigger
+        // re-links automatically if the new email matches a SILO profile.
+        const prev = ROSTER.find(x => x.id === EDITING_ID);
+        const patch = (prev && prev.email !== email) ? { ...fields, profile_id: null } : fields;
+        const { error } = await sb.from('employees').update(patch).eq('id', EDITING_ID);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await sb.from('employees').insert(cfg.withCompany(fields));
+        if (error) throw new Error(error.message);
+      }
       document.getElementById('dlgEmployee').close();
-      setStatus('Employee added.', 'pos', 2500);
+      setStatus(EDITING_ID ? 'Employee updated.' : 'Employee added.', 'pos', 2500);
       await loadRoster();
     } catch (err) {
-      setStatus(`Save failed: ${err.message}`, 'neg');
+      setStatus(`Save failed: ${err.message.includes('duplicate') ? 'That email is already on the roster.' : err.message}`, 'neg');
     } finally {
       btn.disabled = false;
     }
@@ -472,7 +510,7 @@
     for (const r of rows.slice(1)){
       const name = (r[idx.name] || '').trim();
       const email = (r[idx.email] || '').trim().toLowerCase();
-      if (!name || !email || !email.includes('@')) { skipped++; continue; }
+      if (!name || !validEmail(email)) { skipped++; continue; }
       if (seen.has(email)) { skipped++; continue; }
       seen.add(email);
       CSV_ROWS.push({
