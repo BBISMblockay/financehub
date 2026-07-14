@@ -13,8 +13,15 @@
     .re-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
     .re-content > .bcn-card { flex-shrink:0; }
 
-    .re-q { padding:14px 16px; border-bottom:1px solid var(--bcn-border); }
+    .re-q { padding:16px; border-bottom:1px solid var(--bcn-border); display:flex; gap:12px; }
     .re-q:last-child { border-bottom:none; }
+    .re-q-num {
+      flex-shrink:0; width:22px; height:22px; border-radius:50%;
+      background:var(--bcn-sunken); border:1px solid var(--bcn-border);
+      display:flex; align-items:center; justify-content:center;
+      font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); margin-top:1px;
+    }
+    .re-q-main { flex:1; min-width:0; }
     .re-q-label { font-weight:650; font-size:13.5px; color:var(--bcn-ink); }
     .re-q-help { font-size:11.5px; color:var(--bcn-ink-3); margin-top:2px; }
     .re-q-input { margin-top:10px; }
@@ -22,10 +29,13 @@
 
     .re-scale { display:flex; gap:6px; flex-wrap:wrap; }
     .re-scale button {
-      width:36px; height:36px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
-      background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:13px; cursor:pointer;
-      color:var(--bcn-ink-2);
+      width:40px; height:40px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
+      background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:13.5px; cursor:pointer;
+      color:var(--bcn-ink-2); transition:border-color .12s ease, transform .08s ease;
     }
+    .re-scale button:hover:not(.sel):not(:disabled) { border-color:var(--bcn-accent-border); color:var(--bcn-ink); }
+    .re-scale button:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
+    .re-scale button:active:not(:disabled) { transform:scale(.94); }
     .re-scale button.sel { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); font-weight:600; }
 
     .re-choice { display:flex; flex-direction:column; gap:6px; }
@@ -39,7 +49,9 @@
     .re-goal-meta { font-size:11px; color:var(--bcn-ink-3); width:100%; }
     .re-subhead { font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--bcn-ink-3); margin:12px 0 4px; }
 
-    .re-note { padding:10px 12px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); background:var(--bcn-sunken); margin-bottom:8px; }
+    .re-notes-card { background:var(--bcn-sunken); }
+    .re-notes-card .bcn-card-body { background:transparent; }
+    .re-note { padding:10px 12px; border:1px dashed var(--bcn-border-strong); border-radius:var(--bcn-radius); background:var(--bcn-surface); margin-bottom:8px; }
     .re-note-body { font-size:12.5px; color:var(--bcn-ink-2); white-space:pre-wrap; }
     .re-note-meta { font-size:10.5px; color:var(--bcn-ink-3); margin-top:6px; font-family:var(--bcn-mono); }
 
@@ -96,8 +108,14 @@
         <div class="bcn-card-body" id="goalsBody"></div>
       </div>
 
-      <div class="bcn-card">
-        <div class="bcn-card-header"><span>Private notes</span><span style="font-size:10.5px;color:var(--bcn-ink-3);font-weight:400">Only you can ever see these — not other managers, not executives, never the employee</span></div>
+      <div class="bcn-card re-notes-card">
+        <div class="bcn-card-header">
+          <span style="display:inline-flex;align-items:center;gap:6px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7.5a4.5 4.5 0 1 0-9 0v3"/><rect x="4.5" y="10.5" width="15" height="9" rx="2"/></svg>
+            Private notes
+          </span>
+          <span style="font-size:10.5px;color:var(--bcn-ink-3);font-weight:400">Only you can ever see these — not other managers, not executives, never the employee</span>
+        </div>
         <div class="bcn-card-body">
           <div id="notesList"></div>
           <div style="display:flex;gap:8px;margin-top:8px">
@@ -147,11 +165,14 @@
   function renderQuestions(){
     const el = document.getElementById('questionList');
     if (!QUESTIONS.length){ el.innerHTML = '<div class="re-empty">Template has no questions.</div>'; return; }
-    el.innerHTML = QUESTIONS.map(q => `
+    el.innerHTML = QUESTIONS.map((q, qi) => `
       <div class="re-q" data-qid="${esc(q.id)}">
-        <div class="re-q-label">${esc(q.label)}${q.required ? ' <span class="re-req">*</span>' : ''}</div>
-        ${q.help_text ? `<div class="re-q-help">${esc(q.help_text)}</div>` : ''}
-        <div class="re-q-input">${inputHtml(q)}</div>
+        <span class="re-q-num">${qi + 1}</span>
+        <div class="re-q-main">
+          <div class="re-q-label">${esc(q.label)}${q.required ? ' <span class="re-req">*</span>' : ''}</div>
+          ${q.help_text ? `<div class="re-q-help">${esc(q.help_text)}</div>` : ''}
+          <div class="re-q-input">${inputHtml(q)}</div>
+        </div>
       </div>`).join('');
     QUESTIONS.forEach(q => bindInput(q));
   }

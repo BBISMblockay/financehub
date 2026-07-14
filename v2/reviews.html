@@ -24,14 +24,19 @@
       letter-spacing:.06em; color:var(--bcn-ink-3); font-weight:600;
       padding:8px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
     }
-    .rv-table td { padding:9px 10px; border-bottom:1px solid var(--bcn-border); vertical-align:middle; }
+    .rv-table td { padding:10px; border-bottom:1px solid var(--bcn-border); vertical-align:middle; }
     .rv-table tr:last-child td { border-bottom:none; }
+    .rv-table tbody tr { transition: background .12s ease; }
+    .rv-table tbody tr:hover { background: var(--bcn-sunken); }
+    .rv-table td .bcn-btn { padding:4px 10px; font-size:11.5px; }
     .rv-name { font-weight:650; color:var(--bcn-ink); }
     .rv-sub { font-size:11px; color:var(--bcn-ink-3); }
     .rv-muted { color:var(--bcn-ink-3); }
     .rv-inactive td { opacity:.5; }
 
-    .rv-empty { padding:36px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+    .rv-empty { padding:42px 24px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; line-height:1.6; }
+    .rv-empty strong { display:block; color:var(--bcn-ink-2); font-size:13px; margin-bottom:4px; }
+    .bcn-tab:focus-visible, .rv-table .bcn-btn:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
 
     dialog.rv-dialog {
       border:1px solid var(--bcn-border); border-radius:6px; padding:0;
@@ -270,7 +275,7 @@
     document.getElementById('kpiLinked').textContent = ROSTER.filter(e => e.profile_id).length;
 
     if (!ROSTER.length){
-      body.innerHTML = `<tr><td colspan="7"><div class="rv-empty">No employees yet. Add them one at a time or import a CSV.</div></td></tr>`;
+      body.innerHTML = `<tr><td colspan="7"><div class="rv-empty"><strong>No employees yet</strong>Add them one at a time or import a CSV — anyone with an email can be reviewed, no SILO login needed.</div></td></tr>`;
       return;
     }
     body.innerHTML = ROSTER.map(e => `
@@ -338,7 +343,7 @@
 
     const body = document.getElementById('boardBody');
     if (!BOARD.length){
-      body.innerHTML = `<tr><td colspan="6"><div class="rv-empty">No reviews yet. Add employees to your roster, then Start review.</div></td></tr>`;
+      body.innerHTML = `<tr><td colspan="6"><div class="rv-empty"><strong>No reviews yet</strong>Add employees to your roster, then hit Start review.</div></td></tr>`;
       return;
     }
     body.innerHTML = BOARD.map(r => `
