@@ -152,6 +152,7 @@
       </div>
     </div>
     <div class="rv-dialog-foot">
+      <button type="button" class="bcn-btn bcn-btn--danger" id="btnDeleteEmployee" hidden style="margin-right:auto">Delete…</button>
       <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgEmployee">Cancel</button>
       <button type="submit" class="bcn-btn bcn-btn--primary" id="btnSaveEmployee">Save</button>
     </div>
@@ -281,6 +282,7 @@
         <td>${e.profile_id ? '<span class="bcn-pill bcn-pill--pos">Linked</span>' : '<span class="bcn-pill">Email only</span>'}</td>
         <td>${e.is_active ? '<span class="bcn-status--pos" style="font-size:11px;font-weight:600">Active</span>' : '<span class="rv-muted" style="font-size:11px">Inactive</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
+          <button class="bcn-btn bcn-btn--ghost" data-act="edit">Edit</button>
           <button class="bcn-btn bcn-btn--ghost" data-act="toggle">${e.is_active ? 'Deactivate' : 'Reactivate'}</button>
         </td>
       </tr>`).join('');
@@ -294,6 +296,16 @@
         await loadRoster();
       });
     });
+
+    body.querySelectorAll('[data-act="edit"]').forEach(btn => {
+      btn.addEventListener('click', () => openEmployeeDialog(btn.closest('tr').dataset.id));
+    });
+  }
+
+  // Browser type=email accepts dotless domains ("blake@baseballism"), which
+  // Resend can't deliver to — require a real-looking domain.
+  function validEmail(s){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
   }
 
   async function loadRoster(){
@@ -336,8 +348,28 @@
         <td>${esc(r.period_label || '') || '<span class="rv-muted">—</span>'}</td>
         <td>${reviewStatusPill(r.status)}</td>
         <td class="rv-sub">${new Date(r.updated_at).toLocaleDateString('en-US',{dateStyle:'medium'})}</td>
-        <td style="text-align:right"><a class="bcn-btn bcn-btn--ghost" href="/v2/review-editor.html?id=${esc(r.id)}">Open</a></td>
+        <td style="text-align:right;white-space:nowrap">
+          ${r.status === 'draft' ? `<button class="bcn-btn bcn-btn--danger" data-del-review="${esc(r.id)}">Delete</button> ` : ''}
+          <a class="bcn-btn bcn-btn--ghost" href="/v2/review-editor.html?id=${esc(r.id)}">Open</a>
+        </td>
       </tr>`).join('');
+
+    // Drafts only — sent/finished reviews are signed records and the DB
+    // policy refuses to delete them.
+    body.querySelectorAll('[data-del-review]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.delReview;
+        const r = BOARD.find(x => x.id === id);
+        if (!confirm(`Delete this draft review for ${r?.employees?.name || 'employee'}? Goals added in this draft are removed too. This cannot be undone.`)) return;
+        // Remove goals born in this draft first (FK would just orphan them).
+        const { error: gErr } = await sb.from('employee_goals').delete().eq('review_id', id);
+        if (gErr) return setStatus(`Delete failed: ${gErr.message}`, 'neg');
+        const { error } = await sb.from('reviews').delete().eq('id', id);
+        if (error) return setStatus(`Delete failed: ${error.message}`, 'neg');
+        setStatus('Draft review deleted.', 'pos', 2500);
+        await loadBoard();
+      });
+    });
   }
 
   // ---- start review -------------------------------------------------------
@@ -383,31 +415,77 @@
     }
   });
 
-  // ---- add employee -----------------------------------------------------
-  document.getElementById('btnAddEmployee').addEventListener('click', () => {
+  // ---- add / edit employee ------------------------------------------------
+  let EDITING_ID = null;   // null = adding; otherwise the employee row being edited
+
+  function openEmployeeDialog(id){
+    EDITING_ID = id || null;
+    const emp = id ? ROSTER.find(e => e.id === id) : null;
     document.getElementById('formEmployee').reset();
+    document.getElementById('dlgEmployeeTitle').textContent = emp ? 'Edit employee' : 'Add employee';
+    document.getElementById('btnDeleteEmployee').hidden = !emp;
+    if (emp){
+      document.getElementById('empName').value = emp.name;
+      document.getElementById('empEmail').value = emp.email;
+      document.getElementById('empLocation').value = emp.location || '';
+      document.getElementById('empTitle').value = emp.job_title || '';
+      if (IS_EXEC) document.getElementById('empManager').value = emp.manager_user_id;
+    }
     document.getElementById('dlgEmployee').showModal();
+  }
+
+  // Hard delete cascades to the employee's reviews (including signed ones)
+  // and goals — meant for mistakes and test data. Real departures should
+  // use Deactivate, which preserves the review history.
+  document.getElementById('btnDeleteEmployee').addEventListener('click', async () => {
+    if (!EDITING_ID) return;
+    const emp = ROSTER.find(e => e.id === EDITING_ID);
+    const { count } = await sb.from('reviews').select('id', { count:'exact', head:true }).eq('employee_id', EDITING_ID);
+    const warning = count > 0
+      ? `Permanently delete ${emp.name} AND their ${count} review${count === 1 ? '' : 's'} — including any signed ones?\n\nIf ${emp.name} is leaving the company, use Deactivate instead to keep the review history.\n\nThis cannot be undone.`
+      : `Permanently delete ${emp.name}? This cannot be undone.`;
+    if (!confirm(warning)) return;
+    const { error } = await sb.from('employees').delete().eq('id', EDITING_ID);
+    if (error) return setStatus(`Delete failed: ${error.message}`, 'neg');
+    document.getElementById('dlgEmployee').close();
+    setStatus(`${emp.name} deleted.`, 'pos', 2500);
+    await Promise.all([loadRoster(), loadBoard()]);
   });
+
+  document.getElementById('btnAddEmployee').addEventListener('click', () => openEmployeeDialog(null));
 
   document.getElementById('formEmployee').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('btnSaveEmployee');
+    const email = document.getElementById('empEmail').value.trim().toLowerCase();
+    if (!validEmail(email)){
+      return setStatus(`"${email}" doesn't look like a deliverable email — check the domain (e.g. .com).`, 'neg');
+    }
     btn.disabled = true;
     try {
-      const row = cfg.withCompany({
+      const fields = {
         name: document.getElementById('empName').value.trim(),
-        email: document.getElementById('empEmail').value.trim().toLowerCase(),
+        email,
         location: document.getElementById('empLocation').value.trim() || null,
         job_title: document.getElementById('empTitle').value.trim() || null,
         manager_user_id: IS_EXEC ? (document.getElementById('empManager').value || ME.id) : ME.id,
-      });
-      const { error } = await sb.from('employees').insert(row);
-      if (error) throw new Error(error.message);
+      };
+      if (EDITING_ID){
+        // Clear a stale profile link when the email changes; the DB trigger
+        // re-links automatically if the new email matches a SILO profile.
+        const prev = ROSTER.find(x => x.id === EDITING_ID);
+        const patch = (prev && prev.email !== email) ? { ...fields, profile_id: null } : fields;
+        const { error } = await sb.from('employees').update(patch).eq('id', EDITING_ID);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await sb.from('employees').insert(cfg.withCompany(fields));
+        if (error) throw new Error(error.message);
+      }
       document.getElementById('dlgEmployee').close();
-      setStatus('Employee added.', 'pos', 2500);
+      setStatus(EDITING_ID ? 'Employee updated.' : 'Employee added.', 'pos', 2500);
       await loadRoster();
     } catch (err) {
-      setStatus(`Save failed: ${err.message}`, 'neg');
+      setStatus(`Save failed: ${err.message.includes('duplicate') ? 'That email is already on the roster.' : err.message}`, 'neg');
     } finally {
       btn.disabled = false;
     }
@@ -472,7 +550,7 @@
     for (const r of rows.slice(1)){
       const name = (r[idx.name] || '').trim();
       const email = (r[idx.email] || '').trim().toLowerCase();
-      if (!name || !email || !email.includes('@')) { skipped++; continue; }
+      if (!name || !validEmail(email)) { skipped++; continue; }
       if (seen.has(email)) { skipped++; continue; }
       seen.add(email);
       CSV_ROWS.push({

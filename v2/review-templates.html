@@ -90,6 +90,7 @@
         <div class="bcn-card-header">
           <span id="editorTitle">Edit template</span>
           <div style="display:flex;gap:6px">
+            <button class="bcn-btn bcn-btn--danger" id="btnDeleteTemplate" hidden>Delete draft</button>
             <button class="bcn-btn bcn-btn--ghost" id="btnPreview">Preview</button>
             <button class="bcn-btn bcn-btn--ghost" id="btnDuplicate" hidden>Duplicate as draft</button>
             <button class="bcn-btn bcn-btn--ghost" id="btnArchive" hidden>Archive</button>
@@ -240,6 +241,7 @@
     document.getElementById('btnPublish').hidden = tpl.status !== 'draft';
     document.getElementById('btnArchive').hidden = tpl.status !== 'published';
     document.getElementById('btnDuplicate').hidden = tpl.status === 'draft';
+    document.getElementById('btnDeleteTemplate').hidden = tpl.status !== 'draft';
 
     renderQuestions();
     document.getElementById('listCard').hidden = true;
@@ -258,6 +260,7 @@
     document.getElementById('btnPublish').hidden = true;
     document.getElementById('btnArchive').hidden = true;
     document.getElementById('btnDuplicate').hidden = true;
+    document.getElementById('btnDeleteTemplate').hidden = true;
     renderQuestions();
     document.getElementById('listCard').hidden = true;
     document.getElementById('editorCard').hidden = false;
@@ -450,6 +453,23 @@
 
   document.getElementById('btnNewTemplate').addEventListener('click', newTemplate);
   document.getElementById('btnCloseEditor').addEventListener('click', closeEditor);
+
+  // Drafts only — published templates are archived, never deleted, because
+  // reviews reference them (the FK would refuse anyway).
+  document.getElementById('btnDeleteTemplate').addEventListener('click', async () => {
+    if (!CURRENT || CURRENT.status !== 'draft') return;
+    if (!confirm(`Delete the draft "${CURRENT.title}" and its questions? This cannot be undone.`)) return;
+    const { error } = await sb.from('review_templates').delete().eq('id', CURRENT.id);
+    if (error){
+      const friendly = /foreign key|violates/i.test(error.message)
+        ? 'This template is referenced by existing reviews — archive it instead.'
+        : error.message;
+      return setStatus(`Delete failed: ${friendly}`, 'neg');
+    }
+    setStatus('Draft template deleted.', 'pos', 2500);
+    await loadTemplates();
+    closeEditor();
+  });
 
   // ---- preview ------------------------------------------------------------
   document.getElementById('btnPreview').addEventListener('click', () => {
