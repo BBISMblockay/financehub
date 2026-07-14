@@ -180,6 +180,7 @@ supabase/
     20260714190000_new_org_signup_flow.sql
     20260714200000_org_invites.sql
     20260714210000_per_company_roles.sql
+    20260714220000_stamp_created_by.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

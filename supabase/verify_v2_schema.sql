@@ -462,6 +462,14 @@ select
     else 'MISSING — run 20260714210000_per_company_roles.sql'
   end as per_company_roles;
 
+select
+  case
+    when (select count(*) from pg_trigger
+          where tgname in ('stamp_created_by','stamp_changed_by') and not tgisinternal) >= 24
+    then 'ok'
+    else 'MISSING — run 20260714220000_stamp_created_by.sql'
+  end as stamp_created_by_triggers;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
