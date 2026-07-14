@@ -183,7 +183,7 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 
 **Onboarding flow (two paths):**
 - **Create account** (login page signup) = founding a NEW organization: `handle_new_user` reads `org_name` from the auth metadata and provisions the `entities` row, an `owner` profile, an `owner_admin` membership, and `active_company_id` in one shot
-- **Joining an existing org** is invitation-only: an admin creates an invite in `/v2/backend.html` (`create_org_invite` RPC → link `/pages/login.html?invite=TOKEN`, emailed via the `org-invite-send` edge function with manual-copy fallback); the invitee signs in/up with the invited email and the login page redeems it via `accept_org_invite`, which activates the profile, applies role/department, and creates the `entity_memberships` row. Tokens are sha256-hashed in `org_invites` (RLS deny-all, RPC-only), expire in 14 days, and are email-bound. Access-request approval and backend role grants also create the membership. Backend admin RPCs are scoped to the caller's active company plus unclaimed profiles (no membership anywhere)
+- **Joining an existing org** is invitation-only: an admin creates an invite in `/v2/backend.html` (`create_org_invite` RPC → link `/pages/login.html?invite=TOKEN`, emailed via the `org-invite-send` edge function with manual-copy fallback); a brand-new invitee gets a "set password & join" screen (`org-invite-redeem` edge function creates the confirmed account and applies the invite — no confirmation email); an invitee with an existing account signs in and the login page redeems via `accept_org_invite`. Both paths activate the profile, apply role/department, and create the `entity_memberships` row. Tokens are sha256-hashed in `org_invites` (RLS deny-all, RPC-only), expire in 14 days, and are email-bound. Access-request approval and backend role grants also create the membership. Backend admin RPCs are scoped to the caller's active company plus unclaimed profiles (no membership anywhere)
 
 **Active-company flow:**
 1. Login calls `resolveCompany()` → reads `entity_memberships`
@@ -294,7 +294,8 @@ revoke_org_invite(p_invite_id)
 ### Edge functions (performance reviews)
 Sources live in `supabase/functions/`; deploys are manual (Supabase MCP/CLI), merging a PR does NOT deploy.
 ```
-org-invite-send -- emails an org invite link; caller must be admin of the invite's entity and present the raw token (JWT-auth)
+org-invite-send   -- emails an org invite link; caller must be admin of the invite's entity and present the raw token (JWT-auth)
+org-invite-redeem -- PUBLIC (verify_jwt off): peek shows org/email for a token; redeem creates the invitee's confirmed account with their chosen password (no confirmation email — the invite proved the address) and applies the invite
 review-send     -- manager sends a review: mints hashed 30-day token, status → sent, emails employee (JWT-auth)
 review-portal   -- PUBLIC (verify_jwt off): token IS the auth; get/finish/renew for associates without SILO logins
 review-finish   -- SILO-authenticated employee signs in-app from /v2/my-review.html (JWT-auth)

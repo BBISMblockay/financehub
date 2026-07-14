@@ -183,7 +183,7 @@
 
           <div id="status" class="hidden mb-5 rounded-xl border px-3.5 py-3 text-sm font-medium"></div>
 
-          <div class="mb-6 flex rounded-xl bg-slate-100/80 p-1 ring-1 ring-slate-200/60">
+          <div id="authTabs" class="mb-6 flex rounded-xl bg-slate-100/80 p-1 ring-1 ring-slate-200/60">
             <button id="tabPassword" class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold bg-white text-slate-900 shadow-sm transition-all duration-150">Password</button>
             <button id="tabMagic" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors duration-150">Magic link</button>
           </div>
@@ -242,6 +242,45 @@
             <div class="text-xs text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
               We’ll send a one-time link to your inbox. If email confirmation is required, confirm your email first, then come back here.
             </div>
+          </form>
+
+          <!-- Invite join: shown instead of the sign-in forms when an invite
+               link is opened by an email that has no SILO account yet. -->
+          <form id="formInvite" class="space-y-4 hidden">
+            <div class="text-sm text-slate-600 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+              You’ve been invited to join <b id="joinOrg">—</b> on SILO. Set a password for your new account — you’re already verified, no confirmation email needed.
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
+              <div class="relative">
+                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0-.83.67-1.5 1.5-1.5h16.5c.83 0 1.5.67 1.5 1.5v10.5c0 .83-.67 1.5-1.5 1.5H3.75c-.83 0-1.5-.67-1.5-1.5V6.75Z"/><path stroke-linecap="round" stroke-linejoin="round" d="m3 7 9 6 9-6"/></svg>
+                <input id="joinEmail" type="email" readonly
+                       class="w-full rounded-xl border border-slate-300 bg-slate-50 text-slate-500 pl-10 pr-3.5 py-2.5 text-[15px] focus:outline-none" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Name</label>
+              <div class="relative">
+                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 20.25a7.5 7.5 0 0 1 15 0"/></svg>
+                <input id="joinName" type="text" autocomplete="name"
+                       class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                       placeholder="full name" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+              <div class="relative">
+                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7.5a4.5 4.5 0 1 0-9 0v3"/><rect x="4.5" y="10.5" width="15" height="9" rx="2"/></svg>
+                <input id="joinPassword" type="password" autocomplete="new-password"
+                       class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                       placeholder="Minimum 6 characters" required />
+              </div>
+            </div>
+
+            <button id="btnJoin" type="submit"
+                    class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold tracking-tight shadow-sm hover:bg-slate-800 active:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none flex items-center justify-center gap-2">
+              Set password &amp; join
+            </button>
           </form>
 
           <dialog id="dlgSignup" class="rounded-2xl p-0 w-full max-w-md border-0">
@@ -533,8 +572,28 @@
       btnGoSignup.addEventListener("click", () => dlgSignup.showModal());
       btnCloseSignup.addEventListener("click", () => dlgSignup.close());
 
-      // Invite mode: the account joins an existing org, so no org is founded
-      // — hide the organization field and explain what's happening.
+      // Direct calls to the public org-invite-redeem edge function (the
+      // token is the auth) — fetch gives us clean error bodies on non-2xx.
+      async function inviteApi(body) {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/org-invite-redeem`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify(body)
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.message || json?.error || `Request failed (${res.status})`);
+        return json;
+      }
+
+      // Invite mode: peek at the invite to decide what to show.
+      // - New email → the "set password & join" panel (no signup dialog,
+      //   no confirmation email — the invite already proved the address).
+      // - Existing account → normal sign-in with the email prefilled; the
+      //   invite is redeemed after auth in resolveAndRedirect.
       if (getInviteToken()) {
         const orgField = document.getElementById("orgField");
         const org3 = document.getElementById("org3");
@@ -542,8 +601,59 @@
         if (org3) org3.required = false;
         const sub = document.getElementById("signupSub");
         if (sub) sub.textContent = "You're joining an existing organization by invite";
-        showStatus("You've been invited to join an organization on SILO. Sign in — or create your account — using the invited email address.", "info");
+
+        (async () => {
+          try {
+            const peek = await inviteApi({ action: "peek", token: getInviteToken() });
+            if (peek.account_exists) {
+              const email1 = document.getElementById("email1");
+              if (email1) email1.value = peek.email || "";
+              showStatus(`This invite is for ${peek.email} — sign in below and you'll join ${peek.org_title} automatically.`, "info");
+            } else {
+              document.getElementById("authTabs")?.classList.add("hidden");
+              formPassword.classList.add("hidden");
+              formMagic.classList.add("hidden");
+              document.getElementById("formInvite")?.classList.remove("hidden");
+              const joinOrg = document.getElementById("joinOrg");
+              if (joinOrg) joinOrg.textContent = peek.org_title || "your team";
+              const joinEmail = document.getElementById("joinEmail");
+              if (joinEmail) joinEmail.value = peek.email || "";
+            }
+          } catch (err) {
+            clearInviteToken();
+            showStatus(`This invite link can't be used: ${err?.message || "unknown error"}. Ask your admin for a new one.`, "error");
+          }
+        })();
       }
+
+      const formInvite = document.getElementById("formInvite");
+      const btnJoin = document.getElementById("btnJoin");
+      formInvite.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearStatus();
+
+        const email = document.getElementById("joinEmail").value.trim();
+        const name = document.getElementById("joinName").value.trim();
+        const password = document.getElementById("joinPassword").value;
+        if (password.length < 6) return showStatus("Password must be at least 6 characters.", "error");
+
+        setLoading(btnJoin, true, "Set password &amp; join");
+        try {
+          await inviteApi({ action: "redeem", token: getInviteToken(), name, password });
+          // The invite is fully applied server-side — nothing left to redeem.
+          clearInviteToken();
+
+          const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+
+          showStatus("Welcome! Signing you in…", "success");
+          await resolveAndRedirect(data.session.user.id);
+        } catch (err) {
+          showStatus(err?.message || "Could not join.", "error");
+        } finally {
+          setLoading(btnJoin, false, "Set password &amp; join");
+        }
+      });
 
       async function bootstrap() {
         const { data, error } = await supabaseClient.auth.getSession();
