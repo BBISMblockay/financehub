@@ -327,10 +327,11 @@
     const user = sess.data.session.user;
     UID = user.id;
 
+    const { data: myProf } = await sb.from('profiles').select('role').eq('id', user.id).single();
     if (window.SiloChrome){
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'team/my-review',
-        user:{ email:user?.email||'', role:'user' },
+        user:{ email:user?.email||'', role: String(myProf?.role || 'user') },
         crumbs:['Team','My Reviews'],
         supabaseClient:sb,
       });

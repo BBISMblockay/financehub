@@ -403,10 +403,11 @@
     if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search); return; }
     const user = sess.data.session.user;
 
+    const { data: myProf } = await sb.from('profiles').select('role').eq('id', user.id).single();
     if (window.SiloChrome){
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'team/reviews',
-        user:{ email:user?.email||'', role:'admin' },
+        user:{ email:user?.email||'', role: String(myProf?.role || 'user') },
         crumbs:['Team','Review'],
         supabaseClient:sb,
       });
