@@ -86,14 +86,27 @@ export function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** No timeout on the underlying fetch() left a stalled Shopify connection
+ * hanging ~28min before Node killed it with `TypeError: terminated`,
+ * aborting the whole shop's sync with a partial day already written.
+ * Bound each attempt and retry transient failures (timeouts, network
+ * errors) the same way we already retry 429s. */
+const FETCH_TIMEOUT_MS = 60_000;
+
 export async function fetchWithRetry(url, opts = {}, tries = 5) {
+  let lastErr;
   for (let i = 0; i < tries; i++) {
-    const res = await fetch(url, opts);
-    if (res.status !== 429) return res;
-    const retryAfter = Number(res.headers.get('retry-after')) || 2;
-    await sleep(retryAfter * 1000);
+    try {
+      const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (res.status !== 429) return res;
+      const retryAfter = Number(res.headers.get('retry-after')) || 2;
+      await sleep(retryAfter * 1000);
+    } catch (err) {
+      lastErr = err;
+      if (i < tries - 1) await sleep(2000);
+    }
   }
-  return fetch(url, opts);
+  throw lastErr || new Error(`fetchWithRetry: exhausted retries for ${url}`);
 }
 
 export async function getAll(headers, url) {
