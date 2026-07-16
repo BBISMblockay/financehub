@@ -315,6 +315,7 @@ Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows 
 | `shopify-sync.yml` | Daily 11:00 UTC | Shopify API sync — sales + inventory for all connected stores, then refreshes comp summary, sales velocity MV, and inventory current MV |
 | `nightly-silo-sync.yml` | **Retired** (manual only) | Legacy Google Sheets / Better Reports import — retired 2026-07-08 after verifying Shopify covers every sales + inventory location. BR history remains in `sales_by_day` for pre-API reporting |
 | `ar-sync.yml` | Manual / scheduled | AR (accounts receivable) sync |
+| `supermetrics-sync.yml` | Daily 10:30 UTC | Supermetrics API → `marketing_kpis_daily` (Google Ads, Meta Ads, TikTok Ads, GA4 daily campaign KPIs). No-ops until the `SUPERMETRICS_API_KEY` repo secret is set |
 
 **One sync, one source of truth.** Sales and inventory come from the Shopify API via the nightly GitHub Action. There is no dual-write conflict.
 

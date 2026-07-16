@@ -1,0 +1,49 @@
+name: Supermetrics KPI Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      company_entity_id:
+        description: Optional company UUID (limit to one entity)
+        required: false
+      platform:
+        description: Optional single platform (google_ads | meta_ads | tiktok_ads | ga4)
+        required: false
+      days_back:
+        description: Override trailing-window days (default from connection row, 30)
+        required: false
+  schedule:
+    # 10:30 UTC — ad platforms have finalized the prior day by then;
+    # runs before the 11:00 Shopify sync so both land before US morning.
+    - cron: "30 10 * * *"
+
+jobs:
+  supermetrics-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPERMETRICS_API_KEY: ${{ secrets.SUPERMETRICS_API_KEY }}
+      SM_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
+      SM_ONLY_PLATFORM: ${{ github.event.inputs.platform || '' }}
+      SM_DAYS_BACK: ${{ github.event.inputs.days_back || '' }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      # The orchestrator itself no-ops (exit 0) when SUPERMETRICS_API_KEY is
+      # absent, so this workflow is safe to merge and schedule before the
+      # secret exists.
+      - name: Run Supermetrics sync orchestrator
+        run: node scripts/supermetrics-sync.mjs
