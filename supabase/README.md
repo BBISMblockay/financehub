@@ -183,6 +183,7 @@ supabase/
     20260714220000_stamp_created_by.sql
     20260715120000_fix_refresh_inventory_current_mv_timeout.sql
     20260715130000_slack_task_notify_launch_only.sql
+    20260716000000_supermetrics_kpis.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
