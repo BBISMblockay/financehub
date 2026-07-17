@@ -71,7 +71,7 @@
     { id: 'reports/product-search', section: 'Reports', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-report', section: 'Reports', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
     { id: 'finance/sales-bi', section: 'Reports', label: 'BI Sales Dashboard (legacy)', href: 'https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9', external: true, profiles: ['grandfathered'] },
-    { departments: FINANCE_DEPTS, id: 'people/payroll', section: 'Reports', label: 'Payroll BI', href: '/v2/payroll.html', profiles: ['grandfathered'] },
+    
 
     { id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
   ];
