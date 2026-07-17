@@ -425,6 +425,9 @@
     tbody tr.active td{
       background: color-mix(in oklab, var(--accent) 10%, transparent);
     }
+    tbody tr.overdue td:first-child{
+      box-shadow: inset 3px 0 0 var(--risk);
+    }
 
     .cellMain{
       display:flex;
@@ -939,7 +942,7 @@
                   <th class="sortable" data-sort="vendor">Request <span class="sort" id="sVendor"></span></th>
                   <th class="sortable" data-sort="due" style="width:160px">Due <span class="sort" id="sDue"></span></th>
                   <th class="sortable right" data-sort="amount" style="width:150px">Amount <span class="sort" id="sAmount"></span></th>
-                  <th style="width:150px">Status</th>
+                  <th class="sortable" data-sort="submitted" style="width:150px">Submitted <span class="sort" id="sSubmitted"></span></th>
                 </tr>
               </thead>
               <tbody id="tbody">
@@ -1104,7 +1107,11 @@ const filters = {
   amtMin: null,
   amtMax: null,
   sortBy: "smart",
+  sortDir: null, // null = each key's natural direction; set by header clicks
 };
+
+// Natural sort direction per column key (what the select always gave you).
+const NATURAL_DIR = { due:"asc", amount:"desc", vendor:"asc", submitted:"desc" };
 
 const ui = {
   drawerOpen: false
@@ -1234,8 +1241,19 @@ function parseFiles(raw){
   }
   return urls.map(u=>{
     const jot=normalizeJotformUrl(u);
-    return {url:jot, name:(jot.split("/").pop()||"file").split("?")[0]};
+    let name=(jot.split("/").pop()||"file").split("?")[0];
+    // Drive links end in an opaque "/view" — label them for what they are.
+    if(/drive\.google\.com/i.test(jot)) name="Google Drive file";
+    else name = decodeURIComponent(name);
+    return {url:jot, name};
   });
+}
+
+function fileKindLabel(url){
+  const u=String(url||"").toLowerCase();
+  if(u.includes("drive.google.com")) return "DRIVE";
+  if(u.includes("jotform")) return "UPLOAD";
+  return (extOf(url)||"file").toUpperCase();
 }
 
 function mapCompletionToStatus(completedRaw) {
@@ -1249,16 +1267,30 @@ function mapCompletionToStatus(completedRaw) {
 
 function isOutstanding(r){ return r.status !== "paid"; }
 
+// Aging only exists for overdue, unpaid items — a bill due in the future
+// has no aging bucket (the old version clamped negative day-counts to 0,
+// stamping a meaningless "0–30" tag on every not-yet-due row).
 function agingTag(r){
+  if(r.status==="paid") return null;
   const due=parseGvizDate(r.dueDateRaw);
-  if(!due) return {label:"—", cls:"t-ok"};
+  if(!due) return null;
   const now0=startOfDay(new Date());
   const d0=startOfDay(due);
-  const diff=Math.floor((now0.getTime()-d0.getTime())/86400000);
-  const days = Math.max(0, diff);
-  if(days<=30) return {label:"0–30", cls:"t-ok"};
+  const days=Math.floor((now0.getTime()-d0.getTime())/86400000);
+  if(days<=0) return null;
+  if(days<=30) return {label:"0–30", cls:"t-warn"};
   if(days<=60) return {label:"31–60", cls:"t-warn"};
   return {label: days<=90 ? "61–90" : "90+", cls:"t-risk"};
+}
+
+// Days until due, for not-yet-due unpaid rows ("in 12d").
+function dueInDays(r){
+  if(r.status==="paid") return null;
+  const due=parseGvizDate(r.dueDateRaw);
+  if(!due) return null;
+  const now0=startOfDay(new Date());
+  const diff=Math.floor((startOfDay(due).getTime()-now0.getTime())/86400000);
+  return diff>=0 ? diff : null;
 }
 
 function overdueFlag(r){
@@ -1502,6 +1534,7 @@ function laneList(){
   }else if(by==="submitted"){
     items.sort((a,b)=>(parseGvizDate(b.submissionDate)?.getTime()||0)-(parseGvizDate(a.submissionDate)?.getTime()||0));
   }
+  if(by!=="smart" && filters.sortDir && filters.sortDir!==NATURAL_DIR[by]) items.reverse();
   return items;
 }
 
@@ -1568,7 +1601,7 @@ function renderChips(){
   if(filters.dueTo) push(`Due ≤ ${formatDate(filters.dueTo)}`, ()=>{ filters.dueTo=null; $("dueTo").value=""; });
   if(filters.subFrom) push(`Submitted ≥ ${formatDate(filters.subFrom)}`, ()=>{ filters.subFrom=null; $("subFrom").value=""; });
   if(filters.subTo) push(`Submitted ≤ ${formatDate(filters.subTo)}`, ()=>{ filters.subTo=null; $("subTo").value=""; });
-  if(filters.sortBy!=="smart") push(`Sort: ${filters.sortBy}`, ()=>{ filters.sortBy="smart"; $("sortBy").value="smart"; });
+  if(filters.sortBy!=="smart") push(`Sort: ${filters.sortBy}`, ()=>{ filters.sortBy="smart"; filters.sortDir=null; $("sortBy").value="smart"; });
 
   const bar = $("chips");
   if(!chips.length){
@@ -1607,10 +1640,19 @@ function renderLaneMeta(items){
 function renderTable(){
   const items = laneList();
   renderLaneMeta(items);
+  renderSortIndicators();
 
   const tbody = $("tbody");
   if(!items.length){
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty">No items in this queue with current filters.</div></td></tr>`;
+    const filtersActive = !!(filters.q.trim() || filters.vendors.size || filters.categories.size
+      || filters.methods.size || filters.locations.size || !filters.includePaid || filters.overdueOnly
+      || filters.dueWindowDays!=null || filters.dueFrom || filters.dueTo || filters.subFrom
+      || filters.subTo || filters.amtMin!=null || filters.amtMax!=null);
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty">No items in this queue${filtersActive ? " with current filters." : "."}
+      ${filtersActive ? `<div style="margin-top:10px"><button id="emptyClearBtn" class="btn small">Clear all filters</button></div>` : ""}
+    </div></td></tr>`;
+    const clearBtn=$("emptyClearBtn");
+    if(clearBtn) clearBtn.addEventListener("click", resetAll);
     return;
   }
 
@@ -1623,11 +1665,20 @@ function renderTable(){
     const meta = [r.categoryType, r.paymentMethod, r.location].map(x=>String(x||"").trim()).filter(Boolean).join(" • ");
     const preview = r.notes ? clampText(r.notes, 80) : "(no notes)";
     const tag = agingTag(r);
+    const dueIn = dueInDays(r);
 
-    const statusClass = r.status==="new" ? "s-new" : (r.status==="hold" ? "s-hold" : "s-paid");
+    // Second line under Due: aging bucket when overdue, paid date in the
+    // paid lane, or a quiet "in Nd" countdown for upcoming bills.
+    let dueSub;
+    if (tag) dueSub = `<div><span class="tag ${tag.cls}"><span class="dot"></span>${tag.label} days</span></div>`;
+    else if (r.status==="paid" && r.dateCompleted) dueSub = `<div><span class="tag t-ok"><span class="dot"></span>Paid ${escapeHtml(formatDate(r.dateCompleted))}</span></div>`;
+    else if (dueIn!=null) dueSub = `<div class="subLine2">${dueIn===0 ? "due today" : `in ${dueIn}d`}</div>`;
+    else dueSub = `<div style="height:14px"></div>`;
+
+    const requester = String(r.email||"").split("@")[0] || "—";
 
     return `
-      <tr class="${isActive ? "active" : ""}" data-id="${r.id}">
+      <tr class="${isActive ? "active" : ""}${over ? " overdue" : ""}" data-id="${r.id}">
         <td>
           <input type="checkbox" class="checkbox rowcheck" data-id="${r.id}" ${checked ? "checked" : ""} />
         </td>
@@ -1643,14 +1694,15 @@ function renderTable(){
         <td class="nowrap">
           <div style="display:flex; flex-direction:column; gap:6px">
             <div class="nowrap" style="font-weight:950">${escapeHtml(dueTxt)} ${over ? `<span class="tag t-risk" title="Overdue"><span class="dot"></span>Overdue</span>` : ""}</div>
-            ${tag.label!=="—" ? `<div><span class="tag ${tag.cls}"><span class="dot"></span>${tag.label}</span></div>` : `<div style="height:14px"></div>`}
+            ${dueSub}
           </div>
         </td>
         <td class="right"><span class="money">${escapeHtml(formatCurrency(r.amount))}</span></td>
-        <td>
-          <span class="status ${statusClass}">
-            <span class="dot"></span>${escapeHtml(r.status)}
-          </span>
+        <td class="nowrap">
+          <div style="display:flex; flex-direction:column; gap:3px">
+            <div style="font-weight:900">${escapeHtml(formatDate(r.submissionDate))}</div>
+            <div class="subLine" title="${escapeHtml(r.email||"")}">${escapeHtml(clampText(requester, 20))}</div>
+          </div>
         </td>
       </tr>
     `;
@@ -1719,7 +1771,14 @@ function renderDetail(){
 
   const over = overdueFlag(r);
   const tag = agingTag(r);
+  const dueIn = dueInDays(r);
   const statusClass = r.status==="new" ? "s-new" : (r.status==="hold" ? "s-hold" : "s-paid");
+
+  let agingCell;
+  if (tag) agingCell = `<span class="tag ${tag.cls}"><span class="dot"></span>${escapeHtml(tag.label)} days</span>`;
+  else if (r.status==="paid") agingCell = `<span class="tag t-ok"><span class="dot"></span>Paid${r.dateCompleted ? " "+escapeHtml(formatDate(r.dateCompleted)) : ""}</span>`;
+  else if (dueIn!=null) agingCell = dueIn===0 ? "Due today" : `Due in ${dueIn}d`;
+  else agingCell = "—";
 
   body.innerHTML = `
     <div class="cards">
@@ -1737,7 +1796,7 @@ function renderDetail(){
       </div>
       <div class="mini">
         <div class="k">Aging</div>
-        <div class="v">${tag.label==="—" ? "—" : `<span class="tag ${tag.cls}"><span class="dot"></span>${escapeHtml(tag.label)}</span>`}</div>
+        <div class="v">${agingCell}</div>
       </div>
     </div>
 
@@ -1779,7 +1838,7 @@ function renderDetail(){
                 <a class="file" href="${ensureAbsoluteUrl(f.url)}" data-name="${escapeHtml(f.name||'file')}" target="_blank" rel="noopener">
                   <div style="min-width:0">
                     <div class="name">${escapeHtml(f.name||f.url)}</div>
-                    <div class="meta">${escapeHtml(extOf(f.url).toUpperCase() || "FILE")}</div>
+                    <div class="meta">${escapeHtml(fileKindLabel(f.url))}</div>
                   </div>
                   <div class="meta">Preview ↗</div>
                 </a>
@@ -1789,10 +1848,6 @@ function renderDetail(){
       </div>
     </div>
 
-    <div class="section">
-      <h3>Debug</h3>
-      <div style="margin-top:10px"><span class="pill" style="background:var(--surface)"><span>ID</span> <b>${escapeHtml(r.id)}</b></span></div>
-    </div>
   `;
 
   $("copyBtn").addEventListener("click", ()=>{
@@ -1995,7 +2050,35 @@ document.querySelectorAll(".seg button").forEach(btn=>{
 
 $("sortBy").addEventListener("change",(e)=>{
   filters.sortBy = e.target.value || "smart";
+  filters.sortDir = null;
   applyAndRender();
+});
+
+// Column headers sort too (they always looked clickable — now they are):
+// first click = the column's natural direction, second click flips it.
+const SORT_INDICATOR_IDS = { vendor:"sVendor", due:"sDue", amount:"sAmount", submitted:"sSubmitted" };
+function renderSortIndicators(){
+  Object.entries(SORT_INDICATOR_IDS).forEach(([key,id])=>{
+    const el=$(id);
+    if(!el) return;
+    if(filters.sortBy!==key){ el.textContent=""; return; }
+    const dir = filters.sortDir || NATURAL_DIR[key];
+    el.textContent = dir==="asc" ? "▲" : "▼";
+  });
+}
+document.querySelectorAll("thead th.sortable").forEach(th=>{
+  th.addEventListener("click", ()=>{
+    const key=th.dataset.sort;
+    if(filters.sortBy===key){
+      const cur=filters.sortDir || NATURAL_DIR[key];
+      filters.sortDir = cur==="asc" ? "desc" : "asc";
+    }else{
+      filters.sortBy=key;
+      filters.sortDir=null;
+    }
+    $("sortBy").value = key;
+    applyAndRender();
+  });
 });
 
 $("selectAll").addEventListener("change",(e)=>{
@@ -2076,7 +2159,7 @@ function resetAll(){
   filters.amtMin=filters.amtMax=null;
   $("amtMin").value=""; $("amtMax").value="";
 
-  filters.sortBy="smart"; $("sortBy").value="smart";
+  filters.sortBy="smart"; filters.sortDir=null; $("sortBy").value="smart";
 
   selection.clear();
   $("selectAll").checked=false;
