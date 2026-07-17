@@ -9,9 +9,19 @@ on:
         default: true
         type: boolean
       file_path:
-        description: "Path to export file in this repo"
+        description: "Path to import file in this repo (raw sheet format or AP Workbench Export CSV — auto-detected)"
         required: true
         default: "data/legacy-payment-requests-pilot.csv"
+        type: string
+      unpaid_only:
+        description: "Only import unpaid rows (New + Hold queues)"
+        required: true
+        default: true
+        type: boolean
+      company_entity_id:
+        description: "Company UUID (blank = Baseballism)"
+        required: false
+        default: ""
         type: string
 
 jobs:
@@ -51,9 +61,14 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "dry_run=${{ inputs.dry_run }}"
-          echo "file_path=${{ inputs.file_path }}"
+          echo "dry_run=${{ inputs.dry_run }} file_path=${{ inputs.file_path }} unpaid_only=${{ inputs.unpaid_only }}"
           ARGS=(--file "${{ inputs.file_path }}")
+          if [ "${{ inputs.unpaid_only }}" = "true" ]; then
+            ARGS+=(--unpaid-only)
+          fi
+          if [ -n "${{ inputs.company_entity_id }}" ]; then
+            ARGS+=(--company "${{ inputs.company_entity_id }}")
+          fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)
           fi
