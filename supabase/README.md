@@ -79,11 +79,20 @@ Run in order:
 
 After migration **#9** is applied, use **GitHub Actions** (no local Node required):
 
+**Unpaid AP backlog (recommended — pulls live from the AP Workbench sheet):**
+
 1. GitHub → **Actions** → **Legacy Payment Requests Import** → **Run workflow**
-2. First run: `dry_run` = **true**, `file_path` = `data/legacy-payment-requests-pilot.csv`
-3. Check the job log for `wouldInsert` / `failed: 0`
-4. Second run: `dry_run` = **false** (same file) to import the 13 pilot rows
-5. Full export: upload your file to `data/imports/` via GitHub (see `data/imports/README.md`), then run the workflow with that path
+2. First run: `dry_run` = **true**, `source` = **sheet**, `unpaid_only` = **true**
+3. Check the job log: `Unpaid-only: kept N of M rows`, then per-row `would insert` lines, `failed: 0`
+4. Second run: same inputs with `dry_run` = **false** to import
+5. Re-running is safe — rows dedupe on the Jotform submission id (`legacy_external_id`); already-imported rows are skipped
+
+Imported rows land as `new` (or `needs_info` for Hold items) in Request Manager, stamped with the Baseballism `company_entity_id` and backdated `created_at` from the sheet's submission date.
+
+**File mode (original path):**
+
+1. Run the workflow with `source` = **file**, `file_path` = `data/legacy-payment-requests-pilot.csv` (or upload your file to `data/imports/` — see `data/imports/README.md`)
+2. Same dry-run-first flow as above
 
 Uses the same repo secrets as nightly sync: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 

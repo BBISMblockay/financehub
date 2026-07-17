@@ -9,8 +9,17 @@
 // Usage:
 //   node scripts/import-payment-requests-legacy.mjs --file /path/to/export.tsv --dry-run
 //   node scripts/import-payment-requests-legacy.mjs --file data/legacy-payment-requests-pilot.csv
+//   node scripts/import-payment-requests-legacy.mjs --from-sheet --unpaid-only --dry-run
 //
-// Default file (when --file omitted): data/legacy-payment-requests-pilot.csv
+// --from-sheet pulls rows live from the AP Workbench's Google Sheet (same
+// gviz endpoint accountspayable.html reads) instead of a repo file — no
+// manual export step, and none of the header drift the page's own Export
+// CSV has ("Email" vs "Your Email" etc.).
+// --unpaid-only keeps only rows whose Completed column is NOT paid/submitted
+// (i.e. the New + Hold queues) — the open AP backlog.
+//
+// Default file (when --file omitted and --from-sheet not set):
+//   data/legacy-payment-requests-pilot.csv
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -23,6 +32,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 
 const LEGACY_SOURCE = "jotform_wpv_export";
+
+// Same sheet accountspayable.html reads.
+const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
+const SHEET_GID = "0";
+const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tqx=out:json`;
+
+// Rows must carry the company explicitly: the stamp_company_entity_id
+// trigger resolves active_company_id() from auth.uid(), which is null for
+// the service role — without this the imported rows would have a NULL
+// company_entity_id and be invisible to every RLS-scoped user. (The 13
+// pilot rows only have one because the 2026-06-16 multi-tenant backfill
+// ran after that import.)
+const DEFAULT_COMPANY_ENTITY_ID = "3bd934c9-4cdd-429b-9076-f8f6b45d4eb7"; // Baseballism
 
 const REQUEST_TYPE_MAP = {
   "employee reimbursement": "employee_reimbursement",
@@ -41,11 +63,16 @@ const PAYMENT_TYPE_MAP = {
 };
 
 function parseArgs(argv) {
-  const args = { file: null, dryRun: false };
+  const args = { file: null, dryRun: false, fromSheet: false, unpaidOnly: false, company: null };
   for (let i = 2; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--dry-run") args.dryRun = true;
-    else if (token === "--file") {
+    else if (token === "--from-sheet") args.fromSheet = true;
+    else if (token === "--unpaid-only") args.unpaidOnly = true;
+    else if (token === "--company") {
+      args.company = argv[i + 1];
+      i += 1;
+    } else if (token === "--file") {
       args.file = argv[i + 1];
       i += 1;
     } else if (token === "--help" || token === "-h") {
@@ -57,7 +84,7 @@ function parseArgs(argv) {
 
 function usage() {
   console.log(`Usage:
-  node scripts/import-payment-requests-legacy.mjs [--file <path>] [--dry-run]
+  node scripts/import-payment-requests-legacy.mjs [--file <path> | --from-sheet] [--unpaid-only] [--company <uuid>] [--dry-run]
 
 Env:
   SUPABASE_URL
@@ -94,7 +121,10 @@ function parseMoney(value) {
 function parseSubmissionDate(value) {
   const text = cleanText(value);
   if (!text) return null;
-  const d = new Date(text.replace(" ", "T"));
+  // ISO-ish "2026-05-27 09:15:22" needs the T; US-format sheet dates
+  // ("7/1/2026 10:00:00") parse as-is and break with it.
+  let d = new Date(text.replace(" ", "T"));
+  if (Number.isNaN(d.getTime())) d = new Date(text);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
@@ -135,12 +165,23 @@ function mapPaymentType(value) {
   return PAYMENT_TYPE_MAP[key] || "other";
 }
 
+// Mirrors accountspayable.html's mapCompletionToStatus: paid/submitted are
+// closed; "hold" is an open item waiting on something → needs_info in SILO
+// (previously imported as plain "new", losing the hold signal); everything
+// else is a new open request.
 function mapCompleted(value) {
   const key = String(value || "").trim().toLowerCase();
-  if (key === "paid" || key === "yes" || key === "true" || key === "completed") {
+  if (key === "paid" || key === "yes" || key === "true" || key === "completed" || key.includes("paid") || key.includes("submitted")) {
     return { completed: true, workflow_status: "paid" };
   }
+  if (key.includes("hold")) {
+    return { completed: false, workflow_status: "needs_info" };
+  }
   return { completed: false, workflow_status: "new" };
+}
+
+export function isPaidRow(row) {
+  return mapCompleted(row.Completed).completed;
 }
 
 function parseFileUrls(value) {
@@ -217,7 +258,67 @@ function readExportRows(filePath) {
   return parsed.data;
 }
 
-function buildRequestPayload(row) {
+/* ------------------------------------------------------------------
+   Live sheet mode (gviz) — same endpoint accountspayable.html reads.
+------------------------------------------------------------------- */
+function parseGViz(text) {
+  const s = text.indexOf("{");
+  const e = text.lastIndexOf("}");
+  return s >= 0 && e >= 0 ? JSON.parse(text.slice(s, e + 1)) : null;
+}
+
+/** Convert a gviz table to the keyed-row shape the CSV path produces.
+ * Duplicate header labels get " 2", " 3"… suffixes — the sheet has two
+ * "Type" columns (category, then payment method), which the CSV pilot file
+ * disambiguated the same way. Date cells prefer the formatted string (`f`)
+ * because raw gviz date values serialize as "Date(2026,6,17)". */
+export function gvizToRows(json) {
+  const cols = json?.table?.cols || [];
+  const seen = new Map();
+  const keys = cols.map((c) => {
+    const label = String(c.label || "").trim();
+    const n = (seen.get(label) || 0) + 1;
+    seen.set(label, n);
+    return n === 1 ? label : `${label} ${n}`;
+  });
+  return (json?.table?.rows || []).map((r) => {
+    const out = {};
+    (r.c || []).forEach((cellValue, i) => {
+      if (!keys[i]) return;
+      let v = cellValue ? (cellValue.v ?? "") : "";
+      if (typeof v === "string" && /^Date\(/.test(v)) v = cellValue.f ?? v;
+      else if (v instanceof Object) v = cellValue.f ?? String(v);
+      else if (cellValue && cellValue.f != null && v === "") v = cellValue.f;
+      out[keys[i]] = v;
+    });
+    return out;
+  }).filter((row) => {
+    const vendor = String(row.Vendor || row["*Vendor Name if not listed above *"] || "").trim();
+    return vendor && vendor !== "Submission Date";
+  });
+}
+
+async function fetchSheetRows() {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const res = await fetch(`${GVIZ_URL}&_=${Date.now()}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) throw new Error(`gviz fetch ${res.status}`);
+      const json = parseGViz(await res.text());
+      if (!json?.table?.rows?.length) throw new Error("No rows from gviz");
+      return gvizToRows(json);
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  throw lastErr;
+}
+
+export function buildRequestPayload(row, { companyEntityId = DEFAULT_COMPANY_ENTITY_ID } = {}) {
   const vendorListed = cleanText(row.Vendor);
   const vendorManual = cleanText(row["*Vendor Name if not listed above *"]);
   const displayVendor = vendorManual || vendorListed || "Unknown vendor";
@@ -254,6 +355,7 @@ function buildRequestPayload(row) {
       completed: completedState.completed,
       date_completed: completedState.completed ? parseCompletedDate(row["Date Completed"]) : null,
       priority: "normal",
+      company_entity_id: companyEntityId,
       legacy_source: LEGACY_SOURCE,
       legacy_url: legacyUrl,
       legacy_external_id: legacyExternalId,
@@ -350,11 +452,26 @@ async function main() {
     return;
   }
 
-  const filePath = args.file || path.join(ROOT, "data/legacy-payment-requests-pilot.csv");
   const dryRun = args.dryRun;
+  const companyEntityId = args.company || DEFAULT_COMPANY_ENTITY_ID;
 
-  const rows = readExportRows(filePath);
-  console.log(`Read ${rows.length} row(s) from ${path.resolve(filePath)}`);
+  let rows;
+  if (args.fromSheet) {
+    rows = await fetchSheetRows();
+    console.log(`Read ${rows.length} row(s) live from the AP sheet (gviz)`);
+  } else {
+    const filePath = args.file || path.join(ROOT, "data/legacy-payment-requests-pilot.csv");
+    rows = readExportRows(filePath);
+    console.log(`Read ${rows.length} row(s) from ${path.resolve(filePath)}`);
+  }
+
+  if (args.unpaidOnly) {
+    const before = rows.length;
+    rows = rows.filter((row) => !isPaidRow(row));
+    console.log(`Unpaid-only: kept ${rows.length} of ${before} rows (dropped paid/submitted)`);
+  }
+
+  console.log(`Company: ${companyEntityId}`);
   console.log(dryRun ? "DRY RUN — no database writes" : "LIVE IMPORT");
 
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -382,7 +499,7 @@ async function main() {
   for (const [index, row] of rows.entries()) {
     const label = `Row ${index + 1}`;
     try {
-      const built = buildRequestPayload(row);
+      const built = buildRequestPayload(row, { companyEntityId });
       if (!built.request.amount_due && built.request.amount_due !== 0) {
         throw new Error("missing or invalid Amount Due");
       }
@@ -428,7 +545,10 @@ async function main() {
   if (summary.failed > 0) process.exitCode = 1;
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only auto-run when executed directly — lets tests import gvizToRows etc.
+if (process.argv[1] && import.meta.url === new URL(`file://${path.resolve(process.argv[1])}`).href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
