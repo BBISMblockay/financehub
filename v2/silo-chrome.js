@@ -166,12 +166,6 @@
         </nav>
 
         <div class="silo-sb-footer">
-          <div class="silo-sb-health" data-silo-health>
-            <div><span class="bcn-dot bcn-dot--pos"></span>SUPABASE</div>
-            <div><span class="bcn-dot bcn-dot--pos"></span>SHOPIFY</div>
-            <div><span class="bcn-dot bcn-dot--warn"></span>AR · 6H</div>
-            <div><span class="bcn-dot bcn-dot--pos"></span>SHEETS</div>
-          </div>
           <div class="silo-sb-user">
             <div class="silo-sb-avatar">${escHtml((user && user.email || 'U').slice(0,2).toUpperCase())}</div>
             <div class="silo-sb-user-text">
@@ -202,12 +196,6 @@
         </button>
         <div class="silo-crumbs">${crumbs}</div>
         <div class="silo-utility-spacer"></div>
-        <div class="silo-status" data-silo-utility-status>
-          <span><span class="bcn-dot bcn-dot--pos"></span>SUPABASE OK</span>
-          <span><span class="bcn-dot bcn-dot--pos"></span>SHOPIFY 200</span>
-          <span><span class="bcn-dot bcn-dot--warn"></span>AR · 6H STALE</span>
-          <span style="color:var(--bcn-ink-4)" data-silo-last-sync>LAST SYNC ${nowHHMM()}</span>
-        </div>
         <div class="silo-utility-divider"></div>
         <span class="bcn-pill" data-silo-rls>RLS · ${escHtml(opts.user && opts.user.role || 'MEMBER')}</span>
         <button class="silo-icon-btn" type="button" data-silo-action="theme" aria-label="Toggle theme" data-silo-theme-icon>${ICONS.moon}</button>
@@ -219,11 +207,6 @@
         </button>
       </div>
     `;
-  }
-
-  function nowHHMM() {
-    const d = new Date();
-    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
   }
 
   function mount(opts) {
@@ -331,20 +314,7 @@
       }
     });
 
-    return {
-      setLastSync(text) {
-        const el = mainEl && mainEl.querySelector('[data-silo-last-sync]');
-        if (el) el.textContent = text;
-      },
-      setHealth(items) {
-        // items: [{ label, state: 'pos'|'neg'|'warn' }, …]
-        const host = sidebar.querySelector('[data-silo-health]');
-        if (!host) return;
-        host.innerHTML = items.map(i => `
-          <div><span class="bcn-dot bcn-dot--${escHtml(i.state)}"></span>${escHtml(i.label)}</div>
-        `).join('');
-      },
-    };
+    return {};
   }
 
   function toggleCollapse(appEl) {
