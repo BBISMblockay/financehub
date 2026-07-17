@@ -8,24 +8,16 @@ on:
         required: true
         default: true
         type: boolean
-      source:
-        description: "Where to read rows from"
+      file_path:
+        description: "Path to import file in this repo (raw sheet format or AP Workbench Export CSV — auto-detected)"
         required: true
-        default: "sheet"
-        type: choice
-        options:
-          - sheet
-          - file
+        default: "data/legacy-payment-requests-pilot.csv"
+        type: string
       unpaid_only:
         description: "Only import unpaid rows (New + Hold queues)"
         required: true
         default: true
         type: boolean
-      file_path:
-        description: "Path to export file in this repo (source=file only)"
-        required: false
-        default: "data/legacy-payment-requests-pilot.csv"
-        type: string
       company_entity_id:
         description: "Company UUID (blank = Baseballism)"
         required: false
@@ -56,7 +48,6 @@ jobs:
           echo "Supabase env vars present"
 
       - name: Verify import file exists
-        if: ${{ inputs.source == 'file' }}
         run: |
           FILE="${{ inputs.file_path }}"
           test -f "$FILE" || (echo "File not found in repo: $FILE" && exit 1)
@@ -70,13 +61,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "dry_run=${{ inputs.dry_run }} source=${{ inputs.source }} unpaid_only=${{ inputs.unpaid_only }}"
-          ARGS=()
-          if [ "${{ inputs.source }}" = "sheet" ]; then
-            ARGS+=(--from-sheet)
-          else
-            ARGS+=(--file "${{ inputs.file_path }}")
-          fi
+          echo "dry_run=${{ inputs.dry_run }} file_path=${{ inputs.file_path }} unpaid_only=${{ inputs.unpaid_only }}"
+          ARGS=(--file "${{ inputs.file_path }}")
           if [ "${{ inputs.unpaid_only }}" = "true" ]; then
             ARGS+=(--unpaid-only)
           fi

@@ -8,18 +8,17 @@
 //
 // Usage:
 //   node scripts/import-payment-requests-legacy.mjs --file /path/to/export.tsv --dry-run
-//   node scripts/import-payment-requests-legacy.mjs --file data/legacy-payment-requests-pilot.csv
-//   node scripts/import-payment-requests-legacy.mjs --from-sheet --unpaid-only --dry-run
+//   node scripts/import-payment-requests-legacy.mjs --file data/imports/ap-unpaid.csv --unpaid-only --dry-run
 //
-// --from-sheet pulls rows live from the AP Workbench's Google Sheet (same
-// gviz endpoint accountspayable.html reads) instead of a repo file — no
-// manual export step, and none of the header drift the page's own Export
-// CSV has ("Email" vs "Your Email" etc.).
+// Accepts BOTH file formats:
+//   - the raw Jotform-sheet header layout (the original pilot format), and
+//   - the AP Workbench's own Export CSV (accountspayable.html → Export) —
+//     detected automatically and normalized ("Email" → "Your Email" etc.),
+//     so you can curate the exact import set on the AP page and upload it.
 // --unpaid-only keeps only rows whose Completed column is NOT paid/submitted
 // (i.e. the New + Hold queues) — the open AP backlog.
 //
-// Default file (when --file omitted and --from-sheet not set):
-//   data/legacy-payment-requests-pilot.csv
+// Default file (when --file omitted): data/legacy-payment-requests-pilot.csv
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -32,11 +31,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 
 const LEGACY_SOURCE = "jotform_wpv_export";
-
-// Same sheet accountspayable.html reads.
-const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
-const SHEET_GID = "0";
-const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tqx=out:json`;
 
 // Rows must carry the company explicitly: the stamp_company_entity_id
 // trigger resolves active_company_id() from auth.uid(), which is null for
@@ -63,11 +57,10 @@ const PAYMENT_TYPE_MAP = {
 };
 
 function parseArgs(argv) {
-  const args = { file: null, dryRun: false, fromSheet: false, unpaidOnly: false, company: null };
+  const args = { file: null, dryRun: false, unpaidOnly: false, company: null };
   for (let i = 2; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--dry-run") args.dryRun = true;
-    else if (token === "--from-sheet") args.fromSheet = true;
     else if (token === "--unpaid-only") args.unpaidOnly = true;
     else if (token === "--company") {
       args.company = argv[i + 1];
@@ -84,7 +77,7 @@ function parseArgs(argv) {
 
 function usage() {
   console.log(`Usage:
-  node scripts/import-payment-requests-legacy.mjs [--file <path> | --from-sheet] [--unpaid-only] [--company <uuid>] [--dry-run]
+  node scripts/import-payment-requests-legacy.mjs [--file <path>] [--unpaid-only] [--company <uuid>] [--dry-run]
 
 Env:
   SUPABASE_URL
@@ -118,9 +111,19 @@ function parseMoney(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+// The AP Workbench export writes date cells as the sheet's raw gviz value,
+// which serializes as "Date(2026,6,20)" — note the 0-based month.
+function parseGvizDateLiteral(text) {
+  const m = String(text || "").match(/^Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})(?:,\s*(\d{1,2}),\s*(\d{1,2}),\s*(\d{1,2}))?\)$/i);
+  if (!m) return null;
+  return new Date(+m[1], +m[2], +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+}
+
 function parseSubmissionDate(value) {
   const text = cleanText(value);
   if (!text) return null;
+  const gviz = parseGvizDateLiteral(text);
+  if (gviz) return gviz.toISOString();
   // ISO-ish "2026-05-27 09:15:22" needs the T; US-format sheet dates
   // ("7/1/2026 10:00:00") parse as-is and break with it.
   let d = new Date(text.replace(" ", "T"));
@@ -131,6 +134,13 @@ function parseSubmissionDate(value) {
 function parseDueDate(value) {
   const text = cleanText(value);
   if (!text) return null;
+
+  const gviz = parseGvizDateLiteral(text);
+  if (gviz) {
+    const mm = String(gviz.getMonth() + 1).padStart(2, "0");
+    const dd = String(gviz.getDate()).padStart(2, "0");
+    return `${gviz.getFullYear()}-${mm}-${dd}`;
+  }
 
   const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
@@ -259,63 +269,38 @@ function readExportRows(filePath) {
 }
 
 /* ------------------------------------------------------------------
-   Live sheet mode (gviz) — same endpoint accountspayable.html reads.
+   AP Workbench export support.
+   The AP Manager's "Export" button writes a CSV with its own header set
+   ("Email" instead of "Your Email", "Notes" instead of "Note & Comments",
+   files pipe-joined instead of newline-separated, "Edit Link" instead of
+   "Get Page URL"). Detect that shape and normalize each row to the raw
+   Jotform-sheet keys buildRequestPayload expects, so the file you curate
+   on the AP page imports without silent field mis-mapping.
 ------------------------------------------------------------------- */
-function parseGViz(text) {
-  const s = text.indexOf("{");
-  const e = text.lastIndexOf("}");
-  return s >= 0 && e >= 0 ? JSON.parse(text.slice(s, e + 1)) : null;
+const WORKBENCH_HEADER_MAP = {
+  "Category Type": "Type",
+  "Payment Method": "Type 2",
+  "Flex ID": "Flex ID#",
+  "Internal PO": "Internal PO #",
+  "Email": "Your Email",
+  "Notes": "Note & Comments",
+  "Edit Link": "Get Page URL", // both carry the Jotform submission id for dedupe
+};
+
+export function isWorkbenchExportRow(row) {
+  return ("Category Type" in row || "Payment Method" in row) && !("Type 2" in row);
 }
 
-/** Convert a gviz table to the keyed-row shape the CSV path produces.
- * Duplicate header labels get " 2", " 3"… suffixes — the sheet has two
- * "Type" columns (category, then payment method), which the CSV pilot file
- * disambiguated the same way. Date cells prefer the formatted string (`f`)
- * because raw gviz date values serialize as "Date(2026,6,17)". */
-export function gvizToRows(json) {
-  const cols = json?.table?.cols || [];
-  const seen = new Map();
-  const keys = cols.map((c) => {
-    const label = String(c.label || "").trim();
-    const n = (seen.get(label) || 0) + 1;
-    seen.set(label, n);
-    return n === 1 ? label : `${label} ${n}`;
-  });
-  return (json?.table?.rows || []).map((r) => {
-    const out = {};
-    (r.c || []).forEach((cellValue, i) => {
-      if (!keys[i]) return;
-      let v = cellValue ? (cellValue.v ?? "") : "";
-      if (typeof v === "string" && /^Date\(/.test(v)) v = cellValue.f ?? v;
-      else if (v instanceof Object) v = cellValue.f ?? String(v);
-      else if (cellValue && cellValue.f != null && v === "") v = cellValue.f;
-      out[keys[i]] = v;
-    });
-    return out;
-  }).filter((row) => {
-    const vendor = String(row.Vendor || row["*Vendor Name if not listed above *"] || "").trim();
-    return vendor && vendor !== "Submission Date";
-  });
-}
-
-async function fetchSheetRows() {
-  let lastErr;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const res = await fetch(`${GVIZ_URL}&_=${Date.now()}`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!res.ok) throw new Error(`gviz fetch ${res.status}`);
-      const json = parseGViz(await res.text());
-      if (!json?.table?.rows?.length) throw new Error("No rows from gviz");
-      return gvizToRows(json);
-    } catch (err) {
-      lastErr = err;
-      await new Promise((r) => setTimeout(r, 2000));
-    }
+export function normalizeWorkbenchRow(row) {
+  const out = { ...row };
+  for (const [from, to] of Object.entries(WORKBENCH_HEADER_MAP)) {
+    if (from in out && !(to in out)) out[to] = out[from];
   }
-  throw lastErr;
+  // Export joins file URLs with " | "; the raw sheet separates with newlines.
+  if (out.Files != null && out["File Upload"] == null) {
+    out["File Upload"] = String(out.Files).split(/\s*\|\s*/).join("\n");
+  }
+  return out;
 }
 
 export function buildRequestPayload(row, { companyEntityId = DEFAULT_COMPANY_ENTITY_ID } = {}) {
@@ -455,14 +440,13 @@ async function main() {
   const dryRun = args.dryRun;
   const companyEntityId = args.company || DEFAULT_COMPANY_ENTITY_ID;
 
-  let rows;
-  if (args.fromSheet) {
-    rows = await fetchSheetRows();
-    console.log(`Read ${rows.length} row(s) live from the AP sheet (gviz)`);
-  } else {
-    const filePath = args.file || path.join(ROOT, "data/legacy-payment-requests-pilot.csv");
-    rows = readExportRows(filePath);
-    console.log(`Read ${rows.length} row(s) from ${path.resolve(filePath)}`);
+  const filePath = args.file || path.join(ROOT, "data/legacy-payment-requests-pilot.csv");
+  let rows = readExportRows(filePath);
+  console.log(`Read ${rows.length} row(s) from ${path.resolve(filePath)}`);
+
+  if (rows.length && isWorkbenchExportRow(rows[0])) {
+    rows = rows.map(normalizeWorkbenchRow);
+    console.log("Detected AP Workbench export format — headers normalized");
   }
 
   if (args.unpaidOnly) {
