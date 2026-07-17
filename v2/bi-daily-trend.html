@@ -38,7 +38,8 @@
 
     /* ---- Chart ---- */
     .dt-chart-wrap { position:relative; width:100%; }
-    .dt-chart-wrap svg { display:block; width:100%; height:auto; overflow:visible; }
+    .dt-chart-wrap svg { display:block; width:100%; overflow:visible; }
+    .dt-line-ma { fill:none; stroke:var(--bcn-warn); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; opacity:.85; }
     .dt-gridline { stroke:var(--bcn-border); stroke-width:1; }
     .dt-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
     .dt-line-cur { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
@@ -55,6 +56,9 @@
     .dt-legend-key { display:inline-block; width:18px; height:0; border-top:2px solid; }
     .dt-legend-key.cur { border-color:var(--bcn-accent); border-top-style:solid; }
     .dt-legend-key.py  { border-color:var(--bcn-ink-3); border-top-style:dashed; }
+    .dt-legend-key.ma  { border-color:var(--bcn-warn); border-top-style:solid; }
+    .dt-legend-item.off { opacity:.35; }
+    .dt-legend-item.clickable { cursor:pointer; user-select:none; }
 
     .dt-tooltip {
       position:absolute; pointer-events:none; z-index:5;
@@ -69,15 +73,24 @@
     .dt-tooltip .tt-key { width:10px; height:2px; border-radius:1px; }
     .dt-tooltip .tt-key.cur { background:var(--bcn-accent); }
     .dt-tooltip .tt-key.py  { background:var(--bcn-ink-3); }
-    .dt-tooltip .tt-val { font-weight:700; margin-left:auto; }
+    .dt-tooltip .tt-key.var { background:transparent; }
+    .dt-tooltip .tt-val { font-weight:700; margin-left:auto; padding-left:14px; }
+    .dt-tooltip .tt-val.pos { color:oklch(0.82 0.16 150); }
+    .dt-tooltip .tt-val.neg { color:oklch(0.78 0.16 25); }
 
-    .dt-table-wrap { display:none; overflow:auto; max-height:340px; }
+    .dt-table-wrap { display:none; overflow:auto; max-height:clamp(340px, 55vh, 760px); margin-top:12px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); }
     .dt-table-wrap.show { display:block; }
     .dt-tbl { width:100%; border-collapse:collapse; }
-    .dt-tbl th { padding:6px 10px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3); border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken); text-align:right; position:sticky; top:0; }
+    .dt-tbl th { padding:7px 12px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3); border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken); text-align:right; position:sticky; top:0; z-index:1; }
     .dt-tbl th:first-child { text-align:left; }
-    .dt-tbl td { padding:6px 10px; font-size:11.5px; font-family:var(--bcn-mono); text-align:right; border-bottom:1px solid var(--bcn-border); font-variant-numeric:tabular-nums; }
+    .dt-tbl td { padding:6px 12px; font-size:11.5px; font-family:var(--bcn-mono); text-align:right; border-bottom:1px solid var(--bcn-border); font-variant-numeric:tabular-nums; }
     .dt-tbl td:first-child { text-align:left; font-family:var(--bcn-font); }
+    .dt-tbl tbody tr:nth-child(even) td { background:var(--bcn-sunken); }
+    .dt-tbl .dt-var-pos { color:var(--bcn-pos, #16a34a); font-weight:600; }
+    .dt-tbl .dt-var-neg { color:var(--bcn-neg, #dc2626); font-weight:600; }
+    .dt-tbl .dt-day-sub { color:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); margin-left:6px; }
+    .dt-tbl tr.dt-total-row td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:1px solid var(--bcn-border-strong); position:sticky; top:29px; z-index:1; }
+    .dt-tbl tr.dt-total-row td:first-child { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em; }
     .dt-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
   </style>
 </head>
@@ -145,8 +158,9 @@
           <div class="dt-legend" style="margin-left:auto">
             <div class="dt-legend-item"><span class="dt-legend-key cur"></span>Current period</div>
             <div class="dt-legend-item"><span class="dt-legend-key py"></span>Prior year (same day offset)</div>
+            <div class="dt-legend-item clickable" id="btnToggleMa" title="Toggle 7-day moving average"><span class="dt-legend-key ma"></span>7-day avg</div>
           </div>
-          <button id="btnToggleTable" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">View as table</button>
+          <button id="btnToggleTable" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Show table</button>
           <button id="btnExport" class="bcn-btn bcn-btn--ghost" style="margin-left:6px">Export CSV</button>
         </div>
         <div class="bcn-card-body">
@@ -204,12 +218,13 @@
 
   const state = {
     groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all',
-    days:[], showTable:false,
+    days:[], showTable:false, showMa:true,
   };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
     btnToggleTable: document.getElementById('btnToggleTable'),
+    btnToggleMa: document.getElementById('btnToggleMa'),
     btnExport: document.getElementById('btnExport'),
     dateFrom: document.getElementById('dateFrom'),
     dateTo: document.getElementById('dateTo'),
@@ -328,6 +343,14 @@
     if (!curRowsRaw) return;
     const curDays = aggregateByDay(curRowsRaw,curFrom,curTo);
     const pyDays  = aggregateByDay(pyRowsRaw,pyFrom,pyTo);
+    // Trailing all-zero days are "not synced yet" (today lands with the next
+    // nightly sync), not real zeros — drop them so the line doesn't plunge
+    // to $0 at the right edge every day.
+    while (curDays.length > 1){
+      const last = curDays[curDays.length-1];
+      if (last.net===0 && last.qty===0 && last.discounts===0){ curDays.pop(); pyDays.pop(); }
+      else break;
+    }
     state.days = curDays.map((c,i)=>({ day:c.day, net:c.net, qty:c.qty, discounts:c.discounts, pyNet:pyDays[i]?.net??0, pyQty:pyDays[i]?.qty??0, pyDiscounts:pyDays[i]?.discounts??0 }));
     renderAll();
     setStatus(`Loaded ${state.days.length} days (${curFrom} → ${curTo}), ${curRowsRaw.length} rows scanned.`);
@@ -398,16 +421,46 @@
     el.kpiDayCount.textContent = numFmt(days.length);
   }
 
+  const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const varCell = v => v==null ? '—'
+    : `<span class="${v>=0?'dt-var-pos':'dt-var-neg'}">${v>0?'+':''}${v.toFixed(1)}%</span>`;
+
   function renderTable(){
     const k=metricKey(), days=state.days;
     if (!days.length){ el.tableBody.innerHTML=`<tr><td colspan="4" class="dt-empty">No data.</td></tr>`; return; }
-    el.tableBody.innerHTML = days.map(d=>{
+    const sumCur=days.reduce((a,d)=>a+d[k.cur],0), sumPy=days.reduce((a,d)=>a+d[k.py],0);
+    const totalVar = sumPy ? ((sumCur-sumPy)/Math.abs(sumPy))*100 : null;
+    const totalRow = `<tr class="dt-total-row"><td>PERIOD TOTAL</td><td>${fmtVal(sumCur)}</td><td>${fmtVal(sumPy)}</td><td>${varCell(totalVar)}</td></tr>`;
+    // Newest first — the table is for "what happened lately", the chart
+    // already tells the chronological story.
+    const rows = [...days].reverse().map(d=>{
       const cur=d[k.cur], py=d[k.py];
       const v = py ? ((cur-py)/Math.abs(py))*100 : null;
-      return `<tr><td>${d.day}</td><td>${fmtVal(cur)}</td><td>${fmtVal(py)}</td><td>${v==null?'—':`${v>0?'+':''}${v.toFixed(1)}%`}</td></tr>`;
+      const dow = WEEKDAYS[new Date(`${d.day}T00:00:00`).getDay()];
+      return `<tr><td>${d.day}<span class="dt-day-sub">${dow}</span></td><td>${fmtVal(cur)}</td><td>${fmtVal(py)}</td><td>${varCell(v)}</td></tr>`;
     }).join('');
+    el.tableBody.innerHTML = totalRow + rows;
   }
 
+  // Compact axis labels: "$151K" / "12.5K" instead of "$151,048".
+  const fmtCompact = v => el.metricMode.value==='units'
+    ? new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(Number(v||0))
+    : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',notation:'compact',maximumFractionDigits:1}).format(Number(v||0));
+
+  function movingAvg(vals, windowSize=7){
+    const out=[]; let sum=0;
+    for (let i=0;i<vals.length;i++){
+      sum += vals[i];
+      if (i>=windowSize) sum -= vals[i-windowSize];
+      out.push(sum / Math.min(i+1, windowSize));
+    }
+    return out;
+  }
+
+  // Chart draws in CSS-pixel space at the container's real width (viewBox ==
+  // rendered size, 1:1) instead of stretching a fixed 1000-unit canvas — so
+  // text stays 10px-crisp and the chart keeps a sane height at any window
+  // width or browser zoom. A ResizeObserver re-renders on width change.
   function renderChart(){
     const k=metricKey(), days=state.days;
     el.chartWrap.querySelectorAll('svg,.dt-tooltip').forEach(n=>n.remove());
@@ -417,7 +470,9 @@
     }
     el.chartEmpty.style.display='none';
 
-    const W=1000, H=340, padL=64, padR=20, padT=16, padB=32;
+    lastDrawnW = Math.round(el.chartWrap.clientWidth || 0);
+    const W = Math.max(480, lastDrawnW || 960);
+    const H = 340, padL=58, padR=20, padT=16, padB=30;
     const plotW=W-padL-padR, plotH=H-padT-padB;
     const n=days.length;
     const maxVal = Math.max(1, ...days.map(d=>Math.max(d[k.cur],d[k.py])));
@@ -431,6 +486,8 @@
 
     const curPts = days.map((d,i)=>[x(i),y(d[k.cur])]);
     const pyPts  = days.map((d,i)=>[x(i),y(d[k.py])]);
+    const maVals = movingAvg(days.map(d=>d[k.cur]));
+    const maPts  = maVals.map((v,i)=>[x(i),y(v)]);
     const pathOf = pts => pts.map((p,i)=>`${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
     const areaOf = pts => `${pathOf(pts)} L${pts[pts.length-1][0].toFixed(1)},${(padT+plotH).toFixed(1)} L${pts[0][0].toFixed(1)},${(padT+plotH).toFixed(1)} Z`;
 
@@ -440,10 +497,16 @@
       const v = niceMax*(s/gridSteps);
       const gy = y(v);
       gridSvg += `<line class="dt-gridline" x1="${padL}" y1="${gy.toFixed(1)}" x2="${W-padR}" y2="${gy.toFixed(1)}" />`;
-      axisSvg += `<text class="dt-axis-label" x="${padL-8}" y="${(gy+3).toFixed(1)}" text-anchor="end">${fmtValW(v)}</text>`;
+      axisSvg += `<text class="dt-axis-label" x="${padL-8}" y="${(gy+3).toFixed(1)}" text-anchor="end">${fmtCompact(v)}</text>`;
     }
-    const xTickIdx = [0, Math.floor((n-1)/2), n-1].filter((v,i,a)=>a.indexOf(v)===v);
-    for (const i of xTickIdx){
+    // ~1 tick per 120px, clamped 2..10, always including first and last day.
+    const tickTarget = Math.max(2, Math.min(10, Math.floor(plotW/120)));
+    const tickStep = Math.max(1, Math.round((n-1)/tickTarget));
+    const xTickIdx = new Set([0, n-1]);
+    for (let i=tickStep; i<n-1; i+=tickStep){
+      if (n-1-i >= tickStep/2) xTickIdx.add(i);
+    }
+    for (const i of [...xTickIdx].sort((a,b)=>a-b)){
       axisSvg += `<text class="dt-axis-label" x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle">${days[i].day.slice(5)}</text>`;
     }
 
@@ -451,15 +514,17 @@
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
     svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-    svg.setAttribute('preserveAspectRatio','none');
+    svg.setAttribute('width','100%');
+    svg.setAttribute('height',H);
     svg.innerHTML = `
       ${gridSvg}
       <path class="dt-area-cur" d="${areaOf(curPts)}" />
       <path class="dt-line-py" d="${pathOf(pyPts)}" />
+      ${state.showMa && n>=3 ? `<path class="dt-line-ma" d="${pathOf(maPts)}" />` : ''}
       <path class="dt-line-cur" d="${pathOf(curPts)}" />
-      <circle class="dt-dot-py" cx="${lastPy[0].toFixed(1)}" cy="${lastPy[1].toFixed(1)}" r="4.5" />
-      <circle class="dt-dot-cur" cx="${lastCur[0].toFixed(1)}" cy="${lastCur[1].toFixed(1)}" r="4.5" />
-      <text class="dt-endlabel" x="${(lastCur[0]-4).toFixed(1)}" y="${(lastCur[1]-10).toFixed(1)}" text-anchor="end" fill="var(--bcn-accent)">${fmtValW(days[n-1][k.cur])}</text>
+      <circle class="dt-dot-py" cx="${lastPy[0].toFixed(1)}" cy="${lastPy[1].toFixed(1)}" r="4" />
+      <circle class="dt-dot-cur" cx="${lastCur[0].toFixed(1)}" cy="${lastCur[1].toFixed(1)}" r="4" />
+      <text class="dt-endlabel" x="${(lastCur[0]-4).toFixed(1)}" y="${(lastCur[1]-10).toFixed(1)}" text-anchor="end" fill="var(--bcn-accent)">${fmtCompact(days[n-1][k.cur])}</text>
       ${axisSvg}
       <line class="dt-crosshair" id="dtCrosshair" x1="0" y1="${padT}" x2="0" y2="${padT+plotH}" style="display:none" />
       <rect class="dt-hit" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" id="dtHit" />
@@ -481,21 +546,36 @@
     }
     function showTooltip(i,evt){
       const d=days[i];
+      const cur=d[k.cur], py=d[k.py];
+      const varPct = py ? ((cur-py)/Math.abs(py))*100 : null;
       crosshair.style.display='block';
       crosshair.setAttribute('x1',x(i).toFixed(1)); crosshair.setAttribute('x2',x(i).toFixed(1));
       tooltip.innerHTML = `<div class="tt-date">${d.day}</div>
-        <div class="tt-row"><span class="tt-key cur"></span>Current<span class="tt-val">${fmtVal(d[k.cur])}</span></div>
-        <div class="tt-row"><span class="tt-key py"></span>Prior year<span class="tt-val">${fmtVal(d[k.py])}</span></div>`;
+        <div class="tt-row"><span class="tt-key cur"></span>Current<span class="tt-val">${fmtVal(cur)}</span></div>
+        <div class="tt-row"><span class="tt-key py"></span>Prior year<span class="tt-val">${fmtVal(py)}</span></div>
+        <div class="tt-row"><span class="tt-key var"></span>vs LY<span class="tt-val ${varPct>=0?'pos':'neg'}">${varPct==null?'—':`${varPct>0?'+':''}${varPct.toFixed(1)}%`}</span></div>`;
       const rect = el.chartWrap.getBoundingClientRect();
       const svgRect = svg.getBoundingClientRect();
       const px = svgRect.left - rect.left + (x(i)/W)*svgRect.width;
-      tooltip.style.left = `${Math.min(px+12, rect.width-180)}px`;
+      tooltip.style.left = `${Math.min(px+12, rect.width-190)}px`;
       tooltip.style.top = `12px`;
       tooltip.classList.add('show');
     }
     hit.addEventListener('pointermove', evt => showTooltip(pointerToIndex(evt), evt));
     hit.addEventListener('pointerleave', () => { tooltip.classList.remove('show'); crosshair.style.display='none'; });
   }
+
+  // Re-render the chart when the container's width actually changes (sidebar
+  // collapse, window resize, browser zoom) — matched against the last drawn
+  // width so pointer-driven reflows don't thrash.
+  let lastDrawnW = 0;
+  const chartResizeObserver = new ResizeObserver(() => {
+    const w = Math.round(el.chartWrap.clientWidth || 0);
+    if (!state.days.length || !w || Math.abs(w-lastDrawnW) < 8) return;
+    lastDrawnW = w;
+    renderChart();
+  });
+  chartResizeObserver.observe(el.chartWrap);
 
   function exportTrendCsv(){
     const k=metricKey(), days=state.days;
@@ -531,7 +611,12 @@
   el.btnToggleTable.addEventListener('click', () => {
     state.showTable = !state.showTable;
     el.tableWrap.classList.toggle('show', state.showTable);
-    el.btnToggleTable.textContent = state.showTable ? 'View as chart' : 'View as table';
+    el.btnToggleTable.textContent = state.showTable ? 'Hide table' : 'Show table';
+  });
+  el.btnToggleMa.addEventListener('click', () => {
+    state.showMa = !state.showMa;
+    el.btnToggleMa.classList.toggle('off', !state.showMa);
+    renderChart();
   });
   el.groupFilters.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-group]'); if (!btn) return;
