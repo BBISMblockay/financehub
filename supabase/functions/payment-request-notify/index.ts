@@ -15,6 +15,9 @@ const FROM = 'SILO <noreply@silo-baseballism.com>';
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+const BUCKET = 'payment-request-files';
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -39,15 +42,51 @@ function formatDate(d: string | null): string {
   return new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+type EmailAttachment = { filename: string; content: string };
+
+async function sendEmail(to: string, subject: string, html: string, attachments?: EmailAttachment[]): Promise<boolean> {
   if (!RESEND_KEY) return false;
+  const body: Record<string, unknown> = { from: FROM, to: [to], subject, html };
+  if (attachments?.length) body.attachments = attachments;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
-    body: JSON.stringify({ from: FROM, to: [to], subject, html }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) console.error('[payment-request-notify] resend error', res.status, await res.text());
   return res.ok;
+}
+
+// Confirmation documents live at {requestId}/confirmation/{...} in the
+// payment-request-files bucket (matches isConfirmationFile() in
+// v2/request_manager.html). Best-effort: a download/size failure on one
+// file skips that file rather than failing the whole notification.
+async function fetchConfirmationAttachments(paymentRequestId: string): Promise<EmailAttachment[]> {
+  const { data: files, error } = await db
+    .from('payment_request_files')
+    .select('file_name, file_path')
+    .eq('payment_request_id', paymentRequestId)
+    .like('file_path', '%/confirmation/%');
+  if (error || !files?.length) return [];
+
+  const attachments: EmailAttachment[] = [];
+  for (const file of files) {
+    if (!file.file_path) continue;
+    const { data: blob, error: dlErr } = await db.storage.from(BUCKET).download(file.file_path);
+    if (dlErr || !blob) {
+      console.error('[payment-request-notify] failed to download confirmation file', file.file_path, dlErr);
+      continue;
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+      console.error('[payment-request-notify] confirmation file too large to attach', file.file_path, bytes.byteLength);
+      continue;
+    }
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    attachments.push({ filename: file.file_name || 'confirmation-document', content: btoa(binary) });
+  }
+  return attachments;
 }
 
 function emailHtml(opts: {
@@ -57,8 +96,9 @@ function emailHtml(opts: {
   paymentDetail: string | null;
   dateCompleted: string | null;
   invoiceNumber: string | null;
+  attachmentCount: number;
 }): string {
-  const { vendorName, amount, paymentTypeLabel, paymentDetail, dateCompleted, invoiceNumber } = opts;
+  const { vendorName, amount, paymentTypeLabel, paymentDetail, dateCompleted, invoiceNumber, attachmentCount } = opts;
   return `
   <div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px">
     <div style="background:#14181d;border-radius:12px;padding:28px;color:#fff">
@@ -66,7 +106,7 @@ function emailHtml(opts: {
       <div style="margin-top:18px;font-size:16px;font-weight:700">Your payment request has been paid</div>
       <p style="color:#b8c0c9;font-size:14px;line-height:1.6">
         Your payment request for <strong style="color:#fff">${vendorName}</strong>${invoiceNumber ? ` (invoice ${invoiceNumber})` : ''}
-        has been paid.
+        has been paid.${attachmentCount ? ` The confirmation document${attachmentCount > 1 ? 's are' : ' is'} attached.` : ''}
       </p>
       <table style="width:100%;border-collapse:collapse;margin-top:12px">
         <tr>
@@ -87,7 +127,7 @@ function emailHtml(opts: {
           <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${paymentDetail}</td>
         </tr>` : ''}
       </table>
-      <p style="color:#7f8b96;font-size:12px;margin-top:20px">Questions about this payment? Reply to this email or reach out to AP directly.</p>
+      <p style="color:#7f8b96;font-size:12px;margin-top:20px">Questions about this payment? Reach out to AP directly.</p>
     </div>
     <p style="color:#9aa3ad;font-size:11px;text-align:center;margin-top:14px">Sent by SILO Accounts Payable.</p>
   </div>`;
@@ -135,6 +175,7 @@ Deno.serve(async (req: Request) => {
 
     const vendorName = pr.vendor_name_manual || pr.vendor_name || 'Vendor';
     const paymentTypeLabel = PAYMENT_TYPE_LABELS[pr.payment_type] || pr.payment_type || 'Payment';
+    const attachments = await fetchConfirmationAttachments(payment_request_id);
 
     const emailSent = await sendEmail(
       pr.requester_email,
@@ -146,7 +187,9 @@ Deno.serve(async (req: Request) => {
         paymentDetail: pr.payment_detail,
         dateCompleted: pr.date_completed,
         invoiceNumber: pr.invoice_number,
+        attachmentCount: attachments.length,
       }),
+      attachments,
     );
 
     if (!emailSent) {
@@ -164,7 +207,7 @@ Deno.serve(async (req: Request) => {
     await db.from('payment_request_activity').insert({
       payment_request_id,
       activity_type: 'notification_sent',
-      message: `Emailed ${pr.requester_email}: payment confirmation (${paymentTypeLabel}, paid ${formatDate(pr.date_completed)})`,
+      message: `Emailed ${pr.requester_email}: payment confirmation (${paymentTypeLabel}, paid ${formatDate(pr.date_completed)})${attachments.length ? ` with ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}` : ''}`,
       created_by: userData.user.id,
       company_entity_id: pr.company_entity_id,
     });
