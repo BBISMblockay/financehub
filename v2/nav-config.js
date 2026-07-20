@@ -39,8 +39,6 @@
 
 
     { departments: FINANCE_DEPTS, id: 'finance/accounting-export', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting Export', href: '/v2/accounting-export.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/ap-manager', section: 'Accounting', label: 'AP Manager', href: '/accountspayable.html', profiles: ['grandfathered'] },
-    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Accounting', label: 'Mailroom Inbox', href: '/v2/mailroom.html', profiles: ['grandfathered'] },
     { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
     { departments: FINANCE_DEPTS, id: 'wholesale/wpv', section: 'Accounting', label: 'WPV Receivables', href: '/v2/wpvaccounts.html', profiles: ['grandfathered'] },
     { id: 'finance/payment-request', section: 'Accounting', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
