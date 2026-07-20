@@ -43,6 +43,8 @@
     { departments: FINANCE_DEPTS, id: 'wholesale/wpv', section: 'Accounting', label: 'WPV Receivables', href: '/v2/wpvaccounts.html', profiles: ['grandfathered'] },
     { id: 'finance/payment-request', section: 'Accounting', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/mail-intake', section: 'Accounting', sectionStandard: 'Operations', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Accounting', sectionStandard: 'Operations', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
     { id: 'finance/travel', section: 'Accounting', sectionStandard: 'Operations', label: 'Travel Report', href: '/v2/travel.html', profiles: ['grandfathered'] },
 
     { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },

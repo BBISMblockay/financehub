@@ -1,0 +1,63 @@
+name: Mailroom Legacy Sheet Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only (no database writes)"
+        required: true
+        default: true
+        type: boolean
+      sheet_id:
+        description: "Google Sheet ID (blank = legacy Mailroom sheet)"
+        required: false
+        default: ""
+        type: string
+      gid:
+        description: "Sheet tab gid (blank = 0)"
+        required: false
+        default: ""
+        type: string
+      company_entity_id:
+        description: "Company UUID (blank = Baseballism)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  backfill-mailroom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify Supabase envs exist
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL repo secret" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY repo secret" && exit 1)
+          echo "Supabase env vars present"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run mailroom backfill
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MAILROOM_SHEET_ID: ${{ inputs.sheet_id }}
+          MAILROOM_GID: ${{ inputs.gid }}
+          MAILROOM_COMPANY_ENTITY_ID: ${{ inputs.company_entity_id }}
+          MAILROOM_BACKFILL_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          echo "dry_run=${{ inputs.dry_run }} sheet_id=${{ inputs.sheet_id }} gid=${{ inputs.gid }}"
+          node scripts/backfill-mailroom-from-sheet.mjs
