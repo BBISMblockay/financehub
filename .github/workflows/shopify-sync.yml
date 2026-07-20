@@ -21,6 +21,10 @@ on:
         description: Set true to skip sales import
         required: false
         default: 'false'
+      skip_catalog:
+        description: Set true to skip products_master catalog sync
+        required: false
+        default: 'false'
       history_days:
         description: Override history days for history/full mode
         required: false
@@ -47,6 +51,7 @@ jobs:
       SHOPIFY_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
       SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || 'false' }}
       SHOPIFY_SKIP_SALES: ${{ github.event.inputs.skip_sales || 'false' }}
+      SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || 'false' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
       SHOPIFY_HISTORY_CHUNK_DAYS: ${{ github.event.inputs.history_chunk_days || '30' }}
 
