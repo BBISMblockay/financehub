@@ -1340,6 +1340,70 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
   };
 }
 
+/**
+ * Keeps products_master current with Shopify's active catalog. Only
+ * touches catalog-identity columns (title, type, vendor, image, barcode) --
+ * never the human-curated merchandising fields (cost, reorder points,
+ * lifecycle_status, notes, etc.), which are absent from the upsert payload
+ * and therefore untouched by Postgres's ON CONFLICT DO UPDATE. New SKUs
+ * land with those fields blank for someone to fill in; existing SKUs never
+ * get overwritten or deleted, even if since discontinued in Shopify.
+ */
+export async function runCatalogSync(supabase, connection, { batchId } = {}) {
+  const granted = grantedScopes(connection);
+  const missing = scopesMissingForJob(granted, 'catalog_sync');
+  if (missing.length) {
+    return { skipped: true, missing };
+  }
+
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const domain = connection.shop_domain;
+  const base = `https://${domain}/admin/api/${apiVersion}`;
+  const headers = {
+    'X-Shopify-Access-Token': connection.access_token,
+    'Content-Type': 'application/json',
+  };
+
+  const variants = await getAll(headers, `${base}/variants.json?limit=250`);
+  const products = await getAll(headers, `${base}/products.json?limit=250&status=active`);
+  const productById = new Map(products.map((p) => [String(p.id), p]));
+
+  const now = new Date().toISOString();
+  const rowBySku = new Map();
+
+  for (const v of variants) {
+    if (!v?.sku || rowBySku.has(v.sku)) continue;
+    const p = productById.get(String(v.product_id)) || {};
+    const imageUrl = p.image?.src || (Array.isArray(p.images) && p.images[0]?.src) || null;
+
+    rowBySku.set(v.sku, {
+      sku: v.sku,
+      company_entity_id: connection.company_entity_id,
+      product_title: (p.title || '').trim() || v.sku,
+      variant_title: v.title && v.title !== 'Default Title' ? v.title : null,
+      product_type:
+        p.product_type ||
+        p.product_category?.product_taxonomy_node?.full_name ||
+        null,
+      vendor_original: p.vendor || null,
+      image_url: imageUrl,
+      barcode: v.barcode || null,
+      shop_domain: domain,
+      updated_at: now,
+    });
+  }
+
+  const rows = [...rowBySku.values()];
+  const upserted = await upsertInChunks(supabase, 'products_master', rows, 'company_entity_id,sku');
+
+  return {
+    job_type: 'catalog_sync',
+    batch_id: batchId,
+    skus_seen: rows.length,
+    products_master_rows_upserted: upserted,
+  };
+}
+
 export async function runIncrementalSales(supabase, connection, {
   batchId,
   daysBack = 2,
