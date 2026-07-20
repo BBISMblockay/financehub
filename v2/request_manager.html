@@ -518,6 +518,10 @@
     </div>
 
     <div class="drawer-foot">
+      <div class="pr-btn-row" id="notifyRequesterRow" hidden>
+        <button id="notifyRequesterBtn" class="btn btn-soft btn-xs" type="button">Resend notification</button>
+        <span id="notifyRequesterStatus" class="rm-upload-status"></span>
+      </div>
       <div class="pr-btn-row">
         <button id="markPaidBtn" class="btn btn-soft" type="button">Quick mark paid</button>
       </div>
@@ -660,6 +664,10 @@
 
       markPaidBtn: document.getElementById("markPaidBtn"),
       saveDrawerBtn: document.getElementById("saveDrawerBtn"),
+
+      notifyRequesterRow: document.getElementById("notifyRequesterRow"),
+      notifyRequesterBtn: document.getElementById("notifyRequesterBtn"),
+      notifyRequesterStatus: document.getElementById("notifyRequesterStatus"),
 
       toastWrap: document.getElementById("toastWrap")
     };
@@ -818,6 +826,7 @@
         note_added: "Note added",
         file_opened: "File opened",
         file_uploaded: "File uploaded",
+        notification_sent: "Requester notified",
         imported: "Imported",
         updated: "Updated"
       };
@@ -1161,6 +1170,50 @@
         showToast(`Upload failed: ${err.message || "Unknown error"}`, true);
       } finally {
         els.uploadConfirmationBtn.disabled = !els.confirmationFileInput.files?.length;
+      }
+    }
+
+    function renderNotifyRequesterRow(row) {
+      if (!row?.completed) {
+        els.notifyRequesterRow.hidden = true;
+        return;
+      }
+      els.notifyRequesterRow.hidden = false;
+      els.notifyRequesterStatus.textContent = row.paid_notification_sent_at
+        ? `Notified ${formatDateTime(row.paid_notification_sent_at)}`
+        : "Requester not yet notified.";
+    }
+
+    async function notifyRequester(requestId, { silent = false } = {}) {
+      if (!requestId) return;
+
+      els.notifyRequesterBtn.disabled = true;
+      els.notifyRequesterStatus.textContent = "Sending…";
+
+      try {
+        const { data, error } = await supabaseClient.functions.invoke("payment-request-notify", {
+          body: { payment_request_id: requestId }
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+
+        state.rows = await fetchRows();
+        state.activityRows = await fetchActivityRows();
+        const row = state.rows.find(r => r.id === requestId);
+        if (row && state.currentRow?.id === requestId) {
+          state.currentRow = row;
+          renderNotifyRequesterRow(row);
+          renderDrawerActivity(row);
+        }
+        refreshAll();
+
+        if (!silent) showToast("Requester notified.");
+      } catch (err) {
+        console.error(err);
+        els.notifyRequesterStatus.textContent = "";
+        showToast(`Notify failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.notifyRequesterBtn.disabled = false;
       }
     }
 
@@ -1819,6 +1872,7 @@
       renderDrawerDocuments(row);
       renderDrawerSnapshot(row);
       renderDrawerActivity(row);
+      renderNotifyRequesterRow(row);
 
       els.drawerBackdrop.classList.add("open");
       els.workbenchDrawer.classList.add("open");
@@ -1975,9 +2029,15 @@
 
         await Promise.all(activityPromises);
 
+        const justCompleted = !oldRow.completed && payload.completed;
+
         await loadData();
         await openDrawer(oldRow.id);
         showToast(markPaid ? "Request marked paid." : "Request updated.");
+
+        if (justCompleted) {
+          await notifyRequester(oldRow.id);
+        }
       } catch (err) {
         console.error(err);
         showToast(`Save failed: ${err.message || "Unknown error"}`, true);
@@ -1990,6 +2050,7 @@
     async function quickMarkPaid(id) {
       try {
         const row = state.rows.find(r => r.id === id);
+        const wasCompleted = !!row?.completed;
         const payload = {
           workflow_status: "paid",
           completed: true,
@@ -2013,6 +2074,10 @@
 
         await loadData();
         showToast("Request marked paid.");
+
+        if (!wasCompleted) {
+          await notifyRequester(id);
+        }
       } catch (err) {
         console.error(err);
         showToast(`Quick mark paid failed: ${err.message || "Unknown error"}`, true);
@@ -2098,6 +2163,9 @@
         }
       });
       els.uploadConfirmationBtn.addEventListener("click", handleConfirmationUpload);
+      els.notifyRequesterBtn.addEventListener("click", () => {
+        if (state.currentRow?.id) notifyRequester(state.currentRow.id);
+      });
     }
 
     // Mount chrome synchronously — sidebar visible before any network call
