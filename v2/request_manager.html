@@ -1853,6 +1853,19 @@
       try {
         const oldRow = { ...state.currentRow };
 
+        const pendingConfirmationFiles = els.confirmationFileInput.files;
+        if (pendingConfirmationFiles?.length) {
+          const uploaded = await uploadConfirmationFiles(pendingConfirmationFiles, oldRow.id);
+          for (const file of uploaded) {
+            await logActivity({
+              requestId: oldRow.id,
+              activityType: "file_uploaded",
+              message: `Uploaded confirmation document: ${file.file_name}`
+            });
+          }
+          els.confirmationFileInput.value = "";
+        }
+
         const completed = markPaid ? true : els.fCompleted.value === "true";
         const workflowStatus = markPaid ? "paid" : els.fWorkflowStatus.value;
         const dateCompleted = markPaid
