@@ -1,15 +1,14 @@
-// payment-request-notify — emails the requester once AP marks a
-// payment request completed/paid. Auth: caller must pass
-// current_user_can_manage_payment_requests() (owner/admin membership,
-// or finance/admin/exec department). Idempotent to call repeatedly —
-// each call re-sends and logs a fresh notification_sent activity row,
-// used both for the automatic send-on-mark-paid and the manual
-// "Resend notification" button.
+// payment-request-submitted-notify — emails the requester a receipt
+// confirmation the moment their payment request is submitted.
+// Auth: caller must be the request's original submitter (created_by) —
+// unlike payment-request-notify, this fires from the public intake
+// form (v2/purchase_request.html) itself, not an AP action, so it is
+// NOT gated by current_user_can_manage_payment_requests(). Attaches
+// whatever the requester just uploaded as a receipt copy.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const FROM = 'SILO <noreply@silo-baseballism.com>';
 
@@ -24,12 +23,13 @@ const CORS = {
   'Content-Type': 'application/json',
 };
 
-const PAYMENT_TYPE_LABELS: Record<string, string> = {
-  check: 'Check',
-  wire: 'Wire transfer',
-  flexfin: 'FlexFin',
-  credit_card: 'Credit card',
-  other: 'Other',
+const REQUEST_TYPE_LABELS: Record<string, string> = {
+  invoice_vendor_payment: 'Invoice / vendor payment',
+  inventory_deposit: 'Inventory deposit',
+  inventory_balance: 'Inventory balance',
+  inventory_freight: 'Inventory freight',
+  employee_reimbursement: 'Employee reimbursement',
+  customer_refund: 'Customer refund',
 };
 
 function money(n: number | null): string {
@@ -53,20 +53,18 @@ async function sendEmail(to: string, subject: string, html: string, attachments?
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
     body: JSON.stringify(body),
   });
-  if (!res.ok) console.error('[payment-request-notify] resend error', res.status, await res.text());
+  if (!res.ok) console.error('[payment-request-submitted-notify] resend error', res.status, await res.text());
   return res.ok;
 }
 
-// Confirmation documents live at {requestId}/confirmation/{...} in the
-// payment-request-files bucket (matches isConfirmationFile() in
-// v2/request_manager.html). Best-effort: a download/size failure on one
-// file skips that file rather than failing the whole notification.
-async function fetchConfirmationAttachments(paymentRequestId: string): Promise<EmailAttachment[]> {
+// Intake attachments live at {requestId}/{...} directly (no /confirmation/
+// segment -- that subfolder is reserved for AP's later payment proof).
+async function fetchSubmittedAttachments(paymentRequestId: string): Promise<EmailAttachment[]> {
   const { data: files, error } = await db
     .from('payment_request_files')
     .select('file_name, file_path')
     .eq('payment_request_id', paymentRequestId)
-    .like('file_path', '%/confirmation/%');
+    .not('file_path', 'like', '%/confirmation/%');
   if (error || !files?.length) return [];
 
   const attachments: EmailAttachment[] = [];
@@ -74,17 +72,17 @@ async function fetchConfirmationAttachments(paymentRequestId: string): Promise<E
     if (!file.file_path) continue;
     const { data: blob, error: dlErr } = await db.storage.from(BUCKET).download(file.file_path);
     if (dlErr || !blob) {
-      console.error('[payment-request-notify] failed to download confirmation file', file.file_path, dlErr);
+      console.error('[payment-request-submitted-notify] failed to download file', file.file_path, dlErr);
       continue;
     }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-      console.error('[payment-request-notify] confirmation file too large to attach', file.file_path, bytes.byteLength);
+      console.error('[payment-request-submitted-notify] file too large to attach', file.file_path, bytes.byteLength);
       continue;
     }
     let binary = '';
     for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    attachments.push({ filename: file.file_name || 'confirmation-document', content: btoa(binary) });
+    attachments.push({ filename: file.file_name || 'attachment', content: btoa(binary) });
   }
   return attachments;
 }
@@ -92,21 +90,20 @@ async function fetchConfirmationAttachments(paymentRequestId: string): Promise<E
 function emailHtml(opts: {
   vendorName: string;
   amount: number | null;
-  paymentTypeLabel: string;
-  paymentDetail: string | null;
-  dateCompleted: string | null;
+  requestTypeLabel: string;
   invoiceNumber: string | null;
+  submittedAt: string | null;
   attachmentCount: number;
 }): string {
-  const { vendorName, amount, paymentTypeLabel, paymentDetail, dateCompleted, invoiceNumber, attachmentCount } = opts;
+  const { vendorName, amount, requestTypeLabel, invoiceNumber, submittedAt, attachmentCount } = opts;
   return `
   <div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px">
     <div style="background:#14181d;border-radius:12px;padding:28px;color:#fff">
       <div style="font-weight:800;font-size:18px;letter-spacing:-0.02em">SILO</div>
-      <div style="margin-top:18px;font-size:16px;font-weight:700">Your payment request has been paid</div>
+      <div style="margin-top:18px;font-size:16px;font-weight:700">Your payment request was received</div>
       <p style="color:#b8c0c9;font-size:14px;line-height:1.6">
-        Your payment request for <strong style="color:#fff">${vendorName}</strong>${invoiceNumber ? ` (invoice ${invoiceNumber})` : ''}
-        has been paid.${attachmentCount ? ` The confirmation document${attachmentCount > 1 ? 's are' : ' is'} attached.` : ''}
+        Your ${requestTypeLabel.toLowerCase()} request for <strong style="color:#fff">${vendorName}</strong>${invoiceNumber ? ` (invoice ${invoiceNumber})` : ''}
+        has been submitted to AP.${attachmentCount ? ` A copy of what you attached is included.` : ''} We'll email you again once it's paid.
       </p>
       <table style="width:100%;border-collapse:collapse;margin-top:12px">
         <tr>
@@ -114,20 +111,15 @@ function emailHtml(opts: {
           <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right;font-family:monospace">${money(amount)}</td>
         </tr>
         <tr>
-          <td style="color:#7f8b96;font-size:12px;padding:6px 0;border-top:1px solid #2a2f36">Paid via</td>
-          <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${paymentTypeLabel}</td>
+          <td style="color:#7f8b96;font-size:12px;padding:6px 0;border-top:1px solid #2a2f36">Request type</td>
+          <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${requestTypeLabel}</td>
         </tr>
         <tr>
-          <td style="color:#7f8b96;font-size:12px;padding:6px 0;border-top:1px solid #2a2f36">Date paid</td>
-          <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${formatDate(dateCompleted)}</td>
+          <td style="color:#7f8b96;font-size:12px;padding:6px 0;border-top:1px solid #2a2f36">Submitted</td>
+          <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${formatDate(submittedAt)}</td>
         </tr>
-        ${paymentDetail ? `
-        <tr>
-          <td style="color:#7f8b96;font-size:12px;padding:6px 0;border-top:1px solid #2a2f36">Reference</td>
-          <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${paymentDetail}</td>
-        </tr>` : ''}
       </table>
-      <p style="color:#7f8b96;font-size:12px;margin-top:20px">Questions about this payment? Reach out to AP directly.</p>
+      <p style="color:#7f8b96;font-size:12px;margin-top:20px">Questions about this request? Reach out to AP directly.</p>
     </div>
     <p style="color:#9aa3ad;font-size:11px;text-align:center;margin-top:14px">Sent by SILO Accounts Payable.</p>
   </div>`;
@@ -147,17 +139,6 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'payment_request_id required' }), { status: 400, headers: CORS });
     }
 
-    // Scope the permission check to the caller's own session so
-    // current_user_can_manage_payment_requests() resolves auth.uid()
-    // and active_company_id() correctly.
-    const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
-    });
-    const { data: canManage, error: permErr } = await callerClient.rpc('current_user_can_manage_payment_requests');
-    if (permErr || !canManage) {
-      return new Response(JSON.stringify({ error: 'Not authorized to notify requesters' }), { status: 403, headers: CORS });
-    }
-
     const { data: pr, error: prErr } = await db
       .from('payment_requests')
       .select('*')
@@ -166,27 +147,26 @@ Deno.serve(async (req: Request) => {
     if (prErr || !pr) {
       return new Response(JSON.stringify({ error: 'Payment request not found' }), { status: 404, headers: CORS });
     }
-    if (!pr.completed) {
-      return new Response(JSON.stringify({ error: 'Request is not marked completed/paid yet' }), { status: 400, headers: CORS });
+    if (pr.created_by !== userData.user.id) {
+      return new Response(JSON.stringify({ error: 'Not authorized for this request' }), { status: 403, headers: CORS });
     }
     if (!pr.requester_email) {
       return new Response(JSON.stringify({ error: 'No requester email on file for this request' }), { status: 400, headers: CORS });
     }
 
     const vendorName = pr.vendor_name_manual || pr.vendor_name || 'Vendor';
-    const paymentTypeLabel = PAYMENT_TYPE_LABELS[pr.payment_type] || pr.payment_type || 'Payment';
-    const attachments = await fetchConfirmationAttachments(payment_request_id);
+    const requestTypeLabel = REQUEST_TYPE_LABELS[pr.request_type] || pr.request_type || 'Payment';
+    const attachments = await fetchSubmittedAttachments(payment_request_id);
 
     const emailSent = await sendEmail(
       pr.requester_email,
-      `Your payment request for ${vendorName} has been paid`,
+      `Your payment request for ${vendorName} was received`,
       emailHtml({
         vendorName,
         amount: pr.amount_due,
-        paymentTypeLabel,
-        paymentDetail: pr.payment_detail,
-        dateCompleted: pr.date_completed,
+        requestTypeLabel,
         invoiceNumber: pr.invoice_number,
+        submittedAt: pr.submitted_at ? pr.submitted_at.slice(0, 10) : null,
         attachmentCount: attachments.length,
       }),
       attachments,
@@ -199,22 +179,17 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const now = new Date().toISOString();
-    await db.from('payment_requests')
-      .update({ paid_notification_sent_at: now, paid_notification_sent_by: userData.user.id })
-      .eq('id', payment_request_id);
-
     await db.from('payment_request_activity').insert({
       payment_request_id,
       activity_type: 'notification_sent',
-      message: `Emailed ${pr.requester_email}: payment confirmation (${paymentTypeLabel}, paid ${formatDate(pr.date_completed)})${attachments.length ? ` with ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}` : ''}`,
+      message: `Emailed ${pr.requester_email}: submission confirmation${attachments.length ? ` with ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}` : ''}`,
       created_by: userData.user.id,
       company_entity_id: pr.company_entity_id,
     });
 
-    return new Response(JSON.stringify({ ok: true, email_sent: true, sent_at: now }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, email_sent: true }), { headers: CORS });
   } catch (err) {
-    console.error('[payment-request-notify]', err);
+    console.error('[payment-request-submitted-notify]', err);
     return new Response(JSON.stringify({ error: String((err as Error)?.message || err) }), { status: 500, headers: CORS });
   }
 });

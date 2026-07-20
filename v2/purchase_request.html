@@ -647,6 +647,10 @@
       els.appCard.classList.add("hidden");
       els.successCard.classList.remove("hidden");
       showStatus("Your request was sent to AP.", "success");
+
+      supabaseClient.functions.invoke("payment-request-submitted-notify", {
+        body: { payment_request_id: requestId }
+      }).catch(err => console.error("submission notification failed", err));
     } catch (error) {
       console.error(error);
       showStatus(error?.message || "Something went wrong while saving. Please try again.", "error");
