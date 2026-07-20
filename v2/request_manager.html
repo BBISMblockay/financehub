@@ -1129,11 +1129,15 @@
         const uploaded = await uploadConfirmationFiles(files, state.currentRow.id);
 
         for (const file of uploaded) {
-          await logActivity({
-            requestId: state.currentRow.id,
-            activityType: "file_uploaded",
-            message: `Uploaded confirmation document: ${file.file_name}`
-          });
+          try {
+            await logActivity({
+              requestId: state.currentRow.id,
+              activityType: "file_uploaded",
+              message: `Uploaded confirmation document: ${file.file_name}`
+            });
+          } catch (activityErr) {
+            console.error("Failed to log file_uploaded activity", activityErr);
+          }
         }
 
         state.files = await fetchRequestFiles();
@@ -1857,11 +1861,15 @@
         if (pendingConfirmationFiles?.length) {
           const uploaded = await uploadConfirmationFiles(pendingConfirmationFiles, oldRow.id);
           for (const file of uploaded) {
-            await logActivity({
-              requestId: oldRow.id,
-              activityType: "file_uploaded",
-              message: `Uploaded confirmation document: ${file.file_name}`
-            });
+            try {
+              await logActivity({
+                requestId: oldRow.id,
+                activityType: "file_uploaded",
+                message: `Uploaded confirmation document: ${file.file_name}`
+              });
+            } catch (activityErr) {
+              console.error("Failed to log file_uploaded activity", activityErr);
+            }
           }
           els.confirmationFileInput.value = "";
         }
