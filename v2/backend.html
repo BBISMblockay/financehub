@@ -4,18 +4,20 @@
      UI/UX polish only. Existing IDs, Supabase RPC calls, auth guard, dialogs,
      filters, actions, shortcuts, and data flow are intentionally preserved.
 
+     The legacy self-serve "request access" flow (access_requests table +
+     admin_list_access_requests/approve_access_request/deny_access_request
+     RPCs) predates org invites and has no live producer anymore — the login
+     page only supports invite-based join or new-org signup. Its panel was
+     removed from this UI accordingly.
+
      Schemas:
      ✅ public.profiles: id, name, email, role, department, is_active, created_at, updated_at, (optional notes)
-     ✅ public.access_requests: id, created_at, status, email, full_name, department, requested_role, note
 
      RPCs expected:
      - public.is_admin()
      - public.admin_counts()
      - public.admin_list_profiles()
      - public.admin_update_profile(...)
-     - public.admin_list_access_requests(p_status text)
-     - public.approve_access_request(p_request_id uuid, p_department text, p_role text)
-     - public.deny_access_request(p_request_id uuid)
 -->
 <!doctype html>
 <html lang="en" data-theme="light">
@@ -110,7 +112,7 @@
     .page-sub{ margin-top:4px; color:var(--muted); font-size:13px; max-width:760px; }
     .page-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 
-    .strip{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow); }
+    .strip{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow); }
     .metric{ min-height:78px; padding:14px 16px; border-right:1px solid var(--line); }
     .metric:last-child{ border-right:0; }
     .metric-label,.section-title{ font-size:10px; text-transform:uppercase; letter-spacing:.16em; color:var(--muted-2); font-weight:900; }
@@ -188,7 +190,7 @@
     .dialog-body{ padding:16px; }
     .dialog-foot{ padding:12px 16px; border-top:1px solid var(--line); background:var(--surface-2); }
 
-    @media (max-width:1180px){ .side-grid{ grid-template-columns:1fr; } .strip{ grid-template-columns:repeat(2,minmax(0,1fr)); } .metric:nth-child(2){ border-right:0; } .metric:nth-child(-n+2){ border-bottom:1px solid var(--line); } }
+    @media (max-width:1180px){ .side-grid{ grid-template-columns:1fr; } }
     @media (max-width:780px){ .silo-bar{ height:auto; min-height:44px; align-items:flex-start; padding:10px 12px; flex-direction:column; } .bar-right{ flex-wrap:wrap; } .page{ padding:14px 10px 24px; } .page-head{ flex-direction:column; } .page-actions{ justify-content:flex-start; } .strip{ grid-template-columns:1fr; } .metric{ border-right:0; border-bottom:1px solid var(--line); } .metric:last-child{ border-bottom:0; } .toolbar-row{ grid-template-columns:1fr; } .toolbar-row > *{ border-right:0; border-bottom:1px solid var(--line); } .toolbar-row > *:last-child{ border-bottom:0; } }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -220,7 +222,7 @@
           <div class="page-kicker">Admin control plane</div>
           <h1 class="page-title">Backend Hub</h1>
           <p class="page-sub">
-            Manage Silo profiles, admin access requests, user roles, departments, and active status. Supabase-only workflow using the existing profile and access RPCs.
+            Manage Silo profiles, org invites, user roles, departments, and active status. Supabase-only workflow using the existing profile and access RPCs.
           </p>
           <div class="mt-2 text-xs muted2"><span id="bootMsg">—</span></div>
         </div>
@@ -242,11 +244,6 @@
           <div id="profilesCountSub" class="metric-sub mono">—</div>
         </div>
         <div class="metric">
-          <div class="metric-label">Access requests</div>
-          <div id="reqCount" class="metric-value mono">—</div>
-          <div id="reqCountSub" class="metric-sub mono">—</div>
-        </div>
-        <div class="metric">
           <div class="metric-label">Health</div>
           <div class="mt-2"><span id="healthPill" class="pill"><span class="dot" style="background: var(--blue)"></span>—</span></div>
           <div id="healthNote" class="metric-sub">—</div>
@@ -259,36 +256,6 @@
             <div class="panel-head">
               <div>
                 <div class="section-title">Access</div>
-                <div class="panel-title">Pending access requests</div>
-                <div class="panel-sub">Approve to create/activate a profiles row for the matching auth user email.</div>
-              </div>
-              <div class="panel-actions">
-                <span class="kbd">A</span>
-                <button id="reqReloadBtn" class="btn btn-soft">Reload</button>
-              </div>
-            </div>
-            <div class="scrollbar">
-              <table class="table min-w-full">
-                <thead>
-                  <tr>
-                    <th class="text-left">User</th>
-                    <th class="text-left">Requested</th>
-                    <th class="text-left">Note</th>
-                    <th class="text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="reqTbody">
-                  <tr><td colspan="4" class="muted2">Loading…</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div id="reqMsg" class="px-4 py-3 text-xs muted2 border-t" style="border-color:var(--line);">—</div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <div class="section-title">Invites</div>
                 <div class="panel-title">Invite to this organization</div>
                 <div class="panel-sub">Send the link to a teammate — they sign in or sign up with the invited email and land authorized in this org.</div>
               </div>
@@ -396,7 +363,7 @@
               <div>
                 <div class="section-title">Signals</div>
                 <div class="panel-title">Operational alerts</div>
-                <div class="panel-sub">Derived from health and request queue.</div>
+                <div class="panel-sub">Derived from Supabase latency and profile counts.</div>
               </div>
               <span class="kbd">S</span>
             </div>
@@ -413,8 +380,7 @@
               </div>
             </div>
             <div class="panel-body text-xs muted leading-6">
-              <div><b>Invite (preferred):</b> create an invite above, send the link — the user signs up with that email and lands authorized in this org.</div>
-              <div><b>Access request:</b> user asks, admin approves; approval activates the profile and creates the org membership.</div>
+              <div><b>Invite:</b> create an invite above, send the link — the user signs up with that email and lands authorized in this org.</div>
               <div><b>Note:</b> "Create account" on the login page founds a NEW organization — it is not how teammates join this one.</div>
               <div class="divider my-3"></div>
               <div class="muted2">If profile lists fail, confirm admin_list_profiles and admin_update_profile RPCs exist.</div>
@@ -472,34 +438,6 @@
         <div id="dlgMsg" class="text-sm muted2">—</div>
       </div>
       <div class="dialog-foot text-xs muted2">Table: <span class="mono">public.profiles</span> uses <span class="mono">is_active</span>.</div>
-    </div>
-  </dialog>
-
-  <!-- Approve dialog -->
-  <dialog id="approveDialog" class="w-[min(760px,calc(100vw-24px))] p-0">
-    <div class="dialog-card overflow-hidden">
-      <div class="dialog-head">
-        <div class="min-w-0">
-          <div class="section-title">Approve request</div>
-          <div id="apprEmail" class="mt-1 text-lg font-black truncate">—</div>
-          <div id="apprReqId" class="mt-1 mono text-xs muted2 truncate">—</div>
-        </div>
-        <button id="apprCloseBtn" class="btn">Close</button>
-      </div>
-      <div class="dialog-body space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div class="md:col-span-6">
-            <label class="section-title">Department</label>
-            <select id="apprDept" class="select w-full mt-1"><option value="ops">ops</option><option value="finance">finance</option><option value="logistics">logistics</option><option value="marketing">marketing</option><option value="retail">retail</option><option value="exec">exec</option></select>
-          </div>
-          <div class="md:col-span-6">
-            <label class="section-title">Role</label>
-            <select id="apprRole" class="select w-full mt-1"><option value="member">member</option><option value="viewer">viewer</option><option value="admin">admin</option><option value="owner">owner</option><option value="superadmin">superadmin</option></select>
-          </div>
-        </div>
-        <div class="flex gap-2"><button id="apprApproveBtn" class="btn btn-primary flex-1">Approve</button><button id="apprDenyBtn" class="btn btn-danger flex-1">Deny</button></div>
-        <div id="apprMsg" class="text-sm muted2">—</div>
-      </div>
     </div>
   </dialog>
 
@@ -587,7 +525,7 @@
         accessPill.innerHTML = `<span class="dot" style="background:${allowed ? "var(--good)" : "var(--danger)"}"></span>Access: ${allowed ? "approved" : "denied"}`;
       }
 
-      setText("bootMsg", CURRENT_PROFILE ? "Ready. Approve access requests and manage roles." : "No profile found for your UID (or RLS blocked it).");
+      setText("bootMsg", CURRENT_PROFILE ? "Ready. Manage invites and roles." : "No profile found for your UID (or RLS blocked it).");
 
       if (!allowed){
         alert("Access denied: owner/admin/superadmin required.");
@@ -598,7 +536,7 @@
     }
 
     // ====== Health & signals ======
-    function renderSignals({ latencyMs, counts, pendingCount, errNote }){
+    function renderSignals({ latencyMs, counts, errNote }){
       const items = [];
       const add = (tone, text) => items.push({ tone, text });
 
@@ -611,10 +549,6 @@
       if (counts && typeof counts.profiles_count === "number"){
         add("good", `Profiles: ${counts.profiles_count}`);
       } else add("warn", "Profiles count unavailable (admin_counts RPC missing).");
-
-      if (typeof pendingCount === "number"){
-        add(pendingCount > 0 ? "warn" : "good", pendingCount > 0 ? `${pendingCount} requests pending.` : "No access requests pending.");
-      } else add("warn", "Access request count unavailable.");
 
       const hp = el("healthPill");
       const overallBad = items.some(x => x.tone === "danger");
@@ -657,143 +591,17 @@
         if (!error) counts = data || null;
       } catch(e){}
 
-      let pendingCount = null;
-      try{
-        const { data, error } = await supabaseClient.rpc("admin_list_access_requests", { p_status: "pending" });
-        if (!error && Array.isArray(data)) pendingCount = data.length;
-      } catch(e){}
-
       setText("sbLatency", typeof latencyMs === "number" ? `${latencyMs}ms` : "—");
       setText("sbLatencySub", typeof latencyMs === "number" ? "roundtrip" : "—");
 
       setText("profilesCount", counts?.profiles_count != null ? String(counts.profiles_count) : "—");
       setText("profilesCountSub", counts?.profiles_updated_at ? `last update: ${fmt.dt(counts.profiles_updated_at)}` : "—");
 
-      setText("reqCount", typeof pendingCount === "number" ? String(pendingCount) : "—");
-      setText("reqCountSub", typeof pendingCount === "number" ? "pending" : "—");
-
       setText("healthNote", counts ? "RPC OK" : "RPC missing");
-      renderSignals({ latencyMs, counts, pendingCount, errNote });
+      renderSignals({ latencyMs, counts, errNote });
     }
 
     // ====== Access requests ======
-    let ACCESS_REQUESTS = [];
-    const approveDialog = el("approveDialog");
-    let APPROVE_REQ_ID = null;
-
-    function renderRequests(){
-      const tbody = el("reqTbody");
-      const msg = el("reqMsg");
-      if (!tbody) return;
-
-      if (!ACCESS_REQUESTS.length){
-        tbody.innerHTML = `<tr><td colspan="4" class="muted2">No pending requests.</td></tr>`;
-        if (msg) msg.textContent = "—";
-        return;
-      }
-
-      tbody.innerHTML = ACCESS_REQUESTS.map(r => {
-        const email = escapeHtml(r.email || "—");
-        const name = escapeHtml(r.full_name || "—");
-        const dept = escapeHtml(r.department || "—");
-        const roleReq = escapeHtml(r.requested_role || "—");
-        const created = fmt.dt(r.created_at);
-        const note = escapeHtml(r.note || "");
-        return `
-          <tr>
-            <td>
-              <div class="font-black">${email}</div>
-              <div class="text-xs muted2">${name} · requested <span class="mono">${roleReq}</span> · <span class="mono">${dept}</span></div>
-            </td>
-            <td class="mono muted">${escapeHtml(created)}</td>
-            <td class="muted">${note || "—"}</td>
-            <td class="text-right">
-              <button class="btn btn-primary" data-action="review" data-id="${escapeHtml(r.id)}">Review</button>
-            </td>
-          </tr>
-        `;
-      }).join("");
-
-      tbody.querySelectorAll("[data-action='review']").forEach(btn => {
-        btn.addEventListener("click", () => openApproveDialog(btn.getAttribute("data-id")));
-      });
-
-      if (msg) msg.textContent = `${ACCESS_REQUESTS.length} pending.`;
-    }
-
-    async function loadRequests(){
-      const msg = el("reqMsg");
-      if (msg) msg.textContent = "Loading…";
-
-      const { data, error } = await supabaseClient.rpc("admin_list_access_requests", { p_status: "pending" });
-      if (error){
-        console.warn("admin_list_access_requests error:", error);
-        ACCESS_REQUESTS = [];
-        renderRequests();
-        if (msg) msg.textContent = `Requests failed: ${error.message}`;
-        return;
-      }
-
-      ACCESS_REQUESTS = Array.isArray(data) ? data : [];
-      renderRequests();
-    }
-
-    function openApproveDialog(requestId){
-      const r = ACCESS_REQUESTS.find(x => String(x.id) === String(requestId));
-      if (!r) return;
-
-      APPROVE_REQ_ID = r.id;
-      setText("apprEmail", r.email || "—");
-      setText("apprReqId", r.id ? `request: ${r.id}` : "—");
-      el("apprDept").value = r.department || "ops";
-      el("apprRole").value = r.requested_role || "member";
-      setText("apprMsg", "—");
-
-      if (typeof approveDialog.showModal === "function") approveDialog.showModal();
-      else approveDialog.setAttribute("open","true");
-    }
-
-    async function approveRequest(){
-      const msg = el("apprMsg");
-      if (msg) msg.textContent = "Approving…";
-      if (!APPROVE_REQ_ID) return;
-
-      const p_department = String(el("apprDept")?.value || "ops").trim();
-      const p_role = String(el("apprRole")?.value || "member").trim();
-
-      const { data, error } = await supabaseClient.rpc("approve_access_request", {
-        p_request_id: APPROVE_REQ_ID,
-        p_department,
-        p_role
-      });
-
-      if (error){
-        if (msg) msg.textContent = `Approve failed: ${error.message}`;
-        return;
-      }
-
-      if (msg) msg.textContent = `Approved.${data?.user_id ? " uid: " + data.user_id : ""}`;
-      await Promise.allSettled([ loadRequests(), loadUsers(), loadHealth() ]);
-      setTimeout(() => approveDialog.close(), 450);
-    }
-
-    async function denyRequest(){
-      const msg = el("apprMsg");
-      if (msg) msg.textContent = "Denying…";
-      if (!APPROVE_REQ_ID) return;
-
-      const { error } = await supabaseClient.rpc("deny_access_request", { p_request_id: APPROVE_REQ_ID });
-
-      if (error){
-        if (msg) msg.textContent = `Deny failed: ${error.message}`;
-        return;
-      }
-
-      if (msg) msg.textContent = "Denied.";
-      await Promise.allSettled([ loadRequests(), loadHealth() ]);
-      setTimeout(() => approveDialog.close(), 450);
-    }
-
     // ====== Invites ======
     let INVITES = [];
 
@@ -1078,7 +886,7 @@
     // ====== Boot / UI wiring ======
     async function refreshAll(){
       setText("lastRefresh", new Date().toLocaleString());
-      await Promise.allSettled([ loadHealth(), loadRequests(), loadInvites(), loadUsers() ]);
+      await Promise.allSettled([ loadHealth(), loadInvites(), loadUsers() ]);
     }
 
     function initUi(){
@@ -1093,7 +901,6 @@
       el("refreshBtn")?.addEventListener("click", refreshAll);
 
       // reload buttons
-      el("reqReloadBtn")?.addEventListener("click", loadRequests);
       el("usersReloadBtn")?.addEventListener("click", loadUsers);
       el("invReloadBtn")?.addEventListener("click", loadInvites);
 
@@ -1110,7 +917,6 @@
 
       // dialogs: close buttons
       el("dlgCloseBtn")?.addEventListener("click", () => userDialog.close());
-      el("apprCloseBtn")?.addEventListener("click", () => approveDialog.close());
 
       // dialogs: click outside to close (FIXED / safe)
       userDialog?.addEventListener("click", (e) => {
@@ -1121,19 +927,9 @@
         if (!inDialog) userDialog.close();
       });
 
-      approveDialog?.addEventListener("click", (e) => {
-        const rect = approveDialog.getBoundingClientRect();
-        const inDialog =
-          rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
-          rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
-        if (!inDialog) approveDialog.close();
-      });
-
       // dialog actions
       el("dlgSaveBtn")?.addEventListener("click", saveUserDialog);
       el("dlgDisableBtn")?.addEventListener("click", disableUserDialog);
-      el("apprApproveBtn")?.addEventListener("click", approveRequest);
-      el("apprDenyBtn")?.addEventListener("click", denyRequest);
 
       // logout
       el("logoutBtn")?.addEventListener("click", async () => {
@@ -1153,7 +949,6 @@
           const cur = document.documentElement.getAttribute("data-theme") || "light";
           applyTheme(cur === "dark" ? "light" : "dark");
         }
-        if (key === "a"){ e.preventDefault(); loadRequests(); }
       });
     }
 
