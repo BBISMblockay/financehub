@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Mail intake</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="purchasing-page-content.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="nav-config.js"></script>
+  <script src="silo-chrome.js"></script>
+  <style>
+    :root { color-scheme: light; }
+    .silo-main { overflow-y: auto; }
+  </style>
+</head>
+<body>
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <div class="pr-page pr-page--intake">
+      <div class="pr-stack">
+
+        <section class="bcn-card pr-intro">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill">Mailroom</span>
+            <h2>Log incoming mail</h2>
+            <span class="bcn-card-meta">Checks, invoices, legal notices, and everything else that shows up in the mail</span>
+          </header>
+          <div class="bcn-card-body">
+            <p class="pr-intro-lead">
+              Use this form whenever mail arrives that needs to be tracked or routed to someone. It's saved to SILO and appears in the Mailroom queue right away.
+            </p>
+          </div>
+        </section>
+
+        <div id="authCard" class="card hidden">
+          <div class="pr-stack">
+            <div>
+              <div class="section-title">Sign in to continue</div>
+              <div class="section-sub">This form is only available to signed-in users.</div>
+            </div>
+            <div class="pr-callout">
+              Sign in with your SILO account. We will attach this item to your profile as the submitter.
+            </div>
+            <div class="pr-btn-row" style="margin-top:12px;">
+              <a href="/pages/login.html" class="btn btn-primary">Sign in to SILO</a>
+            </div>
+          </div>
+        </div>
+
+        <div id="appCard" class="card hidden">
+          <div class="pr-card-toolbar">
+            <div>
+              <div class="section-title">What came in?</div>
+              <div class="section-sub"><span class="pr-req">*</span> indicates a required field.</div>
+            </div>
+            <span id="signedInAs" class="pill">Signed in</span>
+          </div>
+
+          <div id="statusBox" class="bcn-status hidden pr-status-slot" role="status" aria-live="polite"></div>
+
+          <form id="intakeForm" class="pr-form-stack">
+            <div class="pr-section-card">
+              <div class="section-title">What is it</div>
+              <div class="pr-form-grid">
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="subject">Subject<span class="pr-req">*</span></label>
+                  <input id="subject" class="input" placeholder="What is this about?" required />
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="sender">Received from</label>
+                  <input id="sender" class="input" placeholder="Sender name / company" />
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="documentType">Document type</label>
+                  <select id="documentType" class="select">
+                    <option value="">Select type</option>
+                    <option value="invoice_bill">Invoice / bill</option>
+                    <option value="check_payment">Check / payment</option>
+                    <option value="legal_contract">Legal / contract</option>
+                    <option value="government_tax">Government / tax notice</option>
+                    <option value="vendor_correspondence">Vendor correspondence</option>
+                    <option value="marketing_catalog">Marketing / catalog</option>
+                    <option value="package_delivery">Package / delivery notice</option>
+                    <option value="personal">Personal</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="priority">Priority</label>
+                  <select id="priority" class="select">
+                    <option value="P0">P0 — Urgent</option>
+                    <option value="P1">P1 — High</option>
+                    <option value="P2" selected>P2 — Normal</option>
+                    <option value="P3">P3 — Low</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="pr-section-card">
+              <div class="section-title">Dates and routing</div>
+              <div class="pr-form-grid">
+                <div>
+                  <label class="bcn-label" for="receivedDate">Received date</label>
+                  <input id="receivedDate" type="date" class="input" />
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="dueDate">Due date (if any)</label>
+                  <input id="dueDate" type="date" class="input" />
+                </div>
+
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="assignedTo">Send to</label>
+                  <select id="assignedTo" class="select">
+                    <option value="">Loading team…</option>
+                  </select>
+                  <div class="pr-help">Optional — route it to someone now, or leave unassigned for the Mailroom queue to pick up.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="pr-section-card">
+              <div class="section-title">Details and attachment</div>
+              <div class="pr-form-grid">
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="actionNeeded">Action needed</label>
+                  <input id="actionNeeded" class="input" placeholder="e.g. Deposit check, forward to legal, file for records..." />
+                </div>
+
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="mailFile">Scan / photo of the item</label>
+                  <div class="pr-upload">
+                    <input
+                      id="mailFile"
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp"
+                      multiple
+                    />
+                    <div class="pr-help">PDFs or photos are fine. You can attach more than one file.</div>
+                  </div>
+                </div>
+
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="notes">Notes</label>
+                  <textarea id="notes" class="textarea" placeholder="Anything else worth flagging..."></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div class="pr-form-actions">
+              <div class="pr-muted">Items land in the Mailroom queue as soon as you submit.</div>
+              <div class="pr-btn-row">
+                <button id="resetBtn" type="button" class="btn btn-soft">Start over</button>
+                <button id="submitBtn" type="submit" class="btn btn-primary">Log it</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <div id="successCard" class="card hidden">
+          <div class="section-title">Logged</div>
+          <div class="section-sub">This item is now in the Mailroom queue.</div>
+          <div class="pr-success-grid">
+            <div class="pr-callout">
+              <div class="pr-kv-label">Reference number</div>
+              <div id="successItemId" class="pr-kv-value">—</div>
+            </div>
+            <div class="pr-callout">
+              <div class="pr-kv-label">Attachments</div>
+              <div id="successFileName" class="pr-kv-value">No files</div>
+            </div>
+          </div>
+          <div class="pr-btn-row pr-success-actions">
+            <button id="newItemBtn" type="button" class="btn btn-primary">Log another item</button>
+            <a href="mailroom.html" class="btn btn-soft">Open Mailroom queue</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  const SUPABASE_URL =
+    window.__SILO_CONFIG__?.SUPABASE_URL ||
+    window.SUPABASE_URL ||
+    window.CONFIG?.SUPABASE_URL;
+
+  const SUPABASE_ANON_KEY =
+    window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
+    window.__SILO_CONFIG__?.SUPABASE_KEY ||
+    window.SUPABASE_ANON_KEY ||
+    window.CONFIG?.SUPABASE_ANON_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error("Missing Supabase config on page.");
+  }
+
+  const BUCKET = "mail-item-files";
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+
+  const els = {
+    authCard: document.getElementById("authCard"),
+    appCard: document.getElementById("appCard"),
+    successCard: document.getElementById("successCard"),
+    signedInAs: document.getElementById("signedInAs"),
+    statusBox: document.getElementById("statusBox"),
+
+    intakeForm: document.getElementById("intakeForm"),
+    subject: document.getElementById("subject"),
+    sender: document.getElementById("sender"),
+    documentType: document.getElementById("documentType"),
+    priority: document.getElementById("priority"),
+    receivedDate: document.getElementById("receivedDate"),
+    dueDate: document.getElementById("dueDate"),
+    assignedTo: document.getElementById("assignedTo"),
+    actionNeeded: document.getElementById("actionNeeded"),
+    mailFile: document.getElementById("mailFile"),
+    notes: document.getElementById("notes"),
+
+    resetBtn: document.getElementById("resetBtn"),
+    submitBtn: document.getElementById("submitBtn"),
+    newItemBtn: document.getElementById("newItemBtn"),
+
+    successItemId: document.getElementById("successItemId"),
+    successFileName: document.getElementById("successFileName")
+  };
+
+  let currentUser = null;
+
+  function escapeAttr(value) {
+    return String(value || "").replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+  }
+
+  function showStatus(message, type = "info") {
+    const tone = type === "error" ? "neg" : type === "success" ? "pos" : "info";
+    els.statusBox.className = `bcn-status bcn-status--${tone} pr-status-slot`;
+    els.statusBox.textContent = message;
+    els.statusBox.classList.remove("hidden");
+  }
+
+  function clearStatus() {
+    els.statusBox.textContent = "";
+    els.statusBox.className = "bcn-status hidden pr-status-slot";
+  }
+
+  function setSubmitting(isSubmitting) {
+    els.submitBtn.disabled = isSubmitting;
+    els.resetBtn.disabled = isSubmitting;
+    els.submitBtn.textContent = isSubmitting ? "Logging…" : "Log it";
+  }
+
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function resetForm() {
+    els.intakeForm.reset();
+    els.receivedDate.value = todayISO();
+    els.priority.value = "P2";
+    clearStatus();
+    els.successCard.classList.add("hidden");
+    els.appCard.classList.remove("hidden");
+  }
+
+  function showAuthState() {
+    if (!currentUser) {
+      els.authCard.classList.remove("hidden");
+      els.appCard.classList.add("hidden");
+    } else {
+      els.authCard.classList.add("hidden");
+      els.appCard.classList.remove("hidden");
+      els.signedInAs.textContent = `Signed in: ${currentUser.email || "user"}`;
+    }
+  }
+
+  async function loadAssigneeOptions() {
+    try {
+      let _q = supabaseClient.from("profiles").select("id, name, email").eq("is_active", true).order("name", { ascending: true });
+      const { data, error } = await _q;
+      if (error) throw error;
+      const rows = data || [];
+      els.assignedTo.innerHTML =
+        '<option value="">Unassigned</option>' +
+        rows.map(p => `<option value="${escapeAttr(p.id)}">${escapeAttr(p.name || p.email)}</option>`).join("");
+    } catch (err) {
+      console.error("Team load failed:", err);
+      els.assignedTo.innerHTML = '<option value="">Unassigned</option>';
+    }
+  }
+
+  async function uploadFiles(fileList, itemId) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return [];
+    const uploaded = [];
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      const safeName = file.name.replace(/[^\w.\-]/g, "_");
+      const path = `${itemId}/${Date.now()}-${index + 1}-${safeName}`;
+      const { error: uploadError } = await supabaseClient.storage
+        .from(BUCKET).upload(path, file, { cacheControl: "3600", upsert: false });
+      if (uploadError) throw uploadError;
+      uploaded.push({
+        mail_item_id: itemId,
+        file_name: file.name,
+        file_path: path,
+        file_url: null,
+        file_size: file.size || null,
+        mime_type: file.type || null,
+        sort_order: index + 1,
+        created_by: currentUser?.id || null
+      });
+    }
+    return uploaded;
+  }
+
+  async function logActivity({ itemId, activityType, fieldName = null, oldValue = null, newValue = null, message = null }) {
+    const { error } = await supabaseClient
+      .from("mail_item_activity")
+      .insert({
+        mail_item_id: itemId,
+        activity_type: activityType,
+        field_name: fieldName,
+        old_value: oldValue,
+        new_value: newValue,
+        message,
+        created_by: currentUser?.id || null,
+        ...(_co?.id ? { company_entity_id: _co.id } : {}),
+      });
+    if (error) throw error;
+  }
+
+  async function createMailItem(event) {
+    event.preventDefault();
+    clearStatus();
+
+    if (!currentUser) {
+      showStatus("Please sign in first, then try again.", "error");
+      return;
+    }
+
+    const subject = els.subject.value.trim();
+    if (!subject) { showStatus("Add a subject so the team knows what this is.", "error"); return; }
+
+    setSubmitting(true);
+    try {
+      const itemId = crypto.randomUUID();
+      const uploadedFiles = await uploadFiles(els.mailFile.files, itemId);
+
+      const payload = {
+        id: itemId,
+        subject,
+        sender: els.sender.value.trim() || null,
+        document_type: els.documentType.value || null,
+        priority: els.priority.value || "P2",
+        received_date: els.receivedDate.value || todayISO(),
+        due_date: els.dueDate.value || null,
+        action_needed: els.actionNeeded.value.trim() || null,
+        notes: els.notes.value.trim() || null,
+        assigned_to: els.assignedTo.value || null,
+        submitted_by: currentUser?.id || null,
+        status: "open",
+        created_by: currentUser?.id || null,
+        updated_by: currentUser?.id || null
+      };
+
+      const { error: insertError } = await supabaseClient.from("mail_items").insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})});
+      if (insertError) throw insertError;
+
+      if (uploadedFiles.length) {
+        const { error: fileRowsError } = await supabaseClient.from("mail_item_files").insert(uploadedFiles);
+        if (fileRowsError) throw fileRowsError;
+      }
+
+      try {
+        await logActivity({
+          itemId,
+          activityType: "submitted",
+          message: `Logged by ${currentUser.email || "a team member"}${uploadedFiles.length ? ` with ${uploadedFiles.length} attachment${uploadedFiles.length === 1 ? "" : "s"}` : ""}.`
+        });
+      } catch (activityErr) {
+        console.error("Failed to log submitted activity", activityErr);
+      }
+
+      els.successItemId.textContent = itemId;
+      els.successFileName.textContent = uploadedFiles.length
+        ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
+        : "No files attached";
+      els.appCard.classList.add("hidden");
+      els.successCard.classList.remove("hidden");
+      showStatus("Logged to the Mailroom queue.", "success");
+    } catch (error) {
+      console.error(error);
+      showStatus(error?.message || "Something went wrong while saving. Please try again.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Mount chrome synchronously — sidebar visible before any network call
+  SiloChrome.mount({
+    appEl: '#silo-app',
+    active: 'finance/mail-intake',
+    user: { email: '', role: 'MEMBER' },
+    crumbs: ['Ops', 'Mail Intake'],
+    supabaseClient,
+  });
+
+  // Always attach listeners synchronously — never inside async init
+  els.intakeForm.addEventListener("submit", createMailItem);
+  els.resetBtn.addEventListener("click", resetForm);
+  els.newItemBtn.addEventListener("click", resetForm);
+
+  async function boot() {
+    try {
+      els.receivedDate.value = todayISO();
+
+      const { data, error } = await supabaseClient.auth.getUser();
+      if (error) console.warn("Auth:", error.message);
+      currentUser = data?.user || null;
+
+      showAuthState();
+      if (currentUser) {
+        await loadAssigneeOptions();
+      }
+
+      supabaseClient.auth.onAuthStateChange(async (event, session) => {
+        currentUser = session?.user || null;
+        showAuthState();
+        if (currentUser) {
+          await loadAssigneeOptions();
+        }
+      });
+    } catch (err) {
+      console.error("Boot failed:", err);
+    }
+  }
+
+  boot();
+</script>
+</body>
+</html>

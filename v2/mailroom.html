@@ -4,23 +4,834 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SILO · Mailroom</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="tool-shell.css" />
+  <link rel="stylesheet" href="purchasing-page-content.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
+  <style>
+    :root { color-scheme: light; }
+    .silo-main { overflow-y: auto; }
+  </style>
 </head>
-<body class="silo-brand">
-  <div id="silo-app" class="silo-app">
-    <main class="silo-main" data-tool='{"title":"Mailroom","subtitle":"Incoming mail intake, document classification, and routing.","src":"/mailroom.html","active":"finance/mailroom","crumbs":["Ops","Mailroom"]}'></main>
+<body>
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+  <div class="shell pr-page pr-page--wide pr-page--workbench">
+    <div class="pr-stack">
+
+      <section class="bcn-card pr-intro">
+        <header class="bcn-card-header bcn-card-header--dark">
+          <span class="bcn-pill">QUEUE</span>
+          <h2>Mailroom</h2>
+          <span class="bcn-card-meta">Intake · route · process</span>
+        </header>
+        <div class="bcn-card-body">
+          <p class="pr-intro-lead">
+            Shared incoming mail queue — every piece logged, routed, and tracked through to done.
+          </p>
+          <div class="pr-btn-row">
+            <a class="btn btn-soft" href="./mail-intake.html">Log incoming mail</a>
+            <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="card rm-filter-card">
+        <div class="rm-filter-grid">
+          <div class="rm-f-span-2">
+            <label class="bcn-label">Status</label>
+            <select id="statusFilter" class="select">
+              <option value="open" selected>Open</option>
+              <option value="">All</option>
+              <option value="done">Done</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+
+          <div class="rm-f-span-2">
+            <label class="bcn-label">Priority</label>
+            <select id="priorityFilter" class="select">
+              <option value="">All</option>
+              <option value="P0">P0 — Urgent</option>
+              <option value="P1">P1 — High</option>
+              <option value="P2">P2 — Normal</option>
+              <option value="P3">P3 — Low</option>
+            </select>
+          </div>
+
+          <div class="rm-f-span-2">
+            <label class="bcn-label">Assigned</label>
+            <select id="assignedFilter" class="select">
+              <option value="">All</option>
+            </select>
+          </div>
+
+          <div class="rm-f-span-2">
+            <label class="bcn-label">Document type</label>
+            <select id="typeFilter" class="select">
+              <option value="">All</option>
+            </select>
+          </div>
+
+          <div class="rm-f-span-4">
+            <label class="bcn-label">Search</label>
+            <input id="searchInput" class="input" placeholder="Subject, sender, notes..." />
+          </div>
+
+          <div class="rm-f-span-2 rm-filter-actions">
+            <button id="clearFiltersBtn" class="btn btn-soft" type="button" style="width:100%;">Clear filters</button>
+          </div>
+
+          <div id="statusText" class="rm-f-span-12 rm-status-line">Loading queue data.</div>
+        </div>
+      </div>
+
+      <div class="rm-kpi-band">
+        <div class="rm-kpi"><div class="rm-kpi-label">Open</div><div id="kpiOpen" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Not yet done</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Unassigned</div><div id="kpiUnassigned" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Open, needs owner</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Due soon</div><div id="kpiDueSoon" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Next 3 days</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Done this week</div><div id="kpiDoneWeek" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Last 7 days</div></div>
+      </div>
+
+      <div class="card">
+        <div class="rm-card-head">
+          <div>
+            <div class="section-title">Mail items</div>
+            <div class="section-sub">Click a row to review, route, or mark done</div>
+          </div>
+          <div class="rm-row-count"><span id="rowCount">0</span> rows</div>
+        </div>
+
+        <div class="rm-table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Subject</th>
+                <th>Sender</th>
+                <th>Type</th>
+                <th>Priority</th>
+                <th>Received</th>
+                <th>Due</th>
+                <th>Assigned to</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="mailTbody">
+              <tr><td colspan="8" class="rm-muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
   </div>
+  </main>
+</div>
+
+  <!-- Detail drawer -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer rm-drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <div id="drawerTitle" class="drawer-title">—</div>
+        <div id="drawerSub" class="drawer-sub">—</div>
+      </div>
+      <button id="closeDrawerBtn" class="btn btn-soft btn-xs">Close</button>
+    </div>
+
+    <div class="drawer-body">
+      <section class="rm-drawer-panel">
+        <header class="rm-drawer-panel-head">
+          <span class="bcn-pill">DETAILS</span>
+          <div>
+            <h3 class="rm-drawer-panel-title">Mail item</h3>
+          </div>
+        </header>
+        <div class="field-grid">
+          <div class="full">
+            <label class="bcn-label">Subject</label>
+            <input id="fSubject" class="input" />
+          </div>
+          <div>
+            <label class="bcn-label">Sender</label>
+            <input id="fSender" class="input" />
+          </div>
+          <div>
+            <label class="bcn-label">Document type</label>
+            <select id="fDocType" class="select">
+              <option value="">—</option>
+              <option value="invoice_bill">Invoice / bill</option>
+              <option value="check_payment">Check / payment</option>
+              <option value="legal_contract">Legal / contract</option>
+              <option value="government_tax">Government / tax notice</option>
+              <option value="vendor_correspondence">Vendor correspondence</option>
+              <option value="marketing_catalog">Marketing / catalog</option>
+              <option value="package_delivery">Package / delivery notice</option>
+              <option value="personal">Personal</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label class="bcn-label">Priority</label>
+            <select id="fPriority" class="select">
+              <option value="P0">P0 — Urgent</option>
+              <option value="P1">P1 — High</option>
+              <option value="P2">P2 — Normal</option>
+              <option value="P3">P3 — Low</option>
+            </select>
+          </div>
+          <div>
+            <label class="bcn-label">Status</label>
+            <select id="fStatus" class="select">
+              <option value="open">Open</option>
+              <option value="done">Done</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div>
+            <label class="bcn-label">Received date</label>
+            <input id="fReceivedDate" type="date" class="input" />
+          </div>
+          <div>
+            <label class="bcn-label">Due date</label>
+            <input id="fDueDate" type="date" class="input" />
+          </div>
+          <div>
+            <label class="bcn-label">Send to</label>
+            <select id="fAssignedTo" class="select">
+              <option value="">Unassigned</option>
+            </select>
+          </div>
+          <div class="full">
+            <label class="bcn-label">Action needed</label>
+            <input id="fActionNeeded" class="input" />
+          </div>
+          <div class="full">
+            <label class="bcn-label">Notes</label>
+            <textarea id="fNotes" class="textarea"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="rm-drawer-panel">
+        <header class="rm-drawer-panel-head">
+          <span class="bcn-pill">FILES</span>
+          <div>
+            <h3 class="rm-drawer-panel-title">Attachments</h3>
+            <span id="fileCount" class="rm-doc-count mono">0</span>
+          </div>
+        </header>
+        <div id="filesList" class="rm-file-list"></div>
+        <div class="rm-upload-zone">
+          <label class="rm-upload-label" for="mailFileInput">
+            <span class="rm-upload-title">Add a file</span>
+            <span class="rm-upload-hint">Scans, photos, or follow-up documents for this item.</span>
+          </label>
+          <input id="mailFileInput" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple />
+          <div class="rm-upload-actions">
+            <button id="uploadFileBtn" class="btn btn-primary btn-xs" type="button" disabled>Upload</button>
+            <span id="uploadStatus" class="rm-upload-status"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rm-drawer-panel">
+        <header class="rm-drawer-panel-head">
+          <span class="bcn-pill">HISTORY</span>
+          <div>
+            <h3 class="rm-drawer-panel-title">Activity</h3>
+          </div>
+        </header>
+        <div id="drawerActivity" class="rm-activity-list"></div>
+      </section>
+    </div>
+
+    <div class="drawer-foot">
+      <div class="pr-btn-row">
+        <button id="markDoneBtn" class="btn btn-soft" type="button">Mark done</button>
+        <button id="archiveBtn" class="btn btn-soft" type="button">Archive</button>
+      </div>
+      <div class="pr-btn-row">
+        <button id="saveDrawerBtn" class="btn btn-primary" type="button">Save changes</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="toastWrap" class="toast-wrap"></div>
 
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="dept-guard.js" data-departments="exec,finance"></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
-  <script src="tool-shell.js"></script>
+  <script>
+    const cfg = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = cfg.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+    const BUCKET = "mail-item-files";
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      const statusNode = document.getElementById('statusText');
+      if (statusNode) {
+        statusNode.textContent = 'Missing Supabase config.';
+        statusNode.className = 'rm-f-span-12 rm-status-line rm-status-line--error';
+      }
+    }
+
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+
+    const el = (id) => document.getElementById(id);
+    const els = {
+      refreshBtn: el('refreshBtn'),
+      searchInput: el('searchInput'),
+      statusFilter: el('statusFilter'),
+      priorityFilter: el('priorityFilter'),
+      assignedFilter: el('assignedFilter'),
+      typeFilter: el('typeFilter'),
+      clearFiltersBtn: el('clearFiltersBtn'),
+      mailTbody: el('mailTbody'),
+      rowCount: el('rowCount'),
+      statusText: el('statusText'),
+
+      kpiOpen: el('kpiOpen'),
+      kpiUnassigned: el('kpiUnassigned'),
+      kpiDueSoon: el('kpiDueSoon'),
+      kpiDoneWeek: el('kpiDoneWeek'),
+
+      drawerBackdrop: el('drawerBackdrop'),
+      drawer: el('drawer'),
+      drawerTitle: el('drawerTitle'),
+      drawerSub: el('drawerSub'),
+      closeDrawerBtn: el('closeDrawerBtn'),
+      drawerActivity: el('drawerActivity'),
+
+      fSubject: el('fSubject'),
+      fSender: el('fSender'),
+      fDocType: el('fDocType'),
+      fPriority: el('fPriority'),
+      fStatus: el('fStatus'),
+      fReceivedDate: el('fReceivedDate'),
+      fDueDate: el('fDueDate'),
+      fAssignedTo: el('fAssignedTo'),
+      fActionNeeded: el('fActionNeeded'),
+      fNotes: el('fNotes'),
+
+      filesList: el('filesList'),
+      fileCount: el('fileCount'),
+      mailFileInput: el('mailFileInput'),
+      uploadFileBtn: el('uploadFileBtn'),
+      uploadStatus: el('uploadStatus'),
+
+      markDoneBtn: el('markDoneBtn'),
+      archiveBtn: el('archiveBtn'),
+      saveDrawerBtn: el('saveDrawerBtn'),
+
+      toastWrap: el('toastWrap'),
+    };
+
+    const state = {
+      currentUser: null,
+      profiles: [],
+      rows: [],
+      filteredRows: [],
+      files: [],
+      activityRows: [],
+      currentRow: null,
+    };
+
+    function escapeHtml(s) {
+      return String(s ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+    }
+
+    function formatDate(d) {
+      if (!d) return "—";
+      const x = new Date(`${d}T00:00:00`);
+      return Number.isNaN(x.getTime()) ? "—" : x.toLocaleDateString();
+    }
+
+    function formatDateTime(d) {
+      if (!d) return "—";
+      const x = new Date(d);
+      return Number.isNaN(x.getTime()) ? "—" : x.toLocaleString();
+    }
+
+    function setStatus(message, isError = false) {
+      els.statusText.textContent = message;
+      els.statusText.className = `rm-f-span-12 rm-status-line${isError ? " rm-status-line--error" : ""}`;
+    }
+
+    function showToast(message, isError = false) {
+      const t = document.createElement('div');
+      t.className = `toast ${isError ? 'error' : ''}`;
+      t.textContent = message;
+      els.toastWrap.appendChild(t);
+      setTimeout(() => t.remove(), 4000);
+    }
+
+    const DOC_TYPE_LABELS = {
+      invoice_bill: "Invoice / bill",
+      check_payment: "Check / payment",
+      legal_contract: "Legal / contract",
+      government_tax: "Government / tax notice",
+      vendor_correspondence: "Vendor correspondence",
+      marketing_catalog: "Marketing / catalog",
+      package_delivery: "Package / delivery notice",
+      personal: "Personal",
+      other: "Other",
+    };
+    function docTypeLabel(v) { return DOC_TYPE_LABELS[v] || v || "—"; }
+
+    const PRIORITY_LABELS = { P0: "P0 — Urgent", P1: "P1 — High", P2: "P2 — Normal", P3: "P3 — Low" };
+    function priorityLabel(v) { return PRIORITY_LABELS[v] || v || "—"; }
+    function priorityBadgeClass(v) {
+      if (v === 'P0') return 'bcn-pill bcn-pill--neg';
+      if (v === 'P1') return 'bcn-pill bcn-pill--accent';
+      if (v === 'P3') return 'bcn-pill';
+      return 'bcn-pill bcn-pill--pos';
+    }
+
+    function statusBadge(v) {
+      if (v === 'done') return '<span class="bcn-status bcn-status--pos" style="display:inline-block;padding:2px 8px;">Done</span>';
+      if (v === 'archived') return '<span class="bcn-status" style="display:inline-block;padding:2px 8px;">Archived</span>';
+      return '<span class="bcn-status bcn-status--info" style="display:inline-block;padding:2px 8px;">Open</span>';
+    }
+
+    function assignedName(id) {
+      if (!id) return "Unassigned";
+      const p = state.profiles.find(x => x.id === id);
+      return p ? (p.name || p.email) : "Unassigned";
+    }
+
+    const ACTIVITY_LABELS = {
+      submitted: "Submitted",
+      status_changed: "Status changed",
+      assignment_changed: "Assignment changed",
+      priority_changed: "Priority changed",
+      note_added: "Note added",
+      file_uploaded: "File uploaded",
+      notification_sent: "Notified",
+      imported: "Imported",
+      updated: "Updated",
+    };
+    function activityLabel(t) { return ACTIVITY_LABELS[t] || t || "Activity"; }
+    function activityMessage(row) {
+      if (row.message) return row.message;
+      if (row.field_name && (row.old_value || row.new_value)) {
+        return `${row.field_name}: ${row.old_value || "—"} → ${row.new_value || "—"}`;
+      }
+      return activityLabel(row.activity_type);
+    }
+
+    async function fetchProfiles() {
+      const { data, error } = await supabaseClient.from("profiles").select("id, name, email, is_active").eq("is_active", true).order("name", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchRows() {
+      let _q = supabaseClient.from("mail_items_v").select("*").order("received_date", { ascending: false }).order("created_at", { ascending: false }).limit(2000);
+      const { data, error } = await _q;
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchFiles() {
+      const { data, error } = await supabaseClient.from("mail_item_files").select("id, mail_item_id, file_name, file_path, file_url, file_size, mime_type, sort_order, created_at").order("sort_order", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchActivityRows() {
+      const { data, error } = await supabaseClient.from("mail_item_activity").select("*").order("created_at", { ascending: false }).limit(2000);
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function logActivity({ itemId, activityType, fieldName = null, oldValue = null, newValue = null, message = null }) {
+      const { error } = await supabaseClient.from("mail_item_activity").insert({
+        mail_item_id: itemId,
+        activity_type: activityType,
+        field_name: fieldName,
+        old_value: oldValue,
+        new_value: newValue,
+        message,
+        created_by: state.currentUser?.id || null,
+        ...(_co?.id ? { company_entity_id: _co.id } : {}),
+      });
+      if (error) throw error;
+    }
+
+    function filesForItem(id) {
+      return state.files.filter(f => f.mail_item_id === id);
+    }
+
+    function renderAssignedOptions() {
+      const optionsHtml = ['<option value="">Unassigned</option>'].concat(
+        state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+      ).join("");
+      els.fAssignedTo.innerHTML = optionsHtml;
+      els.assignedFilter.innerHTML = '<option value="">All assignees</option>' + optionsHtml.replace('<option value="">Unassigned</option>', '');
+    }
+
+    function renderTypeOptions() {
+      const types = [...new Set(state.rows.map(r => r.document_type).filter(Boolean))].sort();
+      els.typeFilter.innerHTML = '<option value="">All types</option>' + types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(docTypeLabel(t))}</option>`).join("");
+    }
+
+    function applyFilters() {
+      const q = els.searchInput.value.trim().toLowerCase();
+      const status = els.statusFilter.value;
+      const priority = els.priorityFilter.value;
+      const assignee = els.assignedFilter.value;
+      const type = els.typeFilter.value;
+
+      state.filteredRows = state.rows.filter(r => {
+        if (status && r.status !== status) return false;
+        if (priority && r.priority !== priority) return false;
+        if (assignee && r.assigned_to !== assignee) return false;
+        if (type && r.document_type !== type) return false;
+        if (q) {
+          const hay = `${r.subject || ""} ${r.sender || ""} ${r.notes || ""} ${r.action_needed || ""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderTable() {
+      els.rowCount.textContent = String(state.filteredRows.length);
+
+      els.mailTbody.innerHTML = state.filteredRows.map(r => `
+        <tr>
+          <td>
+            <div class="rm-cell-primary truncate-220">${escapeHtml(r.subject || "—")}</div>
+            <div class="rm-cell-meta rm-cell-meta--truncate">${escapeHtml(r.action_needed || "")}</div>
+          </td>
+          <td><div class="rm-cell-primary truncate-160">${escapeHtml(r.sender || "—")}</div></td>
+          <td><div class="rm-cell-primary">${escapeHtml(docTypeLabel(r.document_type))}</div></td>
+          <td><span class="${priorityBadgeClass(r.priority)}">${escapeHtml(r.priority || "—")}</span></td>
+          <td class="mono rm-cell-primary">${formatDate(r.received_date)}</td>
+          <td class="mono rm-cell-primary">${formatDate(r.due_date)}</td>
+          <td><div class="rm-cell-primary truncate-160">${escapeHtml(r.assigned_to_name || r.assigned_to_email || "Unassigned")}</div></td>
+          <td>
+            <div class="rm-badge-row">${statusBadge(r.status)}</div>
+            <div class="rm-action-row"><button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Open</button></div>
+          </td>
+        </tr>
+      `).join("") || `<tr><td colspan="8" class="rm-empty-cell">No mail items match your filters.</td></tr>`;
+
+      els.mailTbody.querySelectorAll(".open-drawer-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => { e.stopPropagation(); openDrawer(btn.getAttribute("data-id")); });
+      });
+    }
+
+    function renderKpis() {
+      const open = state.rows.filter(r => r.status === 'open').length;
+      const unassigned = state.rows.filter(r => r.status === 'open' && !r.assigned_to).length;
+      const in3Days = new Date(); in3Days.setDate(in3Days.getDate() + 3);
+      const dueSoon = state.rows.filter(r => r.status === 'open' && r.due_date && new Date(`${r.due_date}T00:00:00`) <= in3Days).length;
+      const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+      const doneWeek = state.rows.filter(r => r.status === 'done' && r.updated_at && new Date(r.updated_at) >= weekAgo).length;
+
+      els.kpiOpen.textContent = String(open);
+      els.kpiUnassigned.textContent = String(unassigned);
+      els.kpiDueSoon.textContent = String(dueSoon);
+      els.kpiDoneWeek.textContent = String(doneWeek);
+    }
+
+    function refreshAll() {
+      applyFilters();
+      renderTable();
+      renderKpis();
+    }
+
+    function renderDrawerFiles(row) {
+      const files = filesForItem(row.id);
+      els.fileCount.textContent = String(files.length);
+      if (!files.length) {
+        els.filesList.innerHTML = `<div class="rm-file-empty">No attachments yet.</div>`;
+        return;
+      }
+      els.filesList.innerHTML = files.map((f, i) => `
+        <div class="rm-file-card">
+          <div class="rm-file-card-icon mono" aria-hidden="true">FILE</div>
+          <div class="rm-file-card-body">
+            <div class="rm-file-card-name">${escapeHtml(f.file_name || `File ${i + 1}`)}</div>
+            <div class="rm-file-card-meta">${escapeHtml(f.mime_type || "")}</div>
+          </div>
+          <button class="btn btn-soft btn-xs open-file-btn" type="button" data-path="${escapeHtml(f.file_path || "")}" data-url="${escapeHtml(f.file_url || "")}">Open</button>
+        </div>
+      `).join("");
+
+      els.filesList.querySelectorAll(".open-file-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const path = btn.getAttribute("data-path");
+          const url = btn.getAttribute("data-url");
+          if (url) { window.open(url, "_blank", "noopener,noreferrer"); return; }
+          if (!path) return;
+          const { data, error } = await supabaseClient.storage.from(BUCKET).createSignedUrl(path, 300);
+          if (error) { showToast(`Could not open file: ${error.message}`, true); return; }
+          window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+        });
+      });
+    }
+
+    function renderDrawerActivity(row) {
+      const rows = state.activityRows.filter(a => a.mail_item_id === row.id).slice(0, 30);
+      els.drawerActivity.innerHTML = rows.length
+        ? rows.map(a => `
+            <div class="activity-item">
+              <div class="rm-card-head">
+                <div class="rm-cell-primary">${escapeHtml(activityLabel(a.activity_type))}</div>
+                <div class="rm-cell-meta">${escapeHtml(formatDateTime(a.created_at))}</div>
+              </div>
+              <div class="rm-cell-meta rm-activity-message">${escapeHtml(activityMessage(a))}</div>
+            </div>
+          `).join("")
+        : `<div class="rm-muted">No activity yet.</div>`;
+    }
+
+    function openDrawer(id) {
+      const row = state.rows.find(r => r.id === id);
+      if (!row) return;
+
+      state.currentRow = row;
+      els.drawerTitle.textContent = row.subject || "Mail item";
+      els.drawerSub.textContent = `${docTypeLabel(row.document_type)} · received ${formatDate(row.received_date)}`;
+
+      els.fSubject.value = row.subject || "";
+      els.fSender.value = row.sender || "";
+      els.fDocType.value = row.document_type || "";
+      els.fPriority.value = row.priority || "P2";
+      els.fStatus.value = row.status || "open";
+      els.fReceivedDate.value = row.received_date || "";
+      els.fDueDate.value = row.due_date || "";
+      els.fAssignedTo.value = row.assigned_to || "";
+      els.fActionNeeded.value = row.action_needed || "";
+      els.fNotes.value = row.notes || "";
+
+      els.mailFileInput.value = "";
+      els.uploadStatus.textContent = "";
+      els.uploadFileBtn.disabled = true;
+
+      renderDrawerFiles(row);
+      renderDrawerActivity(row);
+
+      els.drawerBackdrop.classList.add("open");
+      els.drawer.classList.add("open");
+    }
+
+    function closeDrawer() {
+      els.drawerBackdrop.classList.remove("open");
+      els.drawer.classList.remove("open");
+      state.currentRow = null;
+    }
+
+    async function loadData() {
+      const [profiles, rows, files, activityRows] = await Promise.all([
+        fetchProfiles(), fetchRows(), fetchFiles(), fetchActivityRows()
+      ]);
+      state.profiles = profiles;
+      state.rows = rows;
+      state.files = files;
+      state.activityRows = activityRows;
+
+      renderAssignedOptions();
+      renderTypeOptions();
+      refreshAll();
+      setStatus(`Loaded ${state.rows.length} mail items.`);
+    }
+
+    async function saveRow({ markDone = false, archive = false } = {}) {
+      if (!state.currentRow) return;
+      els.saveDrawerBtn.disabled = true;
+      els.markDoneBtn.disabled = true;
+      els.archiveBtn.disabled = true;
+
+      try {
+        const oldRow = { ...state.currentRow };
+        const status = archive ? "archived" : (markDone ? "done" : els.fStatus.value);
+
+        const payload = {
+          subject: els.fSubject.value.trim(),
+          sender: els.fSender.value.trim() || null,
+          document_type: els.fDocType.value || null,
+          priority: els.fPriority.value || "P2",
+          status,
+          received_date: els.fReceivedDate.value || null,
+          due_date: els.fDueDate.value || null,
+          assigned_to: els.fAssignedTo.value || null,
+          action_needed: els.fActionNeeded.value.trim() || null,
+          notes: els.fNotes.value.trim() || null,
+          processed_by: (status === 'done' && !oldRow.processed_by) ? (state.currentUser?.id || null) : oldRow.processed_by,
+          updated_by: state.currentUser?.id || null,
+        };
+
+        const { error } = await supabaseClient.from("mail_items").update(payload).eq("id", oldRow.id);
+        if (error) throw error;
+
+        const activityPromises = [];
+        if (oldRow.status !== payload.status) {
+          activityPromises.push(logActivity({
+            itemId: oldRow.id, activityType: "status_changed", fieldName: "status",
+            oldValue: oldRow.status, newValue: payload.status,
+            message: `Status changed from ${oldRow.status} to ${payload.status}`
+          }));
+        }
+        if ((oldRow.assigned_to || "") !== (payload.assigned_to || "")) {
+          activityPromises.push(logActivity({
+            itemId: oldRow.id, activityType: "assignment_changed", fieldName: "assigned_to",
+            oldValue: assignedName(oldRow.assigned_to), newValue: assignedName(payload.assigned_to),
+            message: `Sent to ${assignedName(payload.assigned_to)}`
+          }));
+        }
+        if (oldRow.priority !== payload.priority) {
+          activityPromises.push(logActivity({
+            itemId: oldRow.id, activityType: "priority_changed", fieldName: "priority",
+            oldValue: oldRow.priority, newValue: payload.priority,
+            message: `Priority changed from ${oldRow.priority} to ${payload.priority}`
+          }));
+        }
+        if (!activityPromises.length) {
+          activityPromises.push(logActivity({ itemId: oldRow.id, activityType: "updated", message: "Item updated." }));
+        }
+        await Promise.all(activityPromises);
+
+        await loadData();
+        openDrawer(oldRow.id);
+        showToast(markDone ? "Marked done." : archive ? "Archived." : "Saved.");
+      } catch (err) {
+        console.error(err);
+        showToast(`Save failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.saveDrawerBtn.disabled = false;
+        els.markDoneBtn.disabled = false;
+        els.archiveBtn.disabled = false;
+      }
+    }
+
+    async function uploadDrawerFiles() {
+      if (!state.currentRow?.id) return;
+      const files = els.mailFileInput.files;
+      if (!files?.length) { showToast("Choose at least one file to upload."); return; }
+
+      els.uploadFileBtn.disabled = true;
+      els.uploadStatus.textContent = "Uploading…";
+
+      try {
+        const itemId = state.currentRow.id;
+        const list = Array.from(files);
+        const existing = state.files.filter(f => f.mail_item_id === itemId);
+        const maxSort = existing.reduce((max, f) => Math.max(max, Number(f.sort_order || 0)), 0);
+        const uploaded = [];
+
+        for (let i = 0; i < list.length; i++) {
+          const file = list[i];
+          const safeName = file.name.replace(/[^\w.\-]/g, "_");
+          const path = `${itemId}/${Date.now()}-${i + 1}-${safeName}`;
+          const { error: uploadError } = await supabaseClient.storage.from(BUCKET).upload(path, file, { cacheControl: "3600", upsert: false });
+          if (uploadError) throw uploadError;
+          uploaded.push({
+            mail_item_id: itemId, file_name: file.name, file_path: path, file_url: null,
+            file_size: file.size || null, mime_type: file.type || null,
+            sort_order: maxSort + i + 1, created_by: state.currentUser?.id || null
+          });
+        }
+
+        if (uploaded.length) {
+          const { error: fileRowsError } = await supabaseClient.from("mail_item_files").insert(uploaded);
+          if (fileRowsError) throw fileRowsError;
+        }
+
+        for (const f of uploaded) {
+          try {
+            await logActivity({ itemId, activityType: "file_uploaded", message: `Uploaded ${f.file_name}` });
+          } catch (activityErr) {
+            console.error("Failed to log file_uploaded activity", activityErr);
+          }
+        }
+
+        state.files = await fetchFiles();
+        state.activityRows = await fetchActivityRows();
+        const row = state.rows.find(r => r.id === itemId);
+        if (row) {
+          renderDrawerFiles(row);
+          renderDrawerActivity(row);
+        }
+
+        els.mailFileInput.value = "";
+        els.uploadStatus.textContent = "";
+        showToast(`Uploaded ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}.`);
+      } catch (err) {
+        console.error(err);
+        els.uploadStatus.textContent = "";
+        showToast(`Upload failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.uploadFileBtn.disabled = !els.mailFileInput.files?.length;
+      }
+    }
+
+    function wireEvents() {
+      els.refreshBtn.addEventListener("click", loadData);
+      els.clearFiltersBtn.addEventListener("click", () => {
+        els.searchInput.value = "";
+        els.statusFilter.value = "open";
+        els.priorityFilter.value = "";
+        els.assignedFilter.value = "";
+        els.typeFilter.value = "";
+        refreshAll();
+      });
+
+      [els.searchInput, els.statusFilter, els.priorityFilter, els.assignedFilter, els.typeFilter].forEach(node => {
+        node.addEventListener("input", refreshAll);
+        node.addEventListener("change", refreshAll);
+      });
+
+      els.closeDrawerBtn.addEventListener("click", closeDrawer);
+      els.drawerBackdrop.addEventListener("click", closeDrawer);
+
+      els.saveDrawerBtn.addEventListener("click", () => saveRow());
+      els.markDoneBtn.addEventListener("click", () => saveRow({ markDone: true }));
+      els.archiveBtn.addEventListener("click", () => saveRow({ archive: true }));
+
+      els.mailFileInput.addEventListener("change", () => {
+        els.uploadFileBtn.disabled = !els.mailFileInput.files?.length;
+      });
+      els.uploadFileBtn.addEventListener("click", uploadDrawerFiles);
+
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && els.drawer.classList.contains("open")) closeDrawer();
+      });
+    }
+
+    SiloChrome.mount({
+      appEl: '#silo-app',
+      active: 'finance/mailroom',
+      user: { email: '', role: 'ADMIN' },
+      crumbs: ['Ops', 'Mailroom'],
+      supabaseClient,
+    });
+
+    async function init() {
+      try {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) { window.location.href = "/pages/login.html"; return; }
+        state.currentUser = user;
+
+        wireEvents();
+        await loadData();
+      } catch (err) {
+        console.error(err);
+        setStatus(`Init failed: ${err.message || "Unknown error"}`, true);
+      }
+    }
+
+    init();
+  </script>
 </body>
 </html>
