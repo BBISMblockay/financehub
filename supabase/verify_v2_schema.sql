@@ -277,6 +277,20 @@ select
 
 select
   case
+    when not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'launch_tasks'
+        and policyname = 'launch_tasks_active_write' and cmd = 'ALL'
+    ) and exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'launch_tasks'
+        and policyname = 'launch_tasks_active_insert'
+    ) then 'ok'
+    else 'MISSING — run 20260721000000_fix_launch_tasks_private_select_leak.sql (private tasks leak to the whole company otherwise)'
+  end as launch_tasks_private_select_leak_fix;
+
+select
+  case
     when exists (
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = 'product_tags'
