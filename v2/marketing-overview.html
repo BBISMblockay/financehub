@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Marketing Performance</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .mo-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    .mo-chart-wrap { position:relative; width:100%; }
+    .mo-chart-wrap svg { display:block; width:100%; overflow:visible; }
+    .mo-gridline { stroke:var(--bcn-border); stroke-width:1; }
+    .mo-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
+    .mo-line-spend { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .mo-area-spend { fill:var(--bcn-accent); opacity:.10; }
+    .mo-line-value { fill:none; stroke:oklch(0.60 0.18 145); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .mo-legend { display:flex; gap:16px; font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-bottom:6px; }
+    .mo-legend span { display:inline-flex; align-items:center; gap:6px; }
+    .mo-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+    .mo-tbl { width:100%; border-collapse:collapse; }
+    .mo-tbl thead th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.1em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right;
+    }
+    .mo-tbl thead th:first-child { text-align:left; }
+    .mo-tbl tbody td {
+      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
+      padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right; white-space:nowrap;
+    }
+    .mo-tbl tbody td:first-child { text-align:left; font-family:var(--bcn-font); }
+    .mo-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .mo-tbl tbody tr.mo-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
+    .mo-platform-pill { font-size:9.5px; padding:1px 7px; }
+
+    .mo-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+    .mo-spinner {
+      display:inline-block; width:12px; height:12px; margin-right:7px; vertical-align:-2px;
+      border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
+      border-radius:50%; animation:mo-spin .7s linear infinite;
+    }
+    @keyframes mo-spin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Marketing Performance</h1>
+        <div class="bcn-header-sub">Blended ad spend (Google Ads, Meta Ads, TikTok Ads) plus GA4 organic conversion value — synced nightly from Supermetrics via <span class="bcn-mono">supermetrics-sync.yml</span>. See <a href="/v2/integrations.html">Integrations</a> to manage the connection.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <span id="dataModePill" class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:10.5px">—</span>
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Ad Spend (34d)</div><div id="kpiSpend" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Google + Meta + TikTok</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Blended ROAS</div><div id="kpiRoas" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Paid conv. value ÷ spend</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">MER</div><div id="kpiMer" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">All conv. value ÷ ad spend</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Blended CPA</div><div id="kpiCpa" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Spend ÷ paid conversions</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">GA4 Organic Conv. Value</div><div id="kpiOrganic" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Unpaid channels</div></div>
+    </div>
+
+    <div class="mo-content">
+
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Daily spend vs. conversion value — last 34 days</h2>
+        </div>
+        <div class="bcn-card-body">
+          <div class="mo-legend">
+            <span><i style="background:var(--bcn-accent)"></i>Ad spend</span>
+            <span><i style="background:oklch(0.60 0.18 145)"></i>Conversion value (all channels)</span>
+          </div>
+          <div class="mo-chart-wrap" id="chartWrap">
+            <div class="mo-empty"><span class="mo-spinner"></span>Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>By platform</h2>
+          <span id="statusText" class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:11.5px;color:var(--bcn-ink-3)">Loading…</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:auto">
+          <table class="mo-tbl">
+            <thead>
+              <tr>
+                <th>Platform</th><th>Account</th><th>Spend</th><th>Impressions</th><th>Clicks</th>
+                <th>CTR</th><th>Conversions</th><th>Conv. Value</th><th>ROAS</th>
+              </tr>
+            </thead>
+            <tbody id="platformBody">
+              <tr><td class="mo-empty" colspan="9"><span class="mo-spinner"></span>Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  const PLATFORM_LABEL = { google_ads:'Google Ads', meta_ads:'Meta Ads', tiktok_ads:'TikTok Ads', ga4:'GA4 (organic)' };
+
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
+  const numFmt = v => Math.round(Number(v||0)).toLocaleString();
+  const pctFmt = v => (v==null || !isFinite(v)) ? '—' : `${(v*100).toFixed(2)}%`;
+  const ratioFmt = v => (v==null || !isFinite(v)) ? '—' : `${v.toFixed(2)}x`;
+  const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    dataModePill: document.getElementById('dataModePill'),
+    statusText: document.getElementById('statusText'),
+    kpiSpend: document.getElementById('kpiSpend'),
+    kpiRoas: document.getElementById('kpiRoas'),
+    kpiMer: document.getElementById('kpiMer'),
+    kpiCpa: document.getElementById('kpiCpa'),
+    kpiOrganic: document.getElementById('kpiOrganic'),
+    chartWrap: document.getElementById('chartWrap'),
+    platformBody: document.getElementById('platformBody'),
+  };
+
+  function setStatus(t){ el.statusText.textContent = t; }
+
+  async function loadRows(){
+    let q = sb.from('marketing_kpis_daily')
+      .select('platform,account_name,day_date,impressions,clicks,spend,conversions,conversion_value,sessions,source')
+      .order('day_date', { ascending:true });
+    q = scopeQ(q);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  }
+
+  function renderKpis(rows){
+    const paid = rows.filter(r => r.platform !== 'ga4');
+    const organic = rows.filter(r => r.platform === 'ga4');
+    const sum = (arr,k) => arr.reduce((a,r)=>a+Number(r[k]||0),0);
+
+    const paidSpend = sum(paid,'spend');
+    const paidConversions = sum(paid,'conversions');
+    const paidConvValue = sum(paid,'conversion_value');
+    const organicConvValue = sum(organic,'conversion_value');
+    const allConvValue = paidConvValue + organicConvValue;
+
+    el.kpiSpend.textContent = money(paidSpend);
+    el.kpiRoas.textContent = ratioFmt(paidSpend ? paidConvValue/paidSpend : null);
+    el.kpiMer.textContent = ratioFmt(paidSpend ? allConvValue/paidSpend : null);
+    el.kpiCpa.textContent = paidConversions ? money(paidSpend/paidConversions) : '—';
+    el.kpiOrganic.textContent = money(organicConvValue);
+  }
+
+  function renderPlatformTable(rows){
+    const byPlatform = new Map();
+    for (const r of rows){
+      const key = r.platform;
+      if (!byPlatform.has(key)) byPlatform.set(key, { platform:key, account:r.account_name, impr:0, clicks:0, spend:0, conv:0, value:0 });
+      const agg = byPlatform.get(key);
+      agg.impr += Number(r.impressions||0);
+      agg.clicks += Number(r.clicks||0);
+      agg.spend += Number(r.spend||0);
+      agg.conv += Number(r.conversions||0);
+      agg.value += Number(r.conversion_value||0);
+    }
+    const order = ['google_ads','meta_ads','tiktok_ads','ga4'];
+    const list = [...byPlatform.values()].sort((a,b)=>order.indexOf(a.platform)-order.indexOf(b.platform));
+
+    if (!list.length){
+      el.platformBody.innerHTML = `<tr><td class="mo-empty" colspan="9">No marketing KPI data yet — waiting on the Supermetrics sync.</td></tr>`;
+      return;
+    }
+
+    const rowsHtml = list.map(p => {
+      const ctr = p.impr ? p.clicks/p.impr : null;
+      const roas = p.spend ? p.value/p.spend : null;
+      return `<tr>
+        <td><span class="bcn-pill bcn-pill--accent mo-platform-pill">${esc(PLATFORM_LABEL[p.platform]||p.platform)}</span></td>
+        <td>${esc(p.account||'—')}</td>
+        <td>${money(p.spend)}</td>
+        <td>${numFmt(p.impr)}</td>
+        <td>${numFmt(p.clicks)}</td>
+        <td>${pctFmt(ctr)}</td>
+        <td>${numFmt(p.conv)}</td>
+        <td>${money(p.value)}</td>
+        <td>${p.platform==='ga4' ? '—' : ratioFmt(roas)}</td>
+      </tr>`;
+    }).join('');
+
+    const totalSpend = list.reduce((a,p)=>a+p.spend,0);
+    const totalValue = list.reduce((a,p)=>a+p.value,0);
+    const totalRow = `<tr class="mo-total">
+      <td colspan="2">Total</td>
+      <td>${money(totalSpend)}</td>
+      <td>${numFmt(list.reduce((a,p)=>a+p.impr,0))}</td>
+      <td>${numFmt(list.reduce((a,p)=>a+p.clicks,0))}</td>
+      <td>—</td>
+      <td>${numFmt(list.reduce((a,p)=>a+p.conv,0))}</td>
+      <td>${money(totalValue)}</td>
+      <td>${ratioFmt(totalSpend ? totalValue/totalSpend : null)}</td>
+    </tr>`;
+
+    el.platformBody.innerHTML = rowsHtml + totalRow;
+  }
+
+  function renderChart(rows){
+    const byDay = new Map();
+    for (const r of rows){
+      const d = r.day_date;
+      if (!byDay.has(d)) byDay.set(d, { day:d, spend:0, value:0 });
+      const agg = byDay.get(d);
+      agg.spend += Number(r.spend||0);
+      agg.value += Number(r.conversion_value||0);
+    }
+    const days = [...byDay.values()].sort((a,b)=>a.day<b.day?-1:1);
+    if (!days.length){
+      el.chartWrap.innerHTML = `<div class="mo-empty">No data to chart yet.</div>`;
+      return;
+    }
+
+    const W = 900, H = 220, PAD_L = 54, PAD_R = 12, PAD_T = 10, PAD_B = 24;
+    const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+    const maxVal = Math.max(1, ...days.map(d=>Math.max(d.spend,d.value)));
+    const x = i => PAD_L + (days.length===1 ? 0 : (i/(days.length-1))*innerW);
+    const y = v => PAD_T + innerH - (v/maxVal)*innerH;
+
+    const pathFor = key => days.map((d,i)=>`${i===0?'M':'L'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
+    const areaFor = key => `${pathFor(key)} L${x(days.length-1).toFixed(1)},${(PAD_T+innerH).toFixed(1)} L${x(0).toFixed(1)},${(PAD_T+innerH).toFixed(1)} Z`;
+
+    const gridLines = [0,0.25,0.5,0.75,1].map(f => {
+      const yy = PAD_T + innerH*(1-f);
+      const v = maxVal*f;
+      return `<line class="mo-gridline" x1="${PAD_L}" x2="${W-PAD_R}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" />
+              <text class="mo-axis-label" x="${PAD_L-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(v)}</text>`;
+    }).join('');
+
+    const fmtDayLabel = iso => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
+      if (!m) return iso;
+      return new Date(Date.UTC(+m[1], +m[2]-1, +m[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
+    };
+    const labelStep = Math.ceil(days.length/6);
+    const xLabels = days.map((d,i)=> i%labelStep===0 || i===days.length-1
+      ? `<text class="mo-axis-label" x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${fmtDayLabel(d.day)}</text>`
+      : '').join('');
+
+    el.chartWrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
+      ${gridLines}
+      <path class="mo-area-spend" d="${areaFor('spend')}" />
+      <path class="mo-line-value" d="${pathFor('value')}" />
+      <path class="mo-line-spend" d="${pathFor('spend')}" />
+      ${xLabels}
+    </svg>`;
+  }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    el.btnRefresh.disabled = true;
+    el.btnRefresh.classList.add('is-loading');
+    try {
+      const rows = await loadRows();
+      const isDemo = rows.length > 0 && rows.every(r => r.source === 'demo_seed');
+      const hasAny = rows.length > 0;
+      el.dataModePill.textContent = isDemo ? 'SAMPLE DATA' : (hasAny ? 'LIVE' : 'NOT CONNECTED');
+      el.dataModePill.className = `bcn-pill ${isDemo ? 'bcn-pill--dark' : hasAny ? 'bcn-pill--pos' : 'bcn-pill--accent'}`;
+      renderKpis(rows);
+      renderPlatformTable(rows);
+      renderChart(rows);
+      setStatus(isDemo
+        ? `${rows.length} sample rows — Supermetrics sync not yet live for this account.`
+        : `${rows.length} rows loaded.`);
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    } finally {
+      el.btnRefresh.disabled = false;
+      el.btnRefresh.classList.remove('is-loading');
+    }
+  }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/marketing-overview',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Marketing Performance'],
+        supabaseClient:sb,
+      });
+    }
+
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>
