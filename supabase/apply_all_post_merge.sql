@@ -3877,6 +3877,30 @@ create policy launch_tasks_active_select on public.launch_tasks
   );
 
 -- ============================================================
+-- 20260721000000_fix_launch_tasks_private_select_leak.sql
+-- launch_tasks: split the ALL write policy so it no longer implicitly
+-- grants unrestricted SELECT, overriding the is_private filter above.
+-- ============================================================
+
+drop policy if exists launch_tasks_active_write on public.launch_tasks;
+
+drop policy if exists launch_tasks_active_insert on public.launch_tasks;
+create policy launch_tasks_active_insert on public.launch_tasks
+  for insert to authenticated
+  with check (company_entity_id = active_company_id());
+
+drop policy if exists launch_tasks_active_update on public.launch_tasks;
+create policy launch_tasks_active_update on public.launch_tasks
+  for update to authenticated
+  using (company_entity_id = active_company_id())
+  with check (company_entity_id = active_company_id());
+
+drop policy if exists launch_tasks_active_delete on public.launch_tasks;
+create policy launch_tasks_active_delete on public.launch_tasks
+  for delete to authenticated
+  using (company_entity_id = active_company_id());
+
+-- ============================================================
 -- 20260708020000_product_tags_company_scope.sql
 -- product_tags: company column + backfill + stamp trigger + active-company RLS
 -- ============================================================
