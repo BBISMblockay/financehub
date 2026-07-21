@@ -5181,11 +5181,9 @@ create policy reviews_active_delete on public.reviews for delete to authenticate
     and (manager_user_id = auth.uid() or public.is_exec_or_owner())
   );
 
--- answers: visibility inherits the parent review's RLS via the subquery
-drop policy if exists review_answers_select on public.review_answers;
-create policy review_answers_select on public.review_answers for select to authenticated
-  using (exists (select 1 from public.reviews r where r.id = review_answers.review_id));
-
+-- answers: select scoping hardened by 20260721010000_harden_review_answers_select_scoping.sql
+-- below (explicit company + manager/exec/employee check, same access as the
+-- original implicit-via-subquery version — see that migration for why).
 drop policy if exists review_answers_write on public.review_answers;
 create policy review_answers_write on public.review_answers for all to authenticated
   using (
@@ -5202,6 +5200,24 @@ create policy review_answers_write on public.review_answers for all to authentic
       select 1 from public.reviews r
       where r.id = review_answers.review_id
         and (r.manager_user_id = auth.uid() or public.is_exec_or_owner())
+    )
+  );
+
+-- >>> SECTION: 20260721010000_harden_review_answers_select_scoping.sql
+-- ---------------------------------------------------------------------------
+drop policy if exists review_answers_select on public.review_answers;
+create policy review_answers_select on public.review_answers for select to authenticated
+  using (
+    company_entity_id = active_company_id()
+    and exists (
+      select 1 from public.reviews r
+      left join public.employees e on e.id = r.employee_id
+      where r.id = review_answers.review_id
+        and (
+          r.manager_user_id = auth.uid()
+          or public.is_exec_or_owner()
+          or (r.status <> 'draft' and e.profile_id = auth.uid())
+        )
     )
   );
 

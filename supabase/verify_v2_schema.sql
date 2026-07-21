@@ -292,6 +292,17 @@ select
 select
   case
     when exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'review_answers'
+        and policyname = 'review_answers_select'
+        and qual like '%active_company_id()%'
+    ) then 'ok'
+    else 'MISSING — run 20260721010000_harden_review_answers_select_scoping.sql'
+  end as review_answers_select_hardened;
+
+select
+  case
+    when exists (
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = 'product_tags'
         and column_name = 'company_entity_id'
