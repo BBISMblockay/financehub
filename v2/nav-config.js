@@ -64,6 +64,7 @@
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
 
     
+    { id: 'reports/marketing-overview', section: 'Reports', label: 'Marketing Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-overview', section: 'Reports', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
     { id: 'reports/daily-trend', section: 'Reports', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
     { id: 'reports/top-sellers', section: 'Reports', label: 'Top Sellers', href: '/v2/bi-top-sellers.html', profiles: ['grandfathered'] },
