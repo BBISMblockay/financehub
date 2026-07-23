@@ -531,7 +531,17 @@ left join information_schema.columns col
  and col.table_name = 'products_master'
  and col.column_name = want.column_name;
 
--- 11. Quick counts (0 is fine on a fresh install)
+-- 11. product_tracker expected_units column (migration 20260723200000)
+select
+  col.column_name,
+  case when col.column_name is not null then 'ok' else 'MISSING — run 20260723200000_product_tracker_expected_units.sql' end as status
+from (values ('expected_units')) as want(column_name)
+left join information_schema.columns col
+  on col.table_schema = 'public'
+ and col.table_name = 'product_tracker'
+ and col.column_name = want.column_name;
+
+-- 12. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
   (select count(*) from public.po_headers)           as po_headers,

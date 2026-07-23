@@ -1674,6 +1674,7 @@ async function ensureTrackerLink(readinessId, fields, existingTrackerId, source)
     product_type: fields.product_type||null,
     manufacturer: fields.manufacturer||fields.vendor_name||null,
     bulk_eta: fields.bulk_eta||null,
+    expected_units: fields.expected_units??null,
     launch_id: activeLaunch.id,
   };
   if(source?.kind==='master' && source.raw?.id){

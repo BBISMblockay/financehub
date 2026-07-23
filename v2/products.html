@@ -627,6 +627,10 @@
           <input class="bcn-field" type="date" id="ptFldBulkEta" />
         </div>
         <div class="bcn-field-group">
+          <label class="bcn-label">Expected Units <span style="font-weight:400;color:var(--bcn-ink-3)">(from the originating PO)</span></label>
+          <input class="bcn-field bcn-mono" type="number" step="1" min="0" id="ptFldExpectedUnits" placeholder="0" />
+        </div>
+        <div class="bcn-field-group">
           <label class="bcn-label">On Hand</label>
           <select class="bcn-field" id="ptFldOnHand">
             <option value="">—</option>
@@ -1539,6 +1543,7 @@
     $('ptFldTitle').value          = item?.product_title || '';
     $('ptFldCollection').value     = item?.collection    || '';
     $('ptFldBulkEta').value        = item?.bulk_eta      || '';
+    $('ptFldExpectedUnits').value  = item?.expected_units ?? '';
     $('ptFldOnHand').value         = item?.on_hand       || '';
     $('ptFldPhotoComplete').value  = item?.photo_complete|| 'pending';
     $('ptFldCopyComplete').checked = item?.copy_complete || false;
@@ -1619,6 +1624,7 @@
       product_type:           $('ptFldProductType').value   || null,
       collection:             $('ptFldCollection').value.trim() || null,
       bulk_eta:               $('ptFldBulkEta').value       || null,
+      expected_units:         $('ptFldExpectedUnits').value !== '' ? Number($('ptFldExpectedUnits').value) : null,
       on_hand:                $('ptFldOnHand').value        || null,
       launch_id:              $('ptFldLaunchId').value      || null,
       product_master_id:      ptLinkedProductId             || null,
@@ -1653,12 +1659,13 @@
     if(!fields.launch_id) return;
     const {data:existing}=await sb.from('launch_product_readiness').select('id').eq('product_tracker_id',trackerId).limit(1).maybeSingle();
     const readinessPayload={
-      product_title: fields.product_title,
-      product_type:  fields.product_type||null,
-      manufacturer:  fields.manufacturer||null,
-      vendor_name:   fields.manufacturer||null,
-      bulk_eta:      fields.bulk_eta||null,
-      launch_id:     fields.launch_id,
+      product_title:  fields.product_title,
+      product_type:   fields.product_type||null,
+      manufacturer:   fields.manufacturer||null,
+      vendor_name:    fields.manufacturer||null,
+      bulk_eta:       fields.bulk_eta||null,
+      expected_units: fields.expected_units??null,
+      launch_id:      fields.launch_id,
     };
     if(_co?.id) readinessPayload.company_entity_id=_co.id;
     if(existing){

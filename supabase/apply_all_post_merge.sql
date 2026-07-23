@@ -6813,3 +6813,10 @@ set
 from legacy
 where pm.company_entity_id = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
   and lower(trim(pm.product_title)) = legacy.norm_title;
+
+-- ============================================================
+-- 20260723200000_product_tracker_expected_units.sql
+-- expected_units column so PO-created Pipeline items carry qty
+-- ============================================================
+alter table public.product_tracker
+  add column if not exists expected_units integer;
