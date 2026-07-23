@@ -593,10 +593,22 @@ export function collapseSalesRows(rows) {
   return [...byHash.values()];
 }
 
+/** Used only by loadSkuMeta below, which labels historical sales with a
+ * product name/type regardless of whether the product is still sellable
+ * today — active-only would mismatch a variant to no product once its
+ * parent is archived/unpublished on this store, silently falling back to
+ * the SKU as the "name" for every sale of it from then on. */
+const PRODUCT_STATUSES_FOR_LABELING = ['active', 'archived', 'draft'];
+
 async function loadSkuMeta(headers, base) {
-  const variants = await getAll(headers, `${base}/variants.json?limit=250`);
-  const products = await getAll(headers, `${base}/products.json?limit=250&status=active`);
-  const productById = new Map(products.map((p) => [String(p.id), p]));
+  const [variants, ...productsByStatus] = await Promise.all([
+    getAll(headers, `${base}/variants.json?limit=250`),
+    ...PRODUCT_STATUSES_FOR_LABELING.map((status) => getAll(headers, `${base}/products.json?limit=250&status=${status}`)),
+  ]);
+  const productById = new Map();
+  for (const products of productsByStatus) {
+    for (const p of products) productById.set(String(p.id), p);
+  }
   const skuMeta = new Map();
 
   for (const v of variants) {
