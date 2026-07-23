@@ -6921,3 +6921,55 @@ set tags = (
   ) as t
 )
 where pm.attributes <> '{}'::jsonb;
+
+-- ============================================================
+-- 20260723250000_products_master_subcategory_department_from_tag_book.sql
+-- subcategory <- legacy collection; department <- legacy indicator_group
+-- (brand pillar). Blanks only; user-editable; sync never writes these.
+-- ============================================================
+with legacy as (
+  select
+    lower(trim(product_title)) as norm_title,
+    (array_agg(collection order by uploaded_at desc nulls last) filter (where collection is not null and collection <> ''))[1] as collection,
+    (array_agg(indicator_group order by uploaded_at desc nulls last) filter (where indicator_group is not null and indicator_group <> ''))[1] as indicator_group
+  from public.product_tags
+  where company_entity_id = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
+  group by 1
+)
+update public.products_master pm
+set subcategory = coalesce(pm.subcategory, l.collection),
+    department  = coalesce(pm.department, l.indicator_group)
+from legacy l
+where pm.company_entity_id = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
+  and lower(trim(pm.product_title)) = l.norm_title
+  and (pm.subcategory is null or pm.department is null);
+
+-- ============================================================
+-- 20260723260000_pair_historical_launch_products_with_tracker.sql
+-- one-time pairing of pre-#300 launch products <-> Pipeline items, plus
+-- creation of missing launch-side rows for launch-linked Pipeline items
+-- ============================================================
+update public.launch_product_readiness r
+set product_tracker_id = t.id
+from public.product_tracker t
+where r.product_tracker_id is null
+  and lower(trim(t.product_title)) = lower(trim(r.product_title))
+  and (t.launch_id = r.launch_id or t.launch_id is null);
+
+insert into public.launch_product_readiness (
+  product_title, product_type, manufacturer, vendor_name, factory_id,
+  bulk_eta, expected_units, launch_id, product_tracker_id,
+  readiness_status, product_shot_status, copy_status, company_entity_id
+)
+select
+  t.product_title, t.product_type, t.manufacturer, t.manufacturer, t.factory_id,
+  t.bulk_eta, t.expected_units, t.launch_id, t.id,
+  'not_reviewed', 'not_started', 'not_started', t.company_entity_id
+from public.product_tracker t
+where t.launch_id is not null
+  and not exists (select 1 from public.launch_product_readiness r where r.product_tracker_id = t.id)
+  and not exists (
+    select 1 from public.launch_product_readiness r
+    where r.launch_id = t.launch_id
+      and lower(trim(r.product_title)) = lower(trim(t.product_title))
+  );

@@ -205,6 +205,8 @@ supabase/
     20260723220000_products_master_category_from_shopify.sql
     20260723230000_product_tracker_po_backfill.sql
     20260723240000_products_master_surface_legacy_attributes_as_tags.sql
+    20260723250000_products_master_subcategory_department_from_tag_book.sql
+    20260723260000_pair_historical_launch_products_with_tracker.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
