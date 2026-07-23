@@ -104,6 +104,43 @@ async function main() {
     const nameQuery = ORDER_NAMES.map((n) => `name:${n.replace('#', '')}`).join(' OR ');
     const result = await graphql(base, headers, query, { query: nameQuery });
     console.log(JSON.stringify(result, null, 2));
+
+    console.log(`\n=== REST refund detail for: ${ORDER_NAMES.join(', ')} ===`);
+    for (const rawName of ORDER_NAMES) {
+      const name = rawName.startsWith('#') ? rawName : `#${rawName}`;
+      const res = await fetch(
+        `${base}/orders.json?name=${encodeURIComponent(name)}&status=any`,
+        { headers },
+      );
+      const { orders } = await res.json();
+      for (const order of orders || []) {
+        console.log(`\n--- ${order.name} ---`);
+        console.log('financial_status:', order.financial_status);
+        console.log('cancelled_at:', order.cancelled_at);
+        console.log('cancel_reason:', order.cancel_reason);
+        console.log('created_at:', order.created_at);
+        for (const refund of order.refunds || []) {
+          console.log('refund:', {
+            id: refund.id,
+            created_at: refund.created_at,
+            processed_at: refund.processed_at,
+            note: refund.note,
+            refund_line_items: (refund.refund_line_items || []).map((rli) => ({
+              line_item_id: rli.line_item_id,
+              quantity: rli.quantity,
+              subtotal: rli.subtotal,
+              total_tax: rli.total_tax,
+              restock_type: rli.restock_type,
+            })),
+            transactions: (refund.transactions || []).map((t) => ({
+              kind: t.kind, status: t.status, amount: t.amount, gateway: t.gateway,
+            })),
+            order_adjustments: refund.order_adjustments,
+            refund_shipping_lines: refund.refund_shipping_lines,
+          });
+        }
+      }
+    }
   }
 }
 
