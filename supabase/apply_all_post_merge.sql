@@ -6765,3 +6765,14 @@ on conflict (row_hash) do update set
   total_net_sales = excluded.total_net_sales,
   total_sales = excluded.total_sales,
   synced_at = excluded.synced_at;
+
+-- ============================================================
+-- 20260723180000_link_launch_product_readiness_tracker.sql
+-- FK linking launch_product_readiness to product_tracker so the two
+-- previously-disconnected "launch readiness" tables can be kept in sync
+-- ============================================================
+alter table public.launch_product_readiness
+  add column if not exists product_tracker_id uuid references public.product_tracker(id) on delete set null;
+
+create index if not exists launch_product_readiness_tracker_idx
+  on public.launch_product_readiness (product_tracker_id);

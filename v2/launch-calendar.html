@@ -1614,6 +1614,7 @@ function hideImgPreview(){ $('imgPreviewWrap').style.display='none'; $('imgPrevi
 function resetProductForm(){
   $('productForm').reset();
   $('prodEditId').value='';
+  pendingProductSource=null;
   $('productFormTitle').textContent='Manual product entry';
   $('productFormSaveBtn').textContent='SAVE PRODUCT';
 }
@@ -1648,6 +1649,50 @@ function productPayloadFromPO(r){
 function productPayloadFromMaster(r){
   return { product_title:r.product_title||'Product', product_type:r.product_type||null, collection_name:null, manufacturer:r.vendor_original||null, vendor_name:r.vendor_original||null, po_number:null, bulk_eta:null, expected_units:null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
 }
+// Keep a launch_product_readiness row and its paired product_tracker row
+// (the Products page Pipeline tab) in sync. product_tracker_id is the link;
+// when it's not already known, fall back to an exact product_title match
+// (best-effort -- these tables have no other shared identity except an
+// explicit products_master link when the product came from the catalog).
+let pendingProductSource=null;
+async function ensureTrackerLink(readinessId, fields, existingTrackerId, source){
+  if(!readinessId) return;
+  let trackerId=existingTrackerId||null;
+  if(!trackerId && source?.kind==='master' && source.raw?.id){
+    const {data}=await db.from('product_tracker').select('id').eq('product_master_id',source.raw.id).limit(1).maybeSingle();
+    if(data) trackerId=data.id;
+  }
+  if(!trackerId){
+    const title=(fields.product_title||'').trim();
+    if(title){
+      const {data}=await db.from('product_tracker').select('id').ilike('product_title',title).limit(1).maybeSingle();
+      if(data) trackerId=data.id;
+    }
+  }
+  const trackerPayload={
+    product_title: fields.product_title,
+    product_type: fields.product_type||null,
+    manufacturer: fields.manufacturer||fields.vendor_name||null,
+    bulk_eta: fields.bulk_eta||null,
+    launch_id: activeLaunch.id,
+  };
+  if(source?.kind==='master' && source.raw?.id){
+    trackerPayload.product_master_id=source.raw.id;
+    trackerPayload.product_title_snapshot=source.raw.product_title||null;
+  }
+  if(_co?.id) trackerPayload.company_entity_id=_co.id;
+
+  if(trackerId){
+    await db.from('product_tracker').update(trackerPayload).eq('id',trackerId);
+  } else {
+    const {data,error}=await db.from('product_tracker').insert([trackerPayload]).select('id').single();
+    if(!error) trackerId=data?.id||null;
+  }
+  if(trackerId && trackerId!==existingTrackerId){
+    await db.from('launch_product_readiness').update({product_tracker_id:trackerId}).eq('id',readinessId);
+  }
+}
+
 function launchHasSimilarProduct(payload){
   if(!activeLaunch) return false;
   const title=(payload.product_title||'').trim().toLowerCase();
@@ -1663,13 +1708,14 @@ function launchHasSimilarProduct(payload){
     return false;
   });
 }
-async function quickAddProduct(payload){
+async function quickAddProduct(payload, source){
   if(!activeLaunch) return;
   if(!payload.product_title){ setStatus('Product title is required.','neg',2500); return; }
   if(launchHasSimilarProduct(payload)&&!confirm('A similar product line already exists. Add anyway?')) return;
   const row={...payload, launch_id:activeLaunch.id, created_by:currentUser.id,...(_co?.id?{company_entity_id:_co.id}:{})};
-  const {error}=await db.from('launch_product_readiness').insert([row]);
+  const {data,error}=await db.from('launch_product_readiness').insert([row]).select().single();
   if(error){ setStatus(error.message,'neg',3500); return; }
+  await ensureTrackerLink(data.id, data, null, source);
   $('prodLookupResults').innerHTML=''; $('prodLookupInput').value='';
   setStatus(`Added · ${row.product_title}`,'pos',2200);
   await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-products'); render();
@@ -1680,10 +1726,18 @@ async function saveProductReadiness(e){
   if(!payload.product_title){ setStatus('Product title is required.','neg',2500); return; }
   const editId=$('prodEditId').value;
   if(!editId&&launchHasSimilarProduct(payload)&&!confirm('A similar product line already exists. Save anyway?')) return;
-  let error;
-  if(editId){ ({error}=await db.from('launch_product_readiness').update(payload).eq('id',editId)); }
-  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id; ({error}=await db.from('launch_product_readiness').insert([payload])); }
+  let error, savedId=editId||null, existingTrackerId=null;
+  if(editId){
+    const existing=products.find(p=>String(p.id)===String(editId));
+    existingTrackerId=existing?.product_tracker_id||null;
+    ({error}=await db.from('launch_product_readiness').update(payload).eq('id',editId));
+  } else {
+    payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id;
+    const {data,error:insErr}=await db.from('launch_product_readiness').insert([payload]).select().single();
+    error=insErr; savedId=data?.id||null;
+  }
   if(error){ setStatus(error.message,'neg',3500); return; }
+  if(savedId) await ensureTrackerLink(savedId, {...payload, launch_id:activeLaunch.id}, existingTrackerId, pendingProductSource);
   closeProductForm(); $('prodLookupResults').innerHTML='';
   setStatus(editId?'Product updated.':'Product saved.','pos',2000);
   await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-products'); render();
@@ -1923,9 +1977,9 @@ async function runProductLookup(){
   if(source==='existing_product') await searchProductsMaster(q,{containerId:'lookupResults',mode:'shell'});
 }
 function bindLookupRowActions(container, mode){
-  container.querySelectorAll('[data-quick-po]').forEach(el=>el.onclick=async()=>{ await quickAddProduct(productPayloadFromPO(JSON.parse(el.dataset.quickPo))); });
+  container.querySelectorAll('[data-quick-po]').forEach(el=>el.onclick=async()=>{ const r=JSON.parse(el.dataset.quickPo); await quickAddProduct(productPayloadFromPO(r), {kind:'po',raw:r}); });
   container.querySelectorAll('[data-fill-po]').forEach(el=>el.onclick=()=>applyPOToProductForm(JSON.parse(el.dataset.fillPo)));
-  container.querySelectorAll('[data-quick-cat]').forEach(el=>el.onclick=async()=>{ await quickAddProduct(productPayloadFromMaster(JSON.parse(el.dataset.quickCat))); });
+  container.querySelectorAll('[data-quick-cat]').forEach(el=>el.onclick=async()=>{ const r=JSON.parse(el.dataset.quickCat); await quickAddProduct(productPayloadFromMaster(r), {kind:'master',raw:r}); });
   container.querySelectorAll('[data-fill-cat]').forEach(el=>el.onclick=()=>applyProductToProductForm(JSON.parse(el.dataset.fillCat)));
   if(mode==='shell'){
     container.querySelectorAll('[data-pick-po]').forEach(el=>el.onclick=()=>applyPOToShell(JSON.parse(el.dataset.pickPo)));
@@ -1983,8 +2037,8 @@ function groupByTitle(rows){
 }
 function applyPOToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('poNumberInput').value=r.po_name||''; $('vendorInput').value=r.factory_name||''; $('expectedUnitsInput').value=r.total_units||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; $('lookupBox').style.display='none'; }
 function applyProductToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('vendorInput').value=r.vendor_original||''; $('skuInput').value=r.sample_sku||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; if(r.image_url&&!$('imageInput').value){$('imageInput').value=r.image_url;showImgPreview(r.image_url);} $('lookupBox').style.display='none'; }
-function applyPOToProductForm(r){ openProductForm(null); $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units??''; $('prodLookupResults').innerHTML=''; }
-function applyProductToProductForm(r){ openProductForm(null); $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
+function applyPOToProductForm(r){ openProductForm(null); pendingProductSource={kind:'po',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units??''; $('prodLookupResults').innerHTML=''; }
+function applyProductToProductForm(r){ openProductForm(null); pendingProductSource={kind:'master',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
 
 </script>
 </body>
