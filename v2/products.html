@@ -336,7 +336,7 @@
           <table class="bcn-table smp-tbl" id="catalogTable" style="min-width:1400px;">
             <thead>
               <tr>
-                <th style="width:28px;"><input type="checkbox" id="ctSelectAll" title="Select all visible" /></th>
+                <th style="width:28px;"><input type="checkbox" id="ctSelectAll" title="Select all matching filters" /></th>
                 <th>SKU</th><th>Product Title</th><th>Product Type</th><th>Category</th>
                 <th>Subcategory</th><th>Department</th><th>Tags</th><th>Notes</th><th>Updated</th>
               </tr>
@@ -345,6 +345,11 @@
               <tr><td colspan="10" class="smp-empty">Loading…</td></tr>
             </tbody>
           </table>
+        </div>
+        <div class="bcn-card-foot" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;">
+          <span class="bcn-mono" id="ctPageInfo" style="font-size:11px;color:var(--bcn-ink-3);"></span>
+          <button class="bcn-btn bcn-btn--ghost" id="ctPagePrev">‹ Prev</button>
+          <button class="bcn-btn bcn-btn--ghost" id="ctPageNext">Next ›</button>
         </div>
       </div>
     </div><!-- /panelCatalog -->
@@ -1782,6 +1787,7 @@
   ];
   const CT_ADD_NEW='__ADD_NEW__';
   let ctRows=[], ctSelected=new Set(), ctEditing=null, ctLoaded=false, ctLoading=null;
+  let ctPage=0; const CT_PAGE_SIZE=100;
 
   // Catalog spans the full Shopify-synced products_master table (20k+ rows for
   // Baseballism) -- load it lazily on first visit to the tab instead of
@@ -1806,19 +1812,31 @@
   }
 
   async function loadCatalog(){
-    const PAGE=1000; let from=0; const rows=[];
-    for(;;){
-      let q=sb.from('products_master')
-        .select('id,sku,product_title,product_type,vendor_original,category,subcategory,department,tags,notes,updated_at')
-        .order('product_title',{ascending:true}).range(from,from+PAGE-1);
-      if(_co?.id) q=q.eq('company_entity_id',_co.id);
-      const {data,error}=await q;
-      if(error) throw error;
-      rows.push(...(data||[]));
-      if(!data||data.length<PAGE) break;
-      from+=PAGE;
+    let countQ=sb.from('products_master').select('id',{count:'exact',head:true});
+    if(_co?.id) countQ=countQ.eq('company_entity_id',_co.id);
+    const {count,error:countErr}=await countQ;
+    if(countErr) throw countErr;
+
+    const PAGE=1000, total=count||0, CONCURRENCY=6;
+    const starts=[]; for(let from=0; from<total; from+=PAGE) starts.push(from);
+    const rows=new Array(total);
+    let cursor=0;
+    async function worker(){
+      while(cursor<starts.length){
+        const from=starts[cursor++];
+        // secondary sort key keeps page boundaries stable across parallel requests
+        let q=sb.from('products_master')
+          .select('id,sku,product_title,product_type,vendor_original,category,subcategory,department,tags,notes,updated_at')
+          .order('product_title',{ascending:true}).order('id',{ascending:true})
+          .range(from,from+PAGE-1);
+        if(_co?.id) q=q.eq('company_entity_id',_co.id);
+        const {data,error}=await q;
+        if(error) throw error;
+        for(let j=0;j<data.length;j++) rows[from+j]=data[j];
+      }
     }
-    ctRows=rows; ctSelected.clear();
+    await Promise.all(Array.from({length:Math.min(CONCURRENCY,starts.length)},worker));
+    ctRows=rows.filter(Boolean); ctSelected.clear();
   }
 
   function ctDistinct(key){
@@ -1837,7 +1855,7 @@
         <option value="">${esc(f.label)}: all</option>
         ${ctDistinct(f.key).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
       </select></div>`).join('');
-    document.querySelectorAll('.ct-filter').forEach(sel=>sel.addEventListener('change',renderCatalog));
+    document.querySelectorAll('.ct-filter').forEach(sel=>sel.addEventListener('change',()=>{ ctPage=0; renderCatalog(); }));
   }
 
   function ctFiltered(){
@@ -1863,9 +1881,17 @@
     $('ctKpiSelected').textContent=ctSelected.size;
     $('ctBulkDelete').disabled=!ctSelected.size;
 
+    const pageCount=Math.max(1,Math.ceil(rows.length/CT_PAGE_SIZE));
+    if(ctPage>=pageCount) ctPage=pageCount-1;
+    if(ctPage<0) ctPage=0;
+    const pageRows=rows.slice(ctPage*CT_PAGE_SIZE, ctPage*CT_PAGE_SIZE+CT_PAGE_SIZE);
+    $('ctPageInfo').textContent=rows.length ? `Page ${ctPage+1} of ${pageCount} (${rows.length} rows)` : '';
+    $('ctPagePrev').disabled=ctPage<=0;
+    $('ctPageNext').disabled=ctPage>=pageCount-1;
+
     const tbody=$('ctBody');
     if(!rows.length){ tbody.innerHTML='<tr><td colspan="10" class="smp-empty">No rows match the current filters.</td></tr>'; return; }
-    tbody.innerHTML=rows.map(r=>{
+    tbody.innerHTML=pageRows.map(r=>{
       const up=r.updated_at?new Date(r.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
       const tags=(r.tags||[]).join(', ');
       return `<tr data-ct-id="${r.id}">
@@ -1896,12 +1922,15 @@
     if(row) ctOpenEditor(row);
   });
 
-  $('ctSearch').addEventListener('input', renderCatalog);
+  $('ctSearch').addEventListener('input', ()=>{ ctPage=0; renderCatalog(); });
   $('ctClearFilters').addEventListener('click', ()=>{
     $('ctSearch').value='';
     document.querySelectorAll('.ct-filter').forEach(sel=>sel.value='');
+    ctPage=0;
     renderCatalog();
   });
+  $('ctPagePrev').addEventListener('click', ()=>{ ctPage--; renderCatalog(); });
+  $('ctPageNext').addEventListener('click', ()=>{ ctPage++; renderCatalog(); });
   $('ctSelectAll').addEventListener('change', e=>{
     ctFiltered().forEach(r=>{ if(e.target.checked) ctSelected.add(r.id); else ctSelected.delete(r.id); });
     renderCatalog();

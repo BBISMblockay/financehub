@@ -162,12 +162,13 @@
     .comment-card__body { font-size: 13px; line-height: 1.45; color: var(--bcn-ink); white-space: pre-wrap; }
 
 
-    /* overview — hero image fills its box, cropping overflow */
+    /* overview — hero image fills the box width edge-to-edge, full image visible (no crop, no letterbox) */
     .launch-hero-wrap {
-      width:100%; height:min(42vh,320px); min-height:120px;
+      width:100%;
       border-radius:8px; margin-bottom:10px;
+      overflow:hidden;
     }
-    .launch-hero-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
+    .launch-hero-wrap img { width:100%; height:auto; display:block; }
     .kv-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:10px; }
     .kv-cell { border:1px solid var(--bcn-border); border-radius:7px; padding:7px 9px; }
     .kv-k { font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--bcn-ink-3); font-weight:700; }
