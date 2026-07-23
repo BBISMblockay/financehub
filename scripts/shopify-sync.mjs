@@ -148,7 +148,7 @@ async function syncConnection(connection) {
   if (!SKIP_DRAFT_ORDERS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
     const jobId = await startJob(connection, 'draft_orders_sync');
     try {
-      const result = await runDraftOrdersSync(supabase, connection, { batchId: BATCH_ID });
+      const result = await runDraftOrdersSync(supabase, connection, { batchId: BATCH_ID, daysBack: DAYS_BACK });
       if (result.last_draft_order_sync_at) {
         const meta = { ...(connection.meta || {}), last_draft_order_sync_at: result.last_draft_order_sync_at };
         await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
