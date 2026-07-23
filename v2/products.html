@@ -312,7 +312,7 @@
       </div>
     </div><!-- /panelTracker -->
 
-    <!-- ══ CATALOG (product_tags) PANEL ═════════════════════ -->
+    <!-- ══ CATALOG (products_master) PANEL ═════════════════════ -->
     <div class="pt-panel" id="panelCatalog">
       <section class="bcn-kpi-band">
         <div class="bcn-kpi"><div class="bcn-kpi-label">Rows</div><div class="bcn-kpi-value bcn-num" id="ctKpiRows">—</div></div>
@@ -323,27 +323,26 @@
       </section>
 
       <section class="bcn-filter-bar" id="ctFilterBar">
-        <div class="bcn-filter"><input class="bcn-field" id="ctSearch" placeholder="Search title, notes, tag…" style="width:200px" /></div>
-        <!-- 9 dropdowns injected by JS (distinct values per field) -->
+        <div class="bcn-filter"><input class="bcn-field" id="ctSearch" placeholder="Search SKU, title, tag, notes…" style="width:200px" /></div>
+        <!-- category/subcategory/department dropdowns injected by JS (distinct values per field) -->
         <span id="ctFilterSelects" style="display:contents"></span>
         <div class="bcn-filter"><button class="bcn-btn bcn-btn--ghost" id="ctClearFilters">Clear</button></div>
         <div class="bcn-filter"><button class="bcn-btn bcn-btn--ghost" id="ctSelectVisible">Select Visible</button></div>
-        <div class="bcn-filter"><button class="bcn-btn bcn-btn--danger" id="ctBulkDelete" disabled>Delete Selected</button></div>
+        <div class="bcn-filter"><button class="bcn-btn bcn-btn--ghost" id="ctBulkDelete" disabled>Bulk Add Tag…</button></div>
       </section>
 
       <div class="bcn-card" style="margin-top:12px;">
         <div class="bcn-card-body" style="padding:0; overflow-x:auto;">
-          <table class="bcn-table smp-tbl" id="catalogTable" style="min-width:1700px;">
+          <table class="bcn-table smp-tbl" id="catalogTable" style="min-width:1400px;">
             <thead>
               <tr>
                 <th style="width:28px;"><input type="checkbox" id="ctSelectAll" title="Select all visible" /></th>
-                <th>ID</th><th>Product Title</th><th>Category</th><th>Collection</th><th>Inline</th>
-                <th>Type</th><th>Color</th><th>Artwork</th><th>Tag</th><th>Indicator Group</th>
-                <th>Sub Tag</th><th>Inventory</th><th>Notes</th><th>Uploaded</th>
+                <th>SKU</th><th>Product Title</th><th>Product Type</th><th>Category</th>
+                <th>Subcategory</th><th>Department</th><th>Tags</th><th>Notes</th><th>Updated</th>
               </tr>
             </thead>
             <tbody id="ctBody">
-              <tr><td colspan="15" class="smp-empty">Loading…</td></tr>
+              <tr><td colspan="10" class="smp-empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -742,7 +741,7 @@
   </div>
 </aside>
 
-<!-- ══ CATALOG (product_tags) DRAWER ═══════════════════════ -->
+<!-- ══ CATALOG (products_master) DRAWER ═══════════════════════ -->
 <aside class="smp-drawer" id="ctDrawer" aria-label="Catalog row detail" aria-hidden="true">
   <div class="smp-drawer-head">
     <div style="flex:1;min-width:0;">
@@ -754,30 +753,33 @@
 
   <div class="smp-drawer-body">
     <div class="smp-section">
-      <div class="smp-section-label">Product</div>
+      <div class="smp-section-label">Product <span style="font-weight:400;color:var(--bcn-ink-3)">(synced from Shopify — read only)</span></div>
       <div class="bcn-field-group" style="margin-bottom:10px;">
-        <label class="bcn-label">Product Title <span style="color:var(--bcn-neg)">*</span></label>
-        <input class="bcn-field" id="ctFldTitle" placeholder="Product title" />
+        <label class="bcn-label">SKU</label>
+        <div class="bcn-field bcn-mono" id="ctFldSku" style="background:var(--bcn-bg-2);"></div>
+      </div>
+      <div class="bcn-field-group" style="margin-bottom:10px;">
+        <label class="bcn-label">Product Title</label>
+        <div class="bcn-field" id="ctFldTitle" style="background:var(--bcn-bg-2);"></div>
       </div>
       <div class="bcn-field-group">
-        <label class="bcn-label">Title Key <span style="font-weight:400;color:var(--bcn-ink-3)">(auto from title)</span></label>
-        <input class="bcn-field" id="ctFldTitleKey" style="font-family:var(--bcn-mono);font-size:11px;" placeholder="auto-generated-slug" />
+        <label class="bcn-label">Product Type / Vendor</label>
+        <div class="bcn-field" id="ctFldTypeVendor" style="background:var(--bcn-bg-2);"></div>
       </div>
     </div>
 
     <div class="smp-section">
-      <div class="smp-section-label">Tags &amp; Attributes</div>
-      <div class="smp-grid-2" id="ctFields"><!-- select+add-new combos injected by JS --></div>
+      <div class="smp-section-label">Custom Tags</div>
+      <div class="smp-grid-2" id="ctFields"><!-- select+add-new combos injected by JS: category/subcategory/department --></div>
+      <div class="bcn-field-group" style="margin-top:10px;">
+        <label class="bcn-label">Tags <span style="font-weight:400;color:var(--bcn-ink-3)">(comma separated)</span></label>
+        <input class="bcn-field" id="ctFldTags" placeholder="e.g. bestseller, evergreen, drop-2026" />
+      </div>
     </div>
 
     <div class="smp-section">
-      <div class="smp-section-label">Inventory &amp; Notes</div>
-      <div class="bcn-field-group" style="margin-bottom:10px;">
-        <label class="bcn-label">Current Inventory</label>
-        <input class="bcn-field" type="number" step="1" id="ctFldInventory" value="0" />
-      </div>
+      <div class="smp-section-label">Notes</div>
       <div class="bcn-field-group">
-        <label class="bcn-label">Notes</label>
         <textarea class="bcn-field" id="ctFldNotes" rows="3" style="resize:vertical;width:100%;"></textarea>
       </div>
     </div>
@@ -787,7 +789,7 @@
     <button class="bcn-btn bcn-btn--primary" id="ctBtnSave">Save</button>
     <button class="bcn-btn bcn-btn--ghost" id="ctBtnCancel">Cancel</button>
     <div style="flex:1;"></div>
-    <button class="bcn-btn bcn-btn--danger" id="ctBtnDelete" style="display:none;">Delete</button>
+    <button class="bcn-btn bcn-btn--ghost" id="ctBtnDelete" title="Clears category/subcategory/department/tags/notes — does not remove the product from the catalog">Clear Tags</button>
   </div>
 </aside>
 
@@ -1693,13 +1695,16 @@
     document.querySelectorAll('.bcn-tab[data-tab]').forEach(btn=>{
       btn.classList.toggle('bcn-tab--active', btn.dataset.tab===tab);
     });
-    $('btnNew').textContent = tab==='samples' ? '+ New Sample' : tab==='catalog' ? '+ New Tag Row' : '+ New Product';
+    // Catalog rows come from the Shopify sync, not created ad-hoc here —
+    // click a row to tag it instead.
+    $('btnNew').style.display = tab==='catalog' ? 'none' : '';
+    $('btnNew').textContent = tab==='samples' ? '+ New Sample' : '+ New Product';
   }
 
   // ── events ────────────────────────────────────────────────────────────────
   $('btnNew').addEventListener('click', () => {
     if(activeTab==='samples') openDrawer(null);
-    else if(activeTab==='catalog') ctOpenEditor(null);
+    else if(activeTab==='catalog') return;
     else openPtDrawer(null);
   });
 
@@ -1763,34 +1768,26 @@
     el.addEventListener('change',renderTrackerTable);
   });
 
-  // ══ CATALOG (product_tags) ═══════════════════════════════════════════════
-  // Rebuilt from the legacy /pages/product-manager.html tags editor —
-  // same table, same fields, same insert/update semantics (insert stamps
-  // raw_row {} + uploaded_at; update leaves both untouched).
+  // ══ CATALOG (products_master) ════════════════════════════════════════════
+  // Custom tagging on the real Shopify-synced catalog, not the old static
+  // product_tags import — same UI shape as the legacy editor, retargeted at
+  // products_master's existing merchandising columns (category, subcategory,
+  // department, tags[], notes). No new columns; sku/title/type/vendor are
+  // read-only here since they're owned by the Shopify sync (runCatalogSync).
   const CT_FIELDS = [
-    { key:'product_category', label:'Category' },
-    { key:'collection',       label:'Collection' },
-    { key:'inline_flag',      label:'Inline Flag' },
-    { key:'type',             label:'Type' },
-    { key:'primary_color',    label:'Color' },
-    { key:'artwork_side',     label:'Artwork Side' },
-    { key:'tag',              label:'Tag' },
-    { key:'indicator_group',  label:'Indicator Group' },
-    { key:'sub_tag',          label:'Sub Tag' },
+    { key:'category',    label:'Category' },
+    { key:'subcategory', label:'Subcategory' },
+    { key:'department',  label:'Department' },
   ];
   const CT_ADD_NEW='__ADD_NEW__';
   let ctRows=[], ctSelected=new Set(), ctEditing=null;
 
-  function ctSlug(v){
-    return String(v||'').toLowerCase().replace(/['"’]/g,'').replace(/&/g,'and')
-      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').replace(/-{2,}/g,'-');
-  }
-  const ctInt = v => { const n=Math.round(Number(String(v??'').replace(/,/g,''))); return Number.isFinite(n)?n:0; };
-
   async function loadCatalog(){
     const PAGE=1000; let from=0; const rows=[];
     for(;;){
-      let q=sb.from('product_tags').select('*').order('id',{ascending:true}).range(from,from+PAGE-1);
+      let q=sb.from('products_master')
+        .select('id,sku,product_title,product_type,vendor_original,category,subcategory,department,tags,notes,updated_at')
+        .order('product_title',{ascending:true}).range(from,from+PAGE-1);
       if(_co?.id) q=q.eq('company_entity_id',_co.id);
       const {data,error}=await q;
       if(error) throw error;
@@ -1805,9 +1802,15 @@
     return [...new Set(ctRows.map(r=>r[key]).filter(v=>v!=null&&String(v).trim()!==''))].sort((a,b)=>String(a).localeCompare(String(b)));
   }
 
+  function ctDistinctTags(){
+    const set=new Set();
+    ctRows.forEach(r=>(r.tags||[]).forEach(t=>{ if(t&&String(t).trim()) set.add(t); }));
+    return set;
+  }
+
   function ctBuildFilterSelects(){
     $('ctFilterSelects').innerHTML=CT_FIELDS.map(f=>
-      `<div class="bcn-filter"><select class="bcn-field ct-filter" data-key="${f.key}" style="max-width:140px;">
+      `<div class="bcn-filter"><select class="bcn-field ct-filter" data-key="${f.key}" style="max-width:160px;">
         <option value="">${esc(f.label)}: all</option>
         ${ctDistinct(f.key).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
       </select></div>`).join('');
@@ -1820,8 +1823,8 @@
     return ctRows.filter(r=>{
       for(const sel of active){ if(String(r[sel.dataset.key]??'')!==sel.value) return false; }
       if(q){
-        const hay=[r.product_title,r.product_category,r.collection,r.inline_flag,r.type,r.primary_color,
-          r.artwork_side,r.tag,r.indicator_group,r.sub_tag,r.notes,r.product_title_key].join(' ').toLowerCase();
+        const hay=[r.sku,r.product_title,r.product_type,r.vendor_original,r.category,r.subcategory,
+          r.department,...(r.tags||[]),r.notes].join(' ').toLowerCase();
         if(!hay.includes(q)) return false;
       }
       return true;
@@ -1831,24 +1834,24 @@
   function renderCatalog(){
     const rows=ctFiltered();
     $('ctKpiRows').textContent=ctRows.length;
-    $('ctKpiCats').textContent=ctDistinct('product_category').length;
-    $('ctKpiTags').textContent=ctDistinct('tag').length;
+    $('ctKpiCats').textContent=ctDistinct('category').length;
+    $('ctKpiTags').textContent=ctDistinctTags().size;
     $('ctKpiFiltered').textContent=rows.length;
     $('ctKpiSelected').textContent=ctSelected.size;
     $('ctBulkDelete').disabled=!ctSelected.size;
 
     const tbody=$('ctBody');
-    if(!rows.length){ tbody.innerHTML='<tr><td colspan="15" class="smp-empty">No rows match the current filters.</td></tr>'; return; }
+    if(!rows.length){ tbody.innerHTML='<tr><td colspan="10" class="smp-empty">No rows match the current filters.</td></tr>'; return; }
     tbody.innerHTML=rows.map(r=>{
-      const up=r.uploaded_at?new Date(r.uploaded_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+      const up=r.updated_at?new Date(r.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+      const tags=(r.tags||[]).join(', ');
       return `<tr data-ct-id="${r.id}">
-        <td><input type="checkbox" class="ct-row-ck" data-id="${r.id}" ${ctSelected.has(Number(r.id))?'checked':''}/></td>
-        <td class="bcn-mono" style="font-size:11px;">${esc(r.id)}</td>
-        <td style="max-width:220px;"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.product_title||'—')}</div><div class="bcn-mono" style="font-size:9.5px;color:var(--bcn-ink-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.product_title_key||'')}</div></td>
-        <td>${esc(r.product_category||'—')}</td><td>${esc(r.collection||'—')}</td><td>${esc(r.inline_flag||'—')}</td>
-        <td>${esc(r.type||'—')}</td><td>${esc(r.primary_color||'—')}</td><td>${esc(r.artwork_side||'—')}</td>
-        <td>${esc(r.tag||'—')}</td><td>${esc(r.indicator_group||'—')}</td><td>${esc(r.sub_tag||'—')}</td>
-        <td class="bcn-mono" style="text-align:right;">${esc(r.current_inventory??0)}</td>
+        <td><input type="checkbox" class="ct-row-ck" data-id="${r.id}" ${ctSelected.has(r.id)?'checked':''}/></td>
+        <td class="bcn-mono" style="font-size:11px;">${esc(r.sku||'—')}</td>
+        <td style="max-width:220px;"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.product_title||'—')}</div></td>
+        <td>${esc(r.product_type||'—')}</td>
+        <td>${esc(r.category||'—')}</td><td>${esc(r.subcategory||'—')}</td><td>${esc(r.department||'—')}</td>
+        <td style="max-width:200px;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(tags||'—')}</div></td>
         <td style="max-width:180px;"><div style="font-size:11px;color:var(--bcn-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(r.notes||'')}</div></td>
         <td class="bcn-mono" style="font-size:11px;">${up}</td>
       </tr>`;
@@ -1858,7 +1861,7 @@
   $('ctBody').addEventListener('click', e=>{
     const ck=e.target.closest('.ct-row-ck');
     if(ck){
-      const id=Number(ck.dataset.id);
+      const id=ck.dataset.id;
       if(ck.checked) ctSelected.add(id); else ctSelected.delete(id);
       $('ctKpiSelected').textContent=ctSelected.size;
       $('ctBulkDelete').disabled=!ctSelected.size;
@@ -1877,20 +1880,29 @@
     renderCatalog();
   });
   $('ctSelectAll').addEventListener('change', e=>{
-    ctFiltered().forEach(r=>{ if(e.target.checked) ctSelected.add(Number(r.id)); else ctSelected.delete(Number(r.id)); });
+    ctFiltered().forEach(r=>{ if(e.target.checked) ctSelected.add(r.id); else ctSelected.delete(r.id); });
     renderCatalog();
   });
   $('ctSelectVisible').addEventListener('click', ()=>{
-    ctFiltered().forEach(r=>ctSelected.add(Number(r.id)));
+    ctFiltered().forEach(r=>ctSelected.add(r.id));
     renderCatalog();
   });
   $('ctBulkDelete').addEventListener('click', async ()=>{
-    const ids=[...ctSelected].filter(Number.isFinite);
+    const ids=[...ctSelected];
     if(!ids.length) return;
-    if(!confirm(`Delete ${ids.length} selected row${ids.length!==1?'s':''} from product_tags? This cannot be undone.`)) return;
-    const {error}=await sb.from('product_tags').delete().in('id',ids);
-    if(error){ setStatus(error.message,'neg',6000); return; }
-    setStatus('Deleted '+ids.length+' rows.','pos',2500);
+    const tag=prompt(`Add a tag to ${ids.length} selected product${ids.length!==1?'s':''}:`);
+    if(!tag||!tag.trim()) return;
+    const clean=tag.trim();
+    setStatus('Tagging…','info');
+    const rowsById=new Map(ctRows.map(r=>[r.id,r]));
+    for(const id of ids){
+      const row=rowsById.get(id);
+      if(!row) continue;
+      const nextTags=[...new Set([...(row.tags||[]),clean])];
+      const {error}=await sb.from('products_master').update({tags:nextTags}).eq('id',id);
+      if(error){ setStatus(error.message,'neg',6000); return; }
+    }
+    setStatus(`Tagged ${ids.length} product${ids.length!==1?'s':''}.`,'pos',2500);
     await loadCatalog(); ctBuildFilterSelects(); renderCatalog();
   });
 
@@ -1911,16 +1923,16 @@
   }
 
   function ctOpenEditor(row){
-    ctEditing=row||null;
-    $('ctDrawerRef').textContent=row?('ROW '+row.id):'NEW ROW';
-    $('ctDrawerTitle').textContent=row?(row.product_title||'Catalog Row'):'New Catalog Row';
-    $('ctBtnDelete').style.display=row?'':'none';
-    $('ctFldTitle').value=row?.product_title||'';
-    $('ctFldTitleKey').value=row?.product_title_key||'';
-    $('ctFldInventory').value=row?.current_inventory??0;
-    $('ctFldNotes').value=row?.notes||'';
-    ctKeyTouched=!!(row&&row.product_title_key&&row.product_title_key!==ctSlug(row.product_title||''));
-    $('ctFields').innerHTML=CT_FIELDS.map(f=>ctFieldCombo(f,row?.[f.key]??null)).join('');
+    if(!row) return; // products_master rows come from Shopify sync — no ad-hoc "new row" here
+    ctEditing=row;
+    $('ctDrawerRef').textContent=row.sku||('ROW '+row.id);
+    $('ctDrawerTitle').textContent=row.product_title||'Catalog Row';
+    $('ctFldSku').textContent=row.sku||'—';
+    $('ctFldTitle').textContent=row.product_title||'—';
+    $('ctFldTypeVendor').textContent=[row.product_type,row.vendor_original].filter(Boolean).join(' · ')||'—';
+    $('ctFldTags').value=(row.tags||[]).join(', ');
+    $('ctFldNotes').value=row.notes||'';
+    $('ctFields').innerHTML=CT_FIELDS.map(f=>ctFieldCombo(f,row[f.key]??null)).join('');
     document.querySelectorAll('.ct-ed-sel').forEach(sel=>{
       sel.addEventListener('change',()=>{
         const inp=document.querySelector(`.ct-ed-new[data-key="${sel.dataset.key}"]`);
@@ -1940,13 +1952,6 @@
     ctEditing=null;
   }
 
-  // Auto-slug the key from the title until the user edits the key manually.
-  let ctKeyTouched=false;
-  $('ctFldTitleKey').addEventListener('input', ()=>{ ctKeyTouched=true; });
-  $('ctFldTitle').addEventListener('input', ()=>{
-    if(!ctKeyTouched) $('ctFldTitleKey').value=ctSlug($('ctFldTitle').value);
-  });
-
   function ctFieldValue(key){
     const sel=document.querySelector(`.ct-ed-sel[data-key="${key}"]`);
     if(!sel) return null;
@@ -1958,34 +1963,34 @@
   }
 
   async function ctSave(){
-    const title=$('ctFldTitle').value.trim();
-    if(!title){ setStatus('Product Title is required.','neg',4000); return; }
+    if(!ctEditing){ ctCloseEditor(); return; }
+    const tags=$('ctFldTags').value.split(',').map(t=>t.trim()).filter(Boolean);
     const payload={
-      product_title: title,
-      product_title_key: $('ctFldTitleKey').value.trim()||ctSlug(title),
-      current_inventory: ctInt($('ctFldInventory').value),
+      tags,
       notes: $('ctFldNotes').value.trim()||null,
     };
     CT_FIELDS.forEach(f=>{ payload[f.key]=ctFieldValue(f.key); });
 
     setStatus('Saving…','info');
-    let error;
-    if(ctEditing){
-      ({error}=await sb.from('product_tags').update(payload).eq('id',ctEditing.id));
-    } else {
-      ({error}=await sb.from('product_tags').insert([{...payload, raw_row:{}, uploaded_at:new Date().toISOString()}]));
-    }
+    const {error}=await sb.from('products_master').update(payload).eq('id',ctEditing.id);
     if(error){ setStatus(error.message,'neg',6000); return; }
     setStatus('Saved.','pos',2500);
     ctCloseEditor();
     await loadCatalog(); ctBuildFilterSelects(); renderCatalog();
   }
 
+  // "Delete" here clears this product's tags rather than removing it from
+  // the catalog — products_master rows are owned by the Shopify sync, so
+  // deleting the row would just have it silently reappear (blank) on the
+  // next catalog_sync run.
   async function ctDelete(){
     if(!ctEditing) return;
-    if(!confirm(`Delete "${ctEditing.product_title}" (row ${ctEditing.id})? This cannot be undone.`)) return;
-    const {error}=await sb.from('product_tags').delete().eq('id',ctEditing.id);
+    if(!confirm(`Clear category/subcategory/department/tags/notes for "${ctEditing.product_title}"? This does not remove the product from the catalog.`)) return;
+    const {error}=await sb.from('products_master').update({
+      category:null, subcategory:null, department:null, tags:[], notes:null,
+    }).eq('id',ctEditing.id);
     if(error){ setStatus(error.message,'neg',6000); return; }
+    setStatus('Cleared.','pos',2500);
     ctCloseEditor();
     await loadCatalog(); ctBuildFilterSelects(); renderCatalog();
   }
