@@ -25,6 +25,10 @@ on:
         description: Set true to skip products_master catalog sync
         required: false
         default: 'false'
+      days_back:
+        description: Lookback window (days) for incremental_sales + draft_orders_sync on first run for a connection (no last-sync watermark yet)
+        required: false
+        default: '2'
       history_days:
         description: Override history days for history/full mode
         required: false
@@ -52,6 +56,7 @@ jobs:
       SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || 'false' }}
       SHOPIFY_SKIP_SALES: ${{ github.event.inputs.skip_sales || 'false' }}
       SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || 'false' }}
+      SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
       SHOPIFY_HISTORY_CHUNK_DAYS: ${{ github.event.inputs.history_chunk_days || '30' }}
 

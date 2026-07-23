@@ -1508,6 +1508,94 @@ export async function runIncrementalSales(supabase, connection, {
   };
 }
 
+/**
+ * Draft orders (/draft_orders.json) are a separate Shopify resource from
+ * Orders — they never appear in /orders.json until completed/paid, which is
+ * exactly why wholesale/rep-built and invoiced net-terms carts were invisible
+ * to sales_by_day (see 20260723150000_shopify_draft_orders.sql). This is a
+ * pipeline-visibility feed, not a sales feed: once a draft completes,
+ * Shopify auto-creates the real Order and runIncrementalSales already picks
+ * it up on its own — folding drafts into sales_by_day here would double it.
+ *
+ * The REST endpoint's `status` filter defaults to open-only when omitted,
+ * and (unlike /orders.json) does not document an "any" value — so each
+ * status is fetched explicitly rather than gambled on a single call.
+ */
+const DRAFT_ORDER_STATUSES = ['open', 'invoice_sent', 'completed'];
+
+export async function runDraftOrdersSync(supabase, connection, {
+  batchId,
+  daysBack = 2,
+} = {}) {
+  const granted = grantedScopes(connection);
+  const missing = scopesMissingForJob(granted, 'draft_orders_sync');
+  if (missing.length) {
+    return { skipped: true, missing };
+  }
+
+  const now = new Date();
+  const syncedAt = now.toISOString();
+  const meta = readMeta(connection);
+  const sinceISO = computeSinceISO(now, meta.last_draft_order_sync_at, daysBack);
+
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const base = `https://${connection.shop_domain}/admin/api/${apiVersion}`;
+  const headers = {
+    'X-Shopify-Access-Token': connection.access_token,
+    'Content-Type': 'application/json',
+  };
+
+  const byStatus = await Promise.all(DRAFT_ORDER_STATUSES.map((status) => getAll(
+    headers,
+    `${base}/draft_orders.json?status=${status}&updated_at_min=${encodeURIComponent(sinceISO)}&limit=250`,
+  )));
+  const byId = new Map();
+  for (const draft of byStatus.flat()) byId.set(String(draft.id), draft);
+  const draftOrders = [...byId.values()];
+
+  let newestUpdatedStamp = null;
+  const rows = draftOrders.map((d) => {
+    newestUpdatedStamp = maxIso(newestUpdatedStamp, d.updated_at);
+    const customer = d.customer || {};
+    const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null;
+
+    return {
+      company_entity_id: connection.company_entity_id,
+      connection_id: connection.id,
+      shop_domain: connection.shop_domain,
+      draft_order_id: String(d.id),
+      name: d.name || null,
+      status: d.status || null,
+      customer_id: customer.id != null ? String(customer.id) : null,
+      customer_email: d.email || customer.email || null,
+      customer_name: customerName,
+      total_price: Number(d.total_price || 0),
+      subtotal_price: Number(d.subtotal_price || 0),
+      total_tax: Number(d.total_tax || 0),
+      currency: d.currency || null,
+      tags: d.tags || null,
+      note: d.note || null,
+      order_id: d.order_id != null ? String(d.order_id) : null,
+      shopify_created_at: d.created_at || null,
+      shopify_updated_at: d.updated_at || null,
+      invoice_sent_at: d.invoice_sent_at || null,
+      completed_at: d.completed_at || null,
+      synced_at: syncedAt,
+      sync_batch_id: batchId || null,
+    };
+  });
+
+  const upserted = await upsertInChunks(supabase, 'shopify_draft_orders', rows, 'shop_domain,draft_order_id');
+
+  return {
+    job_type: 'draft_orders_sync',
+    window_since: sinceISO.slice(0, 10),
+    draft_orders_fetched: draftOrders.length,
+    draft_orders_upserted: upserted,
+    last_draft_order_sync_at: newestUpdatedStamp || syncedAt,
+  };
+}
+
 export async function runWindowedHistory(supabase, connection, {
   batchId,
   historyDays,

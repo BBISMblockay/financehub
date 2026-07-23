@@ -1,0 +1,41 @@
+name: Diagnose Shopify Gross Sales Gap
+
+on:
+  workflow_dispatch:
+    inputs:
+      shop_domain:
+        description: "Shopify shop domain, e.g. baseballismwholesale.myshopify.com"
+        required: true
+      range_start:
+        description: "Range start date (YYYY-MM-DD)"
+        required: true
+      range_end:
+        description: "Range end date (YYYY-MM-DD)"
+        required: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DIAGNOSE_SHOP_DOMAIN: ${{ inputs.shop_domain }}
+      DIAGNOSE_RANGE_START: ${{ inputs.range_start }}
+      DIAGNOSE_RANGE_END: ${{ inputs.range_end }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run diagnostic
+        run: node scripts/diagnose-shopify-gross.mjs

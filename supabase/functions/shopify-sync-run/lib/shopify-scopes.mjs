@@ -7,6 +7,7 @@ export const JOB_SCOPES = {
   inventory_snapshot: ['read_inventory', 'read_locations'],
   catalog_sync: ['read_products'],
   payouts_sync: ['read_shopify_payments_payouts'],
+  draft_orders_sync: ['read_draft_orders'],
 };
 
 export const REQUIRED_FOR_SYNC = [

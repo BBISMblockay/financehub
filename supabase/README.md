@@ -189,6 +189,14 @@ supabase/
     20260715130000_slack_task_notify_launch_only.sql
     20260716000000_supermetrics_kpis.sql
     20260717190000_inventory_current_mv_company_index.sql
+    20260720170000_payment_request_activity_file_uploaded.sql
+    20260720180000_payment_request_paid_notification.sql
+    20260720190000_products_master_sku_unique.sql
+    20260720193000_products_master_drop_global_sku_unique.sql
+    20260721000000_fix_launch_tasks_private_select_leak.sql
+    20260721000000_mailroom_rebuild.sql
+    20260723150000_shopify_draft_orders.sql
+    20260723160000_mlb_shopify_default_location.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

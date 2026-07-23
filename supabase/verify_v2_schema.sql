@@ -494,6 +494,23 @@ select
     else 'MISSING — run 20260714220000_stamp_created_by.sql'
   end as stamp_created_by_triggers;
 
+select
+  case
+    when exists (
+      select 1 from information_schema.tables
+      where table_schema = 'public' and table_name = 'shopify_draft_orders'
+    ) and exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'shopify_draft_orders'
+        and policyname = 'shopify_draft_orders_active_select'
+    ) and exists (
+      select 1 from pg_constraint
+      where conname = 'sync_jobs_job_type_check'
+        and pg_get_constraintdef(oid) ilike '%draft_orders_sync%'
+    ) then 'ok'
+    else 'MISSING — run 20260723150000_shopify_draft_orders.sql'
+  end as shopify_draft_orders;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
