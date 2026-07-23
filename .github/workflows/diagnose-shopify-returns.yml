@@ -1,0 +1,38 @@
+name: Diagnose Shopify Returns/Exchange Schema
+
+on:
+  workflow_dispatch:
+    inputs:
+      shop_domain:
+        description: "Shopify shop domain, e.g. baseballismwholesale.myshopify.com"
+        required: true
+      order_names:
+        description: "Comma-separated order names to inspect returns for, e.g. #4557,#4558,#4559"
+        required: false
+        default: ""
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DIAGNOSE_SHOP_DOMAIN: ${{ inputs.shop_domain }}
+      DIAGNOSE_ORDER_NAMES: ${{ inputs.order_names }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run diagnostic
+        run: node scripts/diagnose-shopify-returns.mjs
