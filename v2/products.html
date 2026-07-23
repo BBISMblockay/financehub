@@ -325,7 +325,7 @@
 
       <section class="bcn-filter-bar" id="ctFilterBar">
         <div class="bcn-filter"><input class="bcn-field" id="ctSearch" placeholder="Search SKU, title, tag, notes…" style="width:200px" /></div>
-        <!-- category/subcategory/department dropdowns injected by JS (distinct values per field) -->
+        <!-- category (Shopify product_type, read-only) / subcategory / department dropdowns injected by JS -->
         <span id="ctFilterSelects" style="display:contents"></span>
         <div class="bcn-filter"><button class="bcn-btn bcn-btn--ghost" id="ctClearFilters">Clear</button></div>
         <div class="bcn-filter"><button class="bcn-btn bcn-btn--ghost" id="ctSelectVisible">Select Visible</button></div>
@@ -338,12 +338,12 @@
             <thead>
               <tr>
                 <th style="width:28px;"><input type="checkbox" id="ctSelectAll" title="Select all matching filters" /></th>
-                <th>SKUs</th><th>Product Title</th><th>Product Type</th><th>Category</th>
+                <th>SKUs</th><th>Product Title</th><th>Product Type</th>
                 <th>Subcategory</th><th>Department</th><th>Tags</th><th>Notes</th><th>Updated</th>
               </tr>
             </thead>
             <tbody id="ctBody">
-              <tr><td colspan="10" class="smp-empty">Loading…</td></tr>
+              <tr><td colspan="9" class="smp-empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -780,7 +780,7 @@
 
     <div class="smp-section">
       <div class="smp-section-label">Custom Tags</div>
-      <div class="smp-grid-2" id="ctFields"><!-- select+add-new combos injected by JS: category/subcategory/department --></div>
+      <div class="smp-grid-2" id="ctFields"><!-- select+add-new combos injected by JS: subcategory/department --></div>
       <div class="bcn-field-group" style="margin-top:10px;">
         <label class="bcn-label">Tags <span style="font-weight:400;color:var(--bcn-ink-3)">(comma separated)</span></label>
         <input class="bcn-field" id="ctFldTags" placeholder="e.g. bestseller, evergreen, drop-2026" />
@@ -799,7 +799,7 @@
     <button class="bcn-btn bcn-btn--primary" id="ctBtnSave">Save</button>
     <button class="bcn-btn bcn-btn--ghost" id="ctBtnCancel">Cancel</button>
     <div style="flex:1;"></div>
-    <button class="bcn-btn bcn-btn--ghost" id="ctBtnDelete" title="Clears category/subcategory/department/tags/notes — does not remove the product from the catalog">Clear Tags</button>
+    <button class="bcn-btn bcn-btn--ghost" id="ctBtnDelete" title="Clears subcategory/department/tags/notes — does not remove the product from the catalog">Clear Tags</button>
   </div>
 </aside>
 
@@ -1663,6 +1663,7 @@
       product_type:   fields.product_type||null,
       manufacturer:   fields.manufacturer||null,
       vendor_name:    fields.manufacturer||null,
+      factory_id:     fields.factory_id||null,
       bulk_eta:       fields.bulk_eta||null,
       expected_units: fields.expected_units??null,
       launch_id:      fields.launch_id,
@@ -1821,11 +1822,13 @@
   // ══ CATALOG (products_master) ════════════════════════════════════════════
   // Custom tagging on the real Shopify-synced catalog, not the old static
   // product_tags import — same UI shape as the legacy editor, retargeted at
-  // products_master's existing merchandising columns (category, subcategory,
+  // products_master's existing merchandising columns (subcategory,
   // department, tags[], notes). No new columns; sku/title/type/vendor are
   // read-only here since they're owned by the Shopify sync (runCatalogSync).
+  // Category is Shopify's own product_type -- driven by the sync
+  // (runCatalogSync), not a custom field, so it's not in this editable set.
+  // Subcategory/department/tags/notes are the genuinely custom dimensions.
   const CT_FIELDS = [
-    { key:'category',    label:'Category' },
     { key:'subcategory', label:'Subcategory' },
     { key:'department',  label:'Department' },
   ];
@@ -1844,7 +1847,7 @@
       let g=map.get(key);
       if(!g){
         g={ key, product_title:r.product_title||'(untitled)', product_type:r.product_type||null,
-          vendor_original:r.vendor_original||null, category:r.category||null, subcategory:r.subcategory||null,
+          vendor_original:r.vendor_original||null, subcategory:r.subcategory||null,
           department:r.department||null, tags:new Set(r.tags||[]), notes:r.notes||null,
           skuIds:[r.id], sampleSku:r.sku||null, updated_at:r.updated_at||null };
         map.set(key,g);
@@ -1852,7 +1855,6 @@
         g.skuIds.push(r.id);
         if(!g.product_type) g.product_type=r.product_type||null;
         if(!g.vendor_original) g.vendor_original=r.vendor_original||null;
-        if(!g.category) g.category=r.category||null;
         if(!g.subcategory) g.subcategory=r.subcategory||null;
         if(!g.department) g.department=r.department||null;
         if(!g.notes) g.notes=r.notes||null;
@@ -1878,7 +1880,7 @@
         renderCatalog();
       }catch(catErr){
         console.error('Catalog load failed:', catErr);
-        $('ctBody').innerHTML=`<tr><td colspan="10" class="smp-empty">Catalog failed to load: ${esc(catErr.message||catErr)}</td></tr>`;
+        $('ctBody').innerHTML=`<tr><td colspan="9" class="smp-empty">Catalog failed to load: ${esc(catErr.message||catErr)}</td></tr>`;
       }finally{
         ctLoading=null;
       }
@@ -1901,7 +1903,7 @@
         const from=starts[cursor++];
         // secondary sort key keeps page boundaries stable across parallel requests
         let q=sb.from('products_master')
-          .select('id,sku,product_title,product_type,vendor_original,category,subcategory,department,tags,notes,updated_at')
+          .select('id,sku,product_title,product_type,vendor_original,subcategory,department,tags,notes,updated_at')
           .order('product_title',{ascending:true}).order('id',{ascending:true})
           .range(from,from+PAGE-1);
         if(_co?.id) q=q.eq('company_entity_id',_co.id);
@@ -1925,7 +1927,13 @@
   }
 
   function ctBuildFilterSelects(){
-    $('ctFilterSelects').innerHTML=CT_FIELDS.map(f=>
+    // Category filter reads product_type directly -- Shopify's own field,
+    // not part of CT_FIELDS since it's not user-editable here.
+    const typeFilter=`<div class="bcn-filter"><select class="bcn-field ct-filter" data-key="product_type" style="max-width:160px;">
+      <option value="">Category (Shopify): all</option>
+      ${ctDistinct('product_type').map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
+    </select></div>`;
+    $('ctFilterSelects').innerHTML=typeFilter+CT_FIELDS.map(f=>
       `<div class="bcn-filter"><select class="bcn-field ct-filter" data-key="${f.key}" style="max-width:160px;">
         <option value="">${esc(f.label)}: all</option>
         ${ctDistinct(f.key).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
@@ -1939,7 +1947,7 @@
     return ctGroups.filter(g=>{
       for(const sel of active){ if(String(g[sel.dataset.key]??'')!==sel.value) return false; }
       if(q){
-        const hay=[g.sampleSku,g.product_title,g.product_type,g.vendor_original,g.category,g.subcategory,
+        const hay=[g.sampleSku,g.product_title,g.product_type,g.vendor_original,g.subcategory,
           g.department,...g.tags,g.notes].join(' ').toLowerCase();
         if(!hay.includes(q)) return false;
       }
@@ -1951,7 +1959,7 @@
     const rows=ctFiltered();
     $('ctKpiRows').textContent=ctGroups.length;
     $('ctKpiSkus').textContent=ctRows.length;
-    $('ctKpiCats').textContent=ctDistinct('category').length;
+    $('ctKpiCats').textContent=ctDistinct('product_type').length;
     $('ctKpiTags').textContent=ctDistinctTags().size;
     $('ctKpiFiltered').textContent=rows.length;
     $('ctKpiSelected').textContent=ctSelected.size;
@@ -1966,7 +1974,7 @@
     $('ctPageNext').disabled=ctPage>=pageCount-1;
 
     const tbody=$('ctBody');
-    if(!rows.length){ tbody.innerHTML='<tr><td colspan="10" class="smp-empty">No products match the current filters.</td></tr>'; return; }
+    if(!rows.length){ tbody.innerHTML='<tr><td colspan="9" class="smp-empty">No products match the current filters.</td></tr>'; return; }
     tbody.innerHTML=pageRows.map(g=>{
       const up=g.updated_at?new Date(g.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
       const tags=[...g.tags].join(', ');
@@ -1976,7 +1984,7 @@
         <td class="bcn-mono" style="font-size:11px;">${esc(skuLabel)}</td>
         <td style="max-width:220px;"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g.product_title||'—')}</div></td>
         <td>${esc(g.product_type||'—')}</td>
-        <td>${esc(g.category||'—')}</td><td>${esc(g.subcategory||'—')}</td><td>${esc(g.department||'—')}</td>
+        <td>${esc(g.subcategory||'—')}</td><td>${esc(g.department||'—')}</td>
         <td style="max-width:200px;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(tags||'—')}</div></td>
         <td style="max-width:180px;"><div style="font-size:11px;color:var(--bcn-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(g.notes||'')}</div></td>
         <td class="bcn-mono" style="font-size:11px;">${up}</td>
@@ -2119,9 +2127,9 @@
   async function ctDelete(){
     if(!ctEditing) return;
     const n=ctEditing.skuIds.length;
-    if(!confirm(`Clear category/subcategory/department/tags/notes for "${ctEditing.product_title}" (${n} SKU${n!==1?'s':''})? This does not remove the product from the catalog.`)) return;
+    if(!confirm(`Clear subcategory/department/tags/notes for "${ctEditing.product_title}" (${n} SKU${n!==1?'s':''})? This does not remove the product from the catalog.`)) return;
     const {error}=await sb.from('products_master').update({
-      category:null, subcategory:null, department:null, tags:[], notes:null,
+      subcategory:null, department:null, tags:[], notes:null,
     }).in('id',ctEditing.skuIds);
     if(error){ setStatus(error.message,'neg',6000); return; }
     setStatus('Cleared.','pos',2500);

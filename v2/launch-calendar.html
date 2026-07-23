@@ -1644,7 +1644,9 @@ function productPayloadFromForm(){
   return { product_title:$('prodTitle').value.trim(), product_type:$('prodType').value.trim()||null, collection_name:$('prodCollection').value.trim()||null, manufacturer:$('prodManufacturer').value.trim()||null, vendor_name:$('prodManufacturer').value.trim()||null, po_number:$('prodPo').value.trim()||null, bulk_eta:$('prodEta').value||null, expected_units:$('prodUnits').value?Number($('prodUnits').value):null, readiness_status:$('prodReadyStatus').value, product_shot_status:$('prodShotStatus').value, copy_status:$('prodCopyStatus').value, notes:$('prodNotes').value.trim()||null };
 }
 function productPayloadFromPO(r){
-  return { product_title:r.product_title||'Incoming product', product_type:r.product_type||null, collection_name:r.collection_name||null, manufacturer:r.factory_name||null, vendor_name:r.factory_name||null, po_number:r.po_name||null, bulk_eta:r.expected_arrival_date||null, expected_units:r.total_units!=null?Number(r.total_units):null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
+  // factory_id is the real selection made on the PO -- carry it through
+  // directly rather than only the factory_name text label.
+  return { product_title:r.product_title||'Incoming product', product_type:r.product_type||null, collection_name:r.collection_name||null, manufacturer:r.factory_name||null, vendor_name:r.factory_name||null, factory_id:r.factory_id||null, po_number:r.po_name||null, bulk_eta:r.expected_arrival_date||null, expected_units:r.total_units!=null?Number(r.total_units):null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
 }
 function productPayloadFromMaster(r){
   return { product_title:r.product_title||'Product', product_type:r.product_type||null, collection_name:null, manufacturer:r.vendor_original||null, vendor_name:r.vendor_original||null, po_number:null, bulk_eta:null, expected_units:null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
@@ -1677,6 +1679,7 @@ async function ensureTrackerLink(readinessId, fields, existingTrackerId, source)
     expected_units: fields.expected_units??null,
     launch_id: activeLaunch.id,
   };
+  if(fields.factory_id) trackerPayload.factory_id=fields.factory_id;
   if(source?.kind==='master' && source.raw?.id){
     trackerPayload.product_master_id=source.raw.id;
     trackerPayload.product_title_snapshot=source.raw.product_title||null;
@@ -1734,6 +1737,7 @@ async function saveProductReadiness(e){
     ({error}=await db.from('launch_product_readiness').update(payload).eq('id',editId));
   } else {
     payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id;
+    if(pendingProductSource?.kind==='po') payload.factory_id=pendingProductSource.raw.factory_id||null;
     const {data,error:insErr}=await db.from('launch_product_readiness').insert([payload]).select().single();
     error=insErr; savedId=data?.id||null;
   }
