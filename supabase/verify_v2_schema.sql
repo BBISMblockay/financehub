@@ -511,7 +511,17 @@ select
     else 'MISSING — run 20260723150000_shopify_draft_orders.sql'
   end as shopify_draft_orders;
 
--- 9. Quick counts (0 is fine on a fresh install)
+-- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
+select
+  col.column_name,
+  case when col.column_name is not null then 'ok' else 'MISSING — run 20260723180000_link_launch_product_readiness_tracker.sql' end as status
+from (values ('product_tracker_id')) as want(column_name)
+left join information_schema.columns col
+  on col.table_schema = 'public'
+ and col.table_name = 'launch_product_readiness'
+ and col.column_name = want.column_name;
+
+-- 10. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
   (select count(*) from public.po_headers)           as po_headers,

@@ -1625,15 +1625,44 @@
     };
 
     setStatus('Saving…','info');
-    let error;
+    let error, trackerId=ptDrawerItem?.id||null;
     if(ptDrawerItem) {
       ({error}=await sb.from('product_tracker').update(payload).eq('id',ptDrawerItem.id));
     } else {
-      ({error}=await sb.from('product_tracker').insert(payload));
+      const {data,error:insErr}=await sb.from('product_tracker').insert(payload).select().single();
+      error=insErr; trackerId=data?.id||null;
     }
     if(error){setStatus(error.message,'neg',6000);return;}
+    if(trackerId) await ensureLaunchReadinessLink(trackerId, payload);
     clearStatus(); setStatus('Saved.','pos',2500);
     await loadTrackerItems(); renderTrackerKPIs(); renderTrackerTable(); closePtDrawer();
+  }
+
+  // Mirror of launch-calendar.html's ensureTrackerLink, keeping the paired
+  // launch_product_readiness row (Launch Calendar's Products tab) in sync
+  // whenever a Pipeline item here is linked to a launch.
+  async function ensureLaunchReadinessLink(trackerId, fields){
+    if(!fields.launch_id) return;
+    const {data:existing}=await sb.from('launch_product_readiness').select('id').eq('product_tracker_id',trackerId).limit(1).maybeSingle();
+    const readinessPayload={
+      product_title: fields.product_title,
+      product_type:  fields.product_type||null,
+      manufacturer:  fields.manufacturer||null,
+      vendor_name:   fields.manufacturer||null,
+      bulk_eta:      fields.bulk_eta||null,
+      launch_id:     fields.launch_id,
+    };
+    if(_co?.id) readinessPayload.company_entity_id=_co.id;
+    if(existing){
+      await sb.from('launch_product_readiness').update(readinessPayload).eq('id',existing.id);
+    } else {
+      readinessPayload.product_tracker_id=trackerId;
+      readinessPayload.readiness_status='not_reviewed';
+      readinessPayload.product_shot_status='not_started';
+      readinessPayload.copy_status='not_started';
+      readinessPayload.created_by=currentUser?.id||null;
+      await sb.from('launch_product_readiness').insert([readinessPayload]);
+    }
   }
 
   async function deletePtItem() {
