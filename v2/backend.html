@@ -417,7 +417,7 @@
           <div class="md:col-span-3">
             <label class="section-title">Role</label>
             <select id="dlgRole" class="select w-full mt-1">
-              <option value="viewer">viewer</option><option value="member">member</option><option value="admin">admin</option><option value="owner">owner</option><option value="superadmin">superadmin</option>
+              <option value="viewer">viewer</option><option value="member">member</option><option value="admin">admin</option><option value="executive">executive</option><option value="owner">owner</option><option value="superadmin">superadmin</option>
             </select>
           </div>
         </div>
@@ -729,6 +729,7 @@
       const r = String(role || "member").toLowerCase();
       if (r === "owner" || r === "superadmin") return `<span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>${escapeHtml(r)}</span>`;
       if (r === "admin") return `<span class="pill"><span class="dot" style="background: var(--accent)"></span>admin</span>`;
+      if (r === "executive") return `<span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>executive</span>`;
       if (r === "viewer") return `<span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>viewer</span>`;
       return `<span class="pill"><span class="dot" style="background: var(--accent)"></span>member</span>`;
     }
