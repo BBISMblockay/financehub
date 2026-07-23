@@ -203,6 +203,8 @@ supabase/
     20260723200000_product_tracker_expected_units.sql
     20260723210000_launch_readiness_factory_link.sql
     20260723220000_products_master_category_from_shopify.sql
+    20260723230000_product_tracker_po_backfill.sql
+    20260723240000_products_master_surface_legacy_attributes_as_tags.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

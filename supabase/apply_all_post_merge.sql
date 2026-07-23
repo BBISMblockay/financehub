@@ -6873,3 +6873,51 @@ alter view public.v_launch_po_product_lookup set (security_invoker = true);
 update public.products_master
 set category = product_type
 where category is distinct from product_type;
+
+-- ============================================================
+-- 20260723230000_product_tracker_po_backfill.sql
+-- backfill factory/type/eta/units on existing Pipeline items from matching
+-- po_lines/po_headers data (blank fields only)
+-- ============================================================
+with matched as (
+  select
+    pt.id as tracker_id,
+    (array_agg(h.factory_id order by h.order_date desc nulls last, h.created_at desc) filter (where h.factory_id is not null))[1] as factory_id,
+    (array_agg(l.product_type_snapshot order by h.order_date desc nulls last, h.created_at desc) filter (where l.product_type_snapshot is not null and l.product_type_snapshot <> ''))[1] as product_type,
+    (array_agg(h.expected_arrival_date order by h.order_date desc nulls last, h.created_at desc) filter (where h.expected_arrival_date is not null))[1] as bulk_eta,
+    sum(coalesce(l.qty,0)) as total_qty
+  from public.product_tracker pt
+  join public.po_lines l on lower(trim(l.title_snapshot)) = lower(trim(pt.product_title))
+  join public.po_headers h on h.id = l.po_header_id
+  group by pt.id
+)
+update public.product_tracker pt
+set
+  factory_id = coalesce(pt.factory_id, matched.factory_id),
+  manufacturer = coalesce(pt.manufacturer, f.factory_name),
+  product_type = coalesce(nullif(pt.product_type,''), matched.product_type),
+  bulk_eta = coalesce(pt.bulk_eta, matched.bulk_eta),
+  expected_units = coalesce(pt.expected_units, nullif(matched.total_qty,0))
+from matched
+left join public.factories f on f.id = matched.factory_id
+where matched.tracker_id = pt.id
+  and (pt.factory_id is null or pt.product_type is null or pt.product_type='' or pt.bulk_eta is null or pt.expected_units is null or pt.manufacturer is null);
+
+-- ============================================================
+-- 20260723240000_products_master_surface_legacy_attributes_as_tags.sql
+-- fold attributes jsonb legacy fields into tags[] so they're actually
+-- visible in the Catalog tab (attributes had zero UI surface before this)
+-- ============================================================
+update public.products_master pm
+set tags = (
+  select array_agg(distinct t) from unnest(
+    pm.tags || array_remove(ARRAY[
+      pm.attributes->>'legacy_collection',
+      pm.attributes->>'legacy_primary_color',
+      pm.attributes->>'legacy_indicator_group',
+      pm.attributes->>'legacy_artwork_side',
+      pm.attributes->>'legacy_sub_tag'
+    ], NULL)
+  ) as t
+)
+where pm.attributes <> '{}'::jsonb;
