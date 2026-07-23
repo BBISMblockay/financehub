@@ -1219,16 +1219,23 @@
     let _qlc=sb.from('launch_calendar').select('id,title').order('title'); if(_co?.id) _qlc=_qlc.eq('company_entity_id',_co.id);
     let _qph=sb.from('po_headers').select('id,po_name').order('po_name'); if(_co?.id) _qph=_qph.eq('company_entity_id',_co.id);
     let _qf=sb.from('factories').select('id,factory_name').order('factory_name'); if(_co?.id) _qf=_qf.eq('company_entity_id',_co.id);
+    // Real, live product types from the Shopify-synced catalog -- NOT the
+    // retired product_tags import, which only ever had ~10 stale values.
+    // A tracker item's product_type missing from this list meant the
+    // dropdown silently reset to blank on open, and saving (for any reason,
+    // e.g. just linking a launch) wiped the real value.
+    let _qpt=sb.from('products_master').select('product_type').not('product_type','is',null).limit(20000);
+    if(_co?.id) _qpt=_qpt.eq('company_entity_id',_co.id);
     const [lR,pR,fR,tR]=await Promise.all([
       _qlc,
       _qph,
       _qf,
-      sb.from('product_tags').select('type').limit(5000),
+      _qpt,
     ]);
     allLaunches     = lR.data||[];
     allPOs          = pR.data||[];
     allFactories    = fR.data||[];
-    allProductTypes = [...new Set((tR.data||[]).map(t=>t.type).filter(Boolean))].sort();
+    allProductTypes = [...new Set((tR.data||[]).map(t=>t.product_type).filter(Boolean))].sort();
   }
 
   function fillSelect(id, items, valFn, lblFn, blank) {
