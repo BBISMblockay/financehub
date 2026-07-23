@@ -200,6 +200,9 @@ supabase/
     20260723170000_wholesale_gross_reconciliation.sql
     20260723180000_link_launch_product_readiness_tracker.sql
     20260723190000_products_master_legacy_tag_backfill.sql
+    20260723200000_product_tracker_expected_units.sql
+    20260723210000_launch_readiness_factory_link.sql
+    20260723220000_products_master_category_from_shopify.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

@@ -1399,16 +1399,22 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
     if (!v?.sku || rowBySku.has(v.sku)) continue;
     const p = productById.get(String(v.product_id)) || {};
     const imageUrl = p.image?.src || (Array.isArray(p.images) && p.images[0]?.src) || null;
+    const productType =
+      p.product_type ||
+      p.product_category?.product_taxonomy_node?.full_name ||
+      null;
 
     rowBySku.set(v.sku, {
       sku: v.sku,
       company_entity_id: connection.company_entity_id,
       product_title: (p.title || '').trim() || v.sku,
       variant_title: v.title && v.title !== 'Default Title' ? v.title : null,
-      product_type:
-        p.product_type ||
-        p.product_category?.product_taxonomy_node?.full_name ||
-        null,
+      product_type: productType,
+      // Category mirrors Shopify's own product_type -- Shopify drives it,
+      // it isn't a separately custom-tagged field (subcategory/department/
+      // tags/notes are the genuinely custom dimensions, edited in the
+      // Catalog tab and left untouched by this sync).
+      category: productType,
       vendor_original: p.vendor || null,
       image_url: imageUrl,
       barcode: v.barcode || null,

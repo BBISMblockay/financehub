@@ -6813,3 +6813,63 @@ set
 from legacy
 where pm.company_entity_id = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
   and lower(trim(pm.product_title)) = legacy.norm_title;
+
+-- ============================================================
+-- 20260723200000_product_tracker_expected_units.sql
+-- expected_units column so PO-created Pipeline items carry qty
+-- ============================================================
+alter table public.product_tracker
+  add column if not exists expected_units integer;
+
+-- ============================================================
+-- 20260723210000_launch_readiness_factory_link.sql
+-- factory_id FK on launch_product_readiness + v_launch_po_product_lookup
+-- exposes factory_id so it carries through as a real link, not just text
+-- ============================================================
+alter table public.launch_product_readiness
+  add column if not exists factory_id uuid references public.factories(id) on delete set null;
+
+create index if not exists launch_product_readiness_factory_idx
+  on public.launch_product_readiness (factory_id);
+
+create or replace view public.v_launch_po_product_lookup as
+ SELECT h.id AS po_header_id,
+    h.po_name,
+    h.status AS po_status,
+    h.order_date,
+    h.req_ship_date,
+    h.expected_arrival_date,
+    h.date_bucket,
+    h.is_new_product_po,
+    h.wholesale_triggered,
+    h.pdf_url,
+    h.notes AS po_notes,
+    h.internal_notes,
+    f.factory_name,
+    l.title_snapshot AS product_title,
+    l.product_type_snapshot AS product_type,
+    count(*) AS variant_count,
+    sum(COALESCE(l.qty, 0))::integer AS total_units,
+    sum(COALESCE(l.retail_value, COALESCE(l.qty, 0)::numeric * COALESCE(l.retail_price, 0::numeric))) AS total_retail_value,
+    sum(COALESCE(l.qty, 0)::numeric * COALESCE(l.unit_cost, 0::numeric)) AS total_estimated_cost,
+    min(l.retail_price) AS min_retail_price,
+    max(l.retail_price) AS max_retail_price,
+    string_agg(DISTINCT NULLIF(l.variant_title_snapshot, ''::text), ', '::text ORDER BY (NULLIF(l.variant_title_snapshot, ''::text))) AS variants,
+    string_agg(DISTINCT NULLIF(l.sku_snapshot, ''::text), ', '::text ORDER BY (NULLIF(l.sku_snapshot, ''::text))) AS sample_skus,
+    h.factory_id
+   FROM po_lines l
+     JOIN po_headers h ON h.id = l.po_header_id
+     LEFT JOIN v_po_header_summary f ON f.id = h.id
+  WHERE NULLIF(l.title_snapshot, ''::text) IS NOT NULL
+  GROUP BY h.id, h.po_name, h.status, h.order_date, h.req_ship_date, h.expected_arrival_date, h.date_bucket, h.is_new_product_po, h.wholesale_triggered, h.pdf_url, h.notes, h.internal_notes, f.factory_name, l.title_snapshot, l.product_type_snapshot, h.factory_id;
+
+alter view public.v_launch_po_product_lookup set (security_invoker = true);
+
+-- ============================================================
+-- 20260723220000_products_master_category_from_shopify.sql
+-- category now mirrors Shopify's product_type -- one-time correction of
+-- existing rows to match (superseding the prior product_tags-derived values)
+-- ============================================================
+update public.products_master
+set category = product_type
+where category is distinct from product_type;

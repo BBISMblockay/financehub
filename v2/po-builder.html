@@ -645,14 +645,21 @@
       const title=(linePayload.title_snapshot||'').trim();
       if(!title) return;
       const {data:existing}=await sb.from('product_tracker').select('id').ilike('product_title',title).limit(1);
-      if(existing&&existing.length) return; // already tracked, silent
-      const {error}=await sb.from('product_tracker').insert({
+      const trackerPayload={
         product_title:title,
         product_type:linePayload.product_type_snapshot||null,
         factory_id:po.factory_id||null,
         bulk_eta:po.expected_arrival_date||null,
-        notes:`Auto-added from PO: ${po.po_name||''}`.trim(),
-      });
+        expected_units:Number(linePayload.qty)||null,
+      };
+      if(existing&&existing.length){
+        // already tracked -- keep expected units current as the PO line changes, silent
+        const {error}=await sb.from('product_tracker').update({expected_units:trackerPayload.expected_units}).eq('id',existing[0].id);
+        if(error) setStatus('Tracker sync failed: '+error.message,'neg');
+        return;
+      }
+      trackerPayload.notes=`Auto-added from PO: ${po.po_name||''}`.trim();
+      const {error}=await sb.from('product_tracker').insert(trackerPayload);
       if(error){ setStatus('Tracker sync failed: '+error.message,'neg'); return; }
       setStatus(`"${title}" added to Product Tracker.`,'pos',3000);
     }
