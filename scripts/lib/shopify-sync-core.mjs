@@ -1253,11 +1253,16 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     'Content-Type': 'application/json',
   };
 
-  const dbLocationMap = await loadLocationMap(supabase, connection.company_entity_id);
-  const locations = await getAll(headers, `${base}/locations.json?limit=250`);
-  const variants = await getAll(headers, `${base}/variants.json?limit=250`);
-  const products = await getAll(headers, `${base}/products.json?limit=250&status=active`);
-  const productById = new Map(products.map((p) => [String(p.id), p]));
+  const [dbLocationMap, locations, variants, ...productsByStatus] = await Promise.all([
+    loadLocationMap(supabase, connection.company_entity_id),
+    getAll(headers, `${base}/locations.json?limit=250`),
+    getAll(headers, `${base}/variants.json?limit=250`),
+    ...PRODUCT_STATUSES_FOR_LABELING.map((status) => getAll(headers, `${base}/products.json?limit=250&status=${status}`)),
+  ]);
+  const productById = new Map();
+  for (const products of productsByStatus) {
+    for (const p of products) productById.set(String(p.id), p);
+  }
 
   const invItemById = new Map();
   const skuMeta = new Map();
