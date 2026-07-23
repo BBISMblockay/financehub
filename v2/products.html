@@ -1699,6 +1699,7 @@
     // click a row to tag it instead.
     $('btnNew').style.display = tab==='catalog' ? 'none' : '';
     $('btnNew').textContent = tab==='samples' ? '+ New Sample' : '+ New Product';
+    if(tab==='catalog') ensureCatalogLoaded();
   }
 
   // ── events ────────────────────────────────────────────────────────────────
@@ -1780,7 +1781,29 @@
     { key:'department',  label:'Department' },
   ];
   const CT_ADD_NEW='__ADD_NEW__';
-  let ctRows=[], ctSelected=new Set(), ctEditing=null;
+  let ctRows=[], ctSelected=new Set(), ctEditing=null, ctLoaded=false, ctLoading=null;
+
+  // Catalog spans the full Shopify-synced products_master table (20k+ rows for
+  // Baseballism) -- load it lazily on first visit to the tab instead of
+  // blocking the page's initial render on it.
+  async function ensureCatalogLoaded(){
+    if(ctLoaded) return;
+    if(ctLoading) return ctLoading;
+    ctLoading=(async()=>{
+      try{
+        await loadCatalog();
+        ctLoaded=true;
+        ctBuildFilterSelects();
+        renderCatalog();
+      }catch(catErr){
+        console.error('Catalog load failed:', catErr);
+        $('ctBody').innerHTML=`<tr><td colspan="10" class="smp-empty">Catalog failed to load: ${esc(catErr.message||catErr)}</td></tr>`;
+      }finally{
+        ctLoading=null;
+      }
+    })();
+    return ctLoading;
+  }
 
   async function loadCatalog(){
     const PAGE=1000; let from=0; const rows=[];
@@ -2013,20 +2036,12 @@
     }
     try {
       await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems()]);
-      try {
-        await loadCatalog();
-      } catch (catErr) {
-        console.error('Catalog load failed:', catErr);
-        $('ctBody').innerHTML = `<tr><td colspan="15" class="smp-empty">Catalog failed to load: ${esc(catErr.message||catErr)}</td></tr>`;
-      }
       populateLaunchFilter();
       populatePtFilters();
       renderKPIs();
       renderTable();
       renderTrackerKPIs();
       renderTrackerTable();
-      ctBuildFilterSelects();
-      renderCatalog();
 
       // Deep links: ?tab=pipeline|samples|catalog, ?item=<tracker id>, ?sample=<sample id>
       const qp=new URLSearchParams(location.search);
