@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_CHUNK_DAYS,
   runCatalogSync,
+  runDraftOrdersSync,
   runIncrementalSales,
   runInventorySnapshot,
   runPayoutsSync,
@@ -33,6 +34,7 @@ const SKIP_SALES = process.env.SHOPIFY_SKIP_SALES === 'true';
 const SKIP_INVENTORY = process.env.SHOPIFY_SKIP_INVENTORY === 'true';
 const SKIP_CATALOG = process.env.SHOPIFY_SKIP_CATALOG === 'true';
 const SKIP_PAYOUTS = process.env.SHOPIFY_SKIP_PAYOUTS === 'true';
+const SKIP_DRAFT_ORDERS = process.env.SHOPIFY_SKIP_DRAFT_ORDERS === 'true';
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
 const BATCH_ID =
@@ -136,6 +138,28 @@ async function syncConnection(connection) {
         console.log(`[skip] ${connection.shop_domain} payouts_sync: ${result.reason || result.missing?.join(',')}`);
       } else {
         console.log(`[ok] ${connection.shop_domain} payouts_sync: ${result.payouts_upserted} payouts since ${result.since}`);
+      }
+    } catch (err) {
+      await finishJob(jobId, 'error', { error: err.message || String(err) });
+      throw err;
+    }
+  }
+
+  if (!SKIP_DRAFT_ORDERS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+    const jobId = await startJob(connection, 'draft_orders_sync');
+    try {
+      const result = await runDraftOrdersSync(supabase, connection, { batchId: BATCH_ID });
+      if (result.last_draft_order_sync_at) {
+        const meta = { ...(connection.meta || {}), last_draft_order_sync_at: result.last_draft_order_sync_at };
+        await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
+        connection.meta = meta;
+      }
+      await finishJob(jobId, 'success', result);
+      results.jobs.push(result);
+      if (result.skipped) {
+        console.log(`[skip] ${connection.shop_domain} draft_orders_sync: missing scopes ${result.missing?.join(',')}`);
+      } else {
+        console.log(`[ok] ${connection.shop_domain} draft_orders_sync: ${result.draft_orders_upserted} drafts`);
       }
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
