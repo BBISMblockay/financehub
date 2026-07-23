@@ -196,6 +196,7 @@ supabase/
     20260721000000_fix_launch_tasks_private_select_leak.sql
     20260721000000_mailroom_rebuild.sql
     20260723150000_shopify_draft_orders.sql
+    20260723160000_mlb_shopify_default_location.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

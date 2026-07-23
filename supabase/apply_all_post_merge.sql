@@ -6712,3 +6712,14 @@ alter table public.sync_jobs add constraint sync_jobs_job_type_check
     'inventory_snapshot', 'catalog_sync', 'payouts_sync',
     'supermetrics_kpis', 'draft_orders_sync'
   ));
+
+-- ============================================================
+-- 20260723160000_mlb_shopify_default_location.sql
+-- baseballismmlb was missing the default_location_code fallback that
+-- baseballismwholesale already has — orders with no resolvable Shopify
+-- location were silently dropped from sales_by_day (~$172k YTD undercount)
+-- ============================================================
+update public.shopify_connections
+   set default_location_code = 'wholesale'
+ where shop_domain = 'baseballismmlb.myshopify.com'
+   and coalesce(default_location_code, '') = '';
