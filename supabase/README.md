@@ -199,6 +199,7 @@ supabase/
     20260723160000_mlb_shopify_default_location.sql
     20260723170000_wholesale_gross_reconciliation.sql
     20260723180000_link_launch_product_readiness_tracker.sql
+    20260723190000_products_master_legacy_tag_backfill.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
