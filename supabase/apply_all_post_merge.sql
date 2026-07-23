@@ -6723,3 +6723,45 @@ update public.shopify_connections
    set default_location_code = 'wholesale'
  where shop_domain = 'baseballismmlb.myshopify.com'
    and coalesce(default_location_code, '') = '';
+
+-- ============================================================
+-- 20260723170000_wholesale_gross_reconciliation.sql
+-- Manual reconciliation entry closing the wholesale YTD gross-sales gap
+-- vs. Shopify's own Sales report (no-restock refund gross not exposed via
+-- API — see migration file for full root-cause detail)
+-- ============================================================
+insert into public.sales_by_day (
+  company_entity_id, location_tag, location_name, source, day_date,
+  product_name, sku, product_type, vendor_original,
+  total_quantity_sold, total_orders, total_gross_sales, total_discounts,
+  total_refunds, total_net_sales, taxes, shipping, total_sales,
+  shop_domain, sync_batch_id, synced_at, row_hash
+) values (
+  '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',
+  'wholesale',
+  'Wholesale',
+  'manual_adjustment',
+  '2026-04-14',
+  '[Shopify report reconciliation — no-restock refund gross]',
+  '[MANUAL-RECONCILIATION]',
+  null,
+  null,
+  0,
+  0,
+  13232.25,
+  0,
+  0,
+  13232.25,
+  0,
+  0,
+  13232.25,
+  'baseballismwholesale.myshopify.com',
+  'manual-reconciliation-2026-07-23',
+  now(),
+  md5('manual_adjustment|baseballismwholesale|2026-04-14|gross-reconciliation|20260723')
+)
+on conflict (row_hash) do update set
+  total_gross_sales = excluded.total_gross_sales,
+  total_net_sales = excluded.total_net_sales,
+  total_sales = excluded.total_sales,
+  synced_at = excluded.synced_at;
