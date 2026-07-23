@@ -1293,13 +1293,20 @@ function renderDrawer(){
   const sid=String(activeLaunch.id);
   const flt=arr=>arr.filter(x=>String(x.launch_id)===sid);
   const launchProducts=flt(products);
-  const launchTrackerProducts=flt(trackerProducts);
+  // Pipeline items already represented in this launch's product list (paired
+  // via product_tracker_id, or same title) are hidden from the "From Product
+  // Pipeline" section -- since the two-way link (#300 + historical pairing)
+  // they'd otherwise all show twice.
+  const pairedTrackerIds=new Set(launchProducts.map(p=>String(p.product_tracker_id||'')).filter(Boolean));
+  const readinessTitles=new Set(launchProducts.map(p=>(p.product_title||'').trim().toLowerCase()));
+  const launchTrackerProducts=flt(trackerProducts).filter(t=>
+    !pairedTrackerIds.has(String(t.id)) && !readinessTitles.has((t.product_title||'').trim().toLowerCase()));
   const launchChannels=flt(channels);
   const launchTasks=flt(tasks);
   const launchAssets=flt(assets);
   const pMeta=$('productListMeta');
   const totalProds=launchProducts.length+launchTrackerProducts.length;
-  if(pMeta) pMeta.textContent=totalProds?`${totalProds} product${totalProds===1?'':'s'} (${launchProducts.length} readiness · ${launchTrackerProducts.length} tracker)`:'No products yet';
+  if(pMeta) pMeta.textContent=totalProds?`${totalProds} product${totalProds===1?'':'s'}${launchTrackerProducts.length?` (${launchProducts.length} here · ${launchTrackerProducts.length} pipeline-only)`:''}`:'No products yet';
   const cMeta=$('channelListMeta');
   if(cMeta) cMeta.textContent=launchChannels.length?`${launchChannels.length} initiative${launchChannels.length===1?'':'s'}`:'No initiatives yet';
   const tMeta=$('taskListMeta');
