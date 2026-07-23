@@ -1383,9 +1383,14 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
     'Content-Type': 'application/json',
   };
 
-  const variants = await getAll(headers, `${base}/variants.json?limit=250`);
-  const products = await getAll(headers, `${base}/products.json?limit=250&status=active`);
-  const productById = new Map(products.map((p) => [String(p.id), p]));
+  const [variants, ...productsByStatus] = await Promise.all([
+    getAll(headers, `${base}/variants.json?limit=250`),
+    ...PRODUCT_STATUSES_FOR_LABELING.map((status) => getAll(headers, `${base}/products.json?limit=250&status=${status}`)),
+  ]);
+  const productById = new Map();
+  for (const products of productsByStatus) {
+    for (const p of products) productById.set(String(p.id), p);
+  }
 
   const now = new Date().toISOString();
   const rowBySku = new Map();
