@@ -315,7 +315,8 @@
     <!-- ══ CATALOG (products_master) PANEL ═════════════════════ -->
     <div class="pt-panel" id="panelCatalog">
       <section class="bcn-kpi-band">
-        <div class="bcn-kpi"><div class="bcn-kpi-label">Rows</div><div class="bcn-kpi-value bcn-num" id="ctKpiRows">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Products</div><div class="bcn-kpi-value bcn-num" id="ctKpiRows">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">SKUs</div><div class="bcn-kpi-value bcn-num" id="ctKpiSkus">—</div></div>
         <div class="bcn-kpi"><div class="bcn-kpi-label">Categories</div><div class="bcn-kpi-value bcn-num" id="ctKpiCats">—</div></div>
         <div class="bcn-kpi"><div class="bcn-kpi-label">Tags</div><div class="bcn-kpi-value bcn-num" id="ctKpiTags">—</div></div>
         <div class="bcn-kpi"><div class="bcn-kpi-label">Filtered</div><div class="bcn-kpi-value bcn-num" id="ctKpiFiltered">—</div></div>
@@ -337,7 +338,7 @@
             <thead>
               <tr>
                 <th style="width:28px;"><input type="checkbox" id="ctSelectAll" title="Select all matching filters" /></th>
-                <th>SKU</th><th>Product Title</th><th>Product Type</th><th>Category</th>
+                <th>SKUs</th><th>Product Title</th><th>Product Type</th><th>Category</th>
                 <th>Subcategory</th><th>Department</th><th>Tags</th><th>Notes</th><th>Updated</th>
               </tr>
             </thead>
@@ -760,7 +761,7 @@
     <div class="smp-section">
       <div class="smp-section-label">Product <span style="font-weight:400;color:var(--bcn-ink-3)">(synced from Shopify — read only)</span></div>
       <div class="bcn-field-group" style="margin-bottom:10px;">
-        <label class="bcn-label">SKU</label>
+        <label class="bcn-label">SKUs <span style="font-weight:400;color:var(--bcn-ink-3)">(tags apply to every SKU of this product)</span></label>
         <div class="bcn-field bcn-mono" id="ctFldSku" style="background:var(--bcn-bg-2);"></div>
       </div>
       <div class="bcn-field-group" style="margin-bottom:10px;">
@@ -1815,8 +1816,39 @@
     { key:'department',  label:'Department' },
   ];
   const CT_ADD_NEW='__ADD_NEW__';
-  let ctRows=[], ctSelected=new Set(), ctEditing=null, ctLoaded=false, ctLoading=null;
+  // ctRows = raw SKU-level products_master rows (needed so writes can target
+  // every SKU under a product). ctGroups = same data pivoted to one row per
+  // product_title -- tags/category/etc. are a product-level concept, not a
+  // per-SKU one, so the table, filters, and drawer all operate on groups.
+  let ctRows=[], ctGroups=[], ctSelected=new Set(), ctEditing=null, ctLoaded=false, ctLoading=null;
   let ctPage=0; const CT_PAGE_SIZE=100;
+
+  function ctBuildGroups(){
+    const map=new Map();
+    for(const r of ctRows){
+      const key=(r.product_title||'').trim().toLowerCase()||('__untitled_'+r.id);
+      let g=map.get(key);
+      if(!g){
+        g={ key, product_title:r.product_title||'(untitled)', product_type:r.product_type||null,
+          vendor_original:r.vendor_original||null, category:r.category||null, subcategory:r.subcategory||null,
+          department:r.department||null, tags:new Set(r.tags||[]), notes:r.notes||null,
+          skuIds:[r.id], sampleSku:r.sku||null, updated_at:r.updated_at||null };
+        map.set(key,g);
+      } else {
+        g.skuIds.push(r.id);
+        if(!g.product_type) g.product_type=r.product_type||null;
+        if(!g.vendor_original) g.vendor_original=r.vendor_original||null;
+        if(!g.category) g.category=r.category||null;
+        if(!g.subcategory) g.subcategory=r.subcategory||null;
+        if(!g.department) g.department=r.department||null;
+        if(!g.notes) g.notes=r.notes||null;
+        if(!g.sampleSku) g.sampleSku=r.sku||null;
+        (r.tags||[]).forEach(t=>g.tags.add(t));
+        if(r.updated_at && (!g.updated_at || r.updated_at>g.updated_at)) g.updated_at=r.updated_at;
+      }
+    }
+    return [...map.values()].sort((a,b)=>a.product_title.localeCompare(b.product_title));
+  }
 
   // Catalog spans the full Shopify-synced products_master table (20k+ rows for
   // Baseballism) -- load it lazily on first visit to the tab instead of
@@ -1865,16 +1897,16 @@
       }
     }
     await Promise.all(Array.from({length:Math.min(CONCURRENCY,starts.length)},worker));
-    ctRows=rows.filter(Boolean); ctSelected.clear();
+    ctRows=rows.filter(Boolean); ctGroups=ctBuildGroups(); ctSelected.clear();
   }
 
   function ctDistinct(key){
-    return [...new Set(ctRows.map(r=>r[key]).filter(v=>v!=null&&String(v).trim()!==''))].sort((a,b)=>String(a).localeCompare(String(b)));
+    return [...new Set(ctGroups.map(g=>g[key]).filter(v=>v!=null&&String(v).trim()!==''))].sort((a,b)=>String(a).localeCompare(String(b)));
   }
 
   function ctDistinctTags(){
     const set=new Set();
-    ctRows.forEach(r=>(r.tags||[]).forEach(t=>{ if(t&&String(t).trim()) set.add(t); }));
+    ctGroups.forEach(g=>g.tags.forEach(t=>{ if(t&&String(t).trim()) set.add(t); }));
     return set;
   }
 
@@ -1890,11 +1922,11 @@
   function ctFiltered(){
     const q=$('ctSearch').value.trim().toLowerCase();
     const active=[...document.querySelectorAll('.ct-filter')].filter(sel=>sel.value);
-    return ctRows.filter(r=>{
-      for(const sel of active){ if(String(r[sel.dataset.key]??'')!==sel.value) return false; }
+    return ctGroups.filter(g=>{
+      for(const sel of active){ if(String(g[sel.dataset.key]??'')!==sel.value) return false; }
       if(q){
-        const hay=[r.sku,r.product_title,r.product_type,r.vendor_original,r.category,r.subcategory,
-          r.department,...(r.tags||[]),r.notes].join(' ').toLowerCase();
+        const hay=[g.sampleSku,g.product_title,g.product_type,g.vendor_original,g.category,g.subcategory,
+          g.department,...g.tags,g.notes].join(' ').toLowerCase();
         if(!hay.includes(q)) return false;
       }
       return true;
@@ -1903,7 +1935,8 @@
 
   function renderCatalog(){
     const rows=ctFiltered();
-    $('ctKpiRows').textContent=ctRows.length;
+    $('ctKpiRows').textContent=ctGroups.length;
+    $('ctKpiSkus').textContent=ctRows.length;
     $('ctKpiCats').textContent=ctDistinct('category').length;
     $('ctKpiTags').textContent=ctDistinctTags().size;
     $('ctKpiFiltered').textContent=rows.length;
@@ -1914,23 +1947,24 @@
     if(ctPage>=pageCount) ctPage=pageCount-1;
     if(ctPage<0) ctPage=0;
     const pageRows=rows.slice(ctPage*CT_PAGE_SIZE, ctPage*CT_PAGE_SIZE+CT_PAGE_SIZE);
-    $('ctPageInfo').textContent=rows.length ? `Page ${ctPage+1} of ${pageCount} (${rows.length} rows)` : '';
+    $('ctPageInfo').textContent=rows.length ? `Page ${ctPage+1} of ${pageCount} (${rows.length} products)` : '';
     $('ctPagePrev').disabled=ctPage<=0;
     $('ctPageNext').disabled=ctPage>=pageCount-1;
 
     const tbody=$('ctBody');
-    if(!rows.length){ tbody.innerHTML='<tr><td colspan="10" class="smp-empty">No rows match the current filters.</td></tr>'; return; }
-    tbody.innerHTML=pageRows.map(r=>{
-      const up=r.updated_at?new Date(r.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
-      const tags=(r.tags||[]).join(', ');
-      return `<tr data-ct-id="${r.id}">
-        <td><input type="checkbox" class="ct-row-ck" data-id="${r.id}" ${ctSelected.has(r.id)?'checked':''}/></td>
-        <td class="bcn-mono" style="font-size:11px;">${esc(r.sku||'—')}</td>
-        <td style="max-width:220px;"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.product_title||'—')}</div></td>
-        <td>${esc(r.product_type||'—')}</td>
-        <td>${esc(r.category||'—')}</td><td>${esc(r.subcategory||'—')}</td><td>${esc(r.department||'—')}</td>
+    if(!rows.length){ tbody.innerHTML='<tr><td colspan="10" class="smp-empty">No products match the current filters.</td></tr>'; return; }
+    tbody.innerHTML=pageRows.map(g=>{
+      const up=g.updated_at?new Date(g.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+      const tags=[...g.tags].join(', ');
+      const skuLabel=g.skuIds.length>1?`${g.skuIds.length} SKUs`:(g.sampleSku||'—');
+      return `<tr data-ct-key="${esc(g.key)}">
+        <td><input type="checkbox" class="ct-row-ck" data-key="${esc(g.key)}" ${ctSelected.has(g.key)?'checked':''}/></td>
+        <td class="bcn-mono" style="font-size:11px;">${esc(skuLabel)}</td>
+        <td style="max-width:220px;"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g.product_title||'—')}</div></td>
+        <td>${esc(g.product_type||'—')}</td>
+        <td>${esc(g.category||'—')}</td><td>${esc(g.subcategory||'—')}</td><td>${esc(g.department||'—')}</td>
         <td style="max-width:200px;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(tags||'—')}</div></td>
-        <td style="max-width:180px;"><div style="font-size:11px;color:var(--bcn-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(r.notes||'')}</div></td>
+        <td style="max-width:180px;"><div style="font-size:11px;color:var(--bcn-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(g.notes||'')}</div></td>
         <td class="bcn-mono" style="font-size:11px;">${up}</td>
       </tr>`;
     }).join('');
@@ -1939,16 +1973,16 @@
   $('ctBody').addEventListener('click', e=>{
     const ck=e.target.closest('.ct-row-ck');
     if(ck){
-      const id=ck.dataset.id;
-      if(ck.checked) ctSelected.add(id); else ctSelected.delete(id);
+      const key=ck.dataset.key;
+      if(ck.checked) ctSelected.add(key); else ctSelected.delete(key);
       $('ctKpiSelected').textContent=ctSelected.size;
       $('ctBulkDelete').disabled=!ctSelected.size;
       return;
     }
-    const tr=e.target.closest('tr[data-ct-id]');
+    const tr=e.target.closest('tr[data-ct-key]');
     if(!tr) return;
-    const row=ctRows.find(r=>String(r.id)===tr.dataset.ctId);
-    if(row) ctOpenEditor(row);
+    const group=ctGroups.find(g=>g.key===tr.dataset.ctKey);
+    if(group) ctOpenEditor(group);
   });
 
   $('ctSearch').addEventListener('input', ()=>{ ctPage=0; renderCatalog(); });
@@ -1961,29 +1995,29 @@
   $('ctPagePrev').addEventListener('click', ()=>{ ctPage--; renderCatalog(); });
   $('ctPageNext').addEventListener('click', ()=>{ ctPage++; renderCatalog(); });
   $('ctSelectAll').addEventListener('change', e=>{
-    ctFiltered().forEach(r=>{ if(e.target.checked) ctSelected.add(r.id); else ctSelected.delete(r.id); });
+    ctFiltered().forEach(g=>{ if(e.target.checked) ctSelected.add(g.key); else ctSelected.delete(g.key); });
     renderCatalog();
   });
   $('ctSelectVisible').addEventListener('click', ()=>{
-    ctFiltered().forEach(r=>ctSelected.add(r.id));
+    ctFiltered().forEach(g=>ctSelected.add(g.key));
     renderCatalog();
   });
   $('ctBulkDelete').addEventListener('click', async ()=>{
-    const ids=[...ctSelected];
-    if(!ids.length) return;
-    const tag=prompt(`Add a tag to ${ids.length} selected product${ids.length!==1?'s':''}:`);
+    const keys=[...ctSelected];
+    if(!keys.length) return;
+    const tag=prompt(`Add a tag to ${keys.length} selected product${keys.length!==1?'s':''}:`);
     if(!tag||!tag.trim()) return;
     const clean=tag.trim();
     setStatus('Tagging…','info');
-    const rowsById=new Map(ctRows.map(r=>[r.id,r]));
-    for(const id of ids){
-      const row=rowsById.get(id);
-      if(!row) continue;
-      const nextTags=[...new Set([...(row.tags||[]),clean])];
-      const {error}=await sb.from('products_master').update({tags:nextTags}).eq('id',id);
+    const groupsByKey=new Map(ctGroups.map(g=>[g.key,g]));
+    for(const key of keys){
+      const g=groupsByKey.get(key);
+      if(!g) continue;
+      const nextTags=[...new Set([...g.tags,clean])];
+      const {error}=await sb.from('products_master').update({tags:nextTags}).in('id',g.skuIds);
       if(error){ setStatus(error.message,'neg',6000); return; }
     }
-    setStatus(`Tagged ${ids.length} product${ids.length!==1?'s':''}.`,'pos',2500);
+    setStatus(`Tagged ${keys.length} product${keys.length!==1?'s':''}.`,'pos',2500);
     await loadCatalog(); ctBuildFilterSelects(); renderCatalog();
   });
 
@@ -2003,17 +2037,19 @@
     </div>`;
   }
 
-  function ctOpenEditor(row){
-    if(!row) return; // products_master rows come from Shopify sync — no ad-hoc "new row" here
-    ctEditing=row;
-    $('ctDrawerRef').textContent=row.sku||('ROW '+row.id);
-    $('ctDrawerTitle').textContent=row.product_title||'Catalog Row';
-    $('ctFldSku').textContent=row.sku||'—';
-    $('ctFldTitle').textContent=row.product_title||'—';
-    $('ctFldTypeVendor').textContent=[row.product_type,row.vendor_original].filter(Boolean).join(' · ')||'—';
-    $('ctFldTags').value=(row.tags||[]).join(', ');
-    $('ctFldNotes').value=row.notes||'';
-    $('ctFields').innerHTML=CT_FIELDS.map(f=>ctFieldCombo(f,row[f.key]??null)).join('');
+  function ctOpenEditor(group){
+    if(!group) return; // products_master rows come from Shopify sync — no ad-hoc "new row" here
+    ctEditing=group;
+    $('ctDrawerRef').textContent=group.skuIds.length>1?(group.skuIds.length+' SKUs'):(group.sampleSku||'1 SKU');
+    $('ctDrawerTitle').textContent=group.product_title||'Catalog Row';
+    $('ctFldSku').textContent=group.skuIds.length>1
+      ? `${group.skuIds.length} variants (e.g. ${group.sampleSku||'—'})`
+      : (group.sampleSku||'—');
+    $('ctFldTitle').textContent=group.product_title||'—';
+    $('ctFldTypeVendor').textContent=[group.product_type,group.vendor_original].filter(Boolean).join(' · ')||'—';
+    $('ctFldTags').value=[...group.tags].join(', ');
+    $('ctFldNotes').value=group.notes||'';
+    $('ctFields').innerHTML=CT_FIELDS.map(f=>ctFieldCombo(f,group[f.key]??null)).join('');
     document.querySelectorAll('.ct-ed-sel').forEach(sel=>{
       sel.addEventListener('change',()=>{
         const inp=document.querySelector(`.ct-ed-new[data-key="${sel.dataset.key}"]`);
@@ -2053,9 +2089,11 @@
     CT_FIELDS.forEach(f=>{ payload[f.key]=ctFieldValue(f.key); });
 
     setStatus('Saving…','info');
-    const {error}=await sb.from('products_master').update(payload).eq('id',ctEditing.id);
+    // tags/category/etc. are a product-level concept — apply to every SKU
+    // row under this product, not just the one that happened to be clicked.
+    const {error}=await sb.from('products_master').update(payload).in('id',ctEditing.skuIds);
     if(error){ setStatus(error.message,'neg',6000); return; }
-    setStatus('Saved.','pos',2500);
+    setStatus(`Saved · applied to ${ctEditing.skuIds.length} SKU${ctEditing.skuIds.length!==1?'s':''}.`,'pos',2500);
     ctCloseEditor();
     await loadCatalog(); ctBuildFilterSelects(); renderCatalog();
   }
@@ -2066,10 +2104,11 @@
   // next catalog_sync run.
   async function ctDelete(){
     if(!ctEditing) return;
-    if(!confirm(`Clear category/subcategory/department/tags/notes for "${ctEditing.product_title}"? This does not remove the product from the catalog.`)) return;
+    const n=ctEditing.skuIds.length;
+    if(!confirm(`Clear category/subcategory/department/tags/notes for "${ctEditing.product_title}" (${n} SKU${n!==1?'s':''})? This does not remove the product from the catalog.`)) return;
     const {error}=await sb.from('products_master').update({
       category:null, subcategory:null, department:null, tags:[], notes:null,
-    }).eq('id',ctEditing.id);
+    }).in('id',ctEditing.skuIds);
     if(error){ setStatus(error.message,'neg',6000); return; }
     setStatus('Cleared.','pos',2500);
     ctCloseEditor();

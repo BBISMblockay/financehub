@@ -521,7 +521,17 @@ left join information_schema.columns col
  and col.table_name = 'launch_product_readiness'
  and col.column_name = want.column_name;
 
--- 10. Quick counts (0 is fine on a fresh install)
+-- 10. products_master attributes column (migration 20260723190000)
+select
+  col.column_name,
+  case when col.column_name is not null then 'ok' else 'MISSING — run 20260723190000_products_master_legacy_tag_backfill.sql' end as status
+from (values ('attributes')) as want(column_name)
+left join information_schema.columns col
+  on col.table_schema = 'public'
+ and col.table_name = 'products_master'
+ and col.column_name = want.column_name;
+
+-- 11. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
   (select count(*) from public.po_headers)           as po_headers,

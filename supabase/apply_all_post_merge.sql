@@ -6776,3 +6776,40 @@ alter table public.launch_product_readiness
 
 create index if not exists launch_product_readiness_tracker_idx
   on public.launch_product_readiness (product_tracker_id);
+
+-- ============================================================
+-- 20260723190000_products_master_legacy_tag_backfill.sql
+-- attributes jsonb column + one-time backfill of category/notes/attributes
+-- from the retired product_tags import, matched by product_title
+-- ============================================================
+alter table public.products_master
+  add column if not exists attributes jsonb not null default '{}'::jsonb;
+
+with legacy as (
+  select
+    lower(trim(product_title)) as norm_title,
+    (array_agg(product_category order by uploaded_at desc nulls last) filter (where product_category is not null and product_category <> ''))[1] as product_category,
+    (array_agg(notes           order by uploaded_at desc nulls last) filter (where notes is not null and notes <> ''))[1] as notes,
+    (array_agg(collection      order by uploaded_at desc nulls last) filter (where collection is not null and collection <> ''))[1] as collection,
+    (array_agg(indicator_group order by uploaded_at desc nulls last) filter (where indicator_group is not null and indicator_group <> ''))[1] as indicator_group,
+    (array_agg(primary_color   order by uploaded_at desc nulls last) filter (where primary_color is not null and primary_color <> ''))[1] as primary_color,
+    (array_agg(artwork_side    order by uploaded_at desc nulls last) filter (where artwork_side is not null and artwork_side <> ''))[1] as artwork_side,
+    (array_agg(sub_tag         order by uploaded_at desc nulls last) filter (where sub_tag is not null and sub_tag <> ''))[1] as sub_tag
+  from public.product_tags
+  where company_entity_id = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
+  group by 1
+)
+update public.products_master pm
+set
+  category = coalesce(pm.category, legacy.product_category),
+  notes = coalesce(pm.notes, legacy.notes),
+  attributes = pm.attributes || jsonb_strip_nulls(jsonb_build_object(
+    'legacy_collection', legacy.collection,
+    'legacy_indicator_group', legacy.indicator_group,
+    'legacy_primary_color', legacy.primary_color,
+    'legacy_artwork_side', legacy.artwork_side,
+    'legacy_sub_tag', legacy.sub_tag
+  ))
+from legacy
+where pm.company_entity_id = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
+  and lower(trim(pm.product_title)) = legacy.norm_title;
