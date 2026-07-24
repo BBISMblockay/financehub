@@ -214,12 +214,31 @@ export function computeHistoryRange(now, historyDays) {
   };
 }
 
+/** Transient DB failures (statement/lock timeouts under concurrent load)
+ * used to kill multi-hour history imports on a single failed chunk --
+ * a 3.5h 730-day online rebuild died at 95% on exactly this. Retry each
+ * chunk with backoff, splitting it in half on the final attempts so a
+ * temporarily-contended table gets smaller, faster statements. */
+const TRANSIENT_DB_ERROR = /statement timeout|lock timeout|canceling statement|deadlock detected|connection/i;
+
 export async function upsertInChunks(supabase, table, rows, onConflict, chunkSize = 500) {
   if (!rows.length) return 0;
 
   for (const group of chunk(rows, chunkSize)) {
-    const { error } = await supabase.from(table).upsert(group, { onConflict });
-    if (error) throw new Error(`${table} upsert failed: ${error.message}`);
+    let lastMessage = null;
+    let done = false;
+    for (let attempt = 0; attempt < 4 && !done; attempt++) {
+      const pieces = attempt < 2 ? [group] : chunk(group, Math.ceil(group.length / 2));
+      lastMessage = null;
+      for (const piece of pieces) {
+        const { error } = await supabase.from(table).upsert(piece, { onConflict });
+        if (error) { lastMessage = error.message; break; }
+      }
+      if (!lastMessage) { done = true; break; }
+      if (!TRANSIENT_DB_ERROR.test(lastMessage)) break;
+      await sleep(2000 * (attempt + 1));
+    }
+    if (!done) throw new Error(`${table} upsert failed: ${lastMessage}`);
   }
 
   return rows.length;
