@@ -10,6 +10,16 @@
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <style>
+    /* Beacon sets display:flex/inline-flex on .bcn-field-group and .bcn-btn,
+       which overrides the browser's built-in [hidden] -> display:none (author
+       styles beat UA styles at equal specificity). Without this rule, every
+       "hidden" control on this page renders anyway: non-exec users saw the
+       exec-only Manager picker (empty), the edit-only Managers section and
+       Delete button inside Add, and the exec-only Templates header button.
+       beacon.css already patches this per-element for .bcn-status[hidden] —
+       this is the page-wide version. */
+    [hidden] { display: none !important; }
+
     .rv-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
     .rv-content > .bcn-card { flex-shrink:0; }
 
@@ -342,8 +352,20 @@
   }
 
   async function loadManagers(){
-    const { data, error } = await sb.from('employee_managers').select('employee_id, manager_user_id, profiles(name, email)');
-    if (error) { MANAGERS_BY_EMPLOYEE = new Map(); return; }
+    // The FK hint is required: employee_managers has TWO foreign keys to
+    // profiles (manager_user_id and created_by), so a bare profiles(...)
+    // embed is ambiguous and PostgREST rejects the whole query. That
+    // rejection was silently swallowed here, which emptied this map and
+    // made the roster filter below drop every employee for non-exec users
+    // ("employee added but doesn't show up").
+    const { data, error } = await sb.from('employee_managers')
+      .select('employee_id, manager_user_id, profiles!employee_managers_manager_user_id_fkey(name, email)');
+    if (error) {
+      console.error('Manager links load failed:', error);
+      setStatus(`Manager links failed to load: ${error.message}`, 'neg');
+      MANAGERS_BY_EMPLOYEE = new Map();
+      return;
+    }
     const map = new Map();
     for (const row of (data || [])){
       const arr = map.get(row.employee_id) || [];
@@ -796,24 +818,36 @@
     // roster/review access no longer requires admin/exec role), so the
     // team list for the Manager/Add-manager pickers is everyone in the
     // ACTIVE company — not everyone. profiles is a global table with no
-    // company column and locked-down direct-select RLS (is_owner_admin()
-    // OR self), so go through entity_memberships instead: any member of
-    // an entity can see that entity's other members (memberships_select_
-    // member), which is exactly the roster this picker needs.
+    // company column, so scope through entity_memberships. Two separate
+    // queries, NOT an embed: entity_memberships.user_id's FK points at
+    // auth.users, not profiles, so PostgREST has no relationship to
+    // follow for a profiles(...) embed — it errors, and the old silent
+    // catch left TEAM empty (the "nothing in the manager dropdowns" bug).
     try {
       const co = window.__SILO_CONFIG__?.getActiveCompany?.();
       if (co?.id){
-        const { data } = await sb.from('entity_memberships')
-          .select('user_id, profiles(name, email, is_active)')
-          .eq('entity_id', co.id);
-        TEAM = (data || [])
-          .filter(m => m.profiles && m.profiles.is_active !== false)
-          .map(m => ({ id: m.user_id, name: m.profiles.name, email: m.profiles.email }))
+        const { data: mems, error: memErr } = await sb.from('entity_memberships')
+          .select('user_id').eq('entity_id', co.id);
+        if (memErr) throw memErr;
+        const ids = [...new Set((mems || []).map(m => m.user_id))];
+        let profs = [];
+        if (ids.length){
+          const { data, error: profErr } = await sb.from('profiles')
+            .select('id, name, email, is_active').in('id', ids);
+          if (profErr) throw profErr;
+          profs = data || [];
+        }
+        TEAM = profs
+          .filter(p => p.is_active !== false)
+          .map(p => ({ id: p.id, name: p.name, email: p.email }))
           .sort((a, b) => (a.name || a.email || '').localeCompare(b.name || b.email || ''));
       } else {
         TEAM = [];
       }
-    } catch { TEAM = []; }
+    } catch (teamErr) {
+      console.error('Team list load failed:', teamErr);
+      TEAM = [];
+    }
 
     if (IS_EXEC){
       const sel = document.getElementById('empManager');
