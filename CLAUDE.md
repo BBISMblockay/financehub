@@ -227,6 +227,7 @@ po_costing_can_write()   -- gates write on po_costing, po_costing_lines
 is_exec_or_owner()       -- gates review-template writes (owner, executive) and whole-company roster visibility
 reviews_can_manage()     -- true for any active SILO user; per-row scoping (own reports vs. sees-everyone) lives in each policy's manager_user_id/is_exec_or_owner clause, not here
 is_employee_manager(p_employee_id)  -- SECURITY DEFINER (bypasses RLS internally, like active_company_id()) so employees/employee_goals/reviews/employee_managers policies can check "is auth.uid() one of this employee's managers" without a raw EXISTS against employee_managers, which recurses into that table's own RLS
+is_employee_creator(p_employee_id)  -- SECURITY DEFINER, same bypass pattern: "is auth.uid() the profiles.id recorded in employees.manager_user_id" without a raw EXISTS against employees, which employees_active_select would deny for a brand-new employee with no employee_managers link yet (self-service creation's bootstrap step)
 ```
 
 The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`).
