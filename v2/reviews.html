@@ -51,6 +51,13 @@
     .rv-csv-preview { max-height:240px; overflow:auto; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); }
     .rv-csv-hint { font-size:11.5px; color:var(--bcn-ink-3); line-height:1.5; }
     .rv-csv-hint code { font-family:var(--bcn-mono); font-size:10.5px; background:var(--bcn-sunken); padding:1px 4px; border-radius:3px; }
+
+    .rv-mgr-pill { display:inline-flex; align-items:center; gap:4px; background:var(--bcn-sunken); border:1px solid var(--bcn-border); border-radius:999px; padding:3px 8px 3px 10px; font-size:11.5px; margin:0 6px 6px 0; }
+    .rv-mgr-remove { border:0; background:transparent; cursor:pointer; color:var(--bcn-ink-3); font-size:11px; padding:0; line-height:1; }
+    .rv-mgr-remove:hover { color:var(--bcn-neg); }
+    .rv-mgr-add-row { display:flex; gap:6px; margin-top:4px; }
+    .rv-mgr-add-row select { flex:1; }
+    .rv-field-hint { font-size:11px; color:var(--bcn-ink-3); margin-top:4px; }
   </style>
 </head>
 <body class="silo-brand">
@@ -155,6 +162,15 @@
         <label class="bcn-label" for="empManager">Manager</label>
         <select class="bcn-field" id="empManager"></select>
       </div>
+      <div class="bcn-field-group" id="coManagersWrap" hidden>
+        <label class="bcn-label">Managers</label>
+        <div id="coManagersList"></div>
+        <div class="rv-mgr-add-row">
+          <select class="bcn-field" id="addManagerSelect"></select>
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddManager">Add</button>
+        </div>
+        <div class="rv-field-hint">Anyone listed here can review this employee and see them on their own roster.</div>
+      </div>
     </div>
     <div class="rv-dialog-foot">
       <button type="button" class="bcn-btn bcn-btn--danger" id="btnDeleteEmployee" hidden style="margin-right:auto">Delete…</button>
@@ -174,6 +190,10 @@
       <div class="bcn-field-group">
         <label class="bcn-label" for="srEmployee">Employee</label>
         <select class="bcn-field" id="srEmployee" required></select>
+      </div>
+      <div class="bcn-field-group" id="srManagerWrap" hidden>
+        <label class="bcn-label" for="srManager">Assign to manager</label>
+        <select class="bcn-field" id="srManager"></select>
       </div>
       <div class="bcn-field-group">
         <label class="bcn-label" for="srTemplate">Template</label>
@@ -244,7 +264,8 @@
 
   let ME = null;            // { id, email, role }
   let IS_EXEC = false;      // owner/executive
-  let MANAGERS = [];        // [{id,name,email}] for exec dropdown
+  let TEAM = [];             // [{id,name,email}] every active profile — anyone can be a manager
+  let MANAGERS_BY_EMPLOYEE = new Map();  // employee_id -> [{id,name,email}]
   let ROSTER = [];
 
   // ---- tabs -------------------------------------------------------------
@@ -262,10 +283,11 @@
   });
 
   // ---- roster -----------------------------------------------------------
-  function managerName(userId){
-    if (userId === ME?.id) return 'You';
-    const m = MANAGERS.find(p => p.id === userId);
-    return m ? (m.name || m.email) : '—';
+  // Returns pre-escaped HTML — do not wrap the result in esc() again.
+  function managerNamesFor(employeeId){
+    const rows = MANAGERS_BY_EMPLOYEE.get(employeeId) || [];
+    if (!rows.length) return '<span class="rv-muted">—</span>';
+    return rows.map(m => m.id === ME?.id ? 'You' : esc(m.name || m.email)).join(', ');
   }
 
   function renderRoster(){
@@ -283,7 +305,7 @@
         <td><div class="rv-name">${esc(e.name)}</div><div class="rv-sub">${esc(e.email)}</div></td>
         <td>${esc(e.location || '') || '<span class="rv-muted">—</span>'}</td>
         <td>${esc(e.job_title || '') || '<span class="rv-muted">—</span>'}</td>
-        <td>${esc(managerName(e.manager_user_id))}</td>
+        <td>${managerNamesFor(e.id)}</td>
         <td>${e.profile_id ? '<span class="bcn-pill bcn-pill--pos">Linked</span>' : '<span class="bcn-pill">Email only</span>'}</td>
         <td>${e.is_active ? '<span class="bcn-status--pos" style="font-size:11px;font-weight:600">Active</span>' : '<span class="rv-muted" style="font-size:11px">Inactive</span>'}</td>
         <td style="text-align:right;white-space:nowrap">
@@ -313,14 +335,29 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
   }
 
+  async function loadManagers(){
+    const { data, error } = await sb.from('employee_managers').select('employee_id, manager_user_id, profiles(name, email)');
+    if (error) { MANAGERS_BY_EMPLOYEE = new Map(); return; }
+    const map = new Map();
+    for (const row of (data || [])){
+      const arr = map.get(row.employee_id) || [];
+      arr.push({ id: row.manager_user_id, name: row.profiles?.name, email: row.profiles?.email });
+      map.set(row.employee_id, arr);
+    }
+    MANAGERS_BY_EMPLOYEE = map;
+  }
+
   async function loadRoster(){
-    const { data, error } = await sb.from('employees').select('*').order('name');
+    const [{ data, error }] = await Promise.all([
+      sb.from('employees').select('*').order('name'),
+      loadManagers(),
+    ]);
     if (error) return setStatus(`Roster load failed: ${error.message}`, 'neg');
     // The DB also returns the caller's OWN employee record when their SILO
     // profile is linked (that self-visibility feeds the employee-facing
     // "my review" page). This page is the manager view — only show people
-    // the caller actually manages, unless they're exec/owner.
-    ROSTER = (data || []).filter(e => IS_EXEC || e.manager_user_id === ME.id);
+    // the caller actually manages (via employee_managers), unless exec/owner.
+    ROSTER = (data || []).filter(e => IS_EXEC || (MANAGERS_BY_EMPLOYEE.get(e.id) || []).some(m => m.id === ME.id));
     renderRoster();
   }
 
@@ -334,7 +371,7 @@
 
   async function loadBoard(){
     const { data, error } = await sb.from('reviews')
-      .select('*, employees(name, email, manager_user_id), review_templates(title)')
+      .select('*, employees(name, email), review_templates(title)')
       .order('updated_at', { ascending:false });
     if (error) return setStatus(`Board load failed: ${error.message}`, 'neg');
     // Same manager-view rule as the roster: only reviews I run, unless exec.
@@ -382,8 +419,23 @@
     const active = ROSTER.filter(e => e.is_active);
     if (!active.length) return setStatus('Add employees to your roster first.', 'info', 3500);
 
-    document.getElementById('srEmployee').innerHTML =
-      active.map(e => `<option value="${esc(e.id)}">${esc(e.name)} — ${esc(e.email)}</option>`).join('');
+    const empSel = document.getElementById('srEmployee');
+    empSel.innerHTML = active.map(e => `<option value="${esc(e.id)}">${esc(e.name)} — ${esc(e.email)}</option>`).join('');
+
+    // Multiple managers can share an employee — exec picks who this specific
+    // review belongs to; everyone else always runs it as themselves.
+    const mgrWrap = document.getElementById('srManagerWrap');
+    const mgrSel = document.getElementById('srManager');
+    function refreshManagerOptions(){
+      if (!IS_EXEC) { mgrWrap.hidden = true; return; }
+      const mgrs = MANAGERS_BY_EMPLOYEE.get(empSel.value) || [];
+      const options = mgrs.length ? mgrs : [{ id: ME.id, name: 'You' }];
+      mgrSel.innerHTML = options.map(m =>
+        `<option value="${esc(m.id)}" ${m.id === ME.id ? 'selected' : ''}>${m.id === ME.id ? 'You' : esc(m.name || m.email)}</option>`).join('');
+      mgrWrap.hidden = false;
+    }
+    empSel.onchange = refreshManagerOptions;
+    refreshManagerOptions();
 
     const { data: tpls, error } = await sb.from('review_templates')
       .select('id, title, description').eq('status', 'published').order('title');
@@ -405,11 +457,11 @@
     btn.disabled = true;
     try {
       const employeeId = document.getElementById('srEmployee').value;
-      const emp = ROSTER.find(x => x.id === employeeId);
+      const managerId = IS_EXEC ? (document.getElementById('srManager').value || ME.id) : ME.id;
       const { data, error } = await sb.from('reviews').insert(cfg.withCompany({
         template_id: document.getElementById('srTemplate').value,
         employee_id: employeeId,
-        manager_user_id: IS_EXEC && emp ? emp.manager_user_id : ME.id,
+        manager_user_id: managerId,
         period_label: document.getElementById('srPeriod').value.trim() || null,
       })).select().single();
       if (error) throw new Error(error.message);
@@ -434,10 +486,77 @@
       document.getElementById('empEmail').value = emp.email;
       document.getElementById('empLocation').value = emp.location || '';
       document.getElementById('empTitle').value = emp.job_title || '';
-      if (IS_EXEC) document.getElementById('empManager').value = emp.manager_user_id;
     }
+    // The single Manager picker only makes sense when creating a new
+    // employee (it seeds their first manager link); editing uses the
+    // Managers list below instead, which supports more than one.
+    document.getElementById('managerFieldWrap').hidden = !(IS_EXEC && !emp);
+    document.getElementById('coManagersWrap').hidden = !emp;
+    if (emp){ renderCoManagers(); populateAddManagerSelect(); }
     document.getElementById('dlgEmployee').showModal();
   }
+
+  function renderCoManagers(){
+    const rows = EDITING_ID ? (MANAGERS_BY_EMPLOYEE.get(EDITING_ID) || []) : [];
+    const list = document.getElementById('coManagersList');
+    list.innerHTML = rows.length
+      ? rows.map(m => {
+          const canRemove = IS_EXEC || m.id === ME.id;
+          const label = m.id === ME.id ? 'You' : esc(m.name || m.email);
+          return `<span class="rv-mgr-pill" data-mgr="${esc(m.id)}">${label}${canRemove ? ` <button type="button" class="rv-mgr-remove" data-mgr-remove="${esc(m.id)}" title="Remove">✕</button>` : ''}</span>`;
+        }).join('')
+      : '<span class="rv-muted" style="font-size:12px">No managers linked.</span>';
+
+    list.querySelectorAll('[data-mgr-remove]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const mgrId = btn.dataset.mgrRemove;
+        if (rows.length <= 1 && !confirm('This is the only manager — removing them makes this employee invisible to everyone except an executive. Continue?')) return;
+        const { error } = await sb.from('employee_managers').delete().eq('employee_id', EDITING_ID).eq('manager_user_id', mgrId);
+        if (error) return setStatus(`Remove failed: ${error.message}`, 'neg');
+        const removedSelf = mgrId === ME.id;
+        await loadRoster();
+        if (removedSelf && !IS_EXEC){
+          document.getElementById('dlgEmployee').close();
+          setStatus('Removed — you no longer manage this employee.', 'pos', 3000);
+          return;
+        }
+        renderCoManagers();
+        populateAddManagerSelect();
+      });
+    });
+  }
+
+  function populateAddManagerSelect(){
+    const current = new Set((MANAGERS_BY_EMPLOYEE.get(EDITING_ID) || []).map(m => m.id));
+    const options = TEAM.filter(p => !current.has(p.id));
+    const sel = document.getElementById('addManagerSelect');
+    sel.innerHTML = options.length
+      ? options.map(p => `<option value="${esc(p.id)}">${esc(p.name || p.email)}</option>`).join('')
+      : '<option value="">Everyone active already manages this employee</option>';
+  }
+
+  document.getElementById('btnAddManager').addEventListener('click', async () => {
+    if (!EDITING_ID) return;
+    const mgrId = document.getElementById('addManagerSelect').value;
+    if (!mgrId) return;
+    const btn = document.getElementById('btnAddManager');
+    btn.disabled = true;
+    try {
+      const { error } = await sb.from('employee_managers').insert(cfg.withCompany({
+        employee_id: EDITING_ID,
+        manager_user_id: mgrId,
+      }));
+      if (error) throw new Error(error.message);
+      await loadRoster();
+      renderCoManagers();
+      populateAddManagerSelect();
+      setStatus('Manager added.', 'pos', 2000);
+    } catch (err) {
+      setStatus(`Add manager failed: ${err.message}`, 'neg');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // Hard delete cascades to the employee's reviews (including signed ones)
   // and goals — meant for mistakes and test data. Real departures should
@@ -468,23 +587,31 @@
     }
     btn.disabled = true;
     try {
-      const fields = {
+      const baseFields = {
         name: document.getElementById('empName').value.trim(),
         email,
         location: document.getElementById('empLocation').value.trim() || null,
         job_title: document.getElementById('empTitle').value.trim() || null,
-        manager_user_id: IS_EXEC ? (document.getElementById('empManager').value || ME.id) : ME.id,
       };
       if (EDITING_ID){
         // Clear a stale profile link when the email changes; the DB trigger
         // re-links automatically if the new email matches a SILO profile.
+        // manager_user_id is intentionally left alone here — it's just the
+        // original-creator marker now; who actually manages this employee
+        // is the Managers list, edited separately below.
         const prev = ROSTER.find(x => x.id === EDITING_ID);
-        const patch = (prev && prev.email !== email) ? { ...fields, profile_id: null } : fields;
+        const patch = (prev && prev.email !== email) ? { ...baseFields, profile_id: null } : baseFields;
         const { error } = await sb.from('employees').update(patch).eq('id', EDITING_ID);
         if (error) throw new Error(error.message);
       } else {
-        const { error } = await sb.from('employees').insert(cfg.withCompany(fields));
+        const managerId = IS_EXEC ? (document.getElementById('empManager').value || ME.id) : ME.id;
+        const { data: inserted, error } = await sb.from('employees')
+          .insert(cfg.withCompany({ ...baseFields, manager_user_id: managerId }))
+          .select().single();
         if (error) throw new Error(error.message);
+        const { error: mgrError } = await sb.from('employee_managers')
+          .insert(cfg.withCompany({ employee_id: inserted.id, manager_user_id: managerId }));
+        if (mgrError) throw new Error(mgrError.message);
       }
       document.getElementById('dlgEmployee').close();
       setStatus(EDITING_ID ? 'Employee updated.' : 'Employee added.', 'pos', 2500);
@@ -581,8 +708,13 @@
     btn.textContent = 'Importing…';
     try {
       const rows = cfg.withCompanyRows(CSV_ROWS.map(r => ({ ...r, manager_user_id: ME.id })));
-      const { error } = await sb.from('employees').insert(rows);
+      const { data: inserted, error } = await sb.from('employees').insert(rows).select('id');
       if (error) throw new Error(error.message);
+      const mgrRows = cfg.withCompanyRows((inserted || []).map(row => ({ employee_id: row.id, manager_user_id: ME.id })));
+      if (mgrRows.length){
+        const { error: mgrError } = await sb.from('employee_managers').insert(mgrRows);
+        if (mgrError) throw new Error(mgrError.message);
+      }
       document.getElementById('dlgCsv').close();
       setStatus(`Imported ${rows.length} employee${rows.length === 1 ? '' : 's'}.`, 'pos', 3500);
       await loadRoster();
@@ -613,21 +745,22 @@
       });
     }
 
+    if (IS_EXEC) document.getElementById('btnTemplates').hidden = false;
+
+    // Any active user can be a manager now (see reviews_can_manage() —
+    // roster/review access no longer requires admin/exec role), so the
+    // team list for the Manager/Add-manager pickers is everyone, not just
+    // admin_list_profiles' admin-role subset.
+    try {
+      const { data } = await sb.from('profiles').select('id, name, email').eq('is_active', true).order('name');
+      TEAM = data || [];
+    } catch { TEAM = []; }
+
     if (IS_EXEC){
-      document.getElementById('btnTemplates').hidden = false;
-      // Exec/owner can assign any manager — pull the profile list via the
-      // admin RPC (role-gated server-side).
-      try {
-        const { data } = await sb.rpc('admin_list_profiles');
-        MANAGERS = (data || [])
-          .filter(p => ['owner','executive','admin'].includes(String(p.role||'').toLowerCase()))
-          .map(p => ({ id: p.id || p.user_id, name: p.name, email: p.email }));
-        const sel = document.getElementById('empManager');
-        sel.innerHTML = MANAGERS.map(m =>
-          `<option value="${esc(m.id)}" ${m.id === ME.id ? 'selected' : ''}>${esc(m.name || m.email)}</option>`).join('');
-        document.getElementById('managerFieldWrap').hidden = false;
-        document.getElementById('csvManagerNote').textContent = 'you (reassign per-employee after import if needed)';
-      } catch { /* fall back to self-managed */ }
+      const sel = document.getElementById('empManager');
+      sel.innerHTML = TEAM.map(m =>
+        `<option value="${esc(m.id)}" ${m.id === ME.id ? 'selected' : ''}>${esc(m.name || m.email)}</option>`).join('');
+      document.getElementById('csvManagerNote').textContent = 'you (share with a co-manager afterward if needed)';
     }
 
     await Promise.all([loadRoster(), loadBoard()]);

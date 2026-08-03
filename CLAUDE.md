@@ -257,7 +257,8 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `product_tags` | Product tagging |
 | `access_requests` | Pending team access requests |
 | `org_invites` | Org invite tokens (sha256-hashed, RLS deny-all, RPC-only) |
-| `employees` | Performance-review roster (manager-scoped; auto-links `profiles` by email; associates exist ONLY here, no SILO auth) |
+| `employees` | Performance-review roster (auto-links `profiles` by email; associates exist ONLY here, no SILO auth). `manager_user_id` is informational-only (original creator) — see `employee_managers` for who actually manages this person |
+| `employee_managers` | Many-to-many manager links (an employee can have more than one manager, e.g. dual reporting) — the real authorization source for roster/review RLS |
 | `review_templates` | Review question sets (exec-only writes; publish locks questions) |
 | `review_template_questions` | Ordered questions: free_text, scale_1_10, single_choice, multi_choice, goals |
 | `reviews` | One review per employee per cycle (draft → sent → finished; employee signature fields) |
@@ -398,7 +399,7 @@ DB-level company isolation is live. Users in multiple companies pick a company a
 ### Performance Reviews module (complete as of 2026-07-14)
 End-to-end flow across five pages + three edge functions:
 1. Exec/owner builds templates (`/v2/review-templates.html`) — publish locks questions; revise via duplicate-as-draft
-2. Managers roster employees + run reviews (`/v2/reviews.html`, `/v2/review-editor.html`) — manager-scoped RLS: managers see ONLY their own roster/reviews; exec/owner see all; private notes are author-only
+2. Managers roster employees + run reviews (`/v2/reviews.html`, `/v2/review-editor.html`) — manager-scoped RLS: managers see ONLY their own roster/reviews; exec/owner see all; private notes are author-only. An employee can have more than one manager (`employee_managers`, many-to-many) — each co-manager sees them on their own roster and runs their own independent review; the roster page's Managers list lets any current co-manager add another
 3. Send emails the employee a hashed 30-day token link (Resend, `noreply@silo-baseballism.com`)
 4. SILO-authenticated employees view/sign in-app (`/v2/my-review.html`); associates (no SILO login) use the public portal (`/pages/review.html`) — the token is the entire authorization
 5. Signing marks the review finished (immutable — sent/finished reviews cannot be deleted), locks tokens on both paths, and emails the manager
