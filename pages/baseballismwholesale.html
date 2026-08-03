@@ -1315,24 +1315,53 @@
       setTimeout(() => el.remove(), 3200);
     }
 
-    // Newest non-missing order date across the loaded invoices. The sheet is
-    // refreshed by an external scheduled report, so the sync can succeed daily
-    // while the source stops receiving new orders — this catches that.
+    // Format a raw 'YYYY-MM-DD' string without a timezone shift —
+    // new Date('YYYY-MM-DD') parses as UTC midnight, which reads as the
+    // previous day in local (Pacific) time via parseDateFlex/formatShortDate.
+    function formatIsoDate(iso) {
+      if (!iso) return '—';
+      const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+      if (!y || !m || !d) return '—';
+      return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        .format(new Date(y, m - 1, d));
+    }
+
+    // Newest non-missing order date across the loaded invoices, kept as the
+    // raw 'YYYY-MM-DD' string to avoid timezone drift. The sheet is refreshed
+    // by an external scheduled report, so the sync can succeed daily while
+    // the source stops receiving new orders — this catches that.
     function computeDataFreshness() {
       let newest = null;
       for (const r of state.invoices) {
         const missing = r.source_missing === true || normalizeStatus(r.sync_status) === 'missing_from_source';
-        if (missing || !r.orderDate) continue;
-        if (!newest || r.orderDate > newest) newest = r.orderDate;
+        if (missing || !r.order_date) continue;
+        const d = String(r.order_date).slice(0, 10);
+        if (!newest || d > newest) newest = d;
       }
       if (!newest) return null;
-      const days = Math.round((stripTime(new Date()) - stripTime(newest)) / 86400000);
+      const [y, m, d] = newest.split('-').map(Number);
+      const days = Math.round((stripTime(new Date()) - new Date(y, m - 1, d)) / 86400000);
       return { newest, days };
     }
 
     function renderStaleBanner() {
       const f = state.freshness;
-      const threshold = Number(state.syncStatus?.payload?.stale_threshold_days) || 7;
+      const payload = state.syncStatus?.payload || {};
+      const threshold = Number(payload.stale_threshold_days) || 7;
+
+      // The sync records the newest order date it wrote (service role, sees
+      // everything). If it's newer than what this page can load, rows exist
+      // that RLS is hiding — usually a missing company_entity_id stamp.
+      const syncNewest = payload.newest_order_date ? String(payload.newest_order_date).slice(0, 10) : null;
+      if (syncNewest && (!f || syncNewest > f.newest)) {
+        els.staleBannerText.innerHTML =
+          `The nightly sync has orders through <span style="font-weight:700">${escapeHtml(formatIsoDate(syncNewest))}</span>, ` +
+          `but this page can only see up to <span style="font-weight:700">${f ? escapeHtml(formatIsoDate(f.newest)) : 'nothing'}</span>. ` +
+          `Rows are being hidden by row-level security — likely missing their company stamp. ` +
+          `Run the AR company backfill (supabase/migrations/20260803160000) and see docs/ops/when-something-breaks.md.`;
+        els.staleBanner.hidden = false;
+        return;
+      }
 
       if (f && f.days <= threshold) {
         els.staleBanner.hidden = true;
@@ -1340,7 +1369,7 @@
       }
 
       const detail = f
-        ? `Newest order in the AR source sheet is <span style="font-weight:700">${escapeHtml(formatShortDate(f.newest))}</span> (${f.days} days old).`
+        ? `Newest order in the AR source sheet is <span style="font-weight:700">${escapeHtml(formatIsoDate(f.newest))}</span> (${f.days} days old).`
         : 'No dated orders found in the AR source sheet.';
 
       els.staleBannerText.innerHTML =
@@ -1355,7 +1384,7 @@
       const s = state.syncStatus;
       if (s.status === 'success') {
         const newest = state.freshness
-          ? ` · Newest order: <span style="font-weight:700">${escapeHtml(formatShortDate(state.freshness.newest))}</span>`
+          ? ` · Newest order: <span style="font-weight:700">${escapeHtml(formatIsoDate(state.freshness.newest))}</span>`
           : '';
         return `Last sync: <span style="font-weight:700">${escapeHtml(formatDateTime(s.last_success_at || s.completed_at))}</span>${newest}`;
       }
