@@ -6992,3 +6992,28 @@ from public.entities e
 where e.entity_type = 'company'
   and e.entity_key = 'baseballism'
   and c.company_entity_id is null;
+
+-- ============================================================
+-- 20260804000000_reviews_can_manage_self_service.sql
+-- reviews_can_manage() no longer requires owner/executive/admin role --
+-- true for any active SILO user. Per-row scoping (own reports vs.
+-- sees-everyone) lives in each policy's own manager_user_id/is_exec_or_owner
+-- clause, unchanged. See migration file for full rationale.
+-- ============================================================
+create or replace function public.reviews_can_manage()
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $function$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and coalesce(p.is_active, true) = true
+  );
+$function$;
+
+comment on function public.reviews_can_manage() is
+  'True for any active SILO user (previously required owner/executive/admin role). The real per-row scoping -- own direct reports vs. sees-everyone -- lives in each policy''s own (manager_user_id = auth.uid() OR is_exec_or_owner()) clause, not here. Do not reintroduce a role check here without updating every caller''s intent.';

@@ -214,6 +214,7 @@ Roles are **per-company**: permission gates judge by `entity_memberships.role` (
 - membership `owner_admin`/`admin` (or profile fallback `owner`/`admin`) get write access to PO tables
 - `executive` (profile-level) outranks `admin`: it passes `is_admin()` and additionally gates review-template building; `owner_admin` also passes `is_exec_or_owner()`
 - `member`/`viewer` (or profile `user`) are read-only on PO tables
+- Performance Reviews is the one module that ignores this hierarchy on purpose: rostering and running reviews needs no admin/exec role at all — any active user can manage their own direct reports (`employees.manager_user_id = auth.uid()`); only `is_exec_or_owner()` (Blake) sees/manages the whole company roster, and only `is_exec_or_owner()` can build templates
 - Invites and backend role grants set the membership role for that org; they only touch the global profile role/department when the user belongs to no other org
 - blake@baseballism.com is `owner` (membership `owner_admin`); the other 6 users are `admin`
 
@@ -223,8 +224,8 @@ Roles are **per-company**: permission gates judge by `entity_memberships.role` (
 ```sql
 po_builder_can_write()   -- gates write on factories, po_headers, po_lines
 po_costing_can_write()   -- gates write on po_costing, po_costing_lines
-is_exec_or_owner()       -- gates review-template writes (owner, executive)
-reviews_can_manage()     -- gates roster/review writes (owner, executive, admin)
+is_exec_or_owner()       -- gates review-template writes (owner, executive) and whole-company roster visibility
+reviews_can_manage()     -- true for any active SILO user; per-row scoping (own reports vs. sees-everyone) lives in each policy's manager_user_id/is_exec_or_owner clause, not here
 ```
 
 The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`).

@@ -68,6 +68,9 @@ Run in order:
 18. **`migrations/20260714170000_reviews_employee_template_read.sql`** — my-review page read access  
     Lets a SILO-authenticated employee read the template title and question labels for templates used by one of their own non-draft reviews (previously manager-only), so `/v2/my-review.html` can render. Template contents never leak ahead of a sent review.
 
+19. **`migrations/20260804000000_reviews_can_manage_self_service.sql`** — roster/reviews open to any manager, not just admins  
+    `reviews_can_manage()` required owner/executive/admin role on top of every write policy's own `manager_user_id = auth.uid() OR is_exec_or_owner()` scoping, so a non-admin manager (a retail store manager, say) couldn't roster or review their own direct reports at all. Redefined to true-for-any-active-user; per-row scoping is unchanged (Blake stays company-wide super-admin via `is_exec_or_owner()`, template building stays exec-only).
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
