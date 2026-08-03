@@ -13,6 +13,11 @@ const TERMS_CSV_URL =
 
 const JOB_SYNC_KEY = "ar_google_sheets_sync";
 
+// The sheet is refreshed by an external scheduled report. If it silently stops
+// receiving new orders, every sync still "succeeds" while the workbench drifts
+// out of date — so we track the newest order date and flag staleness.
+const STALE_MAX_DAYS = Number(process.env.AR_STALE_MAX_DAYS || 7);
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -285,6 +290,34 @@ function applyTermsAndAging(rows, termsIndexes, asOfDate = new Date()) {
   }
 
   return rows;
+}
+
+function computeFreshness(rows, asOfDate) {
+  const bySource = {};
+  let newest = null;
+
+  for (const row of rows) {
+    const stats = bySource[row.sourceName] || { rows: 0, newest_order_date: null };
+    stats.rows += 1;
+
+    if (row.orderDate) {
+      const d = toDateString(row.orderDate);
+      if (!stats.newest_order_date || d > stats.newest_order_date) stats.newest_order_date = d;
+      if (!newest || d > newest) newest = d;
+    }
+
+    bySource[row.sourceName] = stats;
+  }
+
+  const stalenessDays = newest ? diffDays(asOfDate, new Date(`${newest}T00:00:00Z`)) : null;
+
+  return {
+    newest_order_date: newest,
+    staleness_days: stalenessDays,
+    stale_threshold_days: STALE_MAX_DAYS,
+    stale: stalenessDays == null || stalenessDays > STALE_MAX_DAYS,
+    source_stats: bySource
+  };
 }
 
 function buildSourceRowHash(row) {
@@ -577,6 +610,8 @@ export async function runArSync() {
 
     await refreshCustomerSummary();
 
+    const freshness = computeFreshness(finalRows, new Date());
+
     const summary = {
       started_at: startedAt,
       completed_at: new Date().toISOString(),
@@ -586,6 +621,7 @@ export async function runArSync() {
       customer_count: customerIdMap.size,
       invoice_count: invoiceCount,
       missing_invoice_count: missingInvoiceCount,
+      ...freshness,
       sources: SALES_CSV_SOURCES
     };
 

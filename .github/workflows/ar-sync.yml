@@ -25,4 +25,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Fail the run when the newest order in the source sheet is older
+          # than this many days (data still syncs; the failure is the alarm).
+          # Override with a repo variable if wholesale goes quiet seasonally.
+          AR_STALE_MAX_DAYS: ${{ vars.AR_STALE_MAX_DAYS || 7 }}
         run: npm run sync:ar

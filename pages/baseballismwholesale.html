@@ -180,6 +180,31 @@
     }
     .status-row.error { color: #dc2626; }
 
+    /* ---- Stale data banner ---- */
+    .stale-banner {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 10px 14px;
+      border: 1px solid #fcd34d;
+      border-left: 4px solid #d97706;
+      border-radius: 8px;
+      background: #fffbeb;
+      color: #92400e;
+      font-size: .78rem;
+      line-height: 1.45;
+    }
+    .stale-banner[hidden] { display: none; }
+    .stale-banner .stale-tag {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: .62rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #b45309;
+      white-space: nowrap;
+    }
+
     /* ---- KPI strip ---- */
     .kpi-strip {
       display: grid;
@@ -680,6 +705,12 @@
       </div>
     </div>
 
+    <!-- Stale source-data warning -->
+    <div id="staleBanner" class="stale-banner" hidden>
+      <span class="stale-tag">Stale data</span>
+      <span id="staleBannerText"></span>
+    </div>
+
     <!-- Filters -->
     <div class="card card-pad">
       <div class="filters-grid">
@@ -1093,6 +1124,7 @@
       customerRollup: [],
       filteredCustomerRollup: [],
       syncStatus: null,
+      freshness: null,
       profiles: [],
       queueSummary: [],
       queueItems: [],
@@ -1110,6 +1142,8 @@
       refreshBtn: document.getElementById('refreshBtn'),
       clearFiltersBtn: document.getElementById('clearFiltersBtn'),
       statusText: document.getElementById('statusText'),
+      staleBanner: document.getElementById('staleBanner'),
+      staleBannerText: document.getElementById('staleBannerText'),
 
       tabQueueBtn: document.getElementById('tabQueueBtn'),
       tabCustomersBtn: document.getElementById('tabCustomersBtn'),
@@ -1281,11 +1315,49 @@
       setTimeout(() => el.remove(), 3200);
     }
 
+    // Newest non-missing order date across the loaded invoices. The sheet is
+    // refreshed by an external scheduled report, so the sync can succeed daily
+    // while the source stops receiving new orders — this catches that.
+    function computeDataFreshness() {
+      let newest = null;
+      for (const r of state.invoices) {
+        const missing = r.source_missing === true || normalizeStatus(r.sync_status) === 'missing_from_source';
+        if (missing || !r.orderDate) continue;
+        if (!newest || r.orderDate > newest) newest = r.orderDate;
+      }
+      if (!newest) return null;
+      const days = Math.round((stripTime(new Date()) - stripTime(newest)) / 86400000);
+      return { newest, days };
+    }
+
+    function renderStaleBanner() {
+      const f = state.freshness;
+      const threshold = Number(state.syncStatus?.payload?.stale_threshold_days) || 7;
+
+      if (f && f.days <= threshold) {
+        els.staleBanner.hidden = true;
+        return;
+      }
+
+      const detail = f
+        ? `Newest order in the AR source sheet is <span style="font-weight:700">${escapeHtml(formatShortDate(f.newest))}</span> (${f.days} days old).`
+        : 'No dated orders found in the AR source sheet.';
+
+      els.staleBannerText.innerHTML =
+        `${detail} Orders created in Shopify after that date are not in SILO yet. ` +
+        `The nightly sync is running — the scheduled report feeding the AR Google Sheet has stopped adding new orders. ` +
+        `Check that report's filters / date range in Shopify.`;
+      els.staleBanner.hidden = false;
+    }
+
     function buildSyncLabel() {
       if (!state.syncStatus) return 'No sync status found.';
       const s = state.syncStatus;
       if (s.status === 'success') {
-        return `Last sync: <span style="font-weight:700">${escapeHtml(formatDateTime(s.last_success_at || s.completed_at))}</span>`;
+        const newest = state.freshness
+          ? ` · Newest order: <span style="font-weight:700">${escapeHtml(formatShortDate(state.freshness.newest))}</span>`
+          : '';
+        return `Last sync: <span style="font-weight:700">${escapeHtml(formatDateTime(s.last_success_at || s.completed_at))}</span>${newest}`;
       }
       if (s.status === 'running') {
         return `Sync running since <span style="font-weight:700">${escapeHtml(formatDateTime(s.started_at))}</span>`;
@@ -1507,6 +1579,7 @@
         }));
         state.customerRollup = rollupRows || [];
         state.syncStatus = syncRows?.data?.[0] || null;
+        state.freshness = computeDataFreshness();
 
         renderAssignedFilterOptions();
 
@@ -1514,6 +1587,7 @@
         if (!els.endDate.value) els.endDate.value = new Date().toISOString().slice(0, 10);
 
         refreshAll();
+        renderStaleBanner();
         setStatus(buildSyncLabel());
       } catch (err) {
         console.error(err);
