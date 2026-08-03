@@ -254,6 +254,7 @@
       <div class="pr-btn-row">
         <button id="markDoneBtn" class="btn btn-soft" type="button">Mark done</button>
         <button id="archiveBtn" class="btn btn-soft" type="button">Archive</button>
+        <button id="notifyAssigneeBtn" class="btn btn-soft" type="button">Notify assignee</button>
       </div>
       <div class="pr-btn-row">
         <button id="saveDrawerBtn" class="btn btn-primary" type="button">Save changes</button>
@@ -328,6 +329,7 @@
       uploadStatus: el('uploadStatus'),
 
       markDoneBtn: el('markDoneBtn'),
+      notifyAssigneeBtn: el('notifyAssigneeBtn'),
       archiveBtn: el('archiveBtn'),
       saveDrawerBtn: el('saveDrawerBtn'),
 
@@ -614,6 +616,7 @@
       els.fAssignedTo.value = row.assigned_to || "";
       els.fActionNeeded.value = row.action_needed || "";
       els.fNotes.value = row.notes || "";
+      els.notifyAssigneeBtn.disabled = !row.assigned_to;
 
       els.mailFileInput.value = "";
       els.uploadStatus.textContent = "";
@@ -702,6 +705,18 @@
         }
         await Promise.all(activityPromises);
 
+        // Best-effort — a failed notification shouldn't block the save.
+        if (payload.assigned_to && (oldRow.assigned_to || "") !== payload.assigned_to) {
+          supabaseClient.functions.invoke("mail-item-notify", {
+            body: { mail_item_id: oldRow.id, kind: "assigned" }
+          }).catch(err => console.error("Assignment notification failed", err));
+        }
+        if (payload.status === "done" && oldRow.status !== "done") {
+          supabaseClient.functions.invoke("mail-item-notify", {
+            body: { mail_item_id: oldRow.id, kind: "done" }
+          }).catch(err => console.error("Done notification failed", err));
+        }
+
         await loadData();
         openDrawer(oldRow.id);
         showToast(markDone ? "Marked done." : archive ? "Archived." : "Saved.");
@@ -712,6 +727,27 @@
         els.saveDrawerBtn.disabled = false;
         els.markDoneBtn.disabled = false;
         els.archiveBtn.disabled = false;
+      }
+    }
+
+    async function notifyAssignee() {
+      const row = state.currentRow;
+      if (!row?.assigned_to) { showToast("No assignee to notify.", true); return; }
+
+      els.notifyAssigneeBtn.disabled = true;
+      try {
+        const { error } = await supabaseClient.functions.invoke("mail-item-notify", {
+          body: { mail_item_id: row.id, kind: "assigned" }
+        });
+        if (error) throw error;
+        showToast("Assignee notified.");
+        await loadData();
+        openDrawer(row.id);
+      } catch (err) {
+        console.error(err);
+        showToast(`Notify failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.notifyAssigneeBtn.disabled = !state.currentRow?.assigned_to;
       }
     }
 
@@ -798,6 +834,7 @@
       els.saveDrawerBtn.addEventListener("click", () => saveRow());
       els.markDoneBtn.addEventListener("click", () => saveRow({ markDone: true }));
       els.archiveBtn.addEventListener("click", () => saveRow({ archive: true }));
+      els.notifyAssigneeBtn.addEventListener("click", notifyAssignee);
 
       els.mailFileInput.addEventListener("change", () => {
         els.uploadFileBtn.disabled = !els.mailFileInput.files?.length;
@@ -825,6 +862,9 @@
 
         wireEvents();
         await loadData();
+
+        const deepLinkId = new URLSearchParams(location.search).get("item");
+        if (deepLinkId) openDrawer(deepLinkId);
       } catch (err) {
         console.error(err);
         setStatus(`Init failed: ${err.message || "Unknown error"}`, true);

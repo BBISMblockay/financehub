@@ -398,6 +398,12 @@
         console.error("Failed to log submitted activity", activityErr);
       }
 
+      if (payload.assigned_to) {
+        supabaseClient.functions.invoke("mail-item-notify", {
+          body: { mail_item_id: itemId, kind: "assigned" }
+        }).catch(err => console.error("Assignment notification failed", err));
+      }
+
       els.successItemId.textContent = itemId;
       els.successFileName.textContent = uploadedFiles.length
         ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
