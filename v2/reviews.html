@@ -162,6 +162,12 @@
         <label class="bcn-label" for="empManager">Manager</label>
         <select class="bcn-field" id="empManager"></select>
       </div>
+      <div class="rv-field-hint" id="selfManagerHint" hidden>You'll be set as this employee's manager.</div>
+      <div class="bcn-field-group" id="addCoManagerWrap" hidden>
+        <label class="bcn-label" for="addCoManagerOnCreate">Also share with (optional)</label>
+        <select class="bcn-field" id="addCoManagerOnCreate"></select>
+        <div class="rv-field-hint">They'll see this employee on their own roster too, and can run their own review. You can add or remove managers later from Edit.</div>
+      </div>
       <div class="bcn-field-group" id="coManagersWrap" hidden>
         <label class="bcn-label">Managers</label>
         <div id="coManagersList"></div>
@@ -491,9 +497,23 @@
     // employee (it seeds their first manager link); editing uses the
     // Managers list below instead, which supports more than one.
     document.getElementById('managerFieldWrap').hidden = !(IS_EXEC && !emp);
+    document.getElementById('selfManagerHint').hidden = !(!IS_EXEC && !emp);
+    document.getElementById('addCoManagerWrap').hidden = !!emp;
     document.getElementById('coManagersWrap').hidden = !emp;
     if (emp){ renderCoManagers(); populateAddManagerSelect(); }
+    else { populateCreateCoManagerSelect(); }
     document.getElementById('dlgEmployee').showModal();
+  }
+
+  // The manager picker (exec-only) picks who this new employee's PRIMARY
+  // manager is; this lets anyone also add a second manager in the same
+  // step, instead of add -> save -> reopen Edit -> add co-manager.
+  function populateCreateCoManagerSelect(){
+    const primaryId = IS_EXEC ? (document.getElementById('empManager').value || ME.id) : ME.id;
+    const sel = document.getElementById('addCoManagerOnCreate');
+    const options = TEAM.filter(p => p.id !== primaryId);
+    sel.innerHTML = '<option value="">No one else yet</option>' +
+      options.map(p => `<option value="${esc(p.id)}">${esc(p.name || p.email)}</option>`).join('');
   }
 
   function renderCoManagers(){
@@ -605,13 +625,33 @@
         if (error) throw new Error(error.message);
       } else {
         const managerId = IS_EXEC ? (document.getElementById('empManager').value || ME.id) : ME.id;
-        const { data: inserted, error } = await sb.from('employees')
-          .insert(cfg.withCompany({ ...baseFields, manager_user_id: managerId }))
-          .select().single();
+        const coManagerId = document.getElementById('addCoManagerOnCreate').value || null;
+        // Generate the id client-side and skip .select() on this insert.
+        // A brand-new employee has no employee_managers link yet (that's
+        // the next statement below), so employees_active_select denies a
+        // non-exec creator visibility of the row they just inserted --
+        // and INSERT...RETURNING has to pass that SELECT policy to hand
+        // the row back, so .select() here throws "violates row-level
+        // security policy" even though the insert itself is fine.
+        const newId = crypto.randomUUID();
+        const { error } = await sb.from('employees')
+          .insert(cfg.withCompany({ id: newId, ...baseFields, manager_user_id: managerId }));
         if (error) throw new Error(error.message);
+
         const { error: mgrError } = await sb.from('employee_managers')
-          .insert(cfg.withCompany({ employee_id: inserted.id, manager_user_id: managerId }));
+          .insert(cfg.withCompany({ employee_id: newId, manager_user_id: managerId }));
         if (mgrError) throw new Error(mgrError.message);
+
+        // Separate insert (not a bulk multi-row insert) so the first row is
+        // committed before this one's RLS check runs — the co-manager
+        // insert's "am I already a manager of this employee" check needs
+        // to see the row above, which a same-statement bulk insert
+        // wouldn't have made visible yet.
+        if (coManagerId && coManagerId !== managerId){
+          const { error: coMgrError } = await sb.from('employee_managers')
+            .insert(cfg.withCompany({ employee_id: newId, manager_user_id: coManagerId }));
+          if (coMgrError) throw new Error(coMgrError.message);
+        }
       }
       document.getElementById('dlgEmployee').close();
       setStatus(EDITING_ID ? 'Employee updated.' : 'Employee added.', 'pos', 2500);
@@ -707,10 +747,15 @@
     btn.disabled = true;
     btn.textContent = 'Importing…';
     try {
-      const rows = cfg.withCompanyRows(CSV_ROWS.map(r => ({ ...r, manager_user_id: ME.id })));
-      const { data: inserted, error } = await sb.from('employees').insert(rows).select('id');
+      // Client-generated ids, no .select() on the employees insert — same
+      // reason as the single Add-employee flow: a brand-new employee has
+      // no employee_managers link yet, so a non-exec importer can't be
+      // handed the row back via RETURNING (employees_active_select denies
+      // it until the link exists), even though the insert itself is fine.
+      const rows = cfg.withCompanyRows(CSV_ROWS.map(r => ({ ...r, id: crypto.randomUUID(), manager_user_id: ME.id })));
+      const { error } = await sb.from('employees').insert(rows);
       if (error) throw new Error(error.message);
-      const mgrRows = cfg.withCompanyRows((inserted || []).map(row => ({ employee_id: row.id, manager_user_id: ME.id })));
+      const mgrRows = cfg.withCompanyRows(rows.map(row => ({ employee_id: row.id, manager_user_id: ME.id })));
       if (mgrRows.length){
         const { error: mgrError } = await sb.from('employee_managers').insert(mgrRows);
         if (mgrError) throw new Error(mgrError.message);
@@ -775,6 +820,9 @@
       sel.innerHTML = TEAM.map(m =>
         `<option value="${esc(m.id)}" ${m.id === ME.id ? 'selected' : ''}>${esc(m.name || m.email)}</option>`).join('');
       document.getElementById('csvManagerNote').textContent = 'you (share with a co-manager afterward if needed)';
+      // Keep the co-manager list from offering whoever's currently picked
+      // as the primary manager — avoids a duplicate-link error on save.
+      sel.addEventListener('change', () => { if (!EDITING_ID) populateCreateCoManagerSelect(); });
     }
 
     await Promise.all([loadRoster(), loadBoard()]);
