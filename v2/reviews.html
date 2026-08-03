@@ -572,8 +572,11 @@
     const current = new Set((MANAGERS_BY_EMPLOYEE.get(EDITING_ID) || []).map(m => m.id));
     const options = TEAM.filter(p => !current.has(p.id));
     const sel = document.getElementById('addManagerSelect');
+    // Placeholder first, so the alphabetically-first teammate isn't
+    // silently preselected — Add with nothing chosen is a no-op.
     sel.innerHTML = options.length
-      ? options.map(p => `<option value="${esc(p.id)}">${esc(p.name || p.email)}</option>`).join('')
+      ? '<option value="">Select a manager to add…</option>' +
+        options.map(p => `<option value="${esc(p.id)}">${esc(p.name || p.email)}</option>`).join('')
       : '<option value="">Everyone active already manages this employee</option>';
   }
 
@@ -850,9 +853,18 @@
     }
 
     if (IS_EXEC){
+      // "You" pinned on top as the explicit default; everyone else sits
+      // under a labeled group so it reads as an override, not a choice
+      // you're expected to make (the alphabetical first name is NOT the
+      // default — it just used to render first and looked like one).
       const sel = document.getElementById('empManager');
-      sel.innerHTML = TEAM.map(m =>
-        `<option value="${esc(m.id)}" ${m.id === ME.id ? 'selected' : ''}>${esc(m.name || m.email)}</option>`).join('');
+      const myName = TEAM.find(m => m.id === ME.id)?.name || ME.email || 'You';
+      sel.innerHTML =
+        `<option value="${esc(ME.id)}" selected>You — ${esc(myName)}</option>` +
+        `<optgroup label="Select another manager">` +
+        TEAM.filter(m => m.id !== ME.id).map(m =>
+          `<option value="${esc(m.id)}">${esc(m.name || m.email)}</option>`).join('') +
+        `</optgroup>`;
       document.getElementById('csvManagerNote').textContent = 'you (share with a co-manager afterward if needed)';
       // Keep the co-manager list from offering whoever's currently picked
       // as the primary manager — avoids a duplicate-link error on save.
