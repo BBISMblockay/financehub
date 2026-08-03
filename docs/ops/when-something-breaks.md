@@ -61,6 +61,25 @@ Never put the **service role** key in static HTML.
 
 ---
 
+## BBISM Receivables missing recent orders (sync green, data stale)
+
+The AR pipeline is: **Shopify → scheduled report → Google Sheet → `ar-sync.yml` (nightly) → `ar_invoices` → workbench page.**
+The sync only reads what the sheet contains — if the scheduled report feeding the sheet stops adding new orders, every sync still succeeds while the workbench drifts out of date. (Happened Jul–Aug 2026: sheet froze at Jul 21, old rows kept rolling off, so the report was clearly still refreshing — its filter/date range had stopped matching new orders.)
+
+You'll now see it two ways:
+
+1. The workbench shows an amber **"Stale data"** banner with the newest order date when it's more than 7 days old.
+2. The nightly `AR Google Sheets Sync` action **fails** with the same message (data still syncs first — the red run is the alarm). Threshold: `AR_STALE_MAX_DAYS` repo variable, default 7.
+
+Fix is upstream, not in this repo:
+
+1. Open the AR Google Sheet — confirm the last order row matches the banner date (both tabs: `gid=0` and `gid=801564681`).
+2. In Shopify, open the scheduled report that feeds the sheet (Better Reports → scheduled reports) and check its **date range** (a fixed end date is the usual culprit) and **filters** (customer tag / sales channel / status that new orders no longer match).
+3. Make sure new orders land in the **same tabs** the sync reads — a re-created report writing to a new tab is invisible to the sync.
+4. After fixing, re-run the action manually (workflow_dispatch) and confirm the banner clears.
+
+---
+
 ## GitHub Action failed
 
 | Workflow | What failed | Check |
