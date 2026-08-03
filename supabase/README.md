@@ -207,6 +207,7 @@ supabase/
     20260723240000_products_master_surface_legacy_attributes_as_tags.sql
     20260723250000_products_master_subcategory_department_from_tag_book.sql
     20260723260000_pair_historical_launch_products_with_tracker.sql
+    20260803160000_ar_company_entity_backfill.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

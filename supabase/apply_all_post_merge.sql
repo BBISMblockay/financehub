@@ -6973,3 +6973,22 @@ where t.launch_id is not null
     where r.launch_id = t.launch_id
       and lower(trim(r.product_title)) = lower(trim(t.product_title))
   );
+
+-- ============================================================
+-- 20260803160000_ar_company_entity_backfill.sql
+-- stamp company_entity_id on AR sheet-sync rows inserted after the 2026-06
+-- multi-tenant backfill (service-role inserts, no default — RLS hid them)
+-- ============================================================
+update public.ar_invoices i
+set company_entity_id = e.id
+from public.entities e
+where e.entity_type = 'company'
+  and e.entity_key = 'baseballism'
+  and i.company_entity_id is null;
+
+update public.ar_customers c
+set company_entity_id = e.id
+from public.entities e
+where e.entity_type = 'company'
+  and e.entity_key = 'baseballism'
+  and c.company_entity_id is null;

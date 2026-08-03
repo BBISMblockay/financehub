@@ -71,7 +71,10 @@ You'll now see it two ways:
 1. The workbench shows an amber **"Stale data"** banner with the newest order date when it's more than 7 days old.
 2. The nightly `AR Google Sheets Sync` action **fails** with the same message (data still syncs first — the red run is the alarm). Threshold: `AR_STALE_MAX_DAYS` repo variable, default 7.
 
-Fix is upstream, not in this repo:
+**First check WHICH kind of stale it is** — the banner distinguishes them:
+
+- **"Rows are being hidden by row-level security"** — the sync's newest order (in `job_sync_state.payload.newest_order_date`) is newer than what the page can see. The rows exist but lack a `company_entity_id` stamp, so RLS hides them from every user (happened Jun–Aug 2026: the sync writes as service_role and never stamped rows inserted after the multi-tenant backfill — the page was blind to everything after Jun 12 while the DB had orders through Jul 21). Fix: run `supabase/migrations/20260803160000_ar_company_entity_backfill.sql` in the SQL editor (idempotent). The sync stamps every row it touches since that same PR, so this should not recur unless a new AR table is added without stamping.
+- **"Newest order in the AR source sheet is …"** — the data really stops there. Fix is upstream, not in this repo:
 
 1. Open the AR Google Sheet — confirm the last order row matches the banner date (both tabs: `gid=0` and `gid=801564681`).
 2. In Shopify, open the scheduled report that feeds the sheet (Better Reports → scheduled reports) and check its **date range** (a fixed end date is the usual culprit) and **filters** (customer tag / sales channel / status that new orders no longer match).

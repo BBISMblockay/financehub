@@ -18,6 +18,11 @@ const JOB_SYNC_KEY = "ar_google_sheets_sync";
 // out of date — so we track the newest order date and flag staleness.
 const STALE_MAX_DAYS = Number(process.env.AR_STALE_MAX_DAYS || 7);
 
+// RLS scopes ar_customers/ar_invoices to company_entity_id = active_company_id().
+// This sync writes as service_role, which bypasses RLS on insert — rows left
+// unstamped are invisible to every user, so stamping is mandatory.
+const COMPANY_ENTITY_KEY = process.env.AR_COMPANY_ENTITY_KEY || "baseballism";
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -401,7 +406,24 @@ async function saveSyncFailure(startedAt, err, syncRunId = null) {
   }
 }
 
-async function upsertCustomers(rows) {
+async function resolveCompanyEntityId() {
+  const { data, error } = await supabase
+    .from("entities")
+    .select("id")
+    .eq("entity_type", "company")
+    .eq("entity_key", COMPANY_ENTITY_KEY)
+    .single();
+
+  if (error || !data?.id) {
+    throw new Error(
+      `Failed to resolve company entity '${COMPANY_ENTITY_KEY}': ${error?.message || "not found"}`
+    );
+  }
+
+  return data.id;
+}
+
+async function upsertCustomers(rows, companyEntityId) {
   const grouped = new Map();
 
   for (const row of rows) {
@@ -413,7 +435,8 @@ async function upsertCustomers(rows) {
         customer_name_norm: row.customerNorm,
         email: row.email || null,
         email_norm: row.emailNorm || "",
-        term_days: row.termDays || 0
+        term_days: row.termDays || 0,
+        company_entity_id: companyEntityId
       });
     } else {
       const existing = grouped.get(key);
@@ -482,7 +505,7 @@ function dedupeInvoicePayload(payload) {
   return Array.from(deduped.values());
 }
 
-async function upsertInvoices(rows, customerIdMap, syncRunId) {
+async function upsertInvoices(rows, customerIdMap, syncRunId, companyEntityId) {
   const now = new Date().toISOString();
 
   const payload = rows.map((row) => {
@@ -495,6 +518,7 @@ async function upsertInvoices(rows, customerIdMap, syncRunId) {
 
     return {
       customer_id: customerId,
+      company_entity_id: companyEntityId,
       source_name: row.sourceName,
       source_index: row.sourceIndex,
       source_row_hash: buildSourceRowHash(row),
@@ -604,8 +628,9 @@ export async function runArSync() {
 
     const finalRows = applyTermsAndAging(validSalesRows, termsIndexes, new Date());
 
-    const customerIdMap = await upsertCustomers(finalRows);
-    const invoiceCount = await upsertInvoices(finalRows, customerIdMap, syncRunId);
+    const companyEntityId = await resolveCompanyEntityId();
+    const customerIdMap = await upsertCustomers(finalRows, companyEntityId);
+    const invoiceCount = await upsertInvoices(finalRows, customerIdMap, syncRunId, companyEntityId);
     const missingInvoiceCount = await markMissingInvoices(syncRunId);
 
     await refreshCustomerSummary();
@@ -621,6 +646,7 @@ export async function runArSync() {
       customer_count: customerIdMap.size,
       invoice_count: invoiceCount,
       missing_invoice_count: missingInvoiceCount,
+      company_entity_id: companyEntityId,
       ...freshness,
       sources: SALES_CSV_SOURCES
     };
