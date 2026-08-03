@@ -551,6 +551,21 @@ left join information_schema.columns col
  and col.table_name = 'launch_product_readiness'
  and col.column_name = want.column_name;
 
+-- 14. employee_managers multi-manager roster (migration 20260804010000)
+select
+  case
+    when exists (select 1 from information_schema.tables
+                 where table_schema = 'public' and table_name = 'employee_managers')
+      and exists (select 1 from pg_policies
+                  where schemaname = 'public' and tablename = 'employee_managers'
+                    and policyname = 'employee_managers_active_select')
+    then 'ok'
+    else 'MISSING — run 20260804010000_employee_managers_multi_manager.sql'
+  end as employee_managers_multi_manager,
+  -- Every employee should have at least one manager link (0 is fine on a fresh install).
+  (select count(*) from public.employees e
+    where not exists (select 1 from public.employee_managers em where em.employee_id = e.id)) as employees_missing_a_manager_link;
+
 -- 13. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,

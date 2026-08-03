@@ -68,6 +68,12 @@ Run in order:
 18. **`migrations/20260714170000_reviews_employee_template_read.sql`** — my-review page read access  
     Lets a SILO-authenticated employee read the template title and question labels for templates used by one of their own non-draft reviews (previously manager-only), so `/v2/my-review.html` can render. Template contents never leak ahead of a sent review.
 
+19. **`migrations/20260804000000_reviews_can_manage_self_service.sql`** — roster/reviews open to any manager, not just admins  
+    `reviews_can_manage()` required owner/executive/admin role on top of every write policy's own `manager_user_id = auth.uid() OR is_exec_or_owner()` scoping, so a non-admin manager (a retail store manager, say) couldn't roster or review their own direct reports at all. Redefined to true-for-any-active-user; per-row scoping is unchanged (Blake stays company-wide super-admin via `is_exec_or_owner()`, template building stays exec-only).
+
+20. **`migrations/20260804010000_employee_managers_multi_manager.sql`** — an employee can now have more than one manager  
+    `employees.manager_user_id` was a single required column, so the same person could never be rostered under two managers at once (e.g. dual reporting to both Loomis and Brett) — the company-wide unique email index blocked adding them a second time. New `employee_managers` many-to-many join table (backfilled from the existing single column) is now the source of truth for who manages whom; RLS on `employees`/`employee_goals` moves from the column to an `employee_managers` existence check, and `reviews_active_insert` is tightened to actually verify the inserting manager is linked to the employee (previously trusted the client with no relationship check at all). `employees.manager_user_id` is kept but is informational-only now (original creator, not authorization). `v2/reviews.html` gained a Managers list (add/remove co-managers) in the edit-employee dialog and an exec-only "assign to manager" picker when starting a review for a shared employee.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)

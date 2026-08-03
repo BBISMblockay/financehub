@@ -214,6 +214,7 @@ Roles are **per-company**: permission gates judge by `entity_memberships.role` (
 - membership `owner_admin`/`admin` (or profile fallback `owner`/`admin`) get write access to PO tables
 - `executive` (profile-level) outranks `admin`: it passes `is_admin()` and additionally gates review-template building; `owner_admin` also passes `is_exec_or_owner()`
 - `member`/`viewer` (or profile `user`) are read-only on PO tables
+- Performance Reviews is the one module that ignores this hierarchy on purpose: rostering and running reviews needs no admin/exec role at all — any active user can manage their own direct reports (`employees.manager_user_id = auth.uid()`); only `is_exec_or_owner()` (Blake) sees/manages the whole company roster, and only `is_exec_or_owner()` can build templates
 - Invites and backend role grants set the membership role for that org; they only touch the global profile role/department when the user belongs to no other org
 - blake@baseballism.com is `owner` (membership `owner_admin`); the other 6 users are `admin`
 
@@ -223,8 +224,8 @@ Roles are **per-company**: permission gates judge by `entity_memberships.role` (
 ```sql
 po_builder_can_write()   -- gates write on factories, po_headers, po_lines
 po_costing_can_write()   -- gates write on po_costing, po_costing_lines
-is_exec_or_owner()       -- gates review-template writes (owner, executive)
-reviews_can_manage()     -- gates roster/review writes (owner, executive, admin)
+is_exec_or_owner()       -- gates review-template writes (owner, executive) and whole-company roster visibility
+reviews_can_manage()     -- true for any active SILO user; per-row scoping (own reports vs. sees-everyone) lives in each policy's manager_user_id/is_exec_or_owner clause, not here
 ```
 
 The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`).
@@ -256,7 +257,8 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `product_tags` | Product tagging |
 | `access_requests` | Pending team access requests |
 | `org_invites` | Org invite tokens (sha256-hashed, RLS deny-all, RPC-only) |
-| `employees` | Performance-review roster (manager-scoped; auto-links `profiles` by email; associates exist ONLY here, no SILO auth) |
+| `employees` | Performance-review roster (auto-links `profiles` by email; associates exist ONLY here, no SILO auth). `manager_user_id` is informational-only (original creator) — see `employee_managers` for who actually manages this person |
+| `employee_managers` | Many-to-many manager links (an employee can have more than one manager, e.g. dual reporting) — the real authorization source for roster/review RLS |
 | `review_templates` | Review question sets (exec-only writes; publish locks questions) |
 | `review_template_questions` | Ordered questions: free_text, scale_1_10, single_choice, multi_choice, goals |
 | `reviews` | One review per employee per cycle (draft → sent → finished; employee signature fields) |
@@ -397,7 +399,7 @@ DB-level company isolation is live. Users in multiple companies pick a company a
 ### Performance Reviews module (complete as of 2026-07-14)
 End-to-end flow across five pages + three edge functions:
 1. Exec/owner builds templates (`/v2/review-templates.html`) — publish locks questions; revise via duplicate-as-draft
-2. Managers roster employees + run reviews (`/v2/reviews.html`, `/v2/review-editor.html`) — manager-scoped RLS: managers see ONLY their own roster/reviews; exec/owner see all; private notes are author-only
+2. Managers roster employees + run reviews (`/v2/reviews.html`, `/v2/review-editor.html`) — manager-scoped RLS: managers see ONLY their own roster/reviews; exec/owner see all; private notes are author-only. An employee can have more than one manager (`employee_managers`, many-to-many) — each co-manager sees them on their own roster and runs their own independent review; the roster page's Managers list lets any current co-manager add another
 3. Send emails the employee a hashed 30-day token link (Resend, `noreply@silo-baseballism.com`)
 4. SILO-authenticated employees view/sign in-app (`/v2/my-review.html`); associates (no SILO login) use the public portal (`/pages/review.html`) — the token is the entire authorization
 5. Signing marks the review finished (immutable — sent/finished reviews cannot be deleted), locks tokens on both paths, and emails the manager
