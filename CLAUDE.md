@@ -264,6 +264,9 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `review_private_notes` | Manager notes — RLS author-only, not even exec/owner |
 | `employee_goals` | Goals persist on the employee across review cycles |
 | `review_access_tokens` | Hashed 30-day portal tokens — RLS deny-all, edge functions only |
+| `mail_items` | Mailroom queue (subject, sender, priority, assignee, status: open/done/archived) |
+| `mail_item_files` | Attachments per mail item (`mail-item-files` storage bucket) |
+| `mail_item_activity` | Activity log per mail item (status/assignment/priority changes, notifications sent) |
 | `inventory_workboard_v` | View: inventory with sell-through metrics |
 | `sales_monthly_product_type_rollup_mv` | Materialized view: monthly sales rollup |
 | `v_po_header_summary` | View: PO list with status |
@@ -273,6 +276,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `payment_requests_v` | View: enriched payment requests |
 | `payment_request_activity_v` | View: activity with user info |
 | `v_launch_po_product_lookup` | View: PO products for launch search |
+| `mail_items_v` | View: mail items with assignee/submitter/processor names |
 
 ### RPC functions (backend admin)
 ```
@@ -292,7 +296,7 @@ revoke_org_invite(p_invite_id)
 - `payment-request-files` — private, payment request attachments
 - `launch-images` — public, launch workbench image uploads
 
-### Edge functions (performance reviews)
+### Edge functions
 Sources live in `supabase/functions/`; deploys are manual (Supabase MCP/CLI), merging a PR does NOT deploy.
 ```
 org-invite-send   -- emails an org invite link; caller must be admin of the invite's entity and present the raw token (JWT-auth)
@@ -300,6 +304,9 @@ org-invite-redeem -- PUBLIC (verify_jwt off): peek shows org/email for a token; 
 review-send     -- manager sends a review: mints hashed 30-day token, status → sent, emails employee (JWT-auth)
 review-portal   -- PUBLIC (verify_jwt off): token IS the auth; get/finish/renew for associates without SILO logins
 review-finish   -- SILO-authenticated employee signs in-app from /v2/my-review.html (JWT-auth)
+payment-request-submitted-notify -- emails the requester a receipt the moment they submit (caller must be the request's created_by; not gated by the AP manage-permission RPC since it fires from the public intake form)
+payment-request-notify           -- emails the requester once AP marks a request paid; gated by current_user_can_manage_payment_requests(); also used by the manual "Resend notification" button
+mail-item-notify -- emails the assignee when mail is routed to them, or the submitter when their item is marked done; mailroom has no manage-permission gate, so any authenticated member of the item's active company may trigger it (JWT-auth, RLS via mail_items_v enforces same-company)
 ```
 Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually.
 
