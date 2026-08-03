@@ -7078,6 +7078,36 @@ select public.attach_stamp_company_entity_id_triggers();
 alter table public.employee_managers enable row level security;
 revoke all on public.employee_managers from anon;
 
+-- Any policy that runs an EXISTS subquery against employee_managers from
+-- WITHIN a policy on employee_managers itself (or on employees/
+-- employee_goals/reviews, which all need the same "is auth.uid() a
+-- manager of this employee" check) re-triggers employee_managers' own RLS
+-- on every access -- which does the same thing again. That's genuine
+-- infinite recursion ("infinite recursion detected in policy for
+-- relation"), not just deep nesting. A SECURITY DEFINER function bypasses
+-- RLS on its own internal query (same mechanism as active_company_id() /
+-- is_exec_or_owner() already used throughout this module -- table owners
+-- are exempt from RLS unless FORCE ROW LEVEL SECURITY is set, which it
+-- never is here), so it can safely answer the question without
+-- re-entering any policy. Use this everywhere instead of a raw EXISTS
+-- against employee_managers inside a policy definition.
+create or replace function public.is_employee_manager(p_employee_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $function$
+  select exists (
+    select 1 from public.employee_managers em
+    where em.employee_id = p_employee_id
+      and em.manager_user_id = auth.uid()
+  );
+$function$;
+
+revoke execute on function public.is_employee_manager(uuid) from public, anon;
+grant execute on function public.is_employee_manager(uuid) to authenticated, service_role;
+
 -- select: any manager already linked to this employee (co-managers can see
 -- each other), or exec/owner.
 drop policy if exists employee_managers_active_select on public.employee_managers;
@@ -7085,13 +7115,8 @@ create policy employee_managers_active_select on public.employee_managers for se
   using (
     company_entity_id = public.active_company_id()
     and (
-      manager_user_id = auth.uid()
-      or public.is_exec_or_owner()
-      or exists (
-        select 1 from public.employee_managers em2
-        where em2.employee_id = employee_managers.employee_id
-          and em2.manager_user_id = auth.uid()
-      )
+      public.is_exec_or_owner()
+      or public.is_employee_manager(employee_managers.employee_id)
     )
   );
 
@@ -7100,6 +7125,10 @@ create policy employee_managers_active_select on public.employee_managers for se
 -- manager; any existing co-manager can add another co-manager (including
 -- inviting a colleague to share the employee). No path lets an unrelated
 -- user attach themselves to an employee they have no relationship to.
+-- The creator-check subquery against `employees` is fine as a raw EXISTS
+-- -- employees_active_select is itself recursion-safe (uses
+-- is_employee_manager() below), so this doesn't loop back into
+-- employee_managers' own policy.
 drop policy if exists employee_managers_active_insert on public.employee_managers;
 create policy employee_managers_active_insert on public.employee_managers for insert to authenticated
   with check (
@@ -7114,11 +7143,7 @@ create policy employee_managers_active_insert on public.employee_managers for in
             and e.manager_user_id = auth.uid()
         )
       )
-      or exists (
-        select 1 from public.employee_managers em2
-        where em2.employee_id = employee_managers.employee_id
-          and em2.manager_user_id = auth.uid()
-      )
+      or public.is_employee_manager(employee_managers.employee_id)
     )
   );
 
@@ -7144,10 +7169,7 @@ create policy employees_active_select on public.employees for select to authenti
   using (
     company_entity_id = public.active_company_id()
     and (
-      exists (
-        select 1 from public.employee_managers em
-        where em.employee_id = employees.id and em.manager_user_id = auth.uid()
-      )
+      public.is_employee_manager(employees.id)
       or public.is_exec_or_owner()
       or profile_id = auth.uid()
     )
@@ -7161,36 +7183,18 @@ drop policy if exists employees_active_update on public.employees;
 create policy employees_active_update on public.employees for update to authenticated
   using (
     company_entity_id = public.active_company_id()
-    and (
-      exists (
-        select 1 from public.employee_managers em
-        where em.employee_id = employees.id and em.manager_user_id = auth.uid()
-      )
-      or public.is_exec_or_owner()
-    )
+    and (public.is_employee_manager(employees.id) or public.is_exec_or_owner())
   )
   with check (
     company_entity_id = public.active_company_id()
-    and (
-      exists (
-        select 1 from public.employee_managers em
-        where em.employee_id = employees.id and em.manager_user_id = auth.uid()
-      )
-      or public.is_exec_or_owner()
-    )
+    and (public.is_employee_manager(employees.id) or public.is_exec_or_owner())
   );
 
 drop policy if exists employees_active_delete on public.employees;
 create policy employees_active_delete on public.employees for delete to authenticated
   using (
     company_entity_id = public.active_company_id()
-    and (
-      exists (
-        select 1 from public.employee_managers em
-        where em.employee_id = employees.id and em.manager_user_id = auth.uid()
-      )
-      or public.is_exec_or_owner()
-    )
+    and (public.is_employee_manager(employees.id) or public.is_exec_or_owner())
   );
 
 -- ---------------------------------------------------------------------------
@@ -7201,31 +7205,11 @@ drop policy if exists employee_goals_write on public.employee_goals;
 create policy employee_goals_write on public.employee_goals for all to authenticated
   using (
     company_entity_id = public.active_company_id()
-    and exists (
-      select 1 from public.employees e
-      where e.id = employee_goals.employee_id
-        and (
-          public.is_exec_or_owner()
-          or exists (
-            select 1 from public.employee_managers em
-            where em.employee_id = e.id and em.manager_user_id = auth.uid()
-          )
-        )
-    )
+    and (public.is_exec_or_owner() or public.is_employee_manager(employee_goals.employee_id))
   )
   with check (
     company_entity_id = public.active_company_id()
-    and exists (
-      select 1 from public.employees e
-      where e.id = employee_goals.employee_id
-        and (
-          public.is_exec_or_owner()
-          or exists (
-            select 1 from public.employee_managers em
-            where em.employee_id = e.id and em.manager_user_id = auth.uid()
-          )
-        )
-    )
+    and (public.is_exec_or_owner() or public.is_employee_manager(employee_goals.employee_id))
   );
 
 -- ---------------------------------------------------------------------------
@@ -7243,10 +7227,7 @@ create policy reviews_active_insert on public.reviews for insert to authenticate
       public.is_exec_or_owner()
       or (
         manager_user_id = auth.uid()
-        and exists (
-          select 1 from public.employee_managers em
-          where em.employee_id = reviews.employee_id and em.manager_user_id = auth.uid()
-        )
+        and public.is_employee_manager(reviews.employee_id)
       )
     )
   );
