@@ -37,8 +37,17 @@ on:
         required: false
         default: '30'
   schedule:
-    # 11:00 UTC — after nightly Sheets sync (10:30 UTC)
-    - cron: "0 11 * * *"
+    # 08:30 UTC — as early as possible while staying safely past Pacific
+    # midnight YEAR-ROUND (1:30am PDT / 12:30am PST; the previous 11:00 UTC
+    # anchor was "after the nightly Sheets sync", which was retired 2026-07).
+    # The comp summary anchors to the last COMPLETE Pacific day and only
+    # advances when this run's end-of-sync refresh fires, so start time +
+    # GitHub cron drift + ~2h runtime directly sets when "as of yesterday"
+    # appears: previously ~6:30-10am PT, now ~3-5am PT — fresh before
+    # morning check-ins in every US timezone. Do NOT schedule earlier than
+    # 08:00 UTC: in PST (winter) that's before Pacific midnight and the
+    # summary would anchor to a day that hasn't ended yet.
+    - cron: "30 8 * * *"
 
 jobs:
   shopify-sync:
