@@ -712,6 +712,26 @@
   els.internalPoNumber.addEventListener("change", syncCostingPanel);
   els.requestType.addEventListener("change", syncCostingPanel);
 
+  // A signed-in user whose account hasn't been activated into a company yet
+  // (signup happened, admin hasn't granted membership) has active_company_id()
+  // = NULL, so every company-stamped insert fails RLS with a cryptic
+  // "violates row-level security policy". Catch it up front with a clear
+  // message instead — first real occurrence: a new hire submitting a
+  // reimbursement 4 minutes before their membership was granted.
+  async function guardCompanyActivation() {
+    if (!currentUser) return;
+    try {
+      const { data: companyId, error } = await supabaseClient.rpc("active_company_id");
+      if (error) { console.warn("Activation check failed:", error.message); return; }
+      if (!companyId) {
+        els.submitBtn.disabled = true;
+        showStatus("Your SILO account isn't fully activated yet — an admin needs to add you to the company before you can submit. Ping your manager, then log out and back in.", "error");
+      }
+    } catch (err) {
+      console.warn("Activation check failed:", err);
+    }
+  }
+
   async function boot() {
     try {
       const { data, error } = await supabaseClient.auth.getUser();
@@ -720,14 +740,14 @@
 
       showAuthState();
       if (currentUser) {
-        await Promise.all([populateVendorOptions(), loadPoOptions()]);
+        await Promise.all([populateVendorOptions(), loadPoOptions(), guardCompanyActivation()]);
       }
 
       supabaseClient.auth.onAuthStateChange(async (event, session) => {
         currentUser = session?.user || null;
         showAuthState();
         if (currentUser) {
-          await Promise.all([populateVendorOptions(), loadPoOptions()]);
+          await Promise.all([populateVendorOptions(), loadPoOptions(), guardCompanyActivation()]);
         }
       });
     } catch (err) {
