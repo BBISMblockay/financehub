@@ -81,6 +81,9 @@ Run in order:
 22. **`migrations/20260804170000_payment_requests_insert_requires_active_company.sql`** — no more ghost payment requests from not-yet-activated accounts  
     `payment_requests_insert_own` had no company check while the files-table insert policy does, so a user in the signup→activation window (no membership yet → `active_company_id()` NULL) could insert the parent request — stamped NULL company, invisible to everyone — then fail on the attachments with a cryptic RLS error, minting another ghost per retry. Caught live with the first real member-tier user (6 ghosts cleaned up). Insert now requires `company_entity_id = active_company_id()` (no-op for activated users — the stamp trigger fills it), and `v2/purchase_request.html` shows a plain "account not activated yet" message with submit disabled instead of letting the user reach the RLS error.
 
+23. **`migrations/20260804200000_admin_update_profile_executive_role.sql`** — the backend can now actually grant the `executive` role  
+    `admin_update_profile()`'s role mapping only knew owner/admin; every other value the Edit dialog offers (executive, member, viewer, and the never-real superadmin) was silently coerced to profile `user` and the membership sync then set the person's `entity_memberships` row to `member` — so "promote to executive" both failed AND stripped their admin membership (profile-name visibility, PO writes, etc.). Full vocabulary now mapped explicitly — `executive` → profile `executive` + membership `admin`; `member`/`viewer` → profile `user` + the matching membership tier — with unknown values raising instead of coercing. `superadmin` removed from the backend dropdown.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
