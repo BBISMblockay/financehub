@@ -485,6 +485,102 @@
     font-size: 13px;
   }
 
+  /* ---------- Queue ---------- */
+  .q-shell { max-width: 720px; margin: 0 auto; }
+  .q-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .q-stages { display: flex; gap: 6px; }
+  .q-stage {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-2);
+    border-radius: 999px;
+    padding: 5px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .q-stage[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .q-progress { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 160px; }
+  .q-progress .kpi-meter { height: 5px; }
+  .q-count { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+  .q-card {
+    background: var(--surface);
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 22px 24px;
+  }
+  .q-mo {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .q-name { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; text-wrap: balance; }
+  .q-name .row-edit { font-size: 12px; vertical-align: 2px; margin-left: 6px; }
+  .q-terms { font-size: 13px; color: var(--ink-2); margin: 2px 0 0; overflow-wrap: anywhere; }
+  .q-contact { font-size: 12.5px; color: var(--ink-3); margin-top: 8px; overflow-wrap: anywhere; }
+  .q-fields { display: flex; gap: 10px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+  .q-fields .amt { width: 170px; font-size: 15px; padding: 9px 11px; }
+  .q-fields .pill { flex: none; }
+  .q-note { margin-top: 12px; }
+  .q-note textarea {
+    width: 100%;
+    min-height: 64px;
+    resize: vertical;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--due-tint);
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .q-note textarea::placeholder { color: var(--ink-3); }
+  .q-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .q-actions .btn--skip { margin-left: auto; }
+  .q-done { text-align: center; padding: 42px 20px; }
+  .q-done .big { font-size: 34px; }
+  .q-done h3 { margin: 10px 0 4px; font-size: 17px; }
+  .q-done p { margin: 0; color: var(--ink-3); font-size: 13px; }
+  .q-up-next { margin-top: 14px; }
+  .q-up-next .lbl {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+  }
+  .q-next-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    padding: 7px 12px;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    background: var(--surface);
+    margin-bottom: 5px;
+  }
+  .q-next-item .mono { color: var(--ink-3); font-size: 11px; }
+
+  /* ---------- Inactive ---------- */
+  .row--inactive { opacity: 0.55; }
+  .tag-inactive {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--neg);
+  }
+  .fld--check { display: flex; align-items: center; gap: 8px; }
+  .fld--check label { margin: 0; display: inline; text-transform: none; letter-spacing: 0; font-family: inherit; font-size: 13px; color: var(--ink-2); font-weight: 500; }
+
   /* ---------- Year grid ---------- */
   .grid-scroll { overflow-x: auto; }
   table.grid {
@@ -737,7 +833,8 @@
 
   <div class="toolbar">
     <div class="views" role="tablist" aria-label="View">
-      <button class="view-tab" role="tab" id="tab-worklist" aria-selected="true">Worklist</button>
+      <button class="view-tab" role="tab" id="tab-queue" aria-selected="true">Queue</button>
+      <button class="view-tab" role="tab" id="tab-worklist" aria-selected="false">Worklist</button>
       <button class="view-tab" role="tab" id="tab-grid" aria-selected="false">Year grid</button>
     </div>
     <input type="search" class="search" id="search" placeholder="Search license, contact, terms&hellip;" aria-label="Search" />
@@ -834,10 +931,13 @@ const STATUSES = ['todo', 'rep', 'paid', 'na'];
 const STATUS_LABEL = { todo: 'Open', rep: 'Reported', paid: 'Paid', na: 'N/A' };
 
 let state = loadState();
-let view = 'worklist';
+let view = 'queue';
 let workQ = defaultQuarter();
 let searchTerm = '';
 let statusFilter = 'all';
+let showInactive = false;
+let queueStage = 'todo';       // 'todo' = needs reporting, 'rep' = reported, awaiting payment
+let queueSkips = new Set();    // session-only "come back to this one later"
 
 function loadState() {
   try {
@@ -866,6 +966,17 @@ function licenses() {
   return seeded.concat(state.custom);
 }
 function findLicense(id) { return licenses().find(l => l.id === id); }
+function isActive(l) { return l.active !== false; }
+function inactiveLicenses() { return licenses().filter(l => !isActive(l)); }
+function setLicenseActive(id, active) {
+  if (SEED.some(s => s.id === id)) {
+    state.edits[id] = { ...(state.edits[id] || {}), active };
+  } else {
+    const c = state.custom.find(c => c.id === id);
+    if (c) c.active = active;
+  }
+  saveState();
+}
 
 function dueMonths(l) {
   if (l.cad === 'monthly') return [0,1,2,3,4,5,6,7,8,9,10,11];
@@ -920,6 +1031,7 @@ function quarterTotal(q) {
 function quarterProgress(q) {
   let due = 0, done = 0;
   for (const l of licenses()) {
+    if (!isActive(l)) continue;
     const dm = dueMonths(l);
     for (const m of QUARTER_MONTHS[q]) {
       const c = getCell(l, m);
@@ -955,17 +1067,19 @@ function renderKPIs() {
         </div>
       </button>`;
   }
-  const nLic = licenses().length;
+  const nAct = licenses().filter(isActive).length;
+  const nInact = inactiveLicenses().length;
   html += `
     <div class="kpi kpi--ytd">
       <div class="kpi-label">Year to date</div>
       <div class="kpi-value">${fmtUSD0.format(ytd)}</div>
-      <div class="kpi-sub">${nLic} licenses tracked</div>
+      <div class="kpi-sub">${nAct} active license${nAct === 1 ? '' : 's'}${nInact ? ` · ${nInact} inactive` : ''}</div>
     </div>`;
   el.innerHTML = html;
   el.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => {
     workQ = Number(b.dataset.q);
-    if (view !== 'worklist') setView('worklist'); else render();
+    queueSkips.clear();
+    if (view === 'grid') setView('queue'); else render();
   }));
 }
 
@@ -973,13 +1087,22 @@ function renderKPIs() {
 
 function renderChips() {
   const el = document.getElementById('status-chips');
+  if (view === 'queue') { el.innerHTML = ''; return; } // queue manages its own stages
   const opts = [['all', 'All'], ['todo', 'Open'], ['rep', 'Reported'], ['paid', 'Paid'], ['na', 'N/A']];
-  el.innerHTML = opts.map(([k, lbl]) =>
+  let html = opts.map(([k, lbl]) =>
     `<button class="chip" aria-pressed="${statusFilter === k}" data-sf="${k}">${lbl}</button>`).join('');
+  const nInact = inactiveLicenses().length;
+  if (nInact) {
+    html += `<button class="chip" aria-pressed="${showInactive}" data-inact
+              title="Show licenses marked inactive">Inactive (${nInact})</button>`;
+  }
+  el.innerHTML = html;
   el.querySelectorAll('[data-sf]').forEach(b => b.addEventListener('click', () => {
     statusFilter = b.dataset.sf;
     render();
   }));
+  const ib = el.querySelector('[data-inact]');
+  if (ib) ib.addEventListener('click', () => { showInactive = !showInactive; render(); });
 }
 
 /* ================= Render: worklist ================= */
@@ -994,7 +1117,7 @@ function worklistItems() {
   // one item per license-month cell that is due in the working quarter (or holds data)
   const items = [];
   for (const l of licenses()) {
-    if (!matchesSearch(l)) continue;
+    if (!isActive(l) || !matchesSearch(l)) continue;
     const dm = dueMonths(l);
     for (const m of QUARTER_MONTHS[workQ]) {
       const c = getCell(l, m);
@@ -1056,8 +1179,44 @@ function renderWorklist() {
     html += `</section>`;
   }
   if (!html) html = `<section class="card"><div class="empty">Nothing matches — try clearing the search or status filter.</div></section>`;
+
+  if (showInactive) {
+    const inact = inactiveLicenses().filter(matchesSearch);
+    if (inact.length) {
+      html += `<section class="card"><div class="card-head">
+        <span class="card-title">Inactive licenses</span>
+        <span class="card-count">${inact.length} — kept for history, excluded from the queue and progress</span>
+      </div>`;
+      for (const l of inact) {
+        html += `
+        <div class="wl-row row--inactive" data-inactive-lic="${esc(l.id)}">
+          <span class="tag-inactive">Inactive</span>
+          <div>
+            <div class="wl-name">${esc(l.name)}
+              <button class="row-edit" data-iact="edit" data-id="${esc(l.id)}">edit</button>
+            </div>
+            ${l.terms ? `<div class="wl-terms">${esc(l.terms)}</div>` : ''}
+          </div>
+          <div class="wl-contact">${esc(l.contact)}</div>
+          <div class="wl-amt-wrap"><button class="btn btn--sm" data-iact="react" data-id="${esc(l.id)}">Reactivate</button></div>
+          <span></span>
+        </div>`;
+      }
+      html += `</section>`;
+    }
+  }
+
   document.getElementById('main').innerHTML = html;
   bindWorklist();
+  document.querySelectorAll('[data-iact]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.iact === 'react') {
+      setLicenseActive(b.dataset.id, true);
+      render();
+      toast('License reactivated — it is back in the worklist and queue.');
+    } else {
+      openLicenseModal(b.dataset.id);
+    }
+  }));
 }
 
 function bindWorklist() {
@@ -1101,10 +1260,160 @@ function bindWorklist() {
   });
 }
 
+/* ================= Render: queue ================= */
+
+function queueItemsFor(stage) {
+  const items = [];
+  for (const l of licenses()) {
+    if (!isActive(l) || !matchesSearch(l)) continue;
+    const dm = dueMonths(l);
+    for (const m of QUARTER_MONTHS[workQ]) {
+      const c = getCell(l, m);
+      const isDue = dm.includes(m);
+      const touched = state.cells[l.id] && state.cells[l.id][m];
+      if (!isDue && c.a === null && !touched) continue;
+      if (c.s !== stage) continue;
+      items.push({ l, m, c, key: l.id + ':' + m });
+    }
+  }
+  return items;
+}
+
+function renderQueue() {
+  const todoItems = queueItemsFor('todo');
+  const repItems = queueItemsFor('rep');
+  const items = queueStage === 'todo' ? todoItems : repItems;
+
+  // skipped items go to the back; if everything is skipped, start the lap over
+  let ordered = items.filter(i => !queueSkips.has(i.key)).concat(items.filter(i => queueSkips.has(i.key)));
+  if (items.length && items.every(i => queueSkips.has(i.key))) {
+    queueSkips.clear();
+    ordered = items;
+  }
+
+  const p = quarterProgress(workQ);
+  const pct = p.due ? Math.round((p.done / p.due) * 100) : 0;
+
+  let html = `<div class="q-shell">
+    <div class="q-head">
+      <div class="q-stages" role="group" aria-label="Queue stage">
+        <button class="q-stage" aria-pressed="${queueStage === 'todo'}" data-stage="todo">To report (${todoItems.length})</button>
+        <button class="q-stage" aria-pressed="${queueStage === 'rep'}" data-stage="rep">Awaiting payment (${repItems.length})</button>
+      </div>
+      <div class="q-progress">
+        <span class="kpi-meter" aria-hidden="true"><i style="width:${pct}%"></i></span>
+        <span class="q-count">Q${workQ + 1} · ${p.done}/${p.due} handled</span>
+      </div>
+    </div>`;
+
+  if (!ordered.length) {
+    const other = queueStage === 'todo' ? repItems.length : todoItems.length;
+    html += `<div class="q-card q-done">
+      <div class="big">&#9918;</div>
+      <h3>${queueStage === 'todo' ? `Nothing left to report in Q${workQ + 1}` : `No payments outstanding in Q${workQ + 1}`}</h3>
+      <p>${other
+        ? (queueStage === 'todo'
+            ? `${other} report${other === 1 ? ' is' : 's are'} awaiting payment — switch stages above.`
+            : `${other} report${other === 1 ? ' still needs' : 's still need'} to come in — switch stages above.`)
+        : 'This quarter is fully worked. Pick another quarter from the tiles above.'}</p>
+    </div></div>`;
+    document.getElementById('main').innerHTML = html;
+    bindQueueHead();
+    return;
+  }
+
+  const { l, m, c } = ordered[0];
+  const negCls = c.a !== null && c.a < 0 ? ' amt--neg' : '';
+  html += `
+    <div class="q-card" data-lic="${esc(l.id)}" data-m="${m}">
+      <div class="q-mo">${MONTHS[m]} ${l.cad === 'monthly' ? 'report' : 'quarter report'} · ${ordered.length} in queue</div>
+      <h2 class="q-name">${esc(l.name)} <button class="row-edit" data-act="edit">edit</button></h2>
+      ${l.terms ? `<p class="q-terms">${esc(l.terms)}</p>` : ''}
+      <div class="q-contact">${esc(l.contact)}</div>
+      <div class="q-fields">
+        <input class="amt${negCls}" data-act="amt" inputmode="decimal"
+               value="${c.a !== null ? esc(money(c.a)) : ''}" placeholder="$0.00"
+               aria-label="${esc(l.name)} ${MONTHS[m]} amount" />
+        <span class="pill pill--${c.s}">${STATUS_LABEL[c.s]}</span>
+      </div>
+      <div class="q-note">
+        <textarea data-act="notetext" placeholder="Working notes — what you're waiting on, who you emailed, math to double-check…"
+                  aria-label="Working note">${esc(c.n)}</textarea>
+      </div>
+      <div class="q-actions">
+        ${queueStage === 'todo'
+          ? `<button class="btn btn--primary" data-act="st-rep">Mark reported</button>
+             <button class="btn" data-act="st-paid">Mark paid</button>
+             <button class="btn" data-act="st-na">N/A this period</button>`
+          : `<button class="btn btn--primary" data-act="st-paid">Mark paid</button>
+             <button class="btn" data-act="st-todo">Back to open</button>`}
+        <button class="btn btn--skip" data-act="skip">Skip for now &rarr;</button>
+      </div>
+    </div>`;
+
+  const upNext = ordered.slice(1, 4);
+  if (upNext.length) {
+    html += `<div class="q-up-next"><div class="lbl">Up next</div>`;
+    for (const it of upNext) {
+      html += `<div class="q-next-item"><span>${esc(it.l.name)}</span><span class="mono">${MONTHS[it.m]}</span></div>`;
+    }
+    if (ordered.length > 4) html += `<div class="q-next-item"><span>&hellip;</span><span class="mono">+${ordered.length - 4} more</span></div>`;
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  document.getElementById('main').innerHTML = html;
+  bindQueueHead();
+
+  const card = document.querySelector('.q-card[data-lic]');
+  const key = l.id + ':' + m;
+  const readFields = () => {
+    const patch = {};
+    const amtEl = card.querySelector('[data-act="amt"]');
+    const v = parseAmount(amtEl.value);
+    patch.a = v;
+    patch.n = card.querySelector('[data-act="notetext"]').value;
+    return patch;
+  };
+  card.querySelector('[data-act="edit"]').addEventListener('click', () => openLicenseModal(l.id));
+  card.querySelector('[data-act="amt"]').addEventListener('change', ev => {
+    setCell(l, m, { a: parseAmount(ev.target.value) });
+    renderKPIs();
+  });
+  card.querySelector('[data-act="notetext"]').addEventListener('change', ev => {
+    setCell(l, m, { n: ev.target.value });
+  });
+  const advance = (status) => {
+    setCell(l, m, { ...readFields(), s: status });
+    queueSkips.delete(key);
+    render();
+  };
+  const stBtn = (sel, status) => {
+    const b = card.querySelector(sel);
+    if (b) b.addEventListener('click', () => advance(status));
+  };
+  stBtn('[data-act="st-rep"]', 'rep');
+  stBtn('[data-act="st-paid"]', 'paid');
+  stBtn('[data-act="st-na"]', 'na');
+  stBtn('[data-act="st-todo"]', 'todo');
+  card.querySelector('[data-act="skip"]').addEventListener('click', () => {
+    setCell(l, m, readFields()); // keep any amount/note typed before skipping
+    queueSkips.add(key);
+    render();
+  });
+}
+
+function bindQueueHead() {
+  document.querySelectorAll('.q-stage').forEach(b => b.addEventListener('click', () => {
+    queueStage = b.dataset.stage;
+    render();
+  }));
+}
+
 /* ================= Render: year grid ================= */
 
 function renderGrid() {
-  const ls = licenses().filter(matchesSearch);
+  const ls = licenses().filter(l => matchesSearch(l) && (showInactive || isActive(l)));
   let head = `<tr><th class="h-lic">License</th>`;
   for (let m = 0; m < 12; m++) {
     head += `<th class="${m % 3 === 0 ? 'q-start' : ''}">${MONTHS[m]}</th>`;
@@ -1137,9 +1446,10 @@ function renderGrid() {
     }
     grand += rowTot;
     const cadLabel = l.cad === 'custom' ? 'custom qtr' : l.cad;
-    body += `<tr>
+    const inact = !isActive(l);
+    body += `<tr class="${inact ? 'row--inactive' : ''}">
       <td class="c-lic">
-        <div class="g-name">${esc(l.name)}</div>
+        <div class="g-name">${esc(l.name)}${inact ? ' <span class="tag-inactive">inactive</span>' : ''}</div>
         <div class="g-cad">${cadLabel} · <button class="row-edit" data-edit="${esc(l.id)}">edit</button></div>
       </td>
       ${cells}
@@ -1206,6 +1516,10 @@ function openLicenseModal(id) {
       <div class="fld"><div class="due-picker" id="f-due">
         ${MONTHS.map((mo, i) => `<label><input type="checkbox" value="${i}" ${dueSet.has(i) ? 'checked' : ''} /> ${mo}</label>`).join('')}
       </div></div>
+      <div class="fld fld--check">
+        <input type="checkbox" id="f-active" ${!editing || isActive(editing) ? 'checked' : ''} />
+        <label for="f-active">Active — include in the queue, worklist, and progress counts</label>
+      </div>
       <div class="modal-actions">
         ${editing ? '<button class="btn btn--danger btn--sm" id="f-delete">Delete</button>' : ''}
         <button class="btn" id="f-cancel">Cancel</button>
@@ -1258,7 +1572,9 @@ function openLicenseModal(id) {
       terms: document.getElementById('f-terms').value.trim(),
       cad,
       due,
+      active: document.getElementById('f-active').checked,
     };
+    const deactivating = editing && isActive(editing) && !rec.active;
     if (editing) {
       if (SEED.some(s => s.id === id)) {
         state.edits[id] = rec;
@@ -1272,6 +1588,7 @@ function openLicenseModal(id) {
     saveState();
     close();
     render();
+    if (deactivating) toast('License marked inactive — history kept; find it under the "Inactive" filter chip.');
   });
   document.getElementById('f-name').focus();
 }
@@ -1281,7 +1598,7 @@ function openLicenseModal(id) {
 function buildCSV() {
   const q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
   const lines = [];
-  lines.push(['License', 'Contact', 'Terms', 'Cadence', ...MONTHS, 'Total'].map(q).join(','));
+  lines.push(['License', 'Contact', 'Terms', 'Cadence', 'Active', ...MONTHS, 'Total'].map(q).join(','));
   for (const l of licenses()) {
     let tot = 0;
     const cells = [];
@@ -1290,11 +1607,11 @@ function buildCSV() {
       cells.push(c.a !== null ? c.a.toFixed(2) : '');
       if (c.a !== null) tot += c.a;
     }
-    lines.push([q(l.name), q(l.contact), q(l.terms), q(l.cad), ...cells, tot.toFixed(2)].join(','));
+    lines.push([q(l.name), q(l.contact), q(l.terms), q(l.cad), q(isActive(l) ? 'yes' : 'no'), ...cells, tot.toFixed(2)].join(','));
   }
   lines.push('');
   lines.push(['Status by month (open / reported / paid / n/a)'].map(q).join(','));
-  lines.push(['License', '', '', '', ...MONTHS].map(q).join(','));
+  lines.push(['License', '', '', '', '', ...MONTHS].map(q).join(','));
   for (const l of licenses()) {
     const dm = dueMonths(l);
     const cells = [];
@@ -1361,6 +1678,7 @@ function toast(msg) {
 
 function setView(v) {
   view = v;
+  document.getElementById('tab-queue').setAttribute('aria-selected', String(v === 'queue'));
   document.getElementById('tab-worklist').setAttribute('aria-selected', String(v === 'worklist'));
   document.getElementById('tab-grid').setAttribute('aria-selected', String(v === 'grid'));
   render();
@@ -1369,9 +1687,12 @@ function setView(v) {
 function render() {
   renderKPIs();
   renderChips();
-  if (view === 'worklist') renderWorklist(); else renderGrid();
+  if (view === 'queue') renderQueue();
+  else if (view === 'worklist') renderWorklist();
+  else renderGrid();
 }
 
+document.getElementById('tab-queue').addEventListener('click', () => setView('queue'));
 document.getElementById('tab-worklist').addEventListener('click', () => setView('worklist'));
 document.getElementById('tab-grid').addEventListener('click', () => setView('grid'));
 document.getElementById('search').addEventListener('input', e => { searchTerm = e.target.value; render(); });
