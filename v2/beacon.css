@@ -795,6 +795,15 @@ table.bcn-table {
 .bcn-status--neg  { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
 .bcn-status[hidden] { display: none; }
 
+/* Same fix, same root cause: any element whose class sets its own
+   `display` (flex/inline-flex/grid/etc.) needs an explicit [hidden] rule,
+   because the browser's built-in `[hidden]{display:none}` UA rule loses
+   to an author-stylesheet class of equal specificity. Found live on
+   .bcn-btn (a hidden reset button rendered visible) — .bcn-btn sets
+   `display:inline-flex` and has no such override, unlike .bcn-status
+   above. */
+.bcn-btn[hidden] { display: none; }
+
 /* ---- LAUNCH PREVIEW (in editor) --------------------------------------- */
 
 .bcn-launch-preview {
