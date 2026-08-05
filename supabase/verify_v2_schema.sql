@@ -595,3 +595,17 @@ select
 --     everyone has picked their own; this is just visibility, not a hard gate.
 select count(*) as profiles_with_no_default_page
 from public.profiles where default_page is null;
+
+-- 17. Profile avatars (migration 20260805050000)
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='avatar_url')
+      then 'MISSING — profiles.avatar_url column'
+    when not exists (select 1 from storage.buckets where id='avatars' and public=true)
+      then 'MISSING — avatars storage bucket'
+    when (select count(*) from pg_policies where schemaname='storage' and tablename='objects' and policyname like 'avatars_%') < 4
+      then 'MISSING — avatars storage policies'
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='payment_requests_v' and column_name='assigned_to_avatar_url')
+      then 'MISSING — payment_requests_v.assigned_to_avatar_url'
+    else 'ok'
+  end as profile_avatars;

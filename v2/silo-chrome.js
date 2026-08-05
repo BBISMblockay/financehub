@@ -99,6 +99,28 @@
     }
   }
 
+  // Sidebar user avatar — same session-cache-then-resolve pattern as
+  // department above, so the first paint (initials) never blocks on a
+  // network round trip and only re-renders once the real photo is known.
+  const SS_AVATAR = 'silo:nav:avatarUrl';
+  function getCachedAvatarUrl() {
+    try { return sessionStorage.getItem(SS_AVATAR) || null; } catch { return null; }
+  }
+  async function resolveAvatarUrl(sb) {
+    if (!sb) return null;
+    try {
+      const sess = await sb.auth.getSession();
+      const uid = sess?.data?.session?.user?.id;
+      if (!uid) return null;
+      const { data } = await sb.from('profiles').select('avatar_url').eq('id', uid).single();
+      const url = data?.avatar_url || '';
+      try { sessionStorage.setItem(SS_AVATAR, url); } catch {}
+      return url || null;
+    } catch {
+      return null;
+    }
+  }
+
   function renderNavSections(active, department) {
     const company = getActiveCompany();
     const NAV_SECTIONS = navSectionsForCompany(company, department ?? getCachedDepartment());
@@ -167,7 +189,7 @@
 
         <div class="silo-sb-footer">
           <div class="silo-sb-user">
-            <div class="silo-sb-avatar">${escHtml((user && user.email || 'U').slice(0,2).toUpperCase())}</div>
+            ${renderSidebarAvatar(user, opts.avatarUrl)}
             <div class="silo-sb-user-text">
               <span class="silo-sb-user-name">${escHtml(shortName(user && user.email))}</span>
               <span class="silo-sb-user-role">${escHtml(user && user.role || 'Member')} · RLS</span>
@@ -176,6 +198,15 @@
         </div>
       </aside>
     `;
+  }
+
+  // Falls back to the old plain-initials markup if avatar.js isn't loaded
+  // on a given page yet — never a hard dependency.
+  function renderSidebarAvatar(user, avatarUrl) {
+    if (window.SiloAvatar) {
+      return window.SiloAvatar.html({ email: user && user.email, avatarUrl: avatarUrl || null }, 'sm', 'silo-sb-avatar');
+    }
+    return `<div class="silo-sb-avatar">${escHtml((user && user.email || 'U').slice(0, 2).toUpperCase())}</div>`;
   }
 
   function shortName(email) {
@@ -222,6 +253,7 @@
     const theme = localStorage.getItem(LS_THEME) || 'light';
     document.documentElement.setAttribute('data-theme', theme);
 
+    opts.avatarUrl = opts.avatarUrl || getCachedAvatarUrl();
     const sidebar = el(renderSidebar(opts));
     const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
@@ -241,6 +273,20 @@
         if (!dept) return;
         const navEl = sidebar.querySelector('#siloSbNav');
         if (navEl) navEl.innerHTML = renderNavSections(opts.active, dept);
+      });
+    }
+
+    // Same deal for the sidebar avatar: first paint uses whatever was
+    // cached this session (often nothing, on a fresh sign-in), then swaps
+    // in the real photo once the profile fetch lands.
+    if (!getCachedAvatarUrl() && opts.supabaseClient) {
+      resolveAvatarUrl(opts.supabaseClient).then((avatarUrl) => {
+        if (!avatarUrl) return;
+        const userEl = sidebar.querySelector('.silo-sb-user');
+        if (userEl) {
+          const existing = userEl.querySelector('.silo-sb-avatar');
+          if (existing) existing.outerHTML = renderSidebarAvatar(opts.user, avatarUrl);
+        }
       });
     }
 

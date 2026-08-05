@@ -17,6 +17,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="dept-guard.js" data-departments="exec,finance"></script>
   <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
   <style>
     :root { color-scheme: light; }
@@ -850,7 +851,7 @@
     async function fetchProfiles() {
       const { data, error } = await supabaseClient
         .from("profiles")
-        .select("id, name, email, is_active")
+        .select("id, name, email, avatar_url, is_active")
         .eq("is_active", true)
         .order("name", { ascending: true });
 
@@ -1238,7 +1239,10 @@
         </div>
         <div class="mini-card">
           <div class="label">Assigned</div>
-          <div class="value">${escapeHtml(assignedName(row.assigned_to))}</div>
+          <div class="value" style="display:flex;align-items:center;gap:6px;">
+            ${assignedAvatarHtml(row.assigned_to, "xs")}
+            <span>${escapeHtml(assignedName(row.assigned_to))}</span>
+          </div>
         </div>
         <div class="mini-card">
           <div class="label">Files</div>
@@ -1294,6 +1298,13 @@
       if (!id) return "—";
       const p = state.profiles.find(x => x.id === id);
       return p?.name || p?.email || "Assigned";
+    }
+
+    function assignedAvatarHtml(id, size) {
+      if (!id || !window.SiloAvatar) return "";
+      const p = state.profiles.find(x => x.id === id);
+      if (!p) return "";
+      return SiloAvatar.html({ name: p.name, email: p.email, avatarUrl: p.avatar_url }, size || "xs");
     }
 
     async function loadData() {
@@ -1504,7 +1515,10 @@
             </div>
           </td>
           <td>
-            <div class="rm-cell-primary truncate-160">${escapeHtml(assignedName(r.assigned_to))}</div>
+            <div class="rm-cell-primary truncate-160" style="display:flex;align-items:center;gap:6px;">
+              ${assignedAvatarHtml(r.assigned_to, "xs")}
+              <span>${escapeHtml(assignedName(r.assigned_to))}</span>
+            </div>
           </td>
           <td>
             <div class="rm-action-row">
