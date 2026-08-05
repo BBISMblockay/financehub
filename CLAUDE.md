@@ -310,9 +310,10 @@ review-portal   -- PUBLIC (verify_jwt off): token IS the auth; get/finish/renew 
 review-finish   -- SILO-authenticated employee signs in-app from /v2/my-review.html (JWT-auth)
 payment-request-submitted-notify -- emails the requester a receipt the moment they submit (caller must be the request's created_by; not gated by the AP manage-permission RPC since it fires from the public intake form)
 payment-request-notify           -- emails the requester once AP marks a request paid; gated by current_user_can_manage_payment_requests(); also used by the manual "Resend notification" button
+payment-request-forward-melio    -- emails a request's submitted invoice/document to the company's Melio bill-pay forwarding inbox (MELIO_FORWARD_EMAIL secret) for auto-scan bill drafting; gated by current_user_can_manage_payment_requests(); triggered per-request or in bulk from Request Manager
 mail-item-notify -- emails the assignee when mail is routed to them, or the submitter when their item is marked done; mailroom has no manage-permission gate, so any authenticated member of the item's active company may trigger it (JWT-auth, RLS via mail_items_v enforces same-company)
 ```
-Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually.
+Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually. `payment-request-forward-melio` additionally requires `MELIO_FORWARD_EMAIL` (the company's Melio auto-scan forwarding address, e.g. `baseballism_NNN@invoicesmelio.com`) — set as an edge-function secret, never hardcoded or exposed client-side.
 
 ### After any DB change
 Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows must show `ok`. If anything is missing, run `supabase/apply_all_post_merge.sql` then verify again.
