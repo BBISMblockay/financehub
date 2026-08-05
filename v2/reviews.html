@@ -256,6 +256,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="avatar.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -303,7 +304,13 @@
   function managerNamesFor(employeeId){
     const rows = MANAGERS_BY_EMPLOYEE.get(employeeId) || [];
     if (!rows.length) return '<span class="rv-muted">—</span>';
-    return rows.map(m => m.id === ME?.id ? 'You' : esc(m.name || m.email)).join(', ');
+    return `<span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;">` +
+      rows.map(m => {
+        const label = m.id === ME?.id ? 'You' : esc(m.name || m.email);
+        const avatar = window.SiloAvatar ? SiloAvatar.html({ name: m.name, email: m.email, avatarUrl: m.avatarUrl }, 'xs') : '';
+        return `<span style="display:inline-flex;align-items:center;gap:5px;">${avatar}${label}</span>`;
+      }).join('') +
+      `</span>`;
   }
 
   function renderRoster(){
@@ -359,7 +366,7 @@
     // made the roster filter below drop every employee for non-exec users
     // ("employee added but doesn't show up").
     const { data, error } = await sb.from('employee_managers')
-      .select('employee_id, manager_user_id, profiles!employee_managers_manager_user_id_fkey(name, email)');
+      .select('employee_id, manager_user_id, profiles!employee_managers_manager_user_id_fkey(name, email, avatar_url)');
     if (error) {
       console.error('Manager links load failed:', error);
       setStatus(`Manager links failed to load: ${error.message}`, 'neg');
@@ -369,7 +376,7 @@
     const map = new Map();
     for (const row of (data || [])){
       const arr = map.get(row.employee_id) || [];
-      arr.push({ id: row.manager_user_id, name: row.profiles?.name, email: row.profiles?.email });
+      arr.push({ id: row.manager_user_id, name: row.profiles?.name, email: row.profiles?.email, avatarUrl: row.profiles?.avatar_url || null });
       map.set(row.employee_id, arr);
     }
     MANAGERS_BY_EMPLOYEE = map;

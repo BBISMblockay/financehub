@@ -609,3 +609,13 @@ select
       then 'MISSING — payment_requests_v.assigned_to_avatar_url'
     else 'ok'
   end as profile_avatars;
+
+-- 18. mail_items_v avatars (migration 20260805060000)
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='mail_items_v' and column_name='assigned_to_avatar_url')
+      then 'MISSING — mail_items_v.assigned_to_avatar_url'
+    when not exists (select 1 from pg_class where relname = 'mail_items_v' and 'security_invoker=true' = any(reloptions))
+      then 'MISSING — mail_items_v security_invoker'
+    else 'ok'
+  end as mail_items_v_avatars;

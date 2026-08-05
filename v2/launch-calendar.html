@@ -152,9 +152,9 @@
       width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
       display: grid; place-items: center;
       font-family: var(--bcn-mono); font-size: 11px; font-weight: 700;
-      background: var(--bcn-band); color: #fff;
+      background-color: var(--bcn-band); color: #fff;
     }
-    .comment-card--mine .comment-card__avatar { background: var(--bcn-accent); }
+    .comment-card--mine .comment-card__avatar { background-color: var(--bcn-accent); }
     .comment-card__who { flex: 1; min-width: 0; }
     .comment-card__author { display: block; font-size: 12px; font-weight: 700; color: var(--bcn-ink); line-height: 1.2; }
     .comment-card__email { display: block; font-size: 10px; color: var(--bcn-ink-3); margin-top: 1px; }
@@ -701,6 +701,7 @@
 </div>
 
 <script src="nav-config.js"></script>
+<script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
 <script>
 /* ---- DEMO MODE -------------------------------------------------------- */
@@ -1024,26 +1025,31 @@ function commentUserId(c) {
 
 function commentAuthorInfo(c) {
   const uid = commentUserId(c);
+  // Live avatar lookup by uid regardless of which branch below supplies the
+  // label/email — author_name/email on the comment row are a point-in-time
+  // snapshot with no photo, but the profile (and its avatar) is current.
+  const avatarUrl = (uid && profileById.has(uid)) ? (profileById.get(uid).avatar_url || null) : null;
+
   if (currentUser && uid && uid === currentUser.id) {
     const meta = currentUser.user_metadata || {};
     const email = currentUser.email || '';
     const name = meta.full_name || meta.name || email.split('@')[0] || 'You';
-    return { label: 'You', email, initials: profileInitialsFrom(name, email), isYou: true };
+    return { label: 'You', email, initials: profileInitialsFrom(name, email), avatarUrl, isYou: true };
   }
   if (c?.author_name) {
-    return { label: c.author_name, email: c.author_email || '', initials: profileInitialsFrom(c.author_name, c.author_email), isYou: false };
+    return { label: c.author_name, email: c.author_email || '', initials: profileInitialsFrom(c.author_name, c.author_email), avatarUrl, isYou: false };
   }
   if (uid && profileById.has(uid)) {
     const p = profileById.get(uid);
     const email = p.email || '';
     const name = p.name || email.split('@')[0] || 'Team member';
-    return { label: name, email, initials: profileInitialsFrom(name, email), isYou: false };
+    return { label: name, email, initials: profileInitialsFrom(name, email), avatarUrl, isYou: false };
   }
   if (c?.user_email) {
     const email = c.user_email;
-    return { label: email.split('@')[0], email, initials: profileInitialsFrom('', email), isYou: false };
+    return { label: email.split('@')[0], email, initials: profileInitialsFrom('', email), avatarUrl, isYou: false };
   }
-  return { label: 'Team member', email: '', initials: '?', isYou: false };
+  return { label: 'Team member', email: '', initials: '?', avatarUrl, isYou: false };
 }
 
 function updateCommentComposeHint() {
@@ -1059,7 +1065,7 @@ async function loadCurrentProfile() {
   siloUsers = [];
   if (!currentUser?.id) return;
   try {
-    const { data } = await db.from('profiles').select('id, name, email').eq('is_active', true).order('name');
+    const { data } = await db.from('profiles').select('id, name, email, avatar_url').eq('is_active', true).order('name');
     if (data) {
       data.forEach(p => profileById.set(p.id, p));
       siloUsers = data;
@@ -1468,7 +1474,9 @@ function renderComments(rows){
     div.className='comment-card'+(who.isYou?' comment-card--mine':'');
     div.innerHTML=`
       <div class="comment-card__head">
-        <span class="comment-card__avatar" aria-hidden="true">${esc(who.initials)}</span>
+        ${window.SiloAvatar
+          ? SiloAvatar.html({ name: who.label, email: who.email, avatarUrl: who.avatarUrl }, 'sm', 'comment-card__avatar')
+          : `<span class="comment-card__avatar" aria-hidden="true">${esc(who.initials)}</span>`}
         <span class="comment-card__who">
           <span class="comment-card__author">${esc(who.label)}</span>
           ${who.email&&!who.isYou?`<span class="comment-card__email">${esc(who.email)}</span>`:''}
