@@ -355,6 +355,7 @@
 </div>
 
 <script src="nav-config.js"></script>
+<script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
 <script>
 (async () => {
@@ -438,6 +439,13 @@
     return p ? (p.name || p.email) : '—';
   }
 
+  function profileAvatarHtml(userId, size) {
+    if (!userId || !window.SiloAvatar) return '';
+    const p = allProfiles.find(x => x.id === userId);
+    if (!p) return '';
+    return SiloAvatar.html({ name: p.name, email: p.email, avatarUrl: p.avatar_url }, size || 'xs');
+  }
+
   function escHtml(s) {
     return String(s)
       .replace(/&/g, '&amp;')
@@ -457,7 +465,7 @@
       const [tasksRes, launchRes, profilesRes, profileMe] = await Promise.all([
         _qt,
         _ql,
-        db.from('profiles').select('id, name, email').eq('is_active', true).order('name'),
+        db.from('profiles').select('id, name, email, avatar_url').eq('is_active', true).order('name'),
         db.from('profiles').select('role').eq('id', currentUser.id).single(),
       ]);
 
@@ -671,7 +679,7 @@
         ${orderCell}
         <td style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(t.task_title || '')}">${t.is_private ? '<span title="Private" style="margin-right:4px;">🔒</span>' : ''}${escHtml(t.task_title || '')}</td>
         <td>${launchCell}</td>
-        <td>${escHtml(aName)}</td>
+        <td style="white-space:nowrap;"><span style="display:inline-flex;align-items:center;gap:6px;">${profileAvatarHtml(t.assigned_to_user_id, 'xs')}${escHtml(aName)}</span></td>
         <td>${priorityPill(t.priority)}</td>
         <td>${escHtml(t.task_type || '—')}</td>
         <td class="bcn-mono ${dueCls}" style="white-space:nowrap;">${fmtDate(t.due_date)}</td>

@@ -92,6 +92,9 @@ Run in order:
 
 `pages/login.html` — `getRouteFromProfile()` now actually reads and honors `profiles.default_page` (validated through the same same-origin-path guard as the `?next=` deep-link param) before falling back to the role/department routing, which previously sent every department to `/v2/finance.html` regardless.
 
+26. **`migrations/20260805050000_profile_avatars.sql`** — real profile photos, replacing the bold-initials block everywhere it appears  
+    Adds `profiles.avatar_url` and a public `avatars` storage bucket (path `avatars/{auth.uid()}/avatar.{ext}`, RLS-scoped so each user can only write their own folder; public read since other people need to see the photo too — Request Manager, Tasks, the sidebar). `payment_requests_v` gained `assigned_to_avatar_url` (new column appended at the end, `security_invoker` explicitly re-set to `true` after the `CREATE OR REPLACE VIEW` — same lesson as #24). Shared render/upload logic lives in `v2/avatar.js` (`.bcn-avatar` component in `beacon.css`) so any page can drop in a real photo with initials-fallback in one call: `SiloAvatar.html({name, email, avatarUrl}, size)`. Wired into `/v2/profile.html` (upload UI), the sidebar (`silo-chrome.js`, resolved the same session-cache-then-resolve way as nav department), `/v2/request_manager.html`, and `/v2/tasks.html`.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
