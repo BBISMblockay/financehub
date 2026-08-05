@@ -268,6 +268,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="dept-guard.js" data-departments="exec,finance"></script>
   <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
   <script>
     const cfg = window.__SILO_CONFIG__ || {};
@@ -519,7 +520,12 @@
           <td><span class="${priorityBadgeClass(r.priority)}">${escapeHtml(r.priority || "—")}</span></td>
           <td class="mono rm-cell-primary">${formatDate(r.received_date)}</td>
           <td class="mono rm-cell-primary">${formatDate(r.due_date)}</td>
-          <td><div class="rm-cell-primary truncate-160">${escapeHtml(r.assigned_to_name || r.assigned_to_email || "Unassigned")}</div></td>
+          <td>
+            <div class="rm-cell-primary truncate-160" style="display:flex;align-items:center;gap:6px;">
+              ${window.SiloAvatar && r.assigned_to ? SiloAvatar.html({ name: r.assigned_to_name, email: r.assigned_to_email, avatarUrl: r.assigned_to_avatar_url }, "xs") : ""}
+              <span>${escapeHtml(r.assigned_to_name || r.assigned_to_email || "Unassigned")}</span>
+            </div>
+          </td>
           <td>
             <div class="rm-badge-row">${statusBadge(r.status)}</div>
             <div class="rm-action-row"><button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Open</button></div>
