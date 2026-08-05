@@ -574,3 +574,24 @@ select
   (select count(*) from public.profiles)             as profiles,
   (select count(*) from public.launch_calendar)      as launches,
   (select count(*) from public.shopify_connections)  as shopify_connections;
+
+-- 15. ar_sync_status_v must run as its owner (security_invoker = false) or the
+--     AR sync freshness banner (wholesale page + Backend Hub ops panel) silently
+--     returns zero rows for every real user — job_sync_state is deny-all RLS
+--     for everyone except a bypassrls role (migration 20260805030000).
+select
+  case
+    when not exists (select 1 from pg_class where relname = 'ar_sync_status_v' and relnamespace = 'public'::regnamespace)
+      then 'MISSING — ar_sync_status_v view not found'
+    when exists (
+      select 1 from pg_class
+      where relname = 'ar_sync_status_v' and relnamespace = 'public'::regnamespace
+        and 'security_invoker=true' = any(reloptions)
+    ) then 'MISSING — run 20260805030000_ar_sync_status_v_restore_definer_read.sql'
+    else 'ok'
+  end as ar_sync_status_v_definer_read;
+
+-- 16. default_page bootstrap (migration 20260805040000) — 0 is fine once
+--     everyone has picked their own; this is just visibility, not a hard gate.
+select count(*) as profiles_with_no_default_page
+from public.profiles where default_page is null;

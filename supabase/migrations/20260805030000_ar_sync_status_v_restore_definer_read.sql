@@ -1,0 +1,27 @@
+-- ============================================================
+-- 20260805030000_ar_sync_status_v_restore_definer_read.sql
+--
+-- ar_sync_status_v is the intended safe, read-only window into
+-- job_sync_state (which is service-role-only: RLS enabled, zero
+-- policies, deny-all for every non-bypassrls role). That only works
+-- when the view runs with its OWNER's privileges (security_invoker =
+-- false, the default) — the owner is `postgres`, which has BYPASSRLS.
+--
+-- At some point security_invoker got set to true on this view
+-- (likely swept up by a blanket "harden all views" pass that predates
+-- this view's own history — it has never had a tracked migration of
+-- its own). With security_invoker = true the view runs as the
+-- calling role instead, which hits job_sync_state's deny-all RLS and
+-- silently returns zero rows for every real app user (admin or not)
+-- — confirmed live via `set local role authenticated`. That broke the
+-- AR sync freshness banner on pages/baseballismwholesale.html and the
+-- new Ops status panel on v2/backend.html the same way: not an error,
+-- just an empty result.
+--
+-- Fix: put security_invoker back to false. job_sync_state itself
+-- stays exactly as locked down as documented — this only restores the
+-- view's original job as a safe projection of the single
+-- ar_google_sheets_sync row.
+-- ============================================================
+
+alter view public.ar_sync_status_v set (security_invoker = false);
