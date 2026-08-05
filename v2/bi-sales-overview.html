@@ -63,38 +63,59 @@
     .ov-table-wrap::-webkit-scrollbar{ height:6px; width:6px; }
     .ov-table-wrap::-webkit-scrollbar-thumb{ background:var(--bcn-border-strong); border-radius:3px; }
 
+    /* Table redesign: the old pastel per-period column backgrounds (light
+       blue/amber/green) competed with the row borders instead of helping —
+       a busy multi-color grid is genuinely harder to scan than clean rows.
+       Replaced with: zebra row striping (the proven pattern for tracking a
+       row across many columns), a clear CY/PY visual hierarchy (CY bold and
+       dark since it's the headline number, PY muted since it's just the
+       reference point — previously both were identical weight/color, so
+       there was no visual cue for which number mattered), and a stronger
+       divider between the Day/MTD/YTD groups now that it's not fighting
+       three different background tints. */
     .ov-tbl { width:max-content; min-width:100%; border-collapse:collapse; }
     .ov-tbl thead tr:first-child th {
-      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.14em;
-      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
+      font-family:var(--bcn-mono); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.12em;
+      color:var(--bcn-ink-2); padding:8px 10px; border-bottom:1px solid var(--bcn-border-strong);
       text-align:center; position:sticky; top:0; z-index:3; background:var(--bcn-sunken);
     }
     .ov-tbl thead tr:nth-child(2) th {
-      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.08em;
-      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
-      text-align:right; position:sticky; top:30px; z-index:3; background:var(--bcn-sunken);
+      font-family:var(--bcn-mono); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+      color:var(--bcn-ink-3); padding:6px 10px 8px; border-bottom:2px solid var(--bcn-border-strong);
+      text-align:right; position:sticky; top:56px; z-index:3; background:var(--bcn-sunken);
     }
-    .ov-tbl thead th:first-child,
-    .ov-tbl tbody td:first-child { position:sticky; left:0; z-index:4; background:var(--bcn-surface); }
+    /* Sticky-corner cells (top+left both stuck) need a HIGHER z-index than
+       the sticky header rows so the Store header stays on top of everything
+       during horizontal scroll — but sticky-left BODY cells need a LOWER
+       z-index than the header, or they bleed through on top of the sticky
+       header during vertical scroll (they scroll normally in Y, and once
+       a body row lines up with the header's screen position, whichever has
+       the higher z-index wins the paint order — was a real, reproducible
+       artifact caught scrolling the actual page, not theoretical). */
+    .ov-tbl thead th:first-child { position:sticky; left:0; z-index:5; background:var(--bcn-sunken); }
+    .ov-tbl tbody td:first-child { position:sticky; left:0; z-index:1; background:var(--bcn-surface); }
+    .ov-tbl tbody tr:nth-child(even):not(.ov-total) td:first-child { background:var(--bcn-sunken); }
     .ov-tbl tbody td {
-      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
-      padding:7px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
-      text-align:right;
+      font-family:var(--bcn-mono); font-size:12.5px; font-variant-numeric:tabular-nums;
+      padding:8px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
+      text-align:right; color:var(--bcn-ink-3);
     }
-    .ov-tbl tbody tr:hover td { background:var(--bcn-sunken); }
-    .ov-tbl .m-store { min-width:160px; text-align:left!important; font-family:var(--bcn-font); }
-    .ov-tbl .m-store strong { font-weight:600; color:var(--bcn-ink); font-size:12px; }
+    .ov-tbl tbody tr:nth-child(even):not(.ov-total) td { background:var(--bcn-sunken); }
+    .ov-tbl tbody tr:hover td { background:var(--bcn-border); }
+    .ov-tbl .m-store { min-width:170px; text-align:left!important; font-family:var(--bcn-font); }
+    .ov-tbl .m-store strong { font-weight:700; color:var(--bcn-ink); font-size:13px; }
     .ov-tbl .m-group { display:inline-block; margin-top:2px; }
-    .ov-tbl .g-day  { background:oklch(0.97 0.03 245); }
-    .ov-tbl .g-mtd  { background:oklch(0.98 0.02 60); }
-    .ov-tbl .g-ytd  { background:oklch(0.97 0.03 145); }
+    .ov-tbl .m-cy { font-weight:700; color:var(--bcn-ink); }
+    .ov-tbl .m-py { color:var(--bcn-ink-4); }
     .ov-tbl .g-lead { border-left:2px solid var(--bcn-border-strong); }
     .ov-tbl tbody tr.ov-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
+    .ov-tbl tbody tr.ov-total td.m-cy { color:var(--bcn-band-ink); }
+    .ov-tbl tbody tr.ov-total td.m-py { color:var(--bcn-band-ink-2); }
     .ov-tbl tbody tr.ov-total td.m-store { background:var(--bcn-band); }
     .ov-tbl tbody tr.ov-total:hover td { background:var(--bcn-band); }
 
     /* Var% pills — color + arrow glyph together, never color alone. */
-    .ov-var-pill { font-size:10.5px; padding:1px 6px; }
+    .ov-var-pill { font-size:11px; padding:2px 7px; font-weight:700; }
     .ov-var-pill .arrow { margin-right:2px; }
 
     /* Period switcher collapses the matrix to one Day/MTD/YTD column group at
@@ -407,7 +428,10 @@
     const cur = r[`cur_${period}_${fields.prefix}`], py = r[`py_${period}_${fields.prefix}`];
     const varPctField = r[`${period}_${fields.prefix}_var_pct`];
     const pct = varPctField==null?null:varPctField*100;
-    return `<td class="g-${period}${lead?' g-lead':''}">${fields.fmt(cur)}</td><td class="g-${period}">${fields.fmt(py)}</td><td class="g-${period}">${varPill(pct)}</td>`;
+    // g-${period} stays on every cell — the Period filter chips hide/show
+    // whole column groups by that class (see #ovTableWrap[data-period=...]
+    // below). m-cy/m-py is the separate CY-vs-PY visual weight on top of it.
+    return `<td class="g-${period} m-cy${lead?' g-lead':''}">${fields.fmt(cur)}</td><td class="g-${period} m-py">${fields.fmt(py)}</td><td class="g-${period}">${varPill(pct)}</td>`;
   }
 
   function renderMatrix(){
