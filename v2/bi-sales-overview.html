@@ -10,12 +10,23 @@
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <style>
+    /* Page-scoped tightening (this style block only applies to this page) —
+       header + KPI band + filter bar were three full-height stacked bars
+       pushing the actual data table below the fold. Compress all three so
+       more of the table is visible without scrolling first. */
+    .bcn-header { padding:9px 18px 7px; }
+    .bcn-header h1 { font-size:16px; }
+    .bcn-header-sub { font-size:11px; line-height:1.35; margin-top:1px; }
     .bcn-kpi-band { flex-wrap:wrap; }
+    .bcn-kpi-band .bcn-kpi { padding:7px 14px; gap:2px; }
+    .bcn-kpi-band .bcn-kpi-label { font-size:9px; }
+    .bcn-kpi-band .bcn-kpi-value { font-size:17px; }
+    .bcn-kpi-band .bcn-kpi-delta { font-size:10px; }
 
     .ov-filters {
       background:var(--bcn-sunken);
       border-bottom:1px solid var(--bcn-border);
-      padding:12px 18px;
+      padding:7px 18px;
       display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
       flex-shrink:0;
     }
@@ -32,7 +43,21 @@
     .ov-meta-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .ov-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
 
-    .ov-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    .ov-date-picker { display:flex; align-items:center; gap:6px; }
+    .ov-date-picker input[type="date"] {
+      height:26px; padding:0 8px; font-size:11.5px; font-family:var(--bcn-mono);
+      border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
+      background:var(--bcn-surface); color:var(--bcn-ink);
+    }
+    .ov-date-picker .bcn-btn { height:26px; padding:0 10px; font-size:11px; }
+    .ov-date-badge {
+      font-family:var(--bcn-mono); font-size:10px; font-weight:700; letter-spacing:.04em;
+      padding:2px 8px; border-radius:var(--bcn-radius);
+      background:var(--bcn-accent-soft, var(--bcn-sunken)); color:var(--bcn-accent);
+      border:1px solid var(--bcn-accent);
+    }
+
+    .ov-content { flex:1; padding:8px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:10px; }
 
     .ov-table-wrap { overflow:auto; }
     .ov-table-wrap::-webkit-scrollbar{ height:6px; width:6px; }
@@ -157,6 +182,12 @@
             <option value="discounts">Discounts</option>
           </select>
         </div>
+        <div class="ov-date-picker">
+          <label class="bcn-label" style="margin-right:2px">As of</label>
+          <input type="date" id="asOfDate" title="See Day/MTD/YTD comps as of a different date" />
+          <button id="btnResetDate" class="bcn-btn bcn-btn--ghost" hidden>Latest</button>
+          <span id="customDateBadge" class="ov-date-badge" hidden>Custom date</span>
+        </div>
         <div id="statusText" class="ov-status">Loading…</div>
       </div>
     </div>
@@ -211,7 +242,7 @@
     return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
   }
 
-  const state = { rows:[], groupByTag:new Map(), activeGroup:'all', activePeriod:'all', groups:[] };
+  const state = { rows:[], groupByTag:new Map(), activeGroup:'all', activePeriod:'all', groups:[], customDate:null };
 
   const el = {
     btnRefresh:  document.getElementById('btnRefresh'),
@@ -221,6 +252,9 @@
     metricMode:  document.getElementById('metricMode'),
     groupFilters:document.getElementById('groupFilters'),
     periodFilters: document.getElementById('periodFilters'),
+    asOfDate:    document.getElementById('asOfDate'),
+    btnResetDate: document.getElementById('btnResetDate'),
+    customDateBadge: document.getElementById('customDateBadge'),
     ovTableWrap: document.getElementById('ovTableWrap'),
     rowCount:    document.getElementById('rowCount'),
     matrixHead:  document.getElementById('matrixHead'),
@@ -306,6 +340,15 @@
   }
 
   async function loadMatrix(){
+    // Custom date: live-computed via sales_comp_as_of() over raw sales_by_day
+    // instead of the nightly snapshot table, which only ever holds "as of
+    // yesterday" (overwritten every night, no history to browse).
+    if (state.customDate){
+      const { data,error } = await sb.rpc('sales_comp_as_of', { p_as_of_date: state.customDate });
+      if (error) throw error;
+      state.rows = (data||[]).slice().sort((a,b)=>String(a.location_tag).localeCompare(String(b.location_tag)));
+      return;
+    }
     let q = sb.from('sales_verification_store_comp_summary').select('*').order('location_tag',{ascending:true});
     q = scopeQ(q);
     const { data,error } = await q;
@@ -444,7 +487,10 @@
       const dayLbl = fmtDayLabel(asOf);
       el.kpiDayLabel.textContent = dayLbl ? `${dayLbl} Total` : 'Last Day Total';
       el.kpiDayQtyLabel.textContent = dayLbl ? `${dayLbl} Units` : 'Last Day Units';
-      setStatus(`Loaded ${state.rows.length} location${state.rows.length===1?'':'s'}. Summary refreshed: ${fmtTs(refreshedAt)}.`);
+      const countMsg = `Loaded ${state.rows.length} location${state.rows.length===1?'':'s'}.`;
+      setStatus(state.customDate
+        ? `${countMsg} Live query for ${asOf||state.customDate} — computed just now, not the nightly summary.`
+        : `${countMsg} Summary refreshed: ${fmtTs(refreshedAt)}.`);
     } catch(e){
       console.error(e);
       setStatus(`Load failed: ${e.message}`);
@@ -472,6 +518,22 @@
     el.ovTableWrap.dataset.period = state.activePeriod;
   });
 
+  function setCustomDate(dateStr){
+    state.customDate = dateStr || null;
+    el.btnResetDate.hidden = !state.customDate;
+    el.customDateBadge.hidden = !state.customDate;
+  }
+  el.asOfDate.addEventListener('change', ()=>{
+    if (!el.asOfDate.value) return;
+    setCustomDate(el.asOfDate.value);
+    runLoad();
+  });
+  el.btnResetDate.addEventListener('click', ()=>{
+    el.asOfDate.value = '';
+    setCustomDate(null);
+    runLoad();
+  });
+
   async function boot(){
     const sess = await sb.auth.getSession();
     if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
@@ -485,6 +547,12 @@
         supabaseClient:sb,
       });
     }
+
+    // Same "no partial days" rule the nightly summary follows — cap the
+    // picker at yesterday so a custom-date query can't quietly undercount
+    // a day that's still in progress.
+    const yesterday = new Date(Date.now() - 86400000);
+    el.asOfDate.max = yesterday.toISOString().slice(0,10);
 
     // The full 9-column matrix is hard to read on a phone even with horizontal
     // scroll — default narrow viewports to a single period (Day) and let the

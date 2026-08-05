@@ -619,3 +619,11 @@ select
       then 'MISSING — mail_items_v security_invoker'
     else 'ok'
   end as mail_items_v_avatars;
+
+-- 19. sales_comp_as_of RPC (migration 20260805070000)
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='sales_comp_as_of')
+      then 'MISSING — run 20260805070000_sales_comp_as_of_rpc.sql'
+    else 'ok'
+  end as sales_comp_as_of_rpc;
