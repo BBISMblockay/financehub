@@ -590,3 +590,8 @@ select
     ) then 'MISSING — run 20260805030000_ar_sync_status_v_restore_definer_read.sql'
     else 'ok'
   end as ar_sync_status_v_definer_read;
+
+-- 16. default_page bootstrap (migration 20260805040000) — 0 is fine once
+--     everyone has picked their own; this is just visibility, not a hard gate.
+select count(*) as profiles_with_no_default_page
+from public.profiles where default_page is null;

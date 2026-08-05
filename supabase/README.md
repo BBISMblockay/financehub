@@ -87,6 +87,11 @@ Run in order:
 24. **`migrations/20260805030000_ar_sync_status_v_restore_definer_read.sql`** — AR sync freshness banner was silently returning nothing for every real user  
     `ar_sync_status_v` reads `job_sync_state`, which is intentionally locked down (RLS enabled, zero policies — service-role/bypassrls only). The view is meant to be the one safe read surface into it, which only works with `security_invoker = false` (view runs as its owner `postgres`, which has `BYPASSRLS`) — but the view had `security_invoker = true` set (no tracked migration ever created it; this predates migration history), so it ran as the *calling* role instead and hit the deny-all RLS, returning zero rows with no error for every non-bypassrls caller. Confirmed live via `set local role authenticated`. Broke the freshness banner on `pages/baseballismwholesale.html` and the new Ops status panel on `v2/backend.html` identically. Fix: `security_invoker` back to `false` — `job_sync_state` itself is untouched and stays exactly as locked down as documented.
 
+25. **`migrations/20260805040000_default_page_bootstrap_profile.sql`** — one-time data backfill, paired with the `pages/login.html` fix below  
+    Bootstraps every existing profile's `default_page` to `/v2/profile.html`. Until the `login.html` fix, this column was write-only (saved by `/v2/profile.html`, never read at login), so any existing value — a few users had already set one — had no real effect. This gives everyone a neutral, working landing page immediately; each person can still change it themselves from Profile → Default page.
+
+`pages/login.html` — `getRouteFromProfile()` now actually reads and honors `profiles.default_page` (validated through the same same-origin-path guard as the `?next=` deep-link param) before falling back to the role/department routing, which previously sent every department to `/v2/finance.html` regardless.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)

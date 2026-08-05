@@ -7459,3 +7459,12 @@ $function$;
 -- ============================================================
 
 alter view public.ar_sync_status_v set (security_invoker = false);
+
+-- ============================================================
+-- 20260805040000_default_page_bootstrap_profile.sql
+-- ============================================================
+
+update public.profiles
+   set default_page = '/v2/profile.html',
+       updated_at = now()
+ where default_page is distinct from '/v2/profile.html';
