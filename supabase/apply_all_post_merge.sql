@@ -7454,3 +7454,8 @@ begin
 end;
 $function$;
 
+-- ============================================================
+-- 20260805030000_ar_sync_status_v_restore_definer_read.sql
+-- ============================================================
+
+alter view public.ar_sync_status_v set (security_invoker = false);
