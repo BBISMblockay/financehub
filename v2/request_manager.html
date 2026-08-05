@@ -22,6 +22,13 @@
   <style>
     :root { color-scheme: light; }
     .silo-main { overflow-y: auto; }
+    .rm-bulk-bar { margin-bottom: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--bcn-accent, #3b6fe0); }
+    .rm-bulk-bar-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .rm-bulk-bar-group { display: flex; align-items: flex-end; gap: 6px; }
+    .rm-bulk-bar-group .bcn-label { display: block; margin-bottom: 3px; }
+    .rm-bulk-bar-count { font-weight: 700; font-size: 13px; }
+    .select-sm { padding: 4px 8px; font-size: 12.5px; }
+    .rm-row-select-col { width: 32px; text-align: center; }
   </style>
 </head>
 <body>
@@ -177,6 +184,44 @@
                   <div class="section-sub">Review, edit, and mark paid</div>
                 </div>
                 <div class="rm-row-count"><span id="rowCount">0</span> rows</div>
+              </div>
+
+              <div id="bulkActionBar" class="card rm-bulk-bar" hidden>
+                <div class="rm-bulk-bar-row">
+                  <div class="rm-bulk-bar-count"><span id="bulkSelectedCount">0</span> selected</div>
+                  <button id="bulkClearBtn" class="btn btn-soft btn-xs" type="button">Clear selection</button>
+                </div>
+                <div class="rm-bulk-bar-row">
+                  <div class="rm-bulk-bar-group">
+                    <label class="bcn-label">Assign to</label>
+                    <select id="bulkAssignSelect" class="select select-sm">
+                      <option value="">Choose…</option>
+                    </select>
+                    <button id="bulkApplyAssignBtn" class="btn btn-soft btn-xs" type="button">Apply</button>
+                  </div>
+                  <div class="rm-bulk-bar-group">
+                    <label class="bcn-label">Status</label>
+                    <select id="bulkStatusSelect" class="select select-sm">
+                      <option value="">Choose…</option>
+                      <option value="in_review">In review</option>
+                      <option value="needs_info">Needs info</option>
+                      <option value="approved">Approved</option>
+                      <option value="processing">Processing</option>
+                      <option value="rejected">Rejected</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                    <button id="bulkApplyStatusBtn" class="btn btn-soft btn-xs" type="button">Apply</button>
+                  </div>
+                </div>
+                <div class="rm-bulk-bar-row">
+                  <div class="rm-bulk-bar-group">
+                    <label class="bcn-label">Confirmation document (applied to all selected)</label>
+                    <input id="bulkConfirmationFileInput" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" />
+                  </div>
+                  <button id="bulkMarkPaidBtn" class="btn btn-primary btn-xs" type="button">Mark selected paid</button>
+                  <button id="bulkForwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to Melio</button>
+                </div>
+                <div id="bulkActionStatus" class="rm-upload-status"></div>
               </div>
 
               <div class="rm-table-scroll">
@@ -400,7 +445,9 @@
             <div class="rm-doc-actions">
               <button id="openFileBtn" class="btn btn-soft btn-xs" type="button">Open first submitted</button>
               <button id="openLegacyBtn" class="btn btn-soft btn-xs" type="button" hidden>Legacy record</button>
+              <button id="forwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to Melio</button>
             </div>
+            <div id="forwardMelioStatus" class="rm-upload-status"></div>
           </div>
 
           <div class="rm-doc-group">
@@ -564,7 +611,8 @@
       filteredActivityRows: [],
       files: [],
       activeTab: "requests",
-      queueFilter: "open"
+      queueFilter: "open",
+      selectedIds: new Set()
     };
 
     const els = {
@@ -601,6 +649,18 @@
       rowCount: document.getElementById("rowCount"),
       mainHead: document.getElementById("mainHead"),
       mainBody: document.getElementById("mainBody"),
+
+      bulkActionBar: document.getElementById("bulkActionBar"),
+      bulkSelectedCount: document.getElementById("bulkSelectedCount"),
+      bulkClearBtn: document.getElementById("bulkClearBtn"),
+      bulkAssignSelect: document.getElementById("bulkAssignSelect"),
+      bulkApplyAssignBtn: document.getElementById("bulkApplyAssignBtn"),
+      bulkStatusSelect: document.getElementById("bulkStatusSelect"),
+      bulkApplyStatusBtn: document.getElementById("bulkApplyStatusBtn"),
+      bulkConfirmationFileInput: document.getElementById("bulkConfirmationFileInput"),
+      bulkMarkPaidBtn: document.getElementById("bulkMarkPaidBtn"),
+      bulkForwardMelioBtn: document.getElementById("bulkForwardMelioBtn"),
+      bulkActionStatus: document.getElementById("bulkActionStatus"),
 
       summaryCards: document.getElementById("summaryCards"),
       recentRequests: document.getElementById("recentRequests"),
@@ -669,6 +729,9 @@
       notifyRequesterRow: document.getElementById("notifyRequesterRow"),
       notifyRequesterBtn: document.getElementById("notifyRequesterBtn"),
       notifyRequesterStatus: document.getElementById("notifyRequesterStatus"),
+
+      forwardMelioBtn: document.getElementById("forwardMelioBtn"),
+      forwardMelioStatus: document.getElementById("forwardMelioStatus"),
 
       toastWrap: document.getElementById("toastWrap")
     };
@@ -1218,6 +1281,51 @@
       }
     }
 
+    function renderForwardMelioRow(row) {
+      els.forwardMelioStatus.textContent = row?.melio_forwarded_at
+        ? `Forwarded to Melio ${formatDateTime(row.melio_forwarded_at)}`
+        : "Not yet forwarded to Melio.";
+    }
+
+    async function forwardToMelio(requestId, { silent = false } = {}) {
+      if (!requestId) return;
+
+      if (!silent) {
+        els.forwardMelioBtn.disabled = true;
+        els.forwardMelioStatus.textContent = "Forwarding…";
+      }
+
+      try {
+        const { data, error } = await supabaseClient.functions.invoke("payment-request-forward-melio", {
+          body: { payment_request_id: requestId }
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+
+        state.rows = await fetchRows();
+        state.activityRows = await fetchActivityRows();
+        const row = state.rows.find(r => r.id === requestId);
+        if (row && state.currentRow?.id === requestId) {
+          state.currentRow = row;
+          renderForwardMelioRow(row);
+          renderDrawerActivity(row);
+        }
+        if (!silent) {
+          refreshAll();
+          showToast("Forwarded to Melio.");
+        }
+      } catch (err) {
+        console.error(err);
+        if (!silent) {
+          els.forwardMelioStatus.textContent = "";
+          showToast(`Forward to Melio failed: ${err.message || "Unknown error"}`, true);
+        }
+        throw err;
+      } finally {
+        if (!silent) els.forwardMelioBtn.disabled = false;
+      }
+    }
+
     function renderDrawerSnapshot(row) {
       const rowFiles = filesForRequest(row);
       els.drawerSnapshot.innerHTML = `
@@ -1288,6 +1396,12 @@
         .join("");
 
       els.fAssignedTo.innerHTML = ['<option value="">Unassigned</option>']
+        .concat(
+          state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+        )
+        .join("");
+
+      els.bulkAssignSelect.innerHTML = ['<option value="">Choose…</option>', '<option value="__unassigned__">Unassigned</option>']
         .concat(
           state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
         )
@@ -1482,7 +1596,11 @@
     function renderTable() {
       els.rowCount.textContent = formatNumber(state.filteredRows.length);
 
+      const allFilteredSelected = state.filteredRows.length > 0 &&
+        state.filteredRows.every(r => state.selectedIds.has(r.id));
+
       els.mainHead.innerHTML = `<tr>
+        <th class="rm-row-select-col"><input type="checkbox" id="selectAllCheckbox" ${allFilteredSelected ? "checked" : ""}></th>
         <th>Vendor / requester</th>
         <th>Refs</th>
         <th class="right">Amount</th>
@@ -1494,6 +1612,7 @@
 
       els.mainBody.innerHTML = state.filteredRows.map(r => `
         <tr>
+          <td class="rm-row-select-col"><input type="checkbox" class="row-select-checkbox" data-id="${escapeHtml(r.id)}" ${state.selectedIds.has(r.id) ? "checked" : ""}></td>
           <td>
             <div class="rm-cell-primary truncate-220">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
             <div class="rm-cell-meta rm-cell-meta--truncate">${escapeHtml(r.requester_email || "—")}${r.location_name ? ` · ${escapeHtml(r.location_name)}` : ""}</div>
@@ -1530,7 +1649,7 @@
             </div>
           </td>
         </tr>
-      `).join("") || `<tr><td colspan="7" class="rm-empty-cell">No payment requests match the current filters.</td></tr>`;
+      `).join("") || `<tr><td colspan="8" class="rm-empty-cell">No payment requests match the current filters.</td></tr>`;
 
       document.querySelectorAll(".open-drawer-btn").forEach(btn => {
         btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
@@ -1547,6 +1666,207 @@
           await openFileForRow(btn.getAttribute("data-id"));
         });
       });
+
+      const selectAllCheckbox = document.getElementById("selectAllCheckbox");
+      if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener("change", () => {
+          if (selectAllCheckbox.checked) {
+            state.filteredRows.forEach(r => state.selectedIds.add(r.id));
+          } else {
+            state.filteredRows.forEach(r => state.selectedIds.delete(r.id));
+          }
+          renderTable();
+          renderBulkBar();
+        });
+      }
+
+      document.querySelectorAll(".row-select-checkbox").forEach(cb => {
+        cb.addEventListener("change", () => {
+          const id = cb.getAttribute("data-id");
+          if (cb.checked) state.selectedIds.add(id);
+          else state.selectedIds.delete(id);
+          renderBulkBar();
+        });
+      });
+    }
+
+    function renderBulkBar() {
+      const count = state.selectedIds.size;
+      els.bulkActionBar.hidden = count === 0;
+      els.bulkSelectedCount.textContent = formatNumber(count);
+      if (count === 0) els.bulkActionStatus.textContent = "";
+    }
+
+    function clearSelection() {
+      state.selectedIds.clear();
+      renderTable();
+      renderBulkBar();
+    }
+
+    async function bulkApplyStatus() {
+      const status = els.bulkStatusSelect.value;
+      const ids = [...state.selectedIds];
+      if (!status || !ids.length) return;
+
+      els.bulkApplyStatusBtn.disabled = true;
+      els.bulkActionStatus.textContent = `Updating ${ids.length} request${ids.length === 1 ? "" : "s"}…`;
+
+      try {
+        for (const id of ids) {
+          const row = state.rows.find(r => r.id === id);
+          if (!row || row.workflow_status === status) continue;
+          await updatePaymentRequestOrThrow(id, { workflow_status: status, updated_by: state.currentUser?.id || null });
+          await logActivity({
+            requestId: id,
+            activityType: "status_changed",
+            fieldName: "workflow_status",
+            oldValue: row.workflow_status || "",
+            newValue: status,
+            message: `Status changed from ${row.workflow_status || "—"} to ${status} (bulk action, ${ids.length} requests)`
+          });
+        }
+        els.bulkStatusSelect.value = "";
+        await loadData();
+        clearSelection();
+        showToast(`Updated status on ${ids.length} request${ids.length === 1 ? "" : "s"}.`);
+      } catch (err) {
+        console.error(err);
+        els.bulkActionStatus.textContent = "";
+        showToast(`Bulk status update failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.bulkApplyStatusBtn.disabled = false;
+      }
+    }
+
+    async function bulkApplyAssign() {
+      const rawValue = els.bulkAssignSelect.value;
+      const ids = [...state.selectedIds];
+      if (!rawValue || !ids.length) return;
+      const assignedTo = rawValue === "__unassigned__" ? "" : rawValue;
+
+      els.bulkApplyAssignBtn.disabled = true;
+      els.bulkActionStatus.textContent = `Assigning ${ids.length} request${ids.length === 1 ? "" : "s"}…`;
+
+      try {
+        for (const id of ids) {
+          const row = state.rows.find(r => r.id === id);
+          if (!row || (row.assigned_to || "") === (assignedTo || "")) continue;
+          await updatePaymentRequestOrThrow(id, { assigned_to: assignedTo || null, updated_by: state.currentUser?.id || null });
+          await logActivity({
+            requestId: id,
+            activityType: "assignment_changed",
+            fieldName: "assigned_to",
+            oldValue: assignedName(row.assigned_to),
+            newValue: assignedName(assignedTo),
+            message: `Assignment changed from ${assignedName(row.assigned_to)} to ${assignedName(assignedTo)} (bulk action, ${ids.length} requests)`
+          });
+        }
+        els.bulkAssignSelect.value = "";
+        await loadData();
+        clearSelection();
+        showToast(`Assigned ${ids.length} request${ids.length === 1 ? "" : "s"}.`);
+      } catch (err) {
+        console.error(err);
+        els.bulkActionStatus.textContent = "";
+        showToast(`Bulk assign failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.bulkApplyAssignBtn.disabled = false;
+      }
+    }
+
+    async function bulkMarkPaid() {
+      const ids = [...state.selectedIds];
+      if (!ids.length) return;
+
+      const file = els.bulkConfirmationFileInput.files?.[0] || null;
+      els.bulkMarkPaidBtn.disabled = true;
+
+      try {
+        const notifyPromises = [];
+        for (let i = 0; i < ids.length; i++) {
+          const id = ids[i];
+          els.bulkActionStatus.textContent = `Marking paid ${i + 1}/${ids.length}…`;
+          const row = state.rows.find(r => r.id === id);
+          const wasCompleted = !!row?.completed;
+
+          if (file) {
+            const uploaded = await uploadConfirmationFiles([file], id);
+            for (const f of uploaded) {
+              await logActivity({
+                requestId: id,
+                activityType: "file_uploaded",
+                message: `Uploaded confirmation document: ${f.file_name} (shared across ${ids.length}-request bulk mark-paid)`
+              });
+            }
+          }
+
+          const payload = {
+            workflow_status: "paid",
+            completed: true,
+            date_completed: new Date().toISOString().slice(0, 10),
+            updated_by: state.currentUser?.id || null
+          };
+          await updatePaymentRequestOrThrow(id, payload);
+          state.rows = state.rows.map(r => r.id === id ? { ...r, ...payload } : r);
+
+          await logActivity({
+            requestId: id,
+            activityType: "completed_changed",
+            fieldName: "completed",
+            oldValue: row?.completed ? "Completed" : "Open",
+            newValue: "Completed",
+            message: `Marked paid via bulk action (${ids.length} requests)${file ? " with shared confirmation document" : ""}.`
+          });
+
+          if (!wasCompleted) notifyPromises.push(notifyRequester(id, { silent: true }));
+        }
+
+        await Promise.all(notifyPromises);
+        els.bulkConfirmationFileInput.value = "";
+        await loadData();
+        clearSelection();
+        showToast(`Marked ${ids.length} request${ids.length === 1 ? "" : "s"} paid.`);
+      } catch (err) {
+        console.error(err);
+        els.bulkActionStatus.textContent = "";
+        showToast(`Bulk mark paid failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.bulkMarkPaidBtn.disabled = false;
+      }
+    }
+
+    async function bulkForwardMelio() {
+      const ids = [...state.selectedIds];
+      if (!ids.length) return;
+
+      els.bulkForwardMelioBtn.disabled = true;
+      let succeeded = 0;
+      const failures = [];
+
+      try {
+        for (let i = 0; i < ids.length; i++) {
+          const id = ids[i];
+          els.bulkActionStatus.textContent = `Forwarding to Melio ${i + 1}/${ids.length}…`;
+          try {
+            await forwardToMelio(id, { silent: true });
+            succeeded += 1;
+          } catch (err) {
+            const row = state.rows.find(r => r.id === id);
+            failures.push(`${row?.effective_vendor_name || id}: ${err.message || "Unknown error"}`);
+          }
+        }
+
+        await loadData();
+        clearSelection();
+
+        if (failures.length) {
+          showToast(`Forwarded ${succeeded}/${ids.length}. Failed: ${failures.slice(0, 3).join("; ")}`, true);
+        } else {
+          showToast(`Forwarded ${succeeded} request${succeeded === 1 ? "" : "s"} to Melio.`);
+        }
+      } finally {
+        els.bulkForwardMelioBtn.disabled = false;
+      }
     }
 
     function aggregateBy(rows, keyFn, labelFn) {
@@ -1887,6 +2207,7 @@
       renderDrawerSnapshot(row);
       renderDrawerActivity(row);
       renderNotifyRequesterRow(row);
+      renderForwardMelioRow(row);
 
       els.drawerBackdrop.classList.add("open");
       els.workbenchDrawer.classList.add("open");
@@ -2180,6 +2501,15 @@
       els.notifyRequesterBtn.addEventListener("click", () => {
         if (state.currentRow?.id) notifyRequester(state.currentRow.id);
       });
+      els.forwardMelioBtn.addEventListener("click", () => {
+        if (state.currentRow?.id) forwardToMelio(state.currentRow.id);
+      });
+
+      els.bulkClearBtn.addEventListener("click", clearSelection);
+      els.bulkApplyStatusBtn.addEventListener("click", bulkApplyStatus);
+      els.bulkApplyAssignBtn.addEventListener("click", bulkApplyAssign);
+      els.bulkMarkPaidBtn.addEventListener("click", bulkMarkPaid);
+      els.bulkForwardMelioBtn.addEventListener("click", bulkForwardMelio);
     }
 
     // Mount chrome synchronously — sidebar visible before any network call
