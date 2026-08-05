@@ -438,7 +438,7 @@
               <div>
                 <div class="section-title">Ops status</div>
                 <div class="panel-title">Mailroom queue</div>
-                <div class="panel-sub">Open items by priority, oldest first — from <span class="mono">mail_items_v</span>.</div>
+                <div class="panel-sub">Open items, newest first — from <span class="mono">mail_items_v</span>.</div>
               </div>
               <div class="panel-actions">
                 <span id="opsMailP0Pill" class="pill pill-danger"><span class="dot" style="background: var(--red)"></span>P0 —</span>
@@ -453,7 +453,7 @@
                     <th class="text-left">Subject</th>
                     <th class="text-left">Priority</th>
                     <th class="text-left">Assigned</th>
-                    <th class="text-right">Due</th>
+                    <th class="text-right">Received</th>
                   </tr>
                 </thead>
                 <tbody id="opsMailTbody">
@@ -1009,7 +1009,7 @@
 
       const [{ data: jobs, error: jobsErr }, { data: conns, error: connErr }] = await Promise.all([
         supabaseClient.from("sync_jobs").select("job_type,status,started_at,finished_at,error_message,error").order("started_at", { ascending: false }).limit(8),
-        supabaseClient.from("shopify_connections").select("shop_domain,is_active,last_test_status").eq("is_active", true)
+        supabaseClient.from("shopify_connections").select("shop_domain,is_active,last_test_success").eq("is_active", true)
       ]);
 
       if (jobsErr){
@@ -1038,7 +1038,7 @@
           pill.className = "pill pill-warn";
           pill.innerHTML = `<span class="dot" style="background: var(--amber)"></span>Unknown`;
         } else {
-          const failing = (conns || []).filter(c => c.last_test_status && c.last_test_status !== "success").length;
+          const failing = (conns || []).filter(c => c.last_test_success === false).length;
           const total = (conns || []).length;
           const bad = failing > 0;
           pill.className = bad ? "pill pill-danger" : "pill pill-good";
@@ -1051,9 +1051,9 @@
       const tbody = el("opsMailTbody");
       const { data, error } = await supabaseClient
         .from("mail_items_v")
-        .select("subject,priority,status,due_date,assigned_to_name")
+        .select("subject,priority,status,due_date,assigned_to_name,created_at")
         .eq("status", "open")
-        .order("due_date", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false })
         .limit(200);
 
       if (error){
@@ -1084,7 +1084,7 @@
               <td class="font-black">${escapeHtml(i.subject || "—")}</td>
               <td>${escapeHtml(i.priority || "—")}</td>
               <td class="muted2">${escapeHtml(i.assigned_to_name || "Unassigned")}</td>
-              <td class="text-right mono ${isOverdue ? "" : "muted"}" style="${isOverdue ? "color:var(--red);font-weight:900;" : ""}">${escapeHtml(i.due_date || "—")}</td>
+              <td class="text-right mono muted">${escapeHtml(fmt.dt(i.created_at))}</td>
             </tr>`;
         }).join("") : `<tr><td colspan="4" class="muted2">No open mail items.</td></tr>`;
       }
