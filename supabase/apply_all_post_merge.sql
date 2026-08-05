@@ -7856,3 +7856,27 @@ as $function$
   cross join p
   order by a.location_tag;
 $function$;
+
+-- 20260805090000_backfill_uncategorized_product_types.sql
+-- Reclassify the two dominant "Uncategorized" buckets on sales_by_day
+-- (Package Protection add-on + promo bundle/mystery-pack SKUs). Idempotent:
+-- only touches rows where product_type is still null/blank.
+
+UPDATE public.sales_by_day
+SET product_type = 'Package Protection'
+WHERE (product_type IS NULL OR trim(product_type) = '')
+  AND lower(trim(sku)) = 'x-redo';
+
+UPDATE public.sales_by_day
+SET product_type = 'Bundles & Multi-Packs'
+WHERE (product_type IS NULL OR trim(product_type) = '')
+  AND (
+    sku ILIKE '%bundle%' OR product_name ILIKE '%bundle%'
+    OR sku ILIKE '%combo%' OR product_name ILIKE '%combo%'
+    OR sku ILIKE '%mysterybox%' OR product_name ILIKE '%mystery box%' OR product_name ILIKE '%mystery pack%'
+    OR sku ILIKE '%archivetoppack%' OR sku ILIKE '%archiveshortspack%'
+    OR product_name ILIKE '%archive top pack%' OR product_name ILIKE '%archive shorts pack%'
+    OR product_name ~* 'for \$\d'
+  );
+
+SELECT public.refresh_sales_monthly_rollup_mv();

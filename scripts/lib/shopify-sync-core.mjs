@@ -134,6 +134,23 @@ function getShopifyItemType(li) {
   return (li?.properties || []).find((p) => p?.name === '_shopify_item_type')?.value || null;
 }
 
+// Last-resort classification for line items with no catalog product_type and
+// no _shopify_item_type property -- covers synthetic promo SKUs (bundles,
+// combos, archive/mystery packs) and the Redo checkout package-protection
+// add-on, none of which exist as real Shopify catalog products. Without this
+// they land in "Uncategorized" on product-type reports even though they're
+// easily identifiable by SKU/title.
+function inferFallbackProductType(sku, name) {
+  const s = String(sku || '').trim().toLowerCase();
+  const n = String(name || '').trim().toLowerCase();
+  if (s === 'x-redo') return 'Package Protection';
+  if (/bundle|combo|mystery\s*(box|pack)|archive\s*(top|shorts|mystery)\s*pack/.test(`${s} ${n}`)) {
+    return 'Bundles & Multi-Packs';
+  }
+  if (/\bfor \$\d/.test(n)) return 'Bundles & Multi-Packs';
+  return null;
+}
+
 function sumDiscountForLine(li) {
   return (li?.discount_allocations || []).reduce(
     (sum, d) => sum + Number(d?.amount || 0),
@@ -861,7 +878,10 @@ export function ordersToSalesRows({
             orderDate,
             sku: effectiveSku,
             productName: metaSku.product_title || li.title || null,
-            productType: metaSku.product_type || shopifyItemType || null,
+            productType:
+              metaSku.product_type ||
+              shopifyItemType ||
+              inferFallbackProductType(effectiveSku, metaSku.product_title || li.title),
             vendorOriginal: metaSku.vendor_original || null,
             qty,
             grossSales,
@@ -922,7 +942,10 @@ export function ordersToSalesRows({
           refundDate,
           sku: effectiveSku,
           productName: metaSku.product_title || li?.title || null,
-          productType: metaSku.product_type || shopifyItemType || null,
+          productType:
+            metaSku.product_type ||
+            shopifyItemType ||
+            inferFallbackProductType(effectiveSku, metaSku.product_title || li?.title),
           vendorOriginal: metaSku.vendor_original || null,
           orderId: order.id,
           qtyDelta: -Number(rli.quantity || 0),
