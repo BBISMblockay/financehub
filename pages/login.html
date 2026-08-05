@@ -451,7 +451,7 @@
       async function getUserProfile(userId) {
         const { data, error } = await supabaseClient
           .from("profiles")
-          .select("role, department, is_active")
+          .select("role, department, is_active, default_page")
           .eq("id", userId)
           .maybeSingle();
 
@@ -467,7 +467,24 @@
         return data;
       }
 
+      // Same-origin-path guard shared by the `next` deep-link param and a
+      // user's own `default_page` preference — both are just strings by the
+      // time they reach here, so neither gets to become an open redirect or
+      // a login loop.
+      function isSafeInternalPath(raw) {
+        if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return false;
+        if (raw.startsWith("/pages/login")) return false;
+        return true;
+      }
+
       function getRouteFromProfile(profile) {
+        // A user's own "Default page" choice (/v2/profile.html) wins over
+        // everything else when set — that's what the profile page promises
+        // ("Used after sign-in when set"). It was previously fetched nowhere
+        // near here, so setting it silently did nothing.
+        const defaultPage = (profile.default_page || "").trim();
+        if (isSafeInternalPath(defaultPage)) return defaultPage;
+
         const role = (profile.role || "").toLowerCase();
         const department = (profile.department || "").toLowerCase();
 
@@ -514,9 +531,7 @@
       // ignored in favor of the department route.
       function safeNextPath() {
         const raw = new URLSearchParams(window.location.search).get('next') || '';
-        if (!raw.startsWith('/') || raw.startsWith('//')) return null;
-        if (raw.startsWith('/pages/login')) return null;
-        return raw;
+        return isSafeInternalPath(raw) ? raw : null;
       }
 
       // Guarded so the explicit sign-in handlers and the SIGNED_IN auth event
