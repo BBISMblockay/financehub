@@ -222,7 +222,6 @@
       // Prevent auth router/login loops.
       if (path === "/" || path === "/index.html") return "";
       if (path === LOGIN_PAGE) return "";
-      if (path === "/pages/department-access.html") return "";
 
       return path;
     }
