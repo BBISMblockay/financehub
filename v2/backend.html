@@ -18,6 +18,18 @@
      - public.admin_counts()
      - public.admin_list_profiles()
      - public.admin_update_profile(...)
+
+     Ops status panel (added 2026-08): read-only, no new tables/RPCs. Reads
+     directly from existing tables/views, all already scoped to the active
+     company by RLS SELECT policies that any active-company member can read
+     (this page is already admin-gated by requireAdmin()):
+     - public.sync_jobs, public.shopify_connections   (Shopify sync health)
+     - public.ar_sync_status_v                        (AR sync freshness; view
+       bypasses job_sync_state RLS by design, same as pages/baseballismwholesale.html)
+     - public.mail_items_v                             (mailroom queue)
+     - profiles.active_company_id from the already-loaded admin_list_profiles()
+       result (account activation gaps) and expires_at from list_org_invites()
+       (invites expiring soon) — both derived client-side, no extra queries.
 -->
 <!doctype html>
 <html lang="en" data-theme="light">
@@ -384,6 +396,104 @@
               <div><b>Note:</b> "Create account" on the login page founds a NEW organization — it is not how teammates join this one.</div>
               <div class="divider my-3"></div>
               <div class="muted2">If profile lists fail, confirm admin_list_profiles and admin_update_profile RPCs exist.</div>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="side-grid" style="margin-top:14px;">
+        <div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Ops status</div>
+                <div class="panel-title">Shopify sync</div>
+                <div class="panel-sub">Last sync jobs per store, straight from <span class="mono">sync_jobs</span>.</div>
+              </div>
+              <div class="panel-actions">
+                <span id="opsShopifyHealthPill" class="pill"><span class="dot"></span>—</span>
+                <button id="opsReloadBtn" class="btn btn-soft">Reload</button>
+              </div>
+            </div>
+            <div class="scrollbar">
+              <table class="table min-w-full">
+                <thead>
+                  <tr>
+                    <th class="text-left">Job</th>
+                    <th class="text-left">Status</th>
+                    <th class="text-left">Started</th>
+                    <th class="text-right">Duration</th>
+                    <th class="text-right">Error</th>
+                  </tr>
+                </thead>
+                <tbody id="opsShopifyTbody">
+                  <tr><td colspan="5" class="muted2">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Ops status</div>
+                <div class="panel-title">Mailroom queue</div>
+                <div class="panel-sub">Open items by priority, oldest first — from <span class="mono">mail_items_v</span>.</div>
+              </div>
+              <div class="panel-actions">
+                <span id="opsMailP0Pill" class="pill pill-danger"><span class="dot" style="background: var(--red)"></span>P0 —</span>
+                <span id="opsMailP1Pill" class="pill pill-warn"><span class="dot" style="background: var(--amber)"></span>P1 —</span>
+                <span id="opsMailOverduePill" class="pill"><span class="dot"></span>Overdue —</span>
+              </div>
+            </div>
+            <div class="scrollbar">
+              <table class="table min-w-full">
+                <thead>
+                  <tr>
+                    <th class="text-left">Subject</th>
+                    <th class="text-left">Priority</th>
+                    <th class="text-left">Assigned</th>
+                    <th class="text-right">Due</th>
+                  </tr>
+                </thead>
+                <tbody id="opsMailTbody">
+                  <tr><td colspan="4" class="muted2">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="px-4 py-3 text-xs muted2 border-t" style="border-color:var(--line);">Open only shown here — go to <span class="mono">Mailroom</span> to act on an item.</div>
+          </section>
+        </div>
+
+        <aside>
+          <section class="side-card">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Ops status</div>
+                <div class="panel-title">AR sync — BBISM Receivables</div>
+              </div>
+              <span id="opsArPill" class="pill"><span class="dot"></span>—</span>
+            </div>
+            <div class="panel-body text-xs muted leading-6">
+              <div>Newest order: <span id="opsArNewest" class="mono">—</span></div>
+              <div>Staleness: <span id="opsArStaleness" class="mono">—</span></div>
+              <div>Last success: <span id="opsArLastSuccess" class="mono">—</span></div>
+              <div id="opsArErrorRow" style="display:none;">Error: <span id="opsArError" class="mono"></span></div>
+            </div>
+          </section>
+
+          <section class="side-card mt-4">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Ops status</div>
+                <div class="panel-title">Account activation</div>
+                <div class="panel-sub">Derived from the profile list and invite list already loaded above.</div>
+              </div>
+            </div>
+            <div class="panel-body text-xs muted leading-6">
+              <div>Unactivated profiles (no active company): <span id="opsActUnactivated" class="mono font-black">—</span></div>
+              <div>Executive-role profiles: <span id="opsActExec" class="mono font-black">—</span></div>
+              <div>Invites expiring within 3 days: <span id="opsActInvitesSoon" class="mono font-black">—</span></div>
             </div>
           </section>
         </aside>
@@ -884,10 +994,153 @@
       await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
+    // ====== Ops status (read-only: sync_jobs, shopify_connections, ar_sync_status_v, mail_items_v) ======
+    function fmtDuration(startIso, endIso){
+      if (!startIso || !endIso) return "—";
+      const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+      if (!Number.isFinite(ms) || ms < 0) return "—";
+      if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+      return `${Math.round(ms / 60000)}m`;
+    }
+
+    async function loadShopifySync(){
+      const tbody = el("opsShopifyTbody");
+      const pill = el("opsShopifyHealthPill");
+
+      const [{ data: jobs, error: jobsErr }, { data: conns, error: connErr }] = await Promise.all([
+        supabaseClient.from("sync_jobs").select("job_type,status,started_at,finished_at,error_message,error").order("started_at", { ascending: false }).limit(8),
+        supabaseClient.from("shopify_connections").select("shop_domain,is_active,last_test_status").eq("is_active", true)
+      ]);
+
+      if (jobsErr){
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="muted2">Sync jobs failed: ${escapeHtml(jobsErr.message)}</td></tr>`;
+      } else {
+        const list = Array.isArray(jobs) ? jobs : [];
+        if (tbody){
+          tbody.innerHTML = list.length ? list.map(j => {
+            const status = String(j.status || "—").toLowerCase();
+            const cls = ["success","completed"].includes(status) ? "pill-good" : (["error","failed"].includes(status) ? "pill-danger" : "pill-warn");
+            const err = j.error_message || j.error || "";
+            return `
+              <tr>
+                <td class="font-black">${escapeHtml(j.job_type || "—")}</td>
+                <td><span class="pill ${cls}">${escapeHtml(status)}</span></td>
+                <td class="mono muted">${escapeHtml(fmt.dt(j.started_at))}</td>
+                <td class="text-right mono muted">${escapeHtml(fmtDuration(j.started_at, j.finished_at))}</td>
+                <td class="text-right muted2">${escapeHtml(err ? (err.length > 40 ? err.slice(0, 40) + "…" : err) : "—")}</td>
+              </tr>`;
+          }).join("") : `<tr><td colspan="5" class="muted2">No sync jobs recorded yet.</td></tr>`;
+        }
+      }
+
+      if (pill){
+        if (connErr || jobsErr){
+          pill.className = "pill pill-warn";
+          pill.innerHTML = `<span class="dot" style="background: var(--amber)"></span>Unknown`;
+        } else {
+          const failing = (conns || []).filter(c => c.last_test_status && c.last_test_status !== "success").length;
+          const total = (conns || []).length;
+          const bad = failing > 0;
+          pill.className = bad ? "pill pill-danger" : "pill pill-good";
+          pill.innerHTML = `<span class="dot" style="background:${bad ? "var(--red)" : "var(--green)"}"></span>${total - failing}/${total} stores OK`;
+        }
+      }
+    }
+
+    async function loadMailroomStatus(){
+      const tbody = el("opsMailTbody");
+      const { data, error } = await supabaseClient
+        .from("mail_items_v")
+        .select("subject,priority,status,due_date,assigned_to_name")
+        .eq("status", "open")
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .limit(200);
+
+      if (error){
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="muted2">Mailroom failed: ${escapeHtml(error.message)}</td></tr>`;
+        return;
+      }
+
+      const items = Array.isArray(data) ? data : [];
+      const today = new Date(); today.setHours(0,0,0,0);
+      const countBy = (p) => items.filter(i => i.priority === p).length;
+      const overdue = items.filter(i => i.due_date && new Date(i.due_date) < today).length;
+
+      setText("opsMailP0Pill", `P0 ${countBy("P0")}`);
+      const p0Pill = el("opsMailP0Pill"); if (p0Pill) p0Pill.innerHTML = `<span class="dot" style="background: var(--red)"></span>P0 ${countBy("P0")}`;
+      const p1Pill = el("opsMailP1Pill"); if (p1Pill) p1Pill.innerHTML = `<span class="dot" style="background: var(--amber)"></span>P1 ${countBy("P1")}`;
+      const odPill = el("opsMailOverduePill");
+      if (odPill){
+        odPill.className = overdue > 0 ? "pill pill-danger" : "pill";
+        odPill.innerHTML = `<span class="dot" style="background:${overdue > 0 ? "var(--red)" : "var(--muted-2)"}"></span>Overdue ${overdue}`;
+      }
+
+      if (tbody){
+        const rows = items.slice(0, 6);
+        tbody.innerHTML = rows.length ? rows.map(i => {
+          const isOverdue = i.due_date && new Date(i.due_date) < today;
+          return `
+            <tr>
+              <td class="font-black">${escapeHtml(i.subject || "—")}</td>
+              <td>${escapeHtml(i.priority || "—")}</td>
+              <td class="muted2">${escapeHtml(i.assigned_to_name || "Unassigned")}</td>
+              <td class="text-right mono ${isOverdue ? "" : "muted"}" style="${isOverdue ? "color:var(--red);font-weight:900;" : ""}">${escapeHtml(i.due_date || "—")}</td>
+            </tr>`;
+        }).join("") : `<tr><td colspan="4" class="muted2">No open mail items.</td></tr>`;
+      }
+    }
+
+    async function loadArSyncStatus(){
+      const { data, error } = await supabaseClient.from("ar_sync_status_v").select("*").limit(1);
+      const pill = el("opsArPill");
+
+      if (error || !data || !data.length){
+        if (pill){ pill.className = "pill pill-warn"; pill.innerHTML = `<span class="dot" style="background: var(--amber)"></span>Unavailable`; }
+        setText("opsArNewest", "—"); setText("opsArStaleness", "—"); setText("opsArLastSuccess", "—");
+        el("opsArErrorRow").style.display = "none";
+        return;
+      }
+
+      const row = data[0];
+      const p = row.payload || {};
+      const stale = !!p.stale;
+
+      if (pill){
+        pill.className = stale ? "pill pill-warn" : "pill pill-good";
+        pill.innerHTML = `<span class="dot" style="background:${stale ? "var(--amber)" : "var(--green)"}"></span>${stale ? "Stale" : "Fresh"}`;
+      }
+      setText("opsArNewest", p.newest_order_date || "—");
+      setText("opsArStaleness", (p.staleness_days != null && p.stale_threshold_days != null) ? `${p.staleness_days}d of ${p.stale_threshold_days}d threshold` : "—");
+      setText("opsArLastSuccess", fmt.dt(row.last_success_at));
+
+      const errRow = el("opsArErrorRow");
+      if (row.error_text){
+        errRow.style.display = "";
+        setText("opsArError", row.error_text);
+      } else if (errRow) errRow.style.display = "none";
+    }
+
+    function computeAccountActivation(){
+      const unactivated = USERS.filter(u => !u.active_company_id);
+      setText("opsActUnactivated", String(unactivated.length));
+      setText("opsActExec", String(USERS.filter(u => String(u.role || "").toLowerCase() === "executive").length));
+
+      const soonMs = 3 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const soon = INVITES.filter(i => i.expires_at && (new Date(i.expires_at).getTime() - now) <= soonMs && (new Date(i.expires_at).getTime() - now) >= 0);
+      setText("opsActInvitesSoon", String(soon.length));
+    }
+
+    async function loadOpsStatus(){
+      await Promise.allSettled([ loadShopifySync(), loadMailroomStatus(), loadArSyncStatus() ]);
+      computeAccountActivation();
+    }
+
     // ====== Boot / UI wiring ======
     async function refreshAll(){
       setText("lastRefresh", new Date().toLocaleString());
       await Promise.allSettled([ loadHealth(), loadInvites(), loadUsers() ]);
+      await loadOpsStatus();
     }
 
     function initUi(){
@@ -904,6 +1157,7 @@
       // reload buttons
       el("usersReloadBtn")?.addEventListener("click", loadUsers);
       el("invReloadBtn")?.addEventListener("click", loadInvites);
+      el("opsReloadBtn")?.addEventListener("click", loadOpsStatus);
 
       // invites
       el("invCreateBtn")?.addEventListener("click", createInvite);
