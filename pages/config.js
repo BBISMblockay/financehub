@@ -19,6 +19,40 @@ window.__SILO_CONFIG__ = {
     else sessionStorage.removeItem('__SILO_COMPANY__');
   },
 
+  // getActiveCompany() reads sessionStorage, which login.html populates --
+  // but sessionStorage is per-TAB, while the Supabase auth session lives in
+  // localStorage and survives new tabs/reloads/restarts. A returning user
+  // who lands on a v2 page directly (bookmark, deep link, reopened tab)
+  // skips login.html entirely, so this tab never got a __SILO_COMPANY__
+  // value even though they're fully authenticated. Any page logic gated on
+  // getActiveCompany() then silently no-ops (RLS-only queries still work
+  // fine since active_company_id() reads the server-side profiles column,
+  // which is what makes this so hard to spot -- most of the page looks
+  // normal). Call this instead of a bare getActiveCompany() wherever the
+  // result feeds a client-side query or write; it self-heals from the
+  // server's already-resolved profiles.active_company_id instead of
+  // re-running the full login picker flow.
+  async ensureActiveCompany(supabaseClient) {
+    const existing = this.getActiveCompany();
+    if (existing?.id) return existing;
+    if (!supabaseClient) return null;
+    try {
+      const { data: auth } = await supabaseClient.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) return null;
+      const { data: prof } = await supabaseClient.from('profiles')
+        .select('active_company_id').eq('id', uid).single();
+      if (!prof?.active_company_id) return null;
+      const { data: entity } = await supabaseClient.from('entities')
+        .select('id, title, entity_key, meta').eq('id', prof.active_company_id).single();
+      if (!entity) return null;
+      this.setActiveCompany(entity);
+      return entity;
+    } catch {
+      return null;
+    }
+  },
+
   // Stamp company_entity_id on insert payloads when a page omitted it.
   // DB trigger is the safety net; prefer these helpers in new UI writes.
   withCompany(row) {
