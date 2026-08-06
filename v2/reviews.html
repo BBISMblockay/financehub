@@ -581,10 +581,17 @@
     const sel = document.getElementById('addManagerSelect');
     // Placeholder first, so the alphabetically-first teammate isn't
     // silently preselected — Add with nothing chosen is a no-op.
+    // TEAM being empty is ambiguous: either everyone really is already a
+    // manager, or the team list itself failed to load (see boot()'s
+    // ensureActiveCompany() comment) — don't claim the former when it
+    // might be the latter.
+    const emptyLabel = TEAM.length
+      ? 'Everyone active already manages this employee'
+      : 'No teammates loaded — try reloading the page';
     sel.innerHTML = options.length
       ? '<option value="">Select a manager to add…</option>' +
         options.map(p => `<option value="${esc(p.id)}">${esc(p.name || p.email)}</option>`).join('')
-      : '<option value="">Everyone active already manages this employee</option>';
+      : `<option value="">${emptyLabel}</option>`;
   }
 
   document.getElementById('btnAddManager').addEventListener('click', async () => {
@@ -834,7 +841,13 @@
     // follow for a profiles(...) embed — it errors, and the old silent
     // catch left TEAM empty (the "nothing in the manager dropdowns" bug).
     try {
-      const co = window.__SILO_CONFIG__?.getActiveCompany?.();
+      // getActiveCompany() alone reads sessionStorage, which only login.html
+      // populates -- a returning user landing here directly (bookmark, deep
+      // link, reopened tab) has a valid auth session but no company in THIS
+      // tab, and this query would silently return nothing, starving TEAM
+      // (the Add-manager picker) while the rest of the page looks fine.
+      // ensureActiveCompany() self-heals from profiles.active_company_id.
+      const co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
       if (co?.id){
         const { data: mems, error: memErr } = await sb.from('entity_memberships')
           .select('user_id').eq('entity_id', co.id);
