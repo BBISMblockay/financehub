@@ -7955,3 +7955,14 @@ ALTER TABLE public.payment_request_activity
     'forwarded_to_melio',
     'updated'
   ]::text[]));
+
+-- =============================================================================
+-- 20260806190000_review_rating_scale_question_kind.sql
+-- New 'rating_scale' question kind: options holds point definitions in
+-- order as a reference legend (not clickable choices); the answer is a
+-- numeric score + optional comment. See migration file for full context.
+-- =============================================================================
+
+ALTER TABLE public.review_template_questions DROP CONSTRAINT IF EXISTS review_template_questions_kind_check;
+ALTER TABLE public.review_template_questions ADD CONSTRAINT review_template_questions_kind_check
+  CHECK (kind IN ('free_text', 'scale_1_10', 'single_choice', 'multi_choice', 'goals', 'rating_scale'));

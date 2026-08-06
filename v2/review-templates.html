@@ -123,6 +123,7 @@
           <div class="tp-addbar" id="addBar">
             <button class="bcn-btn bcn-btn--ghost" data-kind="free_text">+ Free text</button>
             <button class="bcn-btn bcn-btn--ghost" data-kind="scale_1_10">+ 1–10 rating</button>
+            <button class="bcn-btn bcn-btn--ghost" data-kind="rating_scale">+ Rating scale + legend</button>
             <button class="bcn-btn bcn-btn--ghost" data-kind="single_choice">+ Single choice</button>
             <button class="bcn-btn bcn-btn--ghost" data-kind="multi_choice">+ Multiple choice</button>
             <button class="bcn-btn bcn-btn--ghost" data-kind="goals">+ Goals section</button>
@@ -170,11 +171,22 @@
   const KIND_LABEL = {
     free_text: 'Free text',
     scale_1_10: '1–10 rating',
+    rating_scale: 'Rating scale + legend',
     single_choice: 'Single choice',
     multi_choice: 'Multiple choice',
     goals: 'Goals',
   };
   const CHOICE_KINDS = ['single_choice', 'multi_choice'];
+  // rating_scale reuses the same `options` column as the choice kinds, but
+  // each entry is a scale-point DEFINITION (options[0] = what a "1" means,
+  // options[1] = what a "2" means, ...), rendered to the manager as a
+  // reference legend -- not as clickable answer choices. The manager's
+  // actual answer is just a number plus an optional comment (see
+  // review-editor.html). Kept separate from CHOICE_KINDS everywhere that
+  // distinction matters (rendering, save payload), merged into it only
+  // where both need "has a list of strings in `options`" handling.
+  const LEGEND_KINDS = ['rating_scale'];
+  const OPTIONS_KINDS = [...CHOICE_KINDS, ...LEGEND_KINDS];
 
   let ME = null;
   let TEMPLATES = [];
@@ -294,10 +306,11 @@
               <input class="bcn-field" data-f="help_text" value="${esc(q.help_text)}" ${LOCKED ? 'disabled' : ''} placeholder="Shown under the question" />
             </div>
           </div>
-          ${CHOICE_KINDS.includes(q.kind) ? `
+          ${OPTIONS_KINDS.includes(q.kind) ? `
           <div class="bcn-field-group" style="margin:0">
-            <label class="bcn-label">Options — one per line</label>
+            <label class="bcn-label">${LEGEND_KINDS.includes(q.kind) ? 'Scale legend — one definition per point, in order (1 first)' : 'Options — one per line'}</label>
             <textarea class="bcn-field" data-f="options" ${LOCKED ? 'disabled' : ''}>${esc(q.options.join('\n'))}</textarea>
+            ${LEGEND_KINDS.includes(q.kind) ? `<div class="tp-pv-help">The manager sees this as a reference key next to the number picker — not as clickable choices. They rate with a number and can add a comment.</div>` : ''}
           </div>` : ''}
           <label class="tp-req">
             <input type="checkbox" data-f="required" ${q.required ? 'checked' : ''} ${LOCKED ? 'disabled' : ''} /> Required
@@ -343,7 +356,12 @@
         kind,
         label: kind === 'goals' ? 'Goals' : '',
         help_text: '',
-        options: CHOICE_KINDS.includes(kind) ? [] : [],
+        options: kind === 'rating_scale' ? [
+          'Does not meet standards: Performance fails to meet the normal requirements of the position, requires improvement. Results are below acceptance level. Requires next level manager review.',
+          'Fully meets standards: Performance meets the normal requirements of the position. Results are at a level expected from an experienced associate.',
+          'Exceeds standards: Performance exceeds the requirements of the position in the majority of areas. Results are well above normal expectations.',
+          'Far exceeds standards: Performance is clearly outstanding. Results are far in excess of the requirements of the position. Requires next level manager review.',
+        ] : [],
         required: true,
       });
       renderQuestions();
@@ -359,6 +377,9 @@
         if (!q.label.trim()) { setStatus('Every question needs text.', 'neg'); return null; }
         if (CHOICE_KINDS.includes(q.kind) && q.options.length < 2){
           setStatus(`"${q.label}" needs at least two options.`, 'neg'); return null;
+        }
+        if (LEGEND_KINDS.includes(q.kind) && q.options.length < 2){
+          setStatus(`"${q.label}" needs at least two scale points.`, 'neg'); return null;
         }
       }
     }
@@ -391,7 +412,7 @@
         const rows = cfg.withCompanyRows(QUESTIONS.map((q, i) => ({
           template_id: tplId, position: i, kind: q.kind, label: q.label.trim(),
           help_text: q.help_text.trim() || null,
-          options: CHOICE_KINDS.includes(q.kind) ? q.options : [],
+          options: OPTIONS_KINDS.includes(q.kind) ? q.options : [],
           required: q.required,
         })));
         const { error: insErr } = await sb.from('review_template_questions').insert(rows);
@@ -482,6 +503,11 @@
         <div class="tp-pv-label">${esc(q.label || '(untitled question)')}${q.required ? ' *' : ''}</div>
         ${q.help_text ? `<div class="tp-pv-help">${esc(q.help_text)}</div>` : ''}
         ${q.kind === 'scale_1_10' ? `<div class="tp-pv-scale">${Array.from({length:10},(_,n)=>`<span>${n+1}</span>`).join('')}</div>` : ''}
+        ${q.kind === 'rating_scale' ? `
+          <div class="tp-pv-scale">${q.options.map((_,n)=>`<span>${n+1}</span>`).join('')}</div>
+          <div class="tp-pv-help" style="margin-top:8px">${q.options.map((o,n)=>`<div><strong>${n+1}</strong> — ${esc(o)}</div>`).join('')}</div>
+          <div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4);margin-top:8px">Manager's comment (optional)…</div>
+        ` : ''}
         ${CHOICE_KINDS.includes(q.kind) ? q.options.map(o => `<div class="tp-pv-opt">${q.kind==='single_choice'?'◯':'☐'} ${esc(o)}</div>`).join('') : ''}
         ${q.kind === 'free_text' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Manager writes here…</div>` : ''}
         ${q.kind === 'goals' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Previous goals (status updates) + new goals for next period</div>` : ''}

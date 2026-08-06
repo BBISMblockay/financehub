@@ -188,6 +188,13 @@
       return v.text ? `<div class="mr-answer">${esc(v.text)}</div>` : `<div class="mr-answer mr-muted">No answer</div>`;
     if (q.kind === 'scale_1_10')
       return v.score ? `<div class="mr-answer mr-score">${v.score}<small> / 10</small></div>` : `<div class="mr-answer mr-muted">Not rated</div>`;
+    if (q.kind === 'rating_scale'){
+      if (!v.score) return `<div class="mr-answer mr-muted">Not rated</div>`;
+      const def = (q.options || [])[v.score - 1];
+      return `<div class="mr-answer mr-score">${v.score}<small> / ${(q.options||[]).length || 4}</small></div>` +
+        (def ? `<div class="mr-answer" style="font-size:12px;color:var(--bcn-ink-3)">${esc(def)}</div>` : '') +
+        (v.comment ? `<div class="mr-answer">${esc(v.comment)}</div>` : '');
+    }
     if (q.kind === 'single_choice')
       return v.choice ? `<div class="mr-answer">${esc(v.choice)}</div>` : `<div class="mr-answer mr-muted">No selection</div>`;
     if (q.kind === 'multi_choice')

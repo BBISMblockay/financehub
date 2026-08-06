@@ -41,6 +41,11 @@
     .re-choice { display:flex; flex-direction:column; gap:6px; }
     .re-choice label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--bcn-ink-2); cursor:pointer; }
 
+    .re-legend { margin-top:8px; padding:10px 12px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); background:var(--bcn-sunken); }
+    .re-legend-row { display:flex; gap:8px; font-size:11.5px; color:var(--bcn-ink-3); padding:3px 0; }
+    .re-legend-row b { flex-shrink:0; font-family:var(--bcn-mono); color:var(--bcn-ink-2); }
+    .re-q-comment { margin-top:10px; }
+
     .re-goal-row { display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px dashed var(--bcn-border); flex-wrap:wrap; }
     .re-goal-row:last-child { border-bottom:none; }
     .re-goal-title { flex:2; min-width:180px; }
@@ -185,6 +190,14 @@
     if (q.kind === 'scale_1_10')
       return `<div class="re-scale">${Array.from({length:10},(_,i)=>
         `<button type="button" data-score="${i+1}" class="${v.score === i+1 ? 'sel' : ''}" ${dis}>${i+1}</button>`).join('')}</div>`;
+    if (q.kind === 'rating_scale'){
+      const points = q.options?.length ? q.options : ['1','2','3','4'];
+      return `
+        <div class="re-scale">${points.map((_,i)=>
+          `<button type="button" data-score="${i+1}" class="${v.score === i+1 ? 'sel' : ''}" ${dis}>${i+1}</button>`).join('')}</div>
+        <div class="re-legend">${points.map((o,i)=>`<div class="re-legend-row"><b>${i+1}</b><span>${esc(o)}</span></div>`).join('')}</div>
+        <textarea class="bcn-field re-q-comment" data-comment placeholder="Comment (optional)…" ${dis}>${esc(v.comment || '')}</textarea>`;
+    }
     if (q.kind === 'single_choice')
       return `<div class="re-choice">${(q.options||[]).map(o =>
         `<label><input type="radio" name="q_${q.id}" value="${esc(o)}" ${v.choice === o ? 'checked' : ''} ${dis}/> ${esc(o)}</label>`).join('')}</div>`;
@@ -207,6 +220,16 @@
         ANSWERS[q.id] = { value: { score: Number(btn.dataset.score) } };
         card.querySelectorAll('[data-score]').forEach(b => b.classList.toggle('sel', b === btn));
       }));
+    } else if (q.kind === 'rating_scale'){
+      // Score and comment land on the same answer value — merge onto
+      // whatever's already there instead of each event stomping the other.
+      card.querySelectorAll('[data-score]').forEach(btn => btn.addEventListener('click', () => {
+        ANSWERS[q.id] = { value: { ...(ANSWERS[q.id]?.value || {}), score: Number(btn.dataset.score) } };
+        card.querySelectorAll('[data-score]').forEach(b => b.classList.toggle('sel', b === btn));
+      }));
+      card.querySelector('[data-comment]').addEventListener('input', (e) => {
+        ANSWERS[q.id] = { value: { ...(ANSWERS[q.id]?.value || {}), comment: e.target.value } };
+      });
     } else if (q.kind === 'single_choice'){
       card.querySelectorAll('input[type=radio]').forEach(r => r.addEventListener('change', () => {
         if (r.checked) ANSWERS[q.id] = { value: { choice: r.value } };
