@@ -905,6 +905,21 @@
       return activityTypeLabel(row.activity_type);
     }
 
+    // supabase-js resolves a non-2xx edge function response as { data: null, error }
+    // without parsing the JSON body, so the specific "{error: '...'}" reason the
+    // function returned (e.g. "No submitted document to forward") is normally lost
+    // behind the generic "Edge Function returned a non-2xx status code" message.
+    // error.context is the raw Response — read it once to recover the real reason.
+    async function functionErrorMessage(error, fallback) {
+      try {
+        if (error?.context && typeof error.context.clone === "function") {
+          const body = await error.context.clone().json();
+          if (body?.error) return body.error;
+        }
+      } catch (_) { /* body wasn't JSON or already consumed — fall through */ }
+      return error?.message || fallback || "Unknown error";
+    }
+
     async function getCurrentUser() {
       const { data, error } = await supabaseClient.auth.getUser();
       if (error) throw error;
@@ -1258,7 +1273,7 @@
         const { data, error } = await supabaseClient.functions.invoke("payment-request-notify", {
           body: { payment_request_id: requestId }
         });
-        if (error) throw error;
+        if (error) throw new Error(await functionErrorMessage(error, "Notify failed"));
         if (data?.error) throw new Error(data.error);
 
         state.rows = await fetchRows();
@@ -1299,7 +1314,7 @@
         const { data, error } = await supabaseClient.functions.invoke("payment-request-forward-melio", {
           body: { payment_request_id: requestId }
         });
-        if (error) throw error;
+        if (error) throw new Error(await functionErrorMessage(error, "Forward to Melio failed"));
         if (data?.error) throw new Error(data.error);
 
         state.rows = await fetchRows();

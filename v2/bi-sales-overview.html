@@ -79,11 +79,35 @@
       color:var(--bcn-ink-2); padding:8px 10px; border-bottom:1px solid var(--bcn-border-strong);
       text-align:center; position:sticky; top:0; z-index:3; background:var(--bcn-sunken);
     }
+    /* top offset is set from JS (syncStickyHeaderOffset) to the row-1 cells'
+       actual rendered height — a hardcoded px value drifts out of sync the
+       moment row 1's height changes (mobile padding breakpoint, font swap,
+       browser zoom), which un-sticks row 2 and lets body rows scroll up
+       behind/through the gap, the exact "misaligned bars" glitch this was
+       causing. The 56px fallback only matters before the first measurement. */
     .ov-tbl thead tr:nth-child(2) th {
       font-family:var(--bcn-mono); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em;
       color:var(--bcn-ink-3); padding:6px 10px 8px; border-bottom:2px solid var(--bcn-border-strong);
-      text-align:right; position:sticky; top:56px; z-index:3; background:var(--bcn-sunken);
+      text-align:right; position:sticky; top:var(--ov-head1-h, 56px); z-index:3; background:var(--bcn-sunken);
     }
+    /* Group color coding — the zebra-striped body intentionally stays neutral
+       (see redesign note above; a tinted body competes with row tracking),
+       but the header is where you actually need to tell Day/MTD/YTD apart at
+       a glance, especially once horizontal scroll pushes the group label
+       (colspan row) out of view and only the CY/PY/Var sub-header is visible.
+       Reuses existing Beacon tokens (accent/warn/pos) instead of new colors —
+       warn has no -soft/-border token, so its tint is mixed inline. */
+    .ov-tbl thead tr:first-child th.g-day,
+    .ov-tbl thead tr:nth-child(2) th.g-day { background:var(--bcn-accent-soft); }
+    .ov-tbl thead tr:first-child th.g-day { border-bottom-color:var(--bcn-accent); }
+
+    .ov-tbl thead tr:first-child th.g-mtd,
+    .ov-tbl thead tr:nth-child(2) th.g-mtd { background:color-mix(in oklab, var(--bcn-warn) 14%, var(--bcn-sunken)); }
+    .ov-tbl thead tr:first-child th.g-mtd { border-bottom-color:var(--bcn-warn); }
+
+    .ov-tbl thead tr:first-child th.g-ytd,
+    .ov-tbl thead tr:nth-child(2) th.g-ytd { background:var(--bcn-pos-soft); }
+    .ov-tbl thead tr:first-child th.g-ytd { border-bottom-color:var(--bcn-pos); }
     /* Sticky-corner cells (top+left both stuck) need a HIGHER z-index than
        the sticky header rows so the Store header stays on top of everything
        during horizontal scroll — but sticky-left BODY cells need a LOWER
@@ -108,6 +132,8 @@
     .ov-tbl .m-cy { font-weight:700; color:var(--bcn-ink); }
     .ov-tbl .m-py { color:var(--bcn-ink-4); }
     .ov-tbl .g-lead { border-left:2px solid var(--bcn-border-strong); }
+    .ov-tbl .g-mtd.g-lead { border-left-color:var(--bcn-warn); }
+    .ov-tbl .g-ytd.g-lead { border-left-color:var(--bcn-pos); }
     .ov-tbl tbody tr.ov-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
     .ov-tbl tbody tr.ov-total td.m-cy { color:var(--bcn-band-ink); }
     .ov-tbl tbody tr.ov-total td.m-py { color:var(--bcn-band-ink-2); }
@@ -491,7 +517,27 @@
     downloadCsv(`sales-overview-${mode}.csv`, headers, csvRows);
   }
 
-  function renderAll(){ renderKpis(); renderMatrix(); }
+  // Measures row 1's actual rendered height and feeds it to row 2's sticky
+  // `top` via CSS custom property — see the comment on
+  // .ov-tbl thead tr:nth-child(2) th for why this can't be a fixed px value.
+  function syncStickyHeaderOffset(){
+    const row1 = el.matrixHead.rows[0];
+    if (!row1) return;
+    const h = row1.getBoundingClientRect().height;
+    if (h) el.ovTableWrap.style.setProperty('--ov-head1-h', `${Math.ceil(h)}px`);
+  }
+  let stickyResizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(stickyResizeTimer);
+    stickyResizeTimer = setTimeout(syncStickyHeaderOffset, 120);
+  });
+
+  function renderAll(){
+    renderKpis();
+    renderMatrix();
+    // Header height is only known after the browser lays out the new cells.
+    requestAnimationFrame(syncStickyHeaderOffset);
+  }
 
   async function runLoad(){
     setStatus('Loading…');
@@ -526,7 +572,7 @@
 
   el.btnRefresh.addEventListener('click', runLoad);
   el.btnExport.addEventListener('click', exportMatrixCsv);
-  el.metricMode.addEventListener('change', renderMatrix);
+  el.metricMode.addEventListener('change', () => { renderMatrix(); requestAnimationFrame(syncStickyHeaderOffset); });
   el.groupFilters.addEventListener('click', (ev)=>{
     const btn = ev.target.closest('[data-group]');
     if (!btn) return;
