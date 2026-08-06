@@ -175,6 +175,40 @@
       .ov-tbl .m-store { min-width:92px; }
       .ov-tbl .m-group { display:none; }
       .ov-tbl tbody td, .ov-tbl thead th { padding:6px 7px; }
+
+      /* Table -> card list. Even limited to one period (Period filter already
+         narrows to Day/MTD/YTD on mobile, see boot()), Store + CY + PY + Var
+         side by side forces a horizontal scroll on a phone with no visible
+         affordance that there's more to see — Var% was getting clipped at
+         the screen edge and reading as "missing," not "scroll for it." Each
+         store reads far better as a stacked card than a scroll-to-see-it row,
+         so tbody rows become blocks and each cell's data-label (set in
+         periodCols()/rowHtml() below) becomes its on-card caption. */
+      .ov-table-wrap { overflow:visible; }
+      .ov-tbl { width:100%; }
+      .ov-tbl thead { display:none; }
+      .ov-tbl, .ov-tbl tbody, .ov-tbl tr, .ov-tbl td { display:block; width:100%; }
+      .ov-tbl tbody tr {
+        margin-bottom:8px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
+        overflow:hidden; background:var(--bcn-surface);
+      }
+      .ov-tbl tbody tr:nth-child(even):not(.ov-total) td { background:transparent; }
+      .ov-tbl tbody tr.ov-total { border-color:var(--bcn-band); }
+      .ov-tbl td {
+        position:static; text-align:right; padding:7px 12px; border-bottom:1px solid var(--bcn-border);
+        white-space:normal;
+      }
+      .ov-tbl td:last-child { border-bottom:none; }
+      .ov-tbl td::before {
+        content:attr(data-label); float:left; font-family:var(--bcn-mono); font-size:10px;
+        font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--bcn-ink-3);
+      }
+      .ov-tbl .m-store {
+        text-align:left; background:var(--bcn-sunken); border-bottom:1px solid var(--bcn-border-strong);
+        padding:9px 12px;
+      }
+      .ov-tbl tbody tr.ov-total .m-store { background:var(--bcn-band); }
+      .ov-tbl .g-lead { border-left:none; }
     }
   </style>
 </head>
@@ -449,6 +483,7 @@
     units:     { prefix:'qty',       label:'Units',     fmt:numFmt },
     discounts: { prefix:'discounts', label:'Discounts', fmt:moneyW },
   };
+  const PERIOD_LABEL = { day:'Day', mtd:'MTD', ytd:'YTD' };
 
   function periodCols(r, period, fields, lead){
     const cur = r[`cur_${period}_${fields.prefix}`], py = r[`py_${period}_${fields.prefix}`];
@@ -457,7 +492,12 @@
     // g-${period} stays on every cell — the Period filter chips hide/show
     // whole column groups by that class (see #ovTableWrap[data-period=...]
     // below). m-cy/m-py is the separate CY-vs-PY visual weight on top of it.
-    return `<td class="g-${period} m-cy${lead?' g-lead':''}">${fields.fmt(cur)}</td><td class="g-${period} m-py">${fields.fmt(py)}</td><td class="g-${period}">${varPill(pct)}</td>`;
+    // data-label feeds the mobile card layout's per-value caption (see the
+    // 640px media query above) — unused/inert on desktop.
+    const pLabel = PERIOD_LABEL[period];
+    return `<td class="g-${period} m-cy${lead?' g-lead':''}" data-label="${pLabel} CY ${fields.label}">${fields.fmt(cur)}</td>`
+      + `<td class="g-${period} m-py" data-label="${pLabel} PY ${fields.label}">${fields.fmt(py)}</td>`
+      + `<td class="g-${period}" data-label="${pLabel} Var %">${varPill(pct)}</td>`;
   }
 
   function renderMatrix(){
@@ -504,8 +544,7 @@
     const rows=visibleRows(), mode=el.metricMode.value;
     const fields = METRIC_FIELDS[mode] || METRIC_FIELDS.total;
     const periods = state.activePeriod==='all' ? ['day','mtd','ytd'] : [state.activePeriod];
-    const periodLabel = { day:'Day', mtd:'MTD', ytd:'YTD' };
-    const headers = ['Store', ...periods.flatMap(p=>[`${periodLabel[p]} CY ${fields.label}`,`${periodLabel[p]} PY ${fields.label}`,`${periodLabel[p]} Var %`])];
+    const headers = ['Store', ...periods.flatMap(p=>[`${PERIOD_LABEL[p]} CY ${fields.label}`,`${PERIOD_LABEL[p]} PY ${fields.label}`,`${PERIOD_LABEL[p]} Var %`])];
     const csvRows = rows.map(r=>[
       r.location_tag,
       ...periods.flatMap(p=>{
