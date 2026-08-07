@@ -1,0 +1,59 @@
+name: Ad Platforms KPI Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      company_entity_id:
+        description: Optional company UUID (limit to one entity)
+        required: false
+      platform:
+        description: Optional single platform (google_ads | meta_ads | tiktok_ads | ga4)
+        required: false
+      connection_id:
+        description: Optional ad_platform_connections.id
+        required: false
+      days_back:
+        description: Override trailing-window days (default from connection row, 30)
+        required: false
+  schedule:
+    # 10:30 UTC — ad platforms have finalized the prior day by then;
+    # runs before the 11:00 Shopify sync so both land before US morning.
+    - cron: "30 10 * * *"
+
+jobs:
+  ad-platforms-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Shared Google OAuth client — needed to redeem the per-connection
+      # refresh tokens; google_ads/ga4 connections are skipped (not failed)
+      # while these are unset, so this is safe to schedule before the
+      # Google Cloud / Ads dev-portal setup is finished.
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+      ADS_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
+      ADS_ONLY_PLATFORM: ${{ github.event.inputs.platform || '' }}
+      ADS_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
+      ADS_DAYS_BACK: ${{ github.event.inputs.days_back || '' }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      # Meta/TikTok tokens live on ad_platform_connections rows (set via the
+      # Integrations UI), so the orchestrator needs no per-platform secret
+      # for them; with zero sync-enabled connections it simply no-ops.
+      - name: Run ad platforms sync orchestrator
+        run: node scripts/ad-platforms-sync.mjs

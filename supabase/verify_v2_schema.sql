@@ -120,11 +120,13 @@ select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='sync_jobs') then 'ok' else 'MISSING' end as sync_jobs,
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='locations' and column_name='shopify_location_id') then 'ok' else 'MISSING' end as locations_shopify_location_id;
 
--- 7b. Supermetrics integration tables (20260716000000_supermetrics_kpis.sql)
+-- 7b. Ad platform direct-API tables (20260807000000_ad_platform_direct_api.sql)
 select
-  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='supermetrics_connections') then 'ok' else 'MISSING' end as supermetrics_connections,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='ad_platform_connections') then 'ok' else 'MISSING' end as ad_platform_connections,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='ad_platform_oauth_states') then 'ok' else 'MISSING' end as ad_platform_oauth_states,
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='marketing_kpis_daily') then 'ok' else 'MISSING' end as marketing_kpis_daily,
-  case when exists (select 1 from pg_constraint where conname='sync_jobs_job_type_check' and pg_get_constraintdef(oid) like '%supermetrics_kpis%') then 'ok' else 'MISSING' end as sync_jobs_supermetrics_type;
+  case when not exists (select 1 from information_schema.tables where table_schema='public' and table_name='supermetrics_connections') then 'ok' else 'STILL PRESENT' end as supermetrics_connections_dropped,
+  case when exists (select 1 from pg_constraint where conname='sync_jobs_job_type_check' and pg_get_constraintdef(oid) like '%google_ads_kpis%') then 'ok' else 'MISSING' end as sync_jobs_ad_platform_types;
 
 -- 7c. Inventory MV company index (20260717190000)
 select
