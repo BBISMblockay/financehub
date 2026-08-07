@@ -67,7 +67,7 @@
           <h1>TikTok Live Schedule</h1>
         </div>
         <div class="bcn-header-sub">
-          Claim a slot, go live, close it out — one live at a time, company-wide. Commission (3% of gross) auto-files an AP payment request.
+          Claim a slot, go live, close it out — one live at a time, company-wide. Each finalized slot pays $25/hr + 3% of gross, auto-filed as an AP payroll payment.
         </div>
       </div>
       <div class="bcn-header-actions">
@@ -89,7 +89,7 @@
         <div class="bcn-kpi-value bcn-mono" id="kpiFinalized">—</div>
       </div>
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">COMMISSION</div>
+        <div class="bcn-kpi-label">PAYOUT</div>
         <div class="bcn-kpi-value bcn-mono" id="kpiCommission">$—</div>
       </div>
     </section>
@@ -179,15 +179,23 @@
         <input class="bcn-field bcn-field--mono" type="number" id="grossSalesInput" min="0" step="0.01" placeholder="0.00" />
       </div>
       <div class="ls-commission-preview">
+        <span>Hourly rate (1 slot)</span>
+        <span class="bcn-mono" id="hourlyPreview">$25.00</span>
+      </div>
+      <div class="ls-commission-preview">
         <span>Commission (3%)</span>
         <span class="bcn-mono" id="commissionPreview">$0.00</span>
+      </div>
+      <div class="ls-commission-preview">
+        <span><strong>Total payout</strong></span>
+        <span class="bcn-mono" id="totalPreview"><strong>$25.00</strong></span>
       </div>
       <div class="ls-commission-preview">
         <span>Payee</span>
         <span id="payeePreview">—</span>
       </div>
       <div style="color:var(--bcn-ink-3);font-size:12px;">
-        Finalizing closes the session and files an AP payment request for the commission. It can't be re-opened from here.
+        Finalizing closes the session and files an AP payroll payment for the total. It can't be re-opened from here.
       </div>
     </div>
     <div class="ls-modal-foot">
@@ -228,6 +236,7 @@
   const SLOT_FIRST_HOUR_ET = 8;   // 8am ET
   const SLOT_LAST_HOUR_ET = 27;   // midnight PT = 3am ET next day
   const COMMISSION_RATE = 0.03;
+  const HOURLY_RATE = 25.00; // W-2 hourly pay per claimed slot (slots are 1 hour)
 
   const el = (id) => document.getElementById(id);
   const els = {
@@ -251,7 +260,9 @@
     finalizeBackdrop: el('finalizeBackdrop'),
     finalizeSlotLabel: el('finalizeSlotLabel'),
     grossSalesInput: el('grossSalesInput'),
+    hourlyPreview: el('hourlyPreview'),
     commissionPreview: el('commissionPreview'),
+    totalPreview: el('totalPreview'),
     payeePreview: el('payeePreview'),
     finalizeSubmitBtn: el('finalizeSubmitBtn'),
   };
@@ -375,12 +386,14 @@
         actionsCell = `<button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-claim="${ms}">CLAIM</button>`;
       } else if (s.status === 'finalized') {
         finalized++;
-        commission += Number(s.commission_amount) || 0;
+        // Pre-payroll rows have no payout_total (they were commission-only).
+        const payout = Number(s.payout_total ?? s.commission_amount) || 0;
+        commission += payout;
         rowClasses.push('ls-row--finalized');
         statusCell = '<span class="bcn-pill bcn-pill--pos">FINALIZED</span>';
         claimerCell = renderClaimer(s);
         locationCell = escapeHtml(s.live_location || '—');
-        entryCell = `<span class="bcn-mono ls-entry">${money(Number(s.gross_sales))} → ${money(Number(s.commission_amount))}</span>`;
+        entryCell = `<span class="bcn-mono ls-entry" title="$${Number(s.hourly_rate ?? HOURLY_RATE).toFixed(2)}/hr + ${money(Number(s.commission_amount))} commission">${money(Number(s.gross_sales))} → ${money(payout)}</span>`;
         actionsCell = s.payment_request_id
           ? '<span class="bcn-pill bcn-pill--accent">AP FILED</span>'
           : '<span style="color:var(--bcn-ink-3);">—</span>';
@@ -496,7 +509,9 @@
     state.pendingSession = s;
     els.finalizeSlotLabel.textContent = slotLabel(state.pendingSlot);
     els.grossSalesInput.value = '';
+    els.hourlyPreview.textContent = money(HOURLY_RATE);
     els.commissionPreview.textContent = money(0);
+    els.totalPreview.innerHTML = `<strong>${money(HOURLY_RATE)}</strong>`;
     els.payeePreview.textContent = payeeName();
     els.finalizeBackdrop.classList.add('open');
     els.grossSalesInput.focus();
@@ -515,6 +530,7 @@
     }
     const s = state.pendingSession;
     const commission = commissionFor(gross);
+    const total = Math.round((commission + HOURLY_RATE) * 100) / 100;
     const payee = payeeName();
     const label = slotLabel(new Date(s.slot_start));
 
@@ -531,13 +547,13 @@
         vendor_name_norm: normalizeName(payee),
         vendor_name_manual: null,
         vendor_name_manual_norm: normalizeName(payee),
-        request_type: 'invoice_vendor_payment',
+        request_type: 'payroll_payment',
         invoice_number: null,
-        amount_due: commission,
+        amount_due: total,
         requester_email: state.user.email,
         requester_email_norm: String(state.user.email || '').trim().toLowerCase(),
         location_name: s.live_location || null,
-        notes_comments: `TikTok Live commission — ${payee} — ${label} — gross sales ${money(gross)} × 3% = ${money(commission)}`,
+        notes_comments: `TikTok Live payroll — ${payee} (W-2) — ${label} — $${HOURLY_RATE.toFixed(2)}/hr + gross sales ${money(gross)} × 3% = ${money(commission)} → total ${money(total)}`,
         workflow_status: 'new',
         completed: false,
         created_by: state.user.id,
@@ -551,6 +567,8 @@
         gross_sales: gross,
         commission_rate: COMMISSION_RATE,
         commission_amount: commission,
+        hourly_rate: HOURLY_RATE,
+        payout_total: total,
         payee_name: payee,
         payment_request_id: requestId,
         finalized_at: new Date().toISOString(),
@@ -567,7 +585,7 @@
       }).catch((err) => console.error('submission notification failed', err));
 
       closeModals();
-      setStatus(`Session finalized — ${money(commission)} commission filed with AP.`, 'pos', 8000);
+      setStatus(`Session finalized — ${money(total)} payroll payment filed with AP (${money(HOURLY_RATE)}/hr + ${money(commission)} commission).`, 'pos', 8000);
       await loadDay();
     } finally {
       state.busy = false;
@@ -619,7 +637,9 @@
     els.finalizeSubmitBtn.addEventListener('click', submitFinalize);
     els.grossSalesInput.addEventListener('input', () => {
       const gross = Number(els.grossSalesInput.value);
-      els.commissionPreview.textContent = money(Number.isFinite(gross) && gross >= 0 ? commissionFor(gross) : 0);
+      const commission = Number.isFinite(gross) && gross >= 0 ? commissionFor(gross) : 0;
+      els.commissionPreview.textContent = money(commission);
+      els.totalPreview.innerHTML = `<strong>${money(commission + HOURLY_RATE)}</strong>`;
     });
     document.querySelectorAll('[data-close]').forEach((btn) =>
       btn.addEventListener('click', closeModals));
