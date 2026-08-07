@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SILO · TikTok Live Schedule</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { overflow-y: auto; }
+
+    .ls-slot-time { white-space: nowrap; }
+    .ls-slot-time--anchor { font-weight: 700; }
+    tr.ls-row--mine td { background: color-mix(in srgb, var(--bcn-accent) 7%, transparent); }
+    tr.ls-row--finalized td { background: color-mix(in srgb, var(--bcn-pos) 7%, transparent); }
+    tr.ls-row--past .ls-slot-time { color: var(--bcn-ink-3); }
+    .ls-claimer { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .ls-claimer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ls-entry { white-space: nowrap; }
+    .ls-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+    .ls-modal-backdrop {
+      position: fixed; inset: 0; z-index: 90; display: none;
+      background: rgba(9, 12, 18, .55);
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    .ls-modal-backdrop.open { display: flex; }
+    .ls-modal {
+      width: min(460px, 100%);
+      background: var(--bcn-surface); color: var(--bcn-ink);
+      border: 1px solid var(--bcn-border); border-radius: 12px;
+      box-shadow: 0 18px 48px rgba(9, 12, 18, .28);
+      display: flex; flex-direction: column; max-height: calc(100vh - 48px);
+    }
+    .ls-modal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--bcn-border);
+    }
+    .ls-modal-head h3 { margin: 0; font-size: 15px; }
+    .ls-modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+    .ls-modal-foot {
+      display: flex; justify-content: flex-end; gap: 8px;
+      padding: 12px 18px; border-top: 1px solid var(--bcn-border);
+    }
+    .ls-modal-close {
+      background: none; border: none; cursor: pointer;
+      color: var(--bcn-ink-3); font-size: 16px; line-height: 1; padding: 4px;
+    }
+    .ls-modal-close:hover { color: var(--bcn-ink); }
+    .ls-commission-preview {
+      border: 1px dashed var(--bcn-border); border-radius: 8px;
+      padding: 10px 12px; display: flex; justify-content: space-between; gap: 10px;
+    }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title">
+          <h1>TikTok Live Schedule</h1>
+        </div>
+        <div class="bcn-header-sub">
+          Claim a slot, go live, close it out — one live at a time, company-wide. Commission (3% of gross) auto-files an AP payment request.
+        </div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="refreshBtn">RELOAD</button>
+      </div>
+    </header>
+
+    <section class="bcn-kpi-band" aria-label="Key metrics">
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">OPEN SLOTS</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiOpen">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">CLAIMED</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiClaimed">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">FINALIZED</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiFinalized">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">COMMISSION</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiCommission">$—</div>
+      </div>
+    </section>
+
+    <section class="bcn-filter-bar">
+      <div class="bcn-filter">
+        <label class="bcn-label" for="dateInput">Day</label>
+        <input class="bcn-field bcn-field--mono" type="date" id="dateInput" />
+      </div>
+      <div class="bcn-filter">
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevDayBtn">‹ PREV</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="todayBtn">TODAY</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextDayBtn">NEXT ›</button>
+      </div>
+    </section>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <section class="bcn-card">
+      <header class="bcn-card-header bcn-card-header--dark">
+        <span class="bcn-pill">SCHEDULE</span>
+        <h2 id="boardTitle">Claim board</h2>
+        <span class="bcn-card-meta">20 hourly slots · 8am ET – midnight PT · one moment shown in four zones</span>
+      </header>
+      <div class="bcn-card-body">
+        <div class="bcn-matrix-scroll">
+          <table class="bcn-table">
+            <thead>
+              <tr>
+                <th class="bcn-mono">PST</th>
+                <th class="bcn-mono">MTN</th>
+                <th class="bcn-mono">CTRL</th>
+                <th class="bcn-mono">EST</th>
+                <th>Status</th>
+                <th>Claimed by</th>
+                <th>Live location</th>
+                <th class="bcn-num">Entry</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="boardTbody">
+              <tr><td colspan="9">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Claim modal -->
+<div class="ls-modal-backdrop" id="claimBackdrop">
+  <div class="ls-modal" role="dialog" aria-modal="true" aria-labelledby="claimTitle">
+    <div class="ls-modal-head">
+      <h3 id="claimTitle">Claim slot</h3>
+      <button class="ls-modal-close" type="button" data-close="claim">✕</button>
+    </div>
+    <div class="ls-modal-body">
+      <div class="bcn-mono" id="claimSlotLabel">—</div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="claimLocation">Live location (optional)</label>
+        <input class="bcn-field" type="text" id="claimLocation" maxlength="120" placeholder="Where you're going live from" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="claimNotes">Notes (optional)</label>
+        <input class="bcn-field" type="text" id="claimNotes" maxlength="300" placeholder="Anything the team should know" />
+      </div>
+    </div>
+    <div class="ls-modal-foot">
+      <button class="bcn-btn bcn-btn--ghost" type="button" data-close="claim">Cancel</button>
+      <button class="bcn-btn bcn-btn--primary" type="button" id="claimSubmitBtn">Claim slot</button>
+    </div>
+  </div>
+</div>
+
+<!-- Finalize modal -->
+<div class="ls-modal-backdrop" id="finalizeBackdrop">
+  <div class="ls-modal" role="dialog" aria-modal="true" aria-labelledby="finalizeTitle">
+    <div class="ls-modal-head">
+      <h3 id="finalizeTitle">Finalize session</h3>
+      <button class="ls-modal-close" type="button" data-close="finalize">✕</button>
+    </div>
+    <div class="ls-modal-body">
+      <div class="bcn-mono" id="finalizeSlotLabel">—</div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="grossSalesInput">Gross sales ($)</label>
+        <input class="bcn-field bcn-field--mono" type="number" id="grossSalesInput" min="0" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="ls-commission-preview">
+        <span>Commission (3%)</span>
+        <span class="bcn-mono" id="commissionPreview">$0.00</span>
+      </div>
+      <div class="ls-commission-preview">
+        <span>Payee</span>
+        <span id="payeePreview">—</span>
+      </div>
+      <div style="color:var(--bcn-ink-3);font-size:12px;">
+        Finalizing closes the session and files an AP payment request for the commission. It can't be re-opened from here.
+      </div>
+    </div>
+    <div class="ls-modal-foot">
+      <button class="bcn-btn bcn-btn--ghost" type="button" data-close="finalize">Cancel</button>
+      <button class="bcn-btn bcn-btn--primary" type="button" id="finalizeSubmitBtn">Finalize &amp; file AP request</button>
+    </div>
+  </div>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    const el = document.getElementById('status');
+    el.className = 'bcn-status bcn-status--neg';
+    el.textContent = 'Missing Supabase config.';
+    el.hidden = false;
+  }
+
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+
+  const ET = 'America/New_York';
+  const ZONES = [
+    { key: 'PST', tz: 'America/Los_Angeles' },
+    { key: 'MTN', tz: 'America/Denver' },
+    { key: 'CTRL', tz: 'America/Chicago' },
+    { key: 'EST', tz: ET },
+  ];
+  // The sheet's 20-row grid: EST 8am down through PST midnight (= 3am ET
+  // on the next calendar day), so late West-coast lives are claimable.
+  const SLOT_FIRST_HOUR_ET = 8;   // 8am ET
+  const SLOT_LAST_HOUR_ET = 27;   // midnight PT = 3am ET next day
+  const COMMISSION_RATE = 0.03;
+
+  const el = (id) => document.getElementById(id);
+  const els = {
+    status: el('status'),
+    dateInput: el('dateInput'),
+    prevDayBtn: el('prevDayBtn'),
+    todayBtn: el('todayBtn'),
+    nextDayBtn: el('nextDayBtn'),
+    refreshBtn: el('refreshBtn'),
+    boardTitle: el('boardTitle'),
+    boardTbody: el('boardTbody'),
+    kpiOpen: el('kpiOpen'),
+    kpiClaimed: el('kpiClaimed'),
+    kpiFinalized: el('kpiFinalized'),
+    kpiCommission: el('kpiCommission'),
+    claimBackdrop: el('claimBackdrop'),
+    claimSlotLabel: el('claimSlotLabel'),
+    claimLocation: el('claimLocation'),
+    claimNotes: el('claimNotes'),
+    claimSubmitBtn: el('claimSubmitBtn'),
+    finalizeBackdrop: el('finalizeBackdrop'),
+    finalizeSlotLabel: el('finalizeSlotLabel'),
+    grossSalesInput: el('grossSalesInput'),
+    commissionPreview: el('commissionPreview'),
+    payeePreview: el('payeePreview'),
+    finalizeSubmitBtn: el('finalizeSubmitBtn'),
+  };
+
+  const state = {
+    user: null,
+    profile: null,
+    isAdmin: false,
+    date: null,          // 'YYYY-MM-DD' — the day in ET
+    slots: [],           // Date[] for the selected day
+    sessions: new Map(), // slot_start ms → live_sessions_v row
+    pendingSlot: null,   // Date being claimed/finalized
+    pendingSession: null,
+    busy: false,
+  };
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    els.status.className = `bcn-status bcn-status--${type}`;
+    els.status.textContent = msg;
+    els.status.hidden = false;
+    if (ms) setTimeout(() => { els.status.hidden = true; }, ms);
+  }
+
+  function escapeHtml(v) {
+    return String(v ?? '').replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function normalizeName(value) {
+    return String(value || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  const money = (n) => (Number.isFinite(n) ? n : 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  // ── Timezone math ─────────────────────────────────────────
+  // Wall-clock time a UTC timestamp reads as in ET, re-encoded as a UTC ms
+  // value, so we can iterate toward "hour H on day D in ET" without a tz lib.
+  function etWallClockAsUtc(ts) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: ET, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    }).formatToParts(new Date(ts));
+    const g = (t) => Number(parts.find((p) => p.type === t).value);
+    return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'));
+  }
+
+  function utcForEtHour(dateStr, hour) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const target = Date.UTC(y, m - 1, d, hour, 0, 0);
+    let ts = target;
+    for (let i = 0; i < 3; i++) ts += target - etWallClockAsUtc(ts);
+    return new Date(ts);
+  }
+
+  function fmtHour(date, tz) {
+    return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: true })
+      .format(date).toLowerCase().replace(/\s/g, '');
+  }
+
+  function todayEt() {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: ET, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    return parts; // en-CA gives YYYY-MM-DD
+  }
+
+  function slotLabel(date) {
+    const day = new Intl.DateTimeFormat('en-US', {
+      timeZone: ET, weekday: 'short', month: 'short', day: 'numeric',
+    }).format(date);
+    return `${day} · ${fmtHour(date, ET)} ET / ${fmtHour(date, 'America/Los_Angeles')} PT`;
+  }
+
+  // ── Data ──────────────────────────────────────────────────
+  async function loadDay() {
+    const slots = [];
+    for (let h = SLOT_FIRST_HOUR_ET; h <= SLOT_LAST_HOUR_ET; h++) {
+      slots.push(utcForEtHour(state.date, h));
+    }
+    state.slots = slots;
+
+    let q = supabaseClient.from('live_sessions_v').select('*')
+      .gte('slot_start', slots[0].toISOString())
+      .lte('slot_start', slots[slots.length - 1].toISOString());
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+
+    const { data, error } = await q;
+    if (error) { setStatus(`Failed to load schedule: ${error.message}`, 'neg'); return; }
+
+    state.sessions = new Map((data || []).map((r) => [new Date(r.slot_start).getTime(), r]));
+    render();
+  }
+
+  // ── Render ────────────────────────────────────────────────
+  function render() {
+    const dayTitle = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    }).format(new Date(`${state.date}T00:00:00Z`));
+    els.boardTitle.textContent = `Claim board — ${dayTitle}`;
+
+    const now = Date.now();
+    let open = 0, claimed = 0, finalized = 0, commission = 0;
+
+    const rows = state.slots.map((slot) => {
+      const ms = slot.getTime();
+      const s = state.sessions.get(ms) || null;
+      const mine = s && s.claimed_by === state.user.id;
+      const zoneCells = ZONES.map((z, i) =>
+        `<td class="bcn-mono ls-slot-time${z.key === 'EST' ? ' ls-slot-time--anchor' : ''}">${fmtHour(slot, z.tz)}</td>`).join('');
+
+      let statusCell, claimerCell, locationCell, entryCell, actionsCell;
+      const rowClasses = [];
+      if (ms < now) rowClasses.push('ls-row--past');
+
+      if (!s) {
+        open++;
+        statusCell = '<span class="bcn-pill">OPEN</span>';
+        claimerCell = '<span style="color:var(--bcn-ink-3);">—</span>';
+        locationCell = '—';
+        entryCell = '—';
+        actionsCell = `<button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-claim="${ms}">CLAIM</button>`;
+      } else if (s.status === 'finalized') {
+        finalized++;
+        commission += Number(s.commission_amount) || 0;
+        rowClasses.push('ls-row--finalized');
+        statusCell = '<span class="bcn-pill bcn-pill--pos">FINALIZED</span>';
+        claimerCell = renderClaimer(s);
+        locationCell = escapeHtml(s.live_location || '—');
+        entryCell = `<span class="bcn-mono ls-entry">${money(Number(s.gross_sales))} → ${money(Number(s.commission_amount))}</span>`;
+        actionsCell = s.payment_request_id
+          ? '<span class="bcn-pill bcn-pill--accent">AP FILED</span>'
+          : '<span style="color:var(--bcn-ink-3);">—</span>';
+      } else {
+        claimed++;
+        if (mine) rowClasses.push('ls-row--mine');
+        statusCell = mine
+          ? '<span class="bcn-pill bcn-pill--accent">YOURS</span>'
+          : '<span class="bcn-pill bcn-pill--dark">CLAIMED</span>';
+        claimerCell = renderClaimer(s);
+        locationCell = escapeHtml(s.live_location || '—');
+        entryCell = '<span style="color:var(--bcn-ink-3);">pending</span>';
+        const btns = [];
+        if (mine) {
+          btns.push(`<button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-finalize="${ms}">FINALIZE</button>`);
+          btns.push(`<button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-unclaim="${ms}">UNCLAIM</button>`);
+        } else if (state.isAdmin) {
+          btns.push(`<button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-unclaim="${ms}">RELEASE</button>`);
+        }
+        actionsCell = btns.join('') || '<span style="color:var(--bcn-ink-3);">—</span>';
+      }
+
+      return `<tr class="${rowClasses.join(' ')}">${zoneCells}` +
+        `<td>${statusCell}</td>` +
+        `<td><div class="ls-claimer">${claimerCell}</div></td>` +
+        `<td>${locationCell}</td>` +
+        `<td class="bcn-num">${entryCell}</td>` +
+        `<td><div class="ls-actions">${actionsCell}</div></td></tr>`;
+    });
+
+    els.boardTbody.innerHTML = rows.join('');
+    els.kpiOpen.textContent = String(open);
+    els.kpiClaimed.textContent = String(claimed);
+    els.kpiFinalized.textContent = String(finalized);
+    els.kpiCommission.textContent = money(commission);
+  }
+
+  function renderClaimer(s) {
+    const name = s.claimed_by_name || s.claimed_by_email || 'Unknown';
+    return `<span class="ls-claimer-name" title="${escapeHtml(s.claimed_by_email || '')}">${escapeHtml(name)}</span>`;
+  }
+
+  // ── Claim / unclaim ───────────────────────────────────────
+  function openClaimModal(ms) {
+    state.pendingSlot = new Date(ms);
+    els.claimSlotLabel.textContent = slotLabel(state.pendingSlot);
+    els.claimLocation.value = '';
+    els.claimNotes.value = '';
+    els.claimBackdrop.classList.add('open');
+    els.claimLocation.focus();
+  }
+
+  async function submitClaim() {
+    if (state.busy || !state.pendingSlot) return;
+    state.busy = true;
+    els.claimSubmitBtn.disabled = true;
+    try {
+      const { error } = await supabaseClient.from('live_sessions').insert({
+        slot_start: state.pendingSlot.toISOString(),
+        live_location: els.claimLocation.value.trim() || null,
+        notes: els.claimNotes.value.trim() || null,
+        claimed_by: state.user.id,
+        status: 'claimed',
+        updated_by: state.user.id,
+        ...(_co?.id ? { company_entity_id: _co.id } : {}),
+      });
+      if (error) {
+        if (error.code === '23505') {
+          setStatus('That slot was just claimed by someone else — board refreshed.', 'neg', 6000);
+        } else {
+          setStatus(`Claim failed: ${error.message}`, 'neg');
+        }
+        closeModals();
+        await loadDay();
+        return;
+      }
+      closeModals();
+      setStatus('Slot claimed.', 'pos', 4000);
+      await loadDay();
+    } finally {
+      state.busy = false;
+      els.claimSubmitBtn.disabled = false;
+    }
+  }
+
+  async function unclaim(ms) {
+    const s = state.sessions.get(ms);
+    if (!s || state.busy) return;
+    const mine = s.claimed_by === state.user.id;
+    const label = slotLabel(new Date(ms));
+    if (!window.confirm(mine ? `Unclaim ${label}?` : `Release ${label} (claimed by ${s.claimed_by_name || s.claimed_by_email})?`)) return;
+    state.busy = true;
+    try {
+      const { error } = await supabaseClient.from('live_sessions')
+        .delete().eq('id', s.id).eq('status', 'claimed');
+      if (error) { setStatus(`Unclaim failed: ${error.message}`, 'neg'); return; }
+      setStatus('Slot released.', 'pos', 4000);
+      await loadDay();
+    } finally {
+      state.busy = false;
+    }
+  }
+
+  // ── Finalize → AP request ─────────────────────────────────
+  function payeeName() {
+    return (state.profile?.name || '').trim() || state.user.email;
+  }
+
+  function openFinalizeModal(ms) {
+    const s = state.sessions.get(ms);
+    if (!s) return;
+    state.pendingSlot = new Date(ms);
+    state.pendingSession = s;
+    els.finalizeSlotLabel.textContent = slotLabel(state.pendingSlot);
+    els.grossSalesInput.value = '';
+    els.commissionPreview.textContent = money(0);
+    els.payeePreview.textContent = payeeName();
+    els.finalizeBackdrop.classList.add('open');
+    els.grossSalesInput.focus();
+  }
+
+  function commissionFor(gross) {
+    return Math.round(gross * COMMISSION_RATE * 100) / 100;
+  }
+
+  async function submitFinalize() {
+    if (state.busy || !state.pendingSession) return;
+    const gross = Number(els.grossSalesInput.value);
+    if (!Number.isFinite(gross) || gross < 0) {
+      setStatus('Enter a valid gross sales amount (zero or more).', 'neg', 5000);
+      return;
+    }
+    const s = state.pendingSession;
+    const commission = commissionFor(gross);
+    const payee = payeeName();
+    const label = slotLabel(new Date(s.slot_start));
+
+    state.busy = true;
+    els.finalizeSubmitBtn.disabled = true;
+    try {
+      // AP request first, then the session update that links it — the same
+      // payload shape as /v2/purchase_request.html so it rides the normal
+      // Request Manager pipeline.
+      const requestId = crypto.randomUUID();
+      const { error: apError } = await supabaseClient.from('payment_requests').insert({
+        id: requestId,
+        vendor_name: payee,
+        vendor_name_norm: normalizeName(payee),
+        vendor_name_manual: null,
+        vendor_name_manual_norm: normalizeName(payee),
+        request_type: 'invoice_vendor_payment',
+        invoice_number: null,
+        amount_due: commission,
+        requester_email: state.user.email,
+        requester_email_norm: String(state.user.email || '').trim().toLowerCase(),
+        location_name: s.live_location || null,
+        notes_comments: `TikTok Live commission — ${payee} — ${label} — gross sales ${money(gross)} × 3% = ${money(commission)}`,
+        workflow_status: 'new',
+        completed: false,
+        created_by: state.user.id,
+        updated_by: state.user.id,
+        ...(_co?.id ? { company_entity_id: _co.id } : {}),
+      });
+      if (apError) { setStatus(`Could not file the AP request: ${apError.message}`, 'neg'); return; }
+
+      const { error: updError } = await supabaseClient.from('live_sessions').update({
+        status: 'finalized',
+        gross_sales: gross,
+        commission_rate: COMMISSION_RATE,
+        commission_amount: commission,
+        payee_name: payee,
+        payment_request_id: requestId,
+        finalized_at: new Date().toISOString(),
+        updated_by: state.user.id,
+        updated_at: new Date().toISOString(),
+      }).eq('id', s.id).eq('status', 'claimed');
+      if (updError) {
+        setStatus(`AP request ${requestId} was filed, but closing the session failed: ${updError.message}. Reload and try again — do not re-finalize, or AP will get a duplicate.`, 'neg');
+        return;
+      }
+
+      supabaseClient.functions.invoke('payment-request-submitted-notify', {
+        body: { payment_request_id: requestId },
+      }).catch((err) => console.error('submission notification failed', err));
+
+      closeModals();
+      setStatus(`Session finalized — ${money(commission)} commission filed with AP.`, 'pos', 8000);
+      await loadDay();
+    } finally {
+      state.busy = false;
+      els.finalizeSubmitBtn.disabled = false;
+    }
+  }
+
+  // ── Wiring ────────────────────────────────────────────────
+  function closeModals() {
+    els.claimBackdrop.classList.remove('open');
+    els.finalizeBackdrop.classList.remove('open');
+    state.pendingSlot = null;
+    state.pendingSession = null;
+  }
+
+  function shiftDay(delta) {
+    const d = new Date(`${state.date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + delta);
+    state.date = d.toISOString().slice(0, 10);
+    els.dateInput.value = state.date;
+    loadDay();
+  }
+
+  function wireEvents() {
+    els.refreshBtn.addEventListener('click', () => loadDay());
+    els.prevDayBtn.addEventListener('click', () => shiftDay(-1));
+    els.nextDayBtn.addEventListener('click', () => shiftDay(1));
+    els.todayBtn.addEventListener('click', () => {
+      state.date = todayEt();
+      els.dateInput.value = state.date;
+      loadDay();
+    });
+    els.dateInput.addEventListener('change', () => {
+      if (!els.dateInput.value) return;
+      state.date = els.dateInput.value;
+      loadDay();
+    });
+
+    els.boardTbody.addEventListener('click', (e) => {
+      const claimBtn = e.target.closest('[data-claim]');
+      if (claimBtn) { openClaimModal(Number(claimBtn.dataset.claim)); return; }
+      const finalizeBtn = e.target.closest('[data-finalize]');
+      if (finalizeBtn) { openFinalizeModal(Number(finalizeBtn.dataset.finalize)); return; }
+      const unclaimBtn = e.target.closest('[data-unclaim]');
+      if (unclaimBtn) unclaim(Number(unclaimBtn.dataset.unclaim));
+    });
+
+    els.claimSubmitBtn.addEventListener('click', submitClaim);
+    els.finalizeSubmitBtn.addEventListener('click', submitFinalize);
+    els.grossSalesInput.addEventListener('input', () => {
+      const gross = Number(els.grossSalesInput.value);
+      els.commissionPreview.textContent = money(Number.isFinite(gross) && gross >= 0 ? commissionFor(gross) : 0);
+    });
+    document.querySelectorAll('[data-close]').forEach((btn) =>
+      btn.addEventListener('click', closeModals));
+    [els.claimBackdrop, els.finalizeBackdrop].forEach((bd) =>
+      bd.addEventListener('click', (e) => { if (e.target === bd) closeModals(); }));
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModals(); });
+  }
+
+  SiloChrome.mount({
+    appEl: '#silo-app',
+    active: 'planning/live-schedule',
+    user: { email: '', role: 'ADMIN' },
+    crumbs: ['Planning', 'TikTok Live Schedule'],
+    supabaseClient,
+  });
+
+  async function init() {
+    try {
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      if (!user) { window.location.href = '/pages/login.html'; return; }
+      state.user = user;
+
+      const { data: prof } = await supabaseClient.from('profiles')
+        .select('name, email, role').eq('id', user.id).single();
+      state.profile = prof || null;
+      state.isAdmin = ['owner', 'admin', 'executive'].includes(String(prof?.role || '').toLowerCase());
+
+      state.date = todayEt();
+      els.dateInput.value = state.date;
+      wireEvents();
+      await loadDay();
+    } catch (err) {
+      console.error(err);
+      setStatus(`Init failed: ${err.message || 'Unknown error'}`, 'neg');
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

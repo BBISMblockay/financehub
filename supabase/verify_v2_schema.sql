@@ -629,3 +629,19 @@ select
       then 'MISSING — run 20260805070000_sales_comp_as_of_rpc.sql'
     else 'ok'
   end as sales_comp_as_of_rpc;
+
+-- 20. TikTok Live schedule (migration 20260807120000)
+select
+  case
+    when to_regclass('public.live_sessions') is null
+      then 'MISSING — run 20260807120000_tiktok_live_schedule.sql'
+    when not exists (select 1 from pg_indexes where schemaname='public' and indexname='live_sessions_company_slot_key')
+      then 'MISSING — live_sessions_company_slot_key unique index'
+    when not exists (select 1 from pg_class where relname='live_sessions_v' and 'security_invoker=true' = any(reloptions))
+      then 'MISSING — live_sessions_v security_invoker'
+    when (select count(*) from pg_policies where schemaname='public' and tablename='live_sessions') < 4
+      then 'MISSING — live_sessions RLS policies'
+    when not exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid where c.relname='live_sessions' and t.tgname='stamp_created_by')
+      then 'MISSING — live_sessions stamp_created_by trigger'
+    else 'ok'
+  end as tiktok_live_schedule;

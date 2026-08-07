@@ -274,6 +274,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `mail_items` | Mailroom queue (subject, sender, priority, assignee, status: open/done/archived) |
 | `mail_item_files` | Attachments per mail item (`mail-item-files` storage bucket) |
 | `mail_item_activity` | Activity log per mail item (status/assignment/priority changes, notifications sent) |
+| `live_sessions` | TikTok Live schedule/claim board — one hourly slot per company (`unique (company_entity_id, slot_start)`); finalize stamps gross sales + 3% commission and links the auto-created `payment_requests` row |
 | `inventory_workboard_v` | View: inventory with sell-through metrics |
 | `sales_monthly_product_type_rollup_mv` | Materialized view: monthly sales rollup |
 | `v_po_header_summary` | View: PO list with status |
@@ -284,6 +285,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `payment_request_activity_v` | View: activity with user info |
 | `v_launch_po_product_lookup` | View: PO products for launch search |
 | `mail_items_v` | View: mail items with assignee/submitter/processor names |
+| `live_sessions_v` | View: live sessions with claimer name/email/avatar |
 
 ### RPC functions (backend admin)
 ```
