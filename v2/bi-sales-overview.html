@@ -183,8 +183,15 @@
          the screen edge and reading as "missing," not "scroll for it." Each
          store reads far better as a stacked card than a scroll-to-see-it row,
          so tbody rows become blocks and each cell's data-label (set in
-         periodCols()/rowHtml() below) becomes its on-card caption. */
-      .ov-table-wrap { overflow:visible; }
+         periodCols()/rowHtml() below) becomes its on-card caption.
+         overflow-x stays auto (not visible) as a safety net: location tags
+         are underscore-joined with no natural wrap point (e.g.
+         baseballism_ballparks_national), so a long one at a large enough
+         font/zoom could still overflow a card's width — better a scrollbar
+         appears than content silently clips with no way to reach it, which
+         is worse than the bug this redesign fixes. overflow-y stays visible
+         so the wrapper doesn't trap vertical scroll away from the page. */
+      .ov-table-wrap { overflow-x:auto; overflow-y:visible; }
       .ov-tbl { width:100%; }
       .ov-tbl thead { display:none; }
       .ov-tbl, .ov-tbl tbody, .ov-tbl tr, .ov-tbl td { display:block; width:100%; }
@@ -205,7 +212,7 @@
       }
       .ov-tbl .m-store {
         text-align:left; background:var(--bcn-sunken); border-bottom:1px solid var(--bcn-border-strong);
-        padding:9px 12px;
+        padding:9px 12px; overflow-wrap:anywhere;
       }
       .ov-tbl tbody tr.ov-total .m-store { background:var(--bcn-band); }
       .ov-tbl .g-lead { border-left:none; }
