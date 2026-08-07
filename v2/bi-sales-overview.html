@@ -216,6 +216,24 @@
       }
       .ov-tbl tbody tr.ov-total .m-store { background:var(--bcn-band); }
       .ov-tbl .g-lead { border-left:none; }
+
+      /* Header + KPI band + filters were eating almost the entire first
+         screen before any actual data row was reachable — the description
+         paragraph alone ran 3 lines, and 5 KPIs wrapping to 2 rows cost a
+         full extra row height. Drop context that matters less on a phone
+         than seeing numbers (eyebrow label, description) and let the KPI
+         band scroll horizontally in one row instead of wrapping to two.
+         ov-status keeps single-line clamping rather than display:none --
+         it doubles as the load-failure error surface (setStatus()), so it
+         has to stay visible, just not allowed to wrap to 2 lines. */
+      .bcn-header-title, .bcn-header-sub { display:none; }
+      .bcn-header { padding:8px 14px 6px; }
+      .bcn-header h1 { font-size:15px; }
+
+      .bcn-kpi-band { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+      .bcn-kpi-band .bcn-kpi { flex:0 0 auto; min-width:108px; }
+
+      .ov-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
     }
   </style>
 </head>
