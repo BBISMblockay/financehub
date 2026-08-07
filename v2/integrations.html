@@ -467,7 +467,10 @@
         return;
       }
 
-      _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+      // ensureActiveCompany() self-heals when this tab never passed through
+      // login.html (sessionStorage empty on deep links / reopened tabs) by
+      // reading the server-side profiles.active_company_id.
+      _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
 
       window.SiloChrome.mount({
         appEl: '#silo-app',
