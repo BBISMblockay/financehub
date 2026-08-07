@@ -24,8 +24,13 @@ import {
   upsertInChunks,
 } from './shopify-sync-core.mjs';
 
-export const GOOGLE_ADS_API_VERSION = 'v19';
-export const META_API_VERSION = 'v21.0';
+// Both platforms retire API versions on a schedule (Google Ads majors ~12
+// months, Meta Graph ~2 years) — a sunset version fails with an HTML 404
+// (Google) or an explicit version error (Meta). Bump these when tests start
+// failing that way; keep GOOGLE_ADS_API_VERSION in sync with the copy in
+// supabase/functions/test-ad-platform-connection/index.ts.
+export const GOOGLE_ADS_API_VERSION = 'v24';
+export const META_API_VERSION = 'v25.0';
 export const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3';
 
 export function computeWindow(now, daysBack) {
