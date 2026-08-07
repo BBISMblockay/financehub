@@ -8165,3 +8165,45 @@ CREATE TRIGGER stamp_created_by BEFORE INSERT ON public.live_sessions
   FOR EACH ROW EXECUTE FUNCTION public.stamp_created_by();
 
 SELECT public.attach_stamp_company_entity_id_triggers();
+
+-- ============================================================
+-- 20260807150000_live_schedule_payroll_payout.sql
+-- Live hosts are W-2: payouts file as 'payroll_payment' and pay
+-- $25/hour per slot on top of the 3% commission. See migration file.
+-- ============================================================
+
+alter table public.payment_requests
+  drop constraint if exists payment_requests_request_type_check;
+
+alter table public.payment_requests
+  add constraint payment_requests_request_type_check
+  check (request_type in (
+    'invoice_vendor_payment',
+    'inventory_deposit',
+    'inventory_balance',
+    'inventory_freight',
+    'employee_reimbursement',
+    'customer_refund',
+    'payroll_payment'
+  ));
+
+alter table public.live_sessions
+  add column if not exists hourly_rate numeric(8,2) not null default 25.00;
+
+alter table public.live_sessions
+  add column if not exists payout_total numeric(14,2);
+
+-- live_sessions_v is `select ls.*` so the new columns should flow through,
+-- but a view's column list is frozen at creation — and since ls.* places
+-- the new columns BEFORE the claimer fields, create-or-replace would fail
+-- (it only allows appending at the end). Drop and recreate.
+drop view if exists public.live_sessions_v;
+create view public.live_sessions_v
+with (security_invoker = true) as
+select
+  ls.*,
+  claimer.name as claimed_by_name,
+  claimer.email as claimed_by_email,
+  claimer.avatar_url as claimed_by_avatar_url
+from public.live_sessions ls
+left join public.profiles claimer on claimer.id = ls.claimed_by;

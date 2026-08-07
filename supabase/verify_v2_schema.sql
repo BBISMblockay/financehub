@@ -645,3 +645,16 @@ select
       then 'MISSING — live_sessions stamp_created_by trigger'
     else 'ok'
   end as tiktok_live_schedule;
+
+-- 21. Live schedule payroll payout (migration 20260807150000)
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions' and column_name='payout_total')
+      then 'MISSING — run 20260807150000_live_schedule_payroll_payout.sql'
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions_v' and column_name='payout_total')
+      then 'MISSING — live_sessions_v not recreated with payout columns'
+    when not exists (select 1 from pg_constraint where conname='payment_requests_request_type_check'
+                     and pg_get_constraintdef(oid) like '%payroll_payment%')
+      then 'MISSING — payroll_payment not in payment_requests_request_type_check'
+    else 'ok'
+  end as live_schedule_payroll_payout;
