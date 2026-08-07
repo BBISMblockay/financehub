@@ -8,7 +8,10 @@ const corsHeaders = {
 const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? '';
 const GOOGLE_CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '';
 const GOOGLE_ADS_DEVELOPER_TOKEN = Deno.env.get('GOOGLE_ADS_DEVELOPER_TOKEN') ?? '';
-const GOOGLE_ADS_API_VERSION = 'v19';
+// Google retires Ads API majors ~12 months after release (monthly releases
+// since 2026) — a sunset version 404s with an HTML error page. Keep in sync
+// with GOOGLE_ADS_API_VERSION in scripts/lib/ad-platforms-sync-core.mjs.
+const GOOGLE_ADS_API_VERSION = 'v24';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -106,7 +109,7 @@ async function testMetaAds(conn: Record<string, unknown>) {
   if (!token) throw new Error('No access token stored — paste a System User token first');
   if (!conn.meta_ad_account_id) {
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/me/adaccounts?fields=id,name,currency&limit=50&access_token=${encodeURIComponent(token)}`,
+      `https://graph.facebook.com/v25.0/me/adaccounts?fields=id,name,currency&limit=50&access_token=${encodeURIComponent(token)}`,
     );
     if (!res.ok) throw new Error(`Meta adaccounts ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data = await res.json();
@@ -114,7 +117,7 @@ async function testMetaAds(conn: Record<string, unknown>) {
   }
   const acct = String(conn.meta_ad_account_id);
   const res = await fetch(
-    `https://graph.facebook.com/v21.0/${acct}?fields=id,name,currency,account_status&access_token=${encodeURIComponent(token)}`,
+    `https://graph.facebook.com/v25.0/${acct}?fields=id,name,currency,account_status&access_token=${encodeURIComponent(token)}`,
   );
   if (!res.ok) throw new Error(`Meta account ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
