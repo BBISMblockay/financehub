@@ -17,6 +17,7 @@
     .bcn-header { padding:9px 18px 7px; }
     .bcn-header h1 { font-size:16px; }
     .bcn-header-sub { font-size:11px; line-height:1.35; margin-top:1px; }
+    .ov-refresh-pill { font-family:var(--bcn-mono); font-size:10.5px; }
     .bcn-kpi-band { flex-wrap:wrap; }
     .bcn-kpi-band .bcn-kpi { padding:7px 14px; gap:2px; }
     .bcn-kpi-band .bcn-kpi-label { font-size:9px; }
@@ -165,8 +166,6 @@
     .bcn-btn.is-loading { opacity:.6; pointer-events:none; }
 
     @media (max-width:640px) {
-      .ov-chip { padding:7px 14px; font-size:12px; }
-      .ov-filters { padding:10px 14px; gap:10px; }
       .ov-meta-row { width:100%; }
       .ov-meta-row #metricMode { flex:1; min-width:0; }
       /* Free up width for the data columns — the group pill is redundant with
@@ -218,21 +217,46 @@
       .ov-tbl .g-lead { border-left:none; }
 
       /* Header + KPI band + filters were eating almost the entire first
-         screen before any actual data row was reachable — the description
-         paragraph alone ran 3 lines, and 5 KPIs wrapping to 2 rows cost a
-         full extra row height. Drop context that matters less on a phone
-         than seeing numbers (eyebrow label, description) and let the KPI
-         band scroll horizontally in one row instead of wrapping to two.
+         screen before any actual data row was reachable — still true even
+         after the first round of trimming, per direct feedback ("still not
+         enough... taking half the screen"). Going further: drop the Period/
+         Metric/As-of text labels (the chips and dropdown are self-
+         explanatory without a heading line above them — same reasoning
+         that already let the store-group chips go label-less), shrink the
+         KPI band and chip rows further, and shrink the comps-as-of pill +
+         Refresh button so that row is as short as the header itself needs.
          ov-status keeps single-line clamping rather than display:none --
          it doubles as the load-failure error surface (setStatus()), so it
          has to stay visible, just not allowed to wrap to 2 lines. */
       .bcn-header-title, .bcn-header-sub { display:none; }
-      .bcn-header { padding:8px 14px 6px; }
-      .bcn-header h1 { font-size:15px; }
+      .bcn-header { padding:6px 14px 5px; gap:4px; }
+      .bcn-header h1 { font-size:14px; }
+      .ov-refresh-pill {
+        font-size:9px; padding:2px 6px; max-width:62vw; overflow:hidden;
+        text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;
+      }
+      .bcn-header-actions { gap:6px; }
+      .bcn-header-actions .bcn-btn { padding:3px 9px; font-size:11px; height:auto; }
 
       .bcn-kpi-band { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
-      .bcn-kpi-band .bcn-kpi { flex:0 0 auto; min-width:108px; }
+      .bcn-kpi-band .bcn-kpi { flex:0 0 auto; min-width:92px; padding:5px 10px; gap:1px; }
+      .bcn-kpi-band .bcn-kpi-label { font-size:8px; }
+      .bcn-kpi-band .bcn-kpi-value { font-size:14px; }
+      .bcn-kpi-band .bcn-kpi-delta { font-size:9px; }
 
+      /* Period/Metric/As-of labels sit on their own line above the control
+         (see periodFilters/metricMode/asOfDate markup) because .ov-chips
+         and <select> are block-level, forcing a wrap after the inline
+         <label> regardless of its own width -- hiding the label removes
+         that forced line, not just the label's own height. */
+      .ov-filters .bcn-label { display:none; }
+      .ov-filters { padding:6px 14px; gap:5px; }
+      .ov-chip { padding:5px 10px; font-size:11px; }
+      .ov-chips { gap:4px; }
+      .ov-date-picker input[type="date"] { height:24px; }
+      .ov-date-picker .bcn-btn { height:24px; }
+
+      .ov-content { padding:6px 14px 16px; gap:6px; }
       .ov-status { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
     }
   </style>
@@ -250,7 +274,7 @@
         <div class="bcn-header-sub">Day / MTD / YTD vs. prior year, by store, through the last complete day — the in-progress day is excluded so CY and PY always compare full days. Refreshes automatically after nightly sync — see <a href="/v2/sales-verification.html">Sales Report</a> for row-level detail.</div>
       </div>
       <div class="bcn-header-actions">
-        <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark" style="font-family:var(--bcn-mono);font-size:10.5px">Comps as of: —</span>
+        <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark ov-refresh-pill">Comps as of: —</span>
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
       </div>
     </header>
