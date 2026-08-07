@@ -268,6 +268,9 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `review_private_notes` | Manager notes — RLS author-only, not even exec/owner |
 | `employee_goals` | Goals persist on the employee across review cycles |
 | `review_access_tokens` | Hashed 30-day portal tokens — RLS deny-all, edge functions only |
+| `ad_platform_connections` | Per-company ad platform credentials + sync config (google_ads / meta_ads / tiktok_ads / ga4); tokens written by OAuth callbacks or Integrations UI, read by the nightly sync |
+| `ad_platform_oauth_states` | Single-use 10-min OAuth CSRF nonces (RLS deny-all, service-role only) |
+| `marketing_kpis_daily` | Daily campaign-level marketing KPIs per company × platform × account × campaign, upserted on identity row_hash |
 | `mail_items` | Mailroom queue (subject, sender, priority, assignee, status: open/done/archived) |
 | `mail_item_files` | Attachments per mail item (`mail-item-files` storage bucket) |
 | `mail_item_activity` | Activity log per mail item (status/assignment/priority changes, notifications sent) |
@@ -312,6 +315,9 @@ payment-request-submitted-notify -- emails the requester a receipt the moment th
 payment-request-notify           -- emails the requester once AP marks a request paid; gated by current_user_can_manage_payment_requests(); also used by the manual "Resend notification" button
 payment-request-forward-melio    -- emails a request's submitted invoice/document to the company's Melio bill-pay forwarding inbox (MELIO_FORWARD_EMAIL secret) for auto-scan bill drafting; gated by current_user_can_manage_payment_requests(); triggered per-request or in bulk from Request Manager
 mail-item-notify -- emails the assignee when mail is routed to them, or the submitter when their item is marked done; mailroom has no manage-permission gate, so any authenticated member of the item's active company may trigger it (JWT-auth, RLS via mail_items_v enforces same-company)
+google-oauth-start / google-oauth-callback -- OAuth for Google Ads AND GA4 (shared Google Cloud client, scope differs by platform param); callback stores access+refresh tokens on ad_platform_connections. Secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+tiktok-oauth-start / tiktok-oauth-callback -- OAuth for TikTok Ads (TikTok for Business app). Secrets: TIKTOK_APP_ID, TIKTOK_APP_SECRET
+test-ad-platform-connection -- validates an ad_platform_connections row against the live platform API (refreshing Google tokens as a side effect); with no account id configured it returns the pickable account list instead. Meta Ads has no OAuth pair — a long-lived System User token is pasted directly in the Integrations UI. Google Ads tests additionally need GOOGLE_ADS_DEVELOPER_TOKEN
 ```
 Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually. `payment-request-forward-melio` additionally requires `MELIO_FORWARD_EMAIL` (the company's Melio auto-scan forwarding address, e.g. `baseballism_NNN@invoicesmelio.com`) — set as an edge-function secret, never hardcoded or exposed client-side.
 
@@ -327,7 +333,7 @@ Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows 
 | `shopify-sync.yml` | Daily 11:00 UTC | Shopify API sync — sales + inventory for all connected stores, then refreshes comp summary, sales velocity MV, and inventory current MV |
 | `nightly-silo-sync.yml` | **Retired** (manual only) | Legacy Google Sheets / Better Reports import — retired 2026-07-08 after verifying Shopify covers every sales + inventory location. BR history remains in `sales_by_day` for pre-API reporting |
 | `ar-sync.yml` | Manual / scheduled | AR (accounts receivable) sync |
-| `supermetrics-sync.yml` | Daily 10:30 UTC | Supermetrics API → `marketing_kpis_daily` (Google Ads, Meta Ads, TikTok Ads, GA4 daily campaign KPIs). No-ops until the `SUPERMETRICS_API_KEY` repo secret is set |
+| `ad-platforms-sync.yml` | Daily 10:30 UTC | Direct platform APIs → `marketing_kpis_daily` (Google Ads, Meta Ads, TikTok Ads, GA4 daily campaign KPIs). Per-connection tokens live on `ad_platform_connections` rows (set via `/v2/integrations.html`); Google connections additionally need the `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPER_TOKEN` repo secrets and are skipped until those exist. Replaced the retired Supermetrics path (never went live) |
 
 **One sync, one source of truth.** Sales and inventory come from the Shopify API via the nightly GitHub Action. There is no dual-write conflict.
 

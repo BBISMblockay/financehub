@@ -246,6 +246,7 @@ supabase/
     20260803160000_ar_company_entity_backfill.sql
     20260805090000_backfill_uncategorized_product_types.sql
     20260805100000_payment_request_melio_forward.sql
+    20260807000000_ad_platform_direct_api.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

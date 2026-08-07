@@ -374,6 +374,54 @@
             </tfoot>
           </table>
         </div>
+
+        <p class="int-section-label" style="margin-top:28px;">Ad platforms</p>
+        <p class="int-onboarding-note">Direct API connections for marketing KPIs (Google Ads, Meta Ads, TikTok Ads, GA4) → nightly sync into the <a href="/v2/marketing-overview.html">Marketing overview</a>. After connecting, set the account/property ID, test, then enable sync.</p>
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Name</th>
+                <th>Account / property ID</th>
+                <th>Nightly sync</th>
+                <th>Last test</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="ad-connections-list">
+              <tr><td colspan="6"><div class="empty-state" id="ad-empty"><strong>No ad platforms connected</strong>Connect a platform below</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="int-add-row">
+                <td colspan="6">
+                  <div class="form-row" style="padding:10px 0;flex-wrap:wrap;gap:8px;">
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-google-ads">Connect Google Ads →</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-ga4">Connect GA4 →</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-tiktok">Connect TikTok Ads →</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-add-meta">Add Meta Ads token…</button>
+                  </div>
+                  <div class="int-add-form add-form" id="meta-add-form">
+                    <div class="bcn-field-group">
+                      <label class="bcn-label" for="meta-token">Meta System User access token</label>
+                      <input class="bcn-field bcn-field--mono" id="meta-token" type="password"
+                        placeholder="EAAB…" autocomplete="off" spellcheck="false" />
+                    </div>
+                    <div class="bcn-field-group">
+                      <label class="bcn-label" for="meta-account-id">Ad account ID (optional — Test lists accounts if blank)</label>
+                      <input class="bcn-field bcn-field--mono" id="meta-account-id" type="text"
+                        placeholder="act_1234567890" autocomplete="off" spellcheck="false" />
+                    </div>
+                    <div class="form-row">
+                      <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-meta">Cancel</button>
+                      <button class="bcn-btn bcn-btn--primary" id="btn-save-meta">Save Meta connection</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
     </main>
   </div>
@@ -430,14 +478,19 @@
       });
 
       loadConnections();
+      loadAdConnections();
 
-      // Handle OAuth redirect-back
+      // Handle OAuth redirect-back (Shopify + ad platforms share the params;
+      // ad-platform callbacks add &platform=)
       const urlParams = new URLSearchParams(window.location.search);
+      const oauthPlatform = urlParams.get('platform');
       if (urlParams.get('oauth_connected')) {
-        setStatus('✓ Shopify store connected — enable sync when ready.', 'pos', 8000);
+        setStatus(oauthPlatform
+          ? `✓ ${AD_PLATFORM_LABELS[oauthPlatform] || oauthPlatform} connected — set the account ID, test, then enable sync.`
+          : '✓ Shopify store connected — enable sync when ready.', 'pos', 8000);
         history.replaceState({}, '', window.location.pathname);
       } else if (urlParams.get('oauth_error')) {
-        setStatus('Shopify connection failed: ' + urlParams.get('oauth_error'), 'neg', 10000);
+        setStatus('Connection failed: ' + urlParams.get('oauth_error'), 'neg', 10000);
         history.replaceState({}, '', window.location.pathname);
       }
     });
@@ -1404,6 +1457,175 @@
       if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return; }
       loadConnections();
     }
+
+    // ══ Ad platforms (Google Ads / Meta Ads / TikTok Ads / GA4) ═══════════
+
+    const AD_PLATFORM_LABELS = {
+      google_ads: 'Google Ads', meta_ads: 'Meta Ads', tiktok_ads: 'TikTok Ads', ga4: 'GA4',
+    };
+    const AD_ACCOUNT_FIELD = {
+      google_ads: 'google_customer_id', meta_ads: 'meta_ad_account_id',
+      tiktok_ads: 'tiktok_advertiser_id', ga4: 'ga4_property_id',
+    };
+    const AD_ACCOUNT_PLACEHOLDER = {
+      google_ads: '123-456-7890', meta_ads: 'act_1234567890',
+      tiktok_ads: '7012345678901234567', ga4: '123456789 (property ID)',
+    };
+
+    async function loadAdConnections() {
+      const { data, error } = await db
+        .from('ad_platform_connections')
+        .select('id, platform, display_name, is_active, sync_enabled, last_tested_at, last_test_success, last_test_error, google_customer_id, meta_ad_account_id, tiktok_advertiser_id, ga4_property_id')
+        .order('platform').order('created_at');
+      if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
+      renderAdConnections(data || []);
+    }
+
+    function escAttr(s) {
+      return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    }
+
+    function renderAdConnections(rows) {
+      const tbody = document.getElementById('ad-connections-list');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>No ad platforms connected</strong>Connect a platform below</div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map((row) => {
+        const acctField = AD_ACCOUNT_FIELD[row.platform];
+        const acctVal = row[acctField] || '';
+        const test = row.last_tested_at
+          ? (row.last_test_success
+              ? `<span class="bcn-pill bcn-pill--pos">OK</span>`
+              : `<span class="bcn-pill bcn-pill--neg" title="${escAttr(row.last_test_error)}">Failed</span>`)
+          : '<span class="bcn-pill">Untested</span>';
+        return `<tr>
+          <td>${AD_PLATFORM_LABELS[row.platform] || row.platform}</td>
+          <td><input class="bcn-field" style="min-width:140px;" value="${escAttr(row.display_name)}"
+            onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
+          <td><input class="bcn-field bcn-field--mono" style="min-width:150px;" value="${escAttr(acctVal)}"
+            placeholder="${AD_ACCOUNT_PLACEHOLDER[row.platform]}"
+            onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" /></td>
+          <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
+              onchange="updateAdConnection('${row.id}', { sync_enabled: this.checked })" />
+            ${row.sync_enabled ? 'On' : 'Off'}</label></td>
+          <td>${test}</td>
+          <td style="white-space:nowrap;">
+            <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
+            <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function updateAdConnection(id, patch) {
+      const { error } = await db.from('ad_platform_connections')
+        .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
+      if (error) { setStatus('Update failed: ' + error.message, 'neg', 5000); return; }
+      loadAdConnections();
+    }
+
+    async function removeAdConnection(id) {
+      if (!confirm('Remove this ad platform connection? This cannot be undone.')) return;
+      const { error } = await db.from('ad_platform_connections').delete().eq('id', id);
+      if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return; }
+      loadAdConnections();
+    }
+
+    async function testAdConnection(id) {
+      setStatus('Testing connection…', 'info');
+      try {
+        const res = await fetch(`${FUNCTIONS_URL}/test-ad-platform-connection`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${_session.access_token}`,
+          },
+          body: JSON.stringify({ connection_id: id }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          // With no account id configured the test returns the pickable list.
+          const list = data.accessible_customers || data.properties || data.ad_accounts
+            || data.advertiser_ids;
+          if (list && list.length) {
+            setStatus('✓ Auth OK — available accounts: '
+              + list.map((x) => typeof x === 'string' ? x : (x.id || x.property || '') + (x.display_name || x.name ? ` (${x.display_name || x.name})` : '')).join(', ')
+              + ' — paste one into the account field.', 'info', 20000);
+          } else {
+            setStatus('✓ Connection OK', 'pos', 5000);
+          }
+        } else {
+          setStatus('✗ Test failed: ' + (data.error || ''), 'neg', 10000);
+        }
+      } catch (err) {
+        setStatus('✗ Test failed: ' + err.message, 'neg', 8000);
+      }
+      loadAdConnections();
+    }
+
+    async function startAdOauth(fn, body, btn) {
+      const orig = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Redirecting…';
+      try {
+        const res = await fetch(`${FUNCTIONS_URL}/${fn}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${_session.access_token}`,
+          },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.url) throw new Error(data.error || 'No authorize URL returned');
+        window.location.href = data.url;
+      } catch (err) {
+        setStatus('Could not start OAuth: ' + err.message, 'neg', 8000);
+        btn.disabled = false; btn.textContent = orig;
+      }
+    }
+
+    document.getElementById('btn-connect-google-ads').addEventListener('click', (e) => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      startAdOauth('google-oauth-start', { company_entity_id: _co.id, platform: 'google_ads' }, e.target);
+    });
+    document.getElementById('btn-connect-ga4').addEventListener('click', (e) => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      startAdOauth('google-oauth-start', { company_entity_id: _co.id, platform: 'ga4' }, e.target);
+    });
+    document.getElementById('btn-connect-tiktok').addEventListener('click', (e) => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      startAdOauth('tiktok-oauth-start', { company_entity_id: _co.id }, e.target);
+    });
+
+    document.getElementById('btn-add-meta').addEventListener('click', () => {
+      document.getElementById('meta-add-form').classList.add('open');
+    });
+    document.getElementById('btn-cancel-meta').addEventListener('click', () => {
+      document.getElementById('meta-add-form').classList.remove('open');
+    });
+    document.getElementById('btn-save-meta').addEventListener('click', async () => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      const token = document.getElementById('meta-token').value.trim();
+      const acct = document.getElementById('meta-account-id').value.trim();
+      if (!token) { setStatus('Paste the System User access token first', 'neg', 5000); return; }
+      const { error } = await db.from('ad_platform_connections').insert({
+        company_entity_id: _co.id,
+        platform: 'meta_ads',
+        display_name: 'Meta Ads account',
+        access_token: token,
+        meta_ad_account_id: acct || null,
+        is_active: true,
+        sync_enabled: false,
+      });
+      if (error) { setStatus('Save failed: ' + error.message, 'neg', 8000); return; }
+      document.getElementById('meta-token').value = '';
+      document.getElementById('meta-account-id').value = '';
+      document.getElementById('meta-add-form').classList.remove('open');
+      setStatus('✓ Meta connection saved — run Test, then enable sync.', 'pos', 8000);
+      loadAdConnections();
+    });
   </script>
 </body>
 </html>
