@@ -50,6 +50,7 @@
     { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/scenarios', section: 'Planning', label: 'Planning scenarios', href: '/v2/planning-scenarios.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/launch-calendar', section: 'Planning', label: 'Launch calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/tasks', section: 'Planning', label: 'Task Manager', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
 
     { id: 'team/reviews', section: 'Team', label: 'Performance Reviews', href: '/v2/reviews.html', profiles: ['grandfathered', 'standard'] },
