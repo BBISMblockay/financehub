@@ -102,8 +102,16 @@ create trigger stamp_created_by
   for each row execute function public.stamp_created_by();
 
 -- marketing_kpis_daily now points at ad_platform_connections. Table itself
--- (created by the never-launched 20260716000000_supermetrics_kpis.sql, zero
--- rows) is kept — only its connection FK and default source change.
+-- (created by 20260716000000_supermetrics_kpis.sql) is kept — only its
+-- connection FK and default source change. Its only rows are demo_seed
+-- placeholders whose connection_id referenced the supermetrics_connections
+-- row being dropped; detach them (kept so the marketing overview renders
+-- until real syncs land) or the new FK add fails validation.
+update public.marketing_kpis_daily set connection_id = null
+  where connection_id is not null
+    and not exists (select 1 from public.ad_platform_connections c
+                    where c.id = marketing_kpis_daily.connection_id);
+
 alter table public.marketing_kpis_daily
   drop constraint if exists marketing_kpis_daily_connection_id_fkey;
 alter table public.marketing_kpis_daily
