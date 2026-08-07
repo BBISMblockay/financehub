@@ -462,7 +462,21 @@
         .eq('id', session.user.id)
         .single();
 
-      if (profile?.role !== 'owner' && profile?.role !== 'admin') {
+      // Mirror the server-side is_admin_user() gate (which RLS enforces on
+      // every write here): per-company membership role decides, with the
+      // legacy profile role only as fallback for users with no membership.
+      // Checking profile.role alone wrongly blocked profile-level
+      // `executive` users whose membership is admin.
+      const { data: _mem } = await db
+        .from('entity_memberships')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .eq('entity_id', profile?.active_company_id)
+        .maybeSingle();
+      const _isAdmin = _mem?.role
+        ? ['owner_admin', 'admin'].includes(_mem.role)
+        : ['owner', 'admin'].includes(profile?.role);
+      if (!_isAdmin) {
         setStatus('Integrations settings require admin access.', 'neg');
         return;
       }
