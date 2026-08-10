@@ -512,9 +512,14 @@
         flag = `<span class="bcn-pill bcn-pill--neg mo-platform-pill">review</span>`;
       else if (roas != null && roas >= 5 && a.spend >= 1000)
         flag = `<span class="bcn-pill bcn-pill--accent mo-platform-pill">scale?</span>`;
+      // Catalog/dynamic ads often have no static thumbnail (or an expired
+      // one) — fall back to a format label so the tile isn't a blank box.
+      const fmtLabel = esc((c?.object_type || 'AD').slice(0, 6));
+      const fallback = `<div class="mo-thumb" style="display:flex;align-items:center;justify-content:center;font-family:var(--bcn-mono);font-size:8px;color:var(--bcn-ink-4)">${fmtLabel}</div>`;
       const thumb = c?.thumbnail_url
-        ? `<img class="mo-thumb" loading="lazy" src="${esc(c.thumbnail_url)}" alt="" onerror="this.style.visibility='hidden'" />`
-        : `<div class="mo-thumb"></div>`;
+        ? `<img class="mo-thumb" loading="lazy" src="${esc(c.thumbnail_url)}" alt=""
+             onerror="this.outerHTML='${fallback.replaceAll("'", "&#39;")}'" />`
+        : fallback;
       return `<tr>
         <td><div class="mo-ad-cell">${thumb}<div><div class="mo-ad-name">${esc(a.name||a.adId)}</div><div class="mo-ad-sub">${esc(a.campaign||'')}</div></div></div></td>
         <td>${statusPill}</td>
@@ -546,9 +551,15 @@
     }
     const list = [...byCh.values()].sort((a,b)=>b.rev-a.rev);
     const totalRev = list.reduce((a,c)=>a+c.rev,0);
-    const onlineNet = (merRows||[]).reduce((a,m)=>a+Number(m.online_net_sales||0),0);
-    el('captureNote').textContent = onlineNet
-      ? `GA4 total ${money(totalRev)} vs Shopify online ${money(onlineNet)} (${Math.round(totalRev/onlineNet*100)}% capture)` : '';
+    // Capture rate only over days BOTH sources cover — GA4 history may be
+    // shorter than Shopify's, and full-window sums fake a low capture.
+    const ga4Days = new Set(ga4.map(r => r.day_date));
+    const shopByDay = new Map((merRows||[]).map(m => [m.day_date, Number(m.online_net_sales||0)]));
+    const capDays = [...ga4Days].filter(d => (shopByDay.get(d)||0) > 0);
+    const capGa4 = ga4.filter(r => capDays.includes(r.day_date)).reduce((a,r)=>a+Number(r.conversion_value||0),0);
+    const capOnline = capDays.reduce((a,d)=>a+shopByDay.get(d),0);
+    el('captureNote').textContent = capOnline
+      ? `GA4 ${money(capGa4)} vs Shopify ${money(capOnline)} over the ${capDays.length}d both cover (${Math.round(capGa4/capOnline*100)}% capture)` : '';
 
     el('channelBody').innerHTML = list.map(c => `<tr>
       <td>${esc(c.ch)}${c.ch === 'Unassigned' ? ' <span class="bcn-pill bcn-pill--neg mo-platform-pill">tagging gap</span>' : ''}</td>
