@@ -204,6 +204,156 @@ export async function fetchMetaAdsRows(connection, window) {
   return rows;
 }
 
+/** Ad-level Meta insights (level=ad) for the creative report. Chunked into
+ * short windows internally: ad-grain requests are much bigger than campaign
+ * grain and a wide window trips Meta's "reduce the amount of data" error
+ * (code 1 / subcode 99 — hit live on a 34-day campaign-level backfill). */
+export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 } = {}) {
+  const token = connection.access_token;
+  if (!token) throw new Error('No access token stored on connection');
+  if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
+
+  const acct = String(connection.meta_ad_account_id);
+  const rows = [];
+  const endAll = new Date(`${window.endDate}T00:00:00Z`);
+
+  for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
+    const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
+    let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
+      level: 'ad',
+      time_increment: '1',
+      time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
+      fields: 'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
+      limit: '500',
+      access_token: token,
+    }).toString();
+    while (url) {
+      const data = await fetchJsonOrThrow(url, {}, 'Meta ad-level insights');
+      for (const r of data.data ?? []) {
+        const purchases = (r.actions ?? []).find((a) => a.action_type === 'omni_purchase')
+          ?? (r.actions ?? []).find((a) => a.action_type === 'purchase');
+        const purchaseValue = (r.action_values ?? []).find((a) => a.action_type === 'omni_purchase')
+          ?? (r.action_values ?? []).find((a) => a.action_type === 'purchase');
+        rows.push({
+          accountId: r.account_id,
+          day: r.date_start,
+          campaignId: r.campaign_id, campaignName: r.campaign_name,
+          adsetId: r.adset_id, adsetName: r.adset_name,
+          adId: r.ad_id, adName: r.ad_name,
+          impressions: r.impressions, clicks: r.clicks, spend: r.spend,
+          conversions: purchases?.value ?? 0,
+          conversionValue: purchaseValue?.value ?? 0,
+        });
+      }
+      url = data.paging?.next ?? null;
+    }
+    s = new Date(e.getTime() + 86400000);
+  }
+  return rows;
+}
+
+/** Creative metadata for every ad in the account (thumbnail, copy, format,
+ * status) — refreshed wholesale each sync; joined to ad-level performance by
+ * ad_id for the creative report. Dynamic-creative ads may carry their copy in
+ * asset feeds rather than body/title; we store whatever the creative exposes. */
+export async function fetchMetaAdCreatives(connection) {
+  const token = connection.access_token;
+  if (!token) throw new Error('No access token stored on connection');
+  const acct = String(connection.meta_ad_account_id);
+  const out = [];
+  let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/ads?` + new URLSearchParams({
+    fields: 'id,name,effective_status,campaign_id,adset_id,creative{id,thumbnail_url,body,title,object_type}',
+    limit: '200',
+    access_token: token,
+  }).toString();
+  while (url) {
+    const data = await fetchJsonOrThrow(url, {}, 'Meta ads list');
+    for (const a of data.data ?? []) {
+      out.push({
+        adId: a.id,
+        adName: a.name ?? null,
+        campaignId: a.campaign_id ?? null,
+        adsetId: a.adset_id ?? null,
+        effectiveStatus: a.effective_status ?? null,
+        creativeId: a.creative?.id ?? null,
+        thumbnailUrl: a.creative?.thumbnail_url ?? null,
+        body: a.creative?.body ?? null,
+        title: a.creative?.title ?? null,
+        objectType: a.creative?.object_type ?? null,
+      });
+    }
+    url = data.paging?.next ?? null;
+  }
+  return out;
+}
+
+/** Sync Meta ad-level performance + creatives for one connection. Separate
+ * from runConnectionSync so a failure here (bigger, chattier pull) never
+ * fails the campaign-level KPI sync. */
+export async function runMetaAdLevelSync(supabase, connection, {
+  batchId,
+  now = new Date(),
+  daysBackOverride = null,
+} = {}) {
+  const window = computeWindow(now, daysBackOverride ?? connection.days_back ?? 30);
+  const syncedAt = new Date().toISOString();
+
+  const raw = await fetchMetaAdLevelRows(connection, window);
+  const perfRows = raw
+    .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(String(r.day ?? '')))
+    .map((r) => ({
+      company_entity_id: connection.company_entity_id,
+      connection_id: connection.id,
+      account_id: r.accountId != null ? String(r.accountId) : null,
+      day_date: r.day,
+      campaign_id: r.campaignId != null ? String(r.campaignId) : null,
+      campaign_name: r.campaignName ?? null,
+      adset_id: r.adsetId != null ? String(r.adsetId) : null,
+      adset_name: r.adsetName ?? null,
+      ad_id: String(r.adId),
+      ad_name: r.adName ?? null,
+      impressions: Math.round(Number(String(r.impressions ?? '').replace(/[,$\s]/g, '')) || 0),
+      clicks: Math.round(Number(String(r.clicks ?? '').replace(/[,$\s]/g, '')) || 0),
+      spend: Number(String(r.spend ?? '').replace(/[,$\s]/g, '')) || 0,
+      conversions: Number(String(r.conversions ?? '').replace(/[,$\s]/g, '')) || 0,
+      conversion_value: Number(String(r.conversionValue ?? '').replace(/[,$\s]/g, '')) || 0,
+      // Identity only, like marketing_kpis_daily — restatements upsert in place.
+      row_hash: hashRow([connection.company_entity_id, 'meta_ads_ad', r.accountId, r.adId, r.day]),
+      source: PLATFORM_SOURCES.meta_ads,
+      synced_at: syncedAt,
+      sync_batch_id: batchId || null,
+    }));
+  const perfUpserted = await upsertInChunks(supabase, 'meta_ad_performance_daily', perfRows, 'row_hash');
+
+  const creatives = await fetchMetaAdCreatives(connection);
+  const creativeRows = creatives.map((c) => ({
+    company_entity_id: connection.company_entity_id,
+    ad_id: String(c.adId),
+    account_id: connection.meta_ad_account_id ?? null,
+    ad_name: c.adName,
+    campaign_id: c.campaignId != null ? String(c.campaignId) : null,
+    adset_id: c.adsetId != null ? String(c.adsetId) : null,
+    effective_status: c.effectiveStatus,
+    creative_id: c.creativeId != null ? String(c.creativeId) : null,
+    thumbnail_url: c.thumbnailUrl,
+    body: c.body,
+    title: c.title,
+    object_type: c.objectType,
+    synced_at: syncedAt,
+  }));
+  const creativesUpserted = await upsertInChunks(
+    supabase, 'meta_ad_creatives', creativeRows, 'company_entity_id,ad_id',
+  );
+
+  return {
+    window,
+    ad_rows_fetched: raw.length,
+    ad_rows_upserted: perfUpserted,
+    creatives_upserted: creativesUpserted,
+    synced_at: syncedAt,
+  };
+}
+
 // ── TikTok Ads ──────────────────────────────────────────────────────────────
 
 export async function fetchTiktokAdsRows(connection, window) {
