@@ -8666,8 +8666,10 @@ online_rev as (
   from public.sales_by_day s
   join public.locations l
     on l.company_entity_id = s.company_entity_id
-   and l.location_code = s.location_tag
    and l.store_type = 'online'
+   -- slugify(), in SQL: lowercase, non-alphanumeric runs -> '_', trim '_'
+   and nullif(btrim(regexp_replace(lower(coalesce(nullif(l.location_code, ''), l.location_name)), '[^a-z0-9]+', '_', 'g'), '_'), '')
+       = s.location_tag
   group by 1, 2
 )
 select

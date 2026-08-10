@@ -6,6 +6,12 @@
 -- immune to platform attribution inflation. Channel-level credit stays in
 -- marketing_kpis_daily (platform-attributed) and GA4 rows (directional).
 --
+-- sales_by_day.location_tag is written by the Shopify sync as
+-- slugify(location_code || location_name) (see shopify-sync-core.mjs and the
+-- matching join comment in bi-sales-overview.html), so the join must apply
+-- the same slugification to the locations side — a raw location_code match
+-- only works when the code already happens to be slug-form.
+--
 -- full outer join: days with revenue but no spend (and vice versa) still
 -- appear — consumers window by day_date.
 
@@ -31,8 +37,10 @@ online_rev as (
   from public.sales_by_day s
   join public.locations l
     on l.company_entity_id = s.company_entity_id
-   and l.location_code = s.location_tag
    and l.store_type = 'online'
+   -- slugify(), in SQL: lowercase, non-alphanumeric runs → '_', trim '_'
+   and nullif(btrim(regexp_replace(lower(coalesce(nullif(l.location_code, ''), l.location_name)), '[^a-z0-9]+', '_', 'g'), '_'), '')
+       = s.location_tag
   group by 1, 2
 )
 select
