@@ -252,23 +252,35 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 }
   return rows;
 }
 
-/** Creative metadata for every ad in the account (thumbnail, copy, format,
- * status) — refreshed wholesale each sync; joined to ad-level performance by
- * ad_id for the creative report. Dynamic-creative ads may carry their copy in
- * asset feeds rather than body/title; we store whatever the creative exposes. */
-export async function fetchMetaAdCreatives(connection) {
+/** Creative metadata (thumbnail, copy, format, status) for a specific set of
+ * ad ids — the ads that actually have performance rows in the window. The
+ * account-wide /ads listing spans the account's ENTIRE ad history and trips
+ * Meta's request-size limits (observed live), and the lighter ?ids= syntax is
+ * deprecated, so this uses the Graph batch API: 50 GETs per POST. Dynamic-
+ * creative ads may carry copy in asset feeds rather than body/title; we store
+ * whatever the creative exposes. */
+export async function fetchMetaAdCreatives(connection, adIds) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
-  const acct = String(connection.meta_ad_account_id);
+  const ids = [...new Set((adIds || []).map(String))];
+  const fields = encodeURIComponent('id,name,effective_status,campaign_id,adset_id,creative{id,thumbnail_url,body,title,object_type}');
   const out = [];
-  let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/ads?` + new URLSearchParams({
-    fields: 'id,name,effective_status,campaign_id,adset_id,creative{id,thumbnail_url,body,title,object_type}',
-    limit: '200',
-    access_token: token,
-  }).toString();
-  while (url) {
-    const data = await fetchJsonOrThrow(url, {}, 'Meta ads list');
-    for (const a of data.data ?? []) {
+
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i + 50).map((id) => ({
+      method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=${fields}`,
+    }));
+    const data = await fetchJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ access_token: token, batch: JSON.stringify(batch) }).toString(),
+    }, 'Meta ads batch');
+    if (!Array.isArray(data)) throw new Error(`Meta ads batch: unexpected response shape`);
+    for (const item of data) {
+      if (!item || item.code !== 200 || !item.body) continue;
+      let a;
+      try { a = JSON.parse(item.body); } catch { continue; }
+      if (!a?.id) continue;
       out.push({
         adId: a.id,
         adName: a.name ?? null,
@@ -282,7 +294,6 @@ export async function fetchMetaAdCreatives(connection) {
         objectType: a.creative?.object_type ?? null,
       });
     }
-    url = data.paging?.next ?? null;
   }
   return out;
 }
@@ -325,7 +336,7 @@ export async function runMetaAdLevelSync(supabase, connection, {
     }));
   const perfUpserted = await upsertInChunks(supabase, 'meta_ad_performance_daily', perfRows, 'row_hash');
 
-  const creatives = await fetchMetaAdCreatives(connection);
+  const creatives = await fetchMetaAdCreatives(connection, raw.map((r) => r.adId));
   const creativeRows = creatives.map((c) => ({
     company_entity_id: connection.company_entity_id,
     ad_id: String(c.adId),
