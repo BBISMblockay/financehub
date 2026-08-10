@@ -219,21 +219,32 @@
     const ga4Revenue = sum(ga4,'conversion_value');
     // Shopify online net sales is the revenue LEDGER — the preferred MER
     // numerator. GA4 is the directional fallback until Shopify data exists.
-    // MER and capture-rate must compare like windows: if Shopify covers only
-    // part of the 34 days (fresh connection), restrict both spend and GA4 to
-    // the days Shopify actually has data for.
-    const ledgerDays = new Set((merRows||[]).filter(m => Number(m.online_net_sales||0) > 0).map(m => m.day_date));
+    // Every RATIO computes only over days where BOTH of its inputs exist —
+    // the sources sync independently, so either side can cover only part of
+    // the window (fresh ad connection = short spend history; Shopify history
+    // = full window). Dividing across mismatched windows produced 58x "MER"
+    // when 34 days of revenue met 7 days of spend.
+    const shopDays = new Set((merRows||[]).filter(m => Number(m.online_net_sales||0) > 0).map(m => m.day_date));
+    const spendDays = new Set(paid.filter(r => Number(r.spend||0) > 0).map(r => r.day_date));
+    const ga4Days = new Set(ga4.map(r => r.day_date));
+
+    const merDays = new Set([...spendDays].filter(d => shopDays.has(d)));
+    const merSpend = sum(paid.filter(r => merDays.has(r.day_date)),'spend');
+    const merOnline = sum((merRows||[]).filter(m => merDays.has(m.day_date)),'online_net_sales');
+
+    const capDays = new Set([...ga4Days].filter(d => shopDays.has(d)));
+    const capGa4 = sum(ga4.filter(r => capDays.has(r.day_date)),'conversion_value');
+    const capOnline = sum((merRows||[]).filter(m => capDays.has(m.day_date)),'online_net_sales');
+
     const onlineNet = sum(merRows||[],'online_net_sales');
-    const spendOnLedgerDays = sum(paid.filter(r => ledgerDays.has(r.day_date)),'spend');
-    const ga4OnLedgerDays = sum(ga4.filter(r => ledgerDays.has(r.day_date)),'conversion_value');
 
     el.kpiSpend.textContent = money(paidSpend);
     el.kpiRoas.textContent = ratioFmt(paidSpend ? paidConvValue/paidSpend : null);
-    if (onlineNet && spendOnLedgerDays){
-      el.kpiMer.textContent = ratioFmt(onlineNet/spendOnLedgerDays);
+    if (merSpend && merOnline){
+      el.kpiMer.textContent = ratioFmt(merOnline/merSpend);
       document.getElementById('kpiMerDelta').textContent =
-        ledgerDays.size < WINDOW_DAYS
-          ? `Online net ÷ spend (${ledgerDays.size}d overlap)`
+        merDays.size < WINDOW_DAYS
+          ? `Online net ÷ spend (${merDays.size}d overlap)`
           : 'Online net sales ÷ ad spend';
     } else if (paidSpend && ga4Revenue){
       el.kpiMer.textContent = ratioFmt(ga4Revenue/paidSpend);
@@ -244,8 +255,8 @@
     el.kpiCpa.textContent = paidConversions ? money(paidSpend/paidConversions) : '—';
     if (onlineNet){
       el.kpiOrganic.textContent = money(onlineNet);
-      document.getElementById('kpiOrganicDelta').textContent = ga4OnLedgerDays
-        ? `GA4 sees ${money(ga4OnLedgerDays)} (${Math.round(ga4OnLedgerDays/onlineNet*100)}% capture)`
+      document.getElementById('kpiOrganicDelta').textContent = (capGa4 && capOnline)
+        ? `GA4 sees ${Math.round(capGa4/capOnline*100)}% of it (${capDays.size}d overlap)`
         : 'Shopify, online store (34d)';
     } else {
       el.kpiOrganic.textContent = money(ga4Revenue);
