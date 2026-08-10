@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SILO · Org Calendar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="../pages/config.js"></script>
+  <script src="lib/supabase-js.min.js"></script>
+  <style>
+    /* calendar pane fills remaining height */
+    #pane-month {
+      flex:1; min-height:0; display:flex; flex-direction:column;
+      overflow:hidden; margin-top:12px;
+    }
+    #pane-month .bcn-card { flex:1; display:flex; flex-direction:column; min-height:0; }
+    .cal-scroll { flex:1; overflow:auto; min-height:0; padding:12px; }
+    .cal-scroll::-webkit-scrollbar { width:8px; height:8px; }
+    .cal-scroll::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); border-radius:4px; }
+
+    .cal-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:3px; min-width:620px; grid-auto-rows:minmax(104px,auto); }
+    .cal-dow { padding:3px 4px 6px; font-size:10px; font-weight:700; letter-spacing:.1em; color:var(--bcn-ink-3); font-family:var(--bcn-mono); text-transform:uppercase; }
+    .cal-cell {
+      min-height:108px; border:1px solid var(--bcn-border); border-radius:8px;
+      background:var(--bcn-surface); padding:5px;
+      display:flex; flex-direction:column;
+    }
+    .cal-cell.off { opacity:.3; }
+    .cal-cell.today { border-color:var(--bcn-accent); box-shadow:inset 0 0 0 1px oklch(0.60 0.20 245 / 0.10); }
+    .cal-cell-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; }
+    .cal-daynum { height:18px; min-width:18px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; font-weight:700; font-size:11px; }
+    .cal-cell.today .cal-daynum { background:var(--bcn-accent); color:#fff; }
+    .cal-count { font-size:9.5px; font-family:var(--bcn-mono); color:var(--bcn-ink-4); font-weight:700; }
+    .cal-events { display:flex; flex-direction:column; gap:2px; flex:1; overflow:hidden; }
+    .cal-overflow { font-size:9.5px; color:var(--bcn-ink-4); padding:1px 0; font-family:var(--bcn-mono); cursor:pointer; }
+
+    /* event chip — left bar color = category */
+    .ev-chip {
+      position:relative; border:1px solid var(--bcn-border); border-radius:5px;
+      padding:3px 6px 3px 10px; cursor:pointer; background:var(--bcn-surface-2,oklch(0.97 0.005 245));
+      overflow:hidden; transition:border-color .1s;
+    }
+    .ev-chip:hover { border-color:var(--bcn-border-strong); background:oklch(0.95 0.008 245); }
+    .ev-chip::before { content:''; position:absolute; left:0; top:3px; bottom:3px; width:3px; border-radius:2px; background:var(--bcn-accent); }
+    .ev-chip-title { font-size:10.5px; font-weight:600; line-height:1.15; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+    .ev-chip-meta { font-size:9px; color:var(--bcn-ink-3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:var(--bcn-mono); letter-spacing:.04em; }
+
+    /* category colors (chips + pills + legend) */
+    .c-product::before      { background:oklch(0.60 0.20 245); }
+    .c-supply_chain::before { background:oklch(0.62 0.18 75); }
+    .c-finance::before      { background:oklch(0.55 0.18 145); }
+    .c-operations::before   { background:oklch(0.55 0.18 300); }
+    .c-people::before       { background:oklch(0.60 0.14 195); }
+    .c-company::before      { background:var(--bcn-band); }
+    .cat-pill { display:inline-flex; align-items:center; gap:5px; font-size:9.5px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); text-transform:uppercase; }
+    .cat-dot { width:8px; height:8px; border-radius:2px; background:var(--bcn-accent); flex-shrink:0; }
+    .cat-dot.c-product      { background:oklch(0.60 0.20 245); }
+    .cat-dot.c-supply_chain { background:oklch(0.62 0.18 75); }
+    .cat-dot.c-finance      { background:oklch(0.55 0.18 145); }
+    .cat-dot.c-operations   { background:oklch(0.55 0.18 300); }
+    .cat-dot.c-people       { background:oklch(0.60 0.14 195); }
+    .cat-dot.c-company      { background:var(--bcn-band); }
+    .cal-legend { display:flex; gap:14px; flex-wrap:wrap; padding:8px 12px 0; }
+
+    /* agenda feed */
+    #pane-agenda { margin-top:12px; }
+    .agenda-day-head { padding:10px 16px 4px; font-size:10px; font-weight:700; letter-spacing:.1em; color:var(--bcn-ink-3); font-family:var(--bcn-mono); text-transform:uppercase; border-bottom:1px solid var(--bcn-border); background:oklch(0.98 0.003 245); }
+    .agenda-row {
+      display:grid; grid-template-columns:64px 130px 1fr auto;
+      gap:12px; align-items:center;
+      padding:10px 16px; border-bottom:1px solid var(--bcn-border);
+      cursor:pointer; transition:background .1s;
+    }
+    .agenda-row:last-child { border-bottom:none; }
+    .agenda-row:hover { background:oklch(0.97 0.005 245); }
+    .agenda-time-txt { font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+    .agenda-title { font-weight:700; font-size:13px; }
+    .agenda-meta { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
+    .agenda-src { font-size:10px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; }
+    .agenda-empty { padding:28px 16px; text-align:center; font-size:12px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    /* in-page tabs */
+    .pg-tab-bar { display:flex; align-items:stretch; border-bottom:1px solid var(--bcn-border); margin-top:6px; }
+    .pg-tab { height:36px; padding:0 16px; font-size:11px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; transition:color .12s, border-color .12s; }
+    .pg-tab:hover { color:var(--bcn-ink); }
+    .pg-tab--active { color:var(--bcn-accent); border-bottom-color:var(--bcn-accent); }
+
+    /* DETAIL DRAWER */
+    .ed-overlay { position:fixed; inset:0; background:rgba(10,16,30,.46); z-index:90; opacity:0; pointer-events:none; transition:opacity .18s ease; }
+    .ed-overlay.open { opacity:1; pointer-events:auto; }
+    .ed-panel { position:fixed; top:0; right:0; bottom:0; width:min(480px,100vw); background:var(--bcn-surface); border-left:1px solid var(--bcn-border-strong); z-index:91; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .2s ease; box-shadow:-6px 0 32px rgba(0,0,0,.14); }
+    .ed-panel.open { transform:translateX(0); }
+    .ed-panel-head { background:var(--bcn-band); padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); flex-shrink:0; }
+    .ed-head-row { display:flex; align-items:flex-start; gap:10px; }
+    .ed-panel-label { font-size:10px; font-weight:700; letter-spacing:.1em; color:var(--bcn-band-ink-3); font-family:var(--bcn-mono); margin-bottom:2px; }
+    .ed-panel-title { font-size:15px; font-weight:700; color:#fff; line-height:1.2; }
+    .ed-panel-sub { font-size:11.5px; color:rgba(255,255,255,.55); margin-top:2px; }
+    .ed-close-btn { width:28px; height:28px; padding:0; flex-shrink:0; background:rgba(255,255,255,.1); color:rgba(255,255,255,.65); border:1px solid rgba(255,255,255,.14); border-radius:6px; font-size:13px; cursor:pointer; line-height:1; }
+    .ed-close-btn:hover { background:rgba(255,255,255,.2); color:#fff; }
+    .ed-actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .ed-ghost-btn { background:rgba(255,255,255,.08); color:rgba(255,255,255,.75); border:1px solid rgba(255,255,255,.16); border-radius:6px; padding:0 12px; height:30px; font-size:10px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); cursor:pointer; }
+    .ed-ghost-btn:hover { background:rgba(255,255,255,.16); }
+    .ed-panel-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+    .ed-panel-body::-webkit-scrollbar { width:5px; }
+    .ed-panel-body::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); border-radius:3px; }
+    .kv-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+    .kv-cell { border:1px solid var(--bcn-border); border-radius:7px; padding:7px 9px; }
+    .kv-cell.wide { grid-column:1 / -1; }
+    .kv-k { font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--bcn-ink-3); font-weight:700; }
+    .kv-v { margin-top:2px; font-weight:600; font-size:12px; word-break:break-word; }
+
+    /* EVENT FORM MODAL */
+    .lf-modal { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(10,16,30,.54); backdrop-filter:blur(4px); z-index:95; padding:16px; opacity:0; pointer-events:none; transition:opacity .18s ease; }
+    .lf-modal.open { opacity:1; pointer-events:auto; }
+    .lf-sheet { width:min(640px,100%); max-height:90vh; background:var(--bcn-surface); border-radius:14px; border:1px solid var(--bcn-border-strong); box-shadow:0 24px 80px rgba(0,0,0,.22); display:flex; flex-direction:column; overflow:hidden; }
+    .lf-head { background:var(--bcn-band); padding:14px 18px; display:flex; align-items:center; gap:12px; border-bottom:1px solid rgba(255,255,255,.08); flex-shrink:0; }
+    .lf-head-title { font-size:14px; font-weight:700; color:#fff; flex:1; }
+    .lf-body { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .lf-body::-webkit-scrollbar { width:5px; }
+    .lf-body::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); border-radius:3px; }
+    .lf-foot { padding:12px 18px; border-top:1px solid var(--bcn-border); display:flex; gap:8px; align-items:center; flex-shrink:0; }
+    .lf-g2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .lf-g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+
+    @media(max-width:700px) {
+      .lf-g2,.lf-g3 { grid-template-columns:1fr; }
+      .agenda-row { grid-template-columns:56px 1fr auto; }
+      .agenda-row .agenda-catcol { display:none; }
+    }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+</head>
+<body>
+
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div>
+        <div class="bcn-header-title"><h1>Org Calendar</h1></div>
+        <div class="bcn-header-sub">One company-wide time layer · launches · payments · POs · payroll · mail · live · manual events</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="newEventBtn">+ NEW EVENT</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <section class="bcn-kpi-band" aria-label="Key metrics">
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">EVENTS</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiTotal">—</div>
+        <div class="bcn-kpi-delta" id="kpiTotalSub">THIS VIEW</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">LAUNCHES</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiLaunches">—</div>
+        <div class="bcn-kpi-delta">PRODUCT & CAMPAIGN</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">PAYMENTS DUE</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiPayments">—</div>
+        <div class="bcn-kpi-delta" id="kpiPaymentsSub">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">PO INBOUND</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiPos">—</div>
+        <div class="bcn-kpi-delta">SHIP + ARRIVAL DATES</div>
+      </div>
+    </section>
+
+    <section class="bcn-filter-bar" aria-label="Filters">
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">SEARCH</span>
+        <input type="text" id="q" placeholder="title, vendor, PO, detail…" style="min-width:160px;" />
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">CATEGORY</span>
+        <select id="catFilter">
+          <option value="">All</option>
+          <option value="product">Product</option>
+          <option value="supply_chain">Supply chain</option>
+          <option value="finance">Finance</option>
+          <option value="operations">Operations</option>
+          <option value="people">People</option>
+          <option value="company">Company</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">TYPE</span>
+        <select id="typeFilter"><option value="">All types</option></select>
+      </div>
+      <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="resetBtn">RESET</button>
+    </section>
+
+    <div class="pg-tab-bar" role="tablist">
+      <button class="pg-tab pg-tab--active" type="button" data-tab="month" role="tab">MONTH</button>
+      <button class="pg-tab" type="button" data-tab="agenda" role="tab">UPCOMING</button>
+    </div>
+
+    <!-- MONTH PANE -->
+    <div id="pane-month">
+      <section class="bcn-card" aria-label="Organization calendar">
+        <header class="bcn-card-header">
+          <span class="bcn-pill bcn-pill--dark" id="monthTitle">—</span>
+          <span class="bcn-card-meta" id="calMeta">—</span>
+          <div style="flex:1"></div>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevMonth">← PREV</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="todayMonth">TODAY</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextMonth">NEXT →</button>
+        </header>
+        <div class="cal-legend" id="calLegend"></div>
+        <div class="cal-scroll">
+          <div class="cal-grid" id="calendarGrid"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- AGENDA / UPCOMING PANE -->
+    <div id="pane-agenda" hidden>
+      <section class="bcn-card" aria-label="Upcoming events">
+        <header class="bcn-card-header">
+          <span class="bcn-pill bcn-pill--dark">UPCOMING</span>
+          <span class="bcn-card-meta" id="feedTitle">—</span>
+          <div style="flex:1"></div>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevFeed">← PREV 2W</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="todayFeed">TODAY</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextFeed">NEXT 2W →</button>
+        </header>
+        <div id="feedList" style="padding:0;"></div>
+      </section>
+    </div>
+
+  </main>
+</div>
+
+<!-- EVENT DETAIL DRAWER -->
+<div class="ed-overlay" id="drawerOverlay"></div>
+<div class="ed-panel" id="detailDrawer" role="dialog" aria-hidden="true">
+  <div class="ed-panel-head">
+    <div class="ed-head-row">
+      <div style="flex:1;min-width:0;">
+        <div class="ed-panel-label" id="drawerLabel">EVENT</div>
+        <div class="ed-panel-title" id="drawerTitle">—</div>
+        <div class="ed-panel-sub" id="drawerSub">—</div>
+      </div>
+      <button class="ed-close-btn" id="closeDrawer" aria-label="Close">✕</button>
+    </div>
+    <div class="ed-actions" id="drawerActions"></div>
+  </div>
+  <div class="ed-panel-body" id="drawerBody"></div>
+</div>
+
+<!-- MANUAL EVENT MODAL -->
+<div class="lf-modal" id="eventModal" role="dialog" aria-hidden="true">
+  <div class="lf-sheet">
+    <div class="lf-head">
+      <div>
+        <div class="lf-head-title" id="modalTitle">New event</div>
+      </div>
+      <button class="ed-close-btn" id="closeModal" aria-label="Close">✕</button>
+    </div>
+    <div class="lf-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="evTitle">Title *</label>
+        <input class="bcn-field" type="text" id="evTitle" placeholder="Board meeting, tax filing deadline, photoshoot…" />
+      </div>
+      <div class="lf-g3">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="evType">Type</label>
+          <select class="bcn-field" id="evType">
+            <option value="company_event">Company event</option>
+            <option value="meeting">Meeting</option>
+            <option value="holiday">Holiday / closure</option>
+            <option value="deadline">Deadline</option>
+            <option value="milestone">Milestone</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="evStart">Start date *</label>
+          <input class="bcn-field" type="date" id="evStart" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="evEnd">End date</label>
+          <input class="bcn-field" type="date" id="evEnd" />
+        </div>
+      </div>
+      <div class="lf-g3">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="evTime">Time (blank = all-day)</label>
+          <input class="bcn-field" type="time" id="evTime" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="evVisibility">Visibility</label>
+          <select class="bcn-field" id="evVisibility">
+            <option value="company">Company — everyone</option>
+            <option value="finance">Finance — AP managers</option>
+            <option value="private">Private — only me</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="evLocation">Location</label>
+          <input class="bcn-field" type="text" id="evLocation" placeholder="HQ, Zoom, NYC…" />
+        </div>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="evUrl">Link</label>
+        <input class="bcn-field" type="url" id="evUrl" placeholder="https:// agenda doc, meeting link…" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="evDescription">Description</label>
+        <textarea class="bcn-field" id="evDescription" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="lf-foot">
+      <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="saveEventBtn">SAVE EVENT</button>
+      <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="cancelEventBtn">CANCEL</button>
+      <div style="flex:1"></div>
+      <button class="bcn-btn bcn-btn--danger bcn-btn--mono" type="button" id="deleteEventBtn" hidden>DELETE</button>
+    </div>
+  </div>
+</div>
+
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  const cfg = window.__SILO_CONFIG__ || {};
+  let db = null;
+  let _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+  let currentUser = null;
+  let myRole = 'member';
+
+  // ── state ─────────────────────────────────────────────────────────────────
+  let view = 'month';
+  let monthAnchor = startOfMonth(new Date());
+  let feedAnchor = new Date();
+  let events = [];           // raw rows from calendar_events_v for current range
+  let editingId = null;      // manual event id being edited (null = create)
+  const FEED_DAYS = 21;
+
+  const CATEGORY_LABELS = {
+    product: 'Product', supply_chain: 'Supply chain', finance: 'Finance',
+    operations: 'Operations', people: 'People', company: 'Company',
+  };
+  const TYPE_LABELS = {
+    launch: 'Launch', campaign_send: 'Campaign send', task_due: 'Task due',
+    po_ship: 'PO ship', po_arrival: 'PO arrival', payment_due: 'Payment due',
+    payroll_payday: 'Payroll', live_session: 'TikTok Live', mail_due: 'Mail due',
+    company_event: 'Company event', meeting: 'Meeting', holiday: 'Holiday',
+    deadline: 'Deadline', milestone: 'Milestone',
+  };
+  const SOURCE_OPEN_LABELS = {
+    launch: 'OPEN LAUNCH', launch_channel_item: 'OPEN LAUNCH',
+    launch_task: 'OPEN TASK MANAGER', po: 'OPEN PO',
+    payment_request: 'OPEN REQUEST MANAGER', payroll_batch: 'OPEN PAYROLL',
+    live_session: 'OPEN LIVE SCHEDULE', mail_item: 'OPEN MAIL ITEM',
+  };
+
+  // ── helpers ───────────────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+  const addMonths = (d, n) => new Date(d.getFullYear(), d.getMonth()+n, 1);
+  function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+  const TODAY = iso(new Date());
+  const fmtDate = (s) => s ? new Date(s+'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
+  const fmtDow = (s) => new Date(s+'T00:00:00').toLocaleDateString('en-US', { weekday:'long' });
+  const fmtTime = (t) => { if (!t) return ''; const [h,m] = t.split(':').map(Number); const ap = h >= 12 ? 'PM':'AM'; return `${((h+11)%12)+1}:${String(m).padStart(2,'0')} ${ap}`; };
+  const fmtMoney = (n) => n == null ? null : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const el = $('status');
+    el.className = `bcn-status bcn-status--${type}`;
+    el.textContent = msg;
+    el.hidden = false;
+    if (ms) setTimeout(() => { el.hidden = true; }, ms);
+  }
+
+  const isAdmin = () => ['owner','admin','owner_admin','executive'].includes(String(myRole).toLowerCase());
+
+  // ── data ──────────────────────────────────────────────────────────────────
+  function currentRange() {
+    if (view === 'month') {
+      const first = monthAnchor;
+      const last = new Date(first.getFullYear(), first.getMonth()+1, 0);
+      return { from: iso(addDays(first, -first.getDay())), to: iso(addDays(last, 6-last.getDay())) };
+    }
+    return { from: iso(feedAnchor), to: iso(addDays(feedAnchor, FEED_DAYS)) };
+  }
+
+  async function loadEvents() {
+    const { from, to } = currentRange();
+    // Overlap logic: starts inside the range, OR started earlier but (multi-day)
+    // ends inside/after range start. Always range-bounded — never unbounded.
+    let q = db.from('calendar_events_v').select('*')
+      .lte('start_on', to)
+      .or(`start_on.gte.${from},end_on.gte.${from}`)
+      .order('start_on', { ascending: true })
+      .order('start_time', { ascending: true, nullsFirst: true })
+      .limit(2000);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Failed to load events: ' + error.message, 'neg'); return; }
+    events = data || [];
+    rebuildTypeFilter();
+    render();
+  }
+
+  function rebuildTypeFilter() {
+    const sel = $('typeFilter');
+    const keep = sel.value;
+    const types = [...new Set(events.map((e) => e.event_type))].sort();
+    sel.innerHTML = '<option value="">All types</option>' +
+      types.map((t) => `<option value="${esc(t)}">${esc(TYPE_LABELS[t] || t)}</option>`).join('');
+    if (types.includes(keep)) sel.value = keep;
+  }
+
+  function filtered() {
+    const q = $('q').value.trim().toLowerCase();
+    const cat = $('catFilter').value;
+    const type = $('typeFilter').value;
+    return events.filter((e) => {
+      if (cat && e.category !== cat) return false;
+      if (type && e.event_type !== type) return false;
+      if (q) {
+        const hay = `${e.title || ''} ${e.detail || ''} ${e.source_label || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  // Expand multi-day events into one entry per visible day.
+  function byDay(list, from, to) {
+    const map = new Map();
+    for (const e of list) {
+      const start = e.start_on < from ? from : e.start_on;
+      const end = (e.end_on && e.end_on > e.start_on) ? (e.end_on > to ? to : e.end_on) : start;
+      let d = new Date(start + 'T00:00:00');
+      const endD = new Date(end + 'T00:00:00');
+      while (d <= endD) {
+        const k = iso(d);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(e);
+        d = addDays(d, 1);
+      }
+    }
+    return map;
+  }
+
+  // ── render ────────────────────────────────────────────────────────────────
+  function render() {
+    renderKpis();
+    if (view === 'month') renderMonth(); else renderFeed();
+  }
+
+  function renderKpis() {
+    const list = filtered();
+    $('kpiTotal').textContent = list.length;
+    $('kpiTotalSub').textContent = view === 'month' ? 'THIS VIEW' : `NEXT ${FEED_DAYS} DAYS`;
+    $('kpiLaunches').textContent = list.filter((e) => e.category === 'product').length;
+    const pay = list.filter((e) => e.event_type === 'payment_due');
+    $('kpiPayments').textContent = pay.length;
+    const total = pay.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    $('kpiPaymentsSub').textContent = total > 0 ? (fmtMoney(total) + ' TOTAL') : '—';
+    $('kpiPos').textContent = list.filter((e) => e.event_type === 'po_ship' || e.event_type === 'po_arrival').length;
+  }
+
+  function renderLegend() {
+    $('calLegend').innerHTML = Object.entries(CATEGORY_LABELS)
+      .map(([k, label]) => `<span class="cat-pill"><span class="cat-dot c-${k}"></span>${esc(label)}</span>`).join('');
+  }
+
+  function chipHtml(e) {
+    const time = e.all_day ? '' : fmtTime(e.start_time);
+    const metaBits = [TYPE_LABELS[e.event_type] || e.event_type, time,
+      (e.event_type === 'payment_due' && e.amount != null) ? fmtMoney(e.amount) : null].filter(Boolean);
+    return `<div class="ev-chip c-${esc(e.category)}" data-event="${esc(e.event_id)}" title="${esc(e.title)}">
+      <div class="ev-chip-title">${esc(e.title)}</div>
+      <div class="ev-chip-meta">${esc(metaBits.join(' · '))}</div>
+    </div>`;
+  }
+
+  function renderMonth() {
+    const y = monthAnchor.getFullYear(), m = monthAnchor.getMonth();
+    $('monthTitle').textContent = monthAnchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
+    const { from, to } = currentRange();
+    const dayMap = byDay(filtered(), from, to);
+
+    const grid = $('calendarGrid');
+    let html = ['SUN','MON','TUE','WED','THU','FRI','SAT'].map((d) => `<div class="cal-dow">${d}</div>`).join('');
+    let d = new Date(from + 'T00:00:00');
+    const end = new Date(to + 'T00:00:00');
+    let inMonthCount = 0;
+    while (d <= end) {
+      const k = iso(d);
+      const off = d.getMonth() !== m;
+      const dayEvents = dayMap.get(k) || [];
+      if (!off) inMonthCount += dayEvents.length;
+      const shown = dayEvents.slice(0, 4);
+      const overflow = dayEvents.length - shown.length;
+      html += `<div class="cal-cell${off ? ' off' : ''}${k === TODAY ? ' today' : ''}">
+        <div class="cal-cell-head">
+          <span class="cal-daynum">${d.getDate()}</span>
+          ${dayEvents.length ? `<span class="cal-count">${dayEvents.length}</span>` : ''}
+        </div>
+        <div class="cal-events">
+          ${shown.map(chipHtml).join('')}
+          ${overflow > 0 ? `<div class="cal-overflow" data-day="${k}">+${overflow} more</div>` : ''}
+        </div>
+      </div>`;
+      d = addDays(d, 1);
+    }
+    grid.innerHTML = html;
+    $('calMeta').textContent = `${inMonthCount} events this month`;
+  }
+
+  function renderFeed() {
+    const { from, to } = currentRange();
+    $('feedTitle').textContent = `${fmtDate(from)} → ${fmtDate(to)}`;
+    const dayMap = byDay(filtered(), from, to);
+    const days = [...dayMap.keys()].sort();
+    const listEl = $('feedList');
+    if (!days.length) {
+      listEl.innerHTML = '<div class="agenda-empty">NO EVENTS IN THIS WINDOW</div>';
+      return;
+    }
+    const tomorrow = iso(addDays(new Date(), 1));
+    let html = '';
+    for (const day of days) {
+      const label = day === TODAY ? 'Today' : day === tomorrow ? 'Tomorrow' : `${fmtDow(day)} · ${fmtDate(day)}`;
+      html += `<div class="agenda-day-head">${esc(label)}</div>`;
+      for (const e of dayMap.get(day)) {
+        const time = e.all_day ? 'ALL DAY' : fmtTime(e.start_time);
+        const metaBits = [e.detail, (e.event_type === 'payment_due' && e.amount != null) ? fmtMoney(e.amount) : null].filter(Boolean);
+        html += `<div class="agenda-row" data-event="${esc(e.event_id)}">
+          <div class="agenda-time-txt">${esc(time)}</div>
+          <div class="agenda-catcol"><span class="cat-pill"><span class="cat-dot c-${esc(e.category)}"></span>${esc(TYPE_LABELS[e.event_type] || e.event_type)}</span></div>
+          <div>
+            <div class="agenda-title">${esc(e.title)}</div>
+            ${metaBits.length ? `<div class="agenda-meta">${esc(metaBits.join(' · '))}</div>` : ''}
+          </div>
+          <div class="agenda-src">${esc(e.source_label)}</div>
+        </div>`;
+      }
+    }
+    listEl.innerHTML = html;
+  }
+
+  // ── drawer ────────────────────────────────────────────────────────────────
+  function openDrawer(eventId) {
+    const e = events.find((x) => x.event_id === eventId);
+    if (!e) return;
+    $('drawerLabel').textContent = (TYPE_LABELS[e.event_type] || e.event_type).toUpperCase();
+    $('drawerTitle').textContent = e.title || '—';
+    const when = e.all_day
+      ? (e.end_on && e.end_on !== e.start_on ? `${fmtDate(e.start_on)} → ${fmtDate(e.end_on)}` : fmtDate(e.start_on))
+      : `${fmtDate(e.start_on)} · ${fmtTime(e.start_time)}`;
+    $('drawerSub').textContent = when;
+
+    const kv = [];
+    kv.push(['Category', CATEGORY_LABELS[e.category] || e.category]);
+    if (e.status) kv.push(['Status', e.status]);
+    if (e.amount != null) kv.push(['Amount', fmtMoney(e.amount)]);
+    kv.push(['Source', e.source_label]);
+    if (e.detail) kv.push(['Detail', e.detail, true]);
+    $('drawerBody').innerHTML = `<div class="kv-grid">${
+      kv.map(([k, v, wide]) => `<div class="kv-cell${wide ? ' wide' : ''}"><div class="kv-k">${esc(k)}</div><div class="kv-v">${esc(v)}</div></div>`).join('')
+    }</div>`;
+
+    const actions = [];
+    if (e.source_type === 'manual') {
+      if (e.url) actions.push(`<a class="ed-ghost-btn" style="display:inline-flex;align-items:center;text-decoration:none;" href="${esc(e.url)}" target="_blank" rel="noopener">OPEN LINK ↗</a>`);
+      if (currentUser && (e.owner_id === currentUser.id || isAdmin())) {
+        actions.push(`<button class="ed-ghost-btn" type="button" data-act="edit" data-id="${esc(e.source_id)}" style="background:var(--bcn-accent);color:#fff;border-color:var(--bcn-accent);">✏ EDIT</button>`);
+      }
+    } else if (e.url) {
+      actions.push(`<a class="ed-ghost-btn" style="display:inline-flex;align-items:center;text-decoration:none;background:var(--bcn-accent);color:#fff;border-color:var(--bcn-accent);" href="${esc(e.url)}">${esc(SOURCE_OPEN_LABELS[e.source_type] || 'OPEN SOURCE')} →</a>`);
+    }
+    $('drawerActions').innerHTML = actions.join('');
+
+    $('drawerOverlay').classList.add('open');
+    $('detailDrawer').classList.add('open');
+    $('detailDrawer').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeDrawer() {
+    $('drawerOverlay').classList.remove('open');
+    $('detailDrawer').classList.remove('open');
+    $('detailDrawer').setAttribute('aria-hidden', 'true');
+  }
+
+  // ── manual event modal ────────────────────────────────────────────────────
+  function openModal(manualId = null) {
+    editingId = manualId;
+    $('modalTitle').textContent = manualId ? 'Edit event' : 'New event';
+    $('deleteEventBtn').hidden = !manualId;
+    if (manualId) {
+      const e = events.find((x) => x.source_type === 'manual' && x.source_id === manualId);
+      if (!e) return;
+      $('evTitle').value = e.title || '';
+      $('evType').value = e.event_type;
+      $('evStart').value = e.start_on;
+      $('evEnd').value = e.end_on || '';
+      $('evTime').value = e.start_time ? e.start_time.slice(0, 5) : '';
+      $('evVisibility').value = e.status;  // manual branch projects visibility as status
+      $('evLocation').value = '';          // re-fetched below (view folds location into detail)
+      $('evUrl').value = e.url || '';
+      $('evDescription').value = '';
+      db.from('calendar_events').select('description, location').eq('id', manualId).maybeSingle()
+        .then(({ data }) => {
+          if (data && editingId === manualId) {
+            $('evDescription').value = data.description || '';
+            $('evLocation').value = data.location || '';
+          }
+        });
+    } else {
+      $('evTitle').value = ''; $('evType').value = 'company_event';
+      $('evStart').value = TODAY; $('evEnd').value = ''; $('evTime').value = '';
+      $('evVisibility').value = 'company'; $('evLocation').value = '';
+      $('evUrl').value = ''; $('evDescription').value = '';
+    }
+    $('eventModal').classList.add('open');
+    $('eventModal').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeModal() {
+    $('eventModal').classList.remove('open');
+    $('eventModal').setAttribute('aria-hidden', 'true');
+    editingId = null;
+  }
+
+  async function saveEvent() {
+    const title = $('evTitle').value.trim();
+    const start_on = $('evStart').value;
+    if (!title) { setStatus('Title is required.', 'neg', 3000); return; }
+    if (!start_on) { setStatus('Start date is required.', 'neg', 3000); return; }
+    const end_on = $('evEnd').value || null;
+    if (end_on && end_on < start_on) { setStatus('End date is before start date.', 'neg', 3000); return; }
+    const payload = {
+      title,
+      event_type: $('evType').value,
+      start_on,
+      end_on,
+      start_time: $('evTime').value || null,
+      visibility: $('evVisibility').value,
+      location: $('evLocation').value.trim() || null,
+      url: $('evUrl').value.trim() || null,
+      description: $('evDescription').value.trim() || null,
+    };
+    let error;
+    if (editingId) {
+      ({ error } = await db.from('calendar_events').update(payload).eq('id', editingId));
+    } else {
+      ({ error } = await db.from('calendar_events')
+        .insert({ ...payload, ...(_co?.id ? { company_entity_id: _co.id } : {}) }));
+    }
+    if (error) { setStatus('Save failed: ' + error.message, 'neg'); return; }
+    closeModal();
+    setStatus('Event saved.', 'pos', 2500);
+    await loadEvents();
+  }
+
+  async function deleteEvent() {
+    if (!editingId) return;
+    if (!confirm('Delete this event?')) return;
+    const { error } = await db.from('calendar_events').delete().eq('id', editingId);
+    if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return; }
+    closeModal();
+    closeDrawer();
+    setStatus('Event deleted.', 'pos', 2500);
+    await loadEvents();
+  }
+
+  // ── tabs + nav ────────────────────────────────────────────────────────────
+  function switchTab(name) {
+    view = name;
+    document.querySelectorAll('.pg-tab').forEach((b) => b.classList.toggle('pg-tab--active', b.dataset.tab === name));
+    $('pane-month').hidden = name !== 'month';
+    $('pane-month').style.display = name === 'month' ? '' : 'none';
+    $('pane-agenda').hidden = name !== 'agenda';
+    loadEvents();
+  }
+
+  function wireEvents() {
+    document.querySelectorAll('.pg-tab').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+    $('prevMonth').addEventListener('click', () => { monthAnchor = addMonths(monthAnchor, -1); loadEvents(); });
+    $('nextMonth').addEventListener('click', () => { monthAnchor = addMonths(monthAnchor, 1); loadEvents(); });
+    $('todayMonth').addEventListener('click', () => { monthAnchor = startOfMonth(new Date()); loadEvents(); });
+    $('prevFeed').addEventListener('click', () => { feedAnchor = addDays(feedAnchor, -14); loadEvents(); });
+    $('nextFeed').addEventListener('click', () => { feedAnchor = addDays(feedAnchor, 14); loadEvents(); });
+    $('todayFeed').addEventListener('click', () => { feedAnchor = new Date(); loadEvents(); });
+
+    $('q').addEventListener('input', render);
+    $('catFilter').addEventListener('change', render);
+    $('typeFilter').addEventListener('change', render);
+    $('resetBtn').addEventListener('click', () => {
+      $('q').value = ''; $('catFilter').value = ''; $('typeFilter').value = '';
+      render();
+    });
+
+    // Event chips + agenda rows + "+N more" (delegated)
+    document.addEventListener('click', (ev) => {
+      const chip = ev.target.closest('[data-event]');
+      if (chip) { openDrawer(chip.dataset.event); return; }
+      const more = ev.target.closest('.cal-overflow');
+      if (more) { feedAnchor = new Date(more.dataset.day + 'T00:00:00'); switchTab('agenda'); }
+    });
+    $('drawerActions').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-act="edit"]');
+      if (btn) { closeDrawer(); openModal(btn.dataset.id); }
+    });
+
+    $('drawerOverlay').addEventListener('click', closeDrawer);
+    $('closeDrawer').addEventListener('click', closeDrawer);
+    $('newEventBtn').addEventListener('click', () => openModal(null));
+    $('closeModal').addEventListener('click', closeModal);
+    $('cancelEventBtn').addEventListener('click', closeModal);
+    $('saveEventBtn').addEventListener('click', saveEvent);
+    $('deleteEventBtn').addEventListener('click', deleteEvent);
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') { closeModal(); closeDrawer(); }
+    });
+  }
+
+  // ── boot ──────────────────────────────────────────────────────────────────
+  async function boot() {
+    if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
+    db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+    const { data, error } = await db.auth.getSession();
+    if (error || !data?.session?.user) {
+      location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    currentUser = data.session.user;
+
+    // Self-heal active company for fresh tabs / deep links (RLS is the backstop).
+    if (window.__SILO_CONFIG__?.ensureActiveCompany) {
+      try { await window.__SILO_CONFIG__.ensureActiveCompany(db); } catch {}
+      _co = window.__SILO_CONFIG__?.getActiveCompany?.() || _co;
+    }
+
+    try {
+      const { data: prof } = await db.from('profiles').select('role').eq('id', currentUser.id).maybeSingle();
+      if (prof?.role) myRole = String(prof.role);
+    } catch {}
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'planning/calendar',
+        user: { email: currentUser.email, role: myRole.toUpperCase() },
+        crumbs: ['Planning', 'Org Calendar'],
+        supabaseClient: db,
+      });
+    }
+
+    renderLegend();
+    wireEvents();
+
+    const params = new URLSearchParams(location.search);
+    const m = params.get('month');
+    if (m && /^\d{4}-\d{2}$/.test(m)) monthAnchor = new Date(Number(m.slice(0,4)), Number(m.slice(5,7))-1, 1);
+    if (params.get('view') === 'agenda') { switchTab('agenda'); return; }
+
+    await loadEvents();
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>
