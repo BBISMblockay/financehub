@@ -29,6 +29,7 @@
     .mo-tbl thead th {
       font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.1em;
       color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right;
+      white-space:nowrap;
     }
     .mo-tbl thead th:first-child { text-align:left; }
     .mo-tbl tbody td {
@@ -47,6 +48,18 @@
       border-radius:50%; animation:mo-spin .7s linear infinite;
     }
     @keyframes mo-spin { to { transform:rotate(360deg); } }
+
+    .mo-window { display:flex; gap:4px; }
+    .mo-window .bcn-btn { padding:4px 12px; font-size:11px; }
+    .mo-window .bcn-btn.is-active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+
+    .mo-thumb { width:52px; height:52px; object-fit:cover; border-radius:6px; border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; }
+    .mo-ad-cell { display:flex; align-items:center; gap:10px; min-width:260px; }
+    .mo-ad-name { font-weight:600; color:var(--bcn-ink); font-size:12px; line-height:1.25; }
+    .mo-ad-sub { font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-top:2px; }
+    .mo-bar { display:inline-block; height:8px; border-radius:2px; background:var(--bcn-accent); opacity:.35; vertical-align:middle; margin-right:6px; }
+    .mo-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
+    .mo-filter-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
   </style>
 </head>
 <body class="silo-brand">
@@ -59,56 +72,128 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Marketing Performance</h1>
-        <div class="bcn-header-sub">Blended ad spend (Google Ads, Meta Ads, TikTok Ads) against Shopify online net revenue — the ledger MER — with GA4 as the directional channel layer. Synced nightly via <span class="bcn-mono">ad-platforms-sync.yml</span> + the Shopify sync. See <a href="/v2/integrations.html">Integrations</a> to manage connections.</div>
+        <div class="bcn-header-sub">Blended ad spend against Shopify online net revenue — the ledger MER — with GA4 as the directional channel layer and Meta ad-level creative detail. Synced nightly. See <a href="/v2/integrations.html">Integrations</a> to manage connections.</div>
       </div>
       <div class="bcn-header-actions">
+        <div class="mo-window" id="windowBtns">
+          <button class="bcn-btn bcn-btn--ghost" data-days="7">7d</button>
+          <button class="bcn-btn bcn-btn--ghost" data-days="14">14d</button>
+          <button class="bcn-btn bcn-btn--ghost is-active" data-days="30">30d</button>
+          <button class="bcn-btn bcn-btn--ghost" data-days="90">90d</button>
+        </div>
         <span id="dataModePill" class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:10.5px">—</span>
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
       </div>
     </header>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Ad Spend (34d)</div><div id="kpiSpend" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Google + Meta + TikTok</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Ad Spend</div><div id="kpiSpend" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiSpendDelta">Paid platforms</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Blended ROAS</div><div id="kpiRoas" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Platform-attributed value ÷ spend</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">MER</div><div id="kpiMer" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiMerDelta">Online net sales ÷ ad spend</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Blended CPA</div><div id="kpiCpa" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Spend ÷ paid conversions</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Online Net Sales</div><div id="kpiOrganic" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiOrganicDelta">Shopify, online store (34d)</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Online Net Sales</div><div id="kpiOrganic" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiOrganicDelta">Shopify, online store</div></div>
+    </div>
+
+    <div class="bcn-tabs" style="padding:0 18px">
+      <button class="bcn-tab bcn-tab--active" data-tab="overview">Overview</button>
+      <button class="bcn-tab" data-tab="campaigns">Campaigns</button>
+      <button class="bcn-tab" data-tab="creatives">Creatives</button>
+      <button class="bcn-tab" data-tab="channels">Channels</button>
     </div>
 
     <div class="mo-content">
 
-      <div class="bcn-card">
-        <div class="bcn-card-header">
-          <h2>Daily spend vs. revenue — last 34 days</h2>
-        </div>
-        <div class="bcn-card-body">
-          <div class="mo-legend">
-            <span><i style="background:var(--bcn-accent)"></i>Ad spend</span>
-            <span><i style="background:oklch(0.60 0.18 145)"></i><span id="chartValueLabel">Conversion value</span></span>
+      <!-- ── Overview ─────────────────────────────────────────────── -->
+      <div data-panel="overview">
+        <div class="bcn-card" style="margin-bottom:12px">
+          <div class="bcn-card-header"><h2 id="chartTitle">Daily spend vs. revenue</h2></div>
+          <div class="bcn-card-body">
+            <div class="mo-legend">
+              <span><i style="background:var(--bcn-accent)"></i>Ad spend</span>
+              <span><i style="background:oklch(0.60 0.18 145)"></i><span id="chartValueLabel">Revenue</span></span>
+            </div>
+            <div class="mo-chart-wrap" id="chartWrap"><div class="mo-empty"><span class="mo-spinner"></span>Loading…</div></div>
           </div>
-          <div class="mo-chart-wrap" id="chartWrap">
-            <div class="mo-empty"><span class="mo-spinner"></span>Loading…</div>
+        </div>
+
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>By platform</h2>
+            <span id="statusText" class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:11.5px;color:var(--bcn-ink-3)">Loading…</span>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr>
+                <th>Platform</th><th>Account</th><th>Spend</th><th>Impressions</th><th>Clicks</th>
+                <th>CTR</th><th>Conversions</th><th>Conv. Value</th><th>ROAS</th>
+              </tr></thead>
+              <tbody id="platformBody"><tr><td class="mo-empty" colspan="9"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+            </table>
           </div>
         </div>
       </div>
 
-      <div class="bcn-card">
-        <div class="bcn-card-header">
-          <h2>By platform</h2>
-          <span id="statusText" class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:11.5px;color:var(--bcn-ink-3)">Loading…</span>
+      <!-- ── Campaigns ────────────────────────────────────────────── -->
+      <div data-panel="campaigns" hidden>
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>Meta campaigns</h2>
+            <span class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3)">Δ = second half of window vs first half</span>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr>
+                <th>Campaign</th><th>Spend</th><th>Spend share</th><th>Impressions</th><th>CTR</th>
+                <th>Purchases</th><th>CPA</th><th>Attr. Value</th><th>ROAS</th><th>ROAS Δ</th>
+              </tr></thead>
+              <tbody id="campaignBody"><tr><td class="mo-empty" colspan="10"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="mo-note">ROAS/CPA are Meta-attributed — consistent for comparing campaigns against each other, inflated vs. the Shopify ledger. Budget verdicts belong to MER; allocation between campaigns belongs here.</div>
         </div>
-        <div class="bcn-card-body" style="padding:0;overflow:auto">
-          <table class="mo-tbl">
-            <thead>
-              <tr>
-                <th>Platform</th><th>Account</th><th>Spend</th><th>Impressions</th><th>Clicks</th>
-                <th>CTR</th><th>Conversions</th><th>Conv. Value</th><th>ROAS</th>
-              </tr>
-            </thead>
-            <tbody id="platformBody">
-              <tr><td class="mo-empty" colspan="9"><span class="mo-spinner"></span>Loading…</td></tr>
-            </tbody>
-          </table>
+      </div>
+
+      <!-- ── Creatives ────────────────────────────────────────────── -->
+      <div data-panel="creatives" hidden>
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>Meta ads — creative performance</h2>
+            <div class="mo-filter-row">
+              <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bcn-ink-3);cursor:pointer">
+                <input type="checkbox" id="activeOnly" /> Active only
+              </label>
+            </div>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr>
+                <th>Ad</th><th>Status</th><th>Spend</th><th>CTR</th>
+                <th>Purchases</th><th>CPA</th><th>ROAS</th><th>Flag</th>
+              </tr></thead>
+              <tbody id="creativeBody"><tr><td class="mo-empty" colspan="8"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="mo-note">Flags: <b>review</b> = active, ≥$500 spend in window, ROAS &lt; 1 (may be intentional for upper-funnel campaigns) · <b>scale?</b> = ROAS ≥ 5 on ≥$1k spend. Thumbnails refresh nightly from Meta.</div>
+        </div>
+      </div>
+
+      <!-- ── Channels ─────────────────────────────────────────────── -->
+      <div data-panel="channels" hidden>
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>GA4 channel mix</h2>
+            <span id="captureNote" class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3)"></span>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr>
+                <th>Channel</th><th>Revenue (GA4)</th><th>Share</th><th>Sessions</th>
+                <th>Key events</th><th>Rev / session</th>
+              </tr></thead>
+              <tbody id="channelBody"><tr><td class="mo-empty" colspan="6"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="mo-note">One credit per order (GA4 attribution) — directional, not the ledger. "Unassigned" is revenue GA4 couldn't source; a persistently large share is a tagging problem worth fixing, not a real channel.</div>
         </div>
       </div>
 
@@ -134,7 +219,7 @@
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
   });
-  const _co = cfg.getActiveCompany?.() || null;
+  let _co = null;
   function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
 
   const PLATFORM_LABEL = { google_ads:'Google Ads', meta_ads:'Meta Ads', tiktok_ads:'TikTok Ads', ga4:'GA4 (organic)' };
@@ -145,40 +230,19 @@
   const ratioFmt = v => (v==null || !isFinite(v)) ? '—' : `${v.toFixed(2)}x`;
   const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 
-  const el = {
-    btnRefresh: document.getElementById('btnRefresh'),
-    dataModePill: document.getElementById('dataModePill'),
-    statusText: document.getElementById('statusText'),
-    kpiSpend: document.getElementById('kpiSpend'),
-    kpiRoas: document.getElementById('kpiRoas'),
-    kpiMer: document.getElementById('kpiMer'),
-    kpiCpa: document.getElementById('kpiCpa'),
-    kpiOrganic: document.getElementById('kpiOrganic'),
-    chartWrap: document.getElementById('chartWrap'),
-    platformBody: document.getElementById('platformBody'),
-  };
+  const el = id => document.getElementById(id);
+  function setStatus(t){ el('statusText').textContent = t; }
 
-  function setStatus(t){ el.statusText.textContent = t; }
-
-  const WINDOW_DAYS = 34;
-  // Inclusive gte: today + the (WINDOW_DAYS-1) prior days = exactly 34 days.
+  // ── Window state ───────────────────────────────────────────────
+  let WINDOW_DAYS = 30;
   const sinceIso = () => new Date(Date.now() - (WINDOW_DAYS-1)*86400000).toISOString().slice(0,10);
 
-  // Campaign-level rows can exceed PostgREST's 1000-row cap (34 days ×
-  // campaigns × platforms), and the cap truncates silently — page through
-  // with .range() until a short page.
-  async function loadRows(){
+  // ── Paged loader (PostgREST caps at 1000 rows silently) ────────
+  async function loadPaged(build){
     const PAGE = 1000;
     const out = [];
     for (let from = 0;; from += PAGE){
-      let q = sb.from('marketing_kpis_daily')
-        .select('platform,account_name,day_date,impressions,clicks,spend,conversions,conversion_value,sessions,source')
-        .gte('day_date', sinceIso())
-        .order('day_date', { ascending:true })
-        .order('id', { ascending:true })
-        .range(from, from + PAGE - 1);
-      q = scopeQ(q);
-      const { data, error } = await q;
+      const { data, error } = await build().range(from, from + PAGE - 1);
       if (error) throw error;
       out.push(...(data || []));
       if (!data || data.length < PAGE) break;
@@ -186,26 +250,42 @@
     return out;
   }
 
-  // Ledger layer: blended paid spend × Shopify online net revenue per day
-  // (v_marketing_mer_daily). Both sides are ledgers, so this MER is immune
-  // to platform attribution inflation. Absent rows (view missing / no
-  // Shopify data) degrade gracefully to the GA4-based fallback.
+  const loadRows = () => loadPaged(() => scopeQ(
+    sb.from('marketing_kpis_daily')
+      .select('platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source')
+      .gte('day_date', sinceIso())
+      .order('day_date', { ascending:true }).order('id', { ascending:true })));
+
   async function loadMer(){
     try {
-      let q = sb.from('v_marketing_mer_daily')
-        .select('day_date,ad_spend,online_net_sales')
-        .gte('day_date', sinceIso())
-        .order('day_date', { ascending:true });
-      q = scopeQ(q);
-      const { data, error } = await q;
-      if (error) throw error;
-      return data || [];
-    } catch(e){
-      console.warn('v_marketing_mer_daily unavailable, falling back to GA4', e);
-      return [];
-    }
+      return await loadPaged(() => scopeQ(
+        sb.from('v_marketing_mer_daily')
+          .select('day_date,ad_spend,online_net_sales')
+          .gte('day_date', sinceIso())
+          .order('day_date', { ascending:true })));
+    } catch(e){ console.warn('v_marketing_mer_daily unavailable', e); return []; }
   }
 
+  async function loadAdPerf(){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('meta_ad_performance_daily')
+          .select('day_date,campaign_name,adset_name,ad_id,ad_name,impressions,clicks,spend,conversions,conversion_value')
+          .gte('day_date', sinceIso())
+          .order('day_date', { ascending:true }).order('id', { ascending:true })));
+    } catch(e){ console.warn('meta_ad_performance_daily unavailable', e); return []; }
+  }
+
+  async function loadCreatives(){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('meta_ad_creatives')
+          .select('ad_id,ad_name,effective_status,thumbnail_url,title,body,object_type')
+          .order('ad_id', { ascending:true })));
+    } catch(e){ console.warn('meta_ad_creatives unavailable', e); return []; }
+  }
+
+  // ── KPI band (ratios only over days both inputs cover) ─────────
   function renderKpis(rows, merRows){
     const paid = rows.filter(r => r.platform !== 'ga4');
     const ga4 = rows.filter(r => r.platform === 'ga4');
@@ -214,16 +294,8 @@
     const paidSpend = sum(paid,'spend');
     const paidConversions = sum(paid,'conversions');
     const paidConvValue = sum(paid,'conversion_value');
-    // GA4 revenue is SITE-WIDE and already contains most platform-attributed
-    // purchase value — never add the two together (double count).
     const ga4Revenue = sum(ga4,'conversion_value');
-    // Shopify online net sales is the revenue LEDGER — the preferred MER
-    // numerator. GA4 is the directional fallback until Shopify data exists.
-    // Every RATIO computes only over days where BOTH of its inputs exist —
-    // the sources sync independently, so either side can cover only part of
-    // the window (fresh ad connection = short spend history; Shopify history
-    // = full window). Dividing across mismatched windows produced 58x "MER"
-    // when 34 days of revenue met 7 days of spend.
+
     const shopDays = new Set((merRows||[]).filter(m => Number(m.online_net_sales||0) > 0).map(m => m.day_date));
     const spendDays = new Set(paid.filter(r => Number(r.spend||0) > 0).map(r => r.day_date));
     const ga4Days = new Set(ga4.map(r => r.day_date));
@@ -238,75 +310,61 @@
 
     const onlineNet = sum(merRows||[],'online_net_sales');
 
-    el.kpiSpend.textContent = money(paidSpend);
-    el.kpiRoas.textContent = ratioFmt(paidSpend ? paidConvValue/paidSpend : null);
+    el('kpiSpend').textContent = money(paidSpend);
+    el('kpiSpendDelta').textContent = `Paid platforms (${WINDOW_DAYS}d)`;
+    el('kpiRoas').textContent = ratioFmt(paidSpend ? paidConvValue/paidSpend : null);
     if (merSpend && merOnline){
-      el.kpiMer.textContent = ratioFmt(merOnline/merSpend);
-      document.getElementById('kpiMerDelta').textContent =
-        merDays.size < WINDOW_DAYS
-          ? `Online net ÷ spend (${merDays.size}d overlap)`
-          : 'Online net sales ÷ ad spend';
+      el('kpiMer').textContent = ratioFmt(merOnline/merSpend);
+      el('kpiMerDelta').textContent = merDays.size < WINDOW_DAYS
+        ? `Online net ÷ spend (${merDays.size}d overlap)` : 'Online net sales ÷ ad spend';
     } else if (paidSpend && ga4Revenue){
-      el.kpiMer.textContent = ratioFmt(ga4Revenue/paidSpend);
-      document.getElementById('kpiMerDelta').textContent = 'GA4 site revenue ÷ ad spend';
+      el('kpiMer').textContent = ratioFmt(ga4Revenue/paidSpend);
+      el('kpiMerDelta').textContent = 'GA4 site revenue ÷ ad spend';
     } else {
-      el.kpiMer.textContent = '—';
+      el('kpiMer').textContent = '—';
     }
-    el.kpiCpa.textContent = paidConversions ? money(paidSpend/paidConversions) : '—';
+    el('kpiCpa').textContent = paidConversions ? money(paidSpend/paidConversions) : '—';
     if (onlineNet){
-      el.kpiOrganic.textContent = money(onlineNet);
-      document.getElementById('kpiOrganicDelta').textContent = (capGa4 && capOnline)
+      el('kpiOrganic').textContent = money(onlineNet);
+      el('kpiOrganicDelta').textContent = (capGa4 && capOnline)
         ? `GA4 sees ${Math.round(capGa4/capOnline*100)}% of it (${capDays.size}d overlap)`
-        : 'Shopify, online store (34d)';
+        : `Shopify, online store (${WINDOW_DAYS}d)`;
     } else {
-      el.kpiOrganic.textContent = money(ga4Revenue);
-      document.getElementById('kpiOrganicDelta').textContent = 'GA4 site revenue (no Shopify data)';
+      el('kpiOrganic').textContent = money(ga4Revenue);
+      el('kpiOrganicDelta').textContent = 'GA4 site revenue (no Shopify data)';
     }
   }
 
+  // ── Overview: platform table ───────────────────────────────────
   function renderPlatformTable(rows){
     const byPlatform = new Map();
     for (const r of rows){
-      const key = r.platform;
-      if (!byPlatform.has(key)) byPlatform.set(key, { platform:key, account:r.account_name, impr:0, clicks:0, spend:0, conv:0, value:0 });
-      const agg = byPlatform.get(key);
-      agg.impr += Number(r.impressions||0);
-      agg.clicks += Number(r.clicks||0);
-      agg.spend += Number(r.spend||0);
-      agg.conv += Number(r.conversions||0);
+      if (!byPlatform.has(r.platform)) byPlatform.set(r.platform, { platform:r.platform, account:r.account_name, impr:0, clicks:0, spend:0, conv:0, value:0 });
+      const agg = byPlatform.get(r.platform);
+      agg.impr += Number(r.impressions||0); agg.clicks += Number(r.clicks||0);
+      agg.spend += Number(r.spend||0); agg.conv += Number(r.conversions||0);
       agg.value += Number(r.conversion_value||0);
     }
     const order = ['google_ads','meta_ads','tiktok_ads','ga4'];
     const list = [...byPlatform.values()].sort((a,b)=>order.indexOf(a.platform)-order.indexOf(b.platform));
-
     if (!list.length){
-      el.platformBody.innerHTML = `<tr><td class="mo-empty" colspan="9">No marketing KPI data yet — connect a platform in Integrations and enable nightly sync.</td></tr>`;
+      el('platformBody').innerHTML = `<tr><td class="mo-empty" colspan="9">No marketing KPI data yet — connect a platform in Integrations and enable nightly sync.</td></tr>`;
       return;
     }
-
     const rowsHtml = list.map(p => {
       const ctr = p.impr ? p.clicks/p.impr : null;
       const roas = p.spend ? p.value/p.spend : null;
       return `<tr>
         <td><span class="bcn-pill bcn-pill--accent mo-platform-pill">${esc(PLATFORM_LABEL[p.platform]||p.platform)}</span></td>
-        <td>${esc(p.account||'—')}</td>
-        <td>${money(p.spend)}</td>
-        <td>${numFmt(p.impr)}</td>
-        <td>${numFmt(p.clicks)}</td>
-        <td>${pctFmt(ctr)}</td>
-        <td>${numFmt(p.conv)}</td>
-        <td>${money(p.value)}</td>
-        <td>${p.platform==='ga4' ? '—' : ratioFmt(roas)}</td>
+        <td>${esc(p.account||'—')}</td><td>${money(p.spend)}</td><td>${numFmt(p.impr)}</td>
+        <td>${numFmt(p.clicks)}</td><td>${pctFmt(ctr)}</td><td>${numFmt(p.conv)}</td>
+        <td>${money(p.value)}</td><td>${p.platform==='ga4' ? '—' : ratioFmt(roas)}</td>
       </tr>`;
     }).join('');
-
-    // Total row covers PAID platforms only: GA4's site-wide revenue overlaps
-    // the platforms' attributed value (double count), and its key events are
-    // not the same unit as ad-platform conversions.
     const paidList = list.filter(p => p.platform !== 'ga4');
     const totalSpend = paidList.reduce((a,p)=>a+p.spend,0);
     const totalValue = paidList.reduce((a,p)=>a+p.value,0);
-    const totalRow = `<tr class="mo-total">
+    el('platformBody').innerHTML = rowsHtml + `<tr class="mo-total">
       <td colspan="2">Total (paid platforms)</td>
       <td>${money(totalSpend)}</td>
       <td>${numFmt(paidList.reduce((a,p)=>a+p.impr,0))}</td>
@@ -316,20 +374,15 @@
       <td>${money(totalValue)}</td>
       <td>${ratioFmt(totalSpend ? totalValue/totalSpend : null)}</td>
     </tr>`;
-
-    el.platformBody.innerHTML = rowsHtml + totalRow;
   }
 
+  // ── Overview: chart ────────────────────────────────────────────
   function renderChart(rows, merRows){
-    // Green line preference PER DAY (never a sum across sources — that
-    // double-counts): Shopify online net sales (ledger) → GA4 site revenue
-    // (directional) → platform-attributed value. Per-day, not per-window, so
-    // a fresh Shopify connection doesn't render pre-connection days as $0.
     const hasShopify = (merRows||[]).some(r => Number(r.online_net_sales||0) > 0);
     const hasGa4 = rows.some(r => r.platform === 'ga4');
-    document.getElementById('chartValueLabel').textContent =
-      hasShopify ? 'Online net sales (Shopify)'
-      : hasGa4 ? 'Site revenue (GA4)' : 'Conversion value (platform-attributed)';
+    el('chartTitle').textContent = `Daily spend vs. revenue — last ${WINDOW_DAYS} days`;
+    el('chartValueLabel').textContent =
+      hasShopify ? 'Online net sales (Shopify)' : hasGa4 ? 'Site revenue (GA4)' : 'Conversion value (platform-attributed)';
 
     const byDay = new Map();
     const day = d => { if (!byDay.has(d)) byDay.set(d, { day:d, spend:0, shopify:0, ga4:0, platform:0 }); return byDay.get(d); };
@@ -343,28 +396,22 @@
     for (const agg of byDay.values()){
       agg.value = agg.shopify > 0 ? agg.shopify : (agg.ga4 > 0 ? agg.ga4 : (hasShopify || hasGa4 ? 0 : agg.platform));
     }
+
     const days = [...byDay.values()].sort((a,b)=>a.day<b.day?-1:1);
-    if (!days.length){
-      el.chartWrap.innerHTML = `<div class="mo-empty">No data to chart yet.</div>`;
-      return;
-    }
+    if (!days.length){ el('chartWrap').innerHTML = `<div class="mo-empty">No data to chart yet.</div>`; return; }
 
     const W = 900, H = 220, PAD_L = 54, PAD_R = 12, PAD_T = 10, PAD_B = 24;
     const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
     const maxVal = Math.max(1, ...days.map(d=>Math.max(d.spend,d.value)));
     const x = i => PAD_L + (days.length===1 ? 0 : (i/(days.length-1))*innerW);
     const y = v => PAD_T + innerH - (v/maxVal)*innerH;
-
     const pathFor = key => days.map((d,i)=>`${i===0?'M':'L'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
     const areaFor = key => `${pathFor(key)} L${x(days.length-1).toFixed(1)},${(PAD_T+innerH).toFixed(1)} L${x(0).toFixed(1)},${(PAD_T+innerH).toFixed(1)} Z`;
-
     const gridLines = [0,0.25,0.5,0.75,1].map(f => {
       const yy = PAD_T + innerH*(1-f);
-      const v = maxVal*f;
       return `<line class="mo-gridline" x1="${PAD_L}" x2="${W-PAD_R}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" />
-              <text class="mo-axis-label" x="${PAD_L-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(v)}</text>`;
+              <text class="mo-axis-label" x="${PAD_L-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(maxVal*f)}</text>`;
     }).join('');
-
     const fmtDayLabel = iso => {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
       if (!m) return iso;
@@ -372,10 +419,9 @@
     };
     const labelStep = Math.ceil(days.length/6);
     const xLabels = days.map((d,i)=> i%labelStep===0 || i===days.length-1
-      ? `<text class="mo-axis-label" x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${fmtDayLabel(d.day)}</text>`
-      : '').join('');
+      ? `<text class="mo-axis-label" x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${fmtDayLabel(d.day)}</text>` : '').join('');
 
-    el.chartWrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
+    el('chartWrap').innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
       ${gridLines}
       <path class="mo-area-spend" d="${areaFor('spend')}" />
       <path class="mo-line-value" d="${pathFor('value')}" />
@@ -384,37 +430,192 @@
     </svg>`;
   }
 
+  // ── Campaigns tab ──────────────────────────────────────────────
+  function renderCampaigns(rows){
+    const meta = rows.filter(r => r.platform === 'meta_ads');
+    if (!meta.length){
+      el('campaignBody').innerHTML = `<tr><td class="mo-empty" colspan="10">No Meta campaign data in this window.</td></tr>`;
+      return;
+    }
+    const daysSorted = [...new Set(meta.map(r => r.day_date))].sort();
+    const midDay = daysSorted[Math.floor(daysSorted.length/2)];
+
+    const byC = new Map();
+    for (const r of meta){
+      const key = r.campaign_id || r.campaign_name;
+      if (!byC.has(key)) byC.set(key, { name:r.campaign_name, spend:0, impr:0, clicks:0, conv:0, value:0, h1s:0, h1v:0, h2s:0, h2v:0 });
+      const c = byC.get(key);
+      const s = Number(r.spend||0), v = Number(r.conversion_value||0);
+      c.spend += s; c.impr += Number(r.impressions||0); c.clicks += Number(r.clicks||0);
+      c.conv += Number(r.conversions||0); c.value += v;
+      if (r.day_date < midDay){ c.h1s += s; c.h1v += v; } else { c.h2s += s; c.h2v += v; }
+    }
+    const list = [...byC.values()].sort((a,b)=>b.spend-a.spend);
+    const totalSpend = list.reduce((a,c)=>a+c.spend,0);
+    const maxSpend = Math.max(...list.map(c=>c.spend), 1);
+
+    el('campaignBody').innerHTML = list.map(c => {
+      const roas = c.spend ? c.value/c.spend : null;
+      const r1 = c.h1s ? c.h1v/c.h1s : null, r2 = c.h2s ? c.h2v/c.h2s : null;
+      const delta = (r1 && r2) ? r2 - r1 : null;
+      const deltaHtml = delta == null ? '—'
+        : `<span class="bcn-pill ${delta >= 0 ? 'bcn-pill--pos' : 'bcn-pill--neg'} mo-platform-pill">${delta>=0?'+':''}${delta.toFixed(2)}x</span>`;
+      return `<tr>
+        <td>${esc(c.name||'—')}</td>
+        <td>${money(c.spend)}</td>
+        <td><span class="mo-bar" style="width:${Math.round(c.spend/maxSpend*70)}px"></span>${totalSpend ? Math.round(c.spend/totalSpend*100) : 0}%</td>
+        <td>${numFmt(c.impr)}</td>
+        <td>${pctFmt(c.impr ? c.clicks/c.impr : null)}</td>
+        <td>${numFmt(c.conv)}</td>
+        <td>${c.conv ? money(c.spend/c.conv) : '—'}</td>
+        <td>${money(c.value)}</td>
+        <td>${ratioFmt(roas)}</td>
+        <td>${deltaHtml}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Creatives tab ──────────────────────────────────────────────
+  let _adPerf = [], _creatives = [];
+  function renderCreatives(){
+    const activeOnly = el('activeOnly').checked;
+    if (!_adPerf.length){
+      el('creativeBody').innerHTML = `<tr><td class="mo-empty" colspan="8">No ad-level data in this window.</td></tr>`;
+      return;
+    }
+    const cMap = new Map(_creatives.map(c => [String(c.ad_id), c]));
+    const byAd = new Map();
+    for (const r of _adPerf){
+      const key = String(r.ad_id);
+      if (!byAd.has(key)) byAd.set(key, { adId:key, name:r.ad_name, campaign:r.campaign_name, spend:0, impr:0, clicks:0, conv:0, value:0 });
+      const a = byAd.get(key);
+      a.spend += Number(r.spend||0); a.impr += Number(r.impressions||0);
+      a.clicks += Number(r.clicks||0); a.conv += Number(r.conversions||0);
+      a.value += Number(r.conversion_value||0);
+    }
+    let list = [...byAd.values()].sort((a,b)=>b.spend-a.spend);
+    if (activeOnly) list = list.filter(a => (cMap.get(a.adId)?.effective_status || '') === 'ACTIVE');
+    if (!list.length){
+      el('creativeBody').innerHTML = `<tr><td class="mo-empty" colspan="8">No ads match the filter.</td></tr>`;
+      return;
+    }
+
+    el('creativeBody').innerHTML = list.slice(0, 100).map(a => {
+      const c = cMap.get(a.adId);
+      const status = c?.effective_status || '—';
+      const statusPill = status === 'ACTIVE'
+        ? `<span class="bcn-pill bcn-pill--pos mo-platform-pill">ACTIVE</span>`
+        : `<span class="bcn-pill mo-platform-pill">${esc(status)}</span>`;
+      const roas = a.spend ? a.value/a.spend : null;
+      let flag = '';
+      if (status === 'ACTIVE' && a.spend >= 500 && roas != null && roas < 1)
+        flag = `<span class="bcn-pill bcn-pill--neg mo-platform-pill">review</span>`;
+      else if (roas != null && roas >= 5 && a.spend >= 1000)
+        flag = `<span class="bcn-pill bcn-pill--accent mo-platform-pill">scale?</span>`;
+      const thumb = c?.thumbnail_url
+        ? `<img class="mo-thumb" loading="lazy" src="${esc(c.thumbnail_url)}" alt="" onerror="this.style.visibility='hidden'" />`
+        : `<div class="mo-thumb"></div>`;
+      return `<tr>
+        <td><div class="mo-ad-cell">${thumb}<div><div class="mo-ad-name">${esc(a.name||a.adId)}</div><div class="mo-ad-sub">${esc(a.campaign||'')}</div></div></div></td>
+        <td>${statusPill}</td>
+        <td>${money(a.spend)}</td>
+        <td>${pctFmt(a.impr ? a.clicks/a.impr : null)}</td>
+        <td>${numFmt(a.conv)}</td>
+        <td>${a.conv ? money(a.spend/a.conv) : '—'}</td>
+        <td>${ratioFmt(roas)}</td>
+        <td>${flag}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Channels tab ───────────────────────────────────────────────
+  function renderChannels(rows, merRows){
+    const ga4 = rows.filter(r => r.platform === 'ga4');
+    if (!ga4.length){
+      el('channelBody').innerHTML = `<tr><td class="mo-empty" colspan="6">No GA4 data in this window.</td></tr>`;
+      return;
+    }
+    const byCh = new Map();
+    for (const r of ga4){
+      const key = r.campaign_name || 'Unknown';
+      if (!byCh.has(key)) byCh.set(key, { ch:key, rev:0, sessions:0, events:0 });
+      const c = byCh.get(key);
+      c.rev += Number(r.conversion_value||0);
+      c.sessions += Number(r.sessions||0);
+      c.events += Number(r.conversions||0);
+    }
+    const list = [...byCh.values()].sort((a,b)=>b.rev-a.rev);
+    const totalRev = list.reduce((a,c)=>a+c.rev,0);
+    const onlineNet = (merRows||[]).reduce((a,m)=>a+Number(m.online_net_sales||0),0);
+    el('captureNote').textContent = onlineNet
+      ? `GA4 total ${money(totalRev)} vs Shopify online ${money(onlineNet)} (${Math.round(totalRev/onlineNet*100)}% capture)` : '';
+
+    el('channelBody').innerHTML = list.map(c => `<tr>
+      <td>${esc(c.ch)}${c.ch === 'Unassigned' ? ' <span class="bcn-pill bcn-pill--neg mo-platform-pill">tagging gap</span>' : ''}</td>
+      <td>${money(c.rev)}</td>
+      <td>${totalRev ? Math.round(c.rev/totalRev*100) : 0}%</td>
+      <td>${numFmt(c.sessions)}</td>
+      <td>${numFmt(c.events)}</td>
+      <td>${c.sessions ? money(c.rev/c.sessions) : '—'}</td>
+    </tr>`).join('') + `<tr class="mo-total">
+      <td>Total</td><td>${money(totalRev)}</td><td>—</td>
+      <td>${numFmt(list.reduce((a,c)=>a+c.sessions,0))}</td>
+      <td>${numFmt(list.reduce((a,c)=>a+c.events,0))}</td><td>—</td>
+    </tr>`;
+  }
+
+  // ── Load orchestration ─────────────────────────────────────────
   async function runLoad(){
     setStatus('Loading…');
-    el.btnRefresh.disabled = true;
-    el.btnRefresh.classList.add('is-loading');
+    el('btnRefresh').disabled = true;
     try {
-      const [rows, merRows] = await Promise.all([loadRows(), loadMer()]);
-      const isDemo = rows.length > 0 && rows.every(r => r.source === 'demo_seed');
+      const [rows, merRows, adPerf, creatives] = await Promise.all([
+        loadRows(), loadMer(), loadAdPerf(), loadCreatives(),
+      ]);
+      _adPerf = adPerf; _creatives = creatives;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
-      el.dataModePill.textContent = isDemo ? 'SAMPLE DATA' : (hasAny ? 'LIVE' : 'NOT CONNECTED');
-      el.dataModePill.className = `bcn-pill ${isDemo ? 'bcn-pill--dark' : hasAny ? 'bcn-pill--pos' : 'bcn-pill--accent'}`;
+      el('dataModePill').textContent = hasAny ? 'LIVE' : 'NOT CONNECTED';
+      el('dataModePill').className = `bcn-pill ${hasAny ? 'bcn-pill--pos' : 'bcn-pill--accent'}`;
       renderKpis(rows, merRows);
       renderPlatformTable(rows);
       renderChart(rows, merRows);
-      setStatus(isDemo
-        ? `${rows.length} sample rows — ad platform sync not yet live for this account.`
-        : `${rows.length} rows loaded.`);
+      renderCampaigns(rows);
+      renderCreatives();
+      renderChannels(rows, merRows);
+      setStatus(`${rows.length + adPerf.length} rows loaded.`);
     } catch(e){
       console.error(e);
       setStatus(`Load failed: ${e.message}`);
     } finally {
-      el.btnRefresh.disabled = false;
-      el.btnRefresh.classList.remove('is-loading');
+      el('btnRefresh').disabled = false;
     }
   }
 
-  el.btnRefresh.addEventListener('click', runLoad);
+  el('btnRefresh').addEventListener('click', runLoad);
+  el('activeOnly').addEventListener('change', renderCreatives);
+
+  document.getElementById('windowBtns').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-days]');
+    if (!btn) return;
+    WINDOW_DAYS = Number(btn.dataset.days);
+    document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active', b === btn));
+    runLoad();
+  });
+
+  document.querySelectorAll('.bcn-tab[data-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.bcn-tab[data-tab]').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
+      document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+    });
+  });
 
   async function boot(){
     const sess = await sb.auth.getSession();
     if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
     const user = sess.data.session.user;
+
+    // Self-heals when this tab never passed through login.html (deep links).
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
 
     if (window.SiloChrome){
       window.SiloChrome.mount({
@@ -424,7 +625,6 @@
         supabaseClient:sb,
       });
     }
-
     await runLoad();
   }
 
