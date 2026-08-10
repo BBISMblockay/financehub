@@ -8662,7 +8662,11 @@ online_rev as (
     s.company_entity_id,
     s.day_date,
     sum(s.total_net_sales) as online_net_sales,
-    sum(s.total_orders) as online_orders
+    -- sales_by_day is one row per ORDER LINE (order x SKU; total_orders=1 on
+    -- sale rows), so this sum counts lines, not distinct orders (~2.8 SKUs
+    -- per order baseline, ~6x during sales). True order counts are not
+    -- derivable from this table's grain -- named accordingly.
+    sum(s.total_orders) as online_order_lines
   from public.sales_by_day s
   join public.locations l
     on l.company_entity_id = s.company_entity_id
@@ -8679,7 +8683,7 @@ select
   coalesce(sp.platform_conversions, 0) as platform_conversions,
   coalesce(sp.platform_conv_value, 0) as platform_conv_value,
   coalesce(r.online_net_sales, 0) as online_net_sales,
-  coalesce(r.online_orders, 0) as online_orders
+  coalesce(r.online_order_lines, 0) as online_order_lines
 from spend sp
 full outer join online_rev r
   on r.company_entity_id = sp.company_entity_id

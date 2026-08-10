@@ -193,7 +193,7 @@
   async function loadMer(){
     try {
       let q = sb.from('v_marketing_mer_daily')
-        .select('day_date,ad_spend,online_net_sales,online_orders')
+        .select('day_date,ad_spend,online_net_sales')
         .gte('day_date', sinceIso())
         .order('day_date', { ascending:true });
       q = scopeQ(q);
