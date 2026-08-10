@@ -70,9 +70,9 @@
     <div class="bcn-kpi-band">
       <div class="bcn-kpi"><div class="bcn-kpi-label">Ad Spend (34d)</div><div id="kpiSpend" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Google + Meta + TikTok</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Blended ROAS</div><div id="kpiRoas" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Platform-attributed value ÷ spend</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">MER</div><div id="kpiMer" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">GA4 site revenue ÷ ad spend</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">MER</div><div id="kpiMer" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiMerDelta">Online net sales ÷ ad spend</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Blended CPA</div><div id="kpiCpa" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Spend ÷ paid conversions</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">GA4 Site Revenue</div><div id="kpiOrganic" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiOrganicDelta">All channels (34d)</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Online Net Sales</div><div id="kpiOrganic" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiOrganicDelta">Shopify, online store (34d)</div></div>
     </div>
 
     <div class="mo-content">
@@ -161,12 +161,12 @@
   function setStatus(t){ el.statusText.textContent = t; }
 
   const WINDOW_DAYS = 34;
+  const sinceIso = () => new Date(Date.now() - WINDOW_DAYS*86400000).toISOString().slice(0,10);
 
   async function loadRows(){
-    const since = new Date(Date.now() - WINDOW_DAYS*86400000).toISOString().slice(0,10);
     let q = sb.from('marketing_kpis_daily')
       .select('platform,account_name,day_date,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source')
-      .gte('day_date', since)
+      .gte('day_date', sinceIso())
       .order('day_date', { ascending:true });
     q = scopeQ(q);
     const { data, error } = await q;
@@ -174,10 +174,30 @@
     return data || [];
   }
 
+  // Ledger layer: blended paid spend × Shopify online net revenue per day
+  // (v_marketing_mer_daily). Both sides are ledgers, so this MER is immune
+  // to platform attribution inflation. Absent rows (view missing / no
+  // Shopify data) degrade gracefully to the GA4-based fallback.
+  async function loadMer(){
+    try {
+      let q = sb.from('v_marketing_mer_daily')
+        .select('day_date,ad_spend,online_net_sales,online_orders')
+        .gte('day_date', sinceIso())
+        .order('day_date', { ascending:true });
+      q = scopeQ(q);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data || [];
+    } catch(e){
+      console.warn('v_marketing_mer_daily unavailable, falling back to GA4', e);
+      return [];
+    }
+  }
+
   // For GA4 rows campaign_name carries the session default channel group.
   const isPaidGa4Channel = name => /^paid|cross-network|display/i.test(String(name||''));
 
-  function renderKpis(rows){
+  function renderKpis(rows, merRows){
     const paid = rows.filter(r => r.platform !== 'ga4');
     const ga4 = rows.filter(r => r.platform === 'ga4');
     const sum = (arr,k) => arr.reduce((a,r)=>a+Number(r[k]||0),0);
@@ -186,18 +206,33 @@
     const paidConversions = sum(paid,'conversions');
     const paidConvValue = sum(paid,'conversion_value');
     // GA4 revenue is SITE-WIDE and already contains most platform-attributed
-    // purchase value — never add the two together (double count). MER uses
-    // GA4 revenue alone as the numerator.
+    // purchase value — never add the two together (double count).
     const ga4Revenue = sum(ga4,'conversion_value');
-    const ga4OrganicRevenue = sum(ga4.filter(r => !isPaidGa4Channel(r.campaign_name)),'conversion_value');
+    // Shopify online net sales is the revenue LEDGER — the preferred MER
+    // numerator. GA4 is the directional fallback until Shopify data exists.
+    const onlineNet = sum(merRows,'online_net_sales');
 
     el.kpiSpend.textContent = money(paidSpend);
     el.kpiRoas.textContent = ratioFmt(paidSpend ? paidConvValue/paidSpend : null);
-    el.kpiMer.textContent = (paidSpend && ga4Revenue) ? ratioFmt(ga4Revenue/paidSpend) : '—';
+    if (paidSpend && onlineNet){
+      el.kpiMer.textContent = ratioFmt(onlineNet/paidSpend);
+      document.getElementById('kpiMerDelta').textContent = 'Online net sales ÷ ad spend';
+    } else if (paidSpend && ga4Revenue){
+      el.kpiMer.textContent = ratioFmt(ga4Revenue/paidSpend);
+      document.getElementById('kpiMerDelta').textContent = 'GA4 site revenue ÷ ad spend';
+    } else {
+      el.kpiMer.textContent = '—';
+    }
     el.kpiCpa.textContent = paidConversions ? money(paidSpend/paidConversions) : '—';
-    el.kpiOrganic.textContent = money(ga4Revenue);
-    document.getElementById('kpiOrganicDelta').textContent =
-      ga4Revenue ? `${money(ga4OrganicRevenue)} from unpaid channels` : 'All channels (34d)';
+    if (onlineNet){
+      el.kpiOrganic.textContent = money(onlineNet);
+      document.getElementById('kpiOrganicDelta').textContent = ga4Revenue
+        ? `GA4 sees ${money(ga4Revenue)} (${Math.round(ga4Revenue/onlineNet*100)}% capture)`
+        : 'Shopify, online store (34d)';
+    } else {
+      el.kpiOrganic.textContent = money(ga4Revenue);
+      document.getElementById('kpiOrganicDelta').textContent = 'GA4 site revenue (no Shopify data)';
+    }
   }
 
   function renderPlatformTable(rows){
@@ -256,20 +291,29 @@
     el.platformBody.innerHTML = rowsHtml + totalRow;
   }
 
-  function renderChart(rows){
-    // Green line: GA4 site revenue when available (the honest "what did the
-    // store make" series); falls back to platform-attributed value before
-    // GA4 is connected. Never the sum of both — that double-counts.
+  function renderChart(rows, merRows){
+    // Green line preference order (never a sum across sources — that
+    // double-counts): Shopify online net sales (ledger) → GA4 site revenue
+    // (directional) → platform-attributed value (before either connects).
+    const hasShopify = (merRows||[]).some(r => Number(r.online_net_sales||0) > 0);
     const hasGa4 = rows.some(r => r.platform === 'ga4');
     document.getElementById('chartValueLabel').textContent =
-      hasGa4 ? 'Site revenue (GA4)' : 'Conversion value (platform-attributed)';
+      hasShopify ? 'Online net sales (Shopify)'
+      : hasGa4 ? 'Site revenue (GA4)' : 'Conversion value (platform-attributed)';
     const byDay = new Map();
     for (const r of rows){
       const d = r.day_date;
       if (!byDay.has(d)) byDay.set(d, { day:d, spend:0, value:0 });
       const agg = byDay.get(d);
       agg.spend += Number(r.spend||0);
-      if (hasGa4 ? r.platform === 'ga4' : true) agg.value += Number(r.conversion_value||0);
+      if (!hasShopify && (hasGa4 ? r.platform === 'ga4' : true)) agg.value += Number(r.conversion_value||0);
+    }
+    if (hasShopify){
+      for (const m of merRows){
+        const d = m.day_date;
+        if (!byDay.has(d)) byDay.set(d, { day:d, spend:0, value:0 });
+        byDay.get(d).value += Number(m.online_net_sales||0);
+      }
     }
     const days = [...byDay.values()].sort((a,b)=>a.day<b.day?-1:1);
     if (!days.length){
@@ -317,14 +361,14 @@
     el.btnRefresh.disabled = true;
     el.btnRefresh.classList.add('is-loading');
     try {
-      const rows = await loadRows();
+      const [rows, merRows] = await Promise.all([loadRows(), loadMer()]);
       const isDemo = rows.length > 0 && rows.every(r => r.source === 'demo_seed');
       const hasAny = rows.length > 0;
       el.dataModePill.textContent = isDemo ? 'SAMPLE DATA' : (hasAny ? 'LIVE' : 'NOT CONNECTED');
       el.dataModePill.className = `bcn-pill ${isDemo ? 'bcn-pill--dark' : hasAny ? 'bcn-pill--pos' : 'bcn-pill--accent'}`;
-      renderKpis(rows);
+      renderKpis(rows, merRows);
       renderPlatformTable(rows);
-      renderChart(rows);
+      renderChart(rows, merRows);
       setStatus(isDemo
         ? `${rows.length} sample rows — ad platform sync not yet live for this account.`
         : `${rows.length} rows loaded.`);
