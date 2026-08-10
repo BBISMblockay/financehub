@@ -59,7 +59,7 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Marketing Performance</h1>
-        <div class="bcn-header-sub">Blended ad spend (Google Ads, Meta Ads, TikTok Ads) plus GA4 organic conversion value — synced nightly from each platform's API via <span class="bcn-mono">ad-platforms-sync.yml</span>. See <a href="/v2/integrations.html">Integrations</a> to manage connections.</div>
+        <div class="bcn-header-sub">Blended ad spend (Google Ads, Meta Ads, TikTok Ads) against Shopify online net revenue — the ledger MER — with GA4 as the directional channel layer. Synced nightly via <span class="bcn-mono">ad-platforms-sync.yml</span> + the Shopify sync. See <a href="/v2/integrations.html">Integrations</a> to manage connections.</div>
       </div>
       <div class="bcn-header-actions">
         <span id="dataModePill" class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:10.5px">—</span>
@@ -79,7 +79,7 @@
 
       <div class="bcn-card">
         <div class="bcn-card-header">
-          <h2>Daily spend vs. conversion value — last 34 days</h2>
+          <h2>Daily spend vs. revenue — last 34 days</h2>
         </div>
         <div class="bcn-card-body">
           <div class="mo-legend">
@@ -161,17 +161,29 @@
   function setStatus(t){ el.statusText.textContent = t; }
 
   const WINDOW_DAYS = 34;
-  const sinceIso = () => new Date(Date.now() - WINDOW_DAYS*86400000).toISOString().slice(0,10);
+  // Inclusive gte: today + the (WINDOW_DAYS-1) prior days = exactly 34 days.
+  const sinceIso = () => new Date(Date.now() - (WINDOW_DAYS-1)*86400000).toISOString().slice(0,10);
 
+  // Campaign-level rows can exceed PostgREST's 1000-row cap (34 days ×
+  // campaigns × platforms), and the cap truncates silently — page through
+  // with .range() until a short page.
   async function loadRows(){
-    let q = sb.from('marketing_kpis_daily')
-      .select('platform,account_name,day_date,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source')
-      .gte('day_date', sinceIso())
-      .order('day_date', { ascending:true });
-    q = scopeQ(q);
-    const { data, error } = await q;
-    if (error) throw error;
-    return data || [];
+    const PAGE = 1000;
+    const out = [];
+    for (let from = 0;; from += PAGE){
+      let q = sb.from('marketing_kpis_daily')
+        .select('platform,account_name,day_date,impressions,clicks,spend,conversions,conversion_value,sessions,source')
+        .gte('day_date', sinceIso())
+        .order('day_date', { ascending:true })
+        .order('id', { ascending:true })
+        .range(from, from + PAGE - 1);
+      q = scopeQ(q);
+      const { data, error } = await q;
+      if (error) throw error;
+      out.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+    }
+    return out;
   }
 
   // Ledger layer: blended paid spend × Shopify online net revenue per day
@@ -194,9 +206,6 @@
     }
   }
 
-  // For GA4 rows campaign_name carries the session default channel group.
-  const isPaidGa4Channel = name => /^paid|cross-network|display/i.test(String(name||''));
-
   function renderKpis(rows, merRows){
     const paid = rows.filter(r => r.platform !== 'ga4');
     const ga4 = rows.filter(r => r.platform === 'ga4');
@@ -210,13 +219,22 @@
     const ga4Revenue = sum(ga4,'conversion_value');
     // Shopify online net sales is the revenue LEDGER — the preferred MER
     // numerator. GA4 is the directional fallback until Shopify data exists.
-    const onlineNet = sum(merRows,'online_net_sales');
+    // MER and capture-rate must compare like windows: if Shopify covers only
+    // part of the 34 days (fresh connection), restrict both spend and GA4 to
+    // the days Shopify actually has data for.
+    const ledgerDays = new Set((merRows||[]).filter(m => Number(m.online_net_sales||0) > 0).map(m => m.day_date));
+    const onlineNet = sum(merRows||[],'online_net_sales');
+    const spendOnLedgerDays = sum(paid.filter(r => ledgerDays.has(r.day_date)),'spend');
+    const ga4OnLedgerDays = sum(ga4.filter(r => ledgerDays.has(r.day_date)),'conversion_value');
 
     el.kpiSpend.textContent = money(paidSpend);
     el.kpiRoas.textContent = ratioFmt(paidSpend ? paidConvValue/paidSpend : null);
-    if (paidSpend && onlineNet){
-      el.kpiMer.textContent = ratioFmt(onlineNet/paidSpend);
-      document.getElementById('kpiMerDelta').textContent = 'Online net sales ÷ ad spend';
+    if (onlineNet && spendOnLedgerDays){
+      el.kpiMer.textContent = ratioFmt(onlineNet/spendOnLedgerDays);
+      document.getElementById('kpiMerDelta').textContent =
+        ledgerDays.size < WINDOW_DAYS
+          ? `Online net ÷ spend (${ledgerDays.size}d overlap)`
+          : 'Online net sales ÷ ad spend';
     } else if (paidSpend && ga4Revenue){
       el.kpiMer.textContent = ratioFmt(ga4Revenue/paidSpend);
       document.getElementById('kpiMerDelta').textContent = 'GA4 site revenue ÷ ad spend';
@@ -226,8 +244,8 @@
     el.kpiCpa.textContent = paidConversions ? money(paidSpend/paidConversions) : '—';
     if (onlineNet){
       el.kpiOrganic.textContent = money(onlineNet);
-      document.getElementById('kpiOrganicDelta').textContent = ga4Revenue
-        ? `GA4 sees ${money(ga4Revenue)} (${Math.round(ga4Revenue/onlineNet*100)}% capture)`
+      document.getElementById('kpiOrganicDelta').textContent = ga4OnLedgerDays
+        ? `GA4 sees ${money(ga4OnLedgerDays)} (${Math.round(ga4OnLedgerDays/onlineNet*100)}% capture)`
         : 'Shopify, online store (34d)';
     } else {
       el.kpiOrganic.textContent = money(ga4Revenue);
@@ -292,28 +310,27 @@
   }
 
   function renderChart(rows, merRows){
-    // Green line preference order (never a sum across sources — that
+    // Green line preference PER DAY (never a sum across sources — that
     // double-counts): Shopify online net sales (ledger) → GA4 site revenue
-    // (directional) → platform-attributed value (before either connects).
+    // (directional) → platform-attributed value. Per-day, not per-window, so
+    // a fresh Shopify connection doesn't render pre-connection days as $0.
     const hasShopify = (merRows||[]).some(r => Number(r.online_net_sales||0) > 0);
     const hasGa4 = rows.some(r => r.platform === 'ga4');
     document.getElementById('chartValueLabel').textContent =
       hasShopify ? 'Online net sales (Shopify)'
       : hasGa4 ? 'Site revenue (GA4)' : 'Conversion value (platform-attributed)';
+
     const byDay = new Map();
+    const day = d => { if (!byDay.has(d)) byDay.set(d, { day:d, spend:0, shopify:0, ga4:0, platform:0 }); return byDay.get(d); };
     for (const r of rows){
-      const d = r.day_date;
-      if (!byDay.has(d)) byDay.set(d, { day:d, spend:0, value:0 });
-      const agg = byDay.get(d);
+      const agg = day(r.day_date);
       agg.spend += Number(r.spend||0);
-      if (!hasShopify && (hasGa4 ? r.platform === 'ga4' : true)) agg.value += Number(r.conversion_value||0);
+      if (r.platform === 'ga4') agg.ga4 += Number(r.conversion_value||0);
+      else agg.platform += Number(r.conversion_value||0);
     }
-    if (hasShopify){
-      for (const m of merRows){
-        const d = m.day_date;
-        if (!byDay.has(d)) byDay.set(d, { day:d, spend:0, value:0 });
-        byDay.get(d).value += Number(m.online_net_sales||0);
-      }
+    for (const m of (merRows||[])) day(m.day_date).shopify += Number(m.online_net_sales||0);
+    for (const agg of byDay.values()){
+      agg.value = agg.shopify > 0 ? agg.shopify : (agg.ga4 > 0 ? agg.ga4 : (hasShopify || hasGa4 ? 0 : agg.platform));
     }
     const days = [...byDay.values()].sort((a,b)=>a.day<b.day?-1:1);
     if (!days.length){
@@ -363,7 +380,7 @@
     try {
       const [rows, merRows] = await Promise.all([loadRows(), loadMer()]);
       const isDemo = rows.length > 0 && rows.every(r => r.source === 'demo_seed');
-      const hasAny = rows.length > 0;
+      const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
       el.dataModePill.textContent = isDemo ? 'SAMPLE DATA' : (hasAny ? 'LIVE' : 'NOT CONNECTED');
       el.dataModePill.className = `bcn-pill ${isDemo ? 'bcn-pill--dark' : hasAny ? 'bcn-pill--pos' : 'bcn-pill--accent'}`;
       renderKpis(rows, merRows);
