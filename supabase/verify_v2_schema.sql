@@ -658,3 +658,25 @@ select
       then 'MISSING — payroll_payment not in payment_requests_request_type_check'
     else 'ok'
   end as live_schedule_payroll_payout;
+
+-- 22. Organization calendar (migration 20260810120000)
+select
+  case
+    when to_regclass('public.calendar_events') is null
+      then 'MISSING — run 20260810120000_org_calendar.sql'
+    when (select count(*) from pg_policies where schemaname='public' and tablename='calendar_events') < 4
+      then 'MISSING — calendar_events RLS policies'
+    when not exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid where c.relname='calendar_events' and t.tgname='stamp_created_by')
+      then 'MISSING — calendar_events stamp_created_by trigger'
+    when not exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid where c.relname='calendar_events' and t.tgname='stamp_company_entity_id')
+      then 'MISSING — calendar_events stamp_company_entity_id trigger'
+    when to_regclass('public.calendar_events_v') is null
+      then 'MISSING — calendar_events_v view'
+    when not exists (select 1 from pg_class where relname='calendar_events_v' and 'security_invoker=true' = any(reloptions))
+      then 'MISSING — calendar_events_v security_invoker'
+    when not exists (select 1 from pg_indexes where schemaname='public' and indexname='calendar_events_company_start_idx')
+      then 'MISSING — calendar_events_company_start_idx'
+    when not exists (select 1 from pg_indexes where schemaname='public' and indexname='payment_requests_company_due_idx')
+      then 'MISSING — org-calendar source date indexes'
+    else 'ok'
+  end as org_calendar;
