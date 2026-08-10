@@ -12,7 +12,7 @@
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
 import { createClient } from '@supabase/supabase-js';
-import { runConnectionSync } from './lib/ad-platforms-sync-core.mjs';
+import { runConnectionSync, runMetaAdLevelSync } from './lib/ad-platforms-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -107,6 +107,23 @@ async function syncConnection(connection) {
           .eq('id', connection.id);
       },
     });
+
+    // Meta additionally gets ad-level performance + creative metadata for the
+    // creative report. Failures here are logged but never fail the
+    // campaign-level KPI sync above.
+    if (connection.platform === 'meta_ads') {
+      try {
+        const adResult = await runMetaAdLevelSync(supabase, connection, {
+          batchId: BATCH_ID,
+          daysBackOverride: DAYS_BACK,
+        });
+        result.ad_level = adResult;
+        console.log(`[ok] ${label}: ad-level ${adResult.ad_rows_upserted} rows, ${adResult.creatives_upserted} creatives`);
+      } catch (err) {
+        result.ad_level = { error: String(err?.message || err) };
+        console.error(`[warn] ${label}: ad-level sync failed: ${result.ad_level.error}`);
+      }
+    }
 
     const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at };
     await supabase
