@@ -104,6 +104,9 @@ Run in order:
 29. **`migrations/20260805080000_sales_comp_as_of_perf_fix.sql`** — the above timed out in production  
     `EXPLAIN ANALYZE` showed 6.3s / 1.29M buffer hits for one date. Two causes: `base` was referenced by six downstream CTEs, and a plain (non-materialized) CTE gets inlined and re-evaluated per reference in modern Postgres — so the expensive shopify_api-over-better_reports anti-join ran six times, not once — and `base` had no date lower bound (removed in the prior migration specifically so a defunct pop-up location, `bld_houston`, still showed as a zero row for historical dates), so each of those six scans covered the full multi-year sales history. Fix: `with base as materialized (...)` so it's computed exactly once, bounded to `as_of_date - ~2 years` (covers day/mtd/ytd for the current and full prior year with a buffer), and the six separate `GROUP BY` CTEs collapsed into one pass using `FILTER`. Down to 2.1s / 198K buffer hits — same exact dollar-match verified again after the rewrite. Trade-off accepted: a location with zero activity in that ~2 year window won't appear for a custom date picked from before it — `sales_by_day` is SKU-grain, not pre-aggregated by day, so a live per-request query over any wider window is inherently expensive; a proper fix would add a nightly-refreshed daily (not SKU-grain) rollup the way `sales_verification_store_comp_summary` already does for "as of yesterday" — noted as a follow-up if 2s ever proves not fast enough in practice.
 
+30. **`migrations/20260810120000_org_calendar.sql`** — Organization Calendar V1 (`/v2/calendar.html`)  
+    Hybrid date layer: a `calendar_events` table for manual company events (meetings, holidays, deadlines, milestones — visibility `company`/`finance`/`private`, standard stamp triggers) plus `calendar_events_v`, a `security_invoker` UNION ALL view projecting system dates into one event contract: launches + campaign sends (`launch_calendar`/`launch_channel_items`), open task due dates (`launch_tasks`), active-PO ship/arrival (`po_headers`), open AP due dates (`payment_requests`), paydays (`payroll_import_batches`), claimed live slots (`live_sessions`, UTC → Pacific), open mail deadlines (`mail_items`). Because the view is invoker-rights, each branch inherits its source table's RLS — restricted sources (POs, AP, payroll) stay restricted with no calendar-specific ACL. Clients must range-bound on `start_on`. Full audit + architecture rationale: `docs/ops/org-calendar.md`.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
@@ -249,6 +252,7 @@ supabase/
     20260807000000_ad_platform_direct_api.sql
     20260807120000_tiktok_live_schedule.sql
     20260807150000_live_schedule_payroll_payout.sql
+    20260810120000_org_calendar.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
