@@ -8639,3 +8639,46 @@ select
 from public.mail_items mi
 where mi.due_date is not null
   and mi.status = 'open';
+
+-- 20260810230000_marketing_mer_view.sql
+-- Ledger MER view: blended paid ad spend x Shopify online net revenue per
+-- company per day. See the migration file header for rationale.
+
+create or replace view public.v_marketing_mer_daily
+with (security_invoker = true) as
+with spend as (
+  select
+    company_entity_id,
+    day_date,
+    sum(spend) as ad_spend,
+    sum(conversions) as platform_conversions,
+    sum(conversion_value) as platform_conv_value
+  from public.marketing_kpis_daily
+  where platform <> 'ga4'
+  group by 1, 2
+),
+online_rev as (
+  select
+    s.company_entity_id,
+    s.day_date,
+    sum(s.total_net_sales) as online_net_sales,
+    sum(s.total_orders) as online_orders
+  from public.sales_by_day s
+  join public.locations l
+    on l.company_entity_id = s.company_entity_id
+   and l.location_code = s.location_tag
+   and l.store_type = 'online'
+  group by 1, 2
+)
+select
+  coalesce(sp.company_entity_id, r.company_entity_id) as company_entity_id,
+  coalesce(sp.day_date, r.day_date) as day_date,
+  coalesce(sp.ad_spend, 0) as ad_spend,
+  coalesce(sp.platform_conversions, 0) as platform_conversions,
+  coalesce(sp.platform_conv_value, 0) as platform_conv_value,
+  coalesce(r.online_net_sales, 0) as online_net_sales,
+  coalesce(r.online_orders, 0) as online_orders
+from spend sp
+full outer join online_rev r
+  on r.company_entity_id = sp.company_entity_id
+ and r.day_date = sp.day_date;
