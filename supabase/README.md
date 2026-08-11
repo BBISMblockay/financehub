@@ -255,6 +255,7 @@ supabase/
     20260810120000_org_calendar.sql
     20260810230000_marketing_mer_view.sql
     20260811000000_meta_ad_creative_performance.sql
+    20260811120000_meta_funnel_events.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
