@@ -8765,3 +8765,62 @@ alter table public.meta_ad_performance_daily
   add column if not exists view_content bigint,
   add column if not exists add_to_cart bigint,
   add column if not exists initiate_checkout bigint;
+
+-- 20260812000000_meta_organic_insights.sql
+-- Organic Instagram + Facebook Page insights. See migration header.
+
+alter table public.ad_platform_connections
+  add column if not exists facebook_page_id text,
+  add column if not exists instagram_business_account_id text;
+
+create table if not exists public.instagram_media_insights (
+  company_entity_id uuid not null references public.entities(id) on delete cascade,
+  media_id text not null,
+  media_type text,
+  caption text,
+  permalink text,
+  thumbnail_url text,
+  posted_at timestamptz,
+  views bigint,
+  reach bigint,
+  likes bigint,
+  comments bigint,
+  shares bigint,
+  saved bigint,
+  synced_at timestamptz not null default now(),
+  primary key (company_entity_id, media_id)
+);
+
+create index if not exists idx_ig_media_insights_co_posted
+  on public.instagram_media_insights (company_entity_id, posted_at desc);
+
+create table if not exists public.facebook_page_insights_daily (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid not null references public.entities(id) on delete cascade,
+  day_date date not null,
+  page_impressions bigint,
+  page_reach bigint,
+  page_engaged_users bigint,
+  page_post_engagements bigint,
+  page_fan_count bigint,
+  row_hash text not null unique,
+  synced_at timestamptz not null default now()
+);
+
+create index if not exists idx_fb_page_insights_co_day
+  on public.facebook_page_insights_daily (company_entity_id, day_date);
+
+alter table public.instagram_media_insights enable row level security;
+alter table public.facebook_page_insights_daily enable row level security;
+
+drop policy if exists instagram_media_insights_active_select on public.instagram_media_insights;
+create policy instagram_media_insights_active_select
+  on public.instagram_media_insights for select
+  to authenticated
+  using (company_entity_id = public.active_company_id());
+
+drop policy if exists facebook_page_insights_daily_active_select on public.facebook_page_insights_daily;
+create policy facebook_page_insights_daily_active_select
+  on public.facebook_page_insights_daily for select
+  to authenticated
+  using (company_entity_id = public.active_company_id());

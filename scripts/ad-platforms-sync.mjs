@@ -12,7 +12,7 @@
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
 import { createClient } from '@supabase/supabase-js';
-import { runConnectionSync, runMetaAdLevelSync } from './lib/ad-platforms-sync-core.mjs';
+import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync } from './lib/ad-platforms-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -122,6 +122,21 @@ async function syncConnection(connection) {
       } catch (err) {
         result.ad_level = { error: String(err?.message || err) };
         console.error(`[warn] ${label}: ad-level sync failed: ${result.ad_level.error}`);
+      }
+
+      // Organic Instagram/Facebook — no-ops cleanly until
+      // instagram_business_account_id/facebook_page_id are set on the
+      // connection (needs new Meta permissions marketing hasn't granted
+      // yet). Same non-fatal wrapping as ad-level above.
+      try {
+        const organicResult = await runMetaOrganicSync(supabase, connection, { daysBackOverride: DAYS_BACK });
+        result.organic = organicResult;
+        if (organicResult.configured) {
+          console.log(`[ok] ${label}: organic ${organicResult.media_upserted} posts, ${organicResult.page_days_upserted} page-days`);
+        }
+      } catch (err) {
+        result.organic = { error: String(err?.message || err) };
+        console.error(`[warn] ${label}: organic sync failed: ${result.organic.error}`);
       }
     }
 

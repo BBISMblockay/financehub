@@ -109,6 +109,7 @@
       <button class="bcn-tab" data-tab="creatives">Creatives</button>
       <button class="bcn-tab" data-tab="funnel">Funnel</button>
       <button class="bcn-tab" data-tab="channels">Channels</button>
+      <button class="bcn-tab" data-tab="organic">Organic</button>
     </div>
 
     <div class="mo-content">
@@ -234,6 +235,23 @@
         </div>
       </div>
 
+      <!-- ── Organic ──────────────────────────────────────────────── -->
+      <div data-panel="organic" hidden>
+        <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Instagram — top posts &amp; reels</h2></div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr>
+                <th>Post</th><th>Type</th><th>Posted</th><th>Views</th>
+                <th>Reach</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Saves</th>
+              </tr></thead>
+              <tbody id="organicBody"><tr><td class="mo-empty" colspan="9">Not connected — organic Instagram/Page insights need additional Meta permissions (pages_read_engagement, instagram_basic, instagram_manage_insights) and the account IDs set on the Meta connection in Integrations.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="mo-note">Organic reach/engagement — no spend or attribution concept, not part of MER. "Views" unifies what used to be separate impression/video-view metrics (Meta's 2024 change).</div>
+        </div>
+      </div>
+
     </div>
   </main>
 </div>
@@ -320,6 +338,15 @@
           .select('ad_id,ad_name,effective_status,thumbnail_url,title,body,object_type')
           .order('ad_id', { ascending:true })));
     } catch(e){ console.warn('meta_ad_creatives unavailable', e); return []; }
+  }
+
+  async function loadOrganic(){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('instagram_media_insights')
+          .select('media_id,media_type,caption,permalink,thumbnail_url,posted_at,views,reach,likes,comments,shares,saved')
+          .order('posted_at', { ascending:false })));
+    } catch(e){ console.warn('instagram_media_insights unavailable', e); return []; }
   }
 
   // ── KPI band (ratios only over days both inputs cover) ─────────
@@ -670,13 +697,43 @@
     </tr>`;
   }
 
+  // ── Organic tab ────────────────────────────────────────────────
+  function renderOrganic(organic){
+    if (!organic.length) return; // leaves the "not connected" empty state in place
+    const fmtDate = iso => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      return isNaN(d) ? '—' : d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    };
+    el('organicBody').innerHTML = organic.slice(0, 100).map(p => {
+      const thumb = p.thumbnail_url
+        ? `<img class="mo-thumb" loading="lazy" src="${esc(p.thumbnail_url)}" alt="" onerror="this.style.visibility='hidden'" />`
+        : `<div class="mo-thumb"></div>`;
+      const caption = (p.caption || '').slice(0, 60);
+      const link = p.permalink
+        ? `<a href="${esc(p.permalink)}" target="_blank" rel="noopener" class="mo-ad-name">${esc(caption || p.media_id)}</a>`
+        : `<span class="mo-ad-name">${esc(caption || p.media_id)}</span>`;
+      return `<tr>
+        <td><div class="mo-ad-cell">${thumb}<div>${link}</div></div></td>
+        <td>${esc(p.media_type||'—')}</td>
+        <td>${fmtDate(p.posted_at)}</td>
+        <td>${numFmt(p.views)}</td>
+        <td>${numFmt(p.reach)}</td>
+        <td>${numFmt(p.likes)}</td>
+        <td>${numFmt(p.comments)}</td>
+        <td>${numFmt(p.shares)}</td>
+        <td>${numFmt(p.saved)}</td>
+      </tr>`;
+    }).join('');
+  }
+
   // ── Load orchestration ─────────────────────────────────────────
   async function runLoad(){
     setStatus('Loading…');
     el('btnRefresh').disabled = true;
     try {
-      const [rows, merRows, adPerf, creatives] = await Promise.all([
-        loadRows(), loadMer(), loadAdPerf(), loadCreatives(),
+      const [rows, merRows, adPerf, creatives, organic] = await Promise.all([
+        loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(),
       ]);
       _adPerf = adPerf; _creatives = creatives;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
@@ -689,6 +746,7 @@
       renderCreatives();
       renderFunnel(rows);
       renderChannels(rows, merRows);
+      renderOrganic(organic);
       setStatus(`${rows.length + adPerf.length} rows loaded.`);
     } catch(e){
       console.error(e);
