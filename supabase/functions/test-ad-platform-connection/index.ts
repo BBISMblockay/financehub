@@ -104,16 +104,48 @@ async function testGa4(conn: Record<string, unknown>, accessToken: string) {
   return { property_id: prop };
 }
 
+/** Best-effort: list Pages the token can manage, with each Page's linked
+ * Instagram business account, so the Facebook Page ID / Instagram Business
+ * Account ID fields can be filled from a real list instead of Graph API
+ * Explorer. Returns [] rather than throwing when the token lacks
+ * pages_read_engagement/instagram_basic (expected until that's granted) —
+ * this is a nice-to-have on top of the ad-account test, never the reason
+ * Test fails. */
+async function discoverMetaPages(token: string): Promise<Array<Record<string, unknown>>> {
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v25.0/me/accounts?` + new URLSearchParams({
+        fields: 'id,name,instagram_business_account{id,username}',
+        limit: '50',
+        access_token: token,
+      }).toString(),
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.data ?? []).map((p: Record<string, unknown>) => ({
+      page_id: p.id,
+      page_name: p.name,
+      instagram_business_account_id: (p.instagram_business_account as Record<string, unknown>)?.id ?? null,
+      instagram_username: (p.instagram_business_account as Record<string, unknown>)?.username ?? null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function testMetaAds(conn: Record<string, unknown>) {
   const token = String(conn.access_token || '');
   if (!token) throw new Error('No access token stored — paste a System User token first');
+  const pages = await discoverMetaPages(token);
+  const pagesExtra = pages.length ? { pages } : {};
+
   if (!conn.meta_ad_account_id) {
     const res = await fetch(
       `https://graph.facebook.com/v25.0/me/adaccounts?fields=id,name,currency&limit=50&access_token=${encodeURIComponent(token)}`,
     );
     if (!res.ok) throw new Error(`Meta adaccounts ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const data = await res.json();
-    return { ad_accounts: data.data ?? [] };
+    return { ad_accounts: data.data ?? [], ...pagesExtra };
   }
   const acct = String(conn.meta_ad_account_id);
   const res = await fetch(
@@ -121,7 +153,7 @@ async function testMetaAds(conn: Record<string, unknown>) {
   );
   if (!res.ok) throw new Error(`Meta account ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  return { account_id: data.id, account_name: data.name, currency: data.currency };
+  return { account_id: data.id, account_name: data.name, currency: data.currency, ...pagesExtra };
 }
 
 async function testTiktokAds(conn: Record<string, unknown>) {
