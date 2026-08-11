@@ -8751,3 +8751,17 @@ create policy meta_ad_creatives_active_select
   on public.meta_ad_creatives for select
   to authenticated
   using (company_entity_id = public.active_company_id());
+
+-- 20260811120000_meta_funnel_events.sql
+-- Meta full-funnel columns (view_content/add_to_cart/initiate_checkout)
+-- on marketing_kpis_daily + meta_ad_performance_daily. See migration header.
+
+alter table public.marketing_kpis_daily
+  add column if not exists view_content bigint,
+  add column if not exists add_to_cart bigint,
+  add column if not exists initiate_checkout bigint;
+
+alter table public.meta_ad_performance_daily
+  add column if not exists view_content bigint,
+  add column if not exists add_to_cart bigint,
+  add column if not exists initiate_checkout bigint;

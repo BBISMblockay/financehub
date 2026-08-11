@@ -60,6 +60,15 @@
     .mo-bar { display:inline-block; height:8px; border-radius:2px; background:var(--bcn-accent); opacity:.35; vertical-align:middle; margin-right:6px; }
     .mo-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
     .mo-filter-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
+
+    .mo-funnel { display:flex; flex-direction:column; gap:2px; }
+    .mo-funnel-row { display:grid; grid-template-columns:150px 1fr 110px 90px; align-items:center; gap:12px; padding:8px 0; }
+    .mo-funnel-label { font-size:12px; font-weight:600; color:var(--bcn-ink); }
+    .mo-funnel-bar-wrap { background:var(--bcn-sunken); border-radius:4px; height:26px; position:relative; overflow:hidden; }
+    .mo-funnel-bar { background:var(--bcn-accent); height:100%; border-radius:4px; transition:width .2s; }
+    .mo-funnel-count { font-family:var(--bcn-mono); font-size:12.5px; text-align:right; font-variant-numeric:tabular-nums; }
+    .mo-funnel-drop { font-family:var(--bcn-mono); font-size:11px; text-align:right; color:var(--bcn-ink-3); }
+    .mo-funnel-drop.mo-funnel-drop--warn { color:var(--bcn-neg); font-weight:600; }
   </style>
 </head>
 <body class="silo-brand">
@@ -98,6 +107,7 @@
       <button class="bcn-tab bcn-tab--active" data-tab="overview">Overview</button>
       <button class="bcn-tab" data-tab="campaigns">Campaigns</button>
       <button class="bcn-tab" data-tab="creatives">Creatives</button>
+      <button class="bcn-tab" data-tab="funnel">Funnel</button>
       <button class="bcn-tab" data-tab="channels">Channels</button>
     </div>
 
@@ -177,6 +187,33 @@
         </div>
       </div>
 
+      <!-- ── Funnel ───────────────────────────────────────────────── -->
+      <div data-panel="funnel" hidden>
+        <div class="bcn-card" style="margin-bottom:12px">
+          <div class="bcn-card-header"><h2>Meta funnel — view content → cart → checkout → purchase</h2></div>
+          <div class="bcn-card-body">
+            <div id="funnelSteps" class="mo-funnel"></div>
+          </div>
+          <div class="mo-note">From Meta's own attributed events (Events Manager pixel/CAPI data via the ads insights API) — same on+offsite attribution as the rest of this page, so treat as directional, not the ledger. Drop-off % is stage-to-stage; "of Content" is vs. View Content (the funnel's top).</div>
+        </div>
+
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>Funnel by campaign</h2>
+            <span class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3)">Sorted by biggest drop-off, Cart → Checkout</span>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr>
+                <th>Campaign</th><th>View Content</th><th>Add to Cart</th><th>Initiate Checkout</th>
+                <th>Purchases</th><th>Cart→Checkout</th><th>Checkout→Purchase</th><th>Content→Purchase</th>
+              </tr></thead>
+              <tbody id="funnelCampaignBody"><tr><td class="mo-empty" colspan="8"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Channels ─────────────────────────────────────────────── -->
       <div data-panel="channels" hidden>
         <div class="bcn-card">
@@ -252,7 +289,7 @@
 
   const loadRows = () => loadPaged(() => scopeQ(
     sb.from('marketing_kpis_daily')
-      .select('platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source')
+      .select('platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source,view_content,add_to_cart,initiate_checkout')
       .gte('day_date', sinceIso())
       .order('day_date', { ascending:true }).order('id', { ascending:true })));
 
@@ -533,6 +570,64 @@
     }).join('');
   }
 
+  // ── Funnel tab ─────────────────────────────────────────────────
+  function renderFunnel(rows){
+    const meta = rows.filter(r => r.platform === 'meta_ads');
+    const sum = k => meta.reduce((a,r)=>a+Number(r[k]||0),0);
+    const stages = [
+      { label:'View Content', val: sum('view_content') },
+      { label:'Add to Cart',  val: sum('add_to_cart') },
+      { label:'Initiate Checkout', val: sum('initiate_checkout') },
+      { label:'Purchase', val: sum('conversions') },
+    ];
+    const hasData = stages.some(s => s.val > 0);
+    if (!hasData){
+      el('funnelSteps').innerHTML = `<div class="mo-empty">No funnel event data in this window.</div>`;
+      el('funnelCampaignBody').innerHTML = `<tr><td class="mo-empty" colspan="8">No funnel event data in this window.</td></tr>`;
+      return;
+    }
+    const top = Math.max(1, stages[0].val);
+    el('funnelSteps').innerHTML = stages.map((s,i) => {
+      const pctOfTop = top ? s.val/top : 0;
+      const prev = i > 0 ? stages[i-1].val : null;
+      const stepDrop = (prev && prev > 0) ? (1 - s.val/prev) : null;
+      const dropCls = (stepDrop != null && stepDrop > 0.85) ? 'mo-funnel-drop--warn' : '';
+      return `<div class="mo-funnel-row">
+        <div class="mo-funnel-label">${s.label}</div>
+        <div class="mo-funnel-bar-wrap"><div class="mo-funnel-bar" style="width:${Math.max(2,pctOfTop*100).toFixed(1)}%"></div></div>
+        <div class="mo-funnel-count">${numFmt(s.val)}</div>
+        <div class="mo-funnel-drop ${dropCls}">${stepDrop == null ? '' : `−${(stepDrop*100).toFixed(0)}% of prior`}</div>
+      </div>`;
+    }).join('');
+
+    const byC = new Map();
+    for (const r of meta){
+      const key = r.campaign_name || '—';
+      if (!byC.has(key)) byC.set(key, { name:key, vc:0, atc:0, ic:0, purch:0 });
+      const c = byC.get(key);
+      c.vc += Number(r.view_content||0); c.atc += Number(r.add_to_cart||0);
+      c.ic += Number(r.initiate_checkout||0); c.purch += Number(r.conversions||0);
+    }
+    const list = [...byC.values()].filter(c => c.vc || c.atc || c.ic || c.purch);
+    // Biggest drop-off (by absolute count lost) between cart and checkout first.
+    list.sort((a,b) => (b.atc - b.ic) - (a.atc - a.ic));
+    if (!list.length){
+      el('funnelCampaignBody').innerHTML = `<tr><td class="mo-empty" colspan="8">No funnel event data by campaign in this window.</td></tr>`;
+      return;
+    }
+    const stepPct = (num, den) => den > 0 ? `${Math.round(num/den*100)}%` : '—';
+    el('funnelCampaignBody').innerHTML = list.map(c => `<tr>
+      <td>${esc(c.name)}</td>
+      <td>${numFmt(c.vc)}</td>
+      <td>${numFmt(c.atc)}</td>
+      <td>${numFmt(c.ic)}</td>
+      <td>${numFmt(c.purch)}</td>
+      <td>${stepPct(c.ic, c.atc)}</td>
+      <td>${stepPct(c.purch, c.ic)}</td>
+      <td>${stepPct(c.purch, c.vc)}</td>
+    </tr>`).join('');
+  }
+
   // ── Channels tab ───────────────────────────────────────────────
   function renderChannels(rows, merRows){
     const ga4 = rows.filter(r => r.platform === 'ga4');
@@ -592,6 +687,7 @@
       renderChart(rows, merRows);
       renderCampaigns(rows);
       renderCreatives();
+      renderFunnel(rows);
       renderChannels(rows, merRows);
       setStatus(`${rows.length + adPerf.length} rows loaded.`);
     } catch(e){

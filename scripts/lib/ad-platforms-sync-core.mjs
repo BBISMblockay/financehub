@@ -47,6 +47,7 @@ const num = (v) => {
 
 function kpiRow(connection, platform, { accountId, accountName, day, campaignId, campaignName,
   impressions = 0, clicks = 0, spend = 0, conversions = 0, conversionValue = 0, sessions = null,
+  viewContent = null, addToCart = null, initiateCheckout = null,
 }, { syncedAt, batchId, source }) {
   return {
     company_entity_id: connection.company_entity_id,
@@ -64,6 +65,9 @@ function kpiRow(connection, platform, { accountId, accountName, day, campaignId,
     conversions: num(conversions),
     conversion_value: num(conversionValue),
     sessions: sessions == null ? null : Math.round(num(sessions)),
+    view_content: viewContent == null ? null : Math.round(num(viewContent)),
+    add_to_cart: addToCart == null ? null : Math.round(num(addToCart)),
+    initiate_checkout: initiateCheckout == null ? null : Math.round(num(initiateCheckout)),
     // Identity only — metrics stay out so restated numbers upsert in place.
     row_hash: hashRow([
       connection.company_entity_id, platform, platform,
@@ -161,6 +165,15 @@ export async function fetchGoogleAdsRows(env, connection, accessToken, window) {
 
 // ── Meta Ads ────────────────────────────────────────────────────────────────
 
+// Meta's `actions` array mixes every event type an ad triggered (clicks,
+// video views, add-to-carts, purchases, ...). omni_* covers on+offsite
+// events (the convention already used for purchase); falls back to the bare
+// event name for accounts where omni_* isn't populated.
+function pickAction(actions, eventName) {
+  return (actions ?? []).find((a) => a.action_type === `omni_${eventName}`)
+    ?? (actions ?? []).find((a) => a.action_type === eventName);
+}
+
 export async function fetchMetaAdsRows(connection, window) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
@@ -180,12 +193,10 @@ export async function fetchMetaAdsRows(connection, window) {
   while (url) {
     const data = await fetchJsonOrThrow(url, {}, 'Meta insights');
     for (const r of data.data ?? []) {
-      // "Conversions" for a store = purchases. Meta's actions array mixes
-      // every event type; omni_purchase covers on+offsite purchase counts.
-      const purchases = (r.actions ?? []).find((a) => a.action_type === 'omni_purchase')
-        ?? (r.actions ?? []).find((a) => a.action_type === 'purchase');
-      const purchaseValue = (r.action_values ?? []).find((a) => a.action_type === 'omni_purchase')
-        ?? (r.action_values ?? []).find((a) => a.action_type === 'purchase');
+      // "Conversions" for a store = purchases — the bottom of the funnel;
+      // view_content/add_to_cart/initiate_checkout are the stages above it.
+      const purchases = pickAction(r.actions, 'purchase');
+      const purchaseValue = pickAction(r.action_values, 'purchase');
       rows.push({
         accountId: r.account_id,
         accountName: r.account_name,
@@ -197,6 +208,9 @@ export async function fetchMetaAdsRows(connection, window) {
         spend: r.spend,
         conversions: purchases?.value ?? 0,
         conversionValue: purchaseValue?.value ?? 0,
+        viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
+        addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
+        initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
       });
     }
     url = data.paging?.next ?? null;
@@ -230,10 +244,8 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 }
     while (url) {
       const data = await fetchJsonOrThrow(url, {}, 'Meta ad-level insights');
       for (const r of data.data ?? []) {
-        const purchases = (r.actions ?? []).find((a) => a.action_type === 'omni_purchase')
-          ?? (r.actions ?? []).find((a) => a.action_type === 'purchase');
-        const purchaseValue = (r.action_values ?? []).find((a) => a.action_type === 'omni_purchase')
-          ?? (r.action_values ?? []).find((a) => a.action_type === 'purchase');
+        const purchases = pickAction(r.actions, 'purchase');
+        const purchaseValue = pickAction(r.action_values, 'purchase');
         rows.push({
           accountId: r.account_id,
           day: r.date_start,
@@ -243,6 +255,9 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 }
           impressions: r.impressions, clicks: r.clicks, spend: r.spend,
           conversions: purchases?.value ?? 0,
           conversionValue: purchaseValue?.value ?? 0,
+          viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
+          addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
+          initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
         });
       }
       url = data.paging?.next ?? null;
@@ -328,6 +343,9 @@ export async function runMetaAdLevelSync(supabase, connection, {
       spend: Number(String(r.spend ?? '').replace(/[,$\s]/g, '')) || 0,
       conversions: Number(String(r.conversions ?? '').replace(/[,$\s]/g, '')) || 0,
       conversion_value: Number(String(r.conversionValue ?? '').replace(/[,$\s]/g, '')) || 0,
+      view_content: Math.round(Number(String(r.viewContent ?? '').replace(/[,$\s]/g, '')) || 0),
+      add_to_cart: Math.round(Number(String(r.addToCart ?? '').replace(/[,$\s]/g, '')) || 0),
+      initiate_checkout: Math.round(Number(String(r.initiateCheckout ?? '').replace(/[,$\s]/g, '')) || 0),
       // Identity only, like marketing_kpis_daily — restatements upsert in place.
       row_hash: hashRow([connection.company_entity_id, 'meta_ads_ad', r.accountId, r.adId, r.day]),
       source: PLATFORM_SOURCES.meta_ads,
