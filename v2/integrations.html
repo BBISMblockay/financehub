@@ -1574,13 +1574,22 @@
           // With no account id configured the test returns the pickable list.
           const list = data.accessible_customers || data.properties || data.ad_accounts
             || data.advertiser_ids;
+          const parts = [];
           if (list && list.length) {
-            setStatus('✓ Auth OK — available accounts: '
+            parts.push('available accounts: '
               + list.map((x) => typeof x === 'string' ? x : (x.id || x.property || '') + (x.display_name || x.name ? ` (${x.display_name || x.name})` : '')).join(', ')
-              + ' — paste one into the account field.', 'info', 20000);
-          } else {
-            setStatus('✓ Connection OK', 'pos', 5000);
+              + ' — paste one into the account field');
           }
+          // Meta only: pages the token can manage, with each Page's linked
+          // Instagram account — fills the two Organic fields from a real
+          // list instead of Graph API Explorer.
+          if (data.pages && data.pages.length) {
+            parts.push('Pages (for Organic): '
+              + data.pages.map((p) => `${p.page_name || p.page_id} → Page ID ${p.page_id}`
+                  + (p.instagram_business_account_id ? `, IG ${p.instagram_business_account_id}${p.instagram_username ? ' (@' + p.instagram_username + ')' : ''}` : ', no linked IG account')).join(' | '));
+          }
+          setStatus(parts.length ? '✓ Auth OK — ' + parts.join(' — ') : '✓ Connection OK',
+            parts.length ? 'info' : 'pos', parts.length ? 25000 : 5000);
         } else {
           setStatus('✗ Test failed: ' + (data.error || ''), 'neg', 10000);
         }
