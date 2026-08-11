@@ -130,7 +130,9 @@ select
   case when exists (select 1 from information_schema.views where table_schema='public' and table_name='v_marketing_mer_daily') then 'ok' else 'MISSING' end as v_marketing_mer_daily,
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='meta_ad_performance_daily') then 'ok' else 'MISSING' end as meta_ad_performance_daily,
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='meta_ad_creatives') then 'ok' else 'MISSING' end as meta_ad_creatives,
-  case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='marketing_kpis_daily' and column_name='view_content') then 'ok' else 'MISSING' end as meta_funnel_events_columns;
+  case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='marketing_kpis_daily' and column_name='view_content') then 'ok' else 'MISSING' end as meta_funnel_events_columns,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='instagram_media_insights') then 'ok' else 'MISSING' end as instagram_media_insights,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='facebook_page_insights_daily') then 'ok' else 'MISSING' end as facebook_page_insights_daily;
 
 -- 7c. Inventory MV company index (20260717190000)
 select
