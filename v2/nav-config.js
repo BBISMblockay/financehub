@@ -73,6 +73,7 @@
     { id: 'reports/product-types', section: 'Reports', label: 'Product Type Performance', href: '/v2/bi-product-types.html', profiles: ['grandfathered'] },
     { id: 'reports/product-search', section: 'Reports', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-report', section: 'Reports', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
+    { id: 'reports/returns-overview', section: 'Reports', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
 
 
     { id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
