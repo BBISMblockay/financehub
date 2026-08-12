@@ -1478,7 +1478,7 @@
     async function loadAdConnections() {
       const { data, error } = await db
         .from('ad_platform_connections')
-        .select('id, platform, display_name, is_active, sync_enabled, last_tested_at, last_test_success, last_test_error, google_customer_id, meta_ad_account_id, tiktok_advertiser_id, ga4_property_id')
+        .select('id, platform, display_name, is_active, sync_enabled, last_tested_at, last_test_success, last_test_error, google_customer_id, meta_ad_account_id, tiktok_advertiser_id, ga4_property_id, facebook_page_id, instagram_business_account_id')
         .order('platform').order('created_at');
       if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
       renderAdConnections(data || []);
@@ -1502,7 +1502,7 @@
               ? `<span class="bcn-pill bcn-pill--pos">OK</span>`
               : `<span class="bcn-pill bcn-pill--neg" title="${escAttr(row.last_test_error)}">Failed</span>`)
           : '<span class="bcn-pill">Untested</span>';
-        return `<tr>
+        const mainRow = `<tr>
           <td>${AD_PLATFORM_LABELS[row.platform] || row.platform}</td>
           <td><input class="bcn-field" style="min-width:140px;" value="${escAttr(row.display_name)}"
             onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
@@ -1519,6 +1519,28 @@
             <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
           </td>
         </tr>`;
+        // Organic (Instagram + Facebook Page) rides this SAME Meta
+        // connection's token — no separate connect flow — but needs its
+        // own two IDs once the token has pages_read_engagement/
+        // instagram_basic/instagram_manage_insights and the System User is
+        // assigned to the Page in Business Manager. See docs/ops/
+        // ad-platform-api-setup.md for the exact steps.
+        const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>
+          <td></td>
+          <td colspan="5" style="padding-top:0;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--bcn-ink-3);">
+              <span style="font-family:var(--bcn-mono);">Organic (optional):</span>
+              <input class="bcn-field bcn-field--mono" style="min-width:160px;font-size:11px;"
+                value="${escAttr(row.facebook_page_id || '')}" placeholder="Facebook Page ID"
+                onchange="updateAdConnection('${row.id}', { facebook_page_id: this.value.trim() || null })" />
+              <input class="bcn-field bcn-field--mono" style="min-width:190px;font-size:11px;"
+                value="${escAttr(row.instagram_business_account_id || '')}" placeholder="Instagram Business Account ID"
+                onchange="updateAdConnection('${row.id}', { instagram_business_account_id: this.value.trim() || null })" />
+              <span>— needs pages_read_engagement / instagram_basic / instagram_manage_insights on the token + Page asset assignment</span>
+            </div>
+          </td>
+        </tr>`;
+        return mainRow + organicRow;
       }).join('');
     }
 
@@ -1552,13 +1574,22 @@
           // With no account id configured the test returns the pickable list.
           const list = data.accessible_customers || data.properties || data.ad_accounts
             || data.advertiser_ids;
+          const parts = [];
           if (list && list.length) {
-            setStatus('✓ Auth OK — available accounts: '
+            parts.push('available accounts: '
               + list.map((x) => typeof x === 'string' ? x : (x.id || x.property || '') + (x.display_name || x.name ? ` (${x.display_name || x.name})` : '')).join(', ')
-              + ' — paste one into the account field.', 'info', 20000);
-          } else {
-            setStatus('✓ Connection OK', 'pos', 5000);
+              + ' — paste one into the account field');
           }
+          // Meta only: pages the token can manage, with each Page's linked
+          // Instagram account — fills the two Organic fields from a real
+          // list instead of Graph API Explorer.
+          if (data.pages && data.pages.length) {
+            parts.push('Pages (for Organic): '
+              + data.pages.map((p) => `${p.page_name || p.page_id} → Page ID ${p.page_id}`
+                  + (p.instagram_business_account_id ? `, IG ${p.instagram_business_account_id}${p.instagram_username ? ' (@' + p.instagram_username + ')' : ''}` : ', no linked IG account')).join(' | '));
+          }
+          setStatus(parts.length ? '✓ Auth OK — ' + parts.join(' — ') : '✓ Connection OK',
+            parts.length ? 'info' : 'pos', parts.length ? 25000 : 5000);
         } else {
           setStatus('✗ Test failed: ' + (data.error || ''), 'neg', 10000);
         }

@@ -47,6 +47,7 @@ const num = (v) => {
 
 function kpiRow(connection, platform, { accountId, accountName, day, campaignId, campaignName,
   impressions = 0, clicks = 0, spend = 0, conversions = 0, conversionValue = 0, sessions = null,
+  viewContent = null, addToCart = null, initiateCheckout = null,
 }, { syncedAt, batchId, source }) {
   return {
     company_entity_id: connection.company_entity_id,
@@ -64,6 +65,9 @@ function kpiRow(connection, platform, { accountId, accountName, day, campaignId,
     conversions: num(conversions),
     conversion_value: num(conversionValue),
     sessions: sessions == null ? null : Math.round(num(sessions)),
+    view_content: viewContent == null ? null : Math.round(num(viewContent)),
+    add_to_cart: addToCart == null ? null : Math.round(num(addToCart)),
+    initiate_checkout: initiateCheckout == null ? null : Math.round(num(initiateCheckout)),
     // Identity only — metrics stay out so restated numbers upsert in place.
     row_hash: hashRow([
       connection.company_entity_id, platform, platform,
@@ -161,6 +165,15 @@ export async function fetchGoogleAdsRows(env, connection, accessToken, window) {
 
 // ── Meta Ads ────────────────────────────────────────────────────────────────
 
+// Meta's `actions` array mixes every event type an ad triggered (clicks,
+// video views, add-to-carts, purchases, ...). omni_* covers on+offsite
+// events (the convention already used for purchase); falls back to the bare
+// event name for accounts where omni_* isn't populated.
+function pickAction(actions, eventName) {
+  return (actions ?? []).find((a) => a.action_type === `omni_${eventName}`)
+    ?? (actions ?? []).find((a) => a.action_type === eventName);
+}
+
 export async function fetchMetaAdsRows(connection, window) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
@@ -180,12 +193,10 @@ export async function fetchMetaAdsRows(connection, window) {
   while (url) {
     const data = await fetchJsonOrThrow(url, {}, 'Meta insights');
     for (const r of data.data ?? []) {
-      // "Conversions" for a store = purchases. Meta's actions array mixes
-      // every event type; omni_purchase covers on+offsite purchase counts.
-      const purchases = (r.actions ?? []).find((a) => a.action_type === 'omni_purchase')
-        ?? (r.actions ?? []).find((a) => a.action_type === 'purchase');
-      const purchaseValue = (r.action_values ?? []).find((a) => a.action_type === 'omni_purchase')
-        ?? (r.action_values ?? []).find((a) => a.action_type === 'purchase');
+      // "Conversions" for a store = purchases — the bottom of the funnel;
+      // view_content/add_to_cart/initiate_checkout are the stages above it.
+      const purchases = pickAction(r.actions, 'purchase');
+      const purchaseValue = pickAction(r.action_values, 'purchase');
       rows.push({
         accountId: r.account_id,
         accountName: r.account_name,
@@ -197,6 +208,9 @@ export async function fetchMetaAdsRows(connection, window) {
         spend: r.spend,
         conversions: purchases?.value ?? 0,
         conversionValue: purchaseValue?.value ?? 0,
+        viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
+        addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
+        initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
       });
     }
     url = data.paging?.next ?? null;
@@ -230,10 +244,8 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 }
     while (url) {
       const data = await fetchJsonOrThrow(url, {}, 'Meta ad-level insights');
       for (const r of data.data ?? []) {
-        const purchases = (r.actions ?? []).find((a) => a.action_type === 'omni_purchase')
-          ?? (r.actions ?? []).find((a) => a.action_type === 'purchase');
-        const purchaseValue = (r.action_values ?? []).find((a) => a.action_type === 'omni_purchase')
-          ?? (r.action_values ?? []).find((a) => a.action_type === 'purchase');
+        const purchases = pickAction(r.actions, 'purchase');
+        const purchaseValue = pickAction(r.action_values, 'purchase');
         rows.push({
           accountId: r.account_id,
           day: r.date_start,
@@ -243,6 +255,9 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 }
           impressions: r.impressions, clicks: r.clicks, spend: r.spend,
           conversions: purchases?.value ?? 0,
           conversionValue: purchaseValue?.value ?? 0,
+          viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
+          addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
+          initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
         });
       }
       url = data.paging?.next ?? null;
@@ -328,6 +343,9 @@ export async function runMetaAdLevelSync(supabase, connection, {
       spend: Number(String(r.spend ?? '').replace(/[,$\s]/g, '')) || 0,
       conversions: Number(String(r.conversions ?? '').replace(/[,$\s]/g, '')) || 0,
       conversion_value: Number(String(r.conversionValue ?? '').replace(/[,$\s]/g, '')) || 0,
+      view_content: Math.round(Number(String(r.viewContent ?? '').replace(/[,$\s]/g, '')) || 0),
+      add_to_cart: Math.round(Number(String(r.addToCart ?? '').replace(/[,$\s]/g, '')) || 0),
+      initiate_checkout: Math.round(Number(String(r.initiateCheckout ?? '').replace(/[,$\s]/g, '')) || 0),
       // Identity only, like marketing_kpis_daily — restatements upsert in place.
       row_hash: hashRow([connection.company_entity_id, 'meta_ads_ad', r.accountId, r.adId, r.day]),
       source: PLATFORM_SOURCES.meta_ads,
@@ -361,6 +379,161 @@ export async function runMetaAdLevelSync(supabase, connection, {
     ad_rows_fetched: raw.length,
     ad_rows_upserted: perfUpserted,
     creatives_upserted: creativesUpserted,
+    synced_at: syncedAt,
+  };
+}
+
+// ── Meta organic (Instagram + Facebook Page) ────────────────────────────────
+// Separate from the paid-ads tables above: organic content has no spend or
+// attribution, just reach/engagement. Rides the same meta_ads connection's
+// access_token — no new OAuth flow — but that token needs pages_read_
+// engagement/instagram_basic/instagram_manage_insights scopes AND the token's
+// System User assigned as an admin/analyst on the Page in Business Manager;
+// neither exists yet, so these fetchers no-op gracefully (return empty) until
+// instagram_business_account_id/facebook_page_id are set on the connection.
+
+/** Per-post/reel lifetime snapshot (Meta's own media insights are cumulative
+ * counters, not a daily series). `views` unifies what used to be separate
+ * impressions/video_views metrics — Meta deprecated per-type impressions on
+ * IG media insights in 2024. */
+export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {}) {
+  const token = connection.access_token;
+  const igId = connection.instagram_business_account_id;
+  if (!token || !igId) return [];
+
+  const out = [];
+  let url = `https://graph.facebook.com/${META_API_VERSION}/${igId}/media?` + new URLSearchParams({
+    fields: 'id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count',
+    limit: String(limit),
+    access_token: token,
+  }).toString();
+
+  while (url && out.length < limit) {
+    const data = await fetchJsonOrThrow(url, {}, 'Instagram media list');
+    for (const m of data.data ?? []) {
+      let insights = {};
+      try {
+        const insData = await fetchJsonOrThrow(
+          `https://graph.facebook.com/${META_API_VERSION}/${m.id}/insights?` + new URLSearchParams({
+            metric: 'views,reach,shares,saved',
+            access_token: token,
+          }).toString(),
+          {}, 'Instagram media insights',
+        );
+        for (const row of insData.data ?? []) {
+          insights[row.name] = row.values?.[0]?.value ?? row.total_value?.value ?? null;
+        }
+      } catch {
+        // Per-post insights can 400 on some media types (e.g. carousels
+        // pre-API-version); skip metrics for this post rather than the sync.
+      }
+      out.push({
+        mediaId: m.id,
+        mediaType: m.media_type ?? null,
+        caption: m.caption ?? null,
+        permalink: m.permalink ?? null,
+        thumbnailUrl: m.thumbnail_url ?? null,
+        postedAt: m.timestamp ?? null,
+        views: insights.views ?? null,
+        reach: insights.reach ?? null,
+        likes: m.like_count ?? null,
+        comments: m.comments_count ?? null,
+        shares: insights.shares ?? null,
+        saved: insights.saved ?? null,
+      });
+    }
+    url = out.length < limit ? (data.paging?.next ?? null) : null;
+  }
+  return out;
+}
+
+/** Page-level daily rollup — a genuine time series, unlike media insights. */
+export async function fetchFacebookPageInsights(connection, window) {
+  const token = connection.access_token;
+  const pageId = connection.facebook_page_id;
+  if (!token || !pageId) return [];
+
+  const metrics = ['page_impressions', 'page_impressions_unique', 'page_engaged_users', 'page_post_engagements'];
+  const data = await fetchJsonOrThrow(
+    `https://graph.facebook.com/${META_API_VERSION}/${pageId}/insights?` + new URLSearchParams({
+      metric: metrics.join(','),
+      period: 'day',
+      since: window.startDate,
+      until: window.endDate,
+      access_token: token,
+    }).toString(),
+    {}, 'Facebook Page insights',
+  );
+
+  const byDay = new Map();
+  for (const series of data.data ?? []) {
+    for (const point of series.values ?? []) {
+      const day = String(point.end_time || '').slice(0, 10);
+      if (!day) continue;
+      if (!byDay.has(day)) byDay.set(day, { day });
+      byDay.get(day)[series.name] = point.value;
+    }
+  }
+  return [...byDay.values()].map((d) => ({
+    day: d.day,
+    impressions: d.page_impressions ?? null,
+    reach: d.page_impressions_unique ?? null,
+    engagedUsers: d.page_engaged_users ?? null,
+    postEngagements: d.page_post_engagements ?? null,
+  }));
+}
+
+/** Sync organic Instagram + Facebook data for one meta_ads connection.
+ * Called from the orchestrator alongside the ad-level sync, non-fatally —
+ * returns a no-op summary until instagram_business_account_id/
+ * facebook_page_id are configured (nothing to fetch, not an error). */
+export async function runMetaOrganicSync(supabase, connection, {
+  now = new Date(),
+  daysBackOverride = null,
+} = {}) {
+  const window = computeWindow(now, daysBackOverride ?? connection.days_back ?? 30);
+  const syncedAt = new Date().toISOString();
+
+  const media = await fetchInstagramMediaInsights(connection);
+  const mediaRows = media.map((m) => ({
+    company_entity_id: connection.company_entity_id,
+    media_id: String(m.mediaId),
+    media_type: m.mediaType,
+    caption: m.caption,
+    permalink: m.permalink,
+    thumbnail_url: m.thumbnailUrl,
+    posted_at: m.postedAt,
+    views: m.views == null ? null : Math.round(num(m.views)),
+    reach: m.reach == null ? null : Math.round(num(m.reach)),
+    likes: m.likes == null ? null : Math.round(num(m.likes)),
+    comments: m.comments == null ? null : Math.round(num(m.comments)),
+    shares: m.shares == null ? null : Math.round(num(m.shares)),
+    saved: m.saved == null ? null : Math.round(num(m.saved)),
+    synced_at: syncedAt,
+  }));
+  const mediaUpserted = mediaRows.length
+    ? await upsertInChunks(supabase, 'instagram_media_insights', mediaRows, 'company_entity_id,media_id')
+    : 0;
+
+  const pageDays = await fetchFacebookPageInsights(connection, window);
+  const pageRows = pageDays.map((d) => ({
+    company_entity_id: connection.company_entity_id,
+    day_date: d.day,
+    page_impressions: d.impressions == null ? null : Math.round(num(d.impressions)),
+    page_reach: d.reach == null ? null : Math.round(num(d.reach)),
+    page_engaged_users: d.engagedUsers == null ? null : Math.round(num(d.engagedUsers)),
+    page_post_engagements: d.postEngagements == null ? null : Math.round(num(d.postEngagements)),
+    row_hash: hashRow([connection.company_entity_id, 'facebook_page', d.day]),
+    synced_at: syncedAt,
+  }));
+  const pageUpserted = pageRows.length
+    ? await upsertInChunks(supabase, 'facebook_page_insights_daily', pageRows, 'row_hash')
+    : 0;
+
+  return {
+    configured: Boolean(connection.instagram_business_account_id || connection.facebook_page_id),
+    media_upserted: mediaUpserted,
+    page_days_upserted: pageUpserted,
     synced_at: syncedAt,
   };
 }

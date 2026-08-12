@@ -48,6 +48,17 @@ No OAuth flow — Meta's recommended server-to-server credential is a **System U
 3. Generate token: pick your app (create a Business-type app at developers.facebook.com if you have none), scopes `ads_read` + `business_management`, expiry **never**.
 4. **Connect in SILO**: `/v2/integrations.html` → *Add Meta Ads token…* → paste the token (ad account ID optional — Test lists the accounts the token can see, e.g. `act_1234567890`). Test, set the account, enable sync.
 
+### Optional: organic Instagram + Facebook Page insights (posts/reels — separate from the ads pull above)
+
+The System User token above only grants `ads_read` — organic reach/engagement needs two additional things, not just a permission checkbox:
+
+1. **Add scopes to the same token**: regenerate it (step 3 above) with `pages_read_engagement`, `instagram_basic`, `instagram_manage_insights` added alongside `ads_read` + `business_management`.
+2. **Assign the System User to the Page**: Business settings → Users → System Users → your system user → **Assign Assets** → Pages → select the Baseballism Page, grant at least Analyst access. Token scopes alone don't grant Page access — this asset assignment is separate and easy to miss.
+3. The Instagram professional account must already be **linked to that Facebook Page** (Instagram app → Settings → linked accounts) — this is how Meta's API finds the Instagram business account ID from the Page.
+4. Send Blake the **Facebook Page ID** and **Instagram Business Account ID** (Graph API Explorer: `GET /me/accounts` for the Page ID, then `GET /{page-id}?fields=instagram_business_account` for the IG account ID) — set on the existing Meta connection row (`facebook_page_id`, `instagram_business_account_id`), no new connection needed.
+
+Note: Meta unified impression-style metrics on Instagram media insights into a single `views` metric in 2024 — if comparing against an older report that says "impressions," that's the same thing under the new name.
+
 ## TikTok Ads
 
 1. **business-api.tiktok.com** (TikTok for Business developer portal) → Become a developer → Create app.
