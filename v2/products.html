@@ -538,7 +538,7 @@
     <div class="smp-section">
       <div class="smp-section-label">Connect to Ecosystem</div>
       <div style="margin-bottom:10px;">
-        <div class="bcn-label" style="margin-bottom:6px;">Pipeline Item</div>
+        <div class="bcn-label" style="margin-bottom:6px;">Pipeline Items</div>
         <div id="smpTrackerChip" style="margin-bottom:6px; display:none;"></div>
         <div class="smp-prod-search" style="position:relative;">
           <input class="bcn-field" id="smpTrackerSearch" placeholder="Search pipeline products…" style="width:100%;" />
@@ -844,6 +844,7 @@
   // ── state ─────────────────────────────────────────────────────────────────
   let allSamples      = [];
   let allTrackerItems = [];
+  let allSampleTrackerLinks = []; // {id, sample_id, tracker_id} -- a sample can link to >1 pipeline item
   let allLaunches     = [];
   let allPOs          = [];
   let allFactories    = [];
@@ -858,7 +859,7 @@
   let lbIdx             = 0;
   let linkedProductId   = null;
   let linkedProductTitle = null;
-  let linkedTrackerId   = null;
+  let linkedTrackerIds  = []; // pipeline items linked to the sample being edited
   let prodSearchTimer   = null;
 
   // product tracker drawer state
@@ -1219,6 +1220,17 @@
     allTrackerItems=data||[];
   }
 
+  async function loadSampleTrackerLinks() {
+    const {data,error}=await sb.from('product_sample_tracker_links').select('id,sample_id,tracker_id');
+    if(error) throw error;
+    allSampleTrackerLinks=data||[];
+  }
+
+  function trackerIdsForSample(sampleId) {
+    const linked=allSampleTrackerLinks.filter(l=>l.sample_id===sampleId).map(l=>l.tracker_id);
+    return linked.length ? linked : [];
+  }
+
   async function loadReferenceData() {
     let _qlc=sb.from('launch_calendar').select('id,title').order('title'); if(_co?.id) _qlc=_qlc.eq('company_entity_id',_co.id);
     let _qph=sb.from('po_headers').select('id,po_name').order('po_name'); if(_co?.id) _qph=_qph.eq('company_entity_id',_co.id);
@@ -1339,10 +1351,14 @@
   }
 
   // ── tracker table ─────────────────────────────────────────────────────────
-  // Samples attach by tracker_id; legacy rows saved before the link column
-  // existed fall back to a shared products_master link.
+  // Samples attach via product_sample_tracker_links (many-to-many -- a
+  // sample can link to more than one pipeline item). Legacy rows saved
+  // before that table existed fall back to the original tracker_id column,
+  // then to a shared products_master link.
   function samplesForTracker(t) {
-    return allSamples.filter(s => s.tracker_id === t.id
+    const linkedSampleIds=new Set(allSampleTrackerLinks.filter(l=>l.tracker_id===t.id).map(l=>l.sample_id));
+    return allSamples.filter(s => linkedSampleIds.has(s.id)
+      || s.tracker_id === t.id
       || (!s.tracker_id && s.product_master_id && s.product_master_id === t.product_master_id));
   }
 
@@ -1420,7 +1436,7 @@
 
     linkedProductId    = sample?.product_master_id    || null;
     linkedProductTitle = sample?.product_title_snapshot || null;
-    linkedTrackerId    = sample?.tracker_id || null;
+    linkedTrackerIds   = sample?.id ? trackerIdsForSample(sample.id) : (sample?.tracker_id ? [sample.tracker_id] : []);
 
     // "New sample from this product" — carry the pipeline item's identity over.
     if(!sample && fromTracker){
@@ -1431,7 +1447,7 @@
       $('fldLaunchId').value=fromTracker.launch_id||'';
       linkedProductId=fromTracker.product_master_id||null;
       linkedProductTitle=fromTracker.product_title_snapshot||null;
-      linkedTrackerId=fromTracker.id;
+      linkedTrackerIds=[fromTracker.id];
     }
 
     $('prodSearchInput').value='';
@@ -1456,7 +1472,7 @@
     $('backdrop').classList.remove('open');
     $('drawer').classList.remove('open');
     $('drawer').setAttribute('aria-hidden','true');
-    drawerSample=null; pendingPhotos=[]; linkedProductId=null; linkedProductTitle=null; linkedTrackerId=null;
+    drawerSample=null; pendingPhotos=[]; linkedProductId=null; linkedProductTitle=null; linkedTrackerIds=[];
   }
 
   // ── sample save/delete ─────────────────────────────────────────────────────
@@ -1496,7 +1512,10 @@
       po_header_id:           $('fldPoHeaderId').value    || null,
       product_master_id:      linkedProductId             || null,
       product_title_snapshot: linkedProductTitle          || null,
-      tracker_id:             linkedTrackerId             || null,
+      // tracker_id keeps the first linked pipeline item as the primary/
+      // legacy link -- product_sample_tracker_links below is the real,
+      // multi-item source of truth.
+      tracker_id:             linkedTrackerIds[0]          || null,
       notes:                  $('fldNotes').value.trim()  || null,
     };
 
@@ -1512,6 +1531,15 @@
       sampleId=data.id;
     }
 
+    // Replace this sample's pipeline links wholesale with the current set.
+    const {error: unlinkErr}=await sb.from('product_sample_tracker_links').delete().eq('sample_id',sampleId);
+    if(unlinkErr){setStatus(unlinkErr.message,'neg',6000);return;}
+    if(linkedTrackerIds.length){
+      const {error: linkErr}=await sb.from('product_sample_tracker_links')
+        .insert(linkedTrackerIds.map(trackerId=>({sample_id:sampleId, tracker_id:trackerId})));
+      if(linkErr){setStatus(linkErr.message,'neg',6000);return;}
+    }
+
     if(pendingPhotos.length) await uploadPendingPhotos(sampleId);
 
     if(!drawerSample)      await logActivity(sampleId,'created',null,newStatus);
@@ -1519,7 +1547,7 @@
     if(oldPhoto&&oldPhoto!==newPhoto)    await logActivity(sampleId,'photo_status_changed',oldPhoto,newPhoto);
 
     clearStatus(); setStatus('Saved.','pos',2500);
-    await loadSamples(); renderKPIs(); renderTable(); renderTrackerKPIs(); renderTrackerTable(); closeDrawer();
+    await Promise.all([loadSamples(), loadSampleTrackerLinks()]); renderKPIs(); renderTable(); renderTrackerKPIs(); renderTrackerTable(); closeDrawer();
   }
 
   async function deleteSample() {
@@ -1527,7 +1555,7 @@
     if(!confirm(`Delete "${drawerSample.product_title}"? This cannot be undone.`)) return;
     const {error}=await sb.from('product_samples').delete().eq('id',drawerSample.id);
     if(error){setStatus(error.message,'neg',6000);return;}
-    await loadSamples(); renderKPIs(); renderTable(); renderTrackerKPIs(); renderTrackerTable(); closeDrawer();
+    await Promise.all([loadSamples(), loadSampleTrackerLinks()]); renderKPIs(); renderTable(); renderTrackerKPIs(); renderTrackerTable(); closeDrawer();
   }
 
   // ── product tracker drawer open/close ─────────────────────────────────────
@@ -1690,18 +1718,30 @@
   }
 
   // ── sample ↔ pipeline link widgets ─────────────────────────────────────────
+  // A sample can link to more than one pipeline item -- render one chip per
+  // linked tracker item, each independently unlinkable.
   function updateTrackerChip() {
     const chip=$('smpTrackerChip');
-    const t=linkedTrackerId?allTrackerItems.find(x=>x.id===linkedTrackerId):null;
-    if(!t){ chip.style.display='none'; chip.innerHTML=''; return; }
-    chip.style.display='block';
-    chip.innerHTML=`<span class="smp-linked-chip">${esc(t.product_title)}
-      <a href="#" id="smpTrackerOpen" style="color:inherit;font-size:10px;font-weight:700;text-decoration:underline;">Open →</a>
-      <button type="button" id="smpTrackerUnlink" title="Unlink">×</button></span>`;
-    chip.querySelector('#smpTrackerUnlink').addEventListener('click',()=>{ linkedTrackerId=null; updateTrackerChip(); });
-    chip.querySelector('#smpTrackerOpen').addEventListener('click',e=>{
-      e.preventDefault();
-      closeDrawer(); switchTab('tracker'); openPtDrawer(t);
+    const items=linkedTrackerIds.map(id=>allTrackerItems.find(x=>x.id===id)).filter(Boolean);
+    if(!items.length){ chip.style.display='none'; chip.innerHTML=''; return; }
+    chip.style.display='flex';
+    chip.style.flexWrap='wrap';
+    chip.style.gap='6px';
+    chip.innerHTML=items.map(t=>`<span class="smp-linked-chip" data-trk-id="${t.id}">${esc(t.product_title)}
+      <a href="#" class="smpTrackerOpen" data-trk-id="${t.id}" style="color:inherit;font-size:10px;font-weight:700;text-decoration:underline;">Open →</a>
+      <button type="button" class="smpTrackerUnlink" data-trk-id="${t.id}" title="Unlink">×</button></span>`).join('');
+    chip.querySelectorAll('.smpTrackerUnlink').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        linkedTrackerIds=linkedTrackerIds.filter(id=>id!==btn.dataset.trkId);
+        updateTrackerChip();
+      });
+    });
+    chip.querySelectorAll('.smpTrackerOpen').forEach(a=>{
+      a.addEventListener('click',e=>{
+        e.preventDefault();
+        const t=allTrackerItems.find(x=>x.id===a.dataset.trkId);
+        if(t){ closeDrawer(); switchTab('tracker'); openPtDrawer(t); }
+      });
     });
   }
 
@@ -1715,7 +1755,7 @@
     const q=$('smpTrackerSearch').value.trim().toLowerCase();
     const box=$('smpTrackerResults');
     if(!q){ box.classList.remove('open'); return; }
-    const hits=allTrackerItems.filter(t=>(t.product_title||'').toLowerCase().includes(q)).slice(0,15);
+    const hits=allTrackerItems.filter(t=>!linkedTrackerIds.includes(t.id) && (t.product_title||'').toLowerCase().includes(q)).slice(0,15);
     box.innerHTML = hits.length
       ? hits.map(t=>`<div class="smp-prod-hit" data-trk-id="${t.id}">
           <span class="smp-prod-hit-title">${esc(t.product_title)}</span>
@@ -1725,7 +1765,7 @@
     box.classList.add('open');
     box.querySelectorAll('[data-trk-id]').forEach(row=>{
       row.addEventListener('click',()=>{
-        linkedTrackerId=row.dataset.trkId;
+        if(!linkedTrackerIds.includes(row.dataset.trkId)) linkedTrackerIds=[...linkedTrackerIds, row.dataset.trkId];
         $('smpTrackerSearch').value='';
         box.classList.remove('open');
         updateTrackerChip();
@@ -2154,7 +2194,7 @@
       currentUser=data.session.user;
     }
     try {
-      await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems()]);
+      await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems(), loadSampleTrackerLinks()]);
       populateLaunchFilter();
       populatePtFilters();
       renderKPIs();

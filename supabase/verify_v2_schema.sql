@@ -272,6 +272,16 @@ select
 select
   case
     when exists (
+      select 1 from information_schema.tables
+      where table_schema = 'public'
+        and table_name = 'product_sample_tracker_links'
+    ) then 'ok'
+    else 'MISSING — run 20260812000000_product_sample_tracker_links.sql'
+  end as product_sample_tracker_links;
+
+select
+  case
+    when exists (
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = 'launch_tasks'
         and column_name = 'launch_id' and is_nullable = 'YES'
