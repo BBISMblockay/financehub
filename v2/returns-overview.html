@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Returns & Exchanges</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .ro-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    .ro-chart-wrap { position:relative; width:100%; }
+    .ro-chart-wrap svg { display:block; width:100%; overflow:visible; }
+    .ro-gridline { stroke:var(--bcn-border); stroke-width:1; }
+    .ro-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
+    .ro-line-refund { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .ro-line-exchange { fill:none; stroke:var(--bcn-pos); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .ro-line-credit { fill:none; stroke:var(--bcn-warn); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .ro-legend { display:flex; gap:16px; font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-bottom:6px; }
+    .ro-legend span { display:inline-flex; align-items:center; gap:6px; }
+    .ro-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+    .ro-tbl { width:100%; border-collapse:collapse; }
+    .ro-tbl thead th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.1em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right;
+      white-space:nowrap;
+    }
+    .ro-tbl thead th:first-child { text-align:left; }
+    .ro-tbl tbody td {
+      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
+      padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right; white-space:nowrap;
+    }
+    .ro-tbl tbody td:first-child { text-align:left; font-family:var(--bcn-font); }
+    .ro-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+
+    .ro-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+    .ro-spinner {
+      display:inline-block; width:12px; height:12px; margin-right:7px; vertical-align:-2px;
+      border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
+      border-radius:50%; animation:ro-spin .7s linear infinite;
+    }
+    @keyframes ro-spin { to { transform:rotate(360deg); } }
+
+    .ro-window { display:flex; gap:4px; }
+    .ro-window .bcn-btn { padding:4px 12px; font-size:11px; }
+    .ro-window .bcn-btn.is-active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+
+    .ro-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Returns &amp; Exchanges</h1>
+        <div class="bcn-header-sub">Real dollar breakdown from Redo — refund vs. exchange vs. store credit. Exchange and store-credit amounts settle entirely inside Redo and never show up in Shopify's own refund total, which is the residual "Returns gap" noted in <code>docs/ops/bugs.md</code>. Synced live via webhook. See <a href="/v2/integrations.html">Integrations</a> to manage the connection.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <div class="ro-window" id="windowBtns">
+          <button class="bcn-btn bcn-btn--ghost" data-days="7">7d</button>
+          <button class="bcn-btn bcn-btn--ghost" data-days="14">14d</button>
+          <button class="bcn-btn bcn-btn--ghost is-active" data-days="30">30d</button>
+          <button class="bcn-btn bcn-btn--ghost" data-days="90">90d</button>
+        </div>
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Returns</div><div id="kpiCount" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kpiCountDelta">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Refund $</div><div id="kpiRefund" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Also in Shopify's refund total</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Exchange $</div><div id="kpiExchange" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Invisible to Shopify refunds</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Store Credit $</div><div id="kpiCredit" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Invisible to Shopify refunds</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Reconciliation Gap</div><div id="kpiGap" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Exchange + store credit</div></div>
+    </div>
+
+    <div class="ro-content">
+      <div class="bcn-card" style="margin-bottom:12px">
+        <div class="bcn-card-header"><h2>Daily refund vs. exchange vs. store credit</h2></div>
+        <div class="bcn-card-body">
+          <div class="ro-legend">
+            <span><i style="background:var(--bcn-accent)"></i>Refund</span>
+            <span><i style="background:var(--bcn-pos)"></i>Exchange</span>
+            <span><i style="background:var(--bcn-warn)"></i>Store credit</span>
+          </div>
+          <div class="ro-chart-wrap" id="chartWrap"><div class="ro-empty"><span class="ro-spinner"></span>Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="bcn-card" style="margin-bottom:12px">
+        <div class="bcn-card-header">
+          <h2>Top return reasons</h2>
+          <span class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3)">By item count, this window</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:auto">
+          <table class="ro-tbl">
+            <thead><tr><th>Reason</th><th>Items</th><th>Product value</th><th>Top SKU</th></tr></thead>
+            <tbody id="reasonBody"><tr><td class="ro-empty" colspan="4"><span class="ro-spinner"></span>Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Recent returns</h2>
+          <span id="statusText" class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:11.5px;color:var(--bcn-ink-3)">Loading…</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:auto">
+          <table class="ro-tbl">
+            <thead><tr>
+              <th>Order</th><th>Type</th><th>Status</th><th>Refund</th><th>Exchange</th><th>Store credit</th><th>Reason</th><th>Date</th>
+            </tr></thead>
+            <tbody id="returnsBody"><tr><td class="ro-empty" colspan="8"><span class="ro-spinner"></span>Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="ro-note" id="returnsNote"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  let _co = null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
+  const numFmt = v => Math.round(Number(v||0)).toLocaleString();
+  const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+
+  const el = id => document.getElementById(id);
+  function setStatus(t){ el('statusText').textContent = t; }
+
+  // ── Window state ───────────────────────────────────────────────
+  let WINDOW_DAYS = 30;
+  const sinceIso = () => new Date(Date.now() - (WINDOW_DAYS-1)*86400000).toISOString();
+
+  // ── Paged loader (PostgREST caps at 1000 rows silently) ────────
+  async function loadPaged(build){
+    const PAGE = 1000;
+    const out = [];
+    for (let from = 0;; from += PAGE){
+      const { data, error } = await build().range(from, from + PAGE - 1);
+      if (error) throw error;
+      out.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+    }
+    return out;
+  }
+
+  const loadReturns = () => loadPaged(() => scopeQ(
+    sb.from('redo_returns')
+      .select('id,redo_return_id,shopify_order_name,status,return_type,refund_amount,exchange_amount,store_credit_amount,redo_created_at,customer_email,customer_name')
+      .gte('redo_created_at', sinceIso())
+      .order('redo_created_at', { ascending:true })));
+
+  async function loadItems(returnIds){
+    if (!returnIds.length) return [];
+    return loadPaged(() => scopeQ(
+      sb.from('redo_return_items')
+        .select('return_id,sku,reason,reason_code,product_name,product_value')
+        .in('return_id', returnIds)));
+  }
+
+  // ── KPI band ─────────────────────────────────────────────────
+  function renderKpis(returns){
+    const sum = (arr,k) => arr.reduce((a,r)=>a+Number(r[k]||0),0);
+    const refund = sum(returns,'refund_amount');
+    const exchange = sum(returns,'exchange_amount');
+    const credit = sum(returns,'store_credit_amount');
+    el('kpiCount').textContent = numFmt(returns.length);
+    el('kpiCountDelta').textContent = `Last ${WINDOW_DAYS}d`;
+    el('kpiRefund').textContent = money(refund);
+    el('kpiExchange').textContent = money(exchange);
+    el('kpiCredit').textContent = money(credit);
+    el('kpiGap').textContent = money(exchange + credit);
+  }
+
+  // ── Chart: daily refund / exchange / store credit ──────────────
+  function renderChart(returns){
+    const byDay = new Map();
+    const day = d => { if (!byDay.has(d)) byDay.set(d, { day:d, refund:0, exchange:0, credit:0 }); return byDay.get(d); };
+    for (const r of returns){
+      const d = String(r.redo_created_at||'').slice(0,10);
+      if (!d) continue;
+      const agg = day(d);
+      agg.refund += Number(r.refund_amount||0);
+      agg.exchange += Number(r.exchange_amount||0);
+      agg.credit += Number(r.store_credit_amount||0);
+    }
+    const days = [...byDay.values()].sort((a,b)=>a.day<b.day?-1:1);
+    if (!days.length){ el('chartWrap').innerHTML = `<div class="ro-empty">No returns in this window yet.</div>`; return; }
+
+    const W = 900, H = 220, PAD_L = 54, PAD_R = 12, PAD_T = 10, PAD_B = 24;
+    const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+    const maxVal = Math.max(1, ...days.map(d=>Math.max(d.refund,d.exchange,d.credit)));
+    const x = i => PAD_L + (days.length===1 ? 0 : (i/(days.length-1))*innerW);
+    const y = v => PAD_T + innerH - (v/maxVal)*innerH;
+    const pathFor = key => days.map((d,i)=>`${i===0?'M':'L'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
+    const gridLines = [0,0.25,0.5,0.75,1].map(f => {
+      const yy = PAD_T + innerH*(1-f);
+      return `<line class="ro-gridline" x1="${PAD_L}" x2="${W-PAD_R}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" />
+              <text class="ro-axis-label" x="${PAD_L-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(maxVal*f)}</text>`;
+    }).join('');
+    const fmtDayLabel = iso => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
+      if (!m) return iso;
+      return new Date(Date.UTC(+m[1], +m[2]-1, +m[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
+    };
+    const labelStep = Math.ceil(days.length/6);
+    const xLabels = days.map((d,i)=> i%labelStep===0 || i===days.length-1
+      ? `<text class="ro-axis-label" x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${fmtDayLabel(d.day)}</text>` : '').join('');
+
+    el('chartWrap').innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
+      ${gridLines}
+      <path class="ro-line-refund" d="${pathFor('refund')}" />
+      <path class="ro-line-exchange" d="${pathFor('exchange')}" />
+      <path class="ro-line-credit" d="${pathFor('credit')}" />
+      ${xLabels}
+    </svg>`;
+  }
+
+  // ── Top return reasons table ────────────────────────────────────
+  function renderReasons(items){
+    const byReason = new Map();
+    for (const it of items){
+      const key = it.reason_code || it.reason || 'Unspecified';
+      if (!byReason.has(key)) byReason.set(key, { reason: it.reason || key, count:0, value:0, bySku:new Map() });
+      const agg = byReason.get(key);
+      agg.count += 1;
+      agg.value += Number(it.product_value||0);
+      if (it.sku){ agg.bySku.set(it.sku, (agg.bySku.get(it.sku)||0) + 1); }
+    }
+    const list = [...byReason.values()].sort((a,b)=>b.count-a.count).slice(0,15);
+    if (!list.length){
+      el('reasonBody').innerHTML = `<tr><td class="ro-empty" colspan="4">No return items in this window yet.</td></tr>`;
+      return;
+    }
+    el('reasonBody').innerHTML = list.map(r => {
+      const topSku = [...r.bySku.entries()].sort((a,b)=>b[1]-a[1])[0];
+      return `<tr>
+        <td>${esc(r.reason)}</td>
+        <td>${numFmt(r.count)}</td>
+        <td>${money(r.value)}</td>
+        <td>${topSku ? esc(topSku[0]) + ` (${topSku[1]})` : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Recent returns table ────────────────────────────────────────
+  const STATUS_PILL = {
+    complete: 'bcn-pill--pos', rejected: 'bcn-pill--neg', flagged: 'bcn-pill--neg',
+    open: 'bcn-pill--accent', in_transit: 'bcn-pill--accent', delivered: 'bcn-pill--accent',
+  };
+
+  function renderReturns(returns, itemsByReturn){
+    const sorted = [...returns].sort((a,b)=> (b.redo_created_at||'') < (a.redo_created_at||'') ? -1 : 1);
+    const shown = sorted.slice(0, 100);
+    if (!shown.length){
+      el('returnsBody').innerHTML = `<tr><td class="ro-empty" colspan="8">No returns in this window yet.</td></tr>`;
+    } else {
+      el('returnsBody').innerHTML = shown.map(r => {
+        const firstItem = (itemsByReturn.get(r.id) || [])[0];
+        const pillClass = STATUS_PILL[r.status] || '';
+        const dateStr = r.redo_created_at ? new Date(r.redo_created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+        return `<tr>
+          <td>${esc(r.shopify_order_name || '—')}</td>
+          <td>${esc(r.return_type || '—')}</td>
+          <td><span class="bcn-pill ${pillClass}">${esc(r.status || '—')}</span></td>
+          <td>${money(r.refund_amount)}</td>
+          <td>${money(r.exchange_amount)}</td>
+          <td>${money(r.store_credit_amount)}</td>
+          <td>${esc(firstItem?.reason || '—')}</td>
+          <td>${dateStr}</td>
+        </tr>`;
+      }).join('');
+    }
+    el('returnsNote').textContent = sorted.length > shown.length
+      ? `Showing most recent ${shown.length} of ${sorted.length} returns in this window.` : '';
+  }
+
+  // ── Load + render ────────────────────────────────────────────────
+  async function runLoad(){
+    setStatus('Loading…');
+    try {
+      const returns = await loadReturns();
+      const items = await loadItems(returns.map(r => r.id));
+      const itemsByReturn = new Map();
+      for (const it of items){
+        if (!itemsByReturn.has(it.return_id)) itemsByReturn.set(it.return_id, []);
+        itemsByReturn.get(it.return_id).push(it);
+      }
+      renderKpis(returns);
+      renderChart(returns);
+      renderReasons(items);
+      renderReturns(returns, itemsByReturn);
+      setStatus(`${returns.length} returns, ${items.length} items — last ${WINDOW_DAYS}d`);
+    } catch (err) {
+      console.error('[returns-overview] load failed', err);
+      setStatus('Failed to load: ' + err.message);
+    }
+  }
+
+  document.getElementById('btnRefresh').addEventListener('click', runLoad);
+  document.getElementById('windowBtns').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-days]');
+    if (!btn) return;
+    WINDOW_DAYS = Number(btn.dataset.days);
+    document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active', b === btn));
+    runLoad();
+  });
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/returns-overview',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Returns & Exchanges'],
+        supabaseClient:sb,
+      });
+    }
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>
