@@ -257,6 +257,7 @@ supabase/
     20260811000000_meta_ad_creative_performance.sql
     20260811120000_meta_funnel_events.sql
     20260812000000_meta_organic_insights.sql
+    20260812120000_redo_returns_integration.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

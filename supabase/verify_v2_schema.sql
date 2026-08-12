@@ -134,6 +134,12 @@ select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='instagram_media_insights') then 'ok' else 'MISSING' end as instagram_media_insights,
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='facebook_page_insights_daily') then 'ok' else 'MISSING' end as facebook_page_insights_daily;
 
+-- 7d. Redo returns integration (20260812120000_redo_returns_integration.sql)
+select
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_connections') then 'ok' else 'MISSING' end as redo_connections,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_returns') then 'ok' else 'MISSING' end as redo_returns,
+  case when exists (select 1 from pg_indexes where schemaname='public' and tablename='redo_returns' and indexname='idx_redo_returns_company_return') then 'ok' else 'MISSING' end as redo_returns_unique_idx;
+
 -- 7c. Inventory MV company index (20260717190000)
 select
   case when exists (select 1 from pg_indexes where schemaname='public' and tablename='inventory_on_hand_current_mv' and indexname='inventory_on_hand_current_mv_company_idx') then 'ok' else 'MISSING' end as inventory_mv_company_idx;
