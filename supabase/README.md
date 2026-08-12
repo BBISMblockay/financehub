@@ -259,6 +259,7 @@ supabase/
     20260812000000_meta_organic_insights.sql
     20260812000000_product_sample_tracker_links.sql
     20260812120000_redo_returns_integration.sql
+    20260812130000_redo_return_items.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

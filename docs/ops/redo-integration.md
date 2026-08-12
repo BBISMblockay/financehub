@@ -10,7 +10,15 @@ webhook POSTs the full return object to SILO on every status change. There
 is no GitHub Action or polling job — the `redo-webhook` edge function
 (`supabase/functions/redo-webhook/`) is the entire pipeline. Schema:
 `supabase/migrations/20260812120000_redo_returns_integration.sql`
-(`redo_connections`, `redo_returns`).
+(`redo_connections`, `redo_returns`) and
+`20260812130000_redo_return_items.sql` (`redo_return_items` — per-SKU
+detail: reason, reason code, grade/outcome, exchange item; plus
+`redo_returns.customer_email`/`customer_name`).
+
+UI: `/v2/integrations.html` → Redo returns card. "Connect Redo…" creates
+the `redo_connections` row and generates the webhook secret — no SQL
+needed for steps 2–3 below, the card has Copy buttons for both the URL and
+secret.
 
 ## 1. Deploy the edge function
 
@@ -63,17 +71,34 @@ limit 10;
 
 `redo_connections.last_event_at` / `last_event_type` on the connection row
 updates on every successful delivery — a stale `last_event_at` after a known
-return event means the webhook config or auth secret is wrong.
+return event means the webhook config or auth secret is wrong. Per-item
+detail lands in `redo_return_items` (one row per `redo_returns.id`, keyed by
+`redo_item_id`; `sku`/`reason`/`reason_code`/`grade`/`outcome` are the
+useful analytics columns).
+
+**Observed on first connect (2026-08-12, Baseballism)**: Redo delivered a
+burst of `updated` events for existing returns going back to 2026-08-01
+immediately after the webhook was created — not just new returns from that
+point forward. Whether that's a fixed lookback window, a one-time sync on
+webhook creation, or ongoing background reconciliation isn't confirmed; it
+means new connections may get some backfill for free, but a large or
+old accounts may still need the manual backfill below.
+
+## Historical backfill (not yet built)
+
+Beyond whatever Redo automatically resent on connect, a deliberate backfill
+of everything before that would need `GET /returns` (list) against
+`api.getredo.com` using the connection's `api_secret`, paginating through
+and POSTing each result through the same upsert logic `redo-webhook` uses
+(or a shared helper). Not built because the `List Returns` endpoint's query
+params (pagination cursor, date-range filters) weren't confirmed against
+Redo's docs while building this — only `GET /returns/{id}` and the webhook
+payload schemas were. Grab that endpoint's OpenAPI page from
+developers.redo.com before building the backfill script.
 
 ## Not yet built
 
-- No UI page — `redo_returns` is queryable via SQL/Supabase only for now.
-  A reconciliation view joining it against `sales_by_day` (or a
-  `/v2/integrations.html` connection card, matching the ad-platforms
-  pattern) is the natural next step once real webhook data is flowing.
-- No backfill script — a new connection only sees returns from the moment
-  the webhook is configured onward. A `GET /returns` history pull for
-  pre-existing returns isn't built (see "not confirmed" list below).
-- `GET /returns` (list) query params (pagination, date-range filters) are
-  unconfirmed — only the single `GET /returns/{id}` and the webhook payload
-  schemas were verified against Redo's docs while building this.
+- No reconciliation view — `redo_returns`/`redo_return_items` are queryable
+  via SQL/Supabase only. A view joining `redo_returns` against `sales_by_day`
+  to actually surface the BI variance fix is the natural next step.
+- No historical backfill script — see above.
