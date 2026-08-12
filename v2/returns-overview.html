@@ -25,16 +25,16 @@
     .ro-legend span { display:inline-flex; align-items:center; gap:6px; }
     .ro-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
 
-    .ro-tbl { width:100%; border-collapse:collapse; }
+    .ro-tbl { width:auto; border-collapse:collapse; }
     .ro-tbl thead th {
       font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.1em;
-      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right;
+      color:var(--bcn-ink-3); padding:7px 20px 7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right;
       white-space:nowrap;
     }
     .ro-tbl thead th:first-child { text-align:left; }
     .ro-tbl tbody td {
       font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
-      padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right; white-space:nowrap;
+      padding:7px 20px 7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right; white-space:nowrap;
     }
     .ro-tbl tbody td:first-child { text-align:left; font-family:var(--bcn-font); }
     .ro-tbl tbody tr:hover td { background:var(--bcn-sunken); }
@@ -207,6 +207,14 @@
   function renderChart(returns){
     const byDay = new Map();
     const day = d => { if (!byDay.has(d)) byDay.set(d, { day:d, refund:0, exchange:0, credit:0 }); return byDay.get(d); };
+
+    // Seed every day in the window first, including zero-return days --
+    // otherwise the line only connects days that had a return, which
+    // silently skips gaps and draws a misleadingly smooth trend across
+    // stretches of actual zero activity.
+    for (let i = 0; i < WINDOW_DAYS; i++) {
+      day(new Date(Date.now() - i*86400000).toISOString().slice(0,10));
+    }
     for (const r of returns){
       const d = String(r.redo_created_at||'').slice(0,10);
       if (!d) continue;
@@ -216,7 +224,7 @@
       agg.credit += Number(r.store_credit_amount||0);
     }
     const days = [...byDay.values()].sort((a,b)=>a.day<b.day?-1:1);
-    if (!days.length){ el('chartWrap').innerHTML = `<div class="ro-empty">No returns in this window yet.</div>`; return; }
+    if (!returns.length){ el('chartWrap').innerHTML = `<div class="ro-empty">No returns in this window yet.</div>`; return; }
 
     const W = 900, H = 220, PAD_L = 54, PAD_R = 12, PAD_T = 10, PAD_B = 24;
     const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
