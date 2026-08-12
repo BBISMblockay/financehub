@@ -1,5 +1,6 @@
 // redo-webhook -- PUBLIC (verify_jwt off): receives Redo's "Return event"
-// webhook and upserts the return's dollar breakdown into redo_returns.
+// webhook and upserts the return's dollar breakdown into redo_returns, plus
+// per-item detail (SKU, return reason, exchange item) into redo_return_items.
 // Redo authenticates outbound webhook calls with a subscriber-supplied
 // Bearer secret (not a Supabase JWT), so this function must stay public and
 // do its own auth against redo_connections.webhook_secret.
@@ -15,6 +16,14 @@
 // `return.totals` carries the amounts that matter for reconciliation --
 // refund/exchange/storeCredit/charge/shippingFee -- since Shopify's own
 // refund record only ever reflects the `refund` slice.
+//
+// `return.items[]` doesn't carry the returned product's name/variant title
+// (only sku/productId/variantId) -- those live on the sibling `order.items[]`
+// array, joined via items[].orderItem.id === order.items[].id. Items are
+// delete+reinsert per return on every event rather than upserted per item,
+// since Redo's item set for a return rarely changes after creation and this
+// keeps the table always exactly matching the latest event with no leftover
+// rows from a since-removed item.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -35,6 +44,11 @@ function reply(body: unknown, status = 200): Response {
 function moneyAmount(node: { amount?: { amount?: string } } | undefined): number {
   const raw = node?.amount?.amount;
   return raw ? Number(raw) || 0 : 0;
+}
+
+function personName(name: { given?: string; surname?: string } | undefined): string | null {
+  const full = [name?.given, name?.surname].filter(Boolean).join(' ').trim();
+  return full || null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -85,6 +99,8 @@ Deno.serve(async (req: Request) => {
       charge_amount: moneyAmount(ret.totals?.charge),
       shipping_fee_amount: moneyAmount(ret.totals?.shippingFee),
       currency,
+      customer_email: ret.source?.emailAddress ?? null,
+      customer_name: personName(ret.source?.name),
       last_event_type: event?.type ?? null,
       redo_created_at: ret.createdAt ?? null,
       redo_updated_at: ret.updatedAt ?? null,
@@ -92,10 +108,57 @@ Deno.serve(async (req: Request) => {
       updated_at: new Date().toISOString(),
     };
 
-    const { error: upsertErr } = await db
+    const { data: savedReturn, error: upsertErr } = await db
       .from('redo_returns')
-      .upsert(row, { onConflict: 'company_entity_id,redo_return_id' });
+      .upsert(row, { onConflict: 'company_entity_id,redo_return_id' })
+      .select('id')
+      .single();
     if (upsertErr) throw upsertErr;
+
+    const orderItemsById = new Map((event?.order?.items || []).map((oi: any) => [oi.id, oi]));
+    const items = (ret.items || []).map((it: any) => {
+      const orderItem = orderItemsById.get(it.orderItem?.id);
+      return {
+        company_entity_id: companyEntityId,
+        return_id: savedReturn.id,
+        redo_item_id: it.id,
+        sku: it.sku ?? orderItem?.variant?.sku ?? null,
+        upc: it.upc ?? null,
+        product_id: it.productId ?? orderItem?.product?.externalId ?? null,
+        variant_id: it.variantId ?? orderItem?.variant?.externalId ?? null,
+        product_name: orderItem?.product?.name ?? null,
+        variant_name: orderItem?.variant?.name ?? null,
+        quantity: it.quantity ?? null,
+        status: it.status ?? null,
+        reason: it.reason ?? null,
+        reason_code: it.reasonCode ?? null,
+        reasons: it.reasons ?? [],
+        reason_codes: it.reasonCodes ?? [],
+        customer_comment: it.customerComment ?? null,
+        grade: it.grade ?? null,
+        outcome: it.outcome ?? null,
+        green_return: !!it.greenReturn,
+        refund_amount: moneyAmount(it.refund),
+        refund_type: it.refund?.type ?? null,
+        product_value: moneyAmount(it.productValueNoTaxNoAdjustment),
+        is_exchange: !!it.exchangeItem,
+        exchange_product_name: it.exchangeItem?.product?.name ?? null,
+        exchange_variant_name: it.exchangeItem?.variant?.name ?? null,
+        exchange_quantity: it.exchangeItem?.quantity ?? null,
+        raw: it,
+      };
+    });
+
+    const { error: deleteItemsErr } = await db
+      .from('redo_return_items')
+      .delete()
+      .eq('return_id', savedReturn.id);
+    if (deleteItemsErr) throw deleteItemsErr;
+
+    if (items.length) {
+      const { error: itemsErr } = await db.from('redo_return_items').insert(items);
+      if (itemsErr) throw itemsErr;
+    }
 
     await db
       .from('redo_connections')
