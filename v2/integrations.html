@@ -422,6 +422,34 @@
             </tfoot>
           </table>
         </div>
+
+        <p class="int-section-label" style="margin-top:28px;">Redo returns</p>
+        <p class="int-onboarding-note">Webhook-driven ingestion of Redo return data (refund / exchange / store-credit amounts) for BI reconciliation — see <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/redo-integration.md">docs/ops/redo-integration.md</a>. Connect below, copy the webhook URL + secret into Redo's dashboard (Merchant Admin → Webhooks → Return event).</p>
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Webhook URL &amp; secret</th>
+                <th>Status</th>
+                <th>Last event</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="redo-connections-list">
+              <tr><td colspan="5"><div class="empty-state" id="redo-empty"><strong>Not connected</strong>Connect Redo below</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="int-add-row">
+                <td colspan="5">
+                  <div class="form-row" style="padding:10px 0;">
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-add-redo">Connect Redo…</button>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
     </main>
   </div>
@@ -482,6 +510,7 @@
 
       loadConnections();
       loadAdConnections();
+      loadRedoConnection();
 
       // Handle OAuth redirect-back (Shopify + ad platforms share the params;
       // ad-platform callbacks add &platform=)
@@ -1659,6 +1688,109 @@
       document.getElementById('meta-add-form').classList.remove('open');
       setStatus('✓ Meta connection saved — run Test, then enable sync.', 'pos', 8000);
       loadAdConnections();
+    });
+
+    // ══ Redo returns (webhook-driven, one connection per company) ═════════
+
+    function randomSecret() {
+      return crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+    }
+
+    function redoWebhookUrl() {
+      return `${FUNCTIONS_URL}/redo-webhook/${_co?.id || ''}`;
+    }
+
+    async function copyToClipboard(text, label) {
+      try {
+        await navigator.clipboard.writeText(text);
+        setStatus(`Copied ${label}`, 'pos', 3000);
+      } catch (err) {
+        setStatus(`Could not copy ${label} — select and copy manually`, 'neg', 5000);
+      }
+    }
+
+    async function loadRedoConnection() {
+      const { data, error } = await db
+        .from('redo_connections')
+        .select('id, display_name, is_active, webhook_secret, api_secret, last_event_at, last_event_type')
+        .maybeSingle();
+      if (error) { setStatus('Failed to load Redo connection: ' + error.message, 'neg'); return; }
+      renderRedoConnection(data || null);
+    }
+
+    function renderRedoConnection(row) {
+      const tbody = document.getElementById('redo-connections-list');
+      const addBtn = document.getElementById('btn-add-redo');
+      if (!row) {
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Connect Redo below</div></td></tr>';
+        addBtn.hidden = false;
+        return;
+      }
+      addBtn.hidden = true;
+      const webhookUrl = redoWebhookUrl();
+      const lastEvent = row.last_event_at
+        ? `${escHtml(row.last_event_type || 'event')} · ${new Date(row.last_event_at).toLocaleString()}`
+        : '<span class="bcn-pill">No events yet</span>';
+      tbody.innerHTML = `<tr>
+        <td><input class="bcn-field" style="min-width:140px;" value="${escAttr(row.display_name || '')}"
+          onchange="updateRedoConnection({ display_name: this.value })" /></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input class="bcn-field bcn-field--mono" style="min-width:320px;" value="${escAttr(webhookUrl)}" readonly onclick="this.select()" />
+            <button class="int-btn" onclick="copyToClipboard('${escAttr(webhookUrl)}', 'webhook URL')">Copy</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+            <input class="bcn-field bcn-field--mono" style="min-width:220px;" type="password" value="${escAttr(row.webhook_secret || '')}" readonly onclick="this.select()" />
+            <button class="int-btn" onclick="copyToClipboard('${escAttr(row.webhook_secret || '')}', 'webhook secret')">Copy</button>
+            <button class="int-btn" onclick="regenerateRedoSecret()">Regenerate</button>
+          </div>
+          <div style="margin-top:6px;">
+            <input class="bcn-field bcn-field--mono" style="min-width:320px;" type="password"
+              value="${escAttr(row.api_secret || '')}" placeholder="REDO_API_SECRET (optional)"
+              onchange="updateRedoConnection({ api_secret: this.value.trim() || null })" />
+          </div>
+        </td>
+        <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" ${row.is_active ? 'checked' : ''}
+            onchange="updateRedoConnection({ is_active: this.checked })" />
+          ${row.is_active ? 'Active' : 'Inactive'}</label></td>
+        <td>${lastEvent}</td>
+        <td><button class="int-btn int-btn--danger" onclick="removeRedoConnection()">Remove</button></td>
+      </tr>`;
+    }
+
+    async function updateRedoConnection(patch) {
+      const { error } = await db.from('redo_connections')
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq('company_entity_id', _co.id);
+      if (error) { setStatus('Update failed: ' + error.message, 'neg', 5000); return; }
+      loadRedoConnection();
+    }
+
+    async function regenerateRedoSecret() {
+      if (!confirm('Regenerate the webhook secret? You will need to paste the new value into Redo\'s dashboard, or events will stop being accepted until you do.')) return;
+      await updateRedoConnection({ webhook_secret: randomSecret() });
+      setStatus('✓ New secret generated — update it in Redo\'s dashboard now.', 'pos', 10000);
+    }
+
+    async function removeRedoConnection() {
+      if (!confirm('Remove the Redo connection? Events from Redo will be rejected until reconnected.')) return;
+      const { error } = await db.from('redo_connections').delete().eq('company_entity_id', _co.id);
+      if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return; }
+      loadRedoConnection();
+    }
+
+    document.getElementById('btn-add-redo').addEventListener('click', async () => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      const { error } = await db.from('redo_connections').insert({
+        company_entity_id: _co.id,
+        display_name: 'Redo returns',
+        webhook_secret: randomSecret(),
+        is_active: true,
+      });
+      if (error) { setStatus('Connect failed: ' + error.message, 'neg', 8000); return; }
+      setStatus('✓ Redo connected — copy the webhook URL + secret into Redo\'s dashboard.', 'pos', 10000);
+      loadRedoConnection();
     });
   </script>
 </body>
