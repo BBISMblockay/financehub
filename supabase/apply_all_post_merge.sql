@@ -8751,3 +8751,48 @@ create policy meta_ad_creatives_active_select
   on public.meta_ad_creatives for select
   to authenticated
   using (company_entity_id = public.active_company_id());
+
+-- ============================================================
+-- 20260812000000_product_sample_tracker_links.sql
+-- Many-to-many sample <-> pipeline item links (a sample can now
+-- attach to more than one product_tracker row)
+-- ============================================================
+
+create table if not exists public.product_sample_tracker_links (
+  id                 uuid primary key default gen_random_uuid(),
+  company_entity_id  uuid,
+  sample_id          uuid not null references public.product_samples(id) on delete cascade,
+  tracker_id         uuid not null references public.product_tracker(id) on delete cascade,
+  created_by         uuid references public.profiles(id),
+  created_at         timestamptz not null default now(),
+  unique (sample_id, tracker_id)
+);
+
+create index if not exists product_sample_tracker_links_sample_idx  on public.product_sample_tracker_links (sample_id);
+create index if not exists product_sample_tracker_links_tracker_idx on public.product_sample_tracker_links (tracker_id);
+
+insert into public.product_sample_tracker_links (company_entity_id, sample_id, tracker_id)
+select s.company_entity_id, s.id, s.tracker_id
+from public.product_samples s
+where s.tracker_id is not null
+on conflict (sample_id, tracker_id) do nothing;
+
+drop trigger if exists stamp_created_by on public.product_sample_tracker_links;
+create trigger stamp_created_by before insert on public.product_sample_tracker_links
+  for each row execute function public.stamp_created_by();
+
+select public.attach_stamp_company_entity_id_triggers();
+
+alter table public.product_sample_tracker_links enable row level security;
+revoke all on public.product_sample_tracker_links from anon;
+
+drop policy if exists product_sample_tracker_links_active_select on public.product_sample_tracker_links;
+create policy product_sample_tracker_links_active_select on public.product_sample_tracker_links
+  for select to authenticated
+  using (company_entity_id = public.active_company_id());
+
+drop policy if exists product_sample_tracker_links_active_write on public.product_sample_tracker_links;
+create policy product_sample_tracker_links_active_write on public.product_sample_tracker_links
+  for all to authenticated
+  using      (company_entity_id = public.active_company_id() and public.po_builder_can_write())
+  with check (company_entity_id = public.active_company_id() and public.po_builder_can_write());
