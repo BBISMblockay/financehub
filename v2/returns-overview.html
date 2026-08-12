@@ -12,18 +12,40 @@
   <style>
     .bcn-kpi-band { flex-wrap:wrap; }
 
-    .ro-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    /* No overflow/height constraint here -- .silo-main already scrolls the
+       whole page. Giving .ro-content its own overflow:auto turned it into a
+       second, height-bounded flex container, which forced each .bcn-card
+       (min-height:0 by design) to shrink below its content and scroll
+       internally instead of the page growing normally. */
+    .ro-content { flex:1; padding:12px 18px 24px; display:flex; flex-direction:column; gap:12px; }
 
     .ro-chart-wrap { position:relative; width:100%; }
     .ro-chart-wrap svg { display:block; width:100%; overflow:visible; }
     .ro-gridline { stroke:var(--bcn-border); stroke-width:1; }
     .ro-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
-    .ro-line-refund { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-    .ro-line-exchange { fill:none; stroke:var(--bcn-pos); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-    .ro-line-credit { fill:none; stroke:var(--bcn-warn); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .ro-bar-refund { fill:var(--bcn-accent); }
+    .ro-bar-exchange { fill:var(--bcn-pos); }
+    .ro-bar-credit { fill:var(--bcn-warn); }
+    .ro-bar-hit { fill:transparent; cursor:pointer; }
+    .ro-bar-col.is-hover .ro-bar-refund,
+    .ro-bar-col.is-hover .ro-bar-exchange,
+    .ro-bar-col.is-hover .ro-bar-credit { opacity:0.75; }
     .ro-legend { display:flex; gap:16px; font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-bottom:6px; }
     .ro-legend span { display:inline-flex; align-items:center; gap:6px; }
     .ro-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+    .ro-tooltip {
+      position:absolute; pointer-events:none; opacity:0; transition:opacity .1s;
+      background:var(--bcn-band); color:var(--bcn-band-ink); border-radius:8px;
+      padding:8px 10px; font-family:var(--bcn-mono); font-size:11px; line-height:1.6;
+      white-space:nowrap; z-index:5; transform:translate(-50%,-100%);
+      box-shadow:0 4px 12px rgba(0,0,0,.18);
+    }
+    .ro-tooltip.is-visible { opacity:1; }
+    .ro-tooltip .ro-tt-title { font-weight:700; margin-bottom:2px; }
+    .ro-tooltip .ro-tt-row { display:flex; align-items:center; gap:6px; }
+    .ro-tooltip .ro-tt-key { width:8px; height:8px; border-radius:2px; display:inline-block; flex-shrink:0; }
+    .ro-tooltip .ro-tt-val { margin-left:auto; font-weight:700; padding-left:10px; }
 
     .ro-tbl { width:auto; border-collapse:collapse; }
     .ro-tbl thead th {
@@ -38,6 +60,14 @@
     }
     .ro-tbl tbody td:first-child { text-align:left; font-family:var(--bcn-font); }
     .ro-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+
+    .ro-status-row { display:flex; flex-wrap:wrap; gap:8px; }
+    .ro-status-chip {
+      display:flex; align-items:center; gap:7px; padding:8px 12px;
+      border:1px solid var(--bcn-border); border-radius:8px; background:var(--bcn-surface);
+    }
+    .ro-status-chip .ro-status-count { font-family:var(--bcn-mono); font-weight:700; font-size:14px; color:var(--bcn-ink); }
+    .ro-status-chip .ro-status-label { font-size:11px; color:var(--bcn-ink-3); text-transform:capitalize; }
 
     .ro-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
     .ro-spinner {
@@ -86,19 +116,29 @@
     </div>
 
     <div class="ro-content">
-      <div class="bcn-card" style="margin-bottom:12px">
-        <div class="bcn-card-header"><h2>Daily refund vs. exchange vs. store credit</h2></div>
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2 id="chartTitle">Refund vs. exchange vs. store credit</h2></div>
         <div class="bcn-card-body">
           <div class="ro-legend">
             <span><i style="background:var(--bcn-accent)"></i>Refund</span>
             <span><i style="background:var(--bcn-pos)"></i>Exchange</span>
             <span><i style="background:var(--bcn-warn)"></i>Store credit</span>
           </div>
-          <div class="ro-chart-wrap" id="chartWrap"><div class="ro-empty"><span class="ro-spinner"></span>Loading…</div></div>
+          <div class="ro-chart-wrap" id="chartWrap">
+            <div class="ro-empty"><span class="ro-spinner"></span>Loading…</div>
+            <div class="ro-tooltip" id="chartTooltip"></div>
+          </div>
         </div>
       </div>
 
-      <div class="bcn-card" style="margin-bottom:12px">
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>By status</h2></div>
+        <div class="bcn-card-body">
+          <div class="ro-status-row" id="statusRow"><span class="ro-empty">Loading…</span></div>
+        </div>
+      </div>
+
+      <div class="bcn-card">
         <div class="bcn-card-header">
           <h2>Top return reasons</h2>
           <span class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3)">By item count, this window</span>
@@ -107,6 +147,19 @@
           <table class="ro-tbl">
             <thead><tr><th>Reason</th><th>Items</th><th>Product value</th><th>Top SKU</th></tr></thead>
             <tbody id="reasonBody"><tr><td class="ro-empty" colspan="4"><span class="ro-spinner"></span>Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Top returned SKUs</h2>
+          <span class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3)">By item count, this window</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:auto">
+          <table class="ro-tbl">
+            <thead><tr><th>SKU</th><th>Product</th><th>Items</th><th>Product value</th><th>Top reason</th></tr></thead>
+            <tbody id="skuBody"><tr><td class="ro-empty" colspan="5"><span class="ro-spinner"></span>Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -185,7 +238,7 @@
     if (!returnIds.length) return [];
     return loadPaged(() => scopeQ(
       sb.from('redo_return_items')
-        .select('return_id,sku,reason,reason_code,product_name,product_value')
+        .select('return_id,sku,product_name,reason,reason_code,product_value')
         .in('return_id', returnIds)));
   }
 
@@ -203,56 +256,169 @@
     el('kpiGap').textContent = money(exchange + credit);
   }
 
-  // ── Chart: daily refund / exchange / store credit ──────────────
-  function renderChart(returns){
-    const byDay = new Map();
-    const day = d => { if (!byDay.has(d)) byDay.set(d, { day:d, refund:0, exchange:0, credit:0 }); return byDay.get(d); };
+  // ── By status ────────────────────────────────────────────────
+  const STATUS_ORDER = ['open','pre_shipment','in_transit','delivered','needs_review','in_review','complete','rejected','flagged','deleted'];
+  function renderStatusBreakdown(returns){
+    const counts = new Map();
+    for (const r of returns){ const k = r.status || 'unknown'; counts.set(k, (counts.get(k)||0)+1); }
+    if (!counts.size){ el('statusRow').innerHTML = `<span class="ro-empty">No returns in this window yet.</span>`; return; }
+    const keys = [...counts.keys()].sort((a,b)=>{
+      const ia = STATUS_ORDER.indexOf(a), ib = STATUS_ORDER.indexOf(b);
+      return (ia<0?99:ia) - (ib<0?99:ib);
+    });
+    el('statusRow').innerHTML = keys.map(k => `
+      <div class="ro-status-chip">
+        <span class="ro-status-count">${numFmt(counts.get(k))}</span>
+        <span class="ro-status-label">${esc(k.replace(/_/g,' '))}</span>
+      </div>`).join('');
+  }
 
-    // Seed every day in the window first, including zero-return days --
-    // otherwise the line only connects days that had a return, which
-    // silently skips gaps and draws a misleadingly smooth trend across
-    // stretches of actual zero activity.
+  // ── Chart: refund / exchange / store credit, stacked bars ──────
+  // Sparse day-level return data reads badly as a line (zigzags between
+  // far-apart points, or a single outlier day dwarfs a flat line for
+  // everything else). Bars show each bucket's real magnitude and let zero
+  // days read as "no bar," and 30d/90d windows bucket by week so a handful
+  // of daily spikes don't crowd out 30-90 mostly-empty daily bars.
+  let chartBuckets = [];
+
+  function bucketKey(dateStr, mode){
+    if (mode === 'day') return dateStr;
+    const d = new Date(dateStr + 'T00:00:00Z');
+    const dow = (d.getUTCDay() + 6) % 7; // Monday = 0
+    d.setUTCDate(d.getUTCDate() - dow);
+    return d.toISOString().slice(0,10);
+  }
+
+  function renderChart(returns){
+    const mode = WINDOW_DAYS <= 14 ? 'day' : 'week';
+    el('chartTitle').textContent = mode === 'week'
+      ? 'Weekly refund vs. exchange vs. store credit'
+      : 'Daily refund vs. exchange vs. store credit';
+
+    const buckets = new Map();
+    const bucket = k => { if (!buckets.has(k)) buckets.set(k, { key:k, refund:0, exchange:0, credit:0 }); return buckets.get(k); };
     for (let i = 0; i < WINDOW_DAYS; i++) {
-      day(new Date(Date.now() - i*86400000).toISOString().slice(0,10));
+      const d = new Date(Date.now() - i*86400000).toISOString().slice(0,10);
+      bucket(bucketKey(d, mode));
     }
     for (const r of returns){
       const d = String(r.redo_created_at||'').slice(0,10);
       if (!d) continue;
-      const agg = day(d);
+      const agg = bucket(bucketKey(d, mode));
       agg.refund += Number(r.refund_amount||0);
       agg.exchange += Number(r.exchange_amount||0);
       agg.credit += Number(r.store_credit_amount||0);
     }
-    const days = [...byDay.values()].sort((a,b)=>a.day<b.day?-1:1);
+    const list = [...buckets.values()].sort((a,b)=>a.key<b.key?-1:1);
+    chartBuckets = list;
     if (!returns.length){ el('chartWrap').innerHTML = `<div class="ro-empty">No returns in this window yet.</div>`; return; }
 
-    const W = 900, H = 220, PAD_L = 54, PAD_R = 12, PAD_T = 10, PAD_B = 24;
+    const W = 900, H = 240, PAD_L = 54, PAD_R = 12, PAD_T = 10, PAD_B = 24;
     const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
-    const maxVal = Math.max(1, ...days.map(d=>Math.max(d.refund,d.exchange,d.credit)));
-    const x = i => PAD_L + (days.length===1 ? 0 : (i/(days.length-1))*innerW);
-    const y = v => PAD_T + innerH - (v/maxVal)*innerH;
-    const pathFor = key => days.map((d,i)=>`${i===0?'M':'L'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
+    const maxTotal = Math.max(1, ...list.map(d => d.refund + d.exchange + d.credit));
+    const n = list.length;
+    const slot = innerW / n;
+    const barW = Math.min(24, slot * 0.62);
+    const gap = 2; // surface gap between stacked segments
+    const xCenter = i => PAD_L + slot*i + slot/2;
+    const yFor = v => (v/maxTotal) * innerH;
+
     const gridLines = [0,0.25,0.5,0.75,1].map(f => {
       const yy = PAD_T + innerH*(1-f);
       return `<line class="ro-gridline" x1="${PAD_L}" x2="${W-PAD_R}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" />
-              <text class="ro-axis-label" x="${PAD_L-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(maxVal*f)}</text>`;
+              <text class="ro-axis-label" x="${PAD_L-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(maxTotal*f)}</text>`;
     }).join('');
-    const fmtDayLabel = iso => {
+
+    const fmtLabel = iso => {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
       if (!m) return iso;
       return new Date(Date.UTC(+m[1], +m[2]-1, +m[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
     };
-    const labelStep = Math.ceil(days.length/6);
-    const xLabels = days.map((d,i)=> i%labelStep===0 || i===days.length-1
-      ? `<text class="ro-axis-label" x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${fmtDayLabel(d.day)}</text>` : '').join('');
+    const labelStep = Math.ceil(n/8);
+    const xLabels = list.map((d,i)=> i%labelStep===0 || i===n-1
+      ? `<text class="ro-axis-label" x="${xCenter(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${fmtLabel(d.key)}</text>` : '').join('');
+
+    // Stack bottom-up: refund, exchange, credit. Each segment is its own
+    // rect with a 2px surface gap from its neighbor; the topmost non-zero
+    // segment gets rounded top corners, everything sits on a square baseline.
+    const bars = list.map((d,i) => {
+      const cx = xCenter(i);
+      const x0 = cx - barW/2;
+      const base = PAD_T + innerH;
+      const segments = [
+        { key:'refund', cls:'ro-bar-refund', v:d.refund },
+        { key:'exchange', cls:'ro-bar-exchange', v:d.exchange },
+        { key:'credit', cls:'ro-bar-credit', v:d.credit },
+      ].filter(s => s.v > 0);
+      let cursor = base;
+      const rects = segments.map((s, si) => {
+        const h = Math.max(0, yFor(s.v) - (si < segments.length - 1 ? gap : 0));
+        const y1 = cursor - h;
+        const isTop = si === segments.length - 1;
+        cursor = y1 - gap;
+        const rx = isTop ? Math.min(4, h) : 0;
+        return isTop
+          ? `<path class="${s.cls}" d="M${x0.toFixed(1)},${(y1+rx).toFixed(1)}
+              a${rx},${rx} 0 0 1 ${rx},-${rx} h${(barW-2*rx).toFixed(1)}
+              a${rx},${rx} 0 0 1 ${rx},${rx} v${(h-rx).toFixed(1)} h-${barW.toFixed(1)} Z" />`
+          : `<rect class="${s.cls}" x="${x0.toFixed(1)}" y="${y1.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" />`;
+      }).join('');
+      const hitH = innerH;
+      return `<g class="ro-bar-col" data-idx="${i}">
+        ${rects}
+        <rect class="ro-bar-hit" x="${(cx - slot/2).toFixed(1)}" y="${PAD_T}" width="${slot.toFixed(1)}" height="${hitH.toFixed(1)}"
+          data-idx="${i}" tabindex="0" />
+      </g>`;
+    }).join('');
 
     el('chartWrap').innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
       ${gridLines}
-      <path class="ro-line-refund" d="${pathFor('refund')}" />
-      <path class="ro-line-exchange" d="${pathFor('exchange')}" />
-      <path class="ro-line-credit" d="${pathFor('credit')}" />
+      ${bars}
       ${xLabels}
-    </svg>`;
+    </svg><div class="ro-tooltip" id="chartTooltip"></div>`;
+
+    wireChartTooltip(mode);
+  }
+
+  function wireChartTooltip(mode){
+    const wrap = el('chartWrap');
+    const tooltip = el('chartTooltip');
+    const svg = wrap.querySelector('svg');
+    if (!svg) return;
+
+    const fmtLabel = iso => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
+      if (!m) return iso;
+      return new Date(Date.UTC(+m[1], +m[2]-1, +m[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
+    };
+
+    function show(idx, hit){
+      const d = chartBuckets[idx];
+      if (!d) return;
+      const title = mode === 'week' ? `Week of ${fmtLabel(d.key)}` : fmtLabel(d.key);
+      tooltip.innerHTML = `
+        <div class="ro-tt-title">${esc(title)}</div>
+        <div class="ro-tt-row"><span class="ro-tt-key" style="background:var(--bcn-accent)"></span>Refund<span class="ro-tt-val">${money(d.refund)}</span></div>
+        <div class="ro-tt-row"><span class="ro-tt-key" style="background:var(--bcn-pos)"></span>Exchange<span class="ro-tt-val">${money(d.exchange)}</span></div>
+        <div class="ro-tt-row"><span class="ro-tt-key" style="background:var(--bcn-warn)"></span>Store credit<span class="ro-tt-val">${money(d.credit)}</span></div>`;
+      const wrapRect = wrap.getBoundingClientRect();
+      const hitRect = hit.getBoundingClientRect();
+      tooltip.style.left = (hitRect.left - wrapRect.left + hitRect.width/2) + 'px';
+      tooltip.style.top = (hitRect.top - wrapRect.top) + 'px';
+      tooltip.classList.add('is-visible');
+      wrap.querySelectorAll('.ro-bar-col').forEach(g => g.classList.toggle('is-hover', Number(g.dataset.idx) === idx));
+    }
+    function hideTooltip(){
+      tooltip.classList.remove('is-visible');
+      wrap.querySelectorAll('.ro-bar-col').forEach(g => g.classList.remove('is-hover'));
+    }
+
+    wrap.querySelectorAll('.ro-bar-hit').forEach(hit => {
+      hit.addEventListener('pointerenter', () => show(Number(hit.dataset.idx), hit));
+      hit.addEventListener('focus', () => show(Number(hit.dataset.idx), hit));
+      hit.addEventListener('pointerleave', hideTooltip);
+      hit.addEventListener('blur', hideTooltip);
+    });
   }
 
   // ── Top return reasons table ────────────────────────────────────
@@ -278,6 +444,35 @@
         <td>${numFmt(r.count)}</td>
         <td>${money(r.value)}</td>
         <td>${topSku ? esc(topSku[0]) + ` (${topSku[1]})` : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Top returned SKUs table ──────────────────────────────────────
+  function renderTopSkus(items){
+    const bySku = new Map();
+    for (const it of items){
+      if (!it.sku) continue;
+      if (!bySku.has(it.sku)) bySku.set(it.sku, { sku: it.sku, product: it.product_name, count:0, value:0, byReason:new Map() });
+      const agg = bySku.get(it.sku);
+      agg.count += 1;
+      agg.value += Number(it.product_value||0);
+      const reasonKey = it.reason || 'Unspecified';
+      agg.byReason.set(reasonKey, (agg.byReason.get(reasonKey)||0) + 1);
+    }
+    const list = [...bySku.values()].sort((a,b)=>b.count-a.count).slice(0,15);
+    if (!list.length){
+      el('skuBody').innerHTML = `<tr><td class="ro-empty" colspan="5">No return items in this window yet.</td></tr>`;
+      return;
+    }
+    el('skuBody').innerHTML = list.map(s => {
+      const topReason = [...s.byReason.entries()].sort((a,b)=>b[1]-a[1])[0];
+      return `<tr>
+        <td>${esc(s.sku)}</td>
+        <td>${esc(s.product || '—')}</td>
+        <td>${numFmt(s.count)}</td>
+        <td>${money(s.value)}</td>
+        <td>${topReason ? esc(topReason[0]) : '—'}</td>
       </tr>`;
     }).join('');
   }
@@ -326,8 +521,10 @@
         itemsByReturn.get(it.return_id).push(it);
       }
       renderKpis(returns);
+      renderStatusBreakdown(returns);
       renderChart(returns);
       renderReasons(items);
+      renderTopSkus(items);
       renderReturns(returns, itemsByReturn);
       setStatus(`${returns.length} returns, ${items.length} items — last ${WINDOW_DAYS}d`);
     } catch (err) {
