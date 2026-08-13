@@ -73,7 +73,11 @@
     { id: 'reports/product-types', section: 'Reports', label: 'Product Type Performance', href: '/v2/bi-product-types.html', profiles: ['grandfathered'] },
     { id: 'reports/product-search', section: 'Reports', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-report', section: 'Reports', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
-    { id: 'reports/returns-overview', section: 'Reports', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
+    // Hidden from nav for now -- redo_returns only covers a small, recent
+    // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
+    // and there's no historical backfill yet). Page itself still works at
+    // /v2/returns-overview.html; re-add this row once that's sorted out.
+    // { id: 'reports/returns-overview', section: 'Reports', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
 
 
     { id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
