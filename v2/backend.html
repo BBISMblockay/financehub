@@ -542,6 +542,13 @@
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <div class="md:col-span-8">
+            <label class="section-title">Ask SILO access</label>
+            <div id="dlgSiloStatus" class="text-sm mt-1 muted2">—</div>
+          </div>
+          <div class="md:col-span-4"><button id="dlgSiloToggleBtn" class="btn w-full" disabled>—</button></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           <div class="md:col-span-8 text-xs muted2">Saved via RPC <span class="mono">admin_update_profile</span>.</div>
           <div class="md:col-span-4 flex gap-2"><button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button><button id="dlgDisableBtn" class="btn btn-danger flex-1">Disable</button></div>
         </div>
@@ -948,9 +955,74 @@
       el("dlgNotes").value = u.notes || "";
 
       setText("dlgMsg", "—");
+      refreshSiloAccess(u.id);
 
       if (typeof userDialog.showModal === "function") userDialog.showModal();
       else userDialog.setAttribute("open", "true");
+    }
+
+    // ====== Ask SILO access grant (silo_chat_managers) ======
+    // Decoupled from profiles.role on purpose: promoting someone to
+    // "executive" also unlocks review-template building and whole-company
+    // roster visibility, which is more than "can teach Ask SILO." This is
+    // a narrow, dedicated grant instead -- see
+    // supabase/migrations/20260813230000_silo_chat_managers.sql. Direct
+    // table access, RLS-gated to is_exec_or_owner() (same as everywhere
+    // else this pattern is used) -- if the signed-in backend.html user
+    // isn't exec/owner, the insert/delete below is denied server-side
+    // regardless of having reached this page.
+    async function refreshSiloAccess(uid) {
+      const statusEl = el("dlgSiloStatus");
+      const btn = el("dlgSiloToggleBtn");
+      if (statusEl) statusEl.textContent = "Checking…";
+      if (btn) { btn.disabled = true; btn.textContent = "—"; }
+
+      const { data, error } = await supabaseClient
+        .from("silo_chat_managers")
+        .select("id, granted_at")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if (error) {
+        if (statusEl) statusEl.textContent = `Couldn't check: ${error.message}`;
+        if (btn) { btn.textContent = "Grant Ask SILO access"; btn.disabled = false; btn.dataset.granted = "0"; btn.dataset.rowId = ""; }
+        return;
+      }
+
+      if (data) {
+        if (statusEl) statusEl.textContent = `Granted ${fmt.dt(data.granted_at)} — can teach/edit Ask SILO notes without being an executive.`;
+        if (btn) { btn.textContent = "Revoke Ask SILO access"; btn.className = "btn btn-danger w-full"; btn.disabled = false; btn.dataset.granted = "1"; btn.dataset.rowId = data.id; }
+      } else {
+        if (statusEl) statusEl.textContent = "Not granted — can still ask Ask SILO questions and read notes, just can't teach/edit them.";
+        if (btn) { btn.textContent = "Grant Ask SILO access"; btn.className = "btn w-full"; btn.disabled = false; btn.dataset.granted = "0"; btn.dataset.rowId = ""; }
+      }
+    }
+
+    async function toggleSiloAccess() {
+      if (!DLG_UID) return;
+      const btn = el("dlgSiloToggleBtn");
+      const msg = el("dlgMsg");
+      const granted = btn?.dataset.granted === "1";
+      if (btn) btn.disabled = true;
+
+      if (granted) {
+        const { error } = await supabaseClient.from("silo_chat_managers").delete().eq("id", btn.dataset.rowId);
+        if (error) {
+          if (msg) msg.textContent = `Revoke failed: ${error.message}`;
+          if (btn) btn.disabled = false;
+          return;
+        }
+        if (msg) msg.textContent = "Ask SILO access revoked.";
+      } else {
+        const { error } = await supabaseClient.from("silo_chat_managers").insert({ user_id: DLG_UID });
+        if (error) {
+          if (msg) msg.textContent = `Grant failed: ${error.message} (only owner/executive-tier profiles can grant this).`;
+          if (btn) btn.disabled = false;
+          return;
+        }
+        if (msg) msg.textContent = "Ask SILO access granted.";
+      }
+      await refreshSiloAccess(DLG_UID);
     }
 
     async function saveUserDialog(){
@@ -1185,6 +1257,7 @@
       // dialog actions
       el("dlgSaveBtn")?.addEventListener("click", saveUserDialog);
       el("dlgDisableBtn")?.addEventListener("click", disableUserDialog);
+      el("dlgSiloToggleBtn")?.addEventListener("click", toggleSiloAccess);
 
       // logout
       el("logoutBtn")?.addEventListener("click", async () => {
