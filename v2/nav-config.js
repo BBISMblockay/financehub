@@ -24,11 +24,22 @@
   // Nav hiding is UX only; the data itself is gated by department-aware RLS.
   const FINANCE_DEPTS = ['exec', 'finance'];
 
+  // profiles.role values that see exec-only links (e.g. Ask SILO during its
+  // soft launch). Same simplified profile-role check used client-side for
+  // silo_chat_notes write access (review-templates.html, silo-chat.html) --
+  // UX only, not a security boundary; membership owner_admin isn't checked
+  // here the way the real is_exec_or_owner() RLS gate checks it.
+  const EXEC_ROLES = ['owner', 'executive'];
+
   /**
    * profiles: which nav profiles include this link
    * departments: user departments that see this link (absent = everyone;
    *              a null/unresolved department shows everything, an unlisted
    *              one hides the link)
+   * roles: profiles.role values that see this link (absent = everyone;
+   *        a null/unresolved role shows everything, same fail-open
+   *        behavior as departments -- avoids hiding links before the
+   *        profile fetch lands)
    * sectionStandard: optional section label for standard profile
    * labelStandard: optional link label for standard profile
    */
@@ -73,9 +84,11 @@
     { id: 'reports/product-types', section: 'Reports', label: 'Product Type Performance', href: '/v2/bi-product-types.html', profiles: ['grandfathered'] },
     { id: 'reports/product-search', section: 'Reports', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-report', section: 'Reports', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
-    // Hidden from nav for now -- page still works directly at
-    // /v2/silo-chat.html, just not linked from the sidebar yet.
-    // { id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    // Soft launch: exec-only for now. Everyone can already use the page and
+    // read taught notes if they have the URL (nothing behind it needs
+    // restricting) -- this just controls who sees it in the sidebar first.
+    // Widen `roles` (or drop it) once ready for the whole team.
+    { roles: EXEC_ROLES, id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
     // and there's no historical backfill yet). Page itself still works at
@@ -92,11 +105,13 @@
    * @param {'grandfathered' | 'standard'} profile
    * @returns {{ section: string, items: typeof NAV_ITEMS }[]}
    */
-  function navSectionsForProfile(profile, department) {
+  function navSectionsForProfile(profile, department, role) {
     const dept = department ? String(department).toLowerCase() : null;
+    const userRole = role ? String(role).toLowerCase() : null;
     const visible = NAV_ITEMS.filter((item) =>
       item.profiles.includes(profile)
-      && (!item.departments || !dept || item.departments.includes(dept)));
+      && (!item.departments || !dept || item.departments.includes(dept))
+      && (!item.roles || !userRole || item.roles.includes(userRole)));
     const bySection = new Map();
 
     for (const item of visible) {
@@ -130,8 +145,8 @@
   /**
    * @param {SiloCompany | null | undefined} company
    */
-  function navSectionsForCompany(company, department) {
-    return navSectionsForProfile(resolveNavProfile(company), department);
+  function navSectionsForCompany(company, department, role) {
+    return navSectionsForProfile(resolveNavProfile(company), department, role);
   }
 
   global.SiloNav = {
