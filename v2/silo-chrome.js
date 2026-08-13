@@ -99,6 +99,42 @@
     }
   }
 
+  // Grant-based nav unlocks (nav-config.js item.grantTable) — e.g.
+  // silo_chat_managers, so someone granted Ask SILO access via
+  // backend.html sees the link without an exec/owner profiles.role. Same
+  // session-cache-then-resolve shape as department, but the first paint
+  // uses an EMPTY set (fails closed — roles already decided visibility,
+  // this can only add a "yes" once confirmed) instead of failing open.
+  const SS_GRANTS = 'silo:nav:grantIds';
+  function getCachedGrantIds() {
+    try {
+      const raw = sessionStorage.getItem(SS_GRANTS);
+      return raw ? new Set(JSON.parse(raw)) : null;
+    } catch {
+      return null;
+    }
+  }
+  async function resolveGrantIds(sb) {
+    const cached = getCachedGrantIds();
+    if (cached) return cached;
+    const grantItems = (Nav.NAV_ITEMS || []).filter((i) => i.grantTable);
+    if (!grantItems.length || !sb) return new Set();
+    try {
+      const sess = await sb.auth.getSession();
+      const uid = sess?.data?.session?.user?.id;
+      if (!uid) return new Set();
+      const ids = new Set();
+      for (const item of grantItems) {
+        const { data } = await sb.from(item.grantTable).select('id').eq('user_id', uid).maybeSingle();
+        if (data) ids.add(item.id);
+      }
+      try { sessionStorage.setItem(SS_GRANTS, JSON.stringify([...ids])); } catch {}
+      return ids;
+    } catch {
+      return new Set();
+    }
+  }
+
   // Sidebar user avatar — same session-cache-then-resolve pattern as
   // department above, so the first paint (initials) never blocks on a
   // network round trip and only re-renders once the real photo is known.
@@ -121,9 +157,9 @@
     }
   }
 
-  function renderNavSections(active, department, role) {
+  function renderNavSections(active, department, role, grantIds) {
     const company = getActiveCompany();
-    const NAV_SECTIONS = navSectionsForCompany(company, department ?? getCachedDepartment(), role);
+    const NAV_SECTIONS = navSectionsForCompany(company, department ?? getCachedDepartment(), role, grantIds ?? getCachedGrantIds());
     // Determine which section contains the active item
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
 
@@ -273,6 +309,17 @@
         if (!dept) return;
         const navEl = sidebar.querySelector('#siloSbNav');
         if (navEl) navEl.innerHTML = renderNavSections(opts.active, dept, opts.user && opts.user.role);
+      });
+    }
+
+    // Same deal for grant-based unlocks (e.g. Ask SILO access granted via
+    // backend.html without an exec/owner role) — first paint can't know
+    // about a grant yet, so re-render once resolveGrantIds confirms one.
+    if (!getCachedGrantIds() && opts.supabaseClient) {
+      resolveGrantIds(opts.supabaseClient).then((grantIds) => {
+        if (!grantIds || !grantIds.size) return;
+        const navEl = sidebar.querySelector('#siloSbNav');
+        if (navEl) navEl.innerHTML = renderNavSections(opts.active, getCachedDepartment(), opts.user && opts.user.role, grantIds);
       });
     }
 
