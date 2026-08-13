@@ -150,7 +150,7 @@
   }
 
   function renderMessage({ role, content, queries, isError }) {
-    el('emptyState').remove?.();
+    el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
     const avatar = role === 'user' ? (session?.user?.email?.[0]?.toUpperCase() || 'U') : 'S';
