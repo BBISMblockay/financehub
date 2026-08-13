@@ -9069,3 +9069,35 @@ create policy redo_return_items_active_select
   on public.redo_return_items for select
   to authenticated
   using (company_entity_id = public.active_company_id());
+
+-- 20260813180000_silo_chat_readonly_query.sql
+create or replace function public.chat_run_readonly_query(query text)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  result jsonb;
+  trimmed text := trim(query);
+begin
+  if trimmed !~* '^(select|with)\s' then
+    raise exception 'Only a single SELECT or WITH (read-only) statement is allowed';
+  end if;
+  if trimmed ~ ';' then
+    raise exception 'Statement must not contain a semicolon (single statement only)';
+  end if;
+
+  set local statement_timeout = '10s';
+
+  execute format(
+    'select coalesce(jsonb_agg(t), ''[]''::jsonb) from (select * from (%s) user_query limit 500) t',
+    trimmed
+  ) into result;
+
+  return result;
+end;
+$$;
+
+revoke all on function public.chat_run_readonly_query(text) from public, anon;
+grant execute on function public.chat_run_readonly_query(text) to authenticated;

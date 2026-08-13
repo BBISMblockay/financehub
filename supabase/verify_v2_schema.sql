@@ -145,6 +145,10 @@ select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_return_items') then 'ok' else 'MISSING' end as redo_return_items,
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='redo_returns' and column_name='customer_email') then 'ok' else 'MISSING' end as redo_returns_customer_columns;
 
+-- 7f. SILO chat readonly query RPC (20260813180000_silo_chat_readonly_query.sql)
+select
+  case when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'chat_run_readonly_query') then 'ok' else 'MISSING' end as chat_run_readonly_query;
+
 -- 7c. Inventory MV company index (20260717190000)
 select
   case when exists (select 1 from pg_indexes where schemaname='public' and tablename='inventory_on_hand_current_mv' and indexname='inventory_on_hand_current_mv_company_idx') then 'ok' else 'MISSING' end as inventory_mv_company_idx;
