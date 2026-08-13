@@ -88,6 +88,16 @@ jobs:
         run: npm install
 
       - name: Run Shopify sync orchestrator
+        # 2026-08-13: a stale-meta bug (fixed same day, see shopify-sync.mjs)
+        # made every incremental run re-fetch a ~3-week-old backlog instead
+        # of ~2 days for most connections, and the flagship store's backlog
+        # was big enough to OOM-crash the default heap outright. The fix
+        # stops the backlog from recurring, but the run that finally catches
+        # a connection back up still has to process that backlog once more
+        # first -- ubuntu-latest gives 7GB RAM, so 6GB of heap is a safe
+        # margin for that one-time catch-up without guessing the exact size.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: node scripts/shopify-sync.mjs
 
       - name: Refresh inventory mat view

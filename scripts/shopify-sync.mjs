@@ -117,7 +117,23 @@ async function syncConnection(connection) {
       });
       if (result.last_order_sync_at) {
         const meta = { ...(connection.meta || {}), last_order_sync_at: result.last_order_sync_at, last_sales_sync_at: result.last_sales_sync_at };
-        await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
+        const { error: metaErr } = await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
+        if (metaErr) throw new Error(`meta update failed: ${metaErr.message}`);
+        // Without this, connection.meta stays the stale pre-run snapshot for
+        // the rest of this function -- the draft_orders_sync block below
+        // does its own read-modify-write off connection.meta, so it would
+        // silently stomp the last_order_sync_at/last_sales_sync_at written
+        // above back to whatever they were before this run even started.
+        // That's exactly what happened in production: last_order_sync_at
+        // was pinned to 2026-07-22 for weeks (draft_orders_sync always ran
+        // after and always won) while sync_jobs.result showed it computing
+        // the correct, advancing date every single day -- the write was
+        // never failing, it was being overwritten a few lines later. Each
+        // day's incremental_sales then re-fetched the same ~3-week-old
+        // "touched since" backlog instead of the intended ~2 days, and that
+        // compounding backlog is what finally OOM-crashed the flagship
+        // store's sync on 2026-08-13.
+        connection.meta = meta;
       }
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
@@ -151,7 +167,8 @@ async function syncConnection(connection) {
       const result = await runDraftOrdersSync(supabase, connection, { batchId: BATCH_ID, daysBack: DAYS_BACK });
       if (result.last_draft_order_sync_at) {
         const meta = { ...(connection.meta || {}), last_draft_order_sync_at: result.last_draft_order_sync_at };
-        await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
+        const { error: metaErr } = await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
+        if (metaErr) throw new Error(`meta update failed: ${metaErr.message}`);
         connection.meta = meta;
       }
       await finishJob(jobId, 'success', result);
