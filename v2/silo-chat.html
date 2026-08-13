@@ -32,6 +32,17 @@
     .ac-msg--assistant .ac-bubble { background:var(--bcn-sunken); color:var(--bcn-ink); border-top-left-radius:3px; }
     .ac-msg--error .ac-bubble { background:color-mix(in oklab, var(--bcn-neg) 12%, var(--bcn-surface)); color:var(--bcn-neg); }
 
+    .ac-retry-note {
+      margin-top:8px; font-size:11.5px; color:var(--bcn-ink-3);
+      display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    }
+    .ac-retry-btn {
+      font-family:var(--bcn-mono); font-size:11px; padding:3px 10px; border-radius:6px;
+      border:1px solid var(--bcn-border); background:var(--bcn-surface); color:var(--bcn-ink-2); cursor:pointer;
+    }
+    .ac-retry-btn:hover { background:var(--bcn-sunken); }
+    .ac-retry-btn:disabled { opacity:.5; cursor:default; }
+
     /* Rendered markdown (assistant replies only -- user bubbles stay plain
        pre-wrap text). Sanitized HTML from marked + DOMPurify, see sendMessage. */
     .ac-bubble--md { white-space:normal; }
@@ -186,7 +197,7 @@
     return { cls: 'ac-bubble', html: esc(content) };
   }
 
-  function renderMessage({ role, content, queries, isError }) {
+  function renderMessage({ role, content, queries, isError, retryable }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -197,12 +208,22 @@
         queries.map(q => `<pre>${esc(q)}</pre>`).join('')
       }</details>`;
     }
+    // Errors get a short next-step note -- a retry button when the request
+    // is safe to just resend (transient timeout/network issues), otherwise
+    // a refresh hint (e.g. auth expired -- retrying won't fix that).
+    let retryHtml = '';
+    if (isError) {
+      retryHtml = retryable
+        ? `<div class="ac-retry-note">You can try again, or refresh the page if it keeps happening.<button type="button" class="ac-retry-btn">Try again</button></div>`
+        : `<div class="ac-retry-note">If this keeps happening, refresh the page.</div>`;
+    }
     const bubble = renderBubbleContent(content, role, isError);
     wrap.innerHTML = `
       <div class="ac-avatar">${esc(avatar)}</div>
       <div>
         <div class="${bubble.cls}">${bubble.html}</div>
         ${queriesHtml}
+        ${retryHtml}
       </div>`;
     el('log').appendChild(wrap);
     scrollToBottom();
@@ -223,16 +244,12 @@
     el('typingIndicator')?.remove();
   }
 
-  async function sendMessage(text) {
-    if (!text.trim()) return;
-    el('input').value = '';
-    el('input').style.height = 'auto';
+  // Posts the current `history` as-is and renders the reply. Split out from
+  // sendMessage so a failed request can be retried (via the error bubble's
+  // "Try again" button) without re-pushing/re-rendering the user's message.
+  async function askSilo() {
     el('btnSend').disabled = true;
-
-    history.push({ role: 'user', content: text });
-    renderMessage({ role: 'user', content: text });
     renderTyping();
-
     try {
       const res = await fetch(`${FUNCTIONS_URL}/silo-chat`, {
         method: 'POST',
@@ -245,18 +262,27 @@
       const data = await res.json();
       removeTyping();
       if (!res.ok || data.error) {
-        renderMessage({ role: 'assistant', content: data.error || 'Something went wrong.', isError: true });
+        renderMessage({ role: 'assistant', content: data.error || 'Something went wrong.', isError: true, retryable: data.retryable });
         return;
       }
       history.push({ role: 'assistant', content: data.answer });
       renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run });
     } catch (err) {
       removeTyping();
-      renderMessage({ role: 'assistant', content: 'Request failed: ' + err.message, isError: true });
+      renderMessage({ role: 'assistant', content: 'Request failed: ' + err.message, isError: true, retryable: true });
     } finally {
       el('btnSend').disabled = false;
       el('input').focus();
     }
+  }
+
+  async function sendMessage(text) {
+    if (!text.trim()) return;
+    el('input').value = '';
+    el('input').style.height = 'auto';
+    history.push({ role: 'user', content: text });
+    renderMessage({ role: 'user', content: text });
+    await askSilo();
   }
 
   el('btnSend').addEventListener('click', () => sendMessage(el('input').value));
@@ -271,8 +297,10 @@
     this.style.height = Math.min(120, this.scrollHeight) + 'px';
   });
   el('log').addEventListener('click', (e) => {
-    const btn = e.target.closest('.ac-suggestion');
-    if (btn) sendMessage(btn.dataset.q);
+    const suggestion = e.target.closest('.ac-suggestion');
+    if (suggestion) { sendMessage(suggestion.dataset.q); return; }
+    const retry = e.target.closest('.ac-retry-btn');
+    if (retry) { retry.disabled = true; askSilo(); }
   });
   el('btnNewChat').addEventListener('click', () => {
     history = [];
