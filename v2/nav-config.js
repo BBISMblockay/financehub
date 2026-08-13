@@ -40,6 +40,15 @@
    *        a null/unresolved role shows everything, same fail-open
    *        behavior as departments -- avoids hiding links before the
    *        profile fetch lands)
+   * grantTable: name of a table where a caller-visible row
+   *             (select ... where user_id = auth.uid()) also unlocks this
+   *             link even if `roles` doesn't match -- e.g. silo_chat_managers,
+   *             so someone granted Ask SILO access via backend.html sees the
+   *             link without needing an exec/owner profiles.role. Resolved
+   *             async (silo-chrome.js) since it needs a DB round trip, same
+   *             timing as departments; unlike departments this fails CLOSED
+   *             (no extra visibility) if the check errors or hasn't run yet
+   *             -- `roles` already decided "no" and this can only add a "yes".
    * sectionStandard: optional section label for standard profile
    * labelStandard: optional link label for standard profile
    */
@@ -88,7 +97,7 @@
     // read taught notes if they have the URL (nothing behind it needs
     // restricting) -- this just controls who sees it in the sidebar first.
     // Widen `roles` (or drop it) once ready for the whole team.
-    { roles: EXEC_ROLES, id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
     // and there's no historical backfill yet). Page itself still works at
@@ -105,13 +114,14 @@
    * @param {'grandfathered' | 'standard'} profile
    * @returns {{ section: string, items: typeof NAV_ITEMS }[]}
    */
-  function navSectionsForProfile(profile, department, role) {
+  function navSectionsForProfile(profile, department, role, grantIds) {
     const dept = department ? String(department).toLowerCase() : null;
     const userRole = role ? String(role).toLowerCase() : null;
     const visible = NAV_ITEMS.filter((item) =>
       item.profiles.includes(profile)
       && (!item.departments || !dept || item.departments.includes(dept))
-      && (!item.roles || !userRole || item.roles.includes(userRole)));
+      && (!item.roles || !userRole || item.roles.includes(userRole)
+          || (grantIds && grantIds.has && grantIds.has(item.id))));
     const bySection = new Map();
 
     for (const item of visible) {
@@ -145,8 +155,8 @@
   /**
    * @param {SiloCompany | null | undefined} company
    */
-  function navSectionsForCompany(company, department, role) {
-    return navSectionsForProfile(resolveNavProfile(company), department, role);
+  function navSectionsForCompany(company, department, role, grantIds) {
+    return navSectionsForProfile(resolveNavProfile(company), department, role, grantIds);
   }
 
   global.SiloNav = {
