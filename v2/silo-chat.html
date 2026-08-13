@@ -129,8 +129,13 @@
       color:var(--bcn-ink-3); font-size:16px; line-height:1; padding:4px;
     }
     .ac-notes-close:hover { color:var(--bcn-ink); }
-    .ac-notes-body { padding:16px 18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
-    .ac-notes-list { display:flex; flex-direction:column; gap:8px; }
+    .ac-notes-body { padding:16px 18px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; }
+    .ac-notes-list { display:flex; flex-direction:column; gap:16px; }
+    .ac-notes-section { display:flex; flex-direction:column; gap:8px; }
+    .ac-notes-section-title {
+      font-family:var(--bcn-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
+      color:var(--bcn-ink-3); margin:0;
+    }
     .ac-notes-empty { color:var(--bcn-ink-3); font-size:12.5px; text-align:center; padding:12px 0; }
     .ac-note-item {
       display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
@@ -143,10 +148,15 @@
       font-size:13px; padding:2px 6px; border-radius:4px;
     }
     .ac-note-delete:hover { background:color-mix(in oklab, var(--bcn-neg) 12%, transparent); color:var(--bcn-neg); }
-    .ac-notes-add { display:flex; gap:8px; padding-top:8px; border-top:1px solid var(--bcn-border); }
+    .ac-notes-add { display:flex; flex-direction:column; gap:8px; padding-top:8px; border-top:1px solid var(--bcn-border); }
     .ac-notes-add textarea {
-      flex:1; resize:none; border:1px solid var(--bcn-border); border-radius:8px; padding:8px 10px;
+      resize:none; border:1px solid var(--bcn-border); border-radius:8px; padding:8px 10px;
       font-family:var(--bcn-font); font-size:13px; line-height:1.4; min-height:40px;
+    }
+    .ac-notes-add-actions { display:flex; gap:8px; justify-content:flex-end; align-items:center; }
+    .ac-notes-add-actions select {
+      font-family:var(--bcn-font); font-size:12.5px; border:1px solid var(--bcn-border); border-radius:6px;
+      padding:6px 8px; background:var(--bcn-surface); color:var(--bcn-ink);
     }
     .ac-notes-readonly-hint { font-size:11.5px; color:var(--bcn-ink-3); text-align:center; }
   </style>
@@ -381,7 +391,7 @@
     list.innerHTML = `<div class="ac-notes-empty">Loading…</div>`;
     const { data, error } = await sb
       .from('silo_chat_notes_v')
-      .select('id, note, created_at, created_by_name')
+      .select('id, note, category, created_at, created_by_name')
       .order('created_at', { ascending: false });
     if (error) {
       list.innerHTML = `<div class="ac-notes-empty">Couldn't load notes: ${esc(error.message)}</div>`;
@@ -390,23 +400,47 @@
     renderNotes(data || []);
   }
 
+  function noteItemHtml(n) {
+    return `
+      <div class="ac-note-item" data-id="${esc(n.id)}">
+        <div>
+          <div class="ac-note-item-text">${esc(n.note)}</div>
+          <div class="ac-note-item-meta">${esc(n.created_by_name || 'Unknown')} · ${new Date(n.created_at).toLocaleDateString()}</div>
+        </div>
+        ${canManageNotes ? `<button class="ac-note-delete" type="button" title="Remove">✕</button>` : ''}
+      </div>`;
+  }
+
+  function notesSectionHtml(title, items, emptyHint) {
+    return `
+      <div class="ac-notes-section">
+        <h4 class="ac-notes-section-title">${esc(title)}</h4>
+        ${items.length ? items.map(noteItemHtml).join('') : `<div class="ac-notes-empty">${esc(emptyHint)}</div>`}
+      </div>`;
+  }
+
+  // Brand identity (tagline, voice, positioning -- foundational, reads as
+  // one cohesive description) is kept visually separate from ad hoc
+  // corrections like "Pin of Month is a one-time drop" -- same split the
+  // edge function uses when assembling the system prompt.
   function renderNotes(notes) {
-    const list = el('notesList');
-    list.innerHTML = notes.length
-      ? notes.map(n => `
-        <div class="ac-note-item" data-id="${esc(n.id)}">
-          <div>
-            <div class="ac-note-item-text">${esc(n.note)}</div>
-            <div class="ac-note-item-meta">${esc(n.created_by_name || 'Unknown')} · ${new Date(n.created_at).toLocaleDateString()}</div>
-          </div>
-          ${canManageNotes ? `<button class="ac-note-delete" type="button" title="Remove">✕</button>` : ''}
-        </div>`).join('')
-      : `<div class="ac-notes-empty">Nothing taught yet${canManageNotes ? ' — add one below' : ''}.</div>`;
+    const brand = notes.filter(n => n.category === 'brand');
+    const general = notes.filter(n => n.category !== 'brand');
+
+    el('notesList').innerHTML =
+      notesSectionHtml('Brand & voice', brand, canManageNotes ? 'No brand context taught yet — add one below.' : 'No brand context taught yet.') +
+      notesSectionHtml('Taught corrections', general, canManageNotes ? 'Nothing taught yet — add one below.' : 'Nothing taught yet.');
 
     el('notesAddArea').innerHTML = canManageNotes
       ? `<div class="ac-notes-add">
           <textarea id="newNoteText" rows="2" placeholder="Teach Ask SILO something it should always account for…"></textarea>
-          <button class="bcn-btn bcn-btn--primary" type="button" id="btnAddNote">Add</button>
+          <div class="ac-notes-add-actions">
+            <select id="newNoteCategory">
+              <option value="general">General correction</option>
+              <option value="brand">Brand & voice</option>
+            </select>
+            <button class="bcn-btn bcn-btn--primary" type="button" id="btnAddNote">Add</button>
+          </div>
         </div>`
       : `<div class="ac-notes-readonly-hint">Only execs/owner can add or remove notes.</div>`;
   }
@@ -415,8 +449,9 @@
     const textEl = el('newNoteText');
     const note = textEl.value.trim();
     if (!note) return;
+    const category = el('newNoteCategory')?.value === 'brand' ? 'brand' : 'general';
     el('btnAddNote').disabled = true;
-    const { error } = await sb.from('silo_chat_notes').insert({ note });
+    const { error } = await sb.from('silo_chat_notes').insert({ note, category });
     if (error) {
       setStatus('Could not save note: ' + error.message, 'error', 4000);
       el('btnAddNote').disabled = false;

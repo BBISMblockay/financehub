@@ -5,8 +5,9 @@ questions about SILO's own data. Unlike the nightly Insights digest
 (`scripts/generate-insights.mjs`, a fixed set of SQL rules narrated by
 Claude), this is genuinely "ask anything" — Claude gets two tools:
 `run_sql`, which writes its own read-only Postgres queries per question,
-and `save_note`, which records a human correction/fact for future
-questions to weigh (see "Taught institutional knowledge" below).
+and `save_note`, which records taught knowledge — either a specific
+correction or foundational brand context — for future questions to weigh
+(see "Taught knowledge" below).
 
 ## How it's scoped safely
 
@@ -30,36 +31,49 @@ Postgres row-level security itself:
 Net effect: a user can never see through this chat anything they couldn't
 already see by hand-querying from the browser with their own login.
 
-## Taught institutional knowledge (silo_chat_notes)
+## Taught knowledge (silo_chat_notes)
 
-Some context no query can derive — e.g. a SKU that looks like a slow mover
-in raw sales data but is actually a one-time monthly collectible drop, not
-a restock signal. `silo_chat_notes` (`supabase/migrations/20260813210000_silo_chat_notes.sql`)
-is a small, shared, company-scoped table for exactly this: a human teaches
-the model a lasting correction ("remember that...", "note that...") and
+`silo_chat_notes` (`supabase/migrations/20260813210000_silo_chat_notes.sql`,
+extended by `20260813220000_silo_chat_notes_category.sql`) is a small,
+shared, company-scoped table for things no query can derive on its own. A
+human teaches the model something ("remember that...", "note that...") and
 the `save_note` tool records it. Every subsequent request re-fetches the
 full notes list and folds it into the system prompt (see
 `buildSystemPrompt` in `supabase/functions/silo-chat/index.ts`), so it's
 ambient context on every question, not something the model has to think to
 look up.
 
+Notes come in two categories, both stored in the same table, split by a
+`category` column:
+- **`brand`** — foundational, company-specific identity: tagline,
+  positioning, personality, target customer, retail footprint. Renders as
+  its own "Brand context" section in the system prompt, above the general
+  notes, and grounds the model's tone/voice. **Nothing about brand identity
+  is hardcoded in the edge function** — a company with zero `brand` notes
+  gets a neutral, professional Ask SILO with no invented personality. This
+  is what makes Ask SILO's "brand voice" genuinely multi-tenant instead of
+  baked into code for one company; see the migration for how Baseballism's
+  previously-hardcoded brand paragraph was seeded as real rows instead.
+- **`general`** (the default) — a specific fact/correction, e.g. "Pin of
+  the Month is a one-time monthly collectible drop, not a restock signal."
+  Renders in the "Taught institutional knowledge" section, attributed to
+  whoever taught it.
+
 Because this is *shared* memory — one person's note changes every future
 answer for the whole company, not just their own session — writing is
 narrower than reading:
 - **Read**: any active company member (`silo_chat_notes_active_select`
-  RLS policy), same as most SILO tables.
+  RLS policy), same as most SILO tables. The Notes panel in
+  `/v2/silo-chat.html` (header → "Notes") shows both categories to
+  everyone.
 - **Write** (insert or delete): `is_exec_or_owner()` only — the same gate
-  used for review-template writes and whole-company roster visibility.
-  Currently that's Blake (`owner_admin`); the other six users (`admin`
-  membership) can read taught notes but cannot add or remove them. If a
-  non-exec/owner user asks the model to remember something, the insert is
-  denied by RLS and the model is expected to say so plainly rather than
-  claim success.
-
-There's no UI for browsing/editing notes yet — query `silo_chat_notes_v`
-directly (via Ask SILO itself, or the SQL editor) to see what's been
-taught, and `delete from silo_chat_notes where id = '...'` to remove a bad
-one.
+  used for review-template writes and whole-company roster visibility. The
+  Notes panel's add/delete controls only render for exec/owner-tier users
+  (a client-side check for UX, mirroring the pattern in
+  `review-templates.html`); everyone else sees a read-only list. If a
+  non-exec/owner user asks the model itself to remember something, the
+  insert is denied by RLS and the model is expected to say so plainly
+  rather than claim success.
 
 ## Required: ANTHROPIC_API_KEY
 
@@ -92,7 +106,6 @@ Insights script's own default).
 - No conversation persistence — history lives in the browser tab only
   ("New chat" clears it, refresh loses it). Taught notes (above) persist
   across conversations; the message transcript itself does not.
-- No UI for browsing/managing taught notes — direct SQL only (see above).
 - No usage/cost guardrails beyond the 8-tool-round cap per question and
   prompt caching (`cache_control` on the system prompt, cuts repeat-round
   cost within a question) — worth continuing to watch Anthropic API spend
