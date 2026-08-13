@@ -127,6 +127,7 @@ Deno.serve(async (req: Request) => {
     }));
 
     const queriesRun: string[] = [];
+    let sawTimeout = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const data = await callAnthropic(messages);
@@ -151,15 +152,23 @@ Deno.serve(async (req: Request) => {
           resultContent = JSON.stringify(rows);
         } catch (err) {
           resultContent = `Error: ${String((err as Error)?.message || err)}`;
+          if (/statement timeout/i.test(resultContent)) sawTimeout = true;
         }
         toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: resultContent });
       }
       messages.push({ role: 'user', content: toolResults });
     }
 
-    return reply({ error: 'Too many tool-call rounds without a final answer', queries_run: queriesRun }, 500);
+    // Distinguish "the database was too slow to answer" (transient, usually
+    // a background sync job hogging it -- e.g. shopify-sync.yml) from "the
+    // model got stuck" (a genuinely hard/ambiguous question) so the UI can
+    // give a useful next step instead of a raw internal error string.
+    const message = sawTimeout
+      ? 'A couple of these queries timed out -- the database is likely busy with a background sync right now. Wait a minute and try again.'
+      : "Couldn't land on an answer after several attempts -- try rephrasing or narrowing the question (e.g. a shorter date range or a specific SKU/product type).";
+    return reply({ error: message, queries_run: queriesRun, retryable: true }, 500);
   } catch (err) {
     console.error('[silo-chat]', err);
-    return reply({ error: String((err as Error)?.message || err) }, 500);
+    return reply({ error: String((err as Error)?.message || err), retryable: true }, 500);
   }
 });
