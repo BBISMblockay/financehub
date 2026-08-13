@@ -32,6 +32,30 @@
     .ac-msg--assistant .ac-bubble { background:var(--bcn-sunken); color:var(--bcn-ink); border-top-left-radius:3px; }
     .ac-msg--error .ac-bubble { background:color-mix(in oklab, var(--bcn-neg) 12%, var(--bcn-surface)); color:var(--bcn-neg); }
 
+    /* Rendered markdown (assistant replies only -- user bubbles stay plain
+       pre-wrap text). Sanitized HTML from marked + DOMPurify, see sendMessage. */
+    .ac-bubble--md { white-space:normal; }
+    .ac-bubble--md > *:first-child { margin-top:0; }
+    .ac-bubble--md > *:last-child { margin-bottom:0; }
+    .ac-bubble--md p { margin:0 0 8px; }
+    .ac-bubble--md ul, .ac-bubble--md ol { margin:0 0 8px 20px; padding:0; }
+    .ac-bubble--md li { margin-bottom:2px; }
+    .ac-bubble--md strong { font-weight:700; }
+    .ac-bubble--md h1, .ac-bubble--md h2, .ac-bubble--md h3 { margin:4px 0 6px; font-size:14px; line-height:1.3; }
+    .ac-bubble--md a { color:var(--bcn-accent); }
+    .ac-bubble--md code {
+      font-family:var(--bcn-mono); font-size:12px; background:var(--bcn-surface);
+      padding:1px 5px; border-radius:4px;
+    }
+    .ac-bubble--md pre {
+      font-family:var(--bcn-mono); font-size:12px; background:var(--bcn-surface);
+      padding:8px 10px; border-radius:6px; overflow-x:auto; margin:0 0 8px;
+    }
+    .ac-bubble--md pre code { background:none; padding:0; }
+    .ac-bubble--md table { display:block; overflow-x:auto; border-collapse:collapse; margin:0 0 8px; font-size:12.5px; }
+    .ac-bubble--md th, .ac-bubble--md td { border:1px solid var(--bcn-border); padding:5px 8px; text-align:left; white-space:nowrap; }
+    .ac-bubble--md th { background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+
     .ac-queries {
       margin-top:8px; font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3);
     }
@@ -114,6 +138,8 @@
 
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script src="nav-config.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
@@ -149,6 +175,17 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  // Assistant replies are markdown from Claude (tables, lists, etc.) --
+  // render to HTML and sanitize before inserting. User text and error
+  // messages stay as plain escaped text (no reason to markdown-parse them).
+  function renderBubbleContent(content, role, isError) {
+    if (role === 'assistant' && !isError && window.marked && window.DOMPurify) {
+      const html = window.DOMPurify.sanitize(window.marked.parse(content ?? ''));
+      return { cls: 'ac-bubble ac-bubble--md', html };
+    }
+    return { cls: 'ac-bubble', html: esc(content) };
+  }
+
   function renderMessage({ role, content, queries, isError }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
@@ -160,10 +197,11 @@
         queries.map(q => `<pre>${esc(q)}</pre>`).join('')
       }</details>`;
     }
+    const bubble = renderBubbleContent(content, role, isError);
     wrap.innerHTML = `
       <div class="ac-avatar">${esc(avatar)}</div>
       <div>
-        <div class="ac-bubble">${esc(content)}</div>
+        <div class="${bubble.cls}">${bubble.html}</div>
         ${queriesHtml}
       </div>`;
     el('log').appendChild(wrap);

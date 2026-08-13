@@ -76,8 +76,15 @@ async function callAnthropic(messages: unknown[]) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1500,
-      system: SYSTEM_PROMPT,
+      max_tokens: 4096,
+      // Cached as one block -- render order is tools -> system -> messages,
+      // so this breakpoint covers TOOLS too. System prompt is long enough to
+      // clear Sonnet 5's 1024-token minimum cacheable prefix. Every question
+      // in a session reuses this same system+tools prefix, so after the
+      // first call in a conversation, subsequent calls (including each
+      // tool-result round-trip within one question) hit the cache instead
+      // of repaying full input-token price for it.
+      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
       tools: TOOLS,
       messages,
     }),
