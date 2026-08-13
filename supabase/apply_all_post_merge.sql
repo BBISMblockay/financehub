@@ -9101,3 +9101,59 @@ $$;
 
 revoke all on function public.chat_run_readonly_query(text) from public, anon;
 grant execute on function public.chat_run_readonly_query(text) to authenticated;
+
+-- 20260813210000_silo_chat_notes.sql
+create table if not exists public.silo_chat_notes (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid references public.entities(id),
+  note text not null check (length(trim(note)) > 0),
+  created_by uuid references public.profiles(id) default auth.uid(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists silo_chat_notes_company_created_idx
+  on public.silo_chat_notes (company_entity_id, created_at);
+
+alter table public.silo_chat_notes enable row level security;
+
+drop policy if exists silo_chat_notes_active_select on public.silo_chat_notes;
+create policy silo_chat_notes_active_select on public.silo_chat_notes
+  for select using (company_entity_id = active_company_id());
+
+drop policy if exists silo_chat_notes_exec_insert on public.silo_chat_notes;
+create policy silo_chat_notes_exec_insert on public.silo_chat_notes
+  for insert with check (
+    company_entity_id = active_company_id()
+    and is_exec_or_owner()
+  );
+
+drop policy if exists silo_chat_notes_exec_delete on public.silo_chat_notes;
+create policy silo_chat_notes_exec_delete on public.silo_chat_notes
+  for delete using (
+    company_entity_id = active_company_id()
+    and is_exec_or_owner()
+  );
+
+drop trigger if exists stamp_created_by on public.silo_chat_notes;
+create trigger stamp_created_by before insert on public.silo_chat_notes
+  for each row execute function public.stamp_created_by();
+
+select public.attach_stamp_company_entity_id_triggers();
+
+drop view if exists public.silo_chat_notes_v;
+create view public.silo_chat_notes_v
+with (security_invoker = true) as
+select
+  n.id,
+  n.note,
+  n.created_at,
+  n.created_by,
+  p.name as created_by_name,
+  n.company_entity_id
+from public.silo_chat_notes n
+left join public.profiles p on p.id = n.created_by;
+
+revoke all on public.silo_chat_notes from anon;
+revoke all on public.silo_chat_notes_v from anon;
+grant select, insert, delete on public.silo_chat_notes to authenticated;
+grant select on public.silo_chat_notes_v to authenticated;

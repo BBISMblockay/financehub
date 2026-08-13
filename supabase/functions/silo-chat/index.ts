@@ -1,13 +1,17 @@
 // silo-chat -- authenticated (verify_jwt on, default): a "wide open, ask
-// anything about our data" chat. Claude gets one tool -- run_sql, backed by
-// the chat_run_readonly_query(text) RPC from
-// 20260813180000_silo_chat_readonly_query.sql -- and this function forwards
-// the caller's own JWT to Supabase (never the service-role key) so every
-// query the model runs executes AS that user. Postgres RLS is the actual
-// data boundary: a user can never see through this chat anything they
-// couldn't already see by hand-querying from the browser, regardless of
-// what SQL the model writes. See CLAUDE.md's "Key tables" section for
-// the schema summary baked into SYSTEM_PROMPT below -- keep them in sync.
+// anything about our data" chat. Claude gets two tools -- run_sql (backed
+// by the chat_run_readonly_query(text) RPC from
+// 20260813180000_silo_chat_readonly_query.sql) and save_note (a plain
+// insert into silo_chat_notes, RLS-gated to exec/owner -- see
+// 20260813210000_silo_chat_notes.sql). This function forwards the caller's
+// own JWT to Supabase (never the service-role key) so every query/insert
+// the model runs executes AS that user. Postgres RLS is the actual data
+// boundary: a user can never see through this chat anything they couldn't
+// already see by hand-querying from the browser, regardless of what SQL
+// the model writes, and only exec/owner-tier users can teach it a new note
+// no matter what the model is told to do. See CLAUDE.md's "Key tables"
+// section for the schema summary baked into BASE_SYSTEM_PROMPT below --
+// keep them in sync.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -25,13 +29,13 @@ function reply(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: CORS });
 }
 
-const SYSTEM_PROMPT = `You are the SILO data assistant -- an internal chat for Baseballism's operations team to ask open-ended questions about their own business data (sales, inventory, purchasing, marketing, returns, planning) in plain English.
+const BASE_SYSTEM_PROMPT = `You are the SILO data assistant -- an internal chat for Baseballism's operations team to ask open-ended questions about their own business data (sales, inventory, purchasing, marketing, returns, planning) in plain English.
 
 About Baseballism: a baseball lifestyle apparel brand -- vintage/retro-inspired designs and MLB-licensed product (Ken Griffey Jr., Babe Ruth, Roberto Clemente, Cubs, Dodgers, and others) built for people who live baseball on and off the field, not just players. Tagline: "The Original Baseball Lifestyle Brand. Built For Ballplayers, Worn By All." Brand personality is nostalgic and rooted in the game's history, but playful and pun-driven rather than corporate -- collection names like "Bat Bros," "Money Ball," "Hardball Hunter," and "Doubles and Bubbles" are typical, and holidays get a baseball spin (Valentine's -> "For Love of the Game"). Comfortable crossing into pop culture (Sonic the Hedgehog, Fortnite collabs) without losing the baseball-first identity. Retail footprint includes a flagship barn store on the actual Field of Dreams Movie Site in Dyersville, Iowa (Universal-licensed) -- a defining piece of brand identity, not just another wholesale account. Merch calendar leans on family/community moments (Father's/Mother's Day, Back to School, Toddler/Youth lines) alongside signature promo events (Anniversary Sale, "6432 Day").
 
 Voice: warm and knowledgeable, like someone who's actually into baseball -- not generic-corporate. That said, the playful/pun energy above belongs to product and marketing copy, not to a data answer. When answering a data question here, keep the personality as tone, not as bits: lead with the number, stay direct, and only lean into the brand's playfulness if the user is literally asking for campaign name ideas or marketing copy.
 
-You have one tool, run_sql, which executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON. Row-level security automatically scopes every query to the asking user's own company -- you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary.
+You have two tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught institutional knowledge (see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do.
 
 Key tables and views you can query (a curated starting list, NOT the full set -- see the discovery rule below):
 - sales_by_day(day_date, location_tag, total_net_sales, total_refunds, total_gross_sales, total_quantity_sold, product_type, sku, ...) -- daily sales rollup by location/SKU
@@ -57,6 +61,9 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - live_sessions / live_sessions_v -- TikTok Live schedule and payouts
 - calendar_events_v -- org calendar
 - employees / reviews -- performance review roster (careful: private_notes and similar are RLS-gated to the author only, so you may get zero rows even with a correct query -- that's expected, not a bug)
+- silo_chat_notes / silo_chat_notes_v -- institutional knowledge the team has taught you (see "Taught institutional knowledge" section below, and the save_note tool)
+
+Taught institutional knowledge: some questions have context no query can derive -- e.g. a SKU that looks like a slow mover in raw sales data but is actually a one-time monthly collectible drop, not a restock signal. When a user explicitly teaches or corrects you something like this ("remember that...", "for future reference...", "that's actually because...", "note that..."), call the save_note tool to record it. Treat it as an explicit teaching moment, not every offhand comment -- don't save something the user didn't clearly intend as a lasting correction. save_note is restricted to exec/owner-tier users; if it fails for permission reasons, tell the user plainly (e.g. "only an exec/owner can teach me new facts right now -- flag it to them and I'll remember it") rather than silently dropping it or erroring cryptically. Any notes already taught appear in the "Taught institutional knowledge" section below -- weigh them as authoritative context over your own inference from raw numbers.
 
 Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- run a quick query against information_schema.tables and information_schema.columns for a name match (e.g. ilike '%keyword%') before concluding it doesn't exist. The list above is a cheat sheet for common questions, not the full schema, and there are tables/views not listed here that may answer the question. Only report something as unavailable after that search comes back empty.
 
@@ -85,9 +92,33 @@ const TOOLS = [
       required: ['query'],
     },
   },
+  {
+    name: 'save_note',
+    description: 'Record a piece of taught institutional knowledge (a human correction or lasting context, e.g. "Pin of Month is a one-time monthly drop, not a restock signal") so future questions account for it. Restricted to exec/owner-tier users -- the insert is RLS-gated, not something this tool bypasses.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string', description: 'The fact/correction to remember, written as a standalone sentence future questions can rely on.' },
+      },
+      required: ['note'],
+    },
+  },
 ];
 
-async function callAnthropic(messages: unknown[]) {
+// Notes are folded into the cached system-prompt block (fetched once per
+// request, same content across every tool-round of that request) rather
+// than looked up via run_sql, so the model always has them in view instead
+// of only when it happens to think to query silo_chat_notes.
+function buildSystemPrompt(notes: { note: string; created_by_name: string | null }[]) {
+  const notesBlock = notes.length
+    ? `\n\nTaught institutional knowledge (treat as authoritative context, weigh it over your own inference from raw numbers):\n${
+        notes.map((n) => `- ${n.note}${n.created_by_name ? ` (taught by ${n.created_by_name})` : ''}`).join('\n')
+      }`
+    : '';
+  return BASE_SYSTEM_PROMPT + notesBlock;
+}
+
+async function callAnthropic(messages: unknown[], systemPrompt: string) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -100,12 +131,12 @@ async function callAnthropic(messages: unknown[]) {
       max_tokens: 4096,
       // Cached as one block -- render order is tools -> system -> messages,
       // so this breakpoint covers TOOLS too. System prompt is long enough to
-      // clear Sonnet 5's 1024-token minimum cacheable prefix. Every question
-      // in a session reuses this same system+tools prefix, so after the
-      // first call in a conversation, subsequent calls (including each
-      // tool-result round-trip within one question) hit the cache instead
-      // of repaying full input-token price for it.
-      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      // clear Sonnet 5's 1024-token minimum cacheable prefix. Content is
+      // identical across every tool-round of a single request (notes are
+      // fetched once, up front), so every round after the first hits the
+      // cache instead of repaying full input-token price for it. Different
+      // requests only miss the cache when the notes list itself changed.
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       tools: TOOLS,
       messages,
     }),
@@ -147,11 +178,21 @@ Deno.serve(async (req: Request) => {
       content: m.content,
     }));
 
+    // Fetched once per request (not per tool-round) so the system prompt
+    // stays byte-identical across every round of this request -- required
+    // for the cache_control breakpoint below to actually hit on rounds 2+.
+    const { data: notes } = await callerClient
+      .from('silo_chat_notes_v')
+      .select('note, created_by_name')
+      .order('created_at', { ascending: true })
+      .limit(200);
+    const systemPrompt = buildSystemPrompt(notes ?? []);
+
     const queriesRun: string[] = [];
     let sawTimeout = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const data = await callAnthropic(messages);
+      const data = await callAnthropic(messages, systemPrompt);
       const blocks = data.content || [];
       const toolUses = blocks.filter((b: { type: string }) => b.type === 'tool_use');
 
@@ -164,16 +205,32 @@ Deno.serve(async (req: Request) => {
 
       const toolResults = [];
       for (const use of toolUses) {
-        const query = String(use.input?.query || '');
-        queriesRun.push(query);
         let resultContent: string;
-        try {
-          const { data: rows, error } = await callerClient.rpc('chat_run_readonly_query', { query });
-          if (error) throw new Error(error.message);
-          resultContent = JSON.stringify(rows);
-        } catch (err) {
-          resultContent = `Error: ${String((err as Error)?.message || err)}`;
-          if (/statement timeout/i.test(resultContent)) sawTimeout = true;
+        if (use.name === 'save_note') {
+          const note = String(use.input?.note || '').trim();
+          try {
+            if (!note) throw new Error('Empty note');
+            const { error } = await callerClient.from('silo_chat_notes').insert({ note });
+            if (error) throw new Error(error.message);
+            resultContent = 'Saved.';
+          } catch (err) {
+            // RLS silently returns zero rows rather than a permission error
+            // on insert denial, but PostgREST still surfaces a policy
+            // violation as an error here -- either way, tell the model so
+            // it can relay a clear message instead of claiming success.
+            resultContent = `Error: could not save note -- ${String((err as Error)?.message || err)}. This is likely a permissions issue (save_note is exec/owner-only).`;
+          }
+        } else {
+          const query = String(use.input?.query || '');
+          queriesRun.push(query);
+          try {
+            const { data: rows, error } = await callerClient.rpc('chat_run_readonly_query', { query });
+            if (error) throw new Error(error.message);
+            resultContent = JSON.stringify(rows);
+          } catch (err) {
+            resultContent = `Error: ${String((err as Error)?.message || err)}`;
+            if (/statement timeout/i.test(resultContent)) sawTimeout = true;
+          }
         }
         toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: resultContent });
       }

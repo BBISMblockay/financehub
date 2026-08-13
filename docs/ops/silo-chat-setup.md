@@ -3,8 +3,10 @@
 `/v2/silo-chat.html` is an open-ended chat for asking natural-language
 questions about SILO's own data. Unlike the nightly Insights digest
 (`scripts/generate-insights.mjs`, a fixed set of SQL rules narrated by
-Claude), this is genuinely "ask anything" — Claude gets one tool,
-`run_sql`, and writes its own read-only Postgres queries per question.
+Claude), this is genuinely "ask anything" — Claude gets two tools:
+`run_sql`, which writes its own read-only Postgres queries per question,
+and `save_note`, which records a human correction/fact for future
+questions to weigh (see "Taught institutional knowledge" below).
 
 ## How it's scoped safely
 
@@ -28,26 +30,57 @@ Postgres row-level security itself:
 Net effect: a user can never see through this chat anything they couldn't
 already see by hand-querying from the browser with their own login.
 
+## Taught institutional knowledge (silo_chat_notes)
+
+Some context no query can derive — e.g. a SKU that looks like a slow mover
+in raw sales data but is actually a one-time monthly collectible drop, not
+a restock signal. `silo_chat_notes` (`supabase/migrations/20260813210000_silo_chat_notes.sql`)
+is a small, shared, company-scoped table for exactly this: a human teaches
+the model a lasting correction ("remember that...", "note that...") and
+the `save_note` tool records it. Every subsequent request re-fetches the
+full notes list and folds it into the system prompt (see
+`buildSystemPrompt` in `supabase/functions/silo-chat/index.ts`), so it's
+ambient context on every question, not something the model has to think to
+look up.
+
+Because this is *shared* memory — one person's note changes every future
+answer for the whole company, not just their own session — writing is
+narrower than reading:
+- **Read**: any active company member (`silo_chat_notes_active_select`
+  RLS policy), same as most SILO tables.
+- **Write** (insert or delete): `is_exec_or_owner()` only — the same gate
+  used for review-template writes and whole-company roster visibility.
+  Currently that's Blake (`owner_admin`); the other six users (`admin`
+  membership) can read taught notes but cannot add or remove them. If a
+  non-exec/owner user asks the model to remember something, the insert is
+  denied by RLS and the model is expected to say so plainly rather than
+  claim success.
+
+There's no UI for browsing/editing notes yet — query `silo_chat_notes_v`
+directly (via Ask SILO itself, or the SQL editor) to see what's been
+taught, and `delete from silo_chat_notes where id = '...'` to remove a bad
+one.
+
 ## Required: ANTHROPIC_API_KEY
 
-**Not set yet.** The edge function returns a clear 503 error until it is.
-This is the same gap that's been silently limiting the nightly Insights
-digest to findings-only (no narrative) — see `scripts/generate-insights.mjs`.
-
-Set it once, as a Supabase edge-function secret (Dashboard → Edge Functions
+Configured as a Supabase edge-function secret (Dashboard → Edge Functions
 → Secrets, or `supabase secrets set ANTHROPIC_API_KEY=...`) — it isn't a
-GitHub repo secret since edge functions don't read those. Once set, both
-the chat and the Insights narrative pick it up immediately (no redeploy
-needed for env var changes).
+GitHub repo secret since edge functions don't read those. Both the chat
+and the Insights narrative (`scripts/generate-insights.mjs`) read the same
+key; without it, `silo-chat` returns a clear 503 instead of failing
+opaquely.
 
 Optional: `CHAT_MODEL` (defaults to `claude-sonnet-5`, matching the
 Insights script's own default).
 
 ## What it can't do
 
-- **Write anything.** `chat_run_readonly_query` only ever runs
-  read-only statements — there's no path from this chat to an INSERT,
-  UPDATE, DELETE, or DDL statement.
+- **Write real business data.** `chat_run_readonly_query` only ever runs
+  read-only statements against operational tables — there's no path from
+  this chat to an INSERT/UPDATE/DELETE/DDL on `sales_by_day`,
+  `po_headers`, or anything else that isn't `silo_chat_notes`. The one
+  write path that exists (`save_note`) touches nothing but that one
+  notes table, and is itself RLS-gated to exec/owner.
 - **See across companies.** RLS is the boundary, not a company filter the
   model has to remember to add.
 - **Cite department-private data it isn't RLS-cleared for** — e.g. review
@@ -57,7 +90,11 @@ Insights script's own default).
 ## Not yet built
 
 - No conversation persistence — history lives in the browser tab only
-  ("New chat" clears it, refresh loses it).
-- No usage/cost guardrails beyond the 8-tool-round cap per question — worth
-  watching Anthropic API spend once this is in real use, since "wide open"
-  means there's no fixed set of cheap canned queries.
+  ("New chat" clears it, refresh loses it). Taught notes (above) persist
+  across conversations; the message transcript itself does not.
+- No UI for browsing/managing taught notes — direct SQL only (see above).
+- No usage/cost guardrails beyond the 8-tool-round cap per question and
+  prompt caching (`cache_control` on the system prompt, cuts repeat-round
+  cost within a question) — worth continuing to watch Anthropic API spend
+  as real usage grows, since "wide open" means there's no fixed set of
+  cheap canned queries.
