@@ -174,46 +174,57 @@ function pickAction(actions, eventName) {
     ?? (actions ?? []).find((a) => a.action_type === eventName);
 }
 
-export async function fetchMetaAdsRows(connection, window) {
+/** Campaign-level daily Meta insights for the standard nightly sync. Chunked
+ * into short windows internally for the same reason as fetchMetaAdLevelRows
+ * below: a wide time_increment=1 window trips Meta's "reduce the amount of
+ * data" error (code 1 / subcode 99) once the account has enough campaigns --
+ * hit live on the plain 30-day default window starting 2026-08-11. */
+export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {}) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
 
   const acct = String(connection.meta_ad_account_id);
   const rows = [];
-  let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
-    level: 'campaign',
-    time_increment: '1',
-    time_range: JSON.stringify({ since: window.startDate, until: window.endDate }),
-    fields: 'account_id,account_name,campaign_id,campaign_name,impressions,clicks,spend,actions,action_values',
-    limit: '500',
-    access_token: token,
-  }).toString();
+  const endAll = new Date(`${window.endDate}T00:00:00Z`);
 
-  while (url) {
-    const data = await fetchJsonOrThrow(url, {}, 'Meta insights');
-    for (const r of data.data ?? []) {
-      // "Conversions" for a store = purchases — the bottom of the funnel;
-      // view_content/add_to_cart/initiate_checkout are the stages above it.
-      const purchases = pickAction(r.actions, 'purchase');
-      const purchaseValue = pickAction(r.action_values, 'purchase');
-      rows.push({
-        accountId: r.account_id,
-        accountName: r.account_name,
-        day: r.date_start,
-        campaignId: r.campaign_id,
-        campaignName: r.campaign_name,
-        impressions: r.impressions,
-        clicks: r.clicks,
-        spend: r.spend,
-        conversions: purchases?.value ?? 0,
-        conversionValue: purchaseValue?.value ?? 0,
-        viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
-        addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
-        initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
-      });
+  for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
+    const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
+    let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
+      level: 'campaign',
+      time_increment: '1',
+      time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
+      fields: 'account_id,account_name,campaign_id,campaign_name,impressions,clicks,spend,actions,action_values',
+      limit: '500',
+      access_token: token,
+    }).toString();
+
+    while (url) {
+      const data = await fetchJsonOrThrow(url, {}, 'Meta insights');
+      for (const r of data.data ?? []) {
+        // "Conversions" for a store = purchases — the bottom of the funnel;
+        // view_content/add_to_cart/initiate_checkout are the stages above it.
+        const purchases = pickAction(r.actions, 'purchase');
+        const purchaseValue = pickAction(r.action_values, 'purchase');
+        rows.push({
+          accountId: r.account_id,
+          accountName: r.account_name,
+          day: r.date_start,
+          campaignId: r.campaign_id,
+          campaignName: r.campaign_name,
+          impressions: r.impressions,
+          clicks: r.clicks,
+          spend: r.spend,
+          conversions: purchases?.value ?? 0,
+          conversionValue: purchaseValue?.value ?? 0,
+          viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
+          addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
+          initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
+        });
+      }
+      url = data.paging?.next ?? null;
     }
-    url = data.paging?.next ?? null;
+    s = new Date(e.getTime() + 86400000);
   }
   return rows;
 }
