@@ -121,9 +121,9 @@
     }
   }
 
-  function renderNavSections(active, department) {
+  function renderNavSections(active, department, role) {
     const company = getActiveCompany();
-    const NAV_SECTIONS = navSectionsForCompany(company, department ?? getCachedDepartment());
+    const NAV_SECTIONS = navSectionsForCompany(company, department ?? getCachedDepartment(), role);
     // Determine which section contains the active item
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
 
@@ -184,7 +184,7 @@
         </div>
 
         <nav class="silo-sb-nav" id="siloSbNav">
-          ${renderNavSections(active)}
+          ${renderNavSections(active, undefined, user && user.role)}
         </nav>
 
         <div class="silo-sb-footer">
@@ -272,7 +272,7 @@
       resolveDepartment(opts.supabaseClient).then((dept) => {
         if (!dept) return;
         const navEl = sidebar.querySelector('#siloSbNav');
-        if (navEl) navEl.innerHTML = renderNavSections(opts.active, dept);
+        if (navEl) navEl.innerHTML = renderNavSections(opts.active, dept, opts.user && opts.user.role);
       });
     }
 
