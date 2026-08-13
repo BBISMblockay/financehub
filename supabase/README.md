@@ -262,6 +262,7 @@ supabase/
     20260812130000_redo_return_items.sql
     20260813180000_silo_chat_readonly_query.sql
     20260813210000_silo_chat_notes.sql
+    20260813220000_silo_chat_notes_category.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

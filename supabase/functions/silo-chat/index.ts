@@ -29,13 +29,13 @@ function reply(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: CORS });
 }
 
-const BASE_SYSTEM_PROMPT = `You are the SILO data assistant -- an internal chat for Baseballism's operations team to ask open-ended questions about their own business data (sales, inventory, purchasing, marketing, returns, planning) in plain English.
+const BASE_SYSTEM_PROMPT = `You are the SILO data assistant -- an internal chat for this company's operations team to ask open-ended questions about their own business data (sales, inventory, purchasing, marketing, returns, planning) in plain English.
 
-About Baseballism: a baseball lifestyle apparel brand -- vintage/retro-inspired designs and MLB-licensed product (Ken Griffey Jr., Babe Ruth, Roberto Clemente, Cubs, Dodgers, and others) built for people who live baseball on and off the field, not just players. Tagline: "The Original Baseball Lifestyle Brand. Built For Ballplayers, Worn By All." Brand personality is nostalgic and rooted in the game's history, but playful and pun-driven rather than corporate -- collection names like "Bat Bros," "Money Ball," "Hardball Hunter," and "Doubles and Bubbles" are typical, and holidays get a baseball spin (Valentine's -> "For Love of the Game"). Comfortable crossing into pop culture (Sonic the Hedgehog, Fortnite collabs) without losing the baseball-first identity. Retail footprint includes a flagship barn store on the actual Field of Dreams Movie Site in Dyersville, Iowa (Universal-licensed) -- a defining piece of brand identity, not just another wholesale account. Merch calendar leans on family/community moments (Father's/Mother's Day, Back to School, Toddler/Youth lines) alongside signature promo events (Anniversary Sale, "6432 Day").
+Brand context: SILO is used by more than one company, so nothing about brand identity/voice is hardcoded here -- if a "Brand context" section appears below, it's foundational, company-specific identity (tagline, positioning, personality, retail footprint) this company's execs have taught you. Ground your tone and any brand-voice-flavored answers (campaign name ideas, marketing copy) in it. If no Brand context section appears, this company hasn't taught you anything yet -- stay neutral and professional rather than inventing a personality.
 
-Voice: warm and knowledgeable, like someone who's actually into baseball -- not generic-corporate. That said, the playful/pun energy above belongs to product and marketing copy, not to a data answer. When answering a data question here, keep the personality as tone, not as bits: lead with the number, stay direct, and only lean into the brand's playfulness if the user is literally asking for campaign name ideas or marketing copy.
+Voice for data answers specifically: even where brand context exists and describes a playful/distinctive voice, keep data answers direct and number-first -- lead with the figure, stay concise. That playfulness belongs in campaign-name/marketing-copy suggestions, not in a sales report, unless the brand context explicitly says otherwise.
 
-You have two tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught institutional knowledge (see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do.
+You have two tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do.
 
 Key tables and views you can query (a curated starting list, NOT the full set -- see the discovery rule below):
 - sales_by_day(day_date, location_tag, total_net_sales, total_refunds, total_gross_sales, total_quantity_sold, product_type, sku, ...) -- daily sales rollup by location/SKU
@@ -61,9 +61,13 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - live_sessions / live_sessions_v -- TikTok Live schedule and payouts
 - calendar_events_v -- org calendar
 - employees / reviews -- performance review roster (careful: private_notes and similar are RLS-gated to the author only, so you may get zero rows even with a correct query -- that's expected, not a bug)
-- silo_chat_notes / silo_chat_notes_v -- institutional knowledge the team has taught you (see "Taught institutional knowledge" section below, and the save_note tool)
+- silo_chat_notes / silo_chat_notes_v -- everything the team has taught you, both brand context and specific corrections (see below, and the save_note tool)
 
-Taught institutional knowledge: some questions have context no query can derive -- e.g. a SKU that looks like a slow mover in raw sales data but is actually a one-time monthly collectible drop, not a restock signal. When a user explicitly teaches or corrects you something like this ("remember that...", "for future reference...", "that's actually because...", "note that..."), call the save_note tool to record it. Treat it as an explicit teaching moment, not every offhand comment -- don't save something the user didn't clearly intend as a lasting correction. save_note is restricted to exec/owner-tier users; if it fails for permission reasons, tell the user plainly (e.g. "only an exec/owner can teach me new facts right now -- flag it to them and I'll remember it") rather than silently dropping it or erroring cryptically. Any notes already taught appear in the "Taught institutional knowledge" section below -- weigh them as authoritative context over your own inference from raw numbers.
+Taught knowledge comes in two flavors, both via the save_note tool, both exec/owner-only to write:
+- category "brand": foundational, lasting brand identity -- tagline, positioning, personality, target customer, retail footprint. Use this when a user is describing the company's overall identity/voice rather than a specific fact, e.g. "our tagline is..." or "we're more playful than corporate." Appears in the "Brand context" section above when present.
+- category "general" (the default -- omit category entirely for this case): a specific fact/correction no query could derive, e.g. a SKU that looks like a slow mover in raw sales data but is actually a one-time monthly collectible drop, not a restock signal. Appears in the "Taught institutional knowledge" section below when present, and should be weighed as authoritative context over your own inference from raw numbers.
+
+Call save_note when a user explicitly teaches or corrects you something ("remember that...", "for future reference...", "that's actually because...", "note that..."), not for every offhand comment -- don't save something the user didn't clearly intend as a lasting fact. If the insert fails for permission reasons, tell the user plainly (e.g. "only an exec/owner can teach me new facts right now -- flag it to them and I'll remember it") rather than silently dropping it or erroring cryptically.
 
 Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- run a quick query against information_schema.tables and information_schema.columns for a name match (e.g. ilike '%keyword%') before concluding it doesn't exist. The list above is a cheat sheet for common questions, not the full schema, and there are tables/views not listed here that may answer the question. Only report something as unavailable after that search comes back empty.
 
@@ -94,28 +98,42 @@ const TOOLS = [
   },
   {
     name: 'save_note',
-    description: 'Record a piece of taught institutional knowledge (a human correction or lasting context, e.g. "Pin of Month is a one-time monthly drop, not a restock signal") so future questions account for it. Restricted to exec/owner-tier users -- the insert is RLS-gated, not something this tool bypasses.',
+    description: 'Record a piece of taught knowledge so future questions account for it. Use category "brand" for foundational brand identity/voice/positioning (e.g. a tagline, target customer, brand personality). Use category "general" (the default -- omit it) for a specific correction/fact about the data (e.g. "Pin of Month is a one-time monthly drop, not a restock signal"). Restricted to exec/owner-tier users -- the insert is RLS-gated, not something this tool bypasses.',
     input_schema: {
       type: 'object',
       properties: {
         note: { type: 'string', description: 'The fact/correction to remember, written as a standalone sentence future questions can rely on.' },
+        category: { type: 'string', enum: ['general', 'brand'], description: 'Defaults to "general" if omitted. Use "brand" only for foundational brand identity/voice, not specific facts.' },
       },
       required: ['note'],
     },
   },
 ];
 
+type Note = { note: string; category: string; created_by_name: string | null };
+
 // Notes are folded into the cached system-prompt block (fetched once per
 // request, same content across every tool-round of that request) rather
 // than looked up via run_sql, so the model always has them in view instead
-// of only when it happens to think to query silo_chat_notes.
-function buildSystemPrompt(notes: { note: string; created_by_name: string | null }[]) {
-  const notesBlock = notes.length
-    ? `\n\nTaught institutional knowledge (treat as authoritative context, weigh it over your own inference from raw numbers):\n${
-        notes.map((n) => `- ${n.note}${n.created_by_name ? ` (taught by ${n.created_by_name})` : ''}`).join('\n')
+// of only when it happens to think to query silo_chat_notes. Split by
+// category so brand identity reads as one cohesive voice description and
+// ad hoc corrections read as a distinct, attributed list -- see the
+// "Taught knowledge comes in two flavors" paragraph above.
+function buildSystemPrompt(notes: Note[]) {
+  const brandNotes = notes.filter((n) => n.category === 'brand');
+  const generalNotes = notes.filter((n) => n.category !== 'brand');
+
+  const brandBlock = brandNotes.length
+    ? `\n\nBrand context (taught by this company's execs -- ground tone and any brand-voice-flavored answers in this):\n${
+        brandNotes.map((n) => `- ${n.note}`).join('\n')
       }`
     : '';
-  return BASE_SYSTEM_PROMPT + notesBlock;
+  const notesBlock = generalNotes.length
+    ? `\n\nTaught institutional knowledge (treat as authoritative context, weigh it over your own inference from raw numbers):\n${
+        generalNotes.map((n) => `- ${n.note}${n.created_by_name ? ` (taught by ${n.created_by_name})` : ''}`).join('\n')
+      }`
+    : '';
+  return BASE_SYSTEM_PROMPT + brandBlock + notesBlock;
 }
 
 async function callAnthropic(messages: unknown[], systemPrompt: string) {
@@ -183,7 +201,7 @@ Deno.serve(async (req: Request) => {
     // for the cache_control breakpoint below to actually hit on rounds 2+.
     const { data: notes } = await callerClient
       .from('silo_chat_notes_v')
-      .select('note, created_by_name')
+      .select('note, category, created_by_name')
       .order('created_at', { ascending: true })
       .limit(200);
     const systemPrompt = buildSystemPrompt(notes ?? []);
@@ -208,9 +226,10 @@ Deno.serve(async (req: Request) => {
         let resultContent: string;
         if (use.name === 'save_note') {
           const note = String(use.input?.note || '').trim();
+          const category = use.input?.category === 'brand' ? 'brand' : 'general';
           try {
             if (!note) throw new Error('Empty note');
-            const { error } = await callerClient.from('silo_chat_notes').insert({ note });
+            const { error } = await callerClient.from('silo_chat_notes').insert({ note, category });
             if (error) throw new Error(error.message);
             resultContent = 'Saved.';
           } catch (err) {
