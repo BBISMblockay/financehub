@@ -103,6 +103,52 @@
       flex:1; resize:none; border:1px solid var(--bcn-border); border-radius:8px; padding:9px 12px;
       font-family:var(--bcn-font); font-size:13px; line-height:1.4; max-height:120px;
     }
+
+    /* Taught-notes modal -- same shape as live-schedule.html's claim/finalize
+       modals, just a different prefix (ac- to match this page's other classes). */
+    .ac-notes-backdrop {
+      position:fixed; inset:0; z-index:90; display:none;
+      background:rgba(9,12,18,.55);
+      align-items:center; justify-content:center; padding:16px;
+    }
+    .ac-notes-backdrop.open { display:flex; }
+    .ac-notes-modal {
+      width:min(560px, 100%);
+      background:var(--bcn-surface); color:var(--bcn-ink);
+      border:1px solid var(--bcn-border); border-radius:12px;
+      box-shadow:0 18px 48px rgba(9,12,18,.28);
+      display:flex; flex-direction:column; max-height:calc(100vh - 48px);
+    }
+    .ac-notes-head {
+      display:flex; align-items:center; justify-content:space-between;
+      gap:12px; padding:14px 18px; border-bottom:1px solid var(--bcn-border);
+    }
+    .ac-notes-head h3 { margin:0; font-size:15px; }
+    .ac-notes-close {
+      background:none; border:none; cursor:pointer;
+      color:var(--bcn-ink-3); font-size:16px; line-height:1; padding:4px;
+    }
+    .ac-notes-close:hover { color:var(--bcn-ink); }
+    .ac-notes-body { padding:16px 18px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
+    .ac-notes-list { display:flex; flex-direction:column; gap:8px; }
+    .ac-notes-empty { color:var(--bcn-ink-3); font-size:12.5px; text-align:center; padding:12px 0; }
+    .ac-note-item {
+      display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
+      padding:10px 12px; border:1px solid var(--bcn-border); border-radius:8px; background:var(--bcn-sunken);
+    }
+    .ac-note-item-text { font-size:13px; line-height:1.5; }
+    .ac-note-item-meta { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); margin-top:4px; }
+    .ac-note-delete {
+      flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--bcn-ink-3);
+      font-size:13px; padding:2px 6px; border-radius:4px;
+    }
+    .ac-note-delete:hover { background:color-mix(in oklab, var(--bcn-neg) 12%, transparent); color:var(--bcn-neg); }
+    .ac-notes-add { display:flex; gap:8px; padding-top:8px; border-top:1px solid var(--bcn-border); }
+    .ac-notes-add textarea {
+      flex:1; resize:none; border:1px solid var(--bcn-border); border-radius:8px; padding:8px 10px;
+      font-family:var(--bcn-font); font-size:13px; line-height:1.4; min-height:40px;
+    }
+    .ac-notes-readonly-hint { font-size:11.5px; color:var(--bcn-ink-3); text-align:center; }
   </style>
 </head>
 <body class="silo-brand">
@@ -118,6 +164,7 @@
         <div class="bcn-header-sub">Live-queries your SILO data as you ask — sales, inventory, marketing, returns. No report needs to exist first.</div>
       </div>
       <div class="bcn-header-actions">
+        <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Notes</button>
         <button id="btnNewChat" class="bcn-btn bcn-btn--ghost">New chat</button>
       </div>
     </header>
@@ -145,6 +192,22 @@
       </div>
     </div>
   </main>
+</div>
+
+<!-- Taught notes -- what Ask SILO has been told to remember (silo_chat_notes).
+     Read is open to everyone; add/remove is exec/owner-only, enforced by RLS
+     (canManageNotes below is UX only, same as the role gate on review-templates.html). -->
+<div class="ac-notes-backdrop" id="notesBackdrop">
+  <div class="ac-notes-modal" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
+    <div class="ac-notes-head">
+      <h3 id="notesTitle">Taught notes</h3>
+      <button class="ac-notes-close" type="button" id="btnCloseNotes">✕</button>
+    </div>
+    <div class="ac-notes-body">
+      <div class="ac-notes-list" id="notesList"></div>
+      <div id="notesAddArea"></div>
+    </div>
+  </div>
 </div>
 
 <script src="../pages/config.js"></script>
@@ -180,6 +243,7 @@
 
   let history = [];
   let session = null;
+  let canManageNotes = false;
 
   function scrollToBottom() {
     const log = el('log');
@@ -311,6 +375,85 @@
       </div>`;
   });
 
+  // ── Taught notes modal ────────────────────────────────────────────────
+  async function loadNotes() {
+    const list = el('notesList');
+    list.innerHTML = `<div class="ac-notes-empty">Loading…</div>`;
+    const { data, error } = await sb
+      .from('silo_chat_notes_v')
+      .select('id, note, created_at, created_by_name')
+      .order('created_at', { ascending: false });
+    if (error) {
+      list.innerHTML = `<div class="ac-notes-empty">Couldn't load notes: ${esc(error.message)}</div>`;
+      return;
+    }
+    renderNotes(data || []);
+  }
+
+  function renderNotes(notes) {
+    const list = el('notesList');
+    list.innerHTML = notes.length
+      ? notes.map(n => `
+        <div class="ac-note-item" data-id="${esc(n.id)}">
+          <div>
+            <div class="ac-note-item-text">${esc(n.note)}</div>
+            <div class="ac-note-item-meta">${esc(n.created_by_name || 'Unknown')} · ${new Date(n.created_at).toLocaleDateString()}</div>
+          </div>
+          ${canManageNotes ? `<button class="ac-note-delete" type="button" title="Remove">✕</button>` : ''}
+        </div>`).join('')
+      : `<div class="ac-notes-empty">Nothing taught yet${canManageNotes ? ' — add one below' : ''}.</div>`;
+
+    el('notesAddArea').innerHTML = canManageNotes
+      ? `<div class="ac-notes-add">
+          <textarea id="newNoteText" rows="2" placeholder="Teach Ask SILO something it should always account for…"></textarea>
+          <button class="bcn-btn bcn-btn--primary" type="button" id="btnAddNote">Add</button>
+        </div>`
+      : `<div class="ac-notes-readonly-hint">Only execs/owner can add or remove notes.</div>`;
+  }
+
+  async function addNote() {
+    const textEl = el('newNoteText');
+    const note = textEl.value.trim();
+    if (!note) return;
+    el('btnAddNote').disabled = true;
+    const { error } = await sb.from('silo_chat_notes').insert({ note });
+    if (error) {
+      setStatus('Could not save note: ' + error.message, 'error', 4000);
+      el('btnAddNote').disabled = false;
+      return;
+    }
+    textEl.value = '';
+    await loadNotes();
+  }
+
+  async function deleteNote(id) {
+    const { error } = await sb.from('silo_chat_notes').delete().eq('id', id);
+    if (error) { setStatus('Could not remove note: ' + error.message, 'error', 4000); return; }
+    await loadNotes();
+  }
+
+  function openNotesModal() {
+    el('notesBackdrop').classList.add('open');
+    loadNotes();
+  }
+  function closeNotesModal() {
+    el('notesBackdrop').classList.remove('open');
+  }
+
+  el('btnNotes').addEventListener('click', openNotesModal);
+  el('notesBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'notesBackdrop' || e.target.closest('#btnCloseNotes')) { closeNotesModal(); return; }
+    if (e.target.closest('#btnAddNote')) { addNote(); return; }
+    const delBtn = e.target.closest('.ac-note-delete');
+    if (delBtn) {
+      const id = delBtn.closest('.ac-note-item')?.dataset.id;
+      if (id && confirm('Remove this note?')) deleteNote(id);
+    }
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeNotesModal();
+  });
+
   async function boot() {
     const sessRes = await sb.auth.getSession();
     if (!sessRes?.data?.session) { window.location.href = '/pages/login.html'; return; }
@@ -318,6 +461,10 @@
     const user = session.user;
 
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', user.id).single();
+    // Same lightweight profile-role check review-templates.html uses for its
+    // exec-only gate -- UX only, the real boundary is silo_chat_notes' RLS
+    // (is_exec_or_owner(), which also covers owner_admin membership).
+    canManageNotes = ['owner', 'executive'].includes(String(profile?.role || '').toLowerCase());
 
     if (window.SiloChrome) {
       window.SiloChrome.mount({
