@@ -2,16 +2,17 @@
 // anything about our data" chat. Claude gets two tools -- run_sql (backed
 // by the chat_run_readonly_query(text) RPC from
 // 20260813180000_silo_chat_readonly_query.sql) and save_note (a plain
-// insert into silo_chat_notes, RLS-gated to exec/owner -- see
-// 20260813210000_silo_chat_notes.sql). This function forwards the caller's
-// own JWT to Supabase (never the service-role key) so every query/insert
-// the model runs executes AS that user. Postgres RLS is the actual data
-// boundary: a user can never see through this chat anything they couldn't
-// already see by hand-querying from the browser, regardless of what SQL
-// the model writes, and only exec/owner-tier users can teach it a new note
-// no matter what the model is told to do. See CLAUDE.md's "Key tables"
-// section for the schema summary baked into BASE_SYSTEM_PROMPT below --
-// keep them in sync.
+// insert into silo_chat_notes, RLS-gated by can_manage_silo_notes() -- see
+// 20260813210000_silo_chat_notes.sql and 20260813230000_silo_chat_managers.sql).
+// This function forwards the caller's own JWT to Supabase (never the
+// service-role key) so every query/insert the model runs executes AS that
+// user. Postgres RLS is the actual data boundary: a user can never see
+// through this chat anything they couldn't already see by hand-querying
+// from the browser, regardless of what SQL the model writes, and only
+// exec/owner-tier users (or anyone specifically granted Ask SILO access
+// via backend.html) can teach it a new note no matter what the model is
+// told to do. See CLAUDE.md's "Key tables" section for the schema summary
+// baked into BASE_SYSTEM_PROMPT below -- keep them in sync.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -63,11 +64,11 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - employees / reviews -- performance review roster (careful: private_notes and similar are RLS-gated to the author only, so you may get zero rows even with a correct query -- that's expected, not a bug)
 - silo_chat_notes / silo_chat_notes_v -- everything the team has taught you, both brand context and specific corrections (see below, and the save_note tool)
 
-Taught knowledge comes in two flavors, both via the save_note tool, both exec/owner-only to write:
+Taught knowledge comes in two flavors, both via the save_note tool, both restricted to users with Ask SILO management access (exec/owner-tier, or anyone specifically granted access -- either way, RLS decides, not you):
 - category "brand": foundational, lasting brand identity -- tagline, positioning, personality, target customer, retail footprint. Use this when a user is describing the company's overall identity/voice rather than a specific fact, e.g. "our tagline is..." or "we're more playful than corporate." Appears in the "Brand context" section above when present.
 - category "general" (the default -- omit category entirely for this case): a specific fact/correction no query could derive, e.g. a SKU that looks like a slow mover in raw sales data but is actually a one-time monthly collectible drop, not a restock signal. Appears in the "Taught institutional knowledge" section below when present, and should be weighed as authoritative context over your own inference from raw numbers.
 
-Call save_note when a user explicitly teaches or corrects you something ("remember that...", "for future reference...", "that's actually because...", "note that..."), not for every offhand comment -- don't save something the user didn't clearly intend as a lasting fact. If the insert fails for permission reasons, tell the user plainly (e.g. "only an exec/owner can teach me new facts right now -- flag it to them and I'll remember it") rather than silently dropping it or erroring cryptically.
+Call save_note when a user explicitly teaches or corrects you something ("remember that...", "for future reference...", "that's actually because...", "note that..."), not for every offhand comment -- don't save something the user didn't clearly intend as a lasting fact. If the insert fails for permission reasons, tell the user plainly (e.g. "you don't have Ask SILO management access yet -- ask an exec/owner to grant it, or to add this for you") rather than silently dropping it or erroring cryptically.
 
 Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- run a quick query against information_schema.tables and information_schema.columns for a name match (e.g. ilike '%keyword%') before concluding it doesn't exist. The list above is a cheat sheet for common questions, not the full schema, and there are tables/views not listed here that may answer the question. Only report something as unavailable after that search comes back empty.
 
@@ -98,7 +99,7 @@ const TOOLS = [
   },
   {
     name: 'save_note',
-    description: 'Record a piece of taught knowledge so future questions account for it. Use category "brand" for foundational brand identity/voice/positioning (e.g. a tagline, target customer, brand personality). Use category "general" (the default -- omit it) for a specific correction/fact about the data (e.g. "Pin of Month is a one-time monthly drop, not a restock signal"). Restricted to exec/owner-tier users -- the insert is RLS-gated, not something this tool bypasses.',
+    description: 'Record a piece of taught knowledge so future questions account for it. Use category "brand" for foundational brand identity/voice/positioning (e.g. a tagline, target customer, brand personality). Use category "general" (the default -- omit it) for a specific correction/fact about the data (e.g. "Pin of Month is a one-time monthly drop, not a restock signal"). Restricted to users with Ask SILO management access (exec/owner-tier, or anyone specifically granted access) -- the insert is RLS-gated, not something this tool bypasses.',
     input_schema: {
       type: 'object',
       properties: {
@@ -237,7 +238,7 @@ Deno.serve(async (req: Request) => {
             // on insert denial, but PostgREST still surfaces a policy
             // violation as an error here -- either way, tell the model so
             // it can relay a clear message instead of claiming success.
-            resultContent = `Error: could not save note -- ${String((err as Error)?.message || err)}. This is likely a permissions issue (save_note is exec/owner-only).`;
+            resultContent = `Error: could not save note -- ${String((err as Error)?.message || err)}. This is likely a permissions issue (save_note needs Ask SILO management access -- exec/owner-tier, or a specific grant).`;
           }
         } else {
           const query = String(use.input?.query || '');

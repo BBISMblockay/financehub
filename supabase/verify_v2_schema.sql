@@ -160,6 +160,13 @@ select
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='silo_chat_notes' and column_name='category') then 'ok' else 'MISSING' end as silo_chat_notes_category,
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='silo_chat_notes_v' and column_name='category') then 'ok' else 'MISSING' end as silo_chat_notes_v_category;
 
+-- 7i. SILO chat manager grants (20260813230000_silo_chat_managers.sql)
+select
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='silo_chat_managers') then 'ok' else 'MISSING' end as silo_chat_managers,
+  case when exists (select 1 from information_schema.views where table_schema='public' and table_name='silo_chat_managers_v') then 'ok' else 'MISSING' end as silo_chat_managers_v,
+  case when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'can_manage_silo_notes') then 'ok' else 'MISSING' end as can_manage_silo_notes_fn,
+  case when (select count(*) from pg_policies where schemaname='public' and tablename='silo_chat_managers') = 3 then 'ok' else 'MISSING' end as silo_chat_managers_policies;
+
 -- 7c. Inventory MV company index (20260717190000)
 select
   case when exists (select 1 from pg_indexes where schemaname='public' and tablename='inventory_on_hand_current_mv' and indexname='inventory_on_hand_current_mv_company_idx') then 'ok' else 'MISSING' end as inventory_mv_company_idx;

@@ -66,12 +66,20 @@ narrower than reading:
   RLS policy), same as most SILO tables. The Notes panel in
   `/v2/silo-chat.html` (header → "Notes") shows both categories to
   everyone.
-- **Write** (insert or delete): `is_exec_or_owner()` only — the same gate
-  used for review-template writes and whole-company roster visibility. The
-  Notes panel's add/delete controls only render for exec/owner-tier users
-  (a client-side check for UX, mirroring the pattern in
-  `review-templates.html`); everyone else sees a read-only list. If a
-  non-exec/owner user asks the model itself to remember something, the
+- **Write** (insert or delete): `can_manage_silo_notes()`
+  (`supabase/migrations/20260813230000_silo_chat_managers.sql`) — true for
+  `is_exec_or_owner()` (the gate used for review-template writes and
+  whole-company roster visibility) **or** anyone with a `silo_chat_managers`
+  grant. That table exists specifically so Ask SILO write access can be
+  handed to someone *without* promoting them to executive company-wide —
+  granted/revoked via the "Ask SILO access" button in the profile edit
+  dialog on `/v2/backend.html`, itself `is_exec_or_owner()`-gated (only
+  exec/owner can grant or revoke access, whether or not they're using the
+  narrower grant themselves). The Notes panel's add/delete controls render
+  for anyone `can_manage_silo_notes()` covers (a client-side check for UX,
+  mirroring the pattern in `review-templates.html` plus a self-check
+  against `silo_chat_managers`); everyone else sees a read-only list. If a
+  user without access asks the model itself to remember something, the
   insert is denied by RLS and the model is expected to say so plainly
   rather than claim success.
 

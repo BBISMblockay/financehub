@@ -497,9 +497,16 @@
 
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', user.id).single();
     // Same lightweight profile-role check review-templates.html uses for its
-    // exec-only gate -- UX only, the real boundary is silo_chat_notes' RLS
-    // (is_exec_or_owner(), which also covers owner_admin membership).
+    // exec-only gate, OR a dedicated silo_chat_managers grant (backend.html
+    // "Ask SILO access" button) -- either way this is UX only, the real
+    // boundary is silo_chat_notes' RLS (can_manage_silo_notes()). The RLS
+    // select policy on silo_chat_managers lets a user see their own row
+    // even if they're not exec/owner, so this self-check works for them.
     canManageNotes = ['owner', 'executive'].includes(String(profile?.role || '').toLowerCase());
+    if (!canManageNotes) {
+      const { data: grant } = await sb.from('silo_chat_managers').select('id').eq('user_id', user.id).maybeSingle();
+      canManageNotes = !!grant;
+    }
 
     if (window.SiloChrome) {
       window.SiloChrome.mount({
