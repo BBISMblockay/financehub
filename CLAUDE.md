@@ -271,6 +271,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `ad_platform_connections` | Per-company ad platform credentials + sync config (google_ads / meta_ads / tiktok_ads / ga4); tokens written by OAuth callbacks or Integrations UI, read by the nightly sync |
 | `ad_platform_oauth_states` | Single-use 10-min OAuth CSRF nonces (RLS deny-all, service-role only) |
 | `marketing_kpis_daily` | Daily campaign-level marketing KPIs per company × platform × account × campaign, upserted on identity row_hash |
+| `silo_chat_notes` | Ask SILO's taught institutional knowledge — human corrections/context (e.g. "Pin of Month is a one-time monthly drop, not a restock signal") the `save_note` tool records and every future chat request re-reads into its system prompt. Read: any active company member. Write (insert/delete): `is_exec_or_owner()` only — shared memory needs a narrower write gate than most tables. No UI yet; `silo_chat_notes_v` for querying |
 | `mail_items` | Mailroom queue (subject, sender, priority, assignee, status: open/done/archived) |
 | `mail_item_files` | Attachments per mail item (`mail-item-files` storage bucket) |
 | `mail_item_activity` | Activity log per mail item (status/assignment/priority changes, notifications sent) |

@@ -149,6 +149,12 @@ select
 select
   case when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'chat_run_readonly_query') then 'ok' else 'MISSING' end as chat_run_readonly_query;
 
+-- 7g. SILO chat taught-knowledge notes (20260813210000_silo_chat_notes.sql)
+select
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='silo_chat_notes') then 'ok' else 'MISSING' end as silo_chat_notes,
+  case when exists (select 1 from information_schema.views where table_schema='public' and table_name='silo_chat_notes_v') then 'ok' else 'MISSING' end as silo_chat_notes_v,
+  case when (select count(*) from pg_policies where schemaname='public' and tablename='silo_chat_notes') = 3 then 'ok' else 'MISSING' end as silo_chat_notes_policies;
+
 -- 7c. Inventory MV company index (20260717190000)
 select
   case when exists (select 1 from pg_indexes where schemaname='public' and tablename='inventory_on_hand_current_mv' and indexname='inventory_on_hand_current_mv_company_idx') then 'ok' else 'MISSING' end as inventory_mv_company_idx;
