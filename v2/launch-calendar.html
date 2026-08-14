@@ -244,6 +244,12 @@
     .reldoc-empty { color:var(--bcn-ink-4); font-size:12px; font-style:italic; }
 
     @media print {
+      /* .ed-panel carries a permanent transform (even at rest), which makes it
+         a CSS containing block for fixed/absolute descendants — without
+         neutralizing it here, #dp-document below prints confined to the
+         drawer's ~780px column instead of the full page. */
+      .ed-panel { position:static !important; transform:none !important; width:auto !important; box-shadow:none !important; border:none !important; }
+      .ed-overlay { display:none !important; }
       body * { visibility:hidden; }
       #dp-document, #dp-document * { visibility:visible; }
       #dp-document { display:flex !important; position:absolute; inset:0; padding:24px; background:#fff; }
