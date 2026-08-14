@@ -231,6 +231,14 @@
     .ev-chip-init-title { font-weight:600; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
     .ev-chip-init-meta { font-size:9px; color:var(--bcn-ink-3); margin-top:1px; }
 
+    /* audience tag chips */
+    .tag-chip-wrap { display:flex; flex-wrap:wrap; gap:6px; align-items:center; border:1px solid var(--bcn-border); border-radius:8px; padding:6px 8px; background:var(--bcn-surface); }
+    .tag-chip { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; background:oklch(0.94 0.035 245); border:1px solid var(--bcn-border); font-size:11px; font-weight:600; color:var(--bcn-ink); white-space:nowrap; }
+    .tag-chip-remove { cursor:pointer; font-size:11px; color:var(--bcn-ink-3); line-height:1; }
+    .tag-chip-remove:hover { color:oklch(0.55 0.22 15); }
+    .tag-chip-input { flex:1; min-width:140px; border:none; outline:none; font-size:12px; background:transparent; font-family:inherit; padding:3px 2px; }
+    .reldoc-tag-pill { display:inline-flex; padding:2px 9px; border-radius:999px; background:oklch(0.94 0.035 245); border:1px solid var(--bcn-border); font-size:11px; font-weight:600; margin:0 4px 4px 0; }
+
     /* release document */
     .reldoc-sec { border:1px solid var(--bcn-border); border-radius:10px; padding:14px; margin-bottom:10px; }
     .reldoc-sec-title { font-size:10px; font-weight:700; letter-spacing:.08em; font-family:var(--bcn-mono); color:var(--bcn-accent); text-transform:uppercase; margin-bottom:8px; }
@@ -660,8 +668,17 @@
           </div>
         </div>
         <div class="bcn-field-group"><label class="bcn-label">ANGLE / STORY / WHY</label><textarea class="bcn-field" id="briefMarketingAngle" rows="6" placeholder="One idea per line — the story beats, hooks, and references driving this campaign."></textarea></div>
+        <div class="bcn-field-group" style="margin-top:8px;">
+          <label class="bcn-label">AUDIENCE TAGS</label>
+          <div class="tag-chip-wrap" id="briefAudienceTagsWrap">
+            <div id="briefAudienceTagsList" style="display:contents;"></div>
+            <input class="tag-chip-input" id="briefAudienceTagInput" list="briefAudienceTagOptions" placeholder="Type a segment, press Enter…" />
+          </div>
+          <datalist id="briefAudienceTagOptions"></datalist>
+          <div class="dp-sub" style="margin-top:4px;">Structured — this is what Ask SILO compares across launches. Grows from whatever your team types, no fixed list.</div>
+        </div>
         <div class="dp-g2" style="margin-top:8px;">
-          <div class="bcn-field-group"><label class="bcn-label">AUDIENCE(S)</label><input class="bcn-field" id="briefAudience" placeholder="e.g. 16-30 demo, core collectors…" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">AUDIENCE — NOTES</label><input class="bcn-field" id="briefAudience" placeholder="Free-text nuance the tags above can't carry…" /></div>
           <div class="bcn-field-group"><label class="bcn-label">SPECIAL CALLOUTS / LIMITED EDITION</label><input class="bcn-field" id="briefSpecialCallouts" /></div>
         </div>
         <div class="dp-g2" style="margin-top:8px;">
@@ -1079,6 +1096,14 @@ function bind(){
   // brief + release document
   $('briefSaveBtn').onclick = saveBrief;
   $('printDocBtn').onclick  = () => window.print();
+  $('briefAudienceTagInput').addEventListener('keydown', e=>{
+    if(e.key==='Enter' || e.key===','){ e.preventDefault(); addAudienceTagFromInput(); }
+    else if(e.key==='Backspace' && !e.target.value && audienceTagsDraft.length){
+      audienceTagsDraft.pop();
+      renderAudienceTagChips();
+    }
+  });
+  $('briefAudienceTagInput').addEventListener('blur', addAudienceTagFromInput);
 
   // lookup
   $('productSourceInput').onchange = ()=>{ $('lookupBox').style.display='none'; $('lookupResults').innerHTML=''; $('lookupSearchInput').value=''; };
@@ -1640,6 +1665,45 @@ function renderBrandNotesReference(){
   body.innerHTML=brandNotes.slice(0,8).map((n,i)=>`<div style="font-size:12.5px;line-height:1.5;padding:4px 0;${i?'border-top:1px solid var(--bcn-border);':''}">${esc(n.note)}</div>`).join('');
 }
 
+let audienceTagsDraft=[];
+
+function normalizeAudienceTag(v){ return String(v||'').trim().replace(/\s+/g,' '); }
+
+function renderAudienceTagChips(){
+  const list=$('briefAudienceTagsList');
+  if(!list) return;
+  list.innerHTML=audienceTagsDraft.map((tag,i)=>`
+    <span class="tag-chip" data-tag-index="${i}">
+      ${esc(tag)}
+      <span class="tag-chip-remove" data-remove-tag="${i}" role="button" aria-label="Remove ${esc(tag)}">✕</span>
+    </span>
+  `).join('');
+  list.querySelectorAll('[data-remove-tag]').forEach(btn=>{
+    btn.onclick=()=>{
+      audienceTagsDraft.splice(Number(btn.dataset.removeTag),1);
+      renderAudienceTagChips();
+    };
+  });
+}
+
+function addAudienceTagFromInput(){
+  const input=$('briefAudienceTagInput');
+  const tag=normalizeAudienceTag(input.value);
+  input.value='';
+  if(!tag) return;
+  if(audienceTagsDraft.some(t=>t.toLowerCase()===tag.toLowerCase())) return;
+  audienceTagsDraft.push(tag);
+  renderAudienceTagChips();
+}
+
+function renderAudienceTagOptions(){
+  const dl=$('briefAudienceTagOptions');
+  if(!dl) return;
+  const seen=new Set();
+  launches.forEach(l=>(l.audience_tags||[]).forEach(t=>seen.add(t)));
+  dl.innerHTML=[...seen].sort().map(t=>`<option value="${esc(t)}"></option>`).join('');
+}
+
 function renderBrief(x){
   if(!x) return;
   $('briefPreviewDate').value=x.preview_start_date||'';
@@ -1649,6 +1713,9 @@ function renderBrief(x){
   $('briefDesignIntent').value=x.design_intent||'';
   $('briefProductCallouts').value=x.product_callouts||'';
   $('briefMarketingAngle').value=x.marketing_angle||'';
+  audienceTagsDraft=Array.isArray(x.audience_tags)?x.audience_tags.slice():[];
+  renderAudienceTagChips();
+  renderAudienceTagOptions();
   $('briefAudience').value=x.audience||'';
   $('briefSpecialCallouts').value=x.special_callouts||'';
   $('briefCopyDos').value=x.copy_dos||'';
@@ -1670,6 +1737,7 @@ function renderBrief(x){
 
 function briefPayloadFromForm(){
   const num=id=>{ const v=$(id).value; return v===''?null:Number(v); };
+  addAudienceTagFromInput(); // commit any typed-but-unconfirmed tag before saving
   return {
     preview_start_date: $('briefPreviewDate').value||null,
     preview_start_time: $('briefPreviewTime').value||null,
@@ -1678,6 +1746,7 @@ function briefPayloadFromForm(){
     design_intent: $('briefDesignIntent').value.trim()||null,
     product_callouts: $('briefProductCallouts').value.trim()||null,
     marketing_angle: $('briefMarketingAngle').value.trim()||null,
+    audience_tags: audienceTagsDraft.slice(),
     audience: $('briefAudience').value.trim()||null,
     special_callouts: $('briefSpecialCallouts').value.trim()||null,
     copy_dos: $('briefCopyDos').value.trim()||null,
@@ -1768,7 +1837,8 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
     <div class="reldoc-sec">
       <div class="reldoc-sec-title">Marketing</div>
       ${block('Angle / Story / Why', x.marketing_angle)}
-      ${row('Audience(s)', x.audience?esc(x.audience):null)}
+      ${(x.audience_tags||[]).length ? `<div class="reldoc-block-label" style="margin-top:8px;">Audience Tags</div><div>${x.audience_tags.map(t=>`<span class="reldoc-tag-pill">${esc(t)}</span>`).join('')}</div>` : ''}
+      ${row('Audience — Notes', x.audience?esc(x.audience):null)}
       ${row('Special Callouts / Limited Edition', x.special_callouts?esc(x.special_callouts):null)}
       ${block("Approved Copy — Do's", x.copy_dos)}
       ${block("Approved Copy — Don'ts", x.copy_donts)}
