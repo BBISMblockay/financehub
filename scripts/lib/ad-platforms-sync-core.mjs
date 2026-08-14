@@ -22,6 +22,7 @@ import {
   isoDateOnly,
   addDays,
   upsertInChunks,
+  sleep,
 } from './shopify-sync-core.mjs';
 
 // Both platforms retire API versions on a schedule (Google Ads majors ~12
@@ -85,6 +86,46 @@ async function fetchJsonOrThrow(url, opts, label) {
   if (!res.ok) throw new Error(`${label} → ${res.status}: ${text.slice(0, 500)}`);
   try { return JSON.parse(text); } catch {
     throw new Error(`${label}: non-JSON response: ${text.slice(0, 200)}`);
+  }
+}
+
+// Meta returns errors as a 200-range-adjacent HTTP status (403/500) with a
+// JSON body describing the failure, not a bare 429 — fetchWithRetry's 429
+// handling never sees these, so they were surfacing as hard failures on
+// every occurrence (hit live: code 4 "Application request limit reached"
+// on 2026-08-14, code 1/subcode 99 "reduce the amount of data" on
+// 2026-08-11 through 08-13). Both are transient/capacity conditions Meta
+// itself expects callers to back off and retry, so retry them here instead
+// of failing the whole nightly sync.
+const META_RETRY_DELAYS_MS = [30_000, 90_000, 180_000];
+
+function isMetaTransientError(bodyText) {
+  try {
+    const err = JSON.parse(bodyText)?.error;
+    if (!err) return false;
+    if (err.is_transient) return true; // e.g. code 4, 2 — rate/capacity limits
+    if (err.code === 1 && err.error_subcode === 99) return true; // "reduce the amount of data"
+    if (err.code === 17) return true; // user request limit reached
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchMetaJsonOrThrow(url, opts, label) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchWithRetry(url, opts);
+    const text = await res.text();
+    if (res.ok) {
+      try { return JSON.parse(text); } catch {
+        throw new Error(`${label}: non-JSON response: ${text.slice(0, 200)}`);
+      }
+    }
+    if (attempt < META_RETRY_DELAYS_MS.length && isMetaTransientError(text)) {
+      await sleep(META_RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+    throw new Error(`${label} → ${res.status}: ${text.slice(0, 500)}`);
   }
 }
 
@@ -200,7 +241,7 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
     }).toString();
 
     while (url) {
-      const data = await fetchJsonOrThrow(url, {}, 'Meta insights');
+      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta insights');
       for (const r of data.data ?? []) {
         // "Conversions" for a store = purchases — the bottom of the funnel;
         // view_content/add_to_cart/initiate_checkout are the stages above it.
@@ -255,7 +296,7 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 3 }
       access_token: token,
     }).toString();
     while (url) {
-      const data = await fetchJsonOrThrow(url, {}, 'Meta ad-level insights');
+      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta ad-level insights');
       for (const r of data.data ?? []) {
         const purchases = pickAction(r.actions, 'purchase');
         const purchaseValue = pickAction(r.action_values, 'purchase');
@@ -298,7 +339,7 @@ export async function fetchMetaAdCreatives(connection, adIds) {
     const batch = ids.slice(i, i + 50).map((id) => ({
       method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=${fields}`,
     }));
-    const data = await fetchJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
+    const data = await fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ access_token: token, batch: JSON.stringify(batch) }).toString(),
