@@ -661,10 +661,6 @@
         <div class="dp-sec-head">
           <div><div class="dp-title">Marketing</div><div class="dp-sub">The actual creative brief — angle, audience, and copy/creative guardrails.</div></div>
         </div>
-        <details id="briefBrandNotesWrap" class="lf-sec" style="display:none;margin-bottom:10px;">
-          <summary><span class="lf-sec-title">BRAND VOICE REFERENCE (FROM ASK SILO) — OPTIONAL</span><span class="lf-toggle">▼ EXPAND</span></summary>
-          <div id="briefBrandNotes"></div>
-        </details>
         <div class="bcn-field-group"><label class="bcn-label">ANGLE / STORY / WHY</label><textarea class="bcn-field" id="briefMarketingAngle" rows="6" placeholder="One idea per line — the story beats, hooks, and references driving this campaign."></textarea></div>
         <div class="bcn-field-group" style="margin-top:8px;">
           <label class="bcn-label">AUDIENCE TAGS</label>
@@ -961,7 +957,7 @@ const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 let currentUser = null;
 let profileById = new Map();
 let siloUsers = [];
-let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], trackerProducts=[], filtered=[], brandNotes=[];
+let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], trackerProducts=[], filtered=[];
 let activeLaunch = null;
 let view = 'calendar';
 let monthAnchor = startOfMonth(new Date());
@@ -1007,7 +1003,6 @@ async function boot(){
   }
 
   try { bind(); } catch (e) { console.error('Launch Workbench bind failed:', e); setStatus('UI error: ' + (e.message || e), 'neg', 8000); }
-  loadBrandNotes();
   try {
     await loadAll();
     setStatus('Ready.','pos',1400);
@@ -1644,25 +1639,6 @@ function empStr(msg){ return `<div class="bcn-empty" style="padding:12px;">${msg
 
 /* ---- brief + release document ------------------------------------------ */
 
-async function loadBrandNotes(){
-  try{
-    let q=db.from('silo_chat_notes').select('id, note, category, created_at').eq('category','brand').order('created_at',{ascending:false});
-    if(_co?.id) q=q.eq('company_entity_id',_co.id);
-    const {data,error}=await q;
-    if(error) throw error;
-    brandNotes=data||[];
-  } catch(e){ console.warn('Brand notes unavailable:', e?.message||e); brandNotes=[]; }
-  renderBrandNotesReference();
-}
-
-function renderBrandNotesReference(){
-  const wrap=$('briefBrandNotesWrap'), body=$('briefBrandNotes');
-  if(!wrap||!body) return;
-  if(!brandNotes.length){ wrap.style.display='none'; return; }
-  wrap.style.display='';
-  body.innerHTML=brandNotes.slice(0,8).map((n,i)=>`<div style="font-size:12.5px;line-height:1.5;padding:4px 0;${i?'border-top:1px solid var(--bcn-border);':''}">${esc(n.note)}</div>`).join('');
-}
-
 let audienceTagsDraft=[];
 
 function normalizeAudienceTag(v){ return String(v||'').trim().replace(/\s+/g,' '); }
@@ -1730,7 +1706,6 @@ function renderBrief(x){
   $('briefOverperformed').value=x.overperformed_notes||'';
   $('briefUnderperformed').value=x.underperformed_notes||'';
   $('briefSaveStatus').textContent='';
-  renderBrandNotesReference();
 }
 
 function briefPayloadFromForm(){
