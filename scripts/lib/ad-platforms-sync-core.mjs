@@ -89,24 +89,25 @@ async function fetchJsonOrThrow(url, opts, label) {
   }
 }
 
-// Meta returns errors as a 200-range-adjacent HTTP status (403/500) with a
-// JSON body describing the failure, not a bare 429 — fetchWithRetry's 429
+// Meta returns errors as a 200-range-adjacent HTTP status (403/500/400) with
+// a JSON body describing the failure, not a bare 429 — fetchWithRetry's 429
 // handling never sees these, so they were surfacing as hard failures on
-// every occurrence (hit live: code 4 "Application request limit reached"
-// on 2026-08-14, code 1/subcode 99 "reduce the amount of data" on
-// 2026-08-11 through 08-13). Both are transient/capacity conditions Meta
-// itself expects callers to back off and retry, so retry them here instead
-// of failing the whole nightly sync.
+// every occurrence (hit live: code 4 "Application request limit reached" and
+// code 1 "reduce the amount of data" — sometimes with error_subcode 99,
+// sometimes without it — on 2026-08-11 through 08-14, and code 2 "Service
+// temporarily unavailable" on 2026-08-14). Meta's own `is_transient` flag is
+// NOT a reliable signal — the code 2 case above shipped with
+// is_transient:false despite the message describing a transient condition —
+// so retry on the specific codes we've observed being retry-worthy in
+// practice rather than trusting that flag alone.
 const META_RETRY_DELAYS_MS = [30_000, 90_000, 180_000];
+const META_RETRYABLE_CODES = new Set([1, 2, 4, 17]);
 
 function isMetaTransientError(bodyText) {
   try {
     const err = JSON.parse(bodyText)?.error;
     if (!err) return false;
-    if (err.is_transient) return true; // e.g. code 4, 2 — rate/capacity limits
-    if (err.code === 1 && err.error_subcode === 99) return true; // "reduce the amount of data"
-    if (err.code === 17) return true; // user request limit reached
-    return false;
+    return Boolean(err.is_transient) || META_RETRYABLE_CODES.has(err.code);
   } catch {
     return false;
   }
@@ -272,11 +273,13 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
 
 /** Ad-level Meta insights (level=ad) for the creative report. Chunked into
  * short windows internally: ad-grain requests are much bigger than campaign
- * grain (many ads per campaign) and even the 7-day window that's safe for
- * campaign-grain still trips Meta's "reduce the amount of data" error
- * (code 1 / subcode 99) at ad grain -- hit live on the nightly sync 3 nights
- * running, 2026-08-11 through 08-13, at the old chunkDays=7 default. */
-export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 3 } = {}) {
+ * grain (many ads per campaign) and even a 3-day window still tripped Meta's
+ * "reduce the amount of data" error live on 2026-08-14 (chunkDays=7 failed
+ * 2026-08-11 through 08-13 before that). Day-by-day is the smallest window
+ * the API supports, so this is the floor short of dropping fields/date
+ * granularity — if this still trips the error, the retry-with-backoff in
+ * fetchMetaJsonOrThrow is the remaining backstop, not a smaller chunk. */
+export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 } = {}) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
