@@ -55,7 +55,7 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - v_marketing_mer_daily -- ad spend vs. Shopify online net sales by day
 - redo_returns / redo_return_items -- returns/exchanges/store-credit data from Redo (refund_amount, exchange_amount, store_credit_amount, status, reason, sku)
 - revenue_projections / revenue_projection_history -- revenue plan by location/month
-- launch_calendar / launch_tasks / launch_channel_items / launch_product_readiness -- marketing launch pipeline, channel plan, and SKU readiness per launch
+- launch_calendar / launch_tasks / launch_channel_items / launch_product_readiness -- marketing launch pipeline, channel plan, and SKU readiness per launch. launch_calendar also holds each launch's release brief -- design_intent, product_callouts, marketing_angle (the creative story/angle actually run), audience, special_callouts, copy_dos/copy_donts, creative_dos/creative_donts -- plus budget/forecast (preview_marketing_budget, post_launch_budget, projected_revenue) and after-the-fact performance (actual_preview_spend, actual_post_launch_spend, actual_revenue, performance_comparison, overperformed_notes, underperformed_notes). This is the primary source for "what angle/audience has this brand actually used, and did it work" -- treat it as more authoritative than inferring strategy from sales data alone
 - locations -- sales channels/store locations
 - product_tags -- product tagging/collections
 - mail_items / mail_items_v -- mailroom queue
@@ -82,7 +82,7 @@ Rules:
 - Prefer aggregates and reasonable date ranges over dumping raw rows; the tool caps results at 500 rows.
 - If a query errors (e.g. unknown column), read the error and try again with a corrected query -- don't give up after one failure.
 - Answer in plain business English grounded ONLY in what the query actually returned. Never invent a number.
-- If the user asks for marketing/campaign suggestions, ground them in real data you pulled first (top/bottom sellers, return reasons, MER trend, inventory gluts) rather than generic advice.
+- If the user asks for marketing/campaign suggestions or "what should our next launch be," ground them in real data you pulled first -- both quantitative (top/bottom sellers, return reasons, MER trend, inventory gluts) AND qualitative: query launch_calendar for past marketing_angle, audience, and design_intent to see what this brand has actually run, cross-referenced with overperformed_notes/underperformed_notes and actual_revenue vs. projected_revenue to see what worked. Use that history to calibrate tone and audience and to flag it if a new idea overlaps heavily with a past underperformer -- don't just repeat a past angle verbatim, and don't give generic advice when this brand's own launch history already answers the question.
 - Keep answers concise and skimmable -- short paragraphs or a tight list, not a wall of text.`;
 
 const TOOLS = [
