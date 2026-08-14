@@ -31,6 +31,12 @@
   // here the way the real is_exec_or_owner() RLS gate checks it.
   const EXEC_ROLES = ['owner', 'executive'];
 
+  // profiles.role values that see admin-only links (e.g. Integrations,
+  // which reads connection secrets gated server-side by is_admin_user() --
+  // see 20260814000000_lock_connection_secrets_to_admin.sql). UX only, same
+  // caveat as EXEC_ROLES: the real boundary is RLS, not this list.
+  const ADMIN_ROLES = ['owner', 'admin', 'executive'];
+
   /**
    * profiles: which nav profiles include this link
    * departments: user departments that see this link (absent = everyone;
@@ -105,7 +111,11 @@
     // { id: 'reports/returns-overview', section: 'Reports', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
 
 
-    { id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
+    // Admin-only: this page displays connection secrets (webhook/API keys,
+    // OAuth tokens), now RLS-gated to is_admin_user() -- see
+    // 20260814000000_lock_connection_secrets_to_admin.sql. Nav hiding is
+    // UX only; ADMIN_ROLES is a client-side approximation of that gate.
+    { roles: ADMIN_ROLES, id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
   ];
 
   const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Settings'];
