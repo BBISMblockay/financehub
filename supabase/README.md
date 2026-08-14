@@ -265,6 +265,7 @@ supabase/
     20260813220000_silo_chat_notes_category.sql
     20260813230000_silo_chat_managers.sql
     20260814130000_payment_request_activity_amount_and_removed.sql
+    20260814150000_launch_calendar_release_brief.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

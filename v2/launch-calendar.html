@@ -231,6 +231,25 @@
     .ev-chip-init-title { font-weight:600; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
     .ev-chip-init-meta { font-size:9px; color:var(--bcn-ink-3); margin-top:1px; }
 
+    /* release document */
+    .reldoc-sec { border:1px solid var(--bcn-border); border-radius:10px; padding:14px; margin-bottom:10px; }
+    .reldoc-sec-title { font-size:10px; font-weight:700; letter-spacing:.08em; font-family:var(--bcn-mono); color:var(--bcn-accent); text-transform:uppercase; margin-bottom:8px; }
+    .reldoc-row { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-top:1px solid var(--bcn-border); font-size:12.5px; }
+    .reldoc-row:first-child { border-top:none; }
+    .reldoc-k { color:var(--bcn-ink-3); flex-shrink:0; }
+    .reldoc-v { text-align:right; font-weight:600; word-break:break-word; }
+    .reldoc-block { font-size:13px; white-space:pre-wrap; line-height:1.5; margin-bottom:10px; }
+    .reldoc-block:last-child { margin-bottom:0; }
+    .reldoc-block-label { font-size:10px; font-weight:700; letter-spacing:.05em; color:var(--bcn-ink-3); text-transform:uppercase; margin-bottom:4px; }
+    .reldoc-empty { color:var(--bcn-ink-4); font-size:12px; font-style:italic; }
+
+    @media print {
+      body * { visibility:hidden; }
+      #dp-document, #dp-document * { visibility:visible; }
+      #dp-document { display:flex !important; position:absolute; inset:0; padding:24px; background:#fff; }
+      #printDocBtn { display:none !important; }
+    }
+
     @media(max-width:700px) {
       .lf-g2,.lf-g3,.dp-g2,.dp-g3 { grid-template-columns:1fr; }
       .agenda-row { grid-template-columns:90px 64px 1fr; }
@@ -396,6 +415,8 @@
     <button class="drawer-tab" data-dp="dp-assets">ASSETS</button>
     <button class="drawer-tab" data-dp="dp-links">LINKS</button>
     <button class="drawer-tab" data-dp="dp-comments">COMMENTS</button>
+    <button class="drawer-tab" data-dp="dp-brief">BRIEF</button>
+    <button class="drawer-tab" data-dp="dp-document">DOCUMENT</button>
   </div>
 
   <div class="ed-panel-body">
@@ -596,6 +617,96 @@
         </form>
         <div id="commentList" style="margin-top:10px;"></div>
       </div>
+    </div>
+
+    <div class="dp" id="dp-brief">
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Release Overview</div><div class="dp-sub">Preview window and the canonical release links.</div></div>
+        </div>
+        <div class="dp-g2">
+          <div class="bcn-field-group"><label class="bcn-label">PREVIEW START DATE</label><input class="bcn-field" id="briefPreviewDate" type="date" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">PREVIEW START TIME</label><input class="bcn-field bcn-field--mono" id="briefPreviewTime" type="time" /></div>
+        </div>
+        <div class="dp-g2" style="margin-top:8px;">
+          <div class="bcn-field-group"><label class="bcn-label">PRODUCT RELEASE PDF</label><input class="bcn-field bcn-field--mono" id="briefReleasePdfUrl" type="url" placeholder="https://…" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">LANDING PAGE</label><input class="bcn-field bcn-field--mono" id="briefLandingPageUrl" type="url" placeholder="https://…" /></div>
+        </div>
+        <div class="dp-sub" style="margin-top:10px;">Launch title, launch date, and deliverables are already captured on the Overview and Initiatives tabs — no need to repeat them here.</div>
+      </div>
+
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Products &amp; Design</div><div class="dp-sub">What the design is actually saying, beyond the SKUs on the Products tab.</div></div>
+        </div>
+        <div class="bcn-field-group"><label class="bcn-label">DESIGN MEANING / INTENTIONS</label><textarea class="bcn-field" id="briefDesignIntent" rows="3"></textarea></div>
+        <div class="bcn-field-group" style="margin-top:8px;"><label class="bcn-label">PRODUCT CALLOUTS</label><textarea class="bcn-field" id="briefProductCallouts" rows="2"></textarea></div>
+      </div>
+
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Marketing</div><div class="dp-sub">The actual creative brief — angle, audience, and copy/creative guardrails.</div></div>
+        </div>
+        <div id="briefBrandNotesWrap" style="display:none;margin-bottom:10px;">
+          <div class="prod-callout" style="margin-bottom:0;">
+            <div style="font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--bcn-ink-3);margin-bottom:6px;">Brand voice reference — from Ask SILO's taught notes</div>
+            <div id="briefBrandNotes"></div>
+          </div>
+        </div>
+        <div class="bcn-field-group"><label class="bcn-label">ANGLE / STORY / WHY</label><textarea class="bcn-field" id="briefMarketingAngle" rows="6" placeholder="One idea per line — the story beats, hooks, and references driving this campaign."></textarea></div>
+        <div class="dp-g2" style="margin-top:8px;">
+          <div class="bcn-field-group"><label class="bcn-label">AUDIENCE(S)</label><input class="bcn-field" id="briefAudience" placeholder="e.g. 16-30 demo, core collectors…" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">SPECIAL CALLOUTS / LIMITED EDITION</label><input class="bcn-field" id="briefSpecialCallouts" /></div>
+        </div>
+        <div class="dp-g2" style="margin-top:8px;">
+          <div class="bcn-field-group"><label class="bcn-label">APPROVED COPY — DO'S</label><textarea class="bcn-field" id="briefCopyDos" rows="3"></textarea></div>
+          <div class="bcn-field-group"><label class="bcn-label">APPROVED COPY — DON'TS</label><textarea class="bcn-field" id="briefCopyDonts" rows="3"></textarea></div>
+        </div>
+        <div class="dp-g2" style="margin-top:8px;">
+          <div class="bcn-field-group"><label class="bcn-label">APPROVED CREATIVE — DO'S</label><textarea class="bcn-field" id="briefCreativeDos" rows="3"></textarea></div>
+          <div class="bcn-field-group"><label class="bcn-label">APPROVED CREATIVE — DON'TS</label><textarea class="bcn-field" id="briefCreativeDonts" rows="3"></textarea></div>
+        </div>
+      </div>
+
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Budget / Forecast</div><div class="dp-sub">Inventory revenue worth is computed live from Products — no need to enter it.</div></div>
+        </div>
+        <div class="dp-g3">
+          <div class="bcn-field-group"><label class="bcn-label">PREVIEW MARKETING BUDGET</label><input class="bcn-field bcn-field--mono" id="briefPreviewBudget" type="number" min="0" step="0.01" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">POST-LAUNCH BUDGET</label><input class="bcn-field bcn-field--mono" id="briefPostLaunchBudget" type="number" min="0" step="0.01" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">PROJECTED REVENUE</label><input class="bcn-field bcn-field--mono" id="briefProjectedRevenue" type="number" min="0" step="0.01" /></div>
+        </div>
+      </div>
+
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Performance Tracking</div><div class="dp-sub">Fill in after launch — the Document tab compares these against the forecast above.</div></div>
+        </div>
+        <div class="dp-g3">
+          <div class="bcn-field-group"><label class="bcn-label">ACTUAL PREVIEW SPEND</label><input class="bcn-field bcn-field--mono" id="briefActualPreviewSpend" type="number" min="0" step="0.01" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">ACTUAL POST-LAUNCH SPEND</label><input class="bcn-field bcn-field--mono" id="briefActualPostLaunchSpend" type="number" min="0" step="0.01" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">ACTUAL REVENUE</label><input class="bcn-field bcn-field--mono" id="briefActualRevenue" type="number" min="0" step="0.01" /></div>
+        </div>
+        <div class="bcn-field-group" style="margin-top:8px;"><label class="bcn-label">COMPARISON (FOR ANNUALLY RECURRING EVENTS)</label><textarea class="bcn-field" id="briefPerformanceComparison" rows="2"></textarea></div>
+        <div class="dp-g2" style="margin-top:8px;">
+          <div class="bcn-field-group"><label class="bcn-label">OVERPERFORMED</label><textarea class="bcn-field" id="briefOverperformed" rows="2"></textarea></div>
+          <div class="bcn-field-group"><label class="bcn-label">UNDERPERFORMED</label><textarea class="bcn-field" id="briefUnderperformed" rows="2"></textarea></div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">
+        <span class="dp-sub" id="briefSaveStatus" style="margin:0;"></span>
+        <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="briefSaveBtn">SAVE BRIEF</button>
+      </div>
+    </div>
+
+    <div class="dp" id="dp-document">
+      <div class="dp-section" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div><div class="dp-title">Release Document</div><div class="dp-sub">Everything on this launch, assembled into one printable doc.</div></div>
+        <button type="button" class="bcn-btn bcn-btn--mono" id="printDocBtn">🖨 PRINT / SAVE AS PDF</button>
+      </div>
+      <div id="releaseDocument"></div>
     </div>
 
   </div>
@@ -827,7 +938,7 @@ const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 let currentUser = null;
 let profileById = new Map();
 let siloUsers = [];
-let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], trackerProducts=[], filtered=[];
+let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], trackerProducts=[], filtered=[], brandNotes=[];
 let activeLaunch = null;
 let view = 'calendar';
 let monthAnchor = startOfMonth(new Date());
@@ -873,6 +984,7 @@ async function boot(){
   }
 
   try { bind(); } catch (e) { console.error('Launch Workbench bind failed:', e); setStatus('UI error: ' + (e.message || e), 'neg', 8000); }
+  loadBrandNotes();
   try {
     await loadAll();
     setStatus('Ready.','pos',1400);
@@ -955,6 +1067,10 @@ function bind(){
   $('linkFormSaveBtn').onclick       = e=>{ e.preventDefault(); saveSystemLink(e); };
 
   $('commentForm').onsubmit = saveComment;
+
+  // brief + release document
+  $('briefSaveBtn').onclick = saveBrief;
+  $('printDocBtn').onclick  = () => window.print();
 
   // lookup
   $('productSourceInput').onchange = ()=>{ $('lookupBox').style.display='none'; $('lookupResults').innerHTML=''; $('lookupSearchInput').value=''; };
@@ -1327,6 +1443,8 @@ function renderDrawer(){
   renderAssets(launchAssets);
   renderSystemLinks(flt(systemLinks));
   renderComments(flt(comments));
+  renderBrief(activeLaunch);
+  renderReleaseDocument(activeLaunch, launchProducts.concat(launchTrackerProducts), launchChannels, launchAssets, flt(systemLinks));
 }
 
 function renderOverview(prods,chans,tsks){
@@ -1492,6 +1610,190 @@ function renderComments(rows){
   list.querySelectorAll('[data-del-comment]').forEach(btn=>{ btn.onclick=()=>deleteComment(btn.dataset.delComment); });
 }
 function empStr(msg){ return `<div class="bcn-empty" style="padding:12px;">${msg}</div>`; }
+
+/* ---- brief + release document ------------------------------------------ */
+
+async function loadBrandNotes(){
+  try{
+    let q=db.from('silo_chat_notes').select('id, note, category, created_at').eq('category','brand').order('created_at',{ascending:false});
+    if(_co?.id) q=q.eq('company_entity_id',_co.id);
+    const {data,error}=await q;
+    if(error) throw error;
+    brandNotes=data||[];
+  } catch(e){ console.warn('Brand notes unavailable:', e?.message||e); brandNotes=[]; }
+  renderBrandNotesReference();
+}
+
+function renderBrandNotesReference(){
+  const wrap=$('briefBrandNotesWrap'), body=$('briefBrandNotes');
+  if(!wrap||!body) return;
+  if(!brandNotes.length){ wrap.style.display='none'; return; }
+  wrap.style.display='';
+  body.innerHTML=brandNotes.slice(0,8).map((n,i)=>`<div style="font-size:12.5px;line-height:1.5;padding:4px 0;${i?'border-top:1px solid var(--bcn-border);':''}">${esc(n.note)}</div>`).join('');
+}
+
+function renderBrief(x){
+  if(!x) return;
+  $('briefPreviewDate').value=x.preview_start_date||'';
+  $('briefPreviewTime').value=x.preview_start_time||'';
+  $('briefReleasePdfUrl').value=x.release_pdf_url||'';
+  $('briefLandingPageUrl').value=x.landing_page_url||'';
+  $('briefDesignIntent').value=x.design_intent||'';
+  $('briefProductCallouts').value=x.product_callouts||'';
+  $('briefMarketingAngle').value=x.marketing_angle||'';
+  $('briefAudience').value=x.audience||'';
+  $('briefSpecialCallouts').value=x.special_callouts||'';
+  $('briefCopyDos').value=x.copy_dos||'';
+  $('briefCopyDonts').value=x.copy_donts||'';
+  $('briefCreativeDos').value=x.creative_dos||'';
+  $('briefCreativeDonts').value=x.creative_donts||'';
+  $('briefPreviewBudget').value=x.preview_marketing_budget??'';
+  $('briefPostLaunchBudget').value=x.post_launch_budget??'';
+  $('briefProjectedRevenue').value=x.projected_revenue??'';
+  $('briefActualPreviewSpend').value=x.actual_preview_spend??'';
+  $('briefActualPostLaunchSpend').value=x.actual_post_launch_spend??'';
+  $('briefActualRevenue').value=x.actual_revenue??'';
+  $('briefPerformanceComparison').value=x.performance_comparison||'';
+  $('briefOverperformed').value=x.overperformed_notes||'';
+  $('briefUnderperformed').value=x.underperformed_notes||'';
+  $('briefSaveStatus').textContent='';
+  renderBrandNotesReference();
+}
+
+function briefPayloadFromForm(){
+  const num=id=>{ const v=$(id).value; return v===''?null:Number(v); };
+  return {
+    preview_start_date: $('briefPreviewDate').value||null,
+    preview_start_time: $('briefPreviewTime').value||null,
+    release_pdf_url: $('briefReleasePdfUrl').value.trim()||null,
+    landing_page_url: $('briefLandingPageUrl').value.trim()||null,
+    design_intent: $('briefDesignIntent').value.trim()||null,
+    product_callouts: $('briefProductCallouts').value.trim()||null,
+    marketing_angle: $('briefMarketingAngle').value.trim()||null,
+    audience: $('briefAudience').value.trim()||null,
+    special_callouts: $('briefSpecialCallouts').value.trim()||null,
+    copy_dos: $('briefCopyDos').value.trim()||null,
+    copy_donts: $('briefCopyDonts').value.trim()||null,
+    creative_dos: $('briefCreativeDos').value.trim()||null,
+    creative_donts: $('briefCreativeDonts').value.trim()||null,
+    preview_marketing_budget: num('briefPreviewBudget'),
+    post_launch_budget: num('briefPostLaunchBudget'),
+    projected_revenue: num('briefProjectedRevenue'),
+    actual_preview_spend: num('briefActualPreviewSpend'),
+    actual_post_launch_spend: num('briefActualPostLaunchSpend'),
+    actual_revenue: num('briefActualRevenue'),
+    performance_comparison: $('briefPerformanceComparison').value.trim()||null,
+    overperformed_notes: $('briefOverperformed').value.trim()||null,
+    underperformed_notes: $('briefUnderperformed').value.trim()||null,
+  };
+}
+
+async function saveBrief(){
+  if(!activeLaunch) return;
+  $('briefSaveBtn').disabled=true;
+  $('briefSaveStatus').textContent='Saving…';
+  try{
+    const payload=briefPayloadFromForm();
+    const {error}=await db.from('launch_calendar').update(payload).eq('id',activeLaunch.id);
+    if(error) throw error;
+    await loadAll(false);
+    openDrawer(activeLaunch.id);
+    switchDrawerTab('dp-brief');
+    render();
+    setStatus('Brief saved.','pos',2000);
+    $('briefSaveStatus').textContent='Saved.';
+  } catch(e){
+    console.error(e);
+    $('briefSaveStatus').textContent='';
+    setStatus('Save failed: '+(e?.message||e),'neg',4500);
+  } finally {
+    $('briefSaveBtn').disabled=false;
+  }
+}
+
+function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
+  const doc=$('releaseDocument');
+  if(!doc) return;
+  if(!x){ doc.innerHTML=''; return; }
+
+  const row=(k,v)=>`<div class="reldoc-row"><span class="reldoc-k">${esc(k)}</span><span class="reldoc-v">${v?v:'<span class="reldoc-empty">—</span>'}</span></div>`;
+  const linkRow=(label,url)=> url ? `<div class="reldoc-row"><span class="reldoc-k">${esc(label)}</span><span class="reldoc-v"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(url.length>50?url.slice(0,47)+'…':url)}</a></span></div>` : '';
+  const block=(label,text)=> text ? `<div class="reldoc-block"><div class="reldoc-block-label">${esc(label)}</div>${esc(text)}</div>` : '';
+
+  const invWorth=(prods||[]).reduce((s,p)=>s+Number(p.expected_retail_value||0),0)+Number(x.expected_retail_value||0);
+
+  const previewDate=x.preview_start_date
+    ? esc(fmt(x.preview_start_date)+(x.preview_start_time?' '+x.preview_start_time.slice(0,5):'')+(x.time_zone?' '+x.time_zone:''))
+    : null;
+  const launchDate=esc(fmt(x.launch_date)+(x.launch_time?' '+x.launch_time.slice(0,5):'')+(x.time_zone?' '+x.time_zone:''));
+
+  const deliverables=(chans||[]).length
+    ? chans.map(c=>`<div class="reldoc-row"><span class="reldoc-k">${esc(c.item_title)}${c.channel?` (${esc(c.channel)})`:''}</span><span class="reldoc-v">${c.scheduled_date?esc(fmt(c.scheduled_date)+(c.scheduled_time?' '+c.scheduled_time.slice(0,5):'')):'<span class="reldoc-empty">Unscheduled</span>'}</span></div>`).join('')
+    : `<div class="reldoc-empty">No deliverables added yet — add them on the Initiatives tab.</div>`;
+
+  const productRows=(prods||[]).length
+    ? prods.map(p=>`<div class="reldoc-row"><span class="reldoc-k">${esc(p.product_title)}</span><span class="reldoc-v">${esc([p.product_type,p.expected_units?`${p.expected_units} units`:null,p.expected_retail_value?money(p.expected_retail_value):null].filter(Boolean).join(' · ')) || '—'}</span></div>`).join('')
+    : `<div class="reldoc-empty">No products linked yet — add them on the Products tab.</div>`;
+
+  const assetLinks=(assetRows||[]).map(a=>linkRow(a.asset_name||a.asset_type||'Asset', a.asset_url)).filter(Boolean).join('');
+  const siloLinks=(linkRows||[]).map(l=>linkRow(l.ref_label||l.link_type||'Link', l.ref_url)).filter(Boolean).join('');
+
+  doc.innerHTML=`
+    <div class="reldoc-sec">
+      <div class="reldoc-sec-title">Release Overview</div>
+      ${row('Sale / Collection / Promo Event', esc(x.title||'—'))}
+      ${row('Preview Start Date & Time', previewDate)}
+      ${row('Launch Date(s) & Time', launchDate)}
+      ${linkRow('Product Release PDF', x.release_pdf_url)}
+      ${linkRow('Landing Page', x.landing_page_url)}
+      <div class="reldoc-block-label" style="margin-top:8px;">Deliverables</div>
+      ${deliverables}
+    </div>
+
+    <div class="reldoc-sec">
+      <div class="reldoc-sec-title">Products &amp; Design</div>
+      ${productRows}
+      ${block('Design Meaning / Intentions', x.design_intent)}
+      ${block('Product Callouts', x.product_callouts)}
+    </div>
+
+    <div class="reldoc-sec">
+      <div class="reldoc-sec-title">Marketing</div>
+      ${block('Angle / Story / Why', x.marketing_angle)}
+      ${row('Audience(s)', x.audience?esc(x.audience):null)}
+      ${row('Special Callouts / Limited Edition', x.special_callouts?esc(x.special_callouts):null)}
+      ${block("Approved Copy — Do's", x.copy_dos)}
+      ${block("Approved Copy — Don'ts", x.copy_donts)}
+      ${block("Approved Creative — Do's", x.creative_dos)}
+      ${block("Approved Creative — Don'ts", x.creative_donts)}
+    </div>
+
+    <div class="reldoc-sec">
+      <div class="reldoc-sec-title">Budget / Forecast</div>
+      ${row('Preview Marketing Budget', x.preview_marketing_budget!=null?money(x.preview_marketing_budget):null)}
+      ${row('Post-Launch Budget', x.post_launch_budget!=null?money(x.post_launch_budget):null)}
+      ${row('Inventory Revenue (Full Price Worth)', invWorth?money(invWorth):null)}
+      ${row('Projected Revenue', x.projected_revenue!=null?money(x.projected_revenue):null)}
+    </div>
+
+    <div class="reldoc-sec">
+      <div class="reldoc-sec-title">Performance Tracking</div>
+      ${row('Actual Preview Marketing Spend', x.actual_preview_spend!=null?money(x.actual_preview_spend):null)}
+      ${row('Actual Post-Launch Spend', x.actual_post_launch_spend!=null?money(x.actual_post_launch_spend):null)}
+      ${row('Actual Revenue', x.actual_revenue!=null?money(x.actual_revenue):null)}
+      ${block('Comparison (Annually Recurring Events)', x.performance_comparison)}
+      ${block('Overperformed', x.overperformed_notes)}
+      ${block('Underperformed', x.underperformed_notes)}
+    </div>
+
+    ${(assetLinks||siloLinks)?`
+    <div class="reldoc-sec">
+      <div class="reldoc-sec-title">Assets &amp; Links</div>
+      ${assetLinks}
+      ${siloLinks}
+    </div>`:''}
+  `;
+}
 
 /* ---- launch form ------------------------------------------------------- */
 

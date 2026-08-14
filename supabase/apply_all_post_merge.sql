@@ -9305,3 +9305,35 @@ alter table public.payment_request_activity
     'file_uploaded', 'file_removed', 'notification_sent', 'forwarded_to_melio',
     'updated', 'amount_changed'
   ]));
+
+-- ============================================================
+-- 20260814150000_launch_calendar_release_brief.sql
+--
+-- Launch Workbench is gaining a structured "release brief" so creative
+-- direction, marketing story, budget, and post-launch performance live on
+-- the launch itself instead of scattered notes fields nobody can find.
+-- ============================================================
+
+alter table public.launch_calendar
+  add column if not exists preview_start_date date,
+  add column if not exists preview_start_time time,
+  add column if not exists release_pdf_url text,
+  add column if not exists landing_page_url text,
+  add column if not exists design_intent text,
+  add column if not exists product_callouts text,
+  add column if not exists marketing_angle text,
+  add column if not exists audience text,
+  add column if not exists special_callouts text,
+  add column if not exists copy_dos text,
+  add column if not exists copy_donts text,
+  add column if not exists creative_dos text,
+  add column if not exists creative_donts text,
+  add column if not exists preview_marketing_budget numeric,
+  add column if not exists post_launch_budget numeric,
+  add column if not exists projected_revenue numeric,
+  add column if not exists actual_preview_spend numeric,
+  add column if not exists actual_post_launch_spend numeric,
+  add column if not exists actual_revenue numeric,
+  add column if not exists performance_comparison text,
+  add column if not exists overperformed_notes text,
+  add column if not exists underperformed_notes text;
