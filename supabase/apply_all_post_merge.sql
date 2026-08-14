@@ -9337,3 +9337,17 @@ alter table public.launch_calendar
   add column if not exists performance_comparison text,
   add column if not exists overperformed_notes text,
   add column if not exists underperformed_notes text;
+
+-- ============================================================
+-- 20260814170000_launch_calendar_audience_tags.sql
+--
+-- Free-text audience on the launch brief is hard for Ask SILO (or anyone)
+-- to pattern-match across launches. Adds a structured, repeatable tag
+-- array alongside the existing free-text audience column.
+-- ============================================================
+
+alter table public.launch_calendar
+  add column if not exists audience_tags text[] not null default '{}';
+
+create index if not exists launch_calendar_audience_tags_gin
+  on public.launch_calendar using gin (audience_tags);
