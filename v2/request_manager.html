@@ -409,7 +409,8 @@
 
             <div>
               <label class="bcn-label">Amount due</label>
-              <input id="fAmountDue" class="input mono" disabled />
+              <input id="fAmountDue" class="input mono rm-field-editable" type="number" step="0.01" min="0" />
+              <div class="rm-upload-hint">Editable — corrections are logged to activity.</div>
             </div>
 
             <div>
@@ -449,6 +450,22 @@
               <button id="forwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to Melio</button>
             </div>
             <div id="forwardMelioStatus" class="rm-upload-status"></div>
+            <div class="rm-upload-zone">
+              <label class="rm-upload-label" for="submittedFileInput">
+                <span class="rm-upload-title">Add submitted document</span>
+                <span class="rm-upload-hint">Additional invoice pages, PO backup, or anything else that belongs with the original submission.</span>
+              </label>
+              <input
+                id="submittedFileInput"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+                multiple
+              />
+              <div class="rm-upload-actions">
+                <button id="uploadSubmittedBtn" class="btn btn-primary btn-xs" type="button" disabled>Upload to request</button>
+                <span id="submittedUploadStatus" class="rm-upload-status"></span>
+              </div>
+            </div>
           </div>
 
           <div class="rm-doc-group">
@@ -712,6 +729,9 @@
       confirmationFileInput: document.getElementById("confirmationFileInput"),
       uploadConfirmationBtn: document.getElementById("uploadConfirmationBtn"),
       confirmationUploadStatus: document.getElementById("confirmationUploadStatus"),
+      submittedFileInput: document.getElementById("submittedFileInput"),
+      uploadSubmittedBtn: document.getElementById("uploadSubmittedBtn"),
+      submittedUploadStatus: document.getElementById("submittedUploadStatus"),
 
       fWorkflowStatus: document.getElementById("fWorkflowStatus"),
       fAssignedTo: document.getElementById("fAssignedTo"),
@@ -892,6 +912,8 @@
         note_added: "Note added",
         file_opened: "File opened",
         file_uploaded: "File uploaded",
+        file_removed: "File removed",
+        amount_changed: "Amount changed",
         notification_sent: "Requester notified",
         imported: "Imported",
         updated: "Updated"
@@ -1114,6 +1136,14 @@
               data-url="${escapeHtml(file.file_url || "")}"
               data-name="${escapeHtml(file.file_name || `File ${index + 1}`)}"
             >Open</button>
+            <button
+              class="btn btn-soft btn-xs btn-danger-outline remove-drawer-file-btn"
+              type="button"
+              data-file-id="${escapeHtml(file.id || "")}"
+              data-path="${escapeHtml(file.file_path || "")}"
+              data-url="${escapeHtml(file.file_url || "")}"
+              data-name="${escapeHtml(file.file_name || `File ${index + 1}`)}"
+            >Remove</button>
           </div>
         `;
       }).join("");
@@ -1129,6 +1159,63 @@
           }, row.id, true, row);
         });
       });
+
+      document.querySelectorAll(".remove-drawer-file-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await removeRequestFile({
+            id: btn.getAttribute("data-file-id") || null,
+            file_path: btn.getAttribute("data-path") || null,
+            file_url: btn.getAttribute("data-url") || null,
+            file_name: btn.getAttribute("data-name") || "attached document"
+          }, row);
+        });
+      });
+    }
+
+    async function removeRequestFile(file, row) {
+      if (!row?.id) return;
+
+      const label = file.file_name || "this document";
+      if (!window.confirm(`Remove "${label}" from this request? This cannot be undone.`)) return;
+
+      try {
+        const isSynthetic = String(file.id || "").startsWith("legacy-");
+        const externalUrl = resolveExternalFileUrl(file);
+        const storagePath = !externalUrl ? String(file.file_path || "").trim() : "";
+
+        if (storagePath) {
+          const { error: removeError } = await supabaseClient.storage.from(BUCKET).remove([storagePath]);
+          if (removeError) throw removeError;
+        }
+
+        if (isSynthetic) {
+          await updatePaymentRequestOrThrow(row.id, {
+            file_path: null,
+            file_url: null,
+            file_name: null,
+            updated_by: state.currentUser?.id || null
+          });
+        } else {
+          const { error: deleteError } = await supabaseClient
+            .from("payment_request_files")
+            .delete()
+            .eq("id", file.id);
+          if (deleteError) throw deleteError;
+        }
+
+        await logActivity({
+          requestId: row.id,
+          activityType: "file_removed",
+          message: `Removed document: ${label}`
+        });
+
+        await loadData();
+        await openDrawer(row.id);
+        showToast(`Removed "${label}".`);
+      } catch (err) {
+        console.error(err);
+        showToast(`Remove failed: ${err.message || "Unknown error"}`, true);
+      }
     }
 
     function renderDrawerDocuments(row) {
@@ -1163,10 +1250,11 @@
       bindDrawerFileButtons(row);
     }
 
-    async function uploadConfirmationFiles(fileList, requestId) {
+    async function uploadRequestFiles(fileList, requestId, kind = "confirmation") {
       const files = Array.from(fileList || []);
       if (!files.length) return [];
 
+      const folder = kind === "submitted" ? "submitted" : "confirmation";
       const existing = state.files.filter(file => file.payment_request_id === requestId);
       const maxSort = existing.reduce((max, file) => Math.max(max, Number(file.sort_order || 0)), 0);
       const uploaded = [];
@@ -1174,7 +1262,7 @@
       for (let index = 0; index < files.length; index++) {
         const file = files[index];
         const safeName = file.name.replace(/[^\w.\-]/g, "_");
-        const path = `${requestId}/confirmation/${Date.now()}-${index + 1}-${safeName}`;
+        const path = `${requestId}/${folder}/${Date.now()}-${index + 1}-${safeName}`;
         const { error: uploadError } = await supabaseClient.storage
           .from(BUCKET)
           .upload(path, file, { cacheControl: "3600", upsert: false });
@@ -1203,27 +1291,38 @@
       return uploaded;
     }
 
-    async function handleConfirmationUpload() {
+    // Back-compat alias — bulk mark-paid and quick actions only ever attach confirmations.
+    async function uploadConfirmationFiles(fileList, requestId) {
+      return uploadRequestFiles(fileList, requestId, "confirmation");
+    }
+
+    async function handleDocumentUpload(kind) {
       if (!state.currentRow?.id) return;
 
-      const files = els.confirmationFileInput.files;
+      const isConfirmation = kind === "confirmation";
+      const inputEl = isConfirmation ? els.confirmationFileInput : els.submittedFileInput;
+      const btnEl = isConfirmation ? els.uploadConfirmationBtn : els.uploadSubmittedBtn;
+      const statusEl = isConfirmation ? els.confirmationUploadStatus : els.submittedUploadStatus;
+      const label = isConfirmation ? "confirmation" : "submitted";
+
+      const files = inputEl.files;
       if (!files?.length) {
         showToast("Choose at least one file to upload.");
         return;
       }
 
-      els.uploadConfirmationBtn.disabled = true;
-      els.confirmationUploadStatus.textContent = "Uploading…";
+      btnEl.disabled = true;
+      statusEl.textContent = "Uploading…";
 
       try {
-        const uploaded = await uploadConfirmationFiles(files, state.currentRow.id);
+        const uploaded = await uploadRequestFiles(files, state.currentRow.id, kind);
 
         for (const file of uploaded) {
           try {
             await logActivity({
               requestId: state.currentRow.id,
               activityType: "file_uploaded",
-              message: `Uploaded confirmation document: ${file.file_name}`
+              message: `Uploaded ${label} document: ${file.file_name}`
             });
           } catch (activityErr) {
             console.error("Failed to log file_uploaded activity", activityErr);
@@ -1240,17 +1339,17 @@
           renderDrawerActivity(row);
         }
 
-        els.confirmationFileInput.value = "";
-        els.confirmationUploadStatus.textContent = uploaded.length
+        inputEl.value = "";
+        statusEl.textContent = uploaded.length
           ? `Uploaded ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}.`
           : "";
-        showToast(`Uploaded ${uploaded.length} confirmation document${uploaded.length === 1 ? "" : "s"}.`);
+        showToast(`Uploaded ${uploaded.length} ${label} document${uploaded.length === 1 ? "" : "s"}.`);
       } catch (err) {
         console.error(err);
-        els.confirmationUploadStatus.textContent = "";
+        statusEl.textContent = "";
         showToast(`Upload failed: ${err.message || "Unknown error"}`, true);
       } finally {
-        els.uploadConfirmationBtn.disabled = !els.confirmationFileInput.files?.length;
+        btnEl.disabled = !inputEl.files?.length;
       }
     }
 
@@ -2203,7 +2302,7 @@
       els.fInvoiceNumber.value = row.invoice_number || "";
       els.fFlexId.value = row.flex_id || "";
       els.fPoNumber.value = row.internal_po_number || "";
-      els.fAmountDue.value = formatMoney(row.amount_due);
+      els.fAmountDue.value = row.amount_due != null ? Number(row.amount_due).toFixed(2) : "";
       els.fDueDate.value = formatDate(row.due_date);
       els.fSubmittedNotes.value = row.notes_comments || "";
 
@@ -2219,6 +2318,9 @@
       els.confirmationFileInput.value = "";
       els.confirmationUploadStatus.textContent = "";
       els.uploadConfirmationBtn.disabled = true;
+      els.submittedFileInput.value = "";
+      els.submittedUploadStatus.textContent = "";
+      els.uploadSubmittedBtn.disabled = true;
 
       renderDrawerDocuments(row);
       renderDrawerSnapshot(row);
@@ -2265,7 +2367,7 @@
 
         const pendingConfirmationFiles = els.confirmationFileInput.files;
         if (pendingConfirmationFiles?.length) {
-          const uploaded = await uploadConfirmationFiles(pendingConfirmationFiles, oldRow.id);
+          const uploaded = await uploadRequestFiles(pendingConfirmationFiles, oldRow.id, "confirmation");
           for (const file of uploaded) {
             try {
               await logActivity({
@@ -2280,11 +2382,34 @@
           els.confirmationFileInput.value = "";
         }
 
+        const pendingSubmittedFiles = els.submittedFileInput.files;
+        if (pendingSubmittedFiles?.length) {
+          const uploaded = await uploadRequestFiles(pendingSubmittedFiles, oldRow.id, "submitted");
+          for (const file of uploaded) {
+            try {
+              await logActivity({
+                requestId: oldRow.id,
+                activityType: "file_uploaded",
+                message: `Uploaded submitted document: ${file.file_name}`
+              });
+            } catch (activityErr) {
+              console.error("Failed to log file_uploaded activity", activityErr);
+            }
+          }
+          els.submittedFileInput.value = "";
+        }
+
         const completed = markPaid ? true : els.fCompleted.value === "true";
         const workflowStatus = markPaid ? "paid" : els.fWorkflowStatus.value;
         const dateCompleted = markPaid
           ? new Date().toISOString().slice(0, 10)
           : (els.fDateCompleted.value || null);
+
+        const amountDueRaw = els.fAmountDue.value.trim();
+        const amountDue = Number(amountDueRaw);
+        if (amountDueRaw === "" || !Number.isFinite(amountDue) || amountDue < 0) {
+          throw new Error("Amount due must be a valid non-negative number.");
+        }
 
         const payload = {
           workflow_status: workflowStatus,
@@ -2295,6 +2420,7 @@
           date_completed: completed ? dateCompleted : null,
           payment_detail: els.fPaymentDetail.value.trim() || null,
           internal_notes: els.fInternalNotes.value.trim() || null,
+          amount_due: Math.round(amountDue * 100) / 100,
           updated_by: state.currentUser?.id || null
         };
 
@@ -2346,6 +2472,17 @@
             oldValue: oldRow.payment_type || "",
             newValue: payload.payment_type || "",
             message: `Payment type changed from ${oldRow.payment_type || "—"} to ${payload.payment_type || "—"}`
+          }));
+        }
+
+        if (Number(oldRow.amount_due || 0).toFixed(2) !== Number(payload.amount_due || 0).toFixed(2)) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "amount_changed",
+            fieldName: "amount_due",
+            oldValue: formatMoney(oldRow.amount_due),
+            newValue: formatMoney(payload.amount_due),
+            message: `Amount due changed from ${formatMoney(oldRow.amount_due)} to ${formatMoney(payload.amount_due)}`
           }));
         }
 
@@ -2514,7 +2651,14 @@
           els.confirmationUploadStatus.textContent = "";
         }
       });
-      els.uploadConfirmationBtn.addEventListener("click", handleConfirmationUpload);
+      els.uploadConfirmationBtn.addEventListener("click", () => handleDocumentUpload("confirmation"));
+      els.submittedFileInput.addEventListener("change", () => {
+        els.uploadSubmittedBtn.disabled = !els.submittedFileInput.files?.length;
+        if (!els.submittedFileInput.files?.length) {
+          els.submittedUploadStatus.textContent = "";
+        }
+      });
+      els.uploadSubmittedBtn.addEventListener("click", () => handleDocumentUpload("submitted"));
       els.notifyRequesterBtn.addEventListener("click", () => {
         if (state.currentRow?.id) notifyRequester(state.currentRow.id);
       });
