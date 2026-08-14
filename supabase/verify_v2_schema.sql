@@ -167,6 +167,13 @@ select
   case when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'can_manage_silo_notes') then 'ok' else 'MISSING' end as can_manage_silo_notes_fn,
   case when (select count(*) from pg_policies where schemaname='public' and tablename='silo_chat_managers') = 3 then 'ok' else 'MISSING' end as silo_chat_managers_policies;
 
+-- 7j. Connection secrets locked to admin-tier reads (20260814000000_lock_connection_secrets_to_admin.sql)
+select
+  case when exists (select 1 from pg_policies where schemaname='public' and tablename='redo_connections' and policyname='redo_connections_admin_select') then 'ok' else 'MISSING' end as redo_connections_admin_select,
+  case when exists (select 1 from pg_policies where schemaname='public' and tablename='ad_platform_connections' and policyname='ad_platform_connections_admin_select') then 'ok' else 'MISSING' end as ad_platform_connections_admin_select,
+  case when not exists (select 1 from pg_policies where schemaname='public' and tablename='redo_connections' and policyname='redo_connections_active_select') then 'ok' else 'STALE POLICY STILL PRESENT' end as redo_connections_old_policy_gone,
+  case when not exists (select 1 from pg_policies where schemaname='public' and tablename='ad_platform_connections' and policyname='ad_platform_connections_active_select') then 'ok' else 'STALE POLICY STILL PRESENT' end as ad_platform_connections_old_policy_gone;
+
 -- 7c. Inventory MV company index (20260717190000)
 select
   case when exists (select 1 from pg_indexes where schemaname='public' and tablename='inventory_on_hand_current_mv' and indexname='inventory_on_hand_current_mv_company_idx') then 'ok' else 'MISSING' end as inventory_mv_company_idx;

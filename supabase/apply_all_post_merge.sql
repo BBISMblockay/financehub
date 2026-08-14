@@ -9286,6 +9286,21 @@ revoke all on public.silo_chat_managers_v from anon;
 grant select, insert, delete on public.silo_chat_managers to authenticated;
 grant select on public.silo_chat_managers_v to authenticated;
 
+-- 20260814000000_lock_connection_secrets_to_admin.sql
+drop policy if exists redo_connections_active_select on public.redo_connections;
+create policy redo_connections_admin_select on public.redo_connections
+  for select using (
+    company_entity_id = active_company_id()
+    and is_admin_user()
+  );
+
+drop policy if exists ad_platform_connections_active_select on public.ad_platform_connections;
+create policy ad_platform_connections_admin_select on public.ad_platform_connections
+  for select using (
+    company_entity_id = active_company_id()
+    and is_admin_user()
+  );
+
 -- ============================================================
 -- 20260814130000_payment_request_activity_amount_and_removed.sql
 --
