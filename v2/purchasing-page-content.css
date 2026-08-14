@@ -1338,6 +1338,21 @@
   opacity: 1;
 }
 
+.rm-drawer-readonly .input.rm-field-editable {
+  background: var(--bcn-surface);
+  border-style: solid;
+  border-color: var(--bcn-accent);
+}
+
+.pr-page .btn-danger-outline {
+  color: var(--bcn-neg);
+  border-color: var(--bcn-neg-border);
+}
+
+.pr-page .btn-danger-outline:hover {
+  background: var(--bcn-neg-soft);
+}
+
 .rm-drawer-note {
   margin-bottom: 12px;
   padding: 10px 12px;
