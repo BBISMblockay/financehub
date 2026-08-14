@@ -231,9 +231,11 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
 
 /** Ad-level Meta insights (level=ad) for the creative report. Chunked into
  * short windows internally: ad-grain requests are much bigger than campaign
- * grain and a wide window trips Meta's "reduce the amount of data" error
- * (code 1 / subcode 99 — hit live on a 34-day campaign-level backfill). */
-export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 } = {}) {
+ * grain (many ads per campaign) and even the 7-day window that's safe for
+ * campaign-grain still trips Meta's "reduce the amount of data" error
+ * (code 1 / subcode 99) at ad grain -- hit live on the nightly sync 3 nights
+ * running, 2026-08-11 through 08-13, at the old chunkDays=7 default. */
+export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 3 } = {}) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
