@@ -689,9 +689,10 @@
         <div class="dp-sec-head">
           <div><div class="dp-title">Performance Tracking</div><div class="dp-sub">Fill in after launch — the Document tab compares these against the forecast above.</div></div>
         </div>
+        <div class="prod-callout">Spend fields below are a <strong>manual estimate</strong>, not the synced ad-platform ledger (Google/Meta/TikTok/GA4 actuals live in Marketing Overview, day-by-day — this launch isn't linked to that yet). Use whatever number you'd actually report on.</div>
         <div class="dp-g3">
-          <div class="bcn-field-group"><label class="bcn-label">ACTUAL PREVIEW SPEND</label><input class="bcn-field bcn-field--mono" id="briefActualPreviewSpend" type="number" min="0" step="0.01" /></div>
-          <div class="bcn-field-group"><label class="bcn-label">ACTUAL POST-LAUNCH SPEND</label><input class="bcn-field bcn-field--mono" id="briefActualPostLaunchSpend" type="number" min="0" step="0.01" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">ACTUAL PREVIEW SPEND (MANUAL)</label><input class="bcn-field bcn-field--mono" id="briefActualPreviewSpend" type="number" min="0" step="0.01" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">ACTUAL POST-LAUNCH SPEND (MANUAL)</label><input class="bcn-field bcn-field--mono" id="briefActualPostLaunchSpend" type="number" min="0" step="0.01" /></div>
           <div class="bcn-field-group"><label class="bcn-label">ACTUAL REVENUE</label><input class="bcn-field bcn-field--mono" id="briefActualRevenue" type="number" min="0" step="0.01" /></div>
         </div>
         <div class="bcn-field-group" style="margin-top:8px;"><label class="bcn-label">COMPARISON (FOR ANNUALLY RECURRING EVENTS)</label><textarea class="bcn-field" id="briefPerformanceComparison" rows="2"></textarea></div>
@@ -802,10 +803,11 @@
             </div>
           </div>
           <div class="lf-g2" style="margin-top:10px;">
-            <div class="bcn-field-group"><label class="bcn-label">ASSETS NEEDED</label><textarea class="bcn-field" id="assetsInput" rows="3"></textarea></div>
-            <div class="bcn-field-group"><label class="bcn-label">DETAILS</label><textarea class="bcn-field" id="detailsInput" rows="3"></textarea></div>
+            <div class="bcn-field-group"><label class="bcn-label">ASSETS NEEDED</label><textarea class="bcn-field" id="assetsInput" rows="3" placeholder="Logistics — what still needs to be shot/designed/written."></textarea></div>
+            <div class="bcn-field-group"><label class="bcn-label">DETAILS</label><textarea class="bcn-field" id="detailsInput" rows="3" placeholder="Logistics — scope, timing, who's involved."></textarea></div>
           </div>
-          <div class="bcn-field-group" style="margin-top:10px;"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="notesInput" rows="2"></textarea></div>
+          <div class="bcn-field-group" style="margin-top:10px;"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="notesInput" rows="2" placeholder="Anything else that doesn't fit above."></textarea></div>
+          <div class="dp-sub" style="margin-top:6px;">For creative direction — angle, audience, design intent, copy/creative guardrails — use the <strong>Brief</strong> tab after saving, not these fields.</div>
         </div>
       </form>
     </div>
@@ -1784,8 +1786,8 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
 
     <div class="reldoc-sec">
       <div class="reldoc-sec-title">Performance Tracking</div>
-      ${row('Actual Preview Marketing Spend', x.actual_preview_spend!=null?money(x.actual_preview_spend):null)}
-      ${row('Actual Post-Launch Spend', x.actual_post_launch_spend!=null?money(x.actual_post_launch_spend):null)}
+      ${row('Actual Preview Marketing Spend (manual)', x.actual_preview_spend!=null?money(x.actual_preview_spend):null)}
+      ${row('Actual Post-Launch Spend (manual)', x.actual_post_launch_spend!=null?money(x.actual_post_launch_spend):null)}
       ${row('Actual Revenue', x.actual_revenue!=null?money(x.actual_revenue):null)}
       ${block('Comparison (Annually Recurring Events)', x.performance_comparison)}
       ${block('Overperformed', x.overperformed_notes)}
