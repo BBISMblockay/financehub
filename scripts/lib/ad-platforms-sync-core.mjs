@@ -22,6 +22,7 @@ import {
   isoDateOnly,
   addDays,
   upsertInChunks,
+  sleep,
 } from './shopify-sync-core.mjs';
 
 // Both platforms retire API versions on a schedule (Google Ads majors ~12
@@ -85,6 +86,47 @@ async function fetchJsonOrThrow(url, opts, label) {
   if (!res.ok) throw new Error(`${label} → ${res.status}: ${text.slice(0, 500)}`);
   try { return JSON.parse(text); } catch {
     throw new Error(`${label}: non-JSON response: ${text.slice(0, 200)}`);
+  }
+}
+
+// Meta returns errors as a 200-range-adjacent HTTP status (403/500/400) with
+// a JSON body describing the failure, not a bare 429 — fetchWithRetry's 429
+// handling never sees these, so they were surfacing as hard failures on
+// every occurrence (hit live: code 4 "Application request limit reached" and
+// code 1 "reduce the amount of data" — sometimes with error_subcode 99,
+// sometimes without it — on 2026-08-11 through 08-14, and code 2 "Service
+// temporarily unavailable" on 2026-08-14). Meta's own `is_transient` flag is
+// NOT a reliable signal — the code 2 case above shipped with
+// is_transient:false despite the message describing a transient condition —
+// so retry on the specific codes we've observed being retry-worthy in
+// practice rather than trusting that flag alone.
+const META_RETRY_DELAYS_MS = [30_000, 90_000, 180_000];
+const META_RETRYABLE_CODES = new Set([1, 2, 4, 17]);
+
+function isMetaTransientError(bodyText) {
+  try {
+    const err = JSON.parse(bodyText)?.error;
+    if (!err) return false;
+    return Boolean(err.is_transient) || META_RETRYABLE_CODES.has(err.code);
+  } catch {
+    return false;
+  }
+}
+
+async function fetchMetaJsonOrThrow(url, opts, label) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchWithRetry(url, opts);
+    const text = await res.text();
+    if (res.ok) {
+      try { return JSON.parse(text); } catch {
+        throw new Error(`${label}: non-JSON response: ${text.slice(0, 200)}`);
+      }
+    }
+    if (attempt < META_RETRY_DELAYS_MS.length && isMetaTransientError(text)) {
+      await sleep(META_RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+    throw new Error(`${label} → ${res.status}: ${text.slice(0, 500)}`);
   }
 }
 
@@ -200,7 +242,7 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
     }).toString();
 
     while (url) {
-      const data = await fetchJsonOrThrow(url, {}, 'Meta insights');
+      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta insights');
       for (const r of data.data ?? []) {
         // "Conversions" for a store = purchases — the bottom of the funnel;
         // view_content/add_to_cart/initiate_checkout are the stages above it.
@@ -231,9 +273,13 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
 
 /** Ad-level Meta insights (level=ad) for the creative report. Chunked into
  * short windows internally: ad-grain requests are much bigger than campaign
- * grain and a wide window trips Meta's "reduce the amount of data" error
- * (code 1 / subcode 99 — hit live on a 34-day campaign-level backfill). */
-export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 } = {}) {
+ * grain (many ads per campaign) and even a 3-day window still tripped Meta's
+ * "reduce the amount of data" error live on 2026-08-14 (chunkDays=7 failed
+ * 2026-08-11 through 08-13 before that). Day-by-day is the smallest window
+ * the API supports, so this is the floor short of dropping fields/date
+ * granularity — if this still trips the error, the retry-with-backoff in
+ * fetchMetaJsonOrThrow is the remaining backstop, not a smaller chunk. */
+export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 } = {}) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
@@ -253,7 +299,7 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 7 }
       access_token: token,
     }).toString();
     while (url) {
-      const data = await fetchJsonOrThrow(url, {}, 'Meta ad-level insights');
+      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta ad-level insights');
       for (const r of data.data ?? []) {
         const purchases = pickAction(r.actions, 'purchase');
         const purchaseValue = pickAction(r.action_values, 'purchase');
@@ -296,7 +342,7 @@ export async function fetchMetaAdCreatives(connection, adIds) {
     const batch = ids.slice(i, i + 50).map((id) => ({
       method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=${fields}`,
     }));
-    const data = await fetchJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
+    const data = await fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ access_token: token, batch: JSON.stringify(batch) }).toString(),
