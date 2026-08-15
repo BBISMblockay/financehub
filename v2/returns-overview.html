@@ -216,31 +216,37 @@
   const sinceIso = () => new Date(Date.now() - (WINDOW_DAYS-1)*86400000).toISOString();
 
   // ── Paged loader (PostgREST caps at 1000 rows silently) ────────
-  async function loadPaged(build){
+  // onPage(loadedSoFar) fires after every page lands, so callers can surface
+  // real progress instead of one flat "Loading…" for windows that now span
+  // thousands of rows (the historical API backfill made 90d windows much
+  // bigger than the webhook-only era this page was originally built for).
+  async function loadPaged(build, onPage){
     const PAGE = 1000;
     const out = [];
     for (let from = 0;; from += PAGE){
       const { data, error } = await build().range(from, from + PAGE - 1);
       if (error) throw error;
       out.push(...(data || []));
+      if (onPage) onPage(out.length);
       if (!data || data.length < PAGE) break;
     }
     return out;
   }
 
-  const loadReturns = () => loadPaged(() => scopeQ(
+  const loadReturns = (onPage) => loadPaged(() => scopeQ(
     sb.from('redo_returns')
       .select('id,redo_return_id,shopify_order_name,status,return_type,refund_amount,exchange_amount,store_credit_amount,redo_created_at,customer_email,customer_name')
       .gte('redo_created_at', sinceIso())
-      .order('redo_created_at', { ascending:true })));
+      .order('redo_created_at', { ascending:true })), onPage);
 
-  async function loadItems(returnIds){
-    if (!returnIds.length) return [];
-    return loadPaged(() => scopeQ(
-      sb.from('redo_return_items')
-        .select('return_id,sku,product_name,reason,reason_code,product_value')
-        .in('return_id', returnIds)));
-  }
+  // Filters on the parent return's date via the FK embed instead of passing
+  // a return_id IN-list -- a full window post-backfill can be thousands of
+  // returns, and a thousands-of-UUIDs IN-list either blows past PostgREST's
+  // URL length or is simply very slow to plan/execute.
+  const loadItems = (onPage) => loadPaged(() => scopeQ(
+    sb.from('redo_return_items')
+      .select('return_id,sku,product_name,reason,reason_code,product_value,redo_returns!inner(redo_created_at)')
+      .gte('redo_returns.redo_created_at', sinceIso())), onPage);
 
   // ── KPI band ─────────────────────────────────────────────────
   function renderKpis(returns){
@@ -490,7 +496,11 @@
       el('returnsBody').innerHTML = `<tr><td class="ro-empty" colspan="8">No returns in this window yet.</td></tr>`;
     } else {
       el('returnsBody').innerHTML = shown.map(r => {
-        const firstItem = (itemsByReturn.get(r.id) || [])[0];
+        // itemsByReturn is null on the first pass -- the table renders as
+        // soon as returns land, before the (often much larger) items fetch
+        // finishes, so the reason column starts blank and fills in on the
+        // second pass rather than holding the whole table hostage to it.
+        const firstItem = itemsByReturn ? (itemsByReturn.get(r.id) || [])[0] : null;
         const pillClass = STATUS_PILL[r.status] || '';
         const dateStr = r.redo_created_at ? new Date(r.redo_created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
         return `<tr>
@@ -510,24 +520,48 @@
   }
 
   // ── Load + render ────────────────────────────────────────────────
+  // Two independent stages, rendered as each lands rather than gated behind
+  // both: KPIs/status/chart/recent-returns only need `returns`, so they
+  // paint immediately instead of waiting on the items fetch, which is
+  // usually the larger of the two once a window covers backfilled history.
+  // loadGen guards against a slow load finishing after a newer one (rapid
+  // window-button clicks, or Refresh mid-flight) and clobbering fresher
+  // results with stale ones.
+  let loadGen = 0;
+
   async function runLoad(){
-    setStatus('Loading…');
+    const gen = ++loadGen;
+    const stale = () => gen !== loadGen;
+
+    setStatus('Loading returns…');
     try {
-      const returns = await loadReturns();
-      const items = await loadItems(returns.map(r => r.id));
+      const returns = await loadReturns(n => {
+        if (!stale()) setStatus(`Loading returns… (${numFmt(n)} so far)`);
+      });
+      if (stale()) return;
+
+      renderKpis(returns);
+      renderStatusBreakdown(returns);
+      renderChart(returns);
+      renderReturns(returns, null);
+      setStatus(`${numFmt(returns.length)} returns — loading items…`);
+
+      const items = await loadItems(n => {
+        if (!stale()) setStatus(`${numFmt(returns.length)} returns — loading items… (${numFmt(n)} so far)`);
+      });
+      if (stale()) return;
+
       const itemsByReturn = new Map();
       for (const it of items){
         if (!itemsByReturn.has(it.return_id)) itemsByReturn.set(it.return_id, []);
         itemsByReturn.get(it.return_id).push(it);
       }
-      renderKpis(returns);
-      renderStatusBreakdown(returns);
-      renderChart(returns);
       renderReasons(items);
       renderTopSkus(items);
       renderReturns(returns, itemsByReturn);
-      setStatus(`${returns.length} returns, ${items.length} items — last ${WINDOW_DAYS}d`);
+      setStatus(`${numFmt(returns.length)} returns, ${numFmt(items.length)} items — last ${WINDOW_DAYS}d`);
     } catch (err) {
+      if (stale()) return;
       console.error('[returns-overview] load failed', err);
       setStatus('Failed to load: ' + err.message);
     }
