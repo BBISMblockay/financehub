@@ -1,0 +1,45 @@
+name: Redo Returns Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      updated_at_min:
+        description: "Only pull returns updated on/after this ISO date (blank = full history)"
+        required: false
+        default: ""
+        type: string
+      updated_at_max:
+        description: "Only pull returns updated before this ISO date (blank = now)"
+        required: false
+        default: ""
+        type: string
+      status:
+        description: "Optional status filter (open / complete / rejected, blank = all)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  backfill-redo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Redo backfill
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REDO_UPDATED_AT_MIN: ${{ inputs.updated_at_min }}
+          REDO_UPDATED_AT_MAX: ${{ inputs.updated_at_max }}
+          REDO_STATUS: ${{ inputs.status }}
+        run: node scripts/redo-backfill.mjs
