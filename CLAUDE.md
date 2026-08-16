@@ -6,9 +6,9 @@ This file is the authoritative context for AI agents working on this repo. Read 
 
 ## What this is
 
-SILO is an internal operations platform for Baseballism (a baseball-themed brand). It's a static HTML/JS frontend backed by Supabase (Postgres + Auth + Storage). There is no backend server — the browser talks directly to Supabase via the JS SDK.
+SILO is an internal operations platform for Baseballism (a baseball-themed brand). It's a static HTML/JS frontend backed by Supabase (Postgres + Auth + Storage). The app itself has no backend server — the browser talks directly to Supabase via the JS SDK. (`server/index.mjs` is a separate Express service used only for the AR sync / Shopify pull outside the app; nothing in the browser calls it.)
 
-**Team:** 7 users — blake@baseballism.com is `owner`, the rest are `admin`.
+**Team:** blake@baseballism.com is `owner`, most others are `admin`, and there are now `executive` and `member`-tier users too. Do not assume a fixed headcount — query `profiles` / `entity_memberships` if it matters.
 
 ---
 
@@ -19,7 +19,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 | Frontend | Vanilla HTML + CSS + JS (no framework) |
 | Database | Supabase (Postgres) |
 | Auth | Supabase Auth (email/password) |
-| Storage | Supabase Storage (2 buckets: `payment-request-files`, `launch-images`) |
+| Storage | Supabase Storage (5 buckets — see Storage buckets below) |
 | Hosting | Static file hosting (GitHub Pages or similar) |
 | Data sync | GitHub Actions → Node.js scripts → Supabase |
 | Config injection | `pages/config.js` sets `window.__SILO_CONFIG__` |
@@ -30,31 +30,52 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 
 ```
 /
-├── v2/                        ← ALL active pages live here
+├── index.html                 ← Site root: auth-hash router (invite/recovery links) → /v2/finance.html
+├── v2/                        ← All CURRENT pages live here — build new tools here
 │   ├── beacon.css             ← Design system tokens + components (DO NOT EDIT casually)
 │   ├── silo-brand.css         ← Page layout, card harmonization
 │   ├── beacon-mirrors-unified.css  ← Legacy component overrides
 │   ├── v2-mobile.css          ← Responsive overrides
-│   ├── silo-chrome.js         ← Sidebar nav component (mount after auth)
+│   ├── po-workbench.css / purchasing-page-content.css / profile-page.css  ← page-family CSS
+│   ├── nav-config.js          ← window.SiloNav: THE sidebar nav definition (add new links here)
+│   ├── silo-chrome.js         ← Sidebar nav renderer (needs SiloNav; mount after auth)
 │   ├── tool-shell.js          ← iframe wrapper for legacy tools
-│   ├── v2-shell.js            ← Thin auth check shell
-│   ├── po-costing-lib.js      ← Shared PO costing logic (use for PO pages)
+│   ├── v2-shell.js            ← Mobile drawer close behavior (Esc / tap-outside). NOT an auth check
+│   ├── avatar.js              ← window.SiloAvatar — user avatar markup
+│   ├── dept-guard.js          ← Soft redirect off finance pages for non-finance departments
+│   ├── lib/supabase-js.min.js ← Local Supabase SDK copy (calendar.html + launch-calendar.html only;
+│   │                            every other page loads the SDK from the jsDelivr CDN)
+│   ├── hidden/                ← Parked pages, deliberately not in nav (bi-dashboard, bi-returns, payroll)
+│   ├── licensing/             ← Standalone MLB licensing microsite, not linked from the app
 │   └── [page].html            ← One file per tool
 ├── pages/
-│   ├── config.js              ← Sets window.__SILO_CONFIG__ with Supabase credentials
+│   ├── config.js              ← window.__SILO_CONFIG__: credentials + active-company helpers
 │   ├── login.html             ← Auth page (routes to /v2/finance.html after login)
-│   ├── embed.js               ← Used by iframe tool pages
-│   └── [legacy-tool].html     ← Legacy tools embedded via tool-shell
+│   ├── set-password.html      ← Password set/reset landing
+│   ├── review.html            ← PUBLIC review portal (token = the authorization)
+│   ├── embed.js               ← Loaded by iframe tool pages
+│   ├── po-costing-lib.js      ← Shared PO costing logic (used by v2/po-builder + v2/po-costing)
+│   └── [legacy-tool].html     ← factories, wholesale, baseballismwholesale, sales-verification,
+│                                product-manager — some iframed by v2 wrappers, some linked directly
+├── *.html (repo root)         ← iframe TARGETS for the v2 tool-shell wrappers
+│                                (buyer, checkwriter, payroll). UNAUTHENTICATED —
+│                                see "Repo drift" note below.
+│                                Also holds superseded originals (inventory, projections, mailroom,
+│                                executive, employeehub) — see stale-file note
 ├── legacy/                    ← DO NOT TOUCH — old pages, kept for reference only
 ├── supabase/
 │   ├── verify_v2_schema.sql   ← Run this to health-check the DB after any SQL changes
 │   ├── apply_all_post_merge.sql ← One-shot apply for all migrations (safe to re-run)
-│   ├── migrations/            ← Individual migration files (timestamped)
+│   ├── migrations/            ← Individual migration files (timestamped, 128 as of 2026-08)
+│   ├── functions/             ← Edge function sources (manual deploy — merging a PR does NOT deploy)
 │   └── seeds/                 ← Seed data SQL
-├── scripts/                   ← Node.js / Python data sync scripts
-├── .github/workflows/         ← GitHub Actions (nightly sync, AR sync)
-├── docs/ops/                  ← Ops documentation (bugs, roadmap, changelog)
-└── silo-pitch.html            ← Product pitch deck (standalone, not part of the app)
+├── scripts/                   ← Node.js / Python sync + backfill scripts (lib/ holds the sync cores)
+├── config/silo-sources.mjs    ← Google Sheets CSV source URLs for the retired Sheets sync
+├── server/                    ← Express service (ar-sync.mjs, index.mjs) — NOT used by the browser app
+├── data/                      ← One-off CSV import fixtures
+├── .github/workflows/         ← GitHub Actions (see "GitHub Actions / data sync" below)
+├── docs/ops/                  ← Ops documentation (bugs, roadmap, changelog, runbooks)
+└── silo-pitch.html            ← Product pitch deck (standalone, not part of the app, not linked)
 ```
 
 ---
@@ -74,12 +95,28 @@ The Supabase client is then created with these values. If they're empty the page
 
 **Never hardcode credentials.** The real credentials are in `pages/config.js`. Do not embed them in HTML files.
 
+`window.__SILO_CONFIG__` also exposes the active-company helpers used everywhere:
+
+| Helper | Use it for |
+|--------|-----------|
+| `await ensureActiveCompany(db)` | **Preferred.** Resolves the active company, self-healing from `profiles.active_company_id` when `sessionStorage` is empty |
+| `getActiveCompany()` | Sync read of the cached company. Returns `null` in any tab that didn't go through `login.html` |
+| `withCompany(row)` / `withCompanyRows(rows)` | Stamp `company_entity_id` on insert payloads (DB trigger is the backstop) |
+
+`getActiveCompany()` reads `sessionStorage`, which is **per-tab**, while the Supabase auth session lives in `localStorage` and survives new tabs and restarts. A user landing on a v2 page from a bookmark or deep link is fully authenticated but has no cached company — any client-side logic gated on a bare `getActiveCompany()` silently no-ops there, and it's hard to spot because RLS-only queries still work (`active_company_id()` reads the server-side column). Use `ensureActiveCompany()` wherever the result feeds a query or a write.
+
 ---
 
 ## Three page patterns — use the right one
 
 ### Pattern 1: Full Beacon shell (preferred for new tools)
-Used by: `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `reviews.html`, `review-templates.html`, `review-editor.html`, `my-review.html`
+Now the majority of `v2/` — 33 pages. Anything in `v2/` that loads `silo-chrome.js` but **not**
+`tool-shell.js` is Pattern 1: `accounting-export`, `bi-daily-trend`, `bi-product-search`,
+`bi-product-types`, `bi-sales-overview`, `bi-top-sellers`, `calendar`, `finance`, `insights`,
+`integrations`, `inventory`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`,
+`marketing-overview`, `my-review`, `planning-scenarios`, `po-builder`, `po-costing`, `po-report`,
+`products`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
+`review-editor`, `review-templates`, `reviews`, `sales-verification`, `silo-chat`, `tasks`.
 
 Asset load order (must follow exactly):
 ```html
@@ -89,8 +126,13 @@ Asset load order (must follow exactly):
 <link rel="stylesheet" href="beacon-mirrors-unified.css" />
 <link rel="stylesheet" href="v2-mobile.css" />
 <script src="v2-shell.js" defer></script>
+<script src="nav-config.js"></script>   <!-- REQUIRED: defines window.SiloNav -->
+<script src="avatar.js"></script>       <!-- optional: sidebar/user avatars -->
 <script src="silo-chrome.js"></script>
 ```
+
+**`nav-config.js` must load before `silo-chrome.js`.** Without it `SiloChrome` logs
+`SiloChrome: load nav-config.js before silo-chrome.js` and bails — the page renders with no sidebar at all.
 
 Page skeleton:
 ```html
@@ -118,7 +160,10 @@ window.SiloChrome.mount({
 ```
 
 ### Pattern 2: Tool shell (iframe wrapper for legacy pages)
-Used by: `cashflow.html`, `wholesale.html`, `sales-verification.html`, and most finance mirrors.
+5 pages remain: `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`, `hidden/payroll`.
+(`sales-verification.html` was rebuilt as Pattern 1 and is no longer a wrapper. `allocation`,
+`aprio`, `cashflow`, `modelapps`, `recon`, `travel` and `wpvaccounts` were retired 2026-08-16 —
+stale Google Sheets flows.)
 
 Entire file is ~20 lines:
 ```html
@@ -126,12 +171,18 @@ Entire file is ~20 lines:
 <div class="silo-app" id="silo-app">
   <main class="silo-main" data-tool='{"title":"Cash flow","src":"/cashflow.html","active":"finance/cashflow","crumbs":["Finance","Cash flow"]}'></main>
 </div>
+<script src="nav-config.js"></script>
 <script src="silo-chrome.js"></script>
 <script src="tool-shell.js"></script>
 ```
 
+The `src` is a repo-root or `/pages/` HTML file. Those iframe targets are separate pages with their own
+(often absent) auth — the wrapper's auth check does not protect the target's own URL.
+
 ### Pattern 3: Stub redirect (placeholder)
-Many pages (allocation.html, aprio.html, etc.) are 24-line stubs that redirect to the finance hub. Do not add logic to these — rebuild them as Pattern 1 when the time comes.
+Only three left: `v2/employeehub.html` → `/v2/finance.html`, and `v2/product-manager.html` /
+`v2/product-samples.html` → `/v2/products.html` (URL-compat shims that forward their query string).
+Do not add logic to these.
 
 ---
 
@@ -202,10 +253,12 @@ set_active_company(p_entity_id uuid)   -- validates membership then writes activ
 
 **JS pattern on every page:**
 ```js
-const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+const _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
 // then on every SELECT of a company-scoped table:
 if (_co?.id) query = query.eq('company_entity_id', _co.id);
 ```
+Older pages still call the sync `getActiveCompany()`; prefer `ensureActiveCompany(db)` in new code
+(see "Config and auth" for why). On inserts, wrap the payload in `withCompany()` / `withCompanyRows()`.
 
 **Not yet isolated:** `inventory_on_hand`, `sales_by_day` — backfill deferred. These depend on Baseballism-specific Google Sheets / Better Reports sync pipelines. New companies need their own data pipeline before these tables can be partitioned.
 
@@ -214,7 +267,7 @@ Roles are **per-company**: permission gates judge by `entity_memberships.role` (
 - membership `owner_admin`/`admin` (or profile fallback `owner`/`admin`) get write access to PO tables
 - `executive` (profile-level) outranks `admin`: it passes `is_admin()` and additionally gates review-template building; `owner_admin` also passes `is_exec_or_owner()`
 - `member`/`viewer` (or profile `user`) are read-only on PO tables
-- Performance Reviews is the one module that ignores this hierarchy on purpose: rostering and running reviews needs no admin/exec role at all — any active user can manage their own direct reports (`employees.manager_user_id = auth.uid()`); only `is_exec_or_owner()` (Blake) sees/manages the whole company roster, and only `is_exec_or_owner()` can build templates
+- Performance Reviews is the one module that ignores this hierarchy on purpose: rostering and running reviews needs no admin/exec role at all — any active user can manage the reports linked to them in `employee_managers` (via `is_employee_manager()`; `employees.manager_user_id` is informational-only and is NOT the authorization source); only `is_exec_or_owner()` (Blake) sees/manages the whole company roster, and only `is_exec_or_owner()` can build templates
 - Invites and backend role grants set the membership role for that org; they only touch the global profile role/department when the user belongs to no other org
 - blake@baseballism.com is `owner` (membership `owner_admin`); the other 6 users are `admin`
 
@@ -274,6 +327,21 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `marketing_kpis_daily` | Daily campaign-level marketing KPIs per company × platform × account × campaign, upserted on identity row_hash |
 | `silo_chat_notes` | Ask SILO's taught knowledge, `category` = `general` (a correction/fact, e.g. "Pin of Month is a one-time monthly drop, not a restock signal") or `brand` (foundational brand identity/voice/tagline — nothing about brand is hardcoded in the edge function, so this is what makes Ask SILO's voice genuinely per-company). The `save_note` tool records it; every future chat request re-reads it into its system prompt. Read: any active company member. Write (insert/delete): `can_manage_silo_notes()` — `is_exec_or_owner()` OR a `silo_chat_managers` grant (below); shared memory needs a narrower write gate than most tables. Managed via the "Notes" button on `/v2/silo-chat.html`; `silo_chat_notes_v` for querying directly |
 | `silo_chat_managers` | Per-user Ask SILO write-access grants, decoupled from `profiles.role` on purpose — promoting someone to `executive` also unlocks review-template building and whole-company roster visibility, more than "can teach Ask SILO." Granted/revoked via the "Ask SILO access" button in the profile edit dialog on `/v2/backend.html`, `is_exec_or_owner()`-gated either way. A granted user can see their own row (RLS) to self-check status; only exec/owner see the full list. `silo_chat_managers_v` for querying with names |
+| `shopify_connections` | Per-company Shopify store credentials + sync config; drives `scripts/shopify-sync.mjs` and the `shopify-sync-run` edge function |
+| `shopify_oauth_states` | Single-use Shopify OAuth CSRF nonces (RLS deny-all, service-role only) |
+| `shopify_payouts` | Shopify Payments payouts per store — powers the Accounting Export deposit register |
+| `shopify_draft_orders` | Draft orders pulled by the nightly sync |
+| `sync_jobs` | Per-connection sync run log (`job_type` has a CHECK constraint — extend it when adding a job type) |
+| `accounting_coa_map` | Chart-of-accounts name mapping for `/v2/accounting-export.html`, editable in the UI |
+| `calendar_events` | Org Calendar manual events only (meeting/holiday/deadline/milestone; visibility company/finance/private). System dates are projected by `calendar_events_v`, not stored here |
+| `product_tracker` | Product development / sample tracker rows |
+| `product_sample_tracker_links` | Links sample records to tracker rows |
+| `redo_connections` | Per-company Redo (returns/exchanges) API + webhook credentials. Client-side SELECT is `is_admin_user()`-gated — the row carries `webhook_secret` / `api_secret` |
+| `redo_returns` | Redo return/exchange records (webhook + REST backfill). Covers only a recent slice of Shopify refund volume — see the nav-config note on `/v2/returns-overview.html` |
+| `redo_return_items` | Line items per Redo return |
+| `meta_ad_creatives` / `meta_ad_performance_daily` | Meta ad-level creative metadata + daily performance |
+| `facebook_page_insights_daily` / `instagram_media_insights` | Meta organic insights |
+| `silo_insights_digest` | Nightly AI-written briefing over the deterministic findings behind `/v2/insights.html` |
 | `mail_items` | Mailroom queue (subject, sender, priority, assignee, status: open/done/archived) |
 | `mail_item_files` | Attachments per mail item (`mail-item-files` storage bucket) |
 | `mail_item_activity` | Activity log per mail item (status/assignment/priority changes, notifications sent) |
@@ -289,6 +357,13 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `v_launch_po_product_lookup` | View: PO products for launch search |
 | `mail_items_v` | View: mail items with assignee/submitter/processor names |
 | `live_sessions_v` | View: live sessions with claimer name/email/avatar |
+| `calendar_events_v` | View: `security_invoker` UNION ALL of manual events + system dates (launches, tasks, POs, AP, paydays, live slots, mail). Each branch inherits its source's RLS — no calendar-specific ACL |
+| `inventory_on_hand_current_v` | View: latest inventory snapshot per SKU/location |
+| `sales_velocity_by_sku_location_mv` | Materialized view: sales velocity (refreshed at the end of the Shopify sync) |
+| `sales_by_day_verification_v` | View: backs `/v2/sales-verification.html` |
+| `v_po_incoming_lines` / `v_po_incoming_summary` | Views: incoming PO lines/rollup |
+| `v_marketing_mer_daily` | View: daily marketing efficiency ratio (spend vs revenue) |
+| `silo_chat_notes_v` / `silo_chat_managers_v` | Views: Ask SILO notes and access grants with names |
 
 ### RPC functions (backend admin)
 ```
@@ -307,6 +382,9 @@ revoke_org_invite(p_invite_id)
 ### Storage buckets
 - `payment-request-files` — private, payment request attachments
 - `launch-images` — public, launch workbench image uploads
+- `mail-item-files` — mailroom attachments (`mail_item_files`)
+- `avatars` — profile avatars
+- `sample-images` — product sample / tracker images
 
 ### Edge functions
 Sources live in `supabase/functions/`; deploys are manual (Supabase MCP/CLI), merging a PR does NOT deploy.
@@ -323,7 +401,15 @@ mail-item-notify -- emails the assignee when mail is routed to them, or the subm
 google-oauth-start / google-oauth-callback -- OAuth for Google Ads AND GA4 (shared Google Cloud client, scope differs by platform param); callback stores access+refresh tokens on ad_platform_connections. Secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 tiktok-oauth-start / tiktok-oauth-callback -- OAuth for TikTok Ads (TikTok for Business app). Secrets: TIKTOK_APP_ID, TIKTOK_APP_SECRET
 test-ad-platform-connection -- validates an ad_platform_connections row against the live platform API (refreshing Google tokens as a side effect); with no account id configured it returns the pickable account list instead. Meta Ads has no OAuth pair — a long-lived System User token is pasted directly in the Integrations UI. Google Ads tests additionally need GOOGLE_ADS_DEVELOPER_TOKEN
+silo-chat        -- Ask SILO (/v2/silo-chat.html): agentic chat over a read-only SQL tool plus the taught silo_chat_notes; brand/voice context is per-company DATA, never hardcoded here. Secret: ANTHROPIC_API_KEY
+shopify-oauth-start / shopify-oauth-callback -- OAuth to connect a Shopify store; callback writes shopify_connections
+shopify-sync-run -- on-demand Shopify sync trigger from the Integrations UI (same core as scripts/shopify-sync.mjs)
+test-shopify-connection -- validates a shopify_connections row against the live Shopify Admin API
+redo-webhook     -- PUBLIC (verify_jwt off): Redo returns/exchanges webhook receiver, authenticated by redo_connections.webhook_secret
 ```
+**Not in this repo:** `notify-slack` is deployed and called by DB triggers
+(`supabase/migrations/20260709030000_slack_po_status_accuracy.sql` hits it by URL), but its source is not
+checked in. Do not assume `supabase/functions/` is the complete list of deployed functions.
 Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually. `payment-request-forward-melio` additionally requires `MELIO_FORWARD_EMAIL` (the company's Melio auto-scan forwarding address, e.g. `baseballism_NNN@invoicesmelio.com`) — set as an edge-function secret, never hardcoded or exposed client-side.
 
 ### After any DB change
@@ -335,25 +421,33 @@ Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows 
 
 | Workflow | Schedule | What it does |
 |----------|----------|-------------|
-| `shopify-sync.yml` | Daily 11:00 UTC | Shopify API sync — sales + inventory for all connected stores, then refreshes comp summary, sales velocity MV, and inventory current MV |
+| `shopify-sync.yml` | Daily **08:30 UTC** | Shopify API sync — sales + inventory + catalog + payouts for all connected stores, then refreshes comp summary, sales velocity MV, and inventory current MV. Moved from 11:00 UTC in 2026-08 so the "as of yesterday" date lands before morning check-ins. **Never schedule before 08:00 UTC** — in PST that is before Pacific midnight and the comp summary would anchor a partial day |
 | `nightly-silo-sync.yml` | **Retired** (manual only) | Legacy Google Sheets / Better Reports import — retired 2026-07-08 after verifying Shopify covers every sales + inventory location. BR history remains in `sales_by_day` for pre-API reporting |
 | `ar-sync.yml` | Manual / scheduled | AR (accounts receivable) sync |
 | `ad-platforms-sync.yml` | Daily 10:30 UTC | Direct platform APIs → `marketing_kpis_daily` (Google Ads, Meta Ads, TikTok Ads, GA4 daily campaign KPIs). Per-connection tokens live on `ad_platform_connections` rows (set via `/v2/integrations.html`); Google connections additionally need the `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPER_TOKEN` repo secrets and are skipped until those exist. Replaced the retired Supermetrics path (never went live) |
 
 **One sync, one source of truth.** Sales and inventory come from the Shopify API via the nightly GitHub Action. There is no dual-write conflict.
 
+Manual-only workflows (`workflow_dispatch`, no cron): `redo-backfill.yml` (Redo returns REST backfill),
+`backfill-company-entity-large-tables.yml`, `mailroom-backfill.yml`, `legacy-payment-requests-import.yml`,
+`one-time-sales-backfill.yml`, `diagnose-shopify-gross.yml`, `diagnose-shopify-returns.yml`.
+
 Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (set in GitHub repo settings).
+Additionally: `ANTHROPIC_API_KEY` for the insights narrative (falls back to findings-only if unset) and
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPER_TOKEN` for Google ad-platform syncs.
 
 ---
 
 ## Conventions for new features
 
 ### Adding a new v2 page
-1. Use Pattern 1 (Full Beacon shell) — copy `v2/projections.html` as a starting point
-2. Follow the exact asset load order from SILO-BRAND.md
+1. Use Pattern 1 (Full Beacon shell) — copy `v2/projections.html` or `v2/tasks.html` as a starting point
+2. Follow the exact asset load order from SILO-BRAND.md (`nav-config.js` before `silo-chrome.js`)
 3. Mount SiloChrome after auth succeeds
-4. Add the page to the sidebar nav in `silo-chrome.js`
-5. Create a stub redirect in `v2/[pagename].html` at root level if needed
+4. Add the page to `NAV_ITEMS` in **`v2/nav-config.js`** (not `silo-chrome.js` — that only renders what
+   `SiloNav` defines). Set `profiles` (`grandfathered` / `standard`), plus `departments` / `roles` /
+   `grantTable` if the link should be gated. Nav gating is UX only — the real boundary is RLS
+5. Create a stub redirect at `v2/[oldname].html` if you are replacing an existing page's URL
 
 ### Adding a new DB table
 1. Write a migration file: `supabase/migrations/YYYYMMDDHHMMSS_description.sql`
@@ -367,7 +461,8 @@ Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (set in GitHub rep
 ### JS logic
 - Shared logic used by more than one page → extract to a `.js` file in `v2/` or `pages/`
 - Page-specific logic → inline `<script>` at bottom of the HTML file is acceptable
-- Do NOT add logic to `silo-chrome.js`, `tool-shell.js`, or `v2-shell.js` — those are framework files
+- Do NOT add logic to `silo-chrome.js`, `tool-shell.js`, or `v2-shell.js` — those are framework files.
+  `nav-config.js` is the exception: it's data, and adding/gating a nav link belongs there
 
 ### Error handling
 Use the `bcn-status` pattern — not `alert()`. Every page should have a status element:
@@ -395,10 +490,41 @@ function setStatus(msg, type = 'info', ms = 0) {
 - **Do not use `alert()`** for errors — use the `bcn-status` pattern
 - **Do not create new CSS variables** — use existing Beacon tokens from `beacon.css`
 - **Do not push to main directly** — always use a feature branch
+- **Do not build new tools at the repo root** — root `.html` files are legacy iframe targets and
+  superseded originals. New pages go in `v2/`
+- **Do not copy a root-level page as a starting point** — several have no auth wiring at all. Copy a
+  current Pattern 1 page from `v2/` instead
+- **Do not assume a nav link means a page is gated** — `nav-config.js` only controls sidebar
+  visibility. Authorization is RLS
 
 ---
 
-## Current status (as of Jun 2026)
+## Current status (as of Aug 2026)
+
+For a change-by-change history read `docs/ops/CHANGELOG.md` — it is kept current and is more detailed
+than this section.
+
+### Modules shipped since the multi-tenant work
+- **Shopify API sync** — replaced the Google Sheets / Better Reports pipeline as the sole sales +
+  inventory source (`shopify_connections`, `scripts/lib/shopify-sync-core.mjs`)
+- **Accounting Export** (`/v2/accounting-export.html`) — month → journal-ready entries + deposit
+  register, backed by `shopify_payouts` and `accounting_coa_map`
+- **Action Items & Insights** (`/v2/insights.html`) — deterministic rules engine + nightly AI briefing
+- **Mailroom** (`/v2/mail-intake.html`, `/v2/mailroom.html`) — intake, routing, email notifications
+- **Org Calendar** (`/v2/calendar.html`) — one time layer over launches, tasks, POs, AP, payroll,
+  live slots and mail via the `security_invoker` `calendar_events_v` union
+- **Task Manager** (`/v2/tasks.html`), **TikTok Live schedule** (`/v2/live-schedule.html`),
+  **Products** (`/v2/products.html`, replacing the old product-manager pages)
+- **Marketing** — direct ad-platform APIs (Google/Meta/TikTok/GA4) into `marketing_kpis_daily`,
+  surfaced by `/v2/marketing-overview.html`; Supermetrics was dropped before it went live
+- **Integrations** (`/v2/integrations.html`) — admin-only connection management for Shopify, ad
+  platforms, and Redo
+- **Redo returns** — webhook + REST backfill into `redo_returns`; `/v2/returns-overview.html` exists
+  but is deliberately **not** in the nav until coverage is complete
+- **Ask SILO** (`/v2/silo-chat.html`) — agentic chat with taught notes (`silo_chat_notes`) and a
+  dedicated access grant (`silo_chat_managers`); exec-only in the sidebar during soft launch
+- **Nav profiles** (`v2/nav-config.js`) — grandfathered vs standard menus, plus department/role/grant
+  gating. This replaced the hardcoded nav that used to live in `silo-chrome.js`
 
 ### Multi-tenant isolation — Phase 1 complete
 DB-level company isolation is live. Users in multiple companies pick a company at login; all data reads are scoped to `profiles.active_company_id`. See `supabase/README.md` for migration details.
@@ -408,7 +534,11 @@ DB-level company isolation is live. Users in multiple companies pick a company a
 **Attribution:** every table with a `created_by`/`changed_by` column has a `stamp_created_by`/`stamp_changed_by` BEFORE INSERT trigger (auth.uid() when not explicitly passed; service-role syncs stay null). Rows created before 2026-07-14 are unattributed and unrecoverable.
 
 ### Tools fully on Beacon shell (Pattern 1)
-`projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `backend.html`, `reviews.html`, `review-templates.html`, `review-editor.html`, `my-review.html`
+See the Pattern 1 list above — 33 pages. **Exception:** `v2/backend.html` is *not* on the Beacon shell
+despite older notes saying so. It loads Tailwind from `cdn.tailwindcss.com` and mounts neither
+`nav-config.js` nor `silo-chrome.js`. It is the only page using Tailwind; treat it as its own thing
+until it is rebuilt. `v2/company-picker.html` and `v2/launch-calendar-guide.html` are also
+intentionally chrome-less (pre-company-selection / standalone doc).
 
 ### Performance Reviews module (complete as of 2026-07-14)
 End-to-end flow across five pages + three edge functions:
@@ -420,18 +550,46 @@ End-to-end flow across five pages + three edge functions:
 Goals persist on the employee across cycles (`employee_goals`) and surface in every review regardless of template. PDF = print stylesheet on both review views.
 
 ### Tools on tool-shell iframe (Pattern 2)
-`cashflow.html`, `wholesale.html`, `sales-verification.html`, and most finance mirrors
+See the Pattern 2 list above. Their iframe targets live at the repo root (or `/pages/`), and most of
+them are Google-Sheets-backed with no Supabase and no auth of their own.
 
-### Tools with custom layouts (partial migration)
-`inventory.html`, `finance.html`, `employeehub.html`
+### Repo drift to be aware of (audited 2026-08-16)
+Not bugs to fix blind — context so you don't mistake leftovers for live code:
+- **Retired 2026-08-16:** `accountspayable.html`, `ap-report.html` (superseded by Request Manager),
+  and the `allocation` / `aprio` / `cashflow` / `modelapps` / `recon` / `travel` / `wpvaccounts` pairs
+  (root target + `v2/` wrapper; stale Google Sheets flows). Their entry points went with them: the
+  WPV and Travel Report nav rows, both Home links, and the Cash flow option in the profile
+  default-landing-page dropdown
+- **Superseded originals still sit at the repo root** with no inbound links: `inventory.html`,
+  `projections.html`, `mailroom.html`, `executive.html`, `employeehub.html`. The live versions are the
+  `/v2/` ones. Root `inventory.html` still renders its own pre-v2 sidebar ("Classic workbench" /
+  "Executive") — that nav is dead
+- **Root iframe targets are directly reachable and unauthenticated.** `buyer.html`, `checkwriter.html`
+  and `payroll.html` ship no auth check of their own, so
+  `https://silo-baseballism.com/checkwriter.html` loads for anyone. The v2 wrapper's auth gate does
+  not cover them
+- **`checkwriter` is kept on purpose** as an internal tool, even though it has no nav entry today and
+  its wrapper's `finance/checkwriter` active id no longer exists in `nav-config.js`. Do not sweep it
+  up as an orphan
+- **`v2/profile.html`'s `LANDING_OPTIONS` list still offers `/finance.html` and `/ops.html`** — neither
+  file exists, so picking either sets a `profiles.default_page` that 404s on next login. Pre-existing,
+  left alone in the 2026-08-16 cleanup; worth fixing next time that file is open
+- **Orphan CSS:** `v2/po-builder-beacon.css` and `v2/purchasing-hub-shell.css` have zero references
+- **`v2/hidden/`** is parked-on-purpose (not in nav, no inbound links). **`v2/licensing/`** is a
+  standalone microsite. **`config.json`** (JotForm routes) has no reader anywhere in the repo
+- **Nav ids in Pattern-2 wrappers can be stale.** Several `data-tool.active` keys
+  (`finance/cashflow`, `purchasing/buyer`, `ops/modelapps`, …) no longer exist in `nav-config.js`, so
+  those pages highlight nothing in the sidebar
 
 ### Open roadmap items
 See `docs/ops/roadmap.md` for current priorities. Key items:
-- Per-company nav menu (hide Baseballism-specific sections for other entities)
-- Insert-side `company_entity_id` auto-stamping on all create forms
 - Company switcher in sidebar (without full logout)
-- Finish Beacon shell migration for iframe/custom pages
+- Finish Beacon shell migration for the remaining iframe pages
+- `inventory_on_hand` / `sales_by_day` company backfill (Phase 2 multi-tenant)
 - Smoke tests
+
+Done since that file was last pruned: per-company nav menu (`v2/nav-config.js`) and insert-side
+`company_entity_id` stamping (DB trigger + `withCompany()` helpers).
 
 ### Known P2 items
 See `docs/ops/bugs.md`. No open P1s.

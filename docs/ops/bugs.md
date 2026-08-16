@@ -18,7 +18,7 @@ No open P1s.
 |-------|------------|
 | BI vs Shopify report variance (online, Jan–Jun) restates only after a history re-import — sync fixes (cancelled orders included, shipping tax) apply to new days immediately but historical rows keep the old math until the backfill runs | Run Actions → "Shopify API Sync" with `sync_mode=history`, `history_days=200`, then re-reconcile against the Shopify export. If a residual Returns gap remains after restate, suspect exchange/store-credit returns (Redo) with $0 refund subtotals |
 | Costing fallback JSON in `po_headers.internal_notes` | Apply migrations; move data into `po_costing` |
-| Old bookmarks hit `/finance.html` instead of `/v2/finance.html` | Use `/v2/*` paths; update links in `silo-chrome.js` |
+| Old bookmarks hit `/finance.html` instead of `/v2/finance.html` | Use `/v2/*` paths; nav links live in `v2/nav-config.js` (not `silo-chrome.js`, which only renders them) |
 | Many v2 pages still iframe legacy HTML | Expected until Beacon migration (see roadmap) |
 | Planning: projection seed has no product type | By design — see [planning-scenarios-filter-scope.md](../planning-scenarios-filter-scope.md) |
 | Optional DB view missing → empty open POs on planning page | Create view in Supabase or ignore |

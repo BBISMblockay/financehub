@@ -120,7 +120,7 @@ After migration **#9** is applied, use **GitHub Actions** (no local Node require
 
 **Unpaid AP backlog (CSV-controlled cutover):**
 
-1. Curate the set in the AP Manager (`/accountspayable.html`): Filters → uncheck **Include paid items** (plus any other narrowing) → **Export**. The importer auto-detects the AP Workbench export format — no header editing needed. (The raw Jotform-sheet format still works too.)
+1. Curate the set and export a CSV. **The AP Manager page (`/accountspayable.html`) that produced these exports was retired 2026-08-16** — this step is historical. The importer still auto-detects the AP Workbench export format, so an already-exported CSV works as-is; the raw Jotform-sheet format works too.
 2. Upload the CSV to `data/imports/` via GitHub (see `data/imports/README.md`)
 3. GitHub → **Actions** → **Legacy Payment Requests Import** → **Run workflow**: `dry_run` = **true**, `file_path` = your upload, `unpaid_only` = **true** (safety net even if the export already excluded paid)
 4. Check the job log: `Unpaid-only: kept N of M rows`, per-row `would insert` lines, `failed: 0`

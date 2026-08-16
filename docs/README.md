@@ -8,7 +8,8 @@ Pick **one** link below. You do not need to read everything.
 
 | Goal | Go here |
 |------|---------|
-| Understand how SILO works (architecture, data flows) | [legacy/app-status.html](../legacy/app-status.html) (open in browser) |
+| Understand how SILO works (architecture, data flows) | [../CLAUDE.md](../CLAUDE.md) — the current architecture reference. (`legacy/app-status.html` is a pre-v2 snapshot, kept for history only) |
+| Catch up on what shipped recently | [ops/CHANGELOG.md](ops/CHANGELOG.md) |
 | Fix something that is broken right now | [ops/when-something-breaks.md](ops/when-something-breaks.md) |
 | Check a change before merge / deploy | [ops/test-before-release.md](ops/test-before-release.md) |
 | See known issues | [ops/bugs.md](ops/bugs.md) |
