@@ -58,11 +58,11 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   └── [legacy-tool].html     ← factories, wholesale, baseballismwholesale, sales-verification,
 │                                product-manager — some iframed by v2 wrappers, some linked directly
 ├── *.html (repo root)         ← iframe TARGETS for the v2 tool-shell wrappers
-│                                (allocation, aprio, buyer, cashflow, checkwriter, modelapps,
-│                                 payroll, recon, travel, wpvaccounts). Mostly Google-Sheets-backed
-│                                 and mostly UNAUTHENTICATED — see "Repo drift" note below.
+│                                (allocation, buyer, cashflow, checkwriter, modelapps, payroll,
+│                                 recon, travel). Mostly Google-Sheets-backed and mostly
+│                                 UNAUTHENTICATED — see "Repo drift" note below.
 │                                Also holds superseded originals (inventory, projections, mailroom,
-│                                executive, accountspayable, ap-report, employeehub) — see stale-file note
+│                                executive, employeehub) — see stale-file note
 ├── legacy/                    ← DO NOT TOUCH — old pages, kept for reference only
 ├── supabase/
 │   ├── verify_v2_schema.sql   ← Run this to health-check the DB after any SQL changes
@@ -161,9 +161,10 @@ window.SiloChrome.mount({
 ```
 
 ### Pattern 2: Tool shell (iframe wrapper for legacy pages)
-12 pages remain: `allocation`, `aprio`, `baseballismwholesale`, `buyer`, `cashflow`, `checkwriter`,
-`modelapps`, `recon`, `travel`, `wholesale`, `wpvaccounts`, `hidden/payroll`.
-(`sales-verification.html` was rebuilt as Pattern 1 and is no longer a wrapper.)
+10 pages remain: `allocation`, `baseballismwholesale`, `buyer`, `cashflow`, `checkwriter`,
+`modelapps`, `recon`, `travel`, `wholesale`, `hidden/payroll`.
+(`sales-verification.html` was rebuilt as Pattern 1 and is no longer a wrapper. `aprio` and
+`wpvaccounts` were retired 2026-08-16 — stale Google Sheets flows.)
 
 Entire file is ~20 lines:
 ```html
@@ -555,15 +556,17 @@ them are Google-Sheets-backed with no Supabase and no auth of their own.
 
 ### Repo drift to be aware of (audited 2026-08-16)
 Not bugs to fix blind — context so you don't mistake leftovers for live code:
+- **Retired 2026-08-16:** `accountspayable.html`, `ap-report.html` (superseded by Request Manager),
+  and the `aprio` / `wpvaccounts` pairs (root target + `v2/` wrapper; stale Google Sheets flows). The
+  WPV nav entry and the Home Receivables link went with them
 - **Superseded originals still sit at the repo root** with no inbound links: `inventory.html`,
-  `projections.html`, `mailroom.html`, `executive.html`, `accountspayable.html`, `ap-report.html`,
-  `employeehub.html`. The live versions are the `/v2/` ones. Root `inventory.html` still renders its own
-  pre-v2 sidebar ("Classic workbench" / "Executive") — that nav is dead
-- **Root iframe targets are directly reachable and mostly unauthenticated.** `wpvaccounts.html`,
-  `travel.html`, `aprio.html`, `modelapps.html` and friends embed published Google Sheet URLs and ship
-  no auth check, so `https://silo-baseballism.com/wpvaccounts.html` loads for anyone. The v2 wrapper's
-  auth gate does not cover them. `accountspayable.html` / `ap-report.html` were retrofitted with
-  `dept-guard.js`; the rest were not
+  `projections.html`, `mailroom.html`, `executive.html`, `employeehub.html`. The live versions are the
+  `/v2/` ones. Root `inventory.html` still renders its own pre-v2 sidebar ("Classic workbench" /
+  "Executive") — that nav is dead
+- **Root iframe targets are directly reachable and unauthenticated.** `travel.html`, `modelapps.html`,
+  `cashflow.html`, `allocation.html`, `recon.html`, `checkwriter.html` embed published Google Sheet
+  URLs and ship no auth check, so `https://silo-baseballism.com/travel.html` loads for anyone. The v2
+  wrapper's auth gate does not cover them
 - **Orphan CSS:** `v2/po-builder-beacon.css` and `v2/purchasing-hub-shell.css` have zero references
 - **`v2/hidden/`** is parked-on-purpose (not in nav, no inbound links). **`v2/licensing/`** is a
   standalone microsite. **`config.json`** (JotForm routes) has no reader anywhere in the repo
