@@ -58,16 +58,17 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 ## v2 migration snapshot (audited 2026-08-16)
 
 33 pages on the full Beacon shell (including `inventory` and `finance`, which used to be custom-layout);
-7 still iframe a legacy page via `tool-shell.js`; `employeehub` is now just a redirect to
+5 still iframe a legacy page via `tool-shell.js`; `employeehub` is now just a redirect to
 `/v2/finance.html`. Live per-page breakdown: [../../v2/SILO-BRAND.md](../../v2/SILO-BRAND.md).
 
-Remaining iframe wrappers: `baseballismwholesale`, `buyer`, `cashflow`, `checkwriter`, `travel`,
-`wholesale`, `hidden/payroll`. Only two of those (`baseballismwholesale`, `travel`) are still in the
-sidebar; `checkwriter` is kept deliberately as a tool the team still needs.
+Remaining iframe wrappers: `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`,
+`hidden/payroll`. Only `baseballismwholesale` is still in the sidebar; `checkwriter` is kept
+deliberately as an internal tool.
 
-Retired 2026-08-16: `allocation`, `aprio`, `modelapps`, `recon` and `wpvaccounts` (root target +
-wrapper, stale Google Sheets flows), plus the standalone `accountspayable.html` / `ap-report.html`
-AP pages.
+Retired 2026-08-16: `allocation`, `aprio`, `cashflow`, `modelapps`, `recon`, `travel` and
+`wpvaccounts` (root target + wrapper, stale Google Sheets flows), plus the standalone
+`accountspayable.html` / `ap-report.html` AP pages. Finishing the Beacon migration is now a
+5-page problem, not a 12-page one.
 
 ## Security — Deferred
 

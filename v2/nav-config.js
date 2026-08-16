@@ -20,8 +20,8 @@
   }
 
   // Departments that see finance-sensitive links. Employee-facing forms
-  // (Payment Request, Travel Report) are NOT gated — everyone submits those.
-  // Nav hiding is UX only; the data itself is gated by department-aware RLS.
+  // (Payment Request) are NOT gated — everyone submits those. Nav hiding is
+  // UX only; the data itself is gated by department-aware RLS.
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -71,7 +71,7 @@
     { departments: FINANCE_DEPTS, id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
     { id: 'finance/mail-intake', section: 'Accounting', sectionStandard: 'Operations', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Accounting', sectionStandard: 'Operations', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/travel', section: 'Accounting', sectionStandard: 'Operations', label: 'Travel Report', href: '/v2/travel.html', profiles: ['grandfathered'] },
+    // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
 
     { id: 'planning/calendar', section: 'Planning', label: 'Org Calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
