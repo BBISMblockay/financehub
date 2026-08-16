@@ -6,7 +6,7 @@ Three buckets only. Check items off in PRs when done.
 
 ## Now (stability)
 
-- [x] Sync architecture: one GitHub Action reads Google Sheets → injects sales + inventory (named "Shopify sync" in the Action)
+- [x] Sync architecture: one GitHub Action (`shopify-sync.yml`, daily 08:30 UTC) pulls sales + inventory + catalog + payouts straight from the Shopify API. The Google Sheets / Better Reports path it replaced was retired 2026-07-08 (`nightly-silo-sync.yml` is manual-only now)
 - [ ] Post-merge SQL checklist on every DB PR (`verify_v2_schema.sql`)
 - [x] Align `profiles.role` with `po_builder_can_write` / `po_costing_can_write` — all 7 users are `admin`, enum is `owner/admin/user`
 
@@ -33,7 +33,7 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 - [ ] `inventory_on_hand` backfill (2.6M rows) — needs batched approach, out of scope until inventory reporting is repiped per-company
 - [ ] `sales_by_day` backfill (1M rows) — same; sales sync is Baseballism-specific (Google Sheets / Better Reports). New companies need their own sync pipeline.
 - [ ] Materialized views (`sales_monthly_product_type_rollup_mv`, `sales_sku_location_rollup_mv`) — cannot use `security_invoker`; blocked until sales backfill is done
-- [ ] Per-company nav menu — hide Baseballism-specific sections (AR, payroll, legacy finance) when on a non-Baseballism entity → see `docs/ops/nav-profiles.md` (PR in progress)
+- [x] Per-company nav menu — hide Baseballism-specific sections (AR, payroll, legacy finance) when on a non-Baseballism entity. Shipped in `v2/nav-config.js` (`grandfathered` / `standard` profiles, plus department, role, and grant-table gating) → see `docs/ops/nav-profiles.md`
 - [x] Insert-side `company_entity_id` wiring — DB `BEFORE INSERT` trigger + `withCompany()` helpers in `pages/config.js` (no per-page patches required)
 - [ ] Company switcher in the sidebar (without requiring full logout/login)
 
@@ -55,12 +55,15 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 
 ---
 
-## v2 migration snapshot
+## v2 migration snapshot (audited 2026-08-16)
 
-| Done | In progress |
-|------|-------------|
-| projections, launch-calendar, profile, po-builder, planning-scenarios | inventory, finance, employeehub (custom layout) |
-| | cashflow and others (iframe tool-shell) |
+33 pages on the full Beacon shell (including `inventory` and `finance`, which used to be custom-layout);
+12 still iframe a legacy page via `tool-shell.js`; `employeehub` is now just a redirect to
+`/v2/finance.html`. Live per-page breakdown: [../../v2/SILO-BRAND.md](../../v2/SILO-BRAND.md).
+
+Remaining iframe wrappers: `allocation`, `aprio`, `baseballismwholesale`, `buyer`, `cashflow`,
+`checkwriter`, `modelapps`, `recon`, `travel`, `wholesale`, `wpvaccounts`, `hidden/payroll`.
+Only three of those (`baseballismwholesale`, `travel`, `wpvaccounts`) are still in the sidebar.
 
 ## Security — Deferred
 
