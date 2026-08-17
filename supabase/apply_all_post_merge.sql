@@ -9366,3 +9366,12 @@ alter table public.launch_calendar
 
 create index if not exists launch_calendar_audience_tags_gin
   on public.launch_calendar using gin (audience_tags);
+
+-- ---------------------------------------------------------------------------
+-- 20260817180000_launch_calendar_approved_copy_creatives.sql
+-- Approved Copy / Approved Creatives — the signed-off assets themselves,
+-- separate from the do's/don'ts guardrail columns added in 20260814150000.
+-- ---------------------------------------------------------------------------
+alter table public.launch_calendar
+  add column if not exists approved_copy      text,
+  add column if not exists approved_creatives text;

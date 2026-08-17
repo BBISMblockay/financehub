@@ -736,3 +736,17 @@ select
       then 'MISSING — org-calendar source date indexes'
     else 'ok'
   end as org_calendar;
+
+-- 22. Launch release brief — approved copy / creatives (migration 20260817180000)
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_calendar'
+                       and column_name='approved_copy')
+      then 'MISSING — run 20260817180000_launch_calendar_approved_copy_creatives.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_calendar'
+                       and column_name='approved_creatives')
+      then 'MISSING — launch_calendar.approved_creatives'
+    else 'ok'
+  end as launch_approved_copy_creatives;
