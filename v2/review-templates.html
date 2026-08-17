@@ -108,8 +108,12 @@
               <input class="bcn-field" id="tplTitle" type="text" placeholder="e.g. Retail Associate — Annual Review" />
             </div>
             <div class="bcn-field-group">
-              <label class="bcn-label" for="tplDesc">Description</label>
-              <input class="bcn-field" id="tplDesc" type="text" placeholder="Optional — shown to managers when picking a template" />
+              <label class="bcn-label" for="tplDesc">Intro &amp; grading scale</label>
+              <textarea class="bcn-field" id="tplDesc" rows="6" style="resize:vertical;line-height:1.5"
+                placeholder="Shown at the top of every review — for the manager filling it out and the employee reading it.&#10;Use it to explain the scale, e.g.&#10;1 = Does not meet expectations&#10;5 = Meets expectations&#10;10 = Consistently exceeds"></textarea>
+              <div style="font-size:11.5px;color:var(--bcn-ink-3);margin-top:4px">
+                Line breaks are preserved. For guidance on a single question, use that question's help text instead.
+              </div>
             </div>
           </div>
 
@@ -159,6 +163,12 @@
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  // The description is now a multi-line grading legend, so collapse it to one
+  // short line for the template list subtitle. The full text renders on the review.
+  const summarize = (s, max = 90) => {
+    const one = String(s ?? '').replace(/\s+/g, ' ').trim();
+    return one.length > max ? one.slice(0, max - 1).trimEnd() + '…' : one;
+  };
 
   function setStatus(msg, type='info', ms=0){
     const s = document.getElementById('status');
@@ -206,7 +216,7 @@
       return `<div class="tp-list-row" data-id="${esc(t.id)}">
         <div>
           <div class="tp-list-title">${esc(t.title)}</div>
-          <div class="tp-list-sub">${qn} question${qn === 1 ? '' : 's'}${t.description ? ' · ' + esc(t.description) : ''}</div>
+          <div class="tp-list-sub">${qn} question${qn === 1 ? '' : 's'}${t.description ? ' · ' + esc(summarize(t.description)) : ''}</div>
         </div>
         <div class="tp-spacer"></div>
         ${statusPill(t.status)}
