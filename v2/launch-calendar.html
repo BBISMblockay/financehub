@@ -251,6 +251,9 @@
     .reldoc-block-label { font-size:10px; font-weight:700; letter-spacing:.05em; color:var(--bcn-ink-3); text-transform:uppercase; margin-bottom:4px; }
     .reldoc-empty { color:var(--bcn-ink-4); font-size:12px; font-style:italic; }
 
+    /* Print-only elements — built by buildDocPrintHeader(), hidden on screen. */
+    .reldoc-print-head, .reldoc-print-foot, .reldoc-print-none { display:none; }
+
     @media print {
       /* .ed-panel carries a permanent transform (even at rest), which makes it
          a CSS containing block for fixed/absolute descendants — without
@@ -260,8 +263,54 @@
       .ed-overlay { display:none !important; }
       body * { visibility:hidden; }
       #dp-document, #dp-document * { visibility:visible; }
-      #dp-document { display:flex !important; position:absolute; inset:0; padding:24px; background:#fff; }
+      /* static, not absolute: an absolutely positioned box is sized to the
+         viewport and fights pagination on long docs. */
+      #dp-document { display:block !important; position:static !important; padding:0 !important; background:#fff !important; }
       #printDocBtn { display:none !important; }
+
+      /* Real page margins. The old 24px padding was not a page margin, so
+         pages 2+ ran to the paper edge. */
+      @page { margin:16mm 14mm; }
+
+      /* Paint on white. The app's surface colors were printing as a grey
+         wash over the whole sheet. */
+      html, body, .silo-app, .silo-main, .ed-panel, .dp, .dp-section, .reldoc-sec {
+        background:#fff !important; box-shadow:none !important;
+      }
+      body { color:#000 !important; }
+
+      /* Screen chrome that means nothing on paper: the "Release Document"
+         card header, and every "add them on the X tab" instruction. */
+      #dp-document > .dp-section:first-child { display:none !important; }
+      .reldoc-empty, .reldoc-row--empty { display:none !important; }
+
+      /* Sections with nothing in them state that once, rather than printing
+         a stack of dashes. */
+      .reldoc-print-none { display:block !important; font-size:11pt; font-style:italic; color:#666 !important; }
+
+      /* Masthead + footer */
+      .reldoc-print-head { display:block !important; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid #000; }
+      .reldoc-print-title { font-size:20pt; font-weight:800; line-height:1.15; }
+      .reldoc-print-meta { font-family:var(--bcn-mono); font-size:9pt; color:#444 !important; margin-top:4px;
+                           text-transform:uppercase; letter-spacing:.06em; }
+      .reldoc-print-foot { display:block !important; margin-top:16px; padding-top:8px; border-top:1px solid #999;
+                           font-family:var(--bcn-mono); font-size:8pt; color:#666 !important; }
+
+      /* Sections read as document blocks, not cards. */
+      .reldoc-sec { border:none !important; border-radius:0 !important; padding:0 !important;
+                    margin:0 0 14px !important; break-inside:avoid; page-break-inside:avoid; }
+      .reldoc-sec-title { color:#000 !important; font-size:9pt; border-bottom:1px solid #000;
+                          padding-bottom:3px; margin-bottom:6px; break-after:avoid; page-break-after:avoid; }
+      .reldoc-row { border-top:1px solid #ddd !important; font-size:10.5pt; padding:3px 0;
+                    break-inside:avoid; page-break-inside:avoid; }
+      .reldoc-k { color:#444 !important; }
+      .reldoc-v { color:#000 !important; }
+      .reldoc-block { font-size:10.5pt; break-inside:avoid; page-break-inside:avoid; }
+      .reldoc-block-label { color:#000 !important; }
+
+      /* Keep tag pill backgrounds — browsers drop them by default. */
+      .reldoc-tag-pill { -webkit-print-color-adjust:exact; print-color-adjust:exact;
+                         border:1px solid #999 !important; }
     }
 
     @media(max-width:700px) {
@@ -1098,6 +1147,9 @@ function bind(){
   // brief + release document
   $('briefSaveBtn').onclick = saveBrief;
   $('printDocBtn').onclick  = () => window.print();
+  // beforeprint rather than the button alone, so Ctrl/Cmd-P and the browser
+  // menu get the masthead too — not just our button.
+  window.addEventListener('beforeprint', () => { if (activeLaunch) buildDocPrintHeader(activeLaunch); });
   $('briefAudienceTagInput').addEventListener('keydown', e=>{
     if(e.key==='Enter' || e.key===','){ e.preventDefault(); addAudienceTagFromInput(); }
     else if(e.key==='Backspace' && !e.target.value && audienceTagsDraft.length){
@@ -1779,7 +1831,10 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
   if(!doc) return;
   if(!x){ doc.innerHTML=''; return; }
 
-  const row=(k,v)=>`<div class="reldoc-row"><span class="reldoc-k">${esc(k)}</span><span class="reldoc-v">${v?v:'<span class="reldoc-empty">—</span>'}</span></div>`;
+  // Empty rows are useful on screen (they show what still needs filling) but
+  // are noise on paper — a printed brief was ~15 lines of "—". Tagging them
+  // here lets the print stylesheet drop them without changing the screen view.
+  const row=(k,v)=>`<div class="reldoc-row${v?'':' reldoc-row--empty'}"><span class="reldoc-k">${esc(k)}</span><span class="reldoc-v">${v?v:'<span class="reldoc-empty">—</span>'}</span></div>`;
   const linkRow=(label,url)=> url ? `<div class="reldoc-row"><span class="reldoc-k">${esc(label)}</span><span class="reldoc-v"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(url.length>50?url.slice(0,47)+'…':url)}</a></span></div>` : '';
   const block=(label,text)=> text ? `<div class="reldoc-block"><div class="reldoc-block-label">${esc(label)}</div>${esc(text)}</div>` : '';
 
@@ -1859,6 +1914,57 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
       ${siloLinks}
     </div>`:''}
   `;
+
+  markEmptyDocSections(doc);
+}
+
+/* The printed doc used to be the screen with the chrome hidden: app
+   instructions ("add them on the Products tab"), a row of em-dashes per
+   unfilled field, and no title — the launch name was buried as a row value.
+   These two helpers turn it into something that reads as a document. The
+   screen view is untouched; everything here is print-only via CSS. */
+
+// A section whose rows are all empty prints its heading plus one honest line
+// instead of a stack of dashes. Screen keeps the dashes as fill-in prompts.
+function markEmptyDocSections(doc){
+  doc.querySelectorAll('.reldoc-sec').forEach(sec => {
+    const hasContent = [...sec.children].some(el => {
+      if (el.classList.contains('reldoc-sec-title')) return false;
+      if (el.classList.contains('reldoc-row')) return !el.classList.contains('reldoc-row--empty');
+      if (el.classList.contains('reldoc-empty')) return false;   // "nothing added yet" helper text
+      return (el.textContent || '').trim().length > 0;
+    });
+    sec.classList.toggle('reldoc-sec--empty', !hasContent);
+    if (!hasContent && !sec.querySelector('.reldoc-print-none')){
+      const note = document.createElement('div');
+      note.className = 'reldoc-print-none';
+      note.textContent = 'Not yet completed.';
+      sec.appendChild(note);
+    }
+  });
+}
+
+// Print-only masthead: the launch name as the actual title, its date, and when
+// the doc was generated. Rebuilt on each print so it can never go stale.
+function buildDocPrintHeader(x){
+  const host = $('releaseDocument');
+  if (!host) return;
+  host.querySelectorAll('.reldoc-print-head, .reldoc-print-foot').forEach(n => n.remove());
+
+  const head = document.createElement('div');
+  head.className = 'reldoc-print-head';
+  const when = x?.launch_date
+    ? new Date(x.launch_date + 'T00:00:00').toLocaleDateString('en-US',{dateStyle:'long'})
+    : 'Date TBD';
+  head.innerHTML =
+    `<div class="reldoc-print-title">${esc(x?.title || 'Untitled launch')}</div>
+     <div class="reldoc-print-meta">Release Document${x?.launch_type ? ' · ' + esc(x.launch_type) : ''} · ${esc(when)}</div>`;
+  host.prepend(head);
+
+  const foot = document.createElement('div');
+  foot.className = 'reldoc-print-foot';
+  foot.textContent = `Generated ${new Date().toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})} · SILO Launch Workbench`;
+  host.appendChild(foot);
 }
 
 /* ---- launch form ------------------------------------------------------- */
