@@ -309,6 +309,13 @@
             <option value="no">No samples</option>
           </select>
         </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="ptStatusFilter">
+            <option value="active" selected>Active (hide live)</option>
+            <option value="live">Live only</option>
+            <option value="all">All, incl. live</option>
+          </select>
+        </div>
       </section>
 
       <div class="bcn-card" style="margin-top:12px;">
@@ -792,6 +799,8 @@
         <label class="bcn-label">Product Type / Vendor</label>
         <div class="bcn-field" id="ctFldTypeVendor" style="background:var(--bcn-bg-2);"></div>
       </div>
+      <button class="bcn-btn bcn-btn--ghost" id="ctBtnNewSample" style="margin-top:8px;font-size:12px;">+ Request Sample</button>
+      <div style="font-size:11px;color:var(--bcn-ink-3);margin-top:4px;">For a restock, reshoot, or QC pull — this is not only for new products in the pipeline.</div>
     </div>
 
     <div class="smp-section">
@@ -1381,13 +1390,20 @@
   function filteredTrackerItems() {
     const q=$('ptSearch').value.toLowerCase();
     const fL=$('ptLaunchFilter').value, fT=$('ptTypeFilter').value, fP=$('ptPhotoFilter').value;
-    const fS=$('ptSamplesFilter').value;
+    const fS=$('ptSamplesFilter').value, fV=$('ptStatusFilter').value;
     return allTrackerItems.filter(t=>{
       if(q){const hay=[t.product_title,t.collection,t.product_type,t.manufacturer].join(' ').toLowerCase();if(!hay.includes(q))return false;}
       if(fL&&t.launch_id!==fL)return false;
       if(fT&&t.product_type!==fT)return false;
       if(fP&&t.photo_complete!==fP)return false;
       if(fS){const n=samplesForTracker(t).length; if(fS==='yes'&&!n)return false; if(fS==='no'&&n)return false;}
+      // Nothing previously hid a live product from this list — is_live was
+      // set-able in the drawer but never read by any filter, so "done"
+      // products piled up in the same view as active development. Default to
+      // hiding them ("Active"); "Live only" and "All" are one click away, and
+      // nothing is deleted either way — this only changes what's shown.
+      if(fV==='active'&&t.is_live)return false;
+      if(fV==='live'&&!t.is_live)return false;
       return true;
     });
   }
@@ -1463,7 +1479,12 @@
       $('fldLaunchId').value=fromTracker.launch_id||'';
       linkedProductId=fromTracker.product_master_id||null;
       linkedProductTitle=fromTracker.product_title_snapshot||null;
-      linkedTrackerIds=[fromTracker.id];
+      // Guarded: a Pipeline item always has a real tracker row (.id set), but
+      // "Request Sample" from Catalog reuses this same prefill path with a
+      // synthetic object that has no tracker row behind it at all — nothing
+      // to link there, so leave linkedTrackerIds empty rather than pushing
+      // a bogus id.
+      if(fromTracker.id) linkedTrackerIds=[fromTracker.id];
     }
 
     $('prodSearchInput').value='';
@@ -1869,7 +1890,11 @@
     el.addEventListener('change',renderTable);
   });
 
-  ['ptSearch','ptLaunchFilter','ptTypeFilter','ptPhotoFilter'].forEach(id=>{
+  // ptSamplesFilter was missing from this list — filteredTrackerItems()
+  // already read it, but nothing re-rendered when it changed, so picking
+  // "Has samples" / "No samples" silently did nothing until some other
+  // filter happened to fire a render. Added alongside the new status filter.
+  ['ptSearch','ptLaunchFilter','ptTypeFilter','ptPhotoFilter','ptSamplesFilter','ptStatusFilter'].forEach(id=>{
     const el=$(id);
     el.addEventListener('input',renderTrackerTable);
     el.addEventListener('change',renderTrackerTable);
@@ -2139,6 +2164,25 @@
     $('ctDrawer').classList.add('open');
     $('ctDrawer').setAttribute('aria-hidden','false');
   }
+
+  // "Request Sample" from Catalog — same shape as Pipeline's existing
+  // "+ New Sample from this Product" button (ptBtnNewSample), reusing the
+  // openDrawer(null, fromTracker) prefill path rather than building a
+  // second one. products_master is per-SKU (no factory/launch/collection at
+  // the row level, unlike product_tracker), so this prefill only carries
+  // title/type/the representative SKU id — the rest is filled in manually,
+  // same as it already would be for a from-scratch sample.
+  $('ctBtnNewSample').addEventListener('click', () => {
+    const group=ctEditing;
+    if(!group) return;
+    ctCloseEditor(); switchTab('samples');
+    openDrawer(null, {
+      product_title: group.product_title||'',
+      product_type: group.product_type||'',
+      product_master_id: group.skuIds?.[0]||null,
+      product_title_snapshot: group.product_title||'',
+    });
+  });
 
   function ctCloseEditor(){
     $('backdrop').classList.remove('open');
