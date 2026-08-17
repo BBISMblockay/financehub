@@ -263,9 +263,14 @@
       .ed-overlay { display:none !important; }
       body * { visibility:hidden; }
       #dp-document, #dp-document * { visibility:visible; }
-      /* static, not absolute: an absolutely positioned box is sized to the
-         viewport and fights pagination on long docs. */
-      #dp-document { display:block !important; position:static !important; padding:0 !important; background:#fff !important; }
+      /* visibility:hidden hides the app chrome but it still OCCUPIES LAYOUT.
+         Left in flow, the doc starts below all that invisible space and page 1
+         prints blank. Pulling it out of flow at top-left fixes that. Height
+         must stay auto — the original `inset:0` pinned it to viewport height,
+         which is the other way to break a long doc. */
+      #dp-document { display:block !important; position:absolute !important;
+                     left:0; top:0; right:0; height:auto !important;
+                     padding:0 !important; background:#fff !important; }
       #printDocBtn { display:none !important; }
 
       /* Real page margins. The old 24px padding was not a page margin, so
@@ -296,17 +301,34 @@
       .reldoc-print-foot { display:block !important; margin-top:16px; padding-top:8px; border-top:1px solid #999;
                            font-family:var(--bcn-mono); font-size:8pt; color:#666 !important; }
 
-      /* Sections read as document blocks, not cards. */
+      /* Sections read as document blocks, not cards.
+         break-inside:avoid on the SECTION was wrong: Products can run to 13
+         rows and several pages, and an unsatisfiable avoid produces worse
+         breaks than none. Keep the section breakable and protect the rows. */
       .reldoc-sec { border:none !important; border-radius:0 !important; padding:0 !important;
-                    margin:0 0 14px !important; break-inside:avoid; page-break-inside:avoid; }
+                    margin:0 0 14px !important; break-inside:auto; page-break-inside:auto; }
       .reldoc-sec-title { color:#000 !important; font-size:9pt; border-bottom:1px solid #000;
-                          padding-bottom:3px; margin-bottom:6px; break-after:avoid; page-break-after:avoid; }
+                          padding-bottom:3px; margin-bottom:6px;
+                          break-after:avoid; page-break-after:avoid;
+                          break-inside:avoid; page-break-inside:avoid; }
       .reldoc-row { border-top:1px solid #ddd !important; font-size:10.5pt; padding:3px 0;
-                    break-inside:avoid; page-break-inside:avoid; }
-      .reldoc-k { color:#444 !important; }
-      .reldoc-v { color:#000 !important; }
+                    break-inside:avoid; page-break-inside:avoid;
+                    align-items:baseline; gap:14px !important; }
+
+      /* The killer: .reldoc-k is flex-shrink:0 on screen, so a long product
+         title refused to shrink and squeezed the value column to about one
+         character wide — "Y o ut h C a p · 4 3 0 un its" down the page.
+         Let the label wrap instead, and give the value a floor it keeps. */
+      .reldoc-k { color:#444 !important; flex-shrink:1 !important; min-width:0;
+                  overflow-wrap:break-word; }
+      .reldoc-v { color:#000 !important; flex-shrink:0; min-width:22%; max-width:45%;
+                  word-break:normal !important; overflow-wrap:break-word; }
+      /* URLs are the one case that genuinely needs mid-token breaking. */
+      .reldoc-v a, .reldoc-v[href], a { overflow-wrap:anywhere; word-break:break-all; }
+
       .reldoc-block { font-size:10.5pt; break-inside:avoid; page-break-inside:avoid; }
-      .reldoc-block-label { color:#000 !important; }
+      .reldoc-block-label { color:#000 !important; break-after:avoid; page-break-after:avoid; }
+      p, div { orphans:3; widows:3; }
 
       /* Keep tag pill backgrounds — browsers drop them by default. */
       .reldoc-tag-pill { -webkit-print-color-adjust:exact; print-color-adjust:exact;
