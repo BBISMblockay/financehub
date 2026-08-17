@@ -42,8 +42,10 @@ This doc is the audit + architecture record for the org-wide calendar layer.
 - TikTok Live schedule: `live_sessions.slot_start` — the only `timestamptz`
   slot table and the only timezone-correct date modeling in the schema.
   **No deep link support.**
-- Payroll (root `payroll.html`, grandfathered): `payroll_import_batches.
-  check_date` + pay-period range. Finance/admin-gated at the DB.
+- Payroll: `payroll_import_batches.check_date` + pay-period range.
+  Finance/admin-gated at the DB. **The Payroll BI page this linked to
+  (root `payroll.html`) was retired 2026-08-17** — the payday events still
+  project, but their deep link is dead. See the note under "Deep-link targets".
 - Travel: **not in Supabase at all** — a Google-Sheets-backed legacy tool with
   its own hand-rolled month grid. Cannot feed the calendar until migrated.
 - Checkwriter / recon / allocation / cashflow: CSV/localStorage/Sheets tools,
@@ -191,6 +193,14 @@ po_id=`, `mailroom.html?item=`, `tasks.html`, `request_manager.html`,
 `live-schedule.html`, `/payroll.html`. Known gap: request_manager and
 live-schedule accept no row params yet — page-level links for now; adding
 `?request=` / `?date=` there is a Phase-B follow-up.
+
+**Dead link (2026-08-17):** `/payroll.html` was retired as a bad flow, but the
+payday branch of `calendar_events_v` still hardcodes it, so the "OPEN PAYROLL"
+button on a payday event 404s. Low blast radius today — 3 batches exist, the
+newest payday is 2026-05-29 and none are in the future, and the branch is
+finance/admin-gated. Fixing it properly means a migration that sets that
+branch's link column to `null` (the drawer hides the button when there is no
+link); until then the events are still correct, only the button is broken.
 
 ## 6. Taxonomy
 

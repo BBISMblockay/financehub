@@ -54,7 +54,7 @@ The reliable test is the script tags, not this table: a page that loads `silo-ch
 | Pattern | Pages |
 |--------|--------|
 | Full Beacon shell (33) | `accounting-export`, `bi-daily-trend`, `bi-product-search`, `bi-product-types`, `bi-sales-overview`, `bi-top-sellers`, `calendar`, `finance`, `insights`, `integrations`, `inventory`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`, `marketing-overview`, `my-review`, `planning-scenarios`, `po-builder`, `po-costing`, `po-report`, `products`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`, `review-editor`, `review-templates`, `reviews`, `sales-verification`, `silo-chat`, `tasks` |
-| Tool shell (iframe, 5) | `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`, `hidden/payroll` |
+| Tool shell (iframe, 4) | `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale` |
 | Redirect stub (3) | `employeehub` → `/v2/finance.html`; `product-manager`, `product-samples` → `/v2/products.html` |
 | Off-shell on purpose | `backend.html` (Tailwind CDN, no chrome), `company-picker.html` (pre-company selection), `launch-calendar-guide.html` (standalone doc) |
 
