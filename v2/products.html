@@ -885,6 +885,12 @@
   let linkedProductId   = null;
   let linkedProductTitle = null;
   let linkedTrackerIds  = []; // pipeline items linked to the sample being edited
+  // Which flow created this draft — currently just 'catalog_photo_request'
+  // (set by Catalog's "+ Request Sample" button) vs. null (pipeline/blank
+  // "+ New Sample"). Lets the notification distinguish "Alec pulled sizes
+  // for a photo shoot from existing stock" from a pre-production sample
+  // request, per Chris/Blake's Slack thread on 2026-08-17.
+  let pendingRequestSource = null;
   let prodSearchTimer   = null;
 
   // product tracker drawer state
@@ -1469,6 +1475,7 @@
     linkedProductId    = sample?.product_master_id    || null;
     linkedProductTitle = sample?.product_title_snapshot || null;
     linkedTrackerIds   = sample?.id ? trackerIdsForSample(sample.id) : (sample?.tracker_id ? [sample.tracker_id] : []);
+    pendingRequestSource = sample?.request_source || null;
 
     // "New sample from this product" — carry the pipeline item's identity over.
     if(!sample && fromTracker){
@@ -1485,6 +1492,7 @@
       // to link there, so leave linkedTrackerIds empty rather than pushing
       // a bogus id.
       if(fromTracker.id) linkedTrackerIds=[fromTracker.id];
+      if(fromTracker.request_source) pendingRequestSource=fromTracker.request_source;
     }
 
     $('prodSearchInput').value='';
@@ -1509,7 +1517,7 @@
     $('backdrop').classList.remove('open');
     $('drawer').classList.remove('open');
     $('drawer').setAttribute('aria-hidden','true');
-    drawerSample=null; pendingPhotos=[]; linkedProductId=null; linkedProductTitle=null; linkedTrackerIds=[];
+    drawerSample=null; pendingPhotos=[]; linkedProductId=null; linkedProductTitle=null; linkedTrackerIds=[]; pendingRequestSource=null;
   }
 
   // ── sample save/delete ─────────────────────────────────────────────────────
@@ -1554,6 +1562,7 @@
       // multi-item source of truth.
       tracker_id:             linkedTrackerIds[0]          || null,
       notes:                  $('fldNotes').value.trim()  || null,
+      request_source:         pendingRequestSource         || null,
     };
 
     setStatus('Saving…','info');
@@ -2181,6 +2190,7 @@
       product_type: group.product_type||'',
       product_master_id: group.skuIds?.[0]||null,
       product_title_snapshot: group.product_title||'',
+      request_source: 'catalog_photo_request',
     });
   });
 

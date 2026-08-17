@@ -750,3 +750,24 @@ select
       then 'MISSING — launch_calendar.approved_creatives'
     else 'ok'
   end as launch_approved_copy_creatives;
+
+-- 23. Sample notifications (migration 20260817190000)
+select
+  case
+    when not exists (select 1 from pg_proc where proname = 'notify_sample_events')
+      then 'MISSING — run 20260817190000_sample_notifications.sql'
+    when not exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid
+                     where c.relname='product_samples' and t.tgname='trg_sample_notify')
+      then 'MISSING — trg_sample_notify trigger'
+    else 'ok'
+  end as sample_notifications;
+
+-- 24. Product samples request_source (migration 20260817200000)
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_samples'
+                       and column_name='request_source')
+      then 'MISSING — run 20260817200000_product_samples_request_source.sql'
+    else 'ok'
+  end as product_samples_request_source;

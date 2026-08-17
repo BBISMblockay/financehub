@@ -9375,3 +9375,52 @@ create index if not exists launch_calendar_audience_tags_gin
 alter table public.launch_calendar
   add column if not exists approved_copy      text,
   add column if not exists approved_creatives text;
+
+-- ---------------------------------------------------------------------------
+-- 20260817190000_sample_notifications.sql
+-- Samples: email + Slack notification on a sample transitioning to received,
+-- or a size request being set/changed. See sample-notify edge function.
+-- ---------------------------------------------------------------------------
+create or replace function public.notify_sample_events()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'UPDATE'
+     and coalesce(old.sample_status,'') is distinct from 'received'
+     and new.sample_status = 'received' then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_RECEIVED', 'record', row_to_json(new))
+    );
+  end if;
+
+  if new.size_requests is not null and btrim(new.size_requests) <> ''
+     and (tg_op = 'INSERT' or old.size_requests is distinct from new.size_requests) then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_SIZE_REQUEST', 'record', row_to_json(new))
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.notify_sample_events() from public, anon;
+
+drop trigger if exists trg_sample_notify on public.product_samples;
+create trigger trg_sample_notify
+  after insert or update on public.product_samples
+  for each row execute function public.notify_sample_events();
+
+-- ---------------------------------------------------------------------------
+-- 20260817200000_product_samples_request_source.sql
+-- Tags which flow created a sample draft, so sample-notify can phrase the
+-- size-request notification correctly (catalog photo-shoot pull vs
+-- pre-production sample).
+-- ---------------------------------------------------------------------------
+alter table public.product_samples
+  add column if not exists request_source text;
