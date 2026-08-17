@@ -174,7 +174,7 @@
         <div class="bcn-header-sub">Live-queries your SILO data as you ask — sales, inventory, marketing, returns. No report needs to exist first.</div>
       </div>
       <div class="bcn-header-actions">
-        <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Notes</button>
+        <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Training</button>
         <button id="btnNewChat" class="bcn-btn bcn-btn--ghost">New chat</button>
       </div>
     </header>
@@ -210,7 +210,7 @@
 <div class="ac-notes-backdrop" id="notesBackdrop">
   <div class="ac-notes-modal" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
     <div class="ac-notes-head">
-      <h3 id="notesTitle">Taught notes</h3>
+      <h3 id="notesTitle">Train Ask SILO</h3>
       <button class="ac-notes-close" type="button" id="btnCloseNotes">✕</button>
     </div>
     <div class="ac-notes-body">
@@ -428,21 +428,21 @@
     const general = notes.filter(n => n.category !== 'brand');
 
     el('notesList').innerHTML =
-      notesSectionHtml('Brand & voice', brand, canManageNotes ? 'No brand context taught yet — add one below.' : 'No brand context taught yet.') +
-      notesSectionHtml('Taught corrections', general, canManageNotes ? 'Nothing taught yet — add one below.' : 'Nothing taught yet.');
+      notesSectionHtml('Brand & voice', brand, canManageNotes ? 'No brand context trained yet — add one below.' : 'No brand context trained yet.') +
+      notesSectionHtml('Corrections', general, canManageNotes ? 'Nothing trained yet — add one below.' : 'Nothing trained yet.');
 
     el('notesAddArea').innerHTML = canManageNotes
       ? `<div class="ac-notes-add">
-          <textarea id="newNoteText" rows="2" placeholder="Teach Ask SILO something it should always account for…"></textarea>
+          <textarea id="newNoteText" rows="2" placeholder="Train Ask SILO on something it should always account for…"></textarea>
           <div class="ac-notes-add-actions">
             <select id="newNoteCategory">
               <option value="general">General correction</option>
               <option value="brand">Brand & voice</option>
             </select>
-            <button class="bcn-btn bcn-btn--primary" type="button" id="btnAddNote">Add</button>
+            <button class="bcn-btn bcn-btn--primary" type="button" id="btnAddNote">Train</button>
           </div>
         </div>`
-      : `<div class="ac-notes-readonly-hint">Only execs/owner can add or remove notes.</div>`;
+      : `<div class="ac-notes-readonly-hint">Only execs/owner can add or remove Ask SILO's training.</div>`;
   }
 
   async function addNote() {
@@ -453,7 +453,7 @@
     el('btnAddNote').disabled = true;
     const { error } = await sb.from('silo_chat_notes').insert({ note, category });
     if (error) {
-      setStatus('Could not save note: ' + error.message, 'error', 4000);
+      setStatus('Could not save training: ' + error.message, 'error', 4000);
       el('btnAddNote').disabled = false;
       return;
     }
@@ -463,7 +463,7 @@
 
   async function deleteNote(id) {
     const { error } = await sb.from('silo_chat_notes').delete().eq('id', id);
-    if (error) { setStatus('Could not remove note: ' + error.message, 'error', 4000); return; }
+    if (error) { setStatus('Could not remove training: ' + error.message, 'error', 4000); return; }
     await loadNotes();
   }
 
@@ -482,7 +482,7 @@
     const delBtn = e.target.closest('.ac-note-delete');
     if (delBtn) {
       const id = delBtn.closest('.ac-note-item')?.dataset.id;
-      if (id && confirm('Remove this note?')) deleteNote(id);
+      if (id && confirm('Remove this from Ask SILO\'s training?')) deleteNote(id);
     }
   });
   window.addEventListener('keydown', (e) => {
