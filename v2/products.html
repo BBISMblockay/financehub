@@ -156,6 +156,22 @@
     .smp-tbl tbody tr { cursor:pointer; }
     .smp-tbl tbody tr:hover td { background:oklch(.97 .004 245); }
     .smp-empty { text-align:center; padding:60px 20px; color:var(--bcn-ink-3); font-size:13px; }
+    /* .bcn-table uses table-layout:fixed with no per-column widths set on these
+       three tables, so the browser split every column equally regardless of
+       content — a 3-char "Ref" got the same width as "Product Title". Each
+       <th> below now carries an explicit width sized to what it actually
+       holds. Once a column has a real width, plain overflow:hidden +
+       text-overflow:ellipsis on its <td> clips correctly on its own — no
+       hardcoded max-width guess needed, unlike the arbitrary 180/200/220px
+       values this replaces (those were sized against nothing in particular
+       and didn't match the equal-split column they sat inside). */
+    .ptbl-trunc { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* th.text-align defaults to right (beacon.css, built for numeric finance
+       grids) with .bcn-th-left as the opt-in override. None of these three
+       tables are numeric-heavy, so left-align every header — the alternative
+       is judging column-by-column which few might read fine right-aligned,
+       which isn't worth the inconsistency risk. */
+    .smp-tbl th { text-align:left !important; }
 
     /* ── tab panels ──────────────────────────────────── */
     .pt-panel { display:none; }
@@ -242,9 +258,9 @@
           <table class="bcn-table smp-tbl" id="samplesTable">
             <thead>
               <tr>
-                <th>Ref</th><th>Product Title</th><th>Factory</th><th>Collection</th>
-                <th>Bulk ETA</th><th>Status</th><th>Photo</th><th>Copy</th>
-                <th>Live</th><th>Launch</th><th>PO</th>
+                <th style="width:6%">Ref</th><th style="width:20%">Product Title</th><th style="width:13%">Factory</th><th style="width:10%">Collection</th>
+                <th style="width:8%">Bulk ETA</th><th style="width:9%">Status</th><th style="width:7%">Photo</th><th style="width:7%">Copy</th>
+                <th style="width:6%">Live</th><th style="width:8%">Launch</th><th style="width:6%">PO</th>
               </tr>
             </thead>
             <tbody id="samplesBody">
@@ -300,8 +316,8 @@
           <table class="bcn-table smp-tbl" id="trackerTable">
             <thead>
               <tr>
-                <th>Product Title</th><th>Manufacturer</th><th>Type</th><th>Collection</th>
-                <th>Launch</th><th>Bulk ETA</th><th>On Hand</th><th>Photo</th><th>Copy</th><th>Live</th><th>Samples</th>
+                <th style="width:22%">Product Title</th><th style="width:13%">Manufacturer</th><th style="width:8%">Type</th><th style="width:9%">Collection</th>
+                <th style="width:9%">Launch</th><th style="width:8%">Bulk ETA</th><th style="width:7%">On Hand</th><th style="width:7%">Photo</th><th style="width:6%">Copy</th><th style="width:5%">Live</th><th style="width:6%">Samples</th>
               </tr>
             </thead>
             <tbody id="trackerBody">
@@ -338,8 +354,8 @@
             <thead>
               <tr>
                 <th style="width:28px;"><input type="checkbox" id="ctSelectAll" title="Select all matching filters" /></th>
-                <th>SKUs</th><th>Product Title</th><th>Product Type</th>
-                <th>Subcategory</th><th>Department</th><th>Tags</th><th>Notes</th><th>Updated</th>
+                <th style="width:7%">SKUs</th><th style="width:19%">Product Title</th><th style="width:10%">Product Type</th>
+                <th style="width:9%">Subcategory</th><th style="width:8%">Department</th><th style="width:15%">Tags</th><th style="width:18%">Notes</th><th style="width:8%">Updated</th>
               </tr>
             </thead>
             <tbody id="ctBody">
@@ -1326,17 +1342,17 @@
       const eta=s.bulk_eta?new Date(s.bulk_eta+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
       const factName=factory?.factory_name||s.factory_name||'—';
       return `<tr data-id="${s.id}">
-        <td><span class="bcn-mono" style="font-size:10px;">${esc(s.sample_ref)}</span></td>
-        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${esc(s.product_title)}</td>
-        <td>${esc(factName)}</td>
-        <td>${esc(s.collection||'—')}</td>
+        <td class="ptbl-trunc" title="${esc(s.sample_ref||'')}"><span class="bcn-mono" style="font-size:10px;">${esc(s.sample_ref)}</span></td>
+        <td class="ptbl-trunc" style="font-weight:600;" title="${esc(s.product_title||'')}">${esc(s.product_title)}</td>
+        <td class="ptbl-trunc" title="${esc(factName)}">${esc(factName)}</td>
+        <td class="ptbl-trunc" title="${esc(s.collection||'')}">${esc(s.collection||'—')}</td>
         <td><span class="bcn-mono" style="font-size:11px;">${eta}</span></td>
         <td>${statusPill(s.sample_status)}</td>
         <td>${photoPill(s.photo_status)}</td>
         <td><span class="bcn-pill ${s.copy_status==='complete'?'bcn-pill--pos':s.copy_status==='na'?'bcn-pill--dark':''}">${COPY_LABELS[s.copy_status]||'—'}</span></td>
         <td>${s.live_status?'<span class="bcn-pill bcn-pill--pos">Live</span>':'<span class="bcn-pill bcn-pill--dark">No</span>'}</td>
-        <td style="font-size:11px;">${launch?esc(launch.title):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
-        <td style="font-size:11px;font-family:var(--bcn-mono);">${po?esc(po.po_name):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
+        <td class="ptbl-trunc" style="font-size:11px;" title="${launch?esc(launch.title):''}">${launch?esc(launch.title):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
+        <td class="ptbl-trunc" style="font-size:11px;font-family:var(--bcn-mono);" title="${po?esc(po.po_name):''}">${po?esc(po.po_name):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
       </tr>`;
     }).join('');
   }
@@ -1384,13 +1400,13 @@
       const launch=allLaunches.find(l=>l.id===t.launch_id);
       const eta=t.bulk_eta?new Date(t.bulk_eta+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
       return `<tr data-pt-id="${t.id}">
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${esc(t.product_title)}</td>
-        <td>${esc(t.manufacturer||'—')}</td>
-        <td>${esc(t.product_type||'—')}</td>
-        <td>${esc(t.collection||'—')}</td>
-        <td style="font-size:11px;">${launch?esc(launch.title):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
+        <td class="ptbl-trunc" style="font-weight:600;" title="${esc(t.product_title||'')}">${esc(t.product_title)}</td>
+        <td class="ptbl-trunc" title="${esc(t.manufacturer||'')}">${esc(t.manufacturer||'—')}</td>
+        <td class="ptbl-trunc" title="${esc(t.product_type||'')}">${esc(t.product_type||'—')}</td>
+        <td class="ptbl-trunc" title="${esc(t.collection||'')}">${esc(t.collection||'—')}</td>
+        <td class="ptbl-trunc" style="font-size:11px;" title="${launch?esc(launch.title):''}">${launch?esc(launch.title):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
         <td><span class="bcn-mono" style="font-size:11px;">${eta}</span></td>
-        <td>${esc(t.on_hand||'—')}</td>
+        <td class="ptbl-trunc">${esc(t.on_hand||'—')}</td>
         <td>${ptPhotoPill(t.photo_complete)}</td>
         <td>${t.copy_complete?'<span class="bcn-pill bcn-pill--pos">Done</span>':'<span class="bcn-pill bcn-pill--dark">No</span>'}</td>
         <td>${t.is_live?'<span class="bcn-pill bcn-pill--pos">Live</span>':'<span class="bcn-pill bcn-pill--dark">No</span>'}</td>
@@ -2021,12 +2037,12 @@
       const skuLabel=g.skuIds.length>1?`${g.skuIds.length} SKUs`:(g.sampleSku||'—');
       return `<tr data-ct-key="${esc(g.key)}">
         <td><input type="checkbox" class="ct-row-ck" data-key="${esc(g.key)}" ${ctSelected.has(g.key)?'checked':''}/></td>
-        <td class="bcn-mono" style="font-size:11px;">${esc(skuLabel)}</td>
-        <td style="max-width:220px;"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g.product_title||'—')}</div></td>
-        <td>${esc(g.product_type||'—')}</td>
-        <td>${esc(g.subcategory||'—')}</td><td>${esc(g.department||'—')}</td>
-        <td style="max-width:200px;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(tags||'—')}</div></td>
-        <td style="max-width:180px;"><div style="font-size:11px;color:var(--bcn-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(g.notes||'')}</div></td>
+        <td class="bcn-mono ptbl-trunc" style="font-size:11px;" title="${esc(skuLabel)}">${esc(skuLabel)}</td>
+        <td class="ptbl-trunc" style="font-weight:600;" title="${esc(g.product_title||'')}">${esc(g.product_title||'—')}</td>
+        <td class="ptbl-trunc" title="${esc(g.product_type||'')}">${esc(g.product_type||'—')}</td>
+        <td class="ptbl-trunc" title="${esc(g.subcategory||'')}">${esc(g.subcategory||'—')}</td><td class="ptbl-trunc" title="${esc(g.department||'')}">${esc(g.department||'—')}</td>
+        <td class="ptbl-trunc" title="${esc(tags)}">${esc(tags||'—')}</td>
+        <td><div style="font-size:11px;color:var(--bcn-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="${esc(g.notes||'')}">${esc(g.notes||'')}</div></td>
         <td class="bcn-mono" style="font-size:11px;">${up}</td>
       </tr>`;
     }).join('');
