@@ -52,6 +52,14 @@
     dialog.tp-dialog::backdrop { background:rgba(10,14,20,.45); }
     .tp-dialog-head { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--bcn-border); }
     .tp-dialog-body { padding:16px; max-height:65vh; overflow-y:auto; }
+    /* Grading legend in the preview — mirrors the .re-/.mr-/.rv- legend on the review views */
+    .tp-pv-legend { padding:12px 14px; margin-bottom:16px; border:1px solid var(--bcn-border);
+                    border-radius:var(--bcn-radius-sm); background:var(--bcn-surface-2, #f9fafb); }
+    .tp-pv-legend-label { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em;
+                          text-transform:uppercase; color:var(--bcn-ink-3); margin-bottom:6px; }
+    .tp-pv-legend-body { font-size:12.5px; line-height:1.6; color:var(--bcn-ink-2); white-space:pre-wrap; }
+    .tp-pv-legend--empty { border-style:dashed; }
+    .tp-pv-legend--empty .tp-pv-legend-body { color:var(--bcn-ink-4); font-style:italic; }
     .tp-pv-q { margin-bottom:16px; }
     .tp-pv-label { font-weight:650; font-size:13px; }
     .tp-pv-help { font-size:11.5px; color:var(--bcn-ink-3); margin:2px 0 6px; }
@@ -110,9 +118,11 @@
             <div class="bcn-field-group">
               <label class="bcn-label" for="tplDesc">Intro &amp; grading scale</label>
               <textarea class="bcn-field" id="tplDesc" rows="6" style="resize:vertical;line-height:1.5"
-                placeholder="Shown at the top of every review — for the manager filling it out and the employee reading it.&#10;Use it to explain the scale, e.g.&#10;1 = Does not meet expectations&#10;5 = Meets expectations&#10;10 = Consistently exceeds"></textarea>
+                placeholder="e.g. 1 = Does not meet · 5 = Meets · 10 = Exceeds"></textarea>
               <div style="font-size:11.5px;color:var(--bcn-ink-3);margin-top:4px">
-                Line breaks are preserved. For guidance on a single question, use that question's help text instead.
+                Shown at the top of every review — the manager filling it out and the employee reading it both see this.
+                Line breaks are preserved. <strong>Leave it blank and no scale appears on the review.</strong>
+                For guidance on one specific question, use that question's help text instead.
               </div>
             </div>
           </div>
@@ -487,7 +497,23 @@
   document.getElementById('btnPreview').addEventListener('click', () => {
     const title = document.getElementById('tplTitle').value.trim() || 'Untitled template';
     document.getElementById('pvTitle').textContent = title;
-    document.getElementById('pvBody').innerHTML = QUESTIONS.length ? QUESTIONS.map(q => `
+
+    // Read the legend live from the field, not from the saved row, so the
+    // preview reflects unsaved edits the same way the questions do. When it is
+    // empty we still show the block as a dashed placeholder, otherwise an empty
+    // scale looks identical to a broken one.
+    const desc = document.getElementById('tplDesc').value.trim();
+    const legend = desc
+      ? `<div class="tp-pv-legend">
+           <div class="tp-pv-legend-label">Grading scale</div>
+           <div class="tp-pv-legend-body">${esc(desc)}</div>
+         </div>`
+      : `<div class="tp-pv-legend tp-pv-legend--empty">
+           <div class="tp-pv-legend-label">Grading scale</div>
+           <div class="tp-pv-legend-body">Empty — nothing will show on the review. Add the scale in “Intro &amp; grading scale”.</div>
+         </div>`;
+
+    document.getElementById('pvBody').innerHTML = legend + (QUESTIONS.length ? QUESTIONS.map(q => `
       <div class="tp-pv-q">
         <div class="tp-pv-label">${esc(q.label || '(untitled question)')}${q.required ? ' *' : ''}</div>
         ${q.help_text ? `<div class="tp-pv-help">${esc(q.help_text)}</div>` : ''}
@@ -495,7 +521,7 @@
         ${CHOICE_KINDS.includes(q.kind) ? q.options.map(o => `<div class="tp-pv-opt">${q.kind==='single_choice'?'◯':'☐'} ${esc(o)}</div>`).join('') : ''}
         ${q.kind === 'free_text' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Manager writes here…</div>` : ''}
         ${q.kind === 'goals' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Previous goals (status updates) + new goals for next period</div>` : ''}
-      </div>`).join('') : '<div class="tp-empty">No questions yet.</div>';
+      </div>`).join('') : '<div class="tp-empty">No questions yet.</div>');
     document.getElementById('dlgPreview').showModal();
   });
   document.getElementById('btnClosePreview').addEventListener('click', () => document.getElementById('dlgPreview').close());
