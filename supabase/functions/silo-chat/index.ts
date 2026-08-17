@@ -1,19 +1,31 @@
 // silo-chat -- authenticated (verify_jwt on, default): a "wide open, ask
-// anything about our data" chat. Claude gets two tools -- run_sql (backed
+// anything about our data" chat. Claude gets four tools -- run_sql (backed
 // by the chat_run_readonly_query(text) RPC from
-// 20260813180000_silo_chat_readonly_query.sql) and save_note (a plain
+// 20260813180000_silo_chat_readonly_query.sql), save_note (a plain
 // insert into silo_chat_notes, RLS-gated by can_manage_silo_notes() -- see
-// 20260813210000_silo_chat_notes.sql and 20260813230000_silo_chat_managers.sql).
+// 20260813210000_silo_chat_notes.sql and 20260813230000_silo_chat_managers.sql),
+// web_search (Anthropic's hosted server tool -- runs entirely on
+// Anthropic's own infrastructure, no execution code here, for
+// public/external knowledge: competitors, industry benchmarks, this
+// brand's own public site), and view_ad_creative_image (fetches a Meta
+// ad's thumbnail via its own thumbnail_url and returns it as an image
+// block, for visual-design questions the text fields in
+// meta_ad_creatives can't answer).
 // This function forwards the caller's own JWT to Supabase (never the
-// service-role key) so every query/insert the model runs executes AS that
-// user. Postgres RLS is the actual data boundary: a user can never see
-// through this chat anything they couldn't already see by hand-querying
-// from the browser, regardless of what SQL the model writes, and only
-// exec/owner-tier users (or anyone specifically granted Ask SILO access
-// via backend.html) can teach it a new note no matter what the model is
-// told to do. See CLAUDE.md's "Key tables" section for the schema summary
-// baked into BASE_SYSTEM_PROMPT below -- keep them in sync.
+// service-role key) so every query/insert/lookup the model runs executes
+// AS that user. Postgres RLS is the actual data boundary: a user can never
+// see through this chat anything they couldn't already see by
+// hand-querying from the browser, regardless of what SQL the model
+// writes, and only exec/owner-tier users (or anyone specifically granted
+// Ask SILO access via backend.html) can teach it a new note no matter what
+// the model is told to do. web_search is the one deliberate exception to
+// "SILO data only" -- see the "Internal data vs. public web knowledge"
+// paragraph in BASE_SYSTEM_PROMPT for how its results are kept clearly
+// separate from real SILO numbers. See CLAUDE.md's "Key tables" section
+// for the schema summary baked into BASE_SYSTEM_PROMPT below -- keep them
+// in sync.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -36,7 +48,9 @@ Brand context: SILO is used by more than one company, so nothing about brand ide
 
 Voice for data answers specifically: even where brand context exists and describes a playful/distinctive voice, keep data answers direct and number-first -- lead with the figure, stay concise. That playfulness belongs in campaign-name/marketing-copy suggestions, not in a sales report, unless the brand context explicitly says otherwise.
 
-You have two tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do.
+You have four tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do. web_search looks up public information on the open internet -- use it for anything outside this company's own database: competitor research, industry trends/benchmarks, or evaluating this brand's own public website/marketing the way an outside visitor sees it. view_ad_creative_image fetches the actual creative image for a specific Meta ad by ad_id, for visual-design questions (color, layout, imagery, composition) that the text fields in meta_ad_creatives can't answer.
+
+Internal data vs. public web knowledge: run_sql results are this company's own, verified, real operational numbers. web_search results are external, unverified, and can be wrong, outdated, written by a competitor about themselves, or simply not match SILO's own data -- never blend a web-sourced figure into an internal number, and never state a web claim with the same confidence as a number you actually queried. Say plainly when a fact came from the web rather than from SILO's own data. Use web_search efficiently -- a handful of well-targeted searches beats many near-duplicate ones.
 
 Key tables and views you can query (a curated starting list, NOT the full set -- see the discovery rule below):
 - sales_by_day(day_date, location_tag, total_net_sales, total_refunds, total_gross_sales, total_quantity_sold, product_type, sku, ...) -- daily sales rollup by location/SKU
@@ -50,7 +64,7 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - payment_requests / payment_requests_v -- AP requests and status
 - ar_customers / ar_invoices / ar_customer_rollup_v -- accounts receivable (wholesale customer balances, aging)
 - marketing_kpis_daily -- daily ad spend/revenue by platform (google_ads, meta_ads, tiktok_ads, ga4), campaign-level
-- meta_ad_performance_daily(day_date, ad_id, ad_name, campaign_name, adset_name, impressions, clicks, spend, conversions, conversion_value, view_content, add_to_cart, initiate_checkout) joined to meta_ad_creatives(ad_id, creative_id, thumbnail_url, body, title, object_type, effective_status) on ad_id -- ad-level (not just campaign-level) Meta performance and creative metadata, for "which specific ad/creative" or "what kind of design/structure performs best" questions. object_type is the ad format (image/video/carousel), body is the ad copy, title is the headline -- these are the only creative characteristics queryable via SQL (there is no image/video-viewing tool, so visual elements like color or layout aren't assessable, only structural/textual ones). Compute CPM as spend/impressions*1000 and CAC as spend/conversions per ad, then group/compare by object_type or look for patterns in body/title text
+- meta_ad_performance_daily(day_date, ad_id, ad_name, campaign_name, adset_name, impressions, clicks, spend, conversions, conversion_value, view_content, add_to_cart, initiate_checkout) joined to meta_ad_creatives(ad_id, creative_id, thumbnail_url, body, title, object_type, effective_status) on ad_id -- ad-level (not just campaign-level) Meta performance and creative metadata, for "which specific ad/creative" or "what kind of design/structure performs best" questions. object_type is the ad's Meta-assigned format -- observed values are SHARE (single image/link ad), VIDEO, and STATUS (text-only), not a literal image/video/carousel taxonomy despite the field name. body is the ad copy, title is the headline. For the actual visual design (color, layout, imagery -- what the creative literally looks like), call view_ad_creative_image with the ad_id rather than guessing from object_type/body/title alone; use it sparingly, only for the specific ads the question is actually about (e.g. the top/bottom few by CPM or CAC), not every ad in a result set. Compute CPM as spend/impressions*1000 and CAC as spend/conversions per ad, then group/compare by object_type, look for patterns in body/title text, or view the images for the most/least efficient creatives
 - facebook_page_insights_daily / instagram_media_insights -- organic social performance
 - v_marketing_mer_daily(day_date, ad_spend, platform_conversions, platform_conv_value, online_net_sales, online_order_lines) -- ad spend vs. Shopify online net sales by day. Note: this view's spend column is ad_spend, but meta_ad_performance_daily's is just spend -- same concept, different name per table, don't assume a column name carries over from one table to another
 - redo_returns / redo_return_items -- returns/exchanges/store-credit data from Redo (refund_amount, exchange_amount, store_credit_amount, status, reason, sku)
@@ -107,6 +121,27 @@ const TOOLS = [
         category: { type: 'string', enum: ['general', 'brand'], description: 'Defaults to "general" if omitted. Use "brand" only for foundational brand identity/voice, not specific facts.' },
       },
       required: ['note'],
+    },
+  },
+  // Anthropic's hosted server tool -- runs entirely on Anthropic's own
+  // infrastructure. No client-side execution: the search (and its result
+  // block) happens inside the same Messages API response, so the round-trip
+  // loop below never sees or handles this tool by name. max_uses caps one
+  // question from triggering an open-ended number of searches.
+  {
+    type: 'web_search_20260209',
+    name: 'web_search',
+    max_uses: 5,
+  },
+  {
+    name: 'view_ad_creative_image',
+    description: 'Fetch and view the actual creative image for a specific Meta ad by ad_id -- for visual-design questions (color, layout, imagery, composition) that object_type/body/title text alone cannot answer. Use sparingly: only for the specific ad(s) the question is actually about (e.g. the top/bottom few performers by CPM or CAC), not every ad in a result set.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        ad_id: { type: 'string', description: 'The ad_id from meta_ad_performance_daily / meta_ad_creatives to view the creative image for.' },
+      },
+      required: ['ad_id'],
     },
   },
 ];
@@ -279,7 +314,7 @@ Deno.serve(async (req: Request) => {
 
       const toolResults = [];
       for (const use of toolUses) {
-        let resultContent: string;
+        let resultContent: string | Array<Record<string, unknown>>;
         if (use.name === 'save_note') {
           const note = String(use.input?.note || '').trim();
           const category = use.input?.category === 'brand' ? 'brand' : 'general';
@@ -294,6 +329,32 @@ Deno.serve(async (req: Request) => {
             // violation as an error here -- either way, tell the model so
             // it can relay a clear message instead of claiming success.
             resultContent = `Error: could not save note -- ${String((err as Error)?.message || err)}. This is likely a permissions issue (save_note needs Ask SILO management access -- exec/owner-tier, or a specific grant).`;
+          }
+        } else if (use.name === 'view_ad_creative_image') {
+          const adId = String(use.input?.ad_id || '').trim();
+          try {
+            if (!adId) throw new Error('ad_id is required');
+            // RLS-scoped like everything else here -- a user can only view
+            // creatives from their own active company's ad data.
+            const { data: creative, error } = await callerClient
+              .from('meta_ad_creatives')
+              .select('thumbnail_url, title, object_type')
+              .eq('ad_id', adId)
+              .maybeSingle();
+            if (error) throw new Error(error.message);
+            if (!creative?.thumbnail_url) throw new Error(`No thumbnail_url found for ad_id ${adId}`);
+            const imgRes = await fetch(creative.thumbnail_url);
+            if (!imgRes.ok) throw new Error(`Could not fetch image (HTTP ${imgRes.status})`);
+            const mediaType = (imgRes.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+            if (!mediaType.startsWith('image/')) throw new Error(`URL did not return an image (got ${mediaType})`);
+            const bytes = new Uint8Array(await imgRes.arrayBuffer());
+            if (bytes.byteLength > 5 * 1024 * 1024) throw new Error('Image is too large to view (over 5MB)');
+            resultContent = [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: encodeBase64(bytes) } },
+              { type: 'text', text: `Creative for ad ${adId}${creative.title ? ` -- "${creative.title}"` : ''} (${creative.object_type || 'unknown format'}).` },
+            ];
+          } catch (err) {
+            resultContent = `Error: could not load creative image -- ${String((err as Error)?.message || err)}`;
           }
         } else {
           const query = String(use.input?.query || '');
