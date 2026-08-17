@@ -270,6 +270,9 @@ supabase/
     20260814170000_launch_calendar_audience_tags.sql
     20260814190000_silo_chat_audit_log.sql
     20260817180000_launch_calendar_approved_copy_creatives.sql
+    20260817190000_sample_notifications.sql
+    20260817200000_product_samples_request_source.sql
+    20260817210000_shopify_order_level_analytics.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
