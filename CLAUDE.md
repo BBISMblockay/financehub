@@ -398,6 +398,7 @@ payment-request-submitted-notify -- emails the requester a receipt the moment th
 payment-request-notify           -- emails the requester once AP marks a request paid; gated by current_user_can_manage_payment_requests(); also used by the manual "Resend notification" button
 payment-request-forward-melio    -- emails a request's submitted invoice/document to the company's Melio bill-pay forwarding inbox (MELIO_FORWARD_EMAIL secret) for auto-scan bill drafting; gated by current_user_can_manage_payment_requests(); triggered per-request or in bulk from Request Manager
 mail-item-notify -- emails the assignee when mail is routed to them, or the submitter when their item is marked done; mailroom has no manage-permission gate, so any authenticated member of the item's active company may trigger it (JWT-auth, RLS via mail_items_v enforces same-company)
+sample-notify    -- PUBLIC (verify_jwt off): fired by the trg_sample_notify DB trigger (not called by the browser) when a sample transitions to received, or size_requests is set/changed. Emails the active company's logistics-department members (via RESEND_API_KEY) and, if SLACK_SAMPLES_WEBHOOK_URL is set, posts to Slack — Slack is optional and skipped silently if unset, same as email without RESEND_API_KEY
 google-oauth-start / google-oauth-callback -- OAuth for Google Ads AND GA4 (shared Google Cloud client, scope differs by platform param); callback stores access+refresh tokens on ad_platform_connections. Secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 tiktok-oauth-start / tiktok-oauth-callback -- OAuth for TikTok Ads (TikTok for Business app). Secrets: TIKTOK_APP_ID, TIKTOK_APP_SECRET
 test-ad-platform-connection -- validates an ad_platform_connections row against the live platform API (refreshing Google tokens as a side effect); with no account id configured it returns the pickable account list instead. Meta Ads has no OAuth pair — a long-lived System User token is pasted directly in the Integrations UI. Google Ads tests additionally need GOOGLE_ADS_DEVELOPER_TOKEN
@@ -409,8 +410,16 @@ redo-webhook     -- PUBLIC (verify_jwt off): Redo returns/exchanges webhook rece
 ```
 **Not in this repo:** `notify-slack` is deployed and called by DB triggers
 (`supabase/migrations/20260709030000_slack_po_status_accuracy.sql` hits it by URL), but its source is not
-checked in. Do not assume `supabase/functions/` is the complete list of deployed functions.
-Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually. `payment-request-forward-melio` additionally requires `MELIO_FORWARD_EMAIL` (the company's Melio auto-scan forwarding address, e.g. `baseballism_NNN@invoicesmelio.com`) — set as an edge-function secret, never hardcoded or exposed client-side.
+checked in. **Also not in this repo, found 2026-08-17 while building sample-notify:** the trigger function
+`notify_slack_sample_created()` (fires on every `product_samples` INSERT, posts `type: 'SAMPLE_CREATED'` to
+`notify-slack`) has no matching migration file — applied directly to prod like `notify-slack` itself, discovered
+only via `pg_get_functiondef`, not by reading this repo. **Also found in the same pass:** the deployed function
+list includes `bright-action`, `replace-product-tags`, and `oneoff-meta-sync` — none documented here, none with
+an obvious source file in `supabase/functions/`. Do not assume `supabase/functions/` is the complete list of
+deployed functions, and when working on any table that already has triggers, check `pg_trigger` /
+`pg_get_functiondef` directly rather than grepping migrations — a grep-only search missed
+`notify_slack_sample_created()` here and nearly caused sample-notify to double-post to Slack on every new sample.
+Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually. `payment-request-forward-melio` additionally requires `MELIO_FORWARD_EMAIL` (the company's Melio auto-scan forwarding address, e.g. `baseballism_NNN@invoicesmelio.com`) — set as an edge-function secret, never hardcoded or exposed client-side. `sample-notify` additionally reads `SLACK_SAMPLES_WEBHOOK_URL` (a Slack Incoming Webhook URL) — optional; not yet configured as of this writing, so Slack delivery is currently a no-op until someone creates the webhook and sets the secret. Email delivery does not depend on it.
 
 ### After any DB change
 Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows must show `ok`. If anything is missing, run `supabase/apply_all_post_merge.sql` then verify again.
