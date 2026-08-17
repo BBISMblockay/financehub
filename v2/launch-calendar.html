@@ -675,14 +675,23 @@
           <div class="bcn-field-group"><label class="bcn-label">AUDIENCE — NOTES</label><input class="bcn-field" id="briefAudience" placeholder="Free-text nuance the tags above can't carry…" /></div>
           <div class="bcn-field-group"><label class="bcn-label">SPECIAL CALLOUTS / LIMITED EDITION</label><input class="bcn-field" id="briefSpecialCallouts" /></div>
         </div>
-        <div class="dp-g2" style="margin-top:8px;">
-          <div class="bcn-field-group"><label class="bcn-label">APPROVED COPY — DO'S</label><textarea class="bcn-field" id="briefCopyDos" rows="3"></textarea></div>
-          <div class="bcn-field-group"><label class="bcn-label">APPROVED COPY — DON'TS</label><textarea class="bcn-field" id="briefCopyDonts" rows="3"></textarea></div>
+        <div class="bcn-field-group" style="margin-top:8px;">
+          <label class="bcn-label">APPROVED COPY</label>
+          <textarea class="bcn-field" id="briefApprovedCopy" rows="3" placeholder="The signed-off copy itself — headlines, captions, key lines."></textarea>
         </div>
         <div class="dp-g2" style="margin-top:8px;">
-          <div class="bcn-field-group"><label class="bcn-label">APPROVED CREATIVE — DO'S</label><textarea class="bcn-field" id="briefCreativeDos" rows="3"></textarea></div>
-          <div class="bcn-field-group"><label class="bcn-label">APPROVED CREATIVE — DON'TS</label><textarea class="bcn-field" id="briefCreativeDonts" rows="3"></textarea></div>
+          <div class="bcn-field-group"><label class="bcn-label">COPY — DO'S</label><textarea class="bcn-field" id="briefCopyDos" rows="3"></textarea></div>
+          <div class="bcn-field-group"><label class="bcn-label">COPY — DON'TS</label><textarea class="bcn-field" id="briefCopyDonts" rows="3"></textarea></div>
         </div>
+        <div class="bcn-field-group" style="margin-top:8px;">
+          <label class="bcn-label">APPROVED CREATIVES</label>
+          <textarea class="bcn-field" id="briefApprovedCreatives" rows="3" placeholder="The signed-off creative set, or a link to it."></textarea>
+        </div>
+        <div class="dp-g2" style="margin-top:8px;">
+          <div class="bcn-field-group"><label class="bcn-label">CREATIVE — DO'S</label><textarea class="bcn-field" id="briefCreativeDos" rows="3"></textarea></div>
+          <div class="bcn-field-group"><label class="bcn-label">CREATIVE — DON'TS</label><textarea class="bcn-field" id="briefCreativeDonts" rows="3"></textarea></div>
+        </div>
+        <div class="dp-sub" style="margin-top:4px;">Approved = the asset itself. Do's / don'ts = standing guardrails that apply to it.</div>
       </div>
 
       <div class="dp-section">
@@ -762,7 +771,7 @@
           <div class="lf-g3" style="margin-top:10px;">
             <div class="bcn-field-group"><label class="bcn-label">LAUNCH DATE *</label><input class="bcn-field" id="dateInput" type="date" required /></div>
             <div class="bcn-field-group"><label class="bcn-label">LAUNCH TIME</label><input class="bcn-field bcn-field--mono" id="timeInput" type="time" /></div>
-            <div class="bcn-field-group"><label class="bcn-label">LAUNCH TYPE</label><input class="bcn-field" id="typeInput" placeholder="Main, Filler, Campaign…" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">LAUNCH TYPE</label><select class="bcn-field" id="typeInput"></select></div>
           </div>
           <div class="lf-g3" style="margin-top:10px;">
             <div class="bcn-field-group"><label class="bcn-label">STATUS</label><select class="bcn-field" id="statusInput"><option value="planned">Planned</option><option value="in_progress">In Progress</option><option value="assets_needed">Assets Needed</option><option value="ready">Ready</option><option value="launched">Launched</option><option value="blocked">Blocked</option></select></div>
@@ -1692,8 +1701,10 @@ function renderBrief(x){
   renderAudienceTagOptions();
   $('briefAudience').value=x.audience||'';
   $('briefSpecialCallouts').value=x.special_callouts||'';
+  $('briefApprovedCopy').value=x.approved_copy||'';
   $('briefCopyDos').value=x.copy_dos||'';
   $('briefCopyDonts').value=x.copy_donts||'';
+  $('briefApprovedCreatives').value=x.approved_creatives||'';
   $('briefCreativeDos').value=x.creative_dos||'';
   $('briefCreativeDonts').value=x.creative_donts||'';
   $('briefPreviewBudget').value=x.preview_marketing_budget??'';
@@ -1722,8 +1733,10 @@ function briefPayloadFromForm(){
     audience_tags: audienceTagsDraft.slice(),
     audience: $('briefAudience').value.trim()||null,
     special_callouts: $('briefSpecialCallouts').value.trim()||null,
+    approved_copy: $('briefApprovedCopy').value.trim()||null,
     copy_dos: $('briefCopyDos').value.trim()||null,
     copy_donts: $('briefCopyDonts').value.trim()||null,
+    approved_creatives: $('briefApprovedCreatives').value.trim()||null,
     creative_dos: $('briefCreativeDos').value.trim()||null,
     creative_donts: $('briefCreativeDonts').value.trim()||null,
     preview_marketing_budget: num('briefPreviewBudget'),
@@ -1813,10 +1826,12 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
       ${(x.audience_tags||[]).length ? `<div class="reldoc-block-label" style="margin-top:8px;">Audience Tags</div><div>${x.audience_tags.map(t=>`<span class="reldoc-tag-pill">${esc(t)}</span>`).join('')}</div>` : ''}
       ${row('Audience — Notes', x.audience?esc(x.audience):null)}
       ${row('Special Callouts / Limited Edition', x.special_callouts?esc(x.special_callouts):null)}
-      ${block("Approved Copy — Do's", x.copy_dos)}
-      ${block("Approved Copy — Don'ts", x.copy_donts)}
-      ${block("Approved Creative — Do's", x.creative_dos)}
-      ${block("Approved Creative — Don'ts", x.creative_donts)}
+      ${block('Approved Copy', x.approved_copy)}
+      ${block("Copy — Do's", x.copy_dos)}
+      ${block("Copy — Don'ts", x.copy_donts)}
+      ${block('Approved Creatives', x.approved_creatives)}
+      ${block("Creative — Do's", x.creative_dos)}
+      ${block("Creative — Don'ts", x.creative_donts)}
     </div>
 
     <div class="reldoc-sec">
@@ -1848,6 +1863,37 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
 
 /* ---- launch form ------------------------------------------------------- */
 
+/* Launch type was free text and drifted badly — 12 distinct values across 47
+   launches, with "Main" / "Main Event" / "Main Launch" all meaning the same
+   thing. This is the canonical list (Benny's three categories). To change it,
+   edit this array only; nothing else reads a hardcoded type string.
+
+   Nothing is migrated or rewritten. A launch whose saved type is not in this
+   list keeps it — populateTypeOptions() appends it as a selectable option
+   marked "(existing)", so opening and saving an old launch never silently
+   changes or clears its type. Those extras disappear on their own as launches
+   are re-typed. The Filter bar builds its own list from live data, so it keeps
+   showing whatever is actually in use. */
+const LAUNCH_TYPES = [
+  'Limited Time Event',
+  'Inline — Collection/Product Release',
+  'Collaboration — Collection/Product Release',
+];
+
+function populateTypeOptions(current){
+  const sel = $('typeInput');
+  const cur = (current || '').trim();
+  const opts = ['<option value="">—</option>'];
+  for (const t of LAUNCH_TYPES){
+    opts.push(`<option value="${esc(t)}"${cur === t ? ' selected' : ''}>${esc(t)}</option>`);
+  }
+  if (cur && !LAUNCH_TYPES.includes(cur)){
+    opts.push(`<option value="${esc(cur)}" selected>${esc(cur)} (existing)</option>`);
+  }
+  sel.innerHTML = opts.join('');
+  sel.value = cur;
+}
+
 function openLaunchModal(x=null){
   $('launchForm').reset();
   $('formMsg').textContent='';
@@ -1858,7 +1904,7 @@ function openLaunchModal(x=null){
     $('productTitleInput').value=x.product_title||'';
     $('dateInput').value=x.launch_date||'';
     $('timeInput').value=x.launch_time||'';
-    $('typeInput').value=x.launch_type||'';
+    populateTypeOptions(x.launch_type);
     $('statusInput').value=x.status||'planned';
     $('priorityInput').value=x.priority||'normal';
     $('readinessInput').value=x.launch_readiness||'not_reviewed';
@@ -1880,6 +1926,7 @@ function openLaunchModal(x=null){
     if(x.launch_image_url) showImgPreview(x.launch_image_url); else hideImgPreview();
   } else {
     $('dateInput').value=iso(new Date());
+    populateTypeOptions('');
     hideImgPreview();
   }
   pendingImageFile=null;
