@@ -50,12 +50,12 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - payment_requests / payment_requests_v -- AP requests and status
 - ar_customers / ar_invoices / ar_customer_rollup_v -- accounts receivable (wholesale customer balances, aging)
 - marketing_kpis_daily -- daily ad spend/revenue by platform (google_ads, meta_ads, tiktok_ads, ga4), campaign-level
-- meta_ad_performance_daily / meta_ad_creatives -- ad-level (not just campaign-level) Meta performance and creative metadata, for "which specific ad/creative" questions
+- meta_ad_performance_daily(day_date, ad_id, ad_name, campaign_name, adset_name, impressions, clicks, spend, conversions, conversion_value, view_content, add_to_cart, initiate_checkout) joined to meta_ad_creatives(ad_id, creative_id, thumbnail_url, body, title, object_type, effective_status) on ad_id -- ad-level (not just campaign-level) Meta performance and creative metadata, for "which specific ad/creative" or "what kind of design/structure performs best" questions. object_type is the ad format (image/video/carousel), body is the ad copy, title is the headline -- these are the only creative characteristics queryable via SQL (there is no image/video-viewing tool, so visual elements like color or layout aren't assessable, only structural/textual ones). Compute CPM as spend/impressions*1000 and CAC as spend/conversions per ad, then group/compare by object_type or look for patterns in body/title text
 - facebook_page_insights_daily / instagram_media_insights -- organic social performance
-- v_marketing_mer_daily -- ad spend vs. Shopify online net sales by day
+- v_marketing_mer_daily(day_date, ad_spend, platform_conversions, platform_conv_value, online_net_sales, online_order_lines) -- ad spend vs. Shopify online net sales by day. Note: this view's spend column is ad_spend, but meta_ad_performance_daily's is just spend -- same concept, different name per table, don't assume a column name carries over from one table to another
 - redo_returns / redo_return_items -- returns/exchanges/store-credit data from Redo (refund_amount, exchange_amount, store_credit_amount, status, reason, sku)
 - revenue_projections / revenue_projection_history -- revenue plan by location/month
-- launch_calendar / launch_tasks / launch_channel_items / launch_product_readiness -- marketing launch pipeline, channel plan, and SKU readiness per launch. launch_calendar also holds each launch's release brief -- design_intent, product_callouts, marketing_angle (the creative story/angle actually run), audience_tags (text[] -- structured, repeatable audience segments; prefer this over the free-text audience column when comparing/grouping across launches, e.g. unnest(audience_tags) or audience_tags && array['segment']), audience (free-text nuance a tag can't carry), special_callouts, copy_dos/copy_donts, creative_dos/creative_donts -- plus budget/forecast (preview_marketing_budget, post_launch_budget, projected_revenue) and after-the-fact performance (actual_preview_spend, actual_post_launch_spend, actual_revenue, performance_comparison, overperformed_notes, underperformed_notes). This is the primary source for "what angle/audience has this brand actually used, and did it work" -- treat it as more authoritative than inferring strategy from sales data alone. Note: actual_preview_spend/actual_post_launch_spend are hand-typed estimates, NOT synced from ad platforms -- marketing_kpis_daily is the authoritative ledger for real ad spend by platform/day, the two are not currently linked (no launch_id on marketing_kpis_daily) and may disagree; if a question is specifically about ad spend accuracy, prefer marketing_kpis_daily and say so if the two differ
+- launch_calendar / launch_tasks / launch_channel_items / launch_product_readiness -- marketing launch pipeline, channel plan, and SKU readiness per launch. launch_calendar's own name/title column is called title (not launch_name or name). launch_calendar also holds each launch's release brief -- design_intent, product_callouts, marketing_angle (the creative story/angle actually run), audience_tags (text[] -- structured, repeatable audience segments; prefer this over the free-text audience column when comparing/grouping across launches, e.g. unnest(audience_tags) or audience_tags && array['segment']), audience (free-text nuance a tag can't carry), special_callouts, copy_dos/copy_donts, creative_dos/creative_donts -- plus budget/forecast (preview_marketing_budget, post_launch_budget, projected_revenue) and after-the-fact performance (actual_preview_spend, actual_post_launch_spend, actual_revenue, performance_comparison, overperformed_notes, underperformed_notes). This is the primary source for "what angle/audience has this brand actually used, and did it work" -- treat it as more authoritative than inferring strategy from sales data alone. Note: actual_preview_spend/actual_post_launch_spend are hand-typed estimates, NOT synced from ad platforms -- marketing_kpis_daily is the authoritative ledger for real ad spend by platform/day, the two are not currently linked (no launch_id on marketing_kpis_daily) and may disagree; if a question is specifically about ad spend accuracy, prefer marketing_kpis_daily and say so if the two differ
 - locations -- sales channels/store locations
 - product_tags -- product tagging/collections
 - mail_items / mail_items_v -- mailroom queue
@@ -78,7 +78,7 @@ When you answer, be explicit about data confidence -- don't let a mediocre answe
 - Unavailable: you searched information_schema and found no matching table/view/column -- say so plainly rather than guessing or padding out a weak answer.
 
 Rules:
-- Write ONE single SELECT or WITH statement per run_sql call -- no semicolons, no multiple statements.
+- Write ONE single SELECT or WITH statement per run_sql call -- no semicolons, no multiple statements. For a multi-step analysis (e.g. aggregate performance, then join creative/product attributes, then rank or compare groups), chain it as ONE WITH statement with multiple CTEs -- \`WITH a AS (...), b AS (...) SELECT ... FROM a JOIN b ON ...\` -- rather than as separate sequential run_sql calls or a temp table. Both of those get rejected by this same single-statement rule every time, and repeatedly hitting that rejection wastes tool-call rounds you don't get back -- if you notice yourself planning "first I'll compute X, then in a separate query use X to compute Y," fold it into one CTE chain instead of two calls.
 - Prefer aggregates and reasonable date ranges over dumping raw rows; the tool caps results at 500 rows.
 - If a query errors (e.g. unknown column), read the error and try again with a corrected query -- don't give up after one failure.
 - Answer in plain business English grounded ONLY in what the query actually returned. Never invent a number.
@@ -164,7 +164,14 @@ async function callAnthropic(messages: unknown[], systemPrompt: string) {
   return res.json();
 }
 
-const MAX_TOOL_ROUNDS = 8;
+// Was 8. A genuinely multi-step question -- discover a column, aggregate
+// performance, join creative/product attributes, then characterize --
+// legitimately eats several rounds even with zero mistakes, and 8 left
+// almost no slack for a single wrong turn (see the 2026-08-17 incident:
+// a design/CPM/CAC question exhausted its budget mostly retrying the same
+// single-statement rejection -- fixed above -- but the fix alone still
+// leaves a genuinely hard question tight on room).
+const MAX_TOOL_ROUNDS = 12;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
