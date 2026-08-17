@@ -1041,6 +1041,114 @@ export function ordersToSalesRows({
   };
 }
 
+/**
+ * Order-level and line-item-level facts, derived from the same order
+ * objects ordersToSalesRows() flattens into sales_by_day -- see
+ * 20260817210000_shopify_order_level_analytics.sql for why this exists
+ * alongside (not instead of) the flattened aggregate. No extra Shopify API
+ * calls: `orders` here is the exact array already fetched for sales rows.
+ */
+export function ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batchId }) {
+  const domain = connection.shop_domain;
+  const orderRows = [];
+  const lineRows = [];
+
+  for (const order of orders) {
+    if (order.test) continue;
+
+    const customer = order.customer || {};
+    const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null;
+    const lineItems = order.line_items || [];
+
+    orderRows.push({
+      company_entity_id: connection.company_entity_id,
+      connection_id: connection.id,
+      shop_domain: domain,
+      order_id: String(order.id),
+      order_number: order.name || (order.order_number != null ? String(order.order_number) : null),
+      source_name: order.source_name || null,
+      financial_status: order.financial_status || null,
+      fulfillment_status: order.fulfillment_status || null,
+      cancelled_at: order.cancelled_at || null,
+      cancel_reason: order.cancel_reason || null,
+      customer_id: customer.id != null ? String(customer.id) : null,
+      customer_email: order.email || customer.email || null,
+      customer_name: customerName,
+      currency: order.currency || null,
+      subtotal_price: Number(order.subtotal_price || 0),
+      total_discounts: Number(order.total_discounts || 0),
+      total_tax: Number(order.total_tax || 0),
+      total_shipping: firstOrderMoney(order, 'total_shipping_price_set', 'current_total_shipping_price_set'),
+      total_price: Number(order.total_price || 0),
+      tags: order.tags || null,
+      location_id: order.location_id != null ? String(order.location_id) : null,
+      line_item_count: lineItems.length,
+      shopify_created_at: order.created_at || null,
+      shopify_processed_at: order.processed_at || null,
+      shopify_updated_at: order.updated_at || null,
+      synced_at: syncedAt,
+      sync_batch_id: batchId || null,
+    });
+
+    for (const li of lineItems) {
+      const metaSku = (li?.sku && skuMeta.get(li.sku)) || {};
+      lineRows.push({
+        company_entity_id: connection.company_entity_id,
+        connection_id: connection.id,
+        shop_domain: domain,
+        order_id: String(order.id),
+        line_item_id: String(li.id),
+        sku: li.sku || null,
+        product_id: li.product_id != null ? String(li.product_id) : null,
+        variant_id: li.variant_id != null ? String(li.variant_id) : null,
+        title: li.title || null,
+        variant_title: li.variant_title || null,
+        quantity: Number(li.quantity || 0),
+        price: Number(li.price || 0),
+        discount_allocated: sumDiscountForLine(li),
+        tax_allocated: sumTaxForLine(li),
+        fulfillable_quantity: Number(li.fulfillable_quantity || 0),
+        fulfillment_status: li.fulfillment_status || null,
+        gift_card: !!li.gift_card,
+        vendor: metaSku.vendor_original || li.vendor || null,
+        product_type: metaSku.product_type || getShopifyItemType(li) || null,
+        synced_at: syncedAt,
+        sync_batch_id: batchId || null,
+      });
+    }
+  }
+
+  return { orderRows, lineRows };
+}
+
+/**
+ * Writes ordersToOrderRows() output. Orders are plain upserts (current state
+ * simply replaces the prior row). Line items additionally need a delete pass
+ * first, scoped to the touched order ids: unlike orders, a line item can
+ * disappear entirely from an edited order, and upsert alone can't remove a
+ * row that's no longer in the incoming set.
+ */
+export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId }) {
+  const { orderRows, lineRows } = ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batchId });
+  if (!orderRows.length) return { orders_upserted: 0, order_lines_upserted: 0 };
+
+  const orderIds = [...new Set(orderRows.map((r) => r.order_id))];
+  for (const group of chunk(orderIds, 500)) {
+    const { error } = await supabase
+      .from('shopify_order_lines')
+      .delete()
+      .eq('company_entity_id', connection.company_entity_id)
+      .eq('shop_domain', connection.shop_domain)
+      .in('order_id', group);
+    if (error) throw new Error(`shopify_order_lines rebuild delete failed: ${error.message}`);
+  }
+
+  const ordersUpserted = await upsertInChunks(supabase, 'shopify_orders', orderRows, 'shop_domain,order_id');
+  const linesUpserted = await upsertInChunks(supabase, 'shopify_order_lines', lineRows, 'shop_domain,order_id,line_item_id');
+
+  return { orders_upserted: ordersUpserted, order_lines_upserted: linesUpserted };
+}
+
 /** Sorted unique YYYY-MM-DD dates → contiguous [{start, end}] runs. */
 export function contiguousDateRuns(dates) {
   const runs = [];
@@ -1170,6 +1278,7 @@ export async function runHistoryChunk(supabase, connection, {
       && (isFinalWindow ? r.day_date <= win.window_end : r.day_date < win.window_end)));
 
   const upserted = await upsertInChunks(supabase, 'sales_by_day', keepRows, 'row_hash');
+  const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId });
 
   const nextState = computeBackfillProgress({
     ...state,
@@ -1195,6 +1304,8 @@ export async function runHistoryChunk(supabase, connection, {
       window_end: win.window_end,
       orders_fetched: orders.length,
       sales_rows_upserted: upserted,
+      orders_upserted: orderFacts.orders_upserted,
+      order_lines_upserted: orderFacts.order_lines_upserted,
     },
     caches: { locationContext, skuMeta },
   };
@@ -1521,6 +1632,8 @@ export async function runIncrementalSales(supabase, connection, {
 
   let rowsUpserted = 0;
   let daysRebuilt = 0;
+  let ordersUpserted = 0;
+  let orderLinesUpserted = 0;
   const skippedTotals = { cancelled_orders: 0, gift_card_lines: 0, no_location_lines: 0 };
 
   // Rebuild every affected order-date in full: day aggregates can't be patched
@@ -1565,6 +1678,10 @@ export async function runIncrementalSales(supabase, connection, {
     daysRebuilt += Math.round(
       (new Date(`${run.end}T00:00:00Z`) - new Date(`${run.start}T00:00:00Z`)) / 86400000,
     ) + 1;
+
+    const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId });
+    ordersUpserted += orderFacts.orders_upserted;
+    orderLinesUpserted += orderFacts.order_lines_upserted;
   }
 
   return {
@@ -1573,6 +1690,8 @@ export async function runIncrementalSales(supabase, connection, {
     orders_fetched: touched.length,
     days_rebuilt: daysRebuilt,
     sales_rows_upserted: rowsUpserted,
+    orders_upserted: ordersUpserted,
+    order_lines_upserted: orderLinesUpserted,
     rows_skipped: skippedTotals,
     newest_order_stamp: newestOrderStamp,
     last_order_sync_at: newestUpdatedStamp || syncedAt,

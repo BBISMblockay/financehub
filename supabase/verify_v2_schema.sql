@@ -771,3 +771,25 @@ select
       then 'MISSING — run 20260817200000_product_samples_request_source.sql'
     else 'ok'
   end as product_samples_request_source;
+
+-- 25. Shopify order-level analytics (migration 20260817210000)
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_orders')
+      then 'MISSING — run 20260817210000_shopify_order_level_analytics.sql'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_order_lines')
+      then 'MISSING — shopify_order_lines'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_channel_map')
+      then 'MISSING — shopify_channel_map'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='shopify_orders'
+                       and policyname='shopify_orders_active_select')
+      then 'MISSING — shopify_orders RLS policy'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='shopify_orders_v')
+      then 'MISSING — shopify_orders_v view'
+    else 'ok'
+  end as shopify_order_level_analytics;
