@@ -255,22 +255,27 @@
     .reldoc-print-head, .reldoc-print-foot, .reldoc-print-none { display:none; }
 
     @media print {
-      /* .ed-panel carries a permanent transform (even at rest), which makes it
-         a CSS containing block for fixed/absolute descendants — without
-         neutralizing it here, #dp-document below prints confined to the
-         drawer's ~780px column instead of the full page. */
-      .ed-panel { position:static !important; transform:none !important; width:auto !important; box-shadow:none !important; border:none !important; }
-      .ed-overlay { display:none !important; }
-      body * { visibility:hidden; }
-      #dp-document, #dp-document * { visibility:visible; }
-      /* visibility:hidden hides the app chrome but it still OCCUPIES LAYOUT.
-         Left in flow, the doc starts below all that invisible space and page 1
-         prints blank. Pulling it out of flow at top-left fixes that. Height
-         must stay auto — the original `inset:0` pinned it to viewport height,
-         which is the other way to break a long doc. */
-      #dp-document { display:block !important; position:absolute !important;
-                     left:0; top:0; right:0; height:auto !important;
-                     padding:0 !important; background:#fff !important; }
+      /* Only the drawer subtree survives printing. The old approach — hide the
+         app with `body * { visibility:hidden }` and float #dp-document over it
+         with position:absolute — was fragile both ways: invisible chrome still
+         occupies layout (position:static under it printed a blank page 1), and
+         an absolutely-positioned box over a fragmented page also paginates
+         unreliably — verified blank first page at Letter while A4/A5 printed
+         fine. display:none removes the chrome from layout entirely, so the
+         document sits in normal flow and paginates like any other block.
+         (#detailDrawer is a direct child of <body>; everything else at that
+         level is app chrome or a modal.) */
+      body > *:not(#detailDrawer) { display:none !important; }
+      /* Flatten the drawer to a plain in-flow block: it is normally a
+         fixed-position flex column with a permanent transform (which would
+         also make it a containing block and confine the doc to its ~780px). */
+      .ed-panel { position:static !important; transform:none !important; width:auto !important;
+                  display:block !important; box-shadow:none !important; border:none !important; }
+      .ed-panel-head, .drawer-tab-bar { display:none !important; }
+      .ed-panel-body { display:block !important; overflow:visible !important; }
+      /* Print the DOCUMENT pane regardless of which drawer tab is active. */
+      .dp:not(#dp-document) { display:none !important; }
+      #dp-document { display:block !important; padding:0 !important; background:#fff !important; }
       #printDocBtn { display:none !important; }
 
       /* Real page margins. The old 24px padding was not a page margin, so
@@ -326,7 +331,7 @@
       /* URLs are the one case that genuinely needs mid-token breaking. */
       .reldoc-v a, .reldoc-v[href], a { overflow-wrap:anywhere; word-break:break-all; }
 
-      .reldoc-block { font-size:10.5pt; break-inside:avoid; page-break-inside:avoid; }
+      .reldoc-block { font-size:10.5pt; margin-top:6px; break-inside:avoid; page-break-inside:avoid; }
       .reldoc-block-label { color:#000 !important; break-after:avoid; page-break-after:avoid; }
       p, div { orphans:3; widows:3; }
 
