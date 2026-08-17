@@ -173,9 +173,48 @@ async function callAnthropic(messages: unknown[], systemPrompt: string) {
 // leaves a genuinely hard question tight on room).
 const MAX_TOOL_ROUNDS = 12;
 
+// One row per request: the question, the SQL actually run, the answer (or
+// error), and how many tool-rounds it took. Prerequisite for closing the
+// feedback loop and for a future eval set -- never lets a logging failure
+// break the actual chat response, and only fires once a real caller-scoped
+// client and a valid history exist (nothing to attribute an early
+// auth/validation failure to).
+async function logAudit(
+  callerClient: ReturnType<typeof createClient>,
+  params: {
+    question: string;
+    historySnapshot: unknown;
+    answer: string | null;
+    queriesRun: string[];
+    toolRounds: number;
+    status: 'ok' | 'error';
+    errorMessage?: string | null;
+  },
+) {
+  try {
+    await callerClient.from('silo_chat_audit_log').insert({
+      question: params.question,
+      history_snapshot: params.historySnapshot,
+      answer: params.answer,
+      queries_run: params.queriesRun,
+      tool_rounds: params.toolRounds,
+      status: params.status,
+      error_message: params.errorMessage ?? null,
+      model: MODEL,
+    });
+  } catch (err) {
+    console.error('[silo-chat] audit log insert failed', err);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
+
+  let callerClient: ReturnType<typeof createClient> | null = null;
+  let question = '';
+  let history: { role: string; content: string }[] = [];
+  let queriesRun: string[] = [];
 
   try {
     if (!ANTHROPIC_API_KEY) {
@@ -188,16 +227,17 @@ Deno.serve(async (req: Request) => {
     // Caller-scoped client -- every RPC call below runs AS this user, so
     // RLS (not this function) is what actually confines the data. Never
     // use the service-role key here.
-    const callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
     const { data: userData, error: userErr } = await callerClient.auth.getUser();
     if (userErr || !userData?.user) return reply({ error: 'Not authenticated' }, 401);
 
-    const { history } = await req.json();
+    ({ history } = await req.json());
     if (!Array.isArray(history) || !history.length) {
       return reply({ error: 'history (array of {role, content}) is required' }, 400);
     }
+    question = history[history.length - 1]?.content || '';
 
     const messages = history.map((m: { role: string; content: string }) => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
@@ -214,7 +254,7 @@ Deno.serve(async (req: Request) => {
       .limit(200);
     const systemPrompt = buildSystemPrompt(notes ?? []);
 
-    const queriesRun: string[] = [];
+    queriesRun = [];
     let sawTimeout = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -224,6 +264,14 @@ Deno.serve(async (req: Request) => {
 
       if (!toolUses.length) {
         const text = blocks.map((b: { text?: string }) => b.text || '').join('').trim();
+        await logAudit(callerClient!, {
+          question,
+          historySnapshot: history,
+          answer: text,
+          queriesRun,
+          toolRounds: round + 1,
+          status: 'ok',
+        });
         return reply({ answer: text, queries_run: queriesRun });
       }
 
@@ -271,9 +319,32 @@ Deno.serve(async (req: Request) => {
     const message = sawTimeout
       ? 'A couple of these queries timed out -- the database is likely busy with a background sync right now. Wait a minute and try again.'
       : "Couldn't land on an answer after several attempts -- try rephrasing or narrowing the question (e.g. a shorter date range or a specific SKU/product type).";
+    await logAudit(callerClient!, {
+      question,
+      historySnapshot: history,
+      answer: null,
+      queriesRun,
+      toolRounds: MAX_TOOL_ROUNDS,
+      status: 'error',
+      errorMessage: message,
+    });
     return reply({ error: message, queries_run: queriesRun, retryable: true }, 500);
   } catch (err) {
     console.error('[silo-chat]', err);
-    return reply({ error: String((err as Error)?.message || err), retryable: true }, 500);
+    const errorMessage = String((err as Error)?.message || err);
+    // Only attributable if we got far enough to have a real caller client
+    // and a parsed question -- an early auth/validation failure has neither.
+    if (callerClient && question) {
+      await logAudit(callerClient, {
+        question,
+        historySnapshot: history,
+        answer: null,
+        queriesRun,
+        toolRounds: 0,
+        status: 'error',
+        errorMessage,
+      });
+    }
+    return reply({ error: errorMessage, retryable: true }, 500);
   }
 });

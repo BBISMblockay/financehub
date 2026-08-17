@@ -9424,3 +9424,76 @@ create trigger trg_sample_notify
 -- ---------------------------------------------------------------------------
 alter table public.product_samples
   add column if not exists request_source text;
+
+-- ============================================================
+-- 20260814190000_silo_chat_audit_log.sql
+--
+-- Ask SILO audit log: every question, the SQL it actually ran, and the
+-- answer it gave, per request -- prerequisite for a feedback loop and a
+-- future eval set.
+-- ============================================================
+
+create table if not exists public.silo_chat_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid references public.entities(id),
+  created_by uuid references auth.users(id) on delete set null,
+  question text not null,
+  history_snapshot jsonb,
+  answer text,
+  queries_run text[] not null default '{}',
+  tool_rounds integer,
+  status text not null default 'ok' check (status in ('ok', 'error')),
+  error_message text,
+  model text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists silo_chat_audit_log_company_created_idx
+  on public.silo_chat_audit_log (company_entity_id, created_at desc);
+
+alter table public.silo_chat_audit_log enable row level security;
+
+drop policy if exists silo_chat_audit_log_select on public.silo_chat_audit_log;
+create policy silo_chat_audit_log_select on public.silo_chat_audit_log
+  for select using (
+    company_entity_id = active_company_id()
+    and (created_by = auth.uid() or is_exec_or_owner())
+  );
+
+drop policy if exists silo_chat_audit_log_insert on public.silo_chat_audit_log;
+create policy silo_chat_audit_log_insert on public.silo_chat_audit_log
+  for insert with check (
+    company_entity_id = active_company_id()
+    and (created_by = auth.uid() or created_by is null)
+  );
+
+drop trigger if exists stamp_created_by on public.silo_chat_audit_log;
+create trigger stamp_created_by before insert on public.silo_chat_audit_log
+  for each row execute function public.stamp_created_by();
+
+select public.attach_stamp_company_entity_id_triggers();
+
+revoke all on public.silo_chat_audit_log from anon;
+grant select, insert on public.silo_chat_audit_log to authenticated;
+
+create or replace view public.silo_chat_audit_log_v
+with (security_invoker = true) as
+select
+  l.id,
+  l.company_entity_id,
+  l.created_by,
+  p.name as created_by_name,
+  p.email as created_by_email,
+  l.question,
+  l.answer,
+  l.queries_run,
+  l.tool_rounds,
+  l.status,
+  l.error_message,
+  l.model,
+  l.created_at
+from public.silo_chat_audit_log l
+left join public.profiles p on p.id = l.created_by;
+
+revoke all on public.silo_chat_audit_log_v from anon;
+grant select on public.silo_chat_audit_log_v to authenticated;
