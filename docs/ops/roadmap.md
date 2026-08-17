@@ -58,12 +58,14 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 ## v2 migration snapshot (audited 2026-08-16)
 
 33 pages on the full Beacon shell (including `inventory` and `finance`, which used to be custom-layout);
-5 still iframe a legacy page via `tool-shell.js`; `employeehub` is now just a redirect to
+4 still iframe a legacy page via `tool-shell.js`; `employeehub` is now just a redirect to
 `/v2/finance.html`. Live per-page breakdown: [../../v2/SILO-BRAND.md](../../v2/SILO-BRAND.md).
 
-Remaining iframe wrappers: `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`,
-`hidden/payroll`. Only `baseballismwholesale` is still in the sidebar; `checkwriter` is kept
+Remaining iframe wrappers: `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`.
+Only `baseballismwholesale` is still in the sidebar; `checkwriter` is kept
 deliberately as an internal tool.
+
+Payroll BI retired 2026-08-17 (`payroll.html` + `v2/hidden/payroll.html`) — bad flow. Tables stay.
 
 Retired 2026-08-16: `allocation`, `aprio`, `cashflow`, `modelapps`, `recon`, `travel` and
 `wpvaccounts` (root target + wrapper, stale Google Sheets flows), plus the standalone

@@ -24,6 +24,12 @@
     .re-q-main { flex:1; min-width:0; }
     .re-q-label { font-weight:650; font-size:13.5px; color:var(--bcn-ink); }
     .re-q-help { font-size:11.5px; color:var(--bcn-ink-3); margin-top:2px; }
+    /* Template intro / grading legend, shown above the first question */
+    .re-legend { padding:12px 16px; border-bottom:1px solid var(--bcn-line, #e5e7eb);
+                 background:var(--bcn-surface-2, #f9fafb); }
+    .re-legend-label { font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.06em;
+                       text-transform:uppercase; color:var(--bcn-ink-3); margin-bottom:6px; }
+    .re-legend-body { font-size:12.5px; line-height:1.6; color:var(--bcn-ink-2); white-space:pre-wrap; }
     .re-q-input { margin-top:10px; }
     .re-q textarea.bcn-field { min-height:88px; resize:vertical; width:100%; }
 
@@ -151,6 +157,7 @@
   }
 
   let ME = null, REVIEW = null, EMPLOYEE = null, QUESTIONS = [], ANSWERS = {}, EDITABLE = true;
+  let TEMPLATE_DESC = '';   // template intro / grading legend, shown above the questions
   let PREV_GOALS = [], NEW_GOALS = [], HAS_GOALS_QUESTION = false;
   const CHOICE_KINDS = ['single_choice','multi_choice'];
 
@@ -162,10 +169,19 @@
   }
 
   // ---- questions ----------------------------------------------------------
+  function legendHtml(){
+    const d = (TEMPLATE_DESC || '').trim();
+    if (!d) return '';
+    return `<div class="re-legend">
+      <div class="re-legend-label">Grading scale</div>
+      <div class="re-legend-body">${esc(d)}</div>
+    </div>`;
+  }
+
   function renderQuestions(){
     const el = document.getElementById('questionList');
-    if (!QUESTIONS.length){ el.innerHTML = '<div class="re-empty">Template has no questions.</div>'; return; }
-    el.innerHTML = QUESTIONS.map((q, qi) => `
+    if (!QUESTIONS.length){ el.innerHTML = legendHtml() + '<div class="re-empty">Template has no questions.</div>'; return; }
+    el.innerHTML = legendHtml() + QUESTIONS.map((q, qi) => `
       <div class="re-q" data-qid="${esc(q.id)}">
         <span class="re-q-num">${qi + 1}</span>
         <div class="re-q-main">
@@ -416,7 +432,7 @@
     if (!REVIEW_ID){ setStatus('No review id in URL.', 'neg'); return; }
 
     const { data: review, error } = await sb.from('reviews')
-      .select('*, employees(name, email, job_title, location), review_templates(title)')
+      .select('*, employees(name, email, job_title, location), review_templates(title, description)')
       .eq('id', REVIEW_ID).single();
     if (error || !review){ setStatus('Review not found or you do not have access to it.', 'neg'); return; }
 
@@ -429,6 +445,7 @@
     document.getElementById('pageSub').textContent =
       [EMPLOYEE?.job_title, EMPLOYEE?.location, EMPLOYEE?.email].filter(Boolean).join(' · ');
     document.getElementById('templateName').value = review.review_templates?.title || '';
+    TEMPLATE_DESC = review.review_templates?.description || '';
     document.getElementById('periodLabel').value = review.period_label || '';
     document.getElementById('periodLabel').disabled = !EDITABLE;
     document.getElementById('btnSave').hidden = !EDITABLE;

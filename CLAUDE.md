@@ -45,7 +45,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   ├── dept-guard.js          ← Soft redirect off finance pages for non-finance departments
 │   ├── lib/supabase-js.min.js ← Local Supabase SDK copy (calendar.html + launch-calendar.html only;
 │   │                            every other page loads the SDK from the jsDelivr CDN)
-│   ├── hidden/                ← Parked pages, deliberately not in nav (bi-dashboard, bi-returns, payroll)
+│   ├── hidden/                ← Parked pages, deliberately not in nav (bi-dashboard, bi-returns)
 │   ├── licensing/             ← Standalone MLB licensing microsite, not linked from the app
 │   └── [page].html            ← One file per tool
 ├── pages/
@@ -58,7 +58,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   └── [legacy-tool].html     ← factories, wholesale, baseballismwholesale, sales-verification,
 │                                product-manager — some iframed by v2 wrappers, some linked directly
 ├── *.html (repo root)         ← iframe TARGETS for the v2 tool-shell wrappers
-│                                (buyer, checkwriter, payroll). UNAUTHENTICATED —
+│                                (buyer, checkwriter). UNAUTHENTICATED —
 │                                see "Repo drift" note below.
 │                                Also holds superseded originals (inventory, projections, mailroom,
 │                                executive, employeehub) — see stale-file note
@@ -160,7 +160,7 @@ window.SiloChrome.mount({
 ```
 
 ### Pattern 2: Tool shell (iframe wrapper for legacy pages)
-5 pages remain: `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`, `hidden/payroll`.
+4 pages remain: `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`.
 (`sales-verification.html` was rebuilt as Pattern 1 and is no longer a wrapper. `allocation`,
 `aprio`, `cashflow`, `modelapps`, `recon`, `travel` and `wpvaccounts` were retired 2026-08-16 —
 stale Google Sheets flows.)
@@ -564,10 +564,15 @@ Not bugs to fix blind — context so you don't mistake leftovers for live code:
   `projections.html`, `mailroom.html`, `executive.html`, `employeehub.html`. The live versions are the
   `/v2/` ones. Root `inventory.html` still renders its own pre-v2 sidebar ("Classic workbench" /
   "Executive") — that nav is dead
-- **Root iframe targets are directly reachable and unauthenticated.** `buyer.html`, `checkwriter.html`
-  and `payroll.html` ship no auth check of their own, so
+- **Root iframe targets are directly reachable and unauthenticated.** `buyer.html` and
+  `checkwriter.html` ship no auth check of their own, so
   `https://silo-baseballism.com/checkwriter.html` loads for anyone. The v2 wrapper's auth gate does
   not cover them
+- **Payroll BI was retired 2026-08-17** (`payroll.html` + `v2/hidden/payroll.html`) — a bad flow, per
+  Blake. The payroll TABLES remain in Postgres and are still referenced elsewhere: `live-schedule.html`
+  files host payouts as `request_type = 'payroll_payment'`, and `calendar_events_v` projects
+  `payroll_import_batches.check_date` as payday events. **That calendar branch still deep-links to
+  `/payroll.html`, which no longer exists** — see the note in `docs/ops/org-calendar.md`
 - **`checkwriter` is kept on purpose** as an internal tool, even though it has no nav entry today and
   its wrapper's `finance/checkwriter` active id no longer exists in `nav-config.js`. Do not sweep it
   up as an orphan
