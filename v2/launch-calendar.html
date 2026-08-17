@@ -255,17 +255,27 @@
     .reldoc-print-head, .reldoc-print-foot, .reldoc-print-none { display:none; }
 
     @media print {
-      /* .ed-panel carries a permanent transform (even at rest), which makes it
-         a CSS containing block for fixed/absolute descendants — without
-         neutralizing it here, #dp-document below prints confined to the
-         drawer's ~780px column instead of the full page. */
-      .ed-panel { position:static !important; transform:none !important; width:auto !important; box-shadow:none !important; border:none !important; }
-      .ed-overlay { display:none !important; }
-      body * { visibility:hidden; }
-      #dp-document, #dp-document * { visibility:visible; }
-      /* static, not absolute: an absolutely positioned box is sized to the
-         viewport and fights pagination on long docs. */
-      #dp-document { display:block !important; position:static !important; padding:0 !important; background:#fff !important; }
+      /* Only the drawer subtree survives printing. The old approach — hide the
+         app with `body * { visibility:hidden }` and float #dp-document over it
+         with position:absolute — was fragile both ways: invisible chrome still
+         occupies layout (position:static under it printed a blank page 1), and
+         an absolutely-positioned box over a fragmented page also paginates
+         unreliably — verified blank first page at Letter while A4/A5 printed
+         fine. display:none removes the chrome from layout entirely, so the
+         document sits in normal flow and paginates like any other block.
+         (#detailDrawer is a direct child of <body>; everything else at that
+         level is app chrome or a modal.) */
+      body > *:not(#detailDrawer) { display:none !important; }
+      /* Flatten the drawer to a plain in-flow block: it is normally a
+         fixed-position flex column with a permanent transform (which would
+         also make it a containing block and confine the doc to its ~780px). */
+      .ed-panel { position:static !important; transform:none !important; width:auto !important;
+                  display:block !important; box-shadow:none !important; border:none !important; }
+      .ed-panel-head, .drawer-tab-bar { display:none !important; }
+      .ed-panel-body { display:block !important; overflow:visible !important; }
+      /* Print the DOCUMENT pane regardless of which drawer tab is active. */
+      .dp:not(#dp-document) { display:none !important; }
+      #dp-document { display:block !important; padding:0 !important; background:#fff !important; }
       #printDocBtn { display:none !important; }
 
       /* Real page margins. The old 24px padding was not a page margin, so
@@ -296,17 +306,34 @@
       .reldoc-print-foot { display:block !important; margin-top:16px; padding-top:8px; border-top:1px solid #999;
                            font-family:var(--bcn-mono); font-size:8pt; color:#666 !important; }
 
-      /* Sections read as document blocks, not cards. */
+      /* Sections read as document blocks, not cards.
+         break-inside:avoid on the SECTION was wrong: Products can run to 13
+         rows and several pages, and an unsatisfiable avoid produces worse
+         breaks than none. Keep the section breakable and protect the rows. */
       .reldoc-sec { border:none !important; border-radius:0 !important; padding:0 !important;
-                    margin:0 0 14px !important; break-inside:avoid; page-break-inside:avoid; }
+                    margin:0 0 14px !important; break-inside:auto; page-break-inside:auto; }
       .reldoc-sec-title { color:#000 !important; font-size:9pt; border-bottom:1px solid #000;
-                          padding-bottom:3px; margin-bottom:6px; break-after:avoid; page-break-after:avoid; }
+                          padding-bottom:3px; margin-bottom:6px;
+                          break-after:avoid; page-break-after:avoid;
+                          break-inside:avoid; page-break-inside:avoid; }
       .reldoc-row { border-top:1px solid #ddd !important; font-size:10.5pt; padding:3px 0;
-                    break-inside:avoid; page-break-inside:avoid; }
-      .reldoc-k { color:#444 !important; }
-      .reldoc-v { color:#000 !important; }
-      .reldoc-block { font-size:10.5pt; break-inside:avoid; page-break-inside:avoid; }
-      .reldoc-block-label { color:#000 !important; }
+                    break-inside:avoid; page-break-inside:avoid;
+                    align-items:baseline; gap:14px !important; }
+
+      /* The killer: .reldoc-k is flex-shrink:0 on screen, so a long product
+         title refused to shrink and squeezed the value column to about one
+         character wide — "Y o ut h C a p · 4 3 0 un its" down the page.
+         Let the label wrap instead, and give the value a floor it keeps. */
+      .reldoc-k { color:#444 !important; flex-shrink:1 !important; min-width:0;
+                  overflow-wrap:break-word; }
+      .reldoc-v { color:#000 !important; flex-shrink:0; min-width:22%; max-width:45%;
+                  word-break:normal !important; overflow-wrap:break-word; }
+      /* URLs are the one case that genuinely needs mid-token breaking. */
+      .reldoc-v a, .reldoc-v[href], a { overflow-wrap:anywhere; word-break:break-all; }
+
+      .reldoc-block { font-size:10.5pt; margin-top:6px; break-inside:avoid; page-break-inside:avoid; }
+      .reldoc-block-label { color:#000 !important; break-after:avoid; page-break-after:avoid; }
+      p, div { orphans:3; widows:3; }
 
       /* Keep tag pill backgrounds — browsers drop them by default. */
       .reldoc-tag-pill { -webkit-print-color-adjust:exact; print-color-adjust:exact;
