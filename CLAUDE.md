@@ -331,6 +331,9 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `shopify_oauth_states` | Single-use Shopify OAuth CSRF nonces (RLS deny-all, service-role only) |
 | `shopify_payouts` | Shopify Payments payouts per store — powers the Accounting Export deposit register |
 | `shopify_draft_orders` | Draft orders pulled by the nightly sync |
+| `shopify_orders` | One row per Shopify order — the pre-collapse counterpart to `sales_by_day` (which flattens every order's line items into per-SKU/day aggregate rows and discards order identity/channel/customer in the process). Captures `source_name` (Shopify's raw sales-channel field — `web`, `pos`, or an app id/slug for a third-party channel like TikTok/Faire), financial/fulfillment status, customer, and order totals. Populated from the same order objects `sales_by_day` sync already fetches — no extra Shopify API calls. Plain upsert keyed on `(shop_domain, order_id)`, not a delta feed like `sales_by_day` — a row just reflects current state. Query `shopify_orders_v` for the resolved channel name; no UI yet, query via `/v2/silo-chat.html` (Ask SILO) or SQL |
+| `shopify_order_lines` | Per-SKU line items within each `shopify_orders` row (quantity, price, discounts, tax, vendor, product_type) — for basket-level questions. Keyed on `(shop_domain, order_id, line_item_id)`; stale lines from an edited order are deleted before each resync |
+| `shopify_channel_map` | Admin-editable `source_name → display_name` lookup per company (same pattern as `accounting_coa_map`) — Shopify's `source_name` for third-party channels is often an opaque app id/slug, not a clean "TikTok"/"Faire" string, so this needs to be hand-corrected rather than hardcoded. Read: any active company member. Write: `is_admin_user()` |
 | `sync_jobs` | Per-connection sync run log (`job_type` has a CHECK constraint — extend it when adding a job type) |
 | `accounting_coa_map` | Chart-of-accounts name mapping for `/v2/accounting-export.html`, editable in the UI |
 | `calendar_events` | Org Calendar manual events only (meeting/holiday/deadline/milestone; visibility company/finance/private). System dates are projected by `calendar_events_v`, not stored here |
@@ -365,6 +368,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `v_po_incoming_lines` / `v_po_incoming_summary` | Views: incoming PO lines/rollup |
 | `v_marketing_mer_daily` | View: daily marketing efficiency ratio (spend vs revenue) |
 | `silo_chat_notes_v` / `silo_chat_managers_v` | Views: Ask SILO notes and access grants with names |
+| `shopify_orders_v` | View: `shopify_orders` with `resolved_channel_name` joined in from `shopify_channel_map` (falls back to raw `source_name` when unmapped) |
 
 ### RPC functions (backend admin)
 ```
