@@ -9415,3 +9415,12 @@ drop trigger if exists trg_sample_notify on public.product_samples;
 create trigger trg_sample_notify
   after insert or update on public.product_samples
   for each row execute function public.notify_sample_events();
+
+-- ---------------------------------------------------------------------------
+-- 20260817200000_product_samples_request_source.sql
+-- Tags which flow created a sample draft, so sample-notify can phrase the
+-- size-request notification correctly (catalog photo-shoot pull vs
+-- pre-production sample).
+-- ---------------------------------------------------------------------------
+alter table public.product_samples
+  add column if not exists request_source text;

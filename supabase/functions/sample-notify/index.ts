@@ -35,6 +35,8 @@ type SampleRecord = {
   factory_name: string | null;
   size_requests: string | null;
   sample_status: string | null;
+  request_source: string | null;
+  created_by: string | null;
 };
 
 const KNOWN_TYPES = ['SAMPLE_RECEIVED', 'SAMPLE_SIZE_REQUEST'] as const;
@@ -134,6 +136,15 @@ Deno.serve(async (req: Request) => {
     const title = record.product_title || 'Untitled sample';
     const ref = record.sample_ref ? ` (${record.sample_ref})` : '';
 
+    // Only looked up when actually needed for the catalog-photo-request
+    // phrasing below — a name on the message is what Chris/Blake's Slack
+    // thread (2026-08-17) actually asked for, not just "sizes requested".
+    let requesterName: string | null = null;
+    if (type === 'SAMPLE_SIZE_REQUEST' && record.request_source === 'catalog_photo_request' && record.created_by) {
+      const { data: requester } = await db.from('profiles').select('name').eq('id', record.created_by).single();
+      requesterName = requester?.name || null;
+    }
+
     let subject: string;
     let html: string;
     let slackText: string;
@@ -146,6 +157,19 @@ Deno.serve(async (req: Request) => {
         link,
       });
       slackText = `:package: *Sample received* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+    } else if (record.request_source === 'catalog_photo_request') {
+      // Distinct phrasing per Chris: this is a pull from existing bulk/
+      // on-hand stock for a photo shoot, not a pre-production sample
+      // request — the two are different things at Baseballism and the
+      // message should say which one this is.
+      const who = requesterName || 'Someone';
+      subject = `Photo sample sizes requested: ${title}`;
+      html = emailHtml({
+        headline: 'Photo sample sizes requested',
+        body: `<strong style="color:#fff">${esc(who)}</strong> has requested photo samples from bulk/on-hand inventory — <strong style="color:#fff">${esc(title)}</strong>${esc(ref)}: <strong style="color:#fff">${esc(record.size_requests)}</strong>.`,
+        link,
+      });
+      slackText = `:camera: *${who} requested photo samples from bulk/on-hand inventory* — ${title}${ref}: *${record.size_requests}*\n${link}`;
     } else {
       subject = `Sizes requested: ${title}`;
       html = emailHtml({

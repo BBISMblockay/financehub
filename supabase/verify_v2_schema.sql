@@ -761,3 +761,13 @@ select
       then 'MISSING — trg_sample_notify trigger'
     else 'ok'
   end as sample_notifications;
+
+-- 24. Product samples request_source (migration 20260817200000)
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_samples'
+                       and column_name='request_source')
+      then 'MISSING — run 20260817200000_product_samples_request_source.sql'
+    else 'ok'
+  end as product_samples_request_source;
