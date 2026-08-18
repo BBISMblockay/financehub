@@ -276,6 +276,7 @@ supabase/
     20260818050000_silo_chat_saved_reports.sql
     20260818060000_orders_backfill_job_type.sql
     20260818130000_product_samples_assignee_notifications.sql
+    20260818150000_sample_notification_log.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

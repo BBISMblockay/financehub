@@ -838,3 +838,19 @@ select
       then 'MISSING — notify_sample_events() not updated with SAMPLE_REQUESTED/WAREHOUSE_READY/ASSIGNED'
     else 'ok'
   end as product_samples_assignee_notifications;
+
+-- 29. Sample notification log (migration 20260818150000)
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='sample_notification_log')
+      then 'MISSING — run 20260818150000_sample_notification_log.sql'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='sample_notification_log_v')
+      then 'MISSING — sample_notification_log_v view'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='sample_notification_log'
+                       and policyname='sample_notification_log_active_select')
+      then 'MISSING — sample_notification_log RLS select policy'
+    else 'ok'
+  end as sample_notification_log;

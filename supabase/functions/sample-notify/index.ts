@@ -24,6 +24,12 @@
 // account in the Baseballism Slack workspace. Silently skipped (no error)
 // if SLACK_BOT_TOKEN is unset or the lookup/open/post fails, same
 // optional-secret posture as RESEND_API_KEY / SLACK_SAMPLES_WEBHOOK_URL.
+//
+// Every attempt is also logged to sample_notification_log (20260818150000)
+// — this trigger's net.http_post is fire-and-forget from Postgres, so
+// without a row somewhere the browser has no way to know whether anyone
+// was actually reached. Logging is best-effort: wrapped so a logging
+// failure never turns a real send into an error response.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -68,34 +74,46 @@ function sampleLink(id: string): string {
   return `${origin}/v2/products.html?tab=samples&sample=${id}`;
 }
 
-async function sendEmail(to: string[], subject: string, html: string): Promise<boolean> {
-  if (!RESEND_KEY || !to.length) return false;
+type SendResult = { sent: boolean; reason?: string };
+
+async function sendEmail(to: string[], subject: string, html: string): Promise<SendResult> {
+  if (!RESEND_KEY) return { sent: false, reason: 'RESEND_API_KEY not set' };
+  if (!to.length) return { sent: false, reason: 'no recipient' };
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
     body: JSON.stringify({ from: FROM, to, subject, html }),
   });
-  if (!res.ok) console.error('[sample-notify] resend error', res.status, await res.text());
-  return res.ok;
+  if (!res.ok) {
+    const body = await res.text();
+    console.error('[sample-notify] resend error', res.status, body);
+    return { sent: false, reason: `resend ${res.status}` };
+  }
+  return { sent: true };
 }
 
-async function sendSlack(text: string): Promise<boolean> {
-  if (!SLACK_WEBHOOK) return false;
+async function sendSlack(text: string): Promise<SendResult> {
+  if (!SLACK_WEBHOOK) return { sent: false, reason: 'SLACK_SAMPLES_WEBHOOK_URL not set' };
   const res = await fetch(SLACK_WEBHOOK, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   });
-  if (!res.ok) console.error('[sample-notify] slack error', res.status, await res.text());
-  return res.ok;
+  if (!res.ok) {
+    const body = await res.text();
+    console.error('[sample-notify] slack error', res.status, body);
+    return { sent: false, reason: `webhook ${res.status}` };
+  }
+  return { sent: true };
 }
 
 // DMs a specific person on Slack by looking up their SILO email against
 // the workspace, opening (or reusing) a DM with them, then posting. Three
 // Slack API calls chained because there's no stored Slack user id to skip
 // straight to chat.postMessage with — see header comment.
-async function sendSlackDM(email: string | null, text: string): Promise<boolean> {
-  if (!SLACK_BOT_TOKEN || !email) return false;
+async function sendSlackDM(email: string | null, text: string): Promise<SendResult> {
+  if (!SLACK_BOT_TOKEN) return { sent: false, reason: 'SLACK_BOT_TOKEN not set' };
+  if (!email) return { sent: false, reason: 'no assignee email' };
   try {
     const lookupRes = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
       headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
@@ -108,7 +126,7 @@ async function sendSlackDM(email: string | null, text: string): Promise<boolean>
       if (lookup.error && lookup.error !== 'users_not_found') {
         console.error('[sample-notify] slack lookupByEmail error', lookup.error);
       }
-      return false;
+      return { sent: false, reason: lookup.error === 'users_not_found' ? 'email not in Slack workspace' : `lookup: ${lookup.error}` };
     }
 
     const openRes = await fetch('https://slack.com/api/conversations.open', {
@@ -119,7 +137,7 @@ async function sendSlackDM(email: string | null, text: string): Promise<boolean>
     const opened = await openRes.json();
     if (!opened.ok || !opened.channel?.id) {
       console.error('[sample-notify] slack conversations.open error', opened.error);
-      return false;
+      return { sent: false, reason: `open DM: ${opened.error}` };
     }
 
     const postRes = await fetch('https://slack.com/api/chat.postMessage', {
@@ -128,11 +146,14 @@ async function sendSlackDM(email: string | null, text: string): Promise<boolean>
       body: JSON.stringify({ channel: opened.channel.id, text }),
     });
     const posted = await postRes.json();
-    if (!posted.ok) console.error('[sample-notify] slack chat.postMessage error', posted.error);
-    return !!posted.ok;
+    if (!posted.ok) {
+      console.error('[sample-notify] slack chat.postMessage error', posted.error);
+      return { sent: false, reason: `post: ${posted.error}` };
+    }
+    return { sent: true };
   } catch (err) {
     console.error('[sample-notify] slack DM error', err);
-    return false;
+    return { sent: false, reason: String((err as Error)?.message || err) };
   }
 }
 
@@ -171,19 +192,23 @@ Deno.serve(async (req: Request) => {
 
     let toEmails: string[] = [];
     let assigneeEmail: string | null = null;
+    let recipientLabel: string | null = null;
     if (record.assigned_to) {
       // A specific person was picked for this sample — notify only them,
       // not the whole department. Still gated on is_active so an
       // offboarded assignee doesn't silently eat the notification.
       const { data: assignee } = await db
         .from('profiles')
-        .select('email')
+        .select('name, email')
         .eq('id', record.assigned_to)
         .eq('is_active', true)
         .maybeSingle();
       if (assignee?.email) {
         toEmails = [assignee.email];
         assigneeEmail = assignee.email;
+        recipientLabel = assignee.name || assignee.email;
+      } else {
+        recipientLabel = 'assignee (inactive or not found)';
       }
     } else {
       // No assignee set — fall back to the whole logistics department,
@@ -215,6 +240,7 @@ Deno.serve(async (req: Request) => {
           .eq('is_active', true);
         toEmails = (profiles || []).map((p) => p.email).filter(Boolean) as string[];
       }
+      recipientLabel = `Logistics dept (${toEmails.length})`;
     }
 
     const link = sampleLink(record.id);
@@ -311,17 +337,40 @@ Deno.serve(async (req: Request) => {
       slackText = `:straight_ruler: *Sizes requested* — ${title}${ref}: *${record.size_requests}*\n${link}`;
     }
 
-    const [emailSent, slackSent, slackDmSent] = await Promise.all([
+    const [emailResult, slackResult, slackDmResult] = await Promise.all([
       sendEmail(toEmails, subject, html),
       sendSlack(slackText),
       sendSlackDM(assigneeEmail, slackText),
     ]);
 
+    // Best-effort and awaited (not fire-and-forget) — the edge runtime can
+    // tear down right after the response is sent, so an un-awaited insert
+    // here risks never actually happening. Wrapped so a logging failure
+    // still can't turn an otherwise-successful send into an error response.
+    try {
+      const { error: logErr } = await db.from('sample_notification_log').insert({
+        company_entity_id: record.company_entity_id,
+        sample_id: record.id,
+        event_type: type,
+        recipient_label: recipientLabel,
+        email_sent: emailResult.sent,
+        email_reason: emailResult.reason || null,
+        slack_sent: slackResult.sent,
+        slack_reason: slackResult.reason || null,
+        slack_dm_sent: slackDmResult.sent,
+        slack_dm_reason: slackDmResult.reason || null,
+        recipients_count: toEmails.length,
+      });
+      if (logErr) console.error('[sample-notify] log insert error', logErr.message);
+    } catch (logErr) {
+      console.error('[sample-notify] log insert error', logErr);
+    }
+
     return new Response(JSON.stringify({
       ok: true,
-      email_sent: emailSent,
-      slack_sent: slackSent,
-      slack_dm_sent: slackDmSent,
+      email_sent: emailResult.sent,
+      slack_sent: slackResult.sent,
+      slack_dm_sent: slackDmResult.sent,
       recipients: toEmails.length,
     }), { headers: CORS });
   } catch (err) {

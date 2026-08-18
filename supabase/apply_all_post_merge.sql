@@ -9813,3 +9813,53 @@ drop trigger if exists trg_sample_notify on public.product_samples;
 create trigger trg_sample_notify
   after insert or update on public.product_samples
   for each row execute function public.notify_sample_events();
+
+-- ---------------------------------------------------------------------------
+-- 20260818150000_sample_notification_log.sql
+-- One row per sample-notify send attempt (auto trigger-fired or manual
+-- "Notify now"), written by the service-role client inside sample-notify.
+-- Backs the Samples tab's Notification Log panel and the post-save poll
+-- that turns the async DB-trigger notification into a visible toast.
+-- ---------------------------------------------------------------------------
+create table if not exists public.sample_notification_log (
+  id                uuid primary key default gen_random_uuid(),
+  company_entity_id uuid references public.entities(id),
+  sample_id         uuid references public.product_samples(id) on delete cascade,
+  event_type        text not null,
+  recipient_label   text,
+  email_sent        boolean not null default false,
+  email_reason      text,
+  slack_sent        boolean not null default false,
+  slack_reason      text,
+  slack_dm_sent     boolean not null default false,
+  slack_dm_reason   text,
+  recipients_count  integer not null default 0,
+  created_at        timestamptz not null default now()
+);
+
+create index if not exists sample_notification_log_sample_id_idx
+  on public.sample_notification_log (sample_id, created_at desc);
+
+create index if not exists sample_notification_log_company_created_idx
+  on public.sample_notification_log (company_entity_id, created_at desc);
+
+alter table public.sample_notification_log enable row level security;
+
+drop policy if exists sample_notification_log_active_select on public.sample_notification_log;
+create policy sample_notification_log_active_select on public.sample_notification_log
+  for select using (company_entity_id = active_company_id());
+
+revoke all on public.sample_notification_log from anon;
+grant select on public.sample_notification_log to authenticated;
+
+create or replace view public.sample_notification_log_v
+with (security_invoker = true) as
+select
+  l.*,
+  s.product_title,
+  s.sample_ref
+from public.sample_notification_log l
+left join public.product_samples s on s.id = l.sample_id;
+
+revoke all on public.sample_notification_log_v from anon;
+grant select on public.sample_notification_log_v to authenticated;

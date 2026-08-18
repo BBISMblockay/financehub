@@ -24,6 +24,14 @@
       transform:translateX(100%); transition:transform .2s cubic-bezier(.25,.8,.25,1);
     }
     .smp-drawer.open { transform:none; }
+    .smp-drawer--wide { width:760px; }
+    .smp-notify-log-table { width:100%; border-collapse:collapse; font-size:11.5px; }
+    .smp-notify-log-table th { text-align:left; font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--bcn-ink-3); padding:8px 10px; border-bottom:1px solid var(--bcn-border); position:sticky; top:0; background:var(--bcn-surface); }
+    .smp-notify-log-table td { padding:8px 10px; border-bottom:1px solid var(--bcn-border); vertical-align:top; }
+    .smp-notify-chip { display:inline-flex; align-items:center; gap:3px; font-size:10.5px; font-weight:700; }
+    .smp-notify-chip.ok  { color:var(--bcn-pos, #1f9d63); }
+    .smp-notify-chip.no  { color:var(--bcn-ink-3); }
+    .smp-notify-thumb { width:34px; height:34px; object-fit:cover; border-radius:5px; border:1px solid var(--bcn-border); cursor:pointer; display:block; }
     .smp-drawer-head {
       display:flex; align-items:flex-start; gap:10px;
       padding:14px 18px 12px; border-bottom:1px solid var(--bcn-border); flex-shrink:0;
@@ -250,6 +258,9 @@
             <option value="">All launches</option>
             <option value="unlinked">Unlinked only</option>
           </select>
+        </div>
+        <div class="bcn-filter" style="margin-left:auto;">
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnNotifyLog" style="font-size:11px;">Notification Log</button>
         </div>
       </section>
 
@@ -842,6 +853,27 @@
     <button class="bcn-btn bcn-btn--ghost" id="ctBtnCancel">Cancel</button>
     <div style="flex:1;"></div>
     <button class="bcn-btn bcn-btn--ghost" id="ctBtnDelete" title="Clears subcategory/department/tags/notes — does not remove the product from the catalog">Clear Tags</button>
+  </div>
+</aside>
+
+<!-- ══ NOTIFICATION LOG PANEL ═══════════════════════════ -->
+<aside class="smp-drawer smp-drawer--wide" id="notifyLogDrawer" aria-label="Notification log" aria-hidden="true">
+  <div class="smp-drawer-head">
+    <div style="flex:1;">
+      <div class="smp-drawer-ref">SAMPLES</div>
+      <div class="smp-drawer-title">Notification Log</div>
+    </div>
+    <button class="smp-drawer-close" id="notifyLogBtnClose" type="button">×</button>
+  </div>
+  <div class="smp-drawer-body">
+    <div class="smp-section" style="border-bottom:none;">
+      <div style="color:var(--bcn-ink-3);font-size:11px;margin-bottom:10px;">
+        Every automatic and manual "Notify now" attempt for this company's samples, most recent first — who it tried to reach and which channel(s) actually delivered.
+      </div>
+      <div id="notifyLogBody">
+        <div style="color:var(--bcn-ink-3);font-size:12px;">Loading…</div>
+      </div>
+    </div>
   </div>
 </aside>
 
@@ -1553,8 +1585,9 @@
   async function notifyAssignee() {
     if(!drawerSample?.id || !$('fldAssignedTo').value) return;
     $('btnNotifyAssignee').disabled = true;
+    const who = $('fldAssignedTo').selectedOptions[0]?.textContent || 'assignee';
     try {
-      const { error } = await sb.functions.invoke('sample-notify', {
+      const { data, error } = await sb.functions.invoke('sample-notify', {
         body: {
           type: 'SAMPLE_ASSIGNED',
           record: {
@@ -1572,12 +1605,129 @@
         },
       });
       if(error) throw error;
-      setStatus('Assignee notified.','pos',3000);
+      setStatus(describeNotifyResult(who, data), (data?.email_sent||data?.slack_dm_sent) ? 'pos' : 'neg', 6000);
     } catch(err) {
       setStatus(err.message||'Notify failed.','neg',5000);
     } finally {
       updateNotifyAssigneeButton();
     }
+  }
+
+  // Shared phrasing for both the manual "Notify now" response and the
+  // automatic post-save notification-log poll below — same channels, same
+  // wording ("Sent to Email – Name" / "Sent to Slack – Name"), so the
+  // confirmation reads the same whichever path fired it.
+  function describeNotifyResult(who, result) {
+    if(!result) return `No confirmation from sample-notify for ${who}.`;
+    const parts=[];
+    if(result.email_sent) parts.push(`Sent to Email – ${who}`);
+    if(result.slack_dm_sent) parts.push(`Sent to Slack – ${who}`);
+    if(result.slack_sent) parts.push('Posted to #samples-channel');
+    if(!parts.length) return `Notified ${who}, but nothing delivered — check the Notification Log.`;
+    return parts.join(' · ');
+  }
+
+  // Same phrasing, sourced from a notification_log row (the server's own
+  // record of who it decided to notify) rather than a client-guessed name —
+  // used for the auto-fired path in saveSample(), where "who" could be a
+  // single assignee or a whole department broadcast.
+  function describeNotifyLogRow(row) {
+    return describeNotifyResult(row.recipient_label || 'recipient', row);
+  }
+
+  // ── notification log (auto + manual attempts, for spot-checking) ───────────
+  async function latestNotifyLogId(sampleId) {
+    if(!sampleId) return null;
+    try {
+      const { data } = await sb.from('sample_notification_log_v').select('id').eq('sample_id', sampleId).order('created_at', {ascending:false}).limit(1);
+      return data?.[0]?.id || null;
+    } catch { return null; }
+  }
+
+  // Fires after a save that plausibly triggered the DB trigger →
+  // sample-notify (an async net.http_post, not something the browser's
+  // insert/update call waits on) — polls briefly for a new log row rather
+  // than assuming the "Saved." toast is the whole story.
+  async function pollForNewNotifyLog(sampleId, beforeId, attempts=6, delayMs=900) {
+    for(let i=0;i<attempts;i++){
+      await new Promise(r=>setTimeout(r, delayMs));
+      try {
+        const { data } = await sb.from('sample_notification_log_v').select('*').eq('sample_id', sampleId).order('created_at', {ascending:false}).limit(1);
+        const row=data?.[0];
+        if(row && row.id!==beforeId) return row;
+      } catch { /* table may not exist yet if this shipped ahead of the migration -- stay silent */ return null; }
+    }
+    return null;
+  }
+
+  async function openNotifyLog() {
+    $('notifyLogBody').innerHTML='<div style="color:var(--bcn-ink-3);font-size:12px;">Loading…</div>';
+    $('backdrop').classList.add('open');
+    $('notifyLogDrawer').classList.add('open');
+    $('notifyLogDrawer').setAttribute('aria-hidden','false');
+    let q=sb.from('sample_notification_log_v').select('*').order('created_at',{ascending:false}).limit(100);
+    if(_co?.id) q=q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if(error){ $('notifyLogBody').innerHTML=`<div style="color:var(--bcn-neg);font-size:12px;">${esc(error.message)}</div>`; return; }
+    await renderNotifyLog(data||[]);
+  }
+
+  function closeNotifyLog() {
+    $('backdrop').classList.remove('open');
+    $('notifyLogDrawer').classList.remove('open');
+    $('notifyLogDrawer').setAttribute('aria-hidden','true');
+  }
+
+  function notifyChip(ok, label) {
+    return `<span class="smp-notify-chip ${ok?'ok':'no'}">${ok?'✓':'—'} ${esc(label)}</span>`;
+  }
+
+  // First uploaded photo for a sample, if any -- same sample-images bucket
+  // and samples/{id}/ path renderPhotoGrid() already uses, just the oldest
+  // file instead of the whole set.
+  async function firstSamplePhotoUrl(sampleId) {
+    if(!sampleId) return null;
+    try {
+      const { data } = await sb.storage.from(BUCKET).list(`samples/${sampleId}`, { limit:1, sortBy:{ column:'created_at', order:'asc' } });
+      const first = (data||[]).find(f=>f.name!=='.emptyFolderPlaceholder');
+      if(!first) return null;
+      const { data:u } = sb.storage.from(BUCKET).getPublicUrl(`samples/${sampleId}/${first.name}`);
+      return u.publicUrl;
+    } catch { return null; }
+  }
+
+  async function renderNotifyLog(rows) {
+    if(!rows.length){ $('notifyLogBody').innerHTML='<div style="color:var(--bcn-ink-3);font-size:12px;">No notification attempts yet.</div>'; return; }
+
+    // One storage lookup per distinct sample, not per log row -- several
+    // rows commonly share the same sample_id (requested, then assigned,
+    // then ready all log separately).
+    const uniqueSampleIds = [...new Set(rows.map(r=>r.sample_id).filter(Boolean))];
+    const photoMap = new Map(await Promise.all(uniqueSampleIds.map(async id => [id, await firstSamplePhotoUrl(id)])));
+
+    const html = `<table class="smp-notify-log-table"><thead><tr>
+        <th>When</th><th>Photo</th><th>Sample</th><th>Event</th><th>Recipient</th><th>Email</th><th>Slack DM</th><th>Channel</th>
+      </tr></thead><tbody>${rows.map(r=>{
+        const when=new Date(r.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+        const photoUrl = photoMap.get(r.sample_id);
+        const photoCell = photoUrl
+          ? `<img src="${photoUrl}" class="smp-notify-thumb" data-photo-url="${photoUrl}" alt="" />`
+          : `<span style="color:var(--bcn-ink-3);font-size:9.5px;">—</span>`;
+        return `<tr>
+          <td class="bcn-mono" style="font-size:10.5px;white-space:nowrap;">${esc(when)}</td>
+          <td>${photoCell}</td>
+          <td>${esc(r.product_title||'—')}${r.sample_ref?` <span style="color:var(--bcn-ink-3);font-size:9.5px;">${esc(r.sample_ref)}</span>`:''}</td>
+          <td style="font-size:10.5px;">${esc((r.event_type||'').replace('SAMPLE_','').replace(/_/g,' '))}</td>
+          <td>${esc(r.recipient_label||'—')}</td>
+          <td>${notifyChip(r.email_sent, r.email_sent?'Sent':(r.email_reason||'No'))}</td>
+          <td>${notifyChip(r.slack_dm_sent, r.slack_dm_sent?'Sent':(r.slack_dm_reason||'No'))}</td>
+          <td>${notifyChip(r.slack_sent, r.slack_sent?'Posted':'—')}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+    $('notifyLogBody').innerHTML=html;
+    $('notifyLogBody').querySelectorAll('.smp-notify-thumb').forEach(img => {
+      img.addEventListener('click', () => openLightbox([img.dataset.photoUrl], 0));
+    });
   }
 
   function closeDrawer() {
@@ -1633,6 +1783,23 @@
       assigned_to:            $('fldAssignedTo').value    || null,
     };
 
+    // Captured before the write so the post-save poll below can tell "a new
+    // notification-log row appeared" apart from "this is the same one from
+    // before" -- the DB trigger's net.http_post is async, so nothing in this
+    // insert/update call itself confirms whether sample-notify actually ran.
+    const isNew = !drawerSample;
+    const oldAssignedTo = drawerSample?.assigned_to || null;
+    const oldSizeRequests = drawerSample?.size_requests || '';
+    const beforeLogId = await latestNotifyLogId(drawerSample?.id);
+    const mightNotify = isNew
+      ? !!(payload.assigned_to || payload.request_source)
+      : !!(
+          (payload.assigned_to && payload.assigned_to !== oldAssignedTo)
+          || (newStatus==='received' && oldStatus!=='received')
+          || (newStatus==='warehouse_ready' && oldStatus!=='warehouse_ready')
+          || (payload.size_requests && payload.size_requests !== oldSizeRequests)
+        );
+
     setStatus('Saving…','info');
     let sampleId;
     if(drawerSample) {
@@ -1662,6 +1829,12 @@
 
     clearStatus(); setStatus('Saved.','pos',2500);
     await Promise.all([loadSamples(), loadSampleTrackerLinks()]); renderKPIs(); renderTable(); renderTrackerKPIs(); renderTrackerTable(); closeDrawer();
+
+    if(mightNotify){
+      pollForNewNotifyLog(sampleId, beforeLogId).then(row => {
+        if(row) setStatus(describeNotifyLogRow(row), (row.email_sent||row.slack_dm_sent||row.slack_sent)?'pos':'neg', 6000);
+      });
+    }
   }
 
   async function deleteSample() {
@@ -1919,6 +2092,8 @@
   $('btnDelete').addEventListener('click', deleteSample);
   $('fldAssignedTo').addEventListener('change', updateNotifyAssigneeButton);
   $('btnNotifyAssignee').addEventListener('click', notifyAssignee);
+  $('btnNotifyLog').addEventListener('click', openNotifyLog);
+  $('notifyLogBtnClose').addEventListener('click', closeNotifyLog);
 
   $('ptBtnClose').addEventListener('click', closePtDrawer);
   $('ptBtnCancel').addEventListener('click', closePtDrawer);
@@ -1929,6 +2104,7 @@
     if($('drawer').classList.contains('open')) closeDrawer();
     else if($('ptDrawer').classList.contains('open')) closePtDrawer();
     else if($('ctDrawer').classList.contains('open')) ctCloseEditor();
+    else if($('notifyLogDrawer').classList.contains('open')) closeNotifyLog();
   });
 
   document.addEventListener('keydown', e => {
@@ -1942,6 +2118,7 @@
       if($('drawer').classList.contains('open')) closeDrawer();
       else if($('ptDrawer').classList.contains('open')) closePtDrawer();
       else if($('ctDrawer').classList.contains('open')) ctCloseEditor();
+      else if($('notifyLogDrawer').classList.contains('open')) closeNotifyLog();
     }
   });
 
