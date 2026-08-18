@@ -878,3 +878,16 @@ select
       then 'MISSING — run 20260818180000_sample_insert_no_double_fire.sql'
     else 'ok'
   end as sample_insert_no_double_fire;
+
+-- 32. PPS / Full Run received split (migration 20260818190000)
+select
+  case
+    when not exists (
+      select 1 from pg_proc p join pg_language l on l.oid = p.prolang
+      where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
+        and pg_get_functiondef(p.oid) ilike '%pps_received%'
+        and pg_get_functiondef(p.oid) ilike '%full_run_received%'
+    )
+      then 'MISSING — run 20260818190000_sample_pps_full_run_received.sql'
+    else 'ok'
+  end as sample_pps_full_run_received;

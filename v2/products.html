@@ -259,7 +259,9 @@
         <div class="bcn-filter">
           <select class="bcn-field" id="fStatus">
             <option value="">All statuses</option>
-            <option value="received">Received</option>
+            <option value="pps_received">PPS Received</option>
+            <option value="full_run_received">Full Run Received</option>
+            <option value="received">Received (legacy)</option>
             <option value="size_request_sent">Size Request Sent</option>
             <option value="warehouse_ready">Warehouse Ready</option>
             <option value="picked_up">Picked Up</option>
@@ -951,8 +953,16 @@
   const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
   // ── constants ─────────────────────────────────────────────────────────────
+  // 'received' split into two more specific stages per Blake/Chris —
+  // pre-production sample vs. the full production run arriving. Old rows
+  // saved before this split still carry the plain 'received' value; kept
+  // recognized everywhere below (RECEIVED_STATUSES, statusPill, the DB
+  // trigger) rather than migrated, since there's no way to know which of
+  // the two a historical row actually was.
+  const RECEIVED_STATUSES = ['received', 'pps_received', 'full_run_received'];
   const STATUSES = [
-    { value:'received',          label:'Received' },
+    { value:'pps_received',      label:'PPS Received' },
+    { value:'full_run_received', label:'Full Run Received' },
     { value:'size_request_sent', label:'Size Req Sent' },
     { value:'warehouse_ready',   label:'Whs Ready' },
     { value:'picked_up',         label:'Picked Up' },
@@ -1028,7 +1038,9 @@
   // ── pills ─────────────────────────────────────────────────────────────────
   function statusPill(val) {
     const m = {
-      received:         ['bcn-pill bcn-pill--dark',   'Received'],
+      received:            ['bcn-pill bcn-pill--dark', 'Received'], // legacy rows only, pre-split
+      pps_received:        ['bcn-pill bcn-pill--dark', 'PPS Received'],
+      full_run_received:   ['bcn-pill bcn-pill--dark', 'Full Run Received'],
       size_request_sent:['bcn-pill',                  'Size Req'],
       warehouse_ready:  ['bcn-pill bcn-pill--accent',  'Whs Ready'],
       picked_up:        ['bcn-pill bcn-pill--accent',  'Picked Up'],
@@ -1093,11 +1105,12 @@
   }
 
   // ── pipeline ──────────────────────────────────────────────────────────────
-  // Only the first 4 stages (Received / Size Req Sent / Whs Ready / Picked
-  // Up) show by default -- real usage never reaches the other 6. Auto-
-  // expands whenever the current status is one of those 6, so a sample
-  // that's actually further along never has its real stage hidden.
-  const CORE_STATUS_COUNT = 4;
+  // Only the first 5 stages (PPS Received / Full Run Received / Size Req
+  // Sent / Whs Ready / Picked Up) show by default -- real usage never
+  // reaches the other 6. Auto-expands whenever the current status is one
+  // of those 6, so a sample that's actually further along never has its
+  // real stage hidden.
+  const CORE_STATUS_COUNT = 5;
 
   function renderPipeline(cur) {
     const idx = STATUS_ORDER.indexOf(cur);
@@ -1123,7 +1136,7 @@
 
   function getPipelineStatus() {
     const a = document.querySelector('#pipelineSteps .smp-step.active');
-    return a ? a.dataset.status : 'received';
+    return a ? a.dataset.status : 'pps_received';
   }
 
   // ── sizes compact/expanded toggle ───────────────────────────────────────────
@@ -1650,7 +1663,7 @@
     // Reset to the compact default on every open; renderPipeline expands
     // itself if the sample's actual status is past the core 4 stages.
     pipelineExpanded = false;
-    renderPipeline(sample?.sample_status || 'received');
+    renderPipeline(sample?.sample_status || 'pps_received');
 
     sizesExpanded = !!(sample?.size_requests || sample?.sizes_picked_up);
     applySizesCompactClass();
@@ -1907,7 +1920,7 @@
       ? !!(payload.assigned_to || payload.request_source)
       : !!(
           (payload.assigned_to && payload.assigned_to !== oldAssignedTo)
-          || (newStatus==='received' && oldStatus!=='received')
+          || (RECEIVED_STATUSES.includes(newStatus) && !RECEIVED_STATUSES.includes(oldStatus))
           || (newStatus==='warehouse_ready' && oldStatus!=='warehouse_ready')
           || (payload.size_requests && payload.size_requests !== oldSizeRequests)
         );
