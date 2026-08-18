@@ -891,3 +891,15 @@ select
       then 'MISSING — run 20260818190000_sample_pps_full_run_received.sql'
     else 'ok'
   end as sample_pps_full_run_received;
+
+-- 33. Sample received transition within family (migration 20260818200000)
+select
+  case
+    when not exists (
+      select 1 from pg_proc p join pg_language l on l.oid = p.prolang
+      where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
+        and pg_get_functiondef(p.oid) ilike '%old.sample_status is distinct from new.sample_status%'
+    )
+      then 'MISSING — run 20260818200000_sample_received_transition_within_family.sql'
+    else 'ok'
+  end as sample_received_transition_within_family;
