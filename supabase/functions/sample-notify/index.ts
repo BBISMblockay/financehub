@@ -14,12 +14,23 @@
 // falls back to the active company's `logistics` department profiles,
 // resolved at send time rather than hardcoded, so the list stays correct
 // as staff changes.
+//
+// When there's an assignee, they're also DMed on Slack (in addition to,
+// not instead of, the existing #samples-channel webhook post below — that
+// channel is a separate, optional team-wide feed). There's no stored Slack
+// user id anywhere in this repo, so the DM is resolved the same way the
+// email is: by the assignee's SILO email, via Slack's
+// users.lookupByEmail — this only works if that address matches a real
+// account in the Baseballism Slack workspace. Silently skipped (no error)
+// if SLACK_BOT_TOKEN is unset or the lookup/open/post fails, same
+// optional-secret posture as RESEND_API_KEY / SLACK_SAMPLES_WEBHOOK_URL.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const SLACK_WEBHOOK = Deno.env.get('SLACK_SAMPLES_WEBHOOK_URL') || '';
+const SLACK_BOT_TOKEN = Deno.env.get('SLACK_BOT_TOKEN') || '';
 const FROM = 'SILO <noreply@silo-baseballism.com>';
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -79,6 +90,52 @@ async function sendSlack(text: string): Promise<boolean> {
   return res.ok;
 }
 
+// DMs a specific person on Slack by looking up their SILO email against
+// the workspace, opening (or reusing) a DM with them, then posting. Three
+// Slack API calls chained because there's no stored Slack user id to skip
+// straight to chat.postMessage with — see header comment.
+async function sendSlackDM(email: string | null, text: string): Promise<boolean> {
+  if (!SLACK_BOT_TOKEN || !email) return false;
+  try {
+    const lookupRes = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
+      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+    });
+    const lookup = await lookupRes.json();
+    if (!lookup.ok || !lookup.user?.id) {
+      // users_not_found just means this person's SILO email isn't in the
+      // Slack workspace — expected for some staff, not worth logging as an
+      // error every time.
+      if (lookup.error && lookup.error !== 'users_not_found') {
+        console.error('[sample-notify] slack lookupByEmail error', lookup.error);
+      }
+      return false;
+    }
+
+    const openRes = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+      body: JSON.stringify({ users: lookup.user.id }),
+    });
+    const opened = await openRes.json();
+    if (!opened.ok || !opened.channel?.id) {
+      console.error('[sample-notify] slack conversations.open error', opened.error);
+      return false;
+    }
+
+    const postRes = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+      body: JSON.stringify({ channel: opened.channel.id, text }),
+    });
+    const posted = await postRes.json();
+    if (!posted.ok) console.error('[sample-notify] slack chat.postMessage error', posted.error);
+    return !!posted.ok;
+  } catch (err) {
+    console.error('[sample-notify] slack DM error', err);
+    return false;
+  }
+}
+
 function emailHtml(opts: { headline: string; body: string; link: string }): string {
   const { headline, body, link } = opts;
   return `
@@ -113,6 +170,7 @@ Deno.serve(async (req: Request) => {
     }
 
     let toEmails: string[] = [];
+    let assigneeEmail: string | null = null;
     if (record.assigned_to) {
       // A specific person was picked for this sample — notify only them,
       // not the whole department. Still gated on is_active so an
@@ -123,7 +181,10 @@ Deno.serve(async (req: Request) => {
         .eq('id', record.assigned_to)
         .eq('is_active', true)
         .maybeSingle();
-      if (assignee?.email) toEmails = [assignee.email];
+      if (assignee?.email) {
+        toEmails = [assignee.email];
+        assigneeEmail = assignee.email;
+      }
     } else {
       // No assignee set — fall back to the whole logistics department,
       // scoped through entity_memberships rather than a bare
@@ -250,12 +311,19 @@ Deno.serve(async (req: Request) => {
       slackText = `:straight_ruler: *Sizes requested* — ${title}${ref}: *${record.size_requests}*\n${link}`;
     }
 
-    const [emailSent, slackSent] = await Promise.all([
+    const [emailSent, slackSent, slackDmSent] = await Promise.all([
       sendEmail(toEmails, subject, html),
       sendSlack(slackText),
+      sendSlackDM(assigneeEmail, slackText),
     ]);
 
-    return new Response(JSON.stringify({ ok: true, email_sent: emailSent, slack_sent: slackSent, recipients: toEmails.length }), { headers: CORS });
+    return new Response(JSON.stringify({
+      ok: true,
+      email_sent: emailSent,
+      slack_sent: slackSent,
+      slack_dm_sent: slackDmSent,
+      recipients: toEmails.length,
+    }), { headers: CORS });
   } catch (err) {
     console.error('[sample-notify]', err);
     return new Response(JSON.stringify({ error: String((err as Error)?.message || err) }), { status: 500, headers: CORS });
