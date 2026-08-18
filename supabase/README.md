@@ -280,6 +280,7 @@ supabase/
     20260818170000_sample_requested_vs_received_on_insert.sql
     20260818180000_sample_insert_no_double_fire.sql
     20260818190000_sample_pps_full_run_received.sql
+    20260818200000_sample_received_transition_within_family.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
