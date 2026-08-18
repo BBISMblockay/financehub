@@ -277,6 +277,8 @@ supabase/
     20260818060000_orders_backfill_job_type.sql
     20260818130000_product_samples_assignee_notifications.sql
     20260818150000_sample_notification_log.sql
+    20260818170000_sample_requested_vs_received_on_insert.sql
+    20260818180000_sample_insert_no_double_fire.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

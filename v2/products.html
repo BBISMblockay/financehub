@@ -71,6 +71,12 @@
     .smp-step:hover { border-color:var(--bcn-accent); color:var(--bcn-accent); }
     .smp-step.active { background:var(--bcn-accent); border-color:var(--bcn-accent); color:#fff; }
     .smp-step.done { background:oklch(.93 .06 145); border-color:oklch(.7 .12 145); color:oklch(.32 .1 145); }
+    .smp-stage-toggle {
+      border:none; background:none; cursor:pointer; font-family:var(--bcn-mono);
+      font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+      color:var(--bcn-accent); padding:0;
+    }
+    .smp-stage-toggle:hover { text-decoration:underline; }
 
     /* ── size checkbox grid ──────────────────────────── */
     .smp-size-grid { display:flex; flex-wrap:wrap; gap:5px; }
@@ -89,6 +95,27 @@
     .smp-size-legend .leg-req::before { background:var(--bcn-accent); }
     .smp-size-legend .leg-whs::before { background:oklch(.55 .18 145); }
     .smp-size-legend .leg-pck::before { background:oklch(.6 .18 55); }
+    /* Compact mode hides Requested/Picked-Up tracking, leaving only Whs
+       Ready — the one column real usage data shows gets checked on every
+       sample (22/22); Req and Pck sit at 3/22 and 0/22. Toggled on, or
+       auto-shown when the sample being edited already has that data. */
+    .smp-sizes-compact .smp-ck-req,
+    .smp-sizes-compact .smp-ck-pck,
+    .smp-sizes-compact .smp-size-legend .leg-req,
+    .smp-sizes-compact .smp-size-legend .leg-pck { display:none; }
+
+    /* ── collapsible "More Details" ──────────────────── */
+    .smp-more-details summary {
+      cursor:pointer; list-style:none; display:flex; align-items:center; gap:6px;
+    }
+    .smp-more-details summary::-webkit-details-marker { display:none; }
+    .smp-more-details summary::before {
+      content:'▸'; font-size:9px; color:var(--bcn-ink-3); transition:transform .12s;
+    }
+    .smp-more-details[open] summary::before { transform:rotate(90deg); }
+    .smp-more-details .smp-more-details-body { margin-top:12px; }
+    .smp-more-details .smp-section { padding:0 0 14px; border-bottom:1px solid var(--bcn-border); }
+    .smp-more-details .smp-section:last-child { border-bottom:none; padding-bottom:0; }
 
     /* ── product search ──────────────────────────────── */
     .smp-prod-search { position:relative; }
@@ -418,13 +445,18 @@
 
   <div class="smp-drawer-body">
 
-    <!-- 1. Pipeline -->
+    <!-- 1. Workflow -->
     <div class="smp-section">
-      <div class="smp-section-label">Workflow</div>
+      <div class="smp-section-label" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Workflow</span>
+        <button type="button" class="smp-stage-toggle" id="btnTogglePipeline">Show all stages</button>
+      </div>
       <div class="smp-pipeline" id="pipelineSteps"></div>
     </div>
 
-    <!-- 2. Product Info -->
+    <!-- 2. Product Info (core fields only — Collection/Bulk ETA/On Hand
+         Label/product search moved to More Details, all under 10% real
+         usage) -->
     <div class="smp-section">
       <div class="smp-section-label">Product Info</div>
       <div class="smp-grid-2">
@@ -444,73 +476,50 @@
             <option value="">— select type —</option>
           </select>
         </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Collection</label>
-          <input class="bcn-field" id="fldCollection" placeholder="e.g. Frozen Treats" />
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Bulk ETA</label>
-          <input class="bcn-field" type="date" id="fldBulkEta" />
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">On Hand Label</label>
-          <select class="bcn-field" id="fldOnHandLabel">
-            <option value="">—</option>
-            <option value="Bulk">Bulk</option>
-            <option value="Photo Sample">Photo Sample</option>
-            <option value="Internal Review">Internal Review</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Product search / link -->
-      <div style="margin-top:12px;">
-        <div class="bcn-label" style="margin-bottom:6px;">Link to Silo Product</div>
-        <div id="linkedProductChip" style="margin-bottom:8px; display:none;"></div>
-        <div class="smp-grid-2" style="gap:6px; margin-bottom:6px;">
-          <select class="bcn-field" id="prodSource" style="font-size:11px;">
-            <option value="po_incoming">PO / Incoming</option>
-            <option value="catalog">Silo Catalog</option>
-          </select>
-          <div class="smp-prod-search" style="position:relative;">
-            <input class="bcn-field" id="prodSearchInput" placeholder="Search product or PO…" style="width:100%;" />
-            <div class="smp-prod-results" id="prodSearchResults"></div>
-          </div>
-        </div>
-        <input type="hidden" id="fldProductMasterId" />
       </div>
     </div>
 
-    <!-- 3. Dates -->
+    <!-- 3. Notify — moved up from the bottom of the drawer so assigning
+         someone doesn't require scrolling past photos/ecosystem links. -->
+    <div class="smp-section">
+      <div class="smp-section-label">Notify</div>
+      <div class="smp-grid-2" style="align-items:end;">
+        <div class="bcn-field-group">
+          <label class="bcn-label">Assigned to</label>
+          <select class="bcn-field" id="fldAssignedTo">
+            <option value="">Unassigned</option>
+          </select>
+        </div>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnNotifyAssignee" disabled>Notify now</button>
+      </div>
+      <div style="color:var(--bcn-ink-3); font-size:11px; margin-top:6px;">
+        Route this request to a warehouse/logistics person — they're emailed when it's saved, reassigned, or marked ready. "Notify now" re-sends on demand.
+      </div>
+    </div>
+
+    <!-- 4. Dates (Received + Whs Ready — the only 2 of 5 date fields with
+         any real data; Sent/Picked Up/Photo Received are in More Details) -->
     <div class="smp-section">
       <div class="smp-section-label">Date Stamps</div>
-      <div class="smp-grid-3">
+      <div class="smp-grid-2">
         <div class="bcn-field-group">
           <label class="bcn-label">Received</label>
           <input class="bcn-field" type="date" id="fldReceivedAt" />
         </div>
         <div class="bcn-field-group">
-          <label class="bcn-label">Sent</label>
-          <input class="bcn-field" type="date" id="fldSentAt" />
-        </div>
-        <div class="bcn-field-group">
           <label class="bcn-label">Whs Ready</label>
           <input class="bcn-field" type="date" id="fldWarehouseReadyAt" />
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Picked Up</label>
-          <input class="bcn-field" type="date" id="fldPickedUpAt" />
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Photo Received</label>
-          <input class="bcn-field" type="date" id="fldPhotoReceivedAt" />
         </div>
       </div>
     </div>
 
-    <!-- 4. Sizes -->
-    <div class="smp-section">
-      <div class="smp-section-label">Sizes</div>
+    <!-- 5. Sizes — Whs Ready only by default (22/22 real samples use it);
+         Requested/Picked-Up columns behind a toggle (3/22 and 0/22). -->
+    <div class="smp-section smp-sizes-compact" id="sizesSection">
+      <div class="smp-section-label" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Sizes</span>
+        <button type="button" class="smp-stage-toggle" id="btnToggleSizes">Show request &amp; pickup tracking</button>
+      </div>
       <div class="smp-size-legend">
         <span class="leg-req">Requested</span>
         <span class="leg-whs">Whs Ready</span>
@@ -530,37 +539,6 @@
       </div>
     </div>
 
-    <!-- 5. Creative -->
-    <div class="smp-section">
-      <div class="smp-section-label">Creative Pipeline</div>
-      <div class="smp-grid-3">
-        <div class="bcn-field-group">
-          <label class="bcn-label">Photo Status</label>
-          <select class="bcn-field" id="fldPhotoStatus">
-            <option value="pending">Pending</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="complete">Complete</option>
-            <option value="na">N/A</option>
-          </select>
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Copy Status</label>
-          <select class="bcn-field" id="fldCopyStatus">
-            <option value="pending">Pending</option>
-            <option value="complete">Complete</option>
-            <option value="na">N/A</option>
-          </select>
-        </div>
-        <div class="bcn-field-group" style="display:flex; flex-direction:column; justify-content:flex-end;">
-          <label class="bcn-label">&nbsp;</label>
-          <label style="display:flex; align-items:center; gap:7px; cursor:pointer; padding:6px 0;">
-            <input type="checkbox" id="fldLiveStatus" style="width:15px;height:15px;" />
-            <span style="font-size:12px; font-weight:600;">Product is Live</span>
-          </label>
-        </div>
-      </div>
-    </div>
-
     <!-- 6. Photos -->
     <div class="smp-section" id="photoSection">
       <div class="smp-section-label">Sample Photos</div>
@@ -568,58 +546,138 @@
       <input type="file" id="photoFileInput" accept="image/*" multiple style="display:none" />
     </div>
 
-    <!-- 7. Connect to Ecosystem -->
-    <div class="smp-section">
-      <div class="smp-section-label">Connect to Ecosystem</div>
-      <div style="margin-bottom:10px;">
-        <div class="bcn-label" style="margin-bottom:6px;">Pipeline Items</div>
-        <div id="smpTrackerChip" style="margin-bottom:6px; display:none;"></div>
-        <div class="smp-prod-search" style="position:relative;">
-          <input class="bcn-field" id="smpTrackerSearch" placeholder="Search pipeline products…" style="width:100%;" />
-          <div class="smp-prod-results" id="smpTrackerResults"></div>
-        </div>
-      </div>
-      <div class="smp-grid-2">
-        <div class="bcn-field-group">
-          <label class="bcn-label">Launch</label>
-          <select class="bcn-field" id="fldLaunchId">
-            <option value="">— not linked —</option>
-          </select>
-          <a id="smpLaunchOpenLink" href="#" style="display:none;margin-top:5px;font-size:11px;font-weight:600;color:var(--bcn-accent);">Open in Launch Calendar →</a>
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Purchase Order</label>
-          <select class="bcn-field" id="fldPoHeaderId">
-            <option value="">— not linked —</option>
-          </select>
-        </div>
-      </div>
-    </div>
+    <!-- 7. More Details — everything below sits at 0-3 uses out of 22 real
+         samples (Collection, Bulk ETA, On Hand Label, product link search,
+         extra dates, Creative Pipeline, Connect to Ecosystem, Notes).
+         Nothing removed — just collapsed by default, and auto-expanded by
+         openDrawer() whenever the sample being edited already has data in
+         one of these fields, so existing data is never hidden. -->
+    <details class="smp-section smp-more-details" id="moreDetailsSection">
+      <summary class="smp-section-label">More Details</summary>
+      <div class="smp-more-details-body">
 
-    <!-- 8. Notify -->
-    <div class="smp-section">
-      <div class="smp-section-label">Notify</div>
-      <div class="smp-grid-2" style="align-items:end;">
-        <div class="bcn-field-group">
-          <label class="bcn-label">Assigned to</label>
-          <select class="bcn-field" id="fldAssignedTo">
-            <option value="">Unassigned</option>
-          </select>
+        <div class="smp-section">
+          <div class="smp-section-label">Product Info</div>
+          <div class="smp-grid-2">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Collection</label>
+              <input class="bcn-field" id="fldCollection" placeholder="e.g. Frozen Treats" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Bulk ETA</label>
+              <input class="bcn-field" type="date" id="fldBulkEta" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">On Hand Label</label>
+              <select class="bcn-field" id="fldOnHandLabel">
+                <option value="">—</option>
+                <option value="Bulk">Bulk</option>
+                <option value="Photo Sample">Photo Sample</option>
+                <option value="Internal Review">Internal Review</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <div class="bcn-label" style="margin-bottom:6px;">Link to Silo Product</div>
+            <div id="linkedProductChip" style="margin-bottom:8px; display:none;"></div>
+            <div class="smp-grid-2" style="gap:6px; margin-bottom:6px;">
+              <select class="bcn-field" id="prodSource" style="font-size:11px;">
+                <option value="po_incoming">PO / Incoming</option>
+                <option value="catalog">Silo Catalog</option>
+              </select>
+              <div class="smp-prod-search" style="position:relative;">
+                <input class="bcn-field" id="prodSearchInput" placeholder="Search product or PO…" style="width:100%;" />
+                <div class="smp-prod-results" id="prodSearchResults"></div>
+              </div>
+            </div>
+            <input type="hidden" id="fldProductMasterId" />
+          </div>
         </div>
-        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnNotifyAssignee" disabled>Notify now</button>
-      </div>
-      <div style="color:var(--bcn-ink-3); font-size:11px; margin-top:6px;">
-        Route this request to a warehouse/logistics person — they're emailed when it's saved, reassigned, or marked ready. "Notify now" re-sends on demand.
-      </div>
-    </div>
 
-    <!-- 9. Notes -->
-    <div class="smp-section">
-      <div class="smp-section-label">Notes</div>
-      <textarea class="bcn-field" id="fldNotes" rows="3" placeholder="Internal notes…" style="resize:vertical; width:100%;"></textarea>
-    </div>
+        <div class="smp-section">
+          <div class="smp-section-label">More Date Stamps</div>
+          <div class="smp-grid-3">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Sent</label>
+              <input class="bcn-field" type="date" id="fldSentAt" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Picked Up</label>
+              <input class="bcn-field" type="date" id="fldPickedUpAt" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Photo Received</label>
+              <input class="bcn-field" type="date" id="fldPhotoReceivedAt" />
+            </div>
+          </div>
+        </div>
 
-    <!-- 10. Activity -->
+        <div class="smp-section">
+          <div class="smp-section-label">Creative Pipeline</div>
+          <div class="smp-grid-3">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Photo Status</label>
+              <select class="bcn-field" id="fldPhotoStatus">
+                <option value="pending">Pending</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="complete">Complete</option>
+                <option value="na">N/A</option>
+              </select>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Copy Status</label>
+              <select class="bcn-field" id="fldCopyStatus">
+                <option value="pending">Pending</option>
+                <option value="complete">Complete</option>
+                <option value="na">N/A</option>
+              </select>
+            </div>
+            <div class="bcn-field-group" style="display:flex; flex-direction:column; justify-content:flex-end;">
+              <label class="bcn-label">&nbsp;</label>
+              <label style="display:flex; align-items:center; gap:7px; cursor:pointer; padding:6px 0;">
+                <input type="checkbox" id="fldLiveStatus" style="width:15px;height:15px;" />
+                <span style="font-size:12px; font-weight:600;">Product is Live</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="smp-section">
+          <div class="smp-section-label">Connect to Ecosystem</div>
+          <div style="margin-bottom:10px;">
+            <div class="bcn-label" style="margin-bottom:6px;">Pipeline Items</div>
+            <div id="smpTrackerChip" style="margin-bottom:6px; display:none;"></div>
+            <div class="smp-prod-search" style="position:relative;">
+              <input class="bcn-field" id="smpTrackerSearch" placeholder="Search pipeline products…" style="width:100%;" />
+              <div class="smp-prod-results" id="smpTrackerResults"></div>
+            </div>
+          </div>
+          <div class="smp-grid-2">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Launch</label>
+              <select class="bcn-field" id="fldLaunchId">
+                <option value="">— not linked —</option>
+              </select>
+              <a id="smpLaunchOpenLink" href="#" style="display:none;margin-top:5px;font-size:11px;font-weight:600;color:var(--bcn-accent);">Open in Launch Calendar →</a>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Purchase Order</label>
+              <select class="bcn-field" id="fldPoHeaderId">
+                <option value="">— not linked —</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="smp-section">
+          <div class="smp-section-label">Notes</div>
+          <textarea class="bcn-field" id="fldNotes" rows="3" placeholder="Internal notes…" style="resize:vertical; width:100%;"></textarea>
+        </div>
+
+      </div>
+    </details>
+
+    <!-- 8. Activity -->
     <div class="smp-section" id="activitySection">
       <div class="smp-section-label">Activity</div>
       <div class="smp-activity" id="activityLog">
@@ -942,6 +1000,13 @@
   // request, per Chris/Blake's Slack thread on 2026-08-17.
   let pendingRequestSource = null;
   let prodSearchTimer   = null;
+  // Real usage across every live sample: only 4 of the 10 workflow stages
+  // and only the Whs-Ready size column ever get touched. Both start
+  // collapsed to the common case and auto-expand (see openDrawer) when the
+  // sample being edited already has data past that point — nothing is
+  // ever hidden that's actually in use.
+  let pipelineExpanded = false;
+  let sizesExpanded     = false;
 
   // product tracker drawer state
   let ptDrawerItem        = null;
@@ -997,9 +1062,9 @@
       return `<div class="smp-size-chip">
         <span>${esc(sz)}</span>
         <div class="smp-size-checks">
-          <div class="smp-ck-wrap"><label for="r_${k}">Req</label><input type="checkbox" id="r_${k}" class="ck-req" data-size="${esc(sz)}" data-kind="req" ${reqArr.includes(sz)?'checked':''}></div>
-          <div class="smp-ck-wrap"><label for="w_${k}">Whs</label><input type="checkbox" id="w_${k}" class="ck-whs" data-size="${esc(sz)}" data-kind="whs" ${whsArr.includes(sz)?'checked':''}></div>
-          <div class="smp-ck-wrap"><label for="p_${k}">Pck</label><input type="checkbox" id="p_${k}" class="ck-pck" data-size="${esc(sz)}" data-kind="pck" ${pckArr.includes(sz)?'checked':''}></div>
+          <div class="smp-ck-wrap smp-ck-req"><label for="r_${k}">Req</label><input type="checkbox" id="r_${k}" class="ck-req" data-size="${esc(sz)}" data-kind="req" ${reqArr.includes(sz)?'checked':''}></div>
+          <div class="smp-ck-wrap smp-ck-whs"><label for="w_${k}">Whs</label><input type="checkbox" id="w_${k}" class="ck-whs" data-size="${esc(sz)}" data-kind="whs" ${whsArr.includes(sz)?'checked':''}></div>
+          <div class="smp-ck-wrap smp-ck-pck"><label for="p_${k}">Pck</label><input type="checkbox" id="p_${k}" class="ck-pck" data-size="${esc(sz)}" data-kind="pck" ${pckArr.includes(sz)?'checked':''}></div>
         </div>
       </div>`;
     }).join('');
@@ -1028,26 +1093,49 @@
   }
 
   // ── pipeline ──────────────────────────────────────────────────────────────
+  // Only the first 4 stages (Received / Size Req Sent / Whs Ready / Picked
+  // Up) show by default -- real usage never reaches the other 6. Auto-
+  // expands whenever the current status is one of those 6, so a sample
+  // that's actually further along never has its real stage hidden.
+  const CORE_STATUS_COUNT = 4;
+
   function renderPipeline(cur) {
     const idx = STATUS_ORDER.indexOf(cur);
+    if (idx >= CORE_STATUS_COUNT) pipelineExpanded = true;
+    const list = pipelineExpanded ? STATUSES : STATUSES.slice(0, CORE_STATUS_COUNT);
     const c = $('pipelineSteps');
-    c.innerHTML = STATUSES.map((s,i) => {
-      const cls = 'smp-step' + (i<idx?' done':i===idx?' active':'');
-      return `<button class="${cls}" data-status="${s.value}">${s.label}</button>`;
+    c.innerHTML = list.map(s => {
+      const stepIdx = STATUS_ORDER.indexOf(s.value);
+      const cls = 'smp-step' + (stepIdx<idx?' done':stepIdx===idx?' active':'');
+      return `<button type="button" class="${cls}" data-status="${s.value}">${s.label}</button>`;
     }).join('');
     c.querySelectorAll('.smp-step').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const ci = STATUS_ORDER.indexOf(btn.dataset.status);
-        c.querySelectorAll('.smp-step').forEach((b,i) => {
-          b.className='smp-step'+(i<ci?' done':i===ci?' active':'');
-        });
-      });
+      btn.addEventListener('click', () => renderPipeline(btn.dataset.status));
     });
+    const toggle = $('btnTogglePipeline');
+    if (toggle) toggle.textContent = pipelineExpanded ? 'Show fewer stages' : 'Show all stages';
+  }
+
+  function togglePipelineExpanded() {
+    pipelineExpanded = !pipelineExpanded;
+    renderPipeline(getPipelineStatus());
   }
 
   function getPipelineStatus() {
     const a = document.querySelector('#pipelineSteps .smp-step.active');
     return a ? a.dataset.status : 'received';
+  }
+
+  // ── sizes compact/expanded toggle ───────────────────────────────────────────
+  function applySizesCompactClass() {
+    $('sizesSection').classList.toggle('smp-sizes-compact', !sizesExpanded);
+    const toggle = $('btnToggleSizes');
+    if (toggle) toggle.textContent = sizesExpanded ? 'Hide request & pickup tracking' : 'Show request & pickup tracking';
+  }
+
+  function toggleSizesExpanded() {
+    sizesExpanded = !sizesExpanded;
+    applySizesCompactClass();
   }
 
   // ── product search (samples) ───────────────────────────────────────────────
@@ -1559,9 +1647,33 @@
     updateSmpLaunchOpenLink();
     updateNotifyAssigneeButton();
 
+    // Reset to the compact default on every open; renderPipeline expands
+    // itself if the sample's actual status is past the core 4 stages.
+    pipelineExpanded = false;
     renderPipeline(sample?.sample_status || 'received');
+
+    sizesExpanded = !!(sample?.size_requests || sample?.sizes_picked_up);
+    applySizesCompactClass();
     renderAllSmpSizeGrids(sample?.size_requests||'', sample?.sizes_ready_warehouse||'', sample?.sizes_picked_up||'');
     renderPhotoGrid(sample?.id||null, []);
+
+    // Auto-expand "More Details" whenever the sample being edited (or, for
+    // a brand-new sample, the pipeline item it was prefilled from) already
+    // has data in one of the fields collapsed there -- nothing existing or
+    // prefilled is ever hidden, only the empty/default case starts collapsed.
+    $('moreDetailsSection').open = !!(
+      (sample && (
+        sample.collection || sample.bulk_eta || sample.on_hand_label
+        || sample.sent_at || sample.picked_up_at || sample.photo_received_at
+        || (sample.photo_status && sample.photo_status !== 'pending')
+        || (sample.copy_status && sample.copy_status !== 'pending')
+        || sample.live_status
+        || sample.launch_id || sample.po_header_id || sample.product_master_id
+        || sample.notes
+      ))
+      || (!sample && fromTracker && (fromTracker.collection || fromTracker.launch_id))
+      || linkedTrackerIds.length
+    );
 
     if(sample?.id) loadActivity(sample.id);
     else $('activityLog').innerHTML='<div style="color:var(--bcn-ink-3);font-size:12px;">Save to start tracking activity.</div>';
@@ -2094,6 +2206,8 @@
   $('btnNotifyAssignee').addEventListener('click', notifyAssignee);
   $('btnNotifyLog').addEventListener('click', openNotifyLog);
   $('notifyLogBtnClose').addEventListener('click', closeNotifyLog);
+  $('btnTogglePipeline').addEventListener('click', togglePipelineExpanded);
+  $('btnToggleSizes').addEventListener('click', toggleSizesExpanded);
 
   $('ptBtnClose').addEventListener('click', closePtDrawer);
   $('ptBtnCancel').addEventListener('click', closePtDrawer);
