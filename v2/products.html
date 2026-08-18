@@ -1017,6 +1017,12 @@
   // ever hidden that's actually in use.
   let pipelineExpanded = false;
   let sizesExpanded     = false;
+  // Tracks whether the user actually clicked a Workflow pill this time the
+  // drawer is open, and what the sample's stored status was at open --
+  // together these let getPipelineStatus() tell "legacy row, displayed as
+  // PPS Received but never touched" apart from "user picked PPS Received".
+  let pipelineUserChanged  = false;
+  let pipelineOriginalStatus = null;
 
   // product tracker drawer state
   let ptDrawerItem        = null;
@@ -1113,7 +1119,15 @@
   const CORE_STATUS_COUNT = 5;
 
   function renderPipeline(cur) {
-    const idx = STATUS_ORDER.indexOf(cur);
+    // Rows saved before the PPS/Full Run split still carry the plain
+    // 'received' value, which isn't in STATUSES any more -- display it as
+    // PPS Received (closest equivalent) rather than showing no active pill
+    // at all. getPipelineStatus() below still returns the untouched literal
+    // 'received' on save unless the user actually clicks a pill, so just
+    // opening and re-saving a legacy sample can't silently rewrite its
+    // status (and fire a notification neither intended nor accurate).
+    const displayCur = cur === 'received' ? 'pps_received' : cur;
+    const idx = STATUS_ORDER.indexOf(displayCur);
     if (idx >= CORE_STATUS_COUNT) pipelineExpanded = true;
     const list = pipelineExpanded ? STATUSES : STATUSES.slice(0, CORE_STATUS_COUNT);
     const c = $('pipelineSteps');
@@ -1123,7 +1137,7 @@
       return `<button type="button" class="${cls}" data-status="${s.value}">${s.label}</button>`;
     }).join('');
     c.querySelectorAll('.smp-step').forEach(btn => {
-      btn.addEventListener('click', () => renderPipeline(btn.dataset.status));
+      btn.addEventListener('click', () => { pipelineUserChanged = true; renderPipeline(btn.dataset.status); });
     });
     const toggle = $('btnTogglePipeline');
     if (toggle) toggle.textContent = pipelineExpanded ? 'Show fewer stages' : 'Show all stages';
@@ -1136,7 +1150,14 @@
 
   function getPipelineStatus() {
     const a = document.querySelector('#pipelineSteps .smp-step.active');
-    return a ? a.dataset.status : 'pps_received';
+    const active = a ? a.dataset.status : 'pps_received';
+    // Untouched legacy row: the pill shown active is the PPS_received
+    // display stand-in, not a real choice -- preserve the original
+    // 'received' string on save rather than silently "upgrading" it.
+    if (!pipelineUserChanged && active === 'pps_received' && pipelineOriginalStatus === 'received') {
+      return 'received';
+    }
+    return active;
   }
 
   // ── sizes compact/expanded toggle ───────────────────────────────────────────
@@ -1668,6 +1689,8 @@
     // Reset to the compact default on every open; renderPipeline expands
     // itself if the sample's actual status is past the core 4 stages.
     pipelineExpanded = false;
+    pipelineUserChanged = false;
+    pipelineOriginalStatus = sample?.sample_status || null;
     renderPipeline(sample?.sample_status || 'pps_received');
 
     sizesExpanded = !!(sample?.size_requests || sample?.sizes_picked_up);
