@@ -854,3 +854,15 @@ select
       then 'MISSING — sample_notification_log RLS select policy'
     else 'ok'
   end as sample_notification_log;
+
+-- 30. Sample requested vs received on insert (migration 20260818170000)
+select
+  case
+    when not exists (
+      select 1 from pg_proc p join pg_language l on l.oid = p.prolang
+      where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
+        and pg_get_functiondef(p.oid) ilike '%case when coalesce(new.sample_status%'
+    )
+      then 'MISSING — run 20260818170000_sample_requested_vs_received_on_insert.sql'
+    else 'ok'
+  end as sample_requested_vs_received_on_insert;

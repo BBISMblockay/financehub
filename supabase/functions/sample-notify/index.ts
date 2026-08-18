@@ -249,11 +249,14 @@ Deno.serve(async (req: Request) => {
 
     // Only looked up when actually needed for phrasing below — a name on
     // the message is what Chris/Blake's Slack thread (2026-08-17) actually
-    // asked for, not just "sizes requested".
+    // asked for, not just "sizes requested". SAMPLE_RECEIVED is included
+    // because an INSERT that lands as sample_status='received' — the
+    // common case, since that's the default — routes through this type
+    // now (20260818170000), including catalog photo-pull rows.
     let requesterName: string | null = null;
     const needsRequesterName =
       record.request_source === 'catalog_photo_request' &&
-      (type === 'SAMPLE_SIZE_REQUEST' || type === 'SAMPLE_REQUESTED');
+      (type === 'SAMPLE_SIZE_REQUEST' || type === 'SAMPLE_REQUESTED' || type === 'SAMPLE_RECEIVED');
     if (needsRequesterName && record.created_by) {
       const { data: requester } = await db.from('profiles').select('name').eq('id', record.created_by).single();
       requesterName = requester?.name || null;
@@ -290,13 +293,27 @@ Deno.serve(async (req: Request) => {
         slackText = `:memo: *Sample requested* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
       }
     } else if (type === 'SAMPLE_RECEIVED') {
-      subject = `Sample received: ${title}`;
-      html = emailHtml({
-        headline: 'Sample received',
-        body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} was logged as received${record.factory_name ? ` from ${esc(record.factory_name)}` : ''}.`,
-        link,
-      });
-      slackText = `:package: *Sample received* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+      if (record.request_source === 'catalog_photo_request') {
+        // Same distinction as SAMPLE_REQUESTED: a photo-pull from bulk/
+        // on-hand stock is logged as already-received the moment it's
+        // created, not a pending arrival — name who pulled it.
+        const who = requesterName || 'Someone';
+        subject = `Photo sample received: ${title}`;
+        html = emailHtml({
+          headline: 'Photo sample received',
+          body: `<strong style="color:#fff">${esc(who)}</strong> logged a photo sample as received, pulled from bulk/on-hand inventory — <strong style="color:#fff">${esc(title)}</strong>${esc(ref)}.`,
+          link,
+        });
+        slackText = `:camera: *${who} logged a photo sample as received* (bulk/on-hand pull) — ${title}${ref}\n${link}`;
+      } else {
+        subject = `Sample received: ${title}`;
+        html = emailHtml({
+          headline: 'Sample received',
+          body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} was logged as received${record.factory_name ? ` from ${esc(record.factory_name)}` : ''}.`,
+          link,
+        });
+        slackText = `:package: *Sample received* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+      }
     } else if (type === 'SAMPLE_WAREHOUSE_READY') {
       subject = `Sample ready: ${title}`;
       html = emailHtml({
