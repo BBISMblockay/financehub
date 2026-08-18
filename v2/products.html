@@ -298,13 +298,13 @@
           <table class="bcn-table smp-tbl" id="samplesTable">
             <thead>
               <tr>
-                <th style="width:6%">Ref</th><th style="width:20%">Product Title</th><th style="width:13%">Factory</th><th style="width:10%">Collection</th>
-                <th style="width:8%">Bulk ETA</th><th style="width:9%">Status</th><th style="width:7%">Photo</th><th style="width:7%">Copy</th>
-                <th style="width:6%">Live</th><th style="width:8%">Launch</th><th style="width:6%">PO</th>
+                <th style="width:6%">Ref</th><th style="width:17%">Product Title</th><th style="width:13%">Linked Product</th><th style="width:11%">Factory</th><th style="width:9%">Collection</th>
+                <th style="width:7%">Bulk ETA</th><th style="width:8%">Status</th><th style="width:6%">Photo</th><th style="width:6%">Copy</th>
+                <th style="width:5%">Live</th><th style="width:7%">Launch</th><th style="width:5%">PO</th>
               </tr>
             </thead>
             <tbody id="samplesBody">
-              <tr><td colspan="11" class="smp-empty">Loading…</td></tr>
+              <tr><td colspan="12" class="smp-empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1507,16 +1507,21 @@
   function renderTable() {
     const rows=filteredSamples();
     const tbody=$('samplesBody');
-    if(!rows.length){tbody.innerHTML='<tr><td colspan="11" class="smp-empty">No samples match the current filters.</td></tr>';return;}
+    if(!rows.length){tbody.innerHTML='<tr><td colspan="12" class="smp-empty">No samples match the current filters.</td></tr>';return;}
     tbody.innerHTML=rows.map(s=>{
       const launch=allLaunches.find(l=>l.id===s.launch_id);
       const po=allPOs.find(p=>p.id===s.po_header_id);
       const factory=allFactories.find(f=>f.id===s.factory_id);
       const eta=s.bulk_eta?new Date(s.bulk_eta+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
       const factName=factory?.factory_name||s.factory_name||'—';
+      // product_title_snapshot is captured at link time in the drawer's
+      // "Link to Silo Product" search -- exactly what this column needs,
+      // no separate products_master lookup required.
+      const linkedTitle=s.product_master_id?(s.product_title_snapshot||'Linked product'):null;
       return `<tr data-id="${s.id}">
         <td class="ptbl-trunc" title="${esc(s.sample_ref||'')}"><span class="bcn-mono" style="font-size:10px;">${esc(s.sample_ref)}</span></td>
         <td class="ptbl-trunc" style="font-weight:600;" title="${esc(s.product_title||'')}">${esc(s.product_title)}</td>
+        <td class="ptbl-trunc" style="font-size:11px;" title="${linkedTitle?esc(linkedTitle):''}">${linkedTitle?esc(linkedTitle):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
         <td class="ptbl-trunc" title="${esc(factName)}">${esc(factName)}</td>
         <td class="ptbl-trunc" title="${esc(s.collection||'')}">${esc(s.collection||'—')}</td>
         <td><span class="bcn-mono" style="font-size:11px;">${eta}</span></td>
