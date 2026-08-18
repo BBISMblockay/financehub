@@ -6,17 +6,31 @@
 // a Postgres trigger to attach a Supabase-signed JWT to an outbound
 // net.http_post call). Payload shape is validated strictly instead.
 //
-// Two event types, both requested directly: a sample arriving, and someone
-// flagging which sizes are needed. Recipients are the active company's
-// `logistics` department profiles, resolved at send time rather than
-// hardcoded, so the list stays correct as staff changes — matches how
-// mail_items resolves an assignee by email rather than storing one.
+// Five event types: a sample being requested, arriving, becoming ready in
+// the warehouse, someone flagging which sizes are needed, and a sample
+// being assigned to a specific person. Recipients: when record.assigned_to
+// is set, only that person is emailed directly (a stored assignee, added
+// 20260818130000, same shape as mail_items.assigned_to). Otherwise this
+// falls back to the active company's `logistics` department profiles,
+// resolved at send time rather than hardcoded, so the list stays correct
+// as staff changes.
+//
+// When there's an assignee, they're also DMed on Slack (in addition to,
+// not instead of, the existing #samples-channel webhook post below — that
+// channel is a separate, optional team-wide feed). There's no stored Slack
+// user id anywhere in this repo, so the DM is resolved the same way the
+// email is: by the assignee's SILO email, via Slack's
+// users.lookupByEmail — this only works if that address matches a real
+// account in the Baseballism Slack workspace. Silently skipped (no error)
+// if SLACK_BOT_TOKEN is unset or the lookup/open/post fails, same
+// optional-secret posture as RESEND_API_KEY / SLACK_SAMPLES_WEBHOOK_URL.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const SLACK_WEBHOOK = Deno.env.get('SLACK_SAMPLES_WEBHOOK_URL') || '';
+const SLACK_BOT_TOKEN = Deno.env.get('SLACK_BOT_TOKEN') || '';
 const FROM = 'SILO <noreply@silo-baseballism.com>';
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -37,9 +51,16 @@ type SampleRecord = {
   sample_status: string | null;
   request_source: string | null;
   created_by: string | null;
+  assigned_to: string | null;
 };
 
-const KNOWN_TYPES = ['SAMPLE_RECEIVED', 'SAMPLE_SIZE_REQUEST'] as const;
+const KNOWN_TYPES = [
+  'SAMPLE_REQUESTED',
+  'SAMPLE_RECEIVED',
+  'SAMPLE_WAREHOUSE_READY',
+  'SAMPLE_SIZE_REQUEST',
+  'SAMPLE_ASSIGNED',
+] as const;
 type EventType = (typeof KNOWN_TYPES)[number];
 
 function sampleLink(id: string): string {
@@ -67,6 +88,52 @@ async function sendSlack(text: string): Promise<boolean> {
   });
   if (!res.ok) console.error('[sample-notify] slack error', res.status, await res.text());
   return res.ok;
+}
+
+// DMs a specific person on Slack by looking up their SILO email against
+// the workspace, opening (or reusing) a DM with them, then posting. Three
+// Slack API calls chained because there's no stored Slack user id to skip
+// straight to chat.postMessage with — see header comment.
+async function sendSlackDM(email: string | null, text: string): Promise<boolean> {
+  if (!SLACK_BOT_TOKEN || !email) return false;
+  try {
+    const lookupRes = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
+      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+    });
+    const lookup = await lookupRes.json();
+    if (!lookup.ok || !lookup.user?.id) {
+      // users_not_found just means this person's SILO email isn't in the
+      // Slack workspace — expected for some staff, not worth logging as an
+      // error every time.
+      if (lookup.error && lookup.error !== 'users_not_found') {
+        console.error('[sample-notify] slack lookupByEmail error', lookup.error);
+      }
+      return false;
+    }
+
+    const openRes = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+      body: JSON.stringify({ users: lookup.user.id }),
+    });
+    const opened = await openRes.json();
+    if (!opened.ok || !opened.channel?.id) {
+      console.error('[sample-notify] slack conversations.open error', opened.error);
+      return false;
+    }
+
+    const postRes = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+      body: JSON.stringify({ channel: opened.channel.id, text }),
+    });
+    const posted = await postRes.json();
+    if (!posted.ok) console.error('[sample-notify] slack chat.postMessage error', posted.error);
+    return !!posted.ok;
+  } catch (err) {
+    console.error('[sample-notify] slack DM error', err);
+    return false;
+  }
 }
 
 function emailHtml(opts: { headline: string; body: string; link: string }): string {
@@ -102,54 +169,101 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'record with id and company_entity_id is required' }), { status: 400, headers: CORS });
     }
 
-    // Scoped through entity_memberships, not a bare profiles.department
-    // filter — a user can belong to more than one company, and
-    // profiles.active_company_id is a per-session pointer, not "the only
-    // company this person is in". Filtering by department alone would leak
-    // every company's logistics team into every other company's sample
-    // emails.
-    //
-    // Two plain queries, not a nested embed — entity_memberships.user_id is
-    // a FK to auth.users, not profiles, so PostgREST can't auto-detect a
-    // relationship for `profiles!inner(...)` here. The same shape of embed
-    // failure (silent, empty results) already bit the Reviews team-picker
-    // for exactly this reason — see docs/ops/CHANGELOG.md, 2026-08 —
-    // fixed there the same way: memberships first, then profiles .in().
-    const { data: memberships } = await db
-      .from('entity_memberships')
-      .select('user_id')
-      .eq('entity_id', record.company_entity_id);
-    const userIds = (memberships || []).map((m) => m.user_id).filter(Boolean);
-
     let toEmails: string[] = [];
-    if (userIds.length) {
-      const { data: profiles } = await db
+    let assigneeEmail: string | null = null;
+    if (record.assigned_to) {
+      // A specific person was picked for this sample — notify only them,
+      // not the whole department. Still gated on is_active so an
+      // offboarded assignee doesn't silently eat the notification.
+      const { data: assignee } = await db
         .from('profiles')
         .select('email')
-        .in('id', userIds)
-        .eq('department', 'logistics')
-        .eq('is_active', true);
-      toEmails = (profiles || []).map((p) => p.email).filter(Boolean) as string[];
+        .eq('id', record.assigned_to)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (assignee?.email) {
+        toEmails = [assignee.email];
+        assigneeEmail = assignee.email;
+      }
+    } else {
+      // No assignee set — fall back to the whole logistics department,
+      // scoped through entity_memberships rather than a bare
+      // profiles.department filter, since a user can belong to more than
+      // one company and profiles.active_company_id is only a per-session
+      // pointer. Filtering by department alone would leak every company's
+      // logistics team into every other company's sample emails.
+      //
+      // Two plain queries, not a nested embed — entity_memberships.user_id
+      // is a FK to auth.users, not profiles, so PostgREST can't
+      // auto-detect a relationship for `profiles!inner(...)` here. The
+      // same shape of embed failure (silent, empty results) already bit
+      // the Reviews team-picker for exactly this reason — see
+      // docs/ops/CHANGELOG.md, 2026-08 — fixed there the same way:
+      // memberships first, then profiles .in().
+      const { data: memberships } = await db
+        .from('entity_memberships')
+        .select('user_id')
+        .eq('entity_id', record.company_entity_id);
+      const userIds = (memberships || []).map((m) => m.user_id).filter(Boolean);
+
+      if (userIds.length) {
+        const { data: profiles } = await db
+          .from('profiles')
+          .select('email')
+          .in('id', userIds)
+          .eq('department', 'logistics')
+          .eq('is_active', true);
+        toEmails = (profiles || []).map((p) => p.email).filter(Boolean) as string[];
+      }
     }
 
     const link = sampleLink(record.id);
     const title = record.product_title || 'Untitled sample';
     const ref = record.sample_ref ? ` (${record.sample_ref})` : '';
 
-    // Only looked up when actually needed for the catalog-photo-request
-    // phrasing below — a name on the message is what Chris/Blake's Slack
-    // thread (2026-08-17) actually asked for, not just "sizes requested".
+    // Only looked up when actually needed for phrasing below — a name on
+    // the message is what Chris/Blake's Slack thread (2026-08-17) actually
+    // asked for, not just "sizes requested".
     let requesterName: string | null = null;
-    if (type === 'SAMPLE_SIZE_REQUEST' && record.request_source === 'catalog_photo_request' && record.created_by) {
+    const needsRequesterName =
+      record.request_source === 'catalog_photo_request' &&
+      (type === 'SAMPLE_SIZE_REQUEST' || type === 'SAMPLE_REQUESTED');
+    if (needsRequesterName && record.created_by) {
       const { data: requester } = await db.from('profiles').select('name').eq('id', record.created_by).single();
       requesterName = requester?.name || null;
+    }
+
+    // Only looked up for SAMPLE_ASSIGNED, to say who did the assigning.
+    let assignerName: string | null = null;
+    if (type === 'SAMPLE_ASSIGNED' && record.created_by) {
+      const { data: creator } = await db.from('profiles').select('name').eq('id', record.created_by).single();
+      assignerName = creator?.name || null;
     }
 
     let subject: string;
     let html: string;
     let slackText: string;
 
-    if (type === 'SAMPLE_RECEIVED') {
+    if (type === 'SAMPLE_REQUESTED') {
+      const who = requesterName || 'Someone';
+      if (record.request_source === 'catalog_photo_request') {
+        subject = `Photo sample requested: ${title}`;
+        html = emailHtml({
+          headline: 'Photo sample requested',
+          body: `<strong style="color:#fff">${esc(who)}</strong> has requested a photo sample pull from bulk/on-hand inventory — <strong style="color:#fff">${esc(title)}</strong>${esc(ref)}.`,
+          link,
+        });
+        slackText = `:camera: *${who} requested a photo sample* — ${title}${ref}\n${link}`;
+      } else {
+        subject = `Sample requested: ${title}`;
+        html = emailHtml({
+          headline: 'Sample requested',
+          body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} was requested${record.factory_name ? ` from ${esc(record.factory_name)}` : ''}.`,
+          link,
+        });
+        slackText = `:memo: *Sample requested* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+      }
+    } else if (type === 'SAMPLE_RECEIVED') {
       subject = `Sample received: ${title}`;
       html = emailHtml({
         headline: 'Sample received',
@@ -157,6 +271,23 @@ Deno.serve(async (req: Request) => {
         link,
       });
       slackText = `:package: *Sample received* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+    } else if (type === 'SAMPLE_WAREHOUSE_READY') {
+      subject = `Sample ready: ${title}`;
+      html = emailHtml({
+        headline: 'Sample ready for pickup',
+        body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} is ready for pickup in the warehouse.`,
+        link,
+      });
+      slackText = `:white_check_mark: *Sample ready for pickup* — ${title}${ref}\n${link}`;
+    } else if (type === 'SAMPLE_ASSIGNED') {
+      const who = assignerName || 'Someone';
+      subject = `Sample assigned to you: ${title}`;
+      html = emailHtml({
+        headline: 'A sample was assigned to you',
+        body: `<strong style="color:#fff">${esc(who)}</strong> assigned <strong style="color:#fff">${esc(title)}</strong>${esc(ref)} to you.`,
+        link,
+      });
+      slackText = `:inbox_tray: *${who} assigned a sample to a teammate* — ${title}${ref}\n${link}`;
     } else if (record.request_source === 'catalog_photo_request') {
       // Distinct phrasing per Chris: this is a pull from existing bulk/
       // on-hand stock for a photo shoot, not a pre-production sample
@@ -180,12 +311,19 @@ Deno.serve(async (req: Request) => {
       slackText = `:straight_ruler: *Sizes requested* — ${title}${ref}: *${record.size_requests}*\n${link}`;
     }
 
-    const [emailSent, slackSent] = await Promise.all([
+    const [emailSent, slackSent, slackDmSent] = await Promise.all([
       sendEmail(toEmails, subject, html),
       sendSlack(slackText),
+      sendSlackDM(assigneeEmail, slackText),
     ]);
 
-    return new Response(JSON.stringify({ ok: true, email_sent: emailSent, slack_sent: slackSent, recipients: toEmails.length }), { headers: CORS });
+    return new Response(JSON.stringify({
+      ok: true,
+      email_sent: emailSent,
+      slack_sent: slackSent,
+      slack_dm_sent: slackDmSent,
+      recipients: toEmails.length,
+    }), { headers: CORS });
   } catch (err) {
     console.error('[sample-notify]', err);
     return new Response(JSON.stringify({ error: String((err as Error)?.message || err) }), { status: 500, headers: CORS });

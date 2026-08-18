@@ -819,3 +819,22 @@ select
       then 'MISSING — run 20260818060000_orders_backfill_job_type.sql'
     else 'ok'
   end as orders_backfill_job_type;
+
+-- 28. Product samples assignee + notifications (migration 20260818130000)
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_samples'
+                       and column_name='assigned_to')
+      then 'MISSING — run 20260818130000_product_samples_assignee_notifications.sql'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='product_samples_v')
+      then 'MISSING — product_samples_v view'
+    when not exists (
+      select 1 from pg_proc p join pg_language l on l.oid = p.prolang
+      where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
+        and pg_get_functiondef(p.oid) ilike '%SAMPLE_ASSIGNED%'
+    )
+      then 'MISSING — notify_sample_events() not updated with SAMPLE_REQUESTED/WAREHOUSE_READY/ASSIGNED'
+    else 'ok'
+  end as product_samples_assignee_notifications;

@@ -585,13 +585,30 @@
       </div>
     </div>
 
-    <!-- 8. Notes -->
+    <!-- 8. Notify -->
+    <div class="smp-section">
+      <div class="smp-section-label">Notify</div>
+      <div class="smp-grid-2" style="align-items:end;">
+        <div class="bcn-field-group">
+          <label class="bcn-label">Assigned to</label>
+          <select class="bcn-field" id="fldAssignedTo">
+            <option value="">Unassigned</option>
+          </select>
+        </div>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnNotifyAssignee" disabled>Notify now</button>
+      </div>
+      <div style="color:var(--bcn-ink-3); font-size:11px; margin-top:6px;">
+        Route this request to a warehouse/logistics person — they're emailed when it's saved, reassigned, or marked ready. "Notify now" re-sends on demand.
+      </div>
+    </div>
+
+    <!-- 9. Notes -->
     <div class="smp-section">
       <div class="smp-section-label">Notes</div>
       <textarea class="bcn-field" id="fldNotes" rows="3" placeholder="Internal notes…" style="resize:vertical; width:100%;"></textarea>
     </div>
 
-    <!-- 9. Activity -->
+    <!-- 10. Activity -->
     <div class="smp-section" id="activitySection">
       <div class="smp-section-label">Activity</div>
       <div class="smp-activity" id="activityLog">
@@ -874,6 +891,7 @@
   let allPOs          = [];
   let allFactories    = [];
   let allProductTypes = [];
+  let allProfiles     = [];
   let currentUser     = null;
   let activeTab       = 'tracker';
 
@@ -1273,16 +1291,21 @@
     // e.g. just linking a launch) wiped the real value.
     let _qpt=sb.from('products_master').select('product_type').not('product_type','is',null).limit(20000);
     if(_co?.id) _qpt=_qpt.eq('company_entity_id',_co.id);
-    const [lR,pR,fR,tR]=await Promise.all([
+    // Active team members, for the sample drawer's "Notify" assignee picker
+    // (same query shape as v2/mail-intake.html's loadAssigneeOptions()).
+    const _qpr=sb.from('profiles').select('id,name,email').eq('is_active',true).order('name');
+    const [lR,pR,fR,tR,prR]=await Promise.all([
       _qlc,
       _qph,
       _qf,
       _qpt,
+      _qpr,
     ]);
     allLaunches     = lR.data||[];
     allPOs          = pR.data||[];
     allFactories    = fR.data||[];
     allProductTypes = [...new Set((tR.data||[]).map(t=>t.product_type).filter(Boolean))].sort();
+    allProfiles     = prR.data||[];
   }
 
   function fillSelect(id, items, valFn, lblFn, blank) {
@@ -1317,10 +1340,12 @@
     fillSelect('fldProductType', allProductTypes, t=>t,     t=>t,              '— select type —');
     fillSelect('fldLaunchId',    allLaunches,     l=>l.id,  l=>l.title,        '— not linked —');
     fillSelect('fldPoHeaderId',  allPOs,          p=>p.id,  p=>p.po_name,      '— not linked —');
+    fillSelect('fldAssignedTo',  allProfiles,     p=>p.id,  p=>p.name||p.email,'Unassigned');
     $('fldFactoryId').value  = sample?.factory_id   || '';
     $('fldProductType').value= sample?.product_type || '';
     $('fldLaunchId').value   = sample?.launch_id    || '';
     $('fldPoHeaderId').value = sample?.po_header_id || '';
+    $('fldAssignedTo').value = sample?.assigned_to  || '';
   }
 
   function populatePtDrawerSelects(item) {
@@ -1500,6 +1525,7 @@
     updateLinkedChip();
     updateTrackerChip();
     updateSmpLaunchOpenLink();
+    updateNotifyAssigneeButton();
 
     renderPipeline(sample?.sample_status || 'received');
     renderAllSmpSizeGrids(sample?.size_requests||'', sample?.sizes_ready_warehouse||'', sample?.sizes_picked_up||'');
@@ -1511,6 +1537,47 @@
     $('backdrop').classList.add('open');
     $('drawer').classList.add('open');
     $('drawer').setAttribute('aria-hidden','false');
+  }
+
+  // "Notify now" is only meaningful for a saved sample with a current
+  // assignee — a brand-new, unsaved drawer has no row id to reference yet,
+  // and there is no one to email once assigned_to is cleared.
+  function updateNotifyAssigneeButton() {
+    $('btnNotifyAssignee').disabled = !drawerSample?.id || !$('fldAssignedTo').value;
+  }
+
+  // Manual re-ping, mirroring v2/mailroom.html's "Notify assignee" button —
+  // sample-notify is a public (verify_jwt:false) function, same as when the
+  // DB trigger calls it, so this is a direct client invoke rather than a
+  // JWT-gated one like mail-item-notify.
+  async function notifyAssignee() {
+    if(!drawerSample?.id || !$('fldAssignedTo').value) return;
+    $('btnNotifyAssignee').disabled = true;
+    try {
+      const { error } = await sb.functions.invoke('sample-notify', {
+        body: {
+          type: 'SAMPLE_ASSIGNED',
+          record: {
+            id: drawerSample.id,
+            company_entity_id: drawerSample.company_entity_id,
+            product_title: $('fldTitle').value.trim() || drawerSample.product_title,
+            sample_ref: drawerSample.sample_ref,
+            factory_name: allFactories.find(f=>f.id===$('fldFactoryId').value)?.factory_name || drawerSample.factory_name,
+            size_requests: getCheckedSizes('req', $('drawer')),
+            sample_status: getPipelineStatus(),
+            request_source: pendingRequestSource,
+            created_by: drawerSample.created_by,
+            assigned_to: $('fldAssignedTo').value,
+          },
+        },
+      });
+      if(error) throw error;
+      setStatus('Assignee notified.','pos',3000);
+    } catch(err) {
+      setStatus(err.message||'Notify failed.','neg',5000);
+    } finally {
+      updateNotifyAssigneeButton();
+    }
   }
 
   function closeDrawer() {
@@ -1563,6 +1630,7 @@
       tracker_id:             linkedTrackerIds[0]          || null,
       notes:                  $('fldNotes').value.trim()  || null,
       request_source:         pendingRequestSource         || null,
+      assigned_to:            $('fldAssignedTo').value    || null,
     };
 
     setStatus('Saving…','info');
@@ -1849,6 +1917,8 @@
   $('btnCancelDrawer').addEventListener('click', closeDrawer);
   $('btnSave').addEventListener('click', saveSample);
   $('btnDelete').addEventListener('click', deleteSample);
+  $('fldAssignedTo').addEventListener('change', updateNotifyAssigneeButton);
+  $('btnNotifyAssignee').addEventListener('click', notifyAssignee);
 
   $('ptBtnClose').addEventListener('click', closePtDrawer);
   $('ptBtnCancel').addEventListener('click', closePtDrawer);
