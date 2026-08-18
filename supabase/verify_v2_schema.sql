@@ -926,3 +926,12 @@ select
       then 'MISSING — incoming_shipment_lines RLS'
     else 'ok'
   end as incoming_shipment_tracking;
+
+-- 35. factories.country (migration 20260818220000) — powers the PO Report shipment map
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='factories' and column_name='country')
+      then 'MISSING — run 20260818220000_factories_country.sql'
+    else 'ok'
+  end as factories_country;
