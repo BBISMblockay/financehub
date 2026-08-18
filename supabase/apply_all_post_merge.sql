@@ -10005,3 +10005,75 @@ drop trigger if exists trg_sample_notify on public.product_samples;
 create trigger trg_sample_notify
   after insert or update on public.product_samples
   for each row execute function public.notify_sample_events();
+
+-- ---------------------------------------------------------------------------
+-- 20260818190000_sample_pps_full_run_received.sql
+-- 'received' split into 'pps_received' / 'full_run_received' in the UI;
+-- trigger updated so SAMPLE_RECEIVED still fires for both (and legacy
+-- plain 'received' rows), not just the exact old string.
+-- ---------------------------------------------------------------------------
+create or replace function public.notify_sample_events()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT'
+     and (new.assigned_to is not null or new.request_source is not null)
+     and (new.size_requests is null or btrim(new.size_requests) = '') then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object(
+        'type', case when coalesce(new.sample_status,'') in ('received','pps_received','full_run_received')
+                     then 'SAMPLE_RECEIVED' else 'SAMPLE_REQUESTED' end,
+        'record', row_to_json(new)
+      )
+    );
+  end if;
+
+  if tg_op = 'UPDATE'
+     and coalesce(old.sample_status,'') not in ('received','pps_received','full_run_received')
+     and coalesce(new.sample_status,'') in ('received','pps_received','full_run_received') then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_RECEIVED', 'record', row_to_json(new))
+    );
+  end if;
+
+  if tg_op = 'UPDATE'
+     and coalesce(old.sample_status,'') is distinct from 'warehouse_ready'
+     and new.sample_status = 'warehouse_ready' then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_WAREHOUSE_READY', 'record', row_to_json(new))
+    );
+  end if;
+
+  if new.size_requests is not null and btrim(new.size_requests) <> ''
+     and (tg_op = 'INSERT' or old.size_requests is distinct from new.size_requests) then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_SIZE_REQUEST', 'record', row_to_json(new))
+    );
+  end if;
+
+  if tg_op = 'UPDATE'
+     and new.assigned_to is not null
+     and old.assigned_to is distinct from new.assigned_to then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_ASSIGNED', 'record', row_to_json(new))
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.notify_sample_events() from public, anon;
+
+drop trigger if exists trg_sample_notify on public.product_samples;
+create trigger trg_sample_notify
+  after insert or update on public.product_samples
+  for each row execute function public.notify_sample_events();
