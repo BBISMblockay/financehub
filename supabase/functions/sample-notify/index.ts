@@ -42,6 +42,7 @@ const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const SLACK_WEBHOOK = Deno.env.get('SLACK_SAMPLES_WEBHOOK_URL') || '';
 const SLACK_BOT_TOKEN = Deno.env.get('SLACK_BOT_TOKEN') || '';
 const FROM = 'SILO <noreply@silo-baseballism.com>';
+const PHOTO_BUCKET = 'sample-images';
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -78,6 +79,26 @@ function sampleLink(id: string): string {
   return `${origin}/v2/products.html?tab=samples&sample=${id}`;
 }
 
+// First uploaded photo for a sample, if any — same sample-images bucket
+// and samples/{id}/ path v2/products.html's drawer already uses. Public
+// bucket, so the URL works directly embedded in an email <img> or a Slack
+// image block, no signing needed. Returns null (not an error) when the
+// sample has no photos — that's the common case, not a failure.
+async function firstSamplePhotoUrl(sampleId: string): Promise<string | null> {
+  try {
+    const { data } = await db.storage
+      .from(PHOTO_BUCKET)
+      .list(`samples/${sampleId}`, { limit: 1, sortBy: { column: 'created_at', order: 'asc' } });
+    const first = (data || []).find((f) => f.name !== '.emptyFolderPlaceholder');
+    if (!first) return null;
+    const { data: u } = db.storage.from(PHOTO_BUCKET).getPublicUrl(`samples/${sampleId}/${first.name}`);
+    return u.publicUrl;
+  } catch (err) {
+    console.error('[sample-notify] photo lookup error', err);
+    return null;
+  }
+}
+
 type SendResult = { sent: boolean; reason?: string };
 
 async function sendEmail(to: string[], subject: string, html: string): Promise<SendResult> {
@@ -96,12 +117,15 @@ async function sendEmail(to: string[], subject: string, html: string): Promise<S
   return { sent: true };
 }
 
-async function sendSlack(text: string): Promise<SendResult> {
+async function sendSlack(text: string, blocks?: Record<string, unknown>[]): Promise<SendResult> {
   if (!SLACK_WEBHOOK) return { sent: false, reason: 'SLACK_SAMPLES_WEBHOOK_URL not set' };
   const res = await fetch(SLACK_WEBHOOK, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    // `text` stays as the fallback/notification-preview string even when
+    // `blocks` is present — Slack requires it and uses blocks only for the
+    // rendered message body.
+    body: JSON.stringify({ text, ...(blocks ? { blocks } : {}) }),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -115,7 +139,7 @@ async function sendSlack(text: string): Promise<SendResult> {
 // the workspace, opening (or reusing) a DM with them, then posting. Three
 // Slack API calls chained because there's no stored Slack user id to skip
 // straight to chat.postMessage with — see header comment.
-async function sendSlackDM(email: string | null, text: string): Promise<SendResult> {
+async function sendSlackDM(email: string | null, text: string, blocks?: Record<string, unknown>[]): Promise<SendResult> {
   if (!SLACK_BOT_TOKEN) return { sent: false, reason: 'SLACK_BOT_TOKEN not set' };
   if (!email) return { sent: false, reason: 'no assignee email' };
   try {
@@ -147,7 +171,7 @@ async function sendSlackDM(email: string | null, text: string): Promise<SendResu
     const postRes = await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
-      body: JSON.stringify({ channel: opened.channel.id, text }),
+      body: JSON.stringify({ channel: opened.channel.id, text, ...(blocks ? { blocks } : {}) }),
     });
     const posted = await postRes.json();
     if (!posted.ok) {
@@ -161,14 +185,18 @@ async function sendSlackDM(email: string | null, text: string): Promise<SendResu
   }
 }
 
-function emailHtml(opts: { headline: string; body: string; link: string }): string {
-  const { headline, body, link } = opts;
+function emailHtml(opts: { headline: string; body: string; link: string; imageUrl?: string | null }): string {
+  const { headline, body, link, imageUrl } = opts;
+  const image = imageUrl
+    ? `<img src="${imageUrl}" alt="" style="width:100%;max-width:512px;border-radius:8px;margin-top:18px;display:block;" />`
+    : '';
   return `
   <div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px">
     <div style="background:#14181d;border-radius:12px;padding:28px;color:#fff">
       <div style="font-weight:800;font-size:18px;letter-spacing:-0.02em">SILO</div>
       <div style="margin-top:18px;font-size:16px;font-weight:700">${headline}</div>
       <p style="color:#b8c0c9;font-size:14px;line-height:1.6">${body}</p>
+      ${image}
       <a href="${link}" style="display:inline-block;background:#fff;color:#14181d;font-weight:700;font-size:14px;padding:12px 22px;border-radius:8px;text-decoration:none;margin-top:20px">Open sample</a>
     </div>
     <p style="color:#9aa3ad;font-size:11px;text-align:center;margin-top:14px">Sent by SILO — Products / Samples.</p>
@@ -250,6 +278,7 @@ Deno.serve(async (req: Request) => {
     const link = sampleLink(record.id);
     const title = record.product_title || 'Untitled sample';
     const ref = record.sample_ref ? ` (${record.sample_ref})` : '';
+    const photoUrl = await firstSamplePhotoUrl(record.id);
 
     // Only looked up when actually needed for phrasing below — a name on
     // the message is what Chris/Blake's Slack thread (2026-08-17) actually
@@ -285,6 +314,7 @@ Deno.serve(async (req: Request) => {
           headline: 'Photo sample requested',
           body: `<strong style="color:#fff">${esc(who)}</strong> has requested a photo sample pull from bulk/on-hand inventory — <strong style="color:#fff">${esc(title)}</strong>${esc(ref)}.`,
           link,
+          imageUrl: photoUrl,
         });
         slackText = `:camera: *${who} requested a photo sample* — ${title}${ref}\n${link}`;
       } else {
@@ -293,6 +323,7 @@ Deno.serve(async (req: Request) => {
           headline: 'Sample requested',
           body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} was requested${record.factory_name ? ` from ${esc(record.factory_name)}` : ''}.`,
           link,
+          imageUrl: photoUrl,
         });
         slackText = `:memo: *Sample requested* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
       }
@@ -307,6 +338,7 @@ Deno.serve(async (req: Request) => {
           headline: 'Photo sample received',
           body: `<strong style="color:#fff">${esc(who)}</strong> logged a photo sample as received, pulled from bulk/on-hand inventory — <strong style="color:#fff">${esc(title)}</strong>${esc(ref)}.`,
           link,
+          imageUrl: photoUrl,
         });
         slackText = `:camera: *${who} logged a photo sample as received* (bulk/on-hand pull) — ${title}${ref}\n${link}`;
       } else {
@@ -315,6 +347,7 @@ Deno.serve(async (req: Request) => {
           headline: 'Sample received',
           body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} was logged as received${record.factory_name ? ` from ${esc(record.factory_name)}` : ''}.`,
           link,
+          imageUrl: photoUrl,
         });
         slackText = `:package: *Sample received* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
       }
@@ -324,6 +357,7 @@ Deno.serve(async (req: Request) => {
         headline: 'Sample ready for pickup',
         body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} is ready for pickup in the warehouse.`,
         link,
+        imageUrl: photoUrl,
       });
       slackText = `:white_check_mark: *Sample ready for pickup* — ${title}${ref}\n${link}`;
     } else if (type === 'SAMPLE_ASSIGNED') {
@@ -333,6 +367,7 @@ Deno.serve(async (req: Request) => {
         headline: 'A sample was assigned to you',
         body: `<strong style="color:#fff">${esc(who)}</strong> assigned <strong style="color:#fff">${esc(title)}</strong>${esc(ref)} to you.`,
         link,
+        imageUrl: photoUrl,
       });
       slackText = `:inbox_tray: *${who} assigned a sample to a teammate* — ${title}${ref}\n${link}`;
     } else if (record.request_source === 'catalog_photo_request') {
@@ -346,6 +381,7 @@ Deno.serve(async (req: Request) => {
         headline: 'Photo sample sizes requested',
         body: `<strong style="color:#fff">${esc(who)}</strong> has requested photo samples from bulk/on-hand inventory — <strong style="color:#fff">${esc(title)}</strong>${esc(ref)}: <strong style="color:#fff">${esc(record.size_requests)}</strong>.`,
         link,
+        imageUrl: photoUrl,
       });
       slackText = `:camera: *${who} requested photo samples from bulk/on-hand inventory* — ${title}${ref}: *${record.size_requests}*\n${link}`;
     } else {
@@ -354,9 +390,20 @@ Deno.serve(async (req: Request) => {
         headline: 'Sizes requested',
         body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} needs sizes pulled: <strong style="color:#fff">${esc(record.size_requests)}</strong>.`,
         link,
+        imageUrl: photoUrl,
       });
       slackText = `:straight_ruler: *Sizes requested* — ${title}${ref}: *${record.size_requests}*\n${link}`;
     }
+
+    // Slack blocks (not just plain text) so the photo actually renders
+    // inline in the message rather than as a bare link — `text` is kept as
+    // the required fallback/notification-preview string either way.
+    const slackBlocks: Record<string, unknown>[] | undefined = photoUrl
+      ? [
+          { type: 'section', text: { type: 'mrkdwn', text: slackText } },
+          { type: 'image', image_url: photoUrl, alt_text: title },
+        ]
+      : undefined;
 
     // Every event type posts to the channel regardless of assignment,
     // EXCEPT SAMPLE_ASSIGNED — who a sample got routed to is confirmed to
@@ -369,8 +416,8 @@ Deno.serve(async (req: Request) => {
       sendEmail(toEmails, subject, html),
       type === 'SAMPLE_ASSIGNED'
         ? Promise.resolve<SendResult>({ sent: false, reason: 'assignment kept private — DM/email only' })
-        : sendSlack(slackText),
-      sendSlackDM(assigneeEmail, slackText),
+        : sendSlack(slackText, slackBlocks),
+      sendSlackDM(assigneeEmail, slackText, slackBlocks),
     ]);
 
     // Best-effort and awaited (not fire-and-forget) — the edge runtime can
