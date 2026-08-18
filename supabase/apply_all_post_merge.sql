@@ -9725,3 +9725,91 @@ alter table public.sync_jobs add constraint sync_jobs_job_type_check
     'google_ads_kpis', 'meta_ads_kpis', 'tiktok_ads_kpis', 'ga4_kpis',
     'orders_backfill'
   ));
+
+-- ---------------------------------------------------------------------------
+-- 20260818130000_product_samples_assignee_notifications.sql
+-- Samples: a stored single-person assignee (mirrors mail_items.assigned_to)
+-- plus SAMPLE_REQUESTED / SAMPLE_WAREHOUSE_READY / SAMPLE_ASSIGNED trigger
+-- events. sample-notify emails the assignee directly when one is set,
+-- falling back to the logistics department broadcast otherwise.
+-- ---------------------------------------------------------------------------
+alter table public.product_samples
+  add column if not exists assigned_to uuid references public.profiles(id);
+
+create index if not exists product_samples_assigned_to_idx
+  on public.product_samples (assigned_to);
+
+create or replace view public.product_samples_v
+with (security_invoker = true) as
+select
+  s.*,
+  assigned.name  as assigned_to_name,
+  assigned.email as assigned_to_email,
+  creator.name   as created_by_name,
+  creator.email  as created_by_email
+from public.product_samples s
+left join public.profiles assigned on assigned.id = s.assigned_to
+left join public.profiles creator  on creator.id  = s.created_by;
+
+revoke all on public.product_samples_v from anon;
+grant select on public.product_samples_v to authenticated;
+
+create or replace function public.notify_sample_events()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' and (new.assigned_to is not null or new.request_source is not null) then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_REQUESTED', 'record', row_to_json(new))
+    );
+  end if;
+
+  if tg_op = 'UPDATE'
+     and coalesce(old.sample_status,'') is distinct from 'received'
+     and new.sample_status = 'received' then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_RECEIVED', 'record', row_to_json(new))
+    );
+  end if;
+
+  if tg_op = 'UPDATE'
+     and coalesce(old.sample_status,'') is distinct from 'warehouse_ready'
+     and new.sample_status = 'warehouse_ready' then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_WAREHOUSE_READY', 'record', row_to_json(new))
+    );
+  end if;
+
+  if new.size_requests is not null and btrim(new.size_requests) <> ''
+     and (tg_op = 'INSERT' or old.size_requests is distinct from new.size_requests) then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_SIZE_REQUEST', 'record', row_to_json(new))
+    );
+  end if;
+
+  if tg_op = 'UPDATE'
+     and new.assigned_to is not null
+     and old.assigned_to is distinct from new.assigned_to then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_ASSIGNED', 'record', row_to_json(new))
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.notify_sample_events() from public, anon;
+
+drop trigger if exists trg_sample_notify on public.product_samples;
+create trigger trg_sample_notify
+  after insert or update on public.product_samples
+  for each row execute function public.notify_sample_events();
