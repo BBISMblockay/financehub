@@ -290,9 +290,13 @@ existing edge-function + Resend pattern.
   `reviews_can_manage()` has two competing definitions
   (`20260804000000` self-service vs `20260714210000` role-gated). Not
   calendar-related; verify which won in prod.
-- **Orphan flag:** `incoming_shipments` has RLS policies but no CREATE TABLE
-  in-repo and zero app references (it exists in the live DB with ship/eta
-  dates). If it ever goes live, it's a natural `po_arrival` refinement.
+- **Orphan flag (resolved 2026-08-18):** `incoming_shipments` was RLS-only
+  with no CREATE TABLE in-repo and zero app references. It's now checked in
+  (`migrations/20260818210000_incoming_shipment_lines.sql`) and wired into
+  `/v2/po-report.html`'s new Shipments drawer. Still not projected into
+  `calendar_events_v` — per-shipment ETA/ship/received dates would be a
+  natural `po_arrival` refinement (multiple dates per PO instead of one)
+  if the calendar ever needs that granularity.
 
 ---
 

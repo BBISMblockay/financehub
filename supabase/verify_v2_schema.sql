@@ -903,3 +903,26 @@ select
       then 'MISSING — run 20260818200000_sample_received_transition_within_family.sql'
     else 'ok'
   end as sample_received_transition_within_family;
+
+-- 34. Incoming shipment tracking for PO Report (migration 20260818210000)
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='incoming_shipments')
+      then 'MISSING — run 20260818210000_incoming_shipment_lines.sql'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='incoming_shipment_lines')
+      then 'MISSING — incoming_shipment_lines table'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='v_po_shipment_lines')
+      then 'MISSING — v_po_shipment_lines view'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='incoming_shipments'
+                       and policyname='incoming_shipments_active_insert')
+      then 'MISSING — incoming_shipments write RLS not widened to any active company member'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='incoming_shipment_lines'
+                       and policyname='incoming_shipment_lines_active_insert')
+      then 'MISSING — incoming_shipment_lines RLS'
+    else 'ok'
+  end as incoming_shipment_tracking;

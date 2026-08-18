@@ -117,6 +117,10 @@
     .status-Shipped .status-dot,.status-In-Transit .status-dot,.status-Partially-Received .status-dot{background:#6366f1}
     .status-Received,.status-Closed{background:#f0fdf4;color:#166534}.status-Received .status-dot,.status-Closed .status-dot{background:#16a34a}
     .status-Cancelled{background:#fef2f2;color:#991b1b}.status-Cancelled .status-dot{background:#ef4444}
+    .status-Not-Shipped{background:#f1f5f9;color:#475569}.status-Not-Shipped .status-dot{background:#94a3b8}
+    .status-Booked{background:#eff6ff;color:#1d4ed8}.status-Booked .status-dot{background:#3b82f6}
+    .status-Delayed{background:#fef2f2;color:#991b1b}.status-Delayed .status-dot{background:#ef4444}
+    .status-Delivered{background:#f0fdf4;color:#166534}.status-Delivered .status-dot{background:#16a34a}
     .table-wrap{
       overflow:auto;
       border-radius:9px;
@@ -253,6 +257,43 @@
     .rpt-tab.active .rpt-tab-count { background: #0f172a; color: #fff; }
     .rpt-panel { display: none; }
     .rpt-panel.active { display: block; }
+
+    /* ─── Shipments drawer ──────────────────────────────────────── */
+    .ship-drawer-backdrop {
+      position: fixed; inset: 0; z-index: 60;
+    }
+    .ship-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 61;
+      width: min(600px, 100vw);
+      background: #fff;
+      border-left: 1px solid rgba(15,23,42,.10);
+      box-shadow: -12px 0 32px rgba(15,23,42,.14);
+      display: flex; flex-direction: column;
+    }
+    .ship-drawer-head {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(15,23,42,.08);
+    }
+    .ship-drawer-head h3 { margin: 2px 0 0; font-size: .95rem; }
+    .ship-drawer-body { flex: 1; overflow: auto; padding: 14px 16px; }
+    .ship-status { margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; font-size: .68rem; font-weight: 700; }
+    .ship-status--info { background: #eff6ff; color: #1d4ed8; }
+    .ship-status--error { background: #fef2f2; color: #991b1b; }
+    .ship-card {
+      border: 1px solid rgba(15,23,42,.09); border-radius: 10px;
+      padding: 10px 12px; margin-bottom: 10px; background: #f8fafc;
+    }
+    .ship-card-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .ship-card-row > div { flex: 1 1 130px; min-width: 0; }
+    .ship-card-row input, .ship-card-row select, .ship-card-row textarea { width: 100%; }
+    .ship-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+    .ship-lines { border-top: 1px dashed rgba(15,23,42,.14); margin-top: 8px; padding-top: 8px; }
+    .ship-line-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: .68rem; }
+    .ship-line-row .sl-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ship-line-row input[type="number"] { width: 70px; height: 24px; font-size: .66rem; padding: .2rem .35rem; }
+    .ship-add-line { display: flex; gap: 6px; margin-top: 6px; }
+    .ship-add-line select { flex: 1; }
+    .ship-unassigned { font-size: .66rem; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 8px; margin-top: 10px; }
   </style>
 </head>
 
@@ -388,6 +429,7 @@
                     <th class="right">Retail</th>
                     <th class="right">Cost</th>
                     <th class="right">Spread</th>
+                    <th class="text-left">Shipments</th>
                     <th class="text-left">Open</th>
                   </tr>
                 </thead>
@@ -450,6 +492,7 @@
                     <th class="right">Cost</th>
                     <th class="right">Retail Value</th>
                     <th class="right">Est. Cost</th>
+                    <th class="text-left">Shipment</th>
                   </tr>
                 </thead>
                 <tbody id="lineTbody"></tbody>
@@ -461,6 +504,21 @@
       </div>
     </main>
   </div>
+
+  <div class="ship-drawer-backdrop drawer-backdrop hidden-safe" id="shipDrawerBackdrop"></div>
+  <aside class="ship-drawer hidden-safe" id="shipDrawer">
+    <header class="ship-drawer-head">
+      <div>
+        <div class="muted-label">SHIPMENTS</div>
+        <h3 id="shipDrawerTitle">—</h3>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-primary" id="shipAddBtn" type="button">+ Add shipment</button>
+        <button class="btn btn-secondary" id="shipDrawerClose" type="button">Close</button>
+      </div>
+    </header>
+    <div class="ship-drawer-body" id="shipDrawerBody"></div>
+  </aside>
 
   <script>
     const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
@@ -494,12 +552,17 @@
       'Partially Received'
     ]);
 
+    const SHIPMENT_STATUSES = ['Not Shipped','Booked','Shipped','In Transit','Delayed','Delivered','Received'];
+
     const state = {
       poRows: [],
       lineRows: [],
       filteredPOs: [],
       filteredLines: [],
-      productRows: []
+      productRows: [],
+      shipments: [],
+      shipmentLines: [],
+      shipDrawerPoId: null
     };
 
     const el = {
@@ -528,7 +591,14 @@
 
       poTableCount: document.getElementById('poTableCount'),
       productTableCount: document.getElementById('productTableCount'),
-      lineTableCount: document.getElementById('lineTableCount')
+      lineTableCount: document.getElementById('lineTableCount'),
+
+      shipDrawerBackdrop: document.getElementById('shipDrawerBackdrop'),
+      shipDrawer: document.getElementById('shipDrawer'),
+      shipDrawerTitle: document.getElementById('shipDrawerTitle'),
+      shipDrawerBody: document.getElementById('shipDrawerBody'),
+      shipDrawerClose: document.getElementById('shipDrawerClose'),
+      shipAddBtn: document.getElementById('shipAddBtn')
     };
 
     function money(v){
@@ -617,8 +687,43 @@
 
       state.poRows = poData || [];
       state.lineRows = (lineData || []).filter(r => r.po_line_id);
+
+      await loadShipments();
+
       populateFilters();
       applyFilters();
+    }
+
+    async function loadShipments(){
+      const { data: shipData, error: shipError } = await sb
+        .from('incoming_shipments')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if(shipError) throw shipError;
+
+      const { data: shipLineData, error: shipLineError } = await sb
+        .from('incoming_shipment_lines')
+        .select('*');
+      if(shipLineError) throw shipLineError;
+
+      state.shipments = shipData || [];
+      state.shipmentLines = shipLineData || [];
+    }
+
+    function shipmentsForPO(poId){
+      return state.shipments.filter(s => String(s.po_header_id) === String(poId));
+    }
+
+    function shipmentLinesFor(shipmentId){
+      return state.shipmentLines.filter(sl => String(sl.shipment_id) === String(shipmentId));
+    }
+
+    function shipmentSummaryForLine(poLineId){
+      const rows = state.shipmentLines
+        .filter(sl => String(sl.po_line_id) === String(poLineId))
+        .map(sl => state.shipments.find(s => String(s.id) === String(sl.shipment_id)))
+        .filter(Boolean);
+      return rows;
     }
 
     function populateFilters(){
@@ -733,11 +838,16 @@
       el.poTableCount.textContent = state.filteredPOs.length.toLocaleString();
 
       if(!state.filteredPOs.length){
-        el.poTbody.innerHTML = `<tr><td colspan="14" class="py-10 text-center text-slate-500">No purchase orders match the current filters.</td></tr>`;
+        el.poTbody.innerHTML = `<tr><td colspan="15" class="py-10 text-center text-slate-500">No purchase orders match the current filters.</td></tr>`;
         return;
       }
 
-      el.poTbody.innerHTML = state.filteredPOs.map(r => `
+      el.poTbody.innerHTML = state.filteredPOs.map(r => {
+        const shipments = shipmentsForPO(r.id);
+        const shipLabel = shipments.length
+          ? `${shipments.length} shipment${shipments.length === 1 ? '' : 's'}`
+          : 'None yet';
+        return `
         <tr>
           <td class="font-extrabold text-slate-900">${escapeHtml(r.po_name || '—')}</td>
           <td>${escapeHtml(r.factory_name || '—')}</td>
@@ -753,10 +863,14 @@
           <td class="right font-bold">${money(r.total_estimated_cost)}</td>
           <td class="right">${money(r.retail_cost_spread)}</td>
           <td>
+            <button class="pill hover:bg-slate-50" type="button" data-ship-po="${escapeHtml(r.id)}">${escapeHtml(shipLabel)}</button>
+          </td>
+          <td>
             <a class="pill hover:bg-slate-50" href="/v2/po-builder.html?po_id=${encodeURIComponent(r.id)}" title="Open in v2 PO builder">Builder</a>
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     }
 
     function renderProductTable(){
@@ -786,11 +900,16 @@
       el.lineTableCount.textContent = state.filteredLines.length.toLocaleString();
 
       if(!state.filteredLines.length){
-        el.lineTbody.innerHTML = `<tr><td colspan="14" class="py-10 text-center text-slate-500">No PO lines match the current filters.</td></tr>`;
+        el.lineTbody.innerHTML = `<tr><td colspan="15" class="py-10 text-center text-slate-500">No PO lines match the current filters.</td></tr>`;
         return;
       }
 
-      el.lineTbody.innerHTML = state.filteredLines.map(r => `
+      el.lineTbody.innerHTML = state.filteredLines.map(r => {
+        const shipRows = shipmentSummaryForLine(r.po_line_id);
+        const shipCell = shipRows.length
+          ? shipRows.map(s => `<span class="status-badge status-${String(s.shipment_status||'').replaceAll(' ','-')}">${escapeHtml(s.shipment_status || '—')}${s.tracking_number ? ' · ' + escapeHtml(s.tracking_number) : ''}</span>`).join(' ')
+          : '<span class="pill">Unassigned</span>';
+        return `
         <tr>
           <td class="font-extrabold text-slate-900">${escapeHtml(r.po_name || '—')}</td>
           <td>${escapeHtml(r.factory_name || '—')}</td>
@@ -806,8 +925,10 @@
           <td class="right">${money2(r.unit_cost)}</td>
           <td class="right font-bold">${money(r.retail_value)}</td>
           <td class="right font-bold">${money(r.estimated_cost)}</td>
+          <td>${shipCell}</td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     }
 
     function toCsvValue(v){
@@ -876,6 +997,257 @@
 
       downloadCsv(`silo-incoming-po-product-rollup-${new Date().toISOString().slice(0,10)}.csv`, rows);
     }
+
+    function showShipError(msg){
+      const banner = document.createElement('div');
+      banner.className = 'ship-status ship-status--error';
+      banner.textContent = msg;
+      el.shipDrawerBody.prepend(banner);
+      setTimeout(() => banner.remove(), 4000);
+    }
+
+    function renderShipLineRow(sl, poLines){
+      const line = poLines.find(l => String(l.po_line_id) === String(sl.po_line_id));
+      const label = line
+        ? `${line.sku || line.product_title || 'Untitled'}${line.variant_title ? ' — ' + line.variant_title : ''}`
+        : '(product no longer on this PO)';
+      return `
+        <div class="ship-line-row">
+          <span class="sl-title" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+          <input type="number" min="0" step="1" placeholder="${line ? num(line.qty) : 'qty'}" value="${sl.qty ?? ''}" data-line-qty="${escapeHtml(sl.id)}" title="Qty in this shipment — blank means the full line qty" />
+          <button class="btn btn-secondary" style="padding:.2rem .4rem;color:#991b1b;" data-remove-line="${escapeHtml(sl.id)}" type="button">✕</button>
+        </div>
+      `;
+    }
+
+    function renderShipCard(s, poLines){
+      const lines = shipmentLinesFor(s.id);
+      const assignedIds = new Set(lines.map(sl => String(sl.po_line_id)));
+      const available = poLines.filter(l => !assignedIds.has(String(l.po_line_id)));
+
+      return `
+        <div class="ship-card" data-shipment-id="${escapeHtml(s.id)}">
+          <div class="ship-card-row">
+            <div>
+              <label class="muted-label">Status</label>
+              <select data-ship-field="shipment_status" data-shipment-id="${escapeHtml(s.id)}">
+                ${SHIPMENT_STATUSES.map(st => `<option value="${escapeHtml(st)}" ${st === s.shipment_status ? 'selected' : ''}>${escapeHtml(st)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="muted-label">Tracking #</label>
+              <input type="text" value="${escapeHtml(s.tracking_number || '')}" data-ship-field="tracking_number" data-shipment-id="${escapeHtml(s.id)}" placeholder="1Z999…" />
+            </div>
+            <div>
+              <label class="muted-label">Carrier</label>
+              <input type="text" value="${escapeHtml(s.carrier || '')}" data-ship-field="carrier" data-shipment-id="${escapeHtml(s.id)}" placeholder="UPS, FedEx…" />
+            </div>
+          </div>
+          <div class="ship-card-row">
+            <div>
+              <label class="muted-label">Ship date</label>
+              <input type="date" value="${s.ship_date || ''}" data-ship-field="ship_date" data-shipment-id="${escapeHtml(s.id)}" />
+            </div>
+            <div>
+              <label class="muted-label">ETA</label>
+              <input type="date" value="${s.eta || ''}" data-ship-field="eta" data-shipment-id="${escapeHtml(s.id)}" />
+            </div>
+            <div>
+              <label class="muted-label">Received date</label>
+              <input type="date" value="${s.received_date || ''}" data-ship-field="received_date" data-shipment-id="${escapeHtml(s.id)}" />
+            </div>
+          </div>
+          <div class="ship-card-row">
+            <div style="flex:1 1 100%;">
+              <label class="muted-label">Notes</label>
+              <input type="text" value="${escapeHtml(s.notes || '')}" data-ship-field="notes" data-shipment-id="${escapeHtml(s.id)}" placeholder="e.g. 2nd half shipment" />
+            </div>
+          </div>
+
+          <div class="ship-lines">
+            <label class="muted-label">Products in this shipment</label>
+            ${lines.length ? lines.map(sl => renderShipLineRow(sl, poLines)).join('') : '<div style="font-size:.68rem;color:#94a3b8;">No products assigned yet.</div>'}
+            ${available.length ? `
+            <div class="ship-add-line">
+              <select data-add-line-shipment="${escapeHtml(s.id)}">
+                <option value="">+ Add product…</option>
+                ${available.map(l => `<option value="${escapeHtml(l.po_line_id)}">${escapeHtml(l.sku || l.product_title || 'Untitled')}${l.variant_title ? ' — ' + escapeHtml(l.variant_title) : ''} (qty ${num(l.qty).toLocaleString()})</option>`).join('')}
+              </select>
+            </div>` : ''}
+          </div>
+
+          <div class="ship-card-foot">
+            <span style="font-size:.6rem;color:#94a3b8;">Updated ${s.updated_at ? new Date(s.updated_at).toLocaleString() : '—'}</span>
+            <button class="btn btn-secondary" style="color:#991b1b;" data-delete-shipment="${escapeHtml(s.id)}" type="button">Delete shipment</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderShipDrawer(){
+      const poId = state.shipDrawerPoId;
+      if(!poId) return;
+
+      const po = state.poRows.find(p => String(p.id) === String(poId));
+      el.shipDrawerTitle.textContent = po ? (po.po_name || 'Untitled PO') : '—';
+
+      const shipments = shipmentsForPO(poId);
+      const poLines = state.lineRows.filter(l => String(l.po_header_id) === String(poId));
+
+      let html = shipments.length
+        ? shipments.map(s => renderShipCard(s, poLines)).join('')
+        : '<div class="ship-status ship-status--info">No shipments logged yet for this PO. Click “+ Add shipment” to start tracking tracking numbers, ETA, and which products are in each delivery.</div>';
+
+      const assignedLineIds = new Set(
+        state.shipmentLines
+          .filter(sl => shipments.some(s => String(s.id) === String(sl.shipment_id)))
+          .map(sl => String(sl.po_line_id))
+      );
+      const unassigned = poLines.filter(l => !assignedLineIds.has(String(l.po_line_id)));
+      if(unassigned.length){
+        html += `<div class="ship-unassigned">${unassigned.length} product${unassigned.length === 1 ? '' : 's'} not yet on a shipment: ${unassigned.map(l => escapeHtml(l.sku || l.product_title || 'Untitled')).join(', ')}</div>`;
+      }
+
+      el.shipDrawerBody.innerHTML = html;
+    }
+
+    function openShipDrawer(poId){
+      state.shipDrawerPoId = poId;
+      el.shipDrawerBackdrop.classList.remove('hidden-safe');
+      el.shipDrawer.classList.remove('hidden-safe');
+      renderShipDrawer();
+    }
+
+    function closeShipDrawer(){
+      state.shipDrawerPoId = null;
+      el.shipDrawerBackdrop.classList.add('hidden-safe');
+      el.shipDrawer.classList.add('hidden-safe');
+    }
+
+    async function addShipment(poId){
+      try{
+        const { error } = await sb.from('incoming_shipments').insert({ po_header_id: poId, shipment_status: 'Not Shipped' });
+        if(error) throw error;
+        await loadShipments();
+        renderShipDrawer();
+        renderPOTable();
+      }catch(e){
+        console.error(e);
+        showShipError(e.message || 'Failed to add shipment');
+      }
+    }
+
+    async function updateShipmentField(id, field, value){
+      const payload = { [field]: value === '' ? null : value };
+      try{
+        const { error } = await sb.from('incoming_shipments').update(payload).eq('id', id);
+        if(error) throw error;
+        const idx = state.shipments.findIndex(s => String(s.id) === String(id));
+        if(idx >= 0) state.shipments[idx] = { ...state.shipments[idx], ...payload };
+        if(field === 'shipment_status') renderLineTable();
+      }catch(e){
+        console.error(e);
+        showShipError(e.message || 'Failed to save — reverting');
+        await loadShipments();
+        renderShipDrawer();
+      }
+    }
+
+    async function deleteShipment(id){
+      if(!confirm('Delete this shipment and its product assignments?')) return;
+      try{
+        const { error } = await sb.from('incoming_shipments').delete().eq('id', id);
+        if(error) throw error;
+        await loadShipments();
+        renderShipDrawer();
+        renderPOTable();
+        renderLineTable();
+      }catch(e){
+        console.error(e);
+        showShipError(e.message || 'Failed to delete shipment (admin only)');
+      }
+    }
+
+    async function addLineToShipment(shipmentId, poLineId){
+      try{
+        const { error } = await sb.from('incoming_shipment_lines').insert({ shipment_id: shipmentId, po_line_id: poLineId });
+        if(error) throw error;
+        await loadShipments();
+        renderShipDrawer();
+        renderLineTable();
+      }catch(e){
+        console.error(e);
+        showShipError(e.message || 'Failed to add product');
+      }
+    }
+
+    async function removeShipmentLine(id){
+      try{
+        const { error } = await sb.from('incoming_shipment_lines').delete().eq('id', id);
+        if(error) throw error;
+        await loadShipments();
+        renderShipDrawer();
+        renderLineTable();
+      }catch(e){
+        console.error(e);
+        showShipError(e.message || 'Failed to remove product');
+      }
+    }
+
+    async function updateShipmentLineQty(id, qty){
+      const payload = { qty: qty === '' ? null : Number(qty) };
+      try{
+        const { error } = await sb.from('incoming_shipment_lines').update(payload).eq('id', id);
+        if(error) throw error;
+        const idx = state.shipmentLines.findIndex(sl => String(sl.id) === String(id));
+        if(idx >= 0) state.shipmentLines[idx] = { ...state.shipmentLines[idx], ...payload };
+      }catch(e){
+        console.error(e);
+        showShipError(e.message || 'Failed to save qty');
+        await loadShipments();
+        renderShipDrawer();
+      }
+    }
+
+    el.shipDrawerClose.addEventListener('click', closeShipDrawer);
+    el.shipDrawerBackdrop.addEventListener('click', closeShipDrawer);
+    el.shipAddBtn.addEventListener('click', () => {
+      if(state.shipDrawerPoId) addShipment(state.shipDrawerPoId);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if(e.key === 'Escape' && state.shipDrawerPoId) closeShipDrawer();
+    });
+
+    el.poTbody.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-ship-po]');
+      if(btn) openShipDrawer(btn.dataset.shipPo);
+    });
+
+    el.shipDrawerBody.addEventListener('click', (e) => {
+      const del = e.target.closest('[data-delete-shipment]');
+      if(del){ deleteShipment(del.dataset.deleteShipment); return; }
+      const rm = e.target.closest('[data-remove-line]');
+      if(rm){ removeShipmentLine(rm.dataset.removeLine); return; }
+    });
+
+    el.shipDrawerBody.addEventListener('change', (e) => {
+      const field = e.target.closest('[data-ship-field]');
+      if(field){
+        updateShipmentField(field.dataset.shipmentId, field.dataset.shipField, field.value);
+        return;
+      }
+      const addSel = e.target.closest('[data-add-line-shipment]');
+      if(addSel && addSel.value){
+        addLineToShipment(addSel.dataset.addLineShipment, addSel.value);
+        return;
+      }
+      const qtyInput = e.target.closest('[data-line-qty]');
+      if(qtyInput){
+        updateShipmentLineQty(qtyInput.dataset.lineQty, qtyInput.value);
+        return;
+      }
+    });
 
     async function boot(){
       if(REQUIRE_AUTH){
