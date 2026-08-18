@@ -793,3 +793,19 @@ select
       then 'MISSING — shopify_orders_v view'
     else 'ok'
   end as shopify_order_level_analytics;
+
+-- 26. Ask SILO saved reports (migration 20260818050000)
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='silo_chat_saved_reports')
+      then 'MISSING — run 20260818050000_silo_chat_saved_reports.sql'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_select')
+      then 'MISSING — silo_chat_saved_reports RLS policies'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='silo_chat_saved_reports_v')
+      then 'MISSING — silo_chat_saved_reports_v view'
+    else 'ok'
+  end as silo_chat_saved_reports;

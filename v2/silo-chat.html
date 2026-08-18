@@ -76,6 +76,60 @@
       border-radius:6px; overflow-x:auto; white-space:pre-wrap; word-break:break-word;
     }
 
+    .ac-answer-actions { margin-top:6px; }
+    .ac-save-btn {
+      font-family:var(--bcn-mono); font-size:11px; padding:3px 10px; border-radius:6px;
+      border:1px solid var(--bcn-border); background:var(--bcn-surface); color:var(--bcn-ink-2); cursor:pointer;
+    }
+    .ac-save-btn:hover { background:var(--bcn-sunken); }
+    .ac-save-btn:disabled { opacity:.5; cursor:default; }
+
+    /* Saved reports modal -- reuses the notes modal shell (ac-notes-*). */
+    .ac-report-item {
+      display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
+      padding:10px 12px; border:1px solid var(--bcn-border); border-radius:8px;
+      background:var(--bcn-sunken); cursor:pointer;
+    }
+    .ac-report-item:hover { border-color:var(--bcn-accent); }
+    .ac-report-item-title { font-size:13px; font-weight:700; line-height:1.4; }
+    .ac-report-item-meta { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); margin-top:4px; }
+    .ac-report-back {
+      align-self:flex-start; background:none; border:none; cursor:pointer;
+      font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); padding:0;
+    }
+    .ac-report-back:hover { color:var(--bcn-ink); }
+    .ac-report-question { font-size:12.5px; color:var(--bcn-ink-2); font-style:italic; }
+    .ac-report-answer {
+      font-size:13px; line-height:1.55; padding:10px 12px;
+      border:1px solid var(--bcn-border); border-radius:8px; background:var(--bcn-sunken);
+    }
+    .ac-report-answer > *:first-child { margin-top:0; }
+    .ac-report-answer > *:last-child { margin-bottom:0; }
+    .ac-report-answer p { margin:0 0 8px; }
+    .ac-report-answer ul, .ac-report-answer ol { margin:0 0 8px 20px; padding:0; }
+    .ac-report-answer table { display:block; overflow-x:auto; border-collapse:collapse; margin:0 0 8px; font-size:12.5px; }
+    .ac-report-answer th, .ac-report-answer td { border:1px solid var(--bcn-border); padding:5px 8px; text-align:left; white-space:nowrap; }
+    .ac-report-answer th { background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    .ac-report-answer code { font-family:var(--bcn-mono); font-size:12px; background:var(--bcn-surface); padding:1px 5px; border-radius:4px; }
+    .ac-report-answer pre { font-family:var(--bcn-mono); font-size:12px; background:var(--bcn-surface); padding:8px 10px; border-radius:6px; overflow-x:auto; margin:0 0 8px; }
+    .ac-report-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .ac-report-freshness { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
+    .ac-rerun-block { display:flex; flex-direction:column; gap:6px; }
+    .ac-rerun-sql {
+      font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3);
+    }
+    .ac-rerun-sql summary { cursor:pointer; user-select:none; }
+    .ac-rerun-sql pre {
+      margin:6px 0 0; padding:8px 10px; background:var(--bcn-surface); border:1px solid var(--bcn-border);
+      border-radius:6px; overflow-x:auto; white-space:pre-wrap; word-break:break-word;
+    }
+    .ac-rerun-table-wrap { overflow-x:auto; border:1px solid var(--bcn-border); border-radius:6px; }
+    .ac-rerun-table { border-collapse:collapse; font-size:12px; width:100%; }
+    .ac-rerun-table th, .ac-rerun-table td { border-bottom:1px solid var(--bcn-border); padding:4px 8px; text-align:left; white-space:nowrap; }
+    .ac-rerun-table th { background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; position:sticky; top:0; }
+    .ac-rerun-note { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
+    .ac-rerun-error { font-size:12px; color:var(--bcn-neg); }
+
     .ac-empty {
       margin:auto; text-align:center; color:var(--bcn-ink-3); font-size:13px; max-width:420px;
     }
@@ -174,6 +228,7 @@
         <div class="bcn-header-sub">Live-queries your SILO data as you ask — sales, inventory, marketing, returns. No report needs to exist first.</div>
       </div>
       <div class="bcn-header-actions">
+        <button id="btnSaved" class="bcn-btn bcn-btn--ghost">Saved reports</button>
         <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Training</button>
         <button id="btnNewChat" class="bcn-btn bcn-btn--ghost">New chat</button>
       </div>
@@ -220,6 +275,20 @@
   </div>
 </div>
 
+<!-- Saved reports -- answers pinned from chat (silo_chat_saved_reports).
+     Company-visible; each stores the question, the answer, and the exact
+     SQL that produced it, so "Refresh data" just re-runs that SQL through
+     chat_run_readonly_query (RLS-scoped, zero LLM involvement). -->
+<div class="ac-notes-backdrop" id="savedBackdrop">
+  <div class="ac-notes-modal" role="dialog" aria-modal="true" aria-labelledby="savedTitle">
+    <div class="ac-notes-head">
+      <h3 id="savedTitle">Saved reports</h3>
+      <button class="ac-notes-close" type="button" id="btnCloseSaved">✕</button>
+    </div>
+    <div class="ac-notes-body" id="savedBody"></div>
+  </div>
+</div>
+
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
@@ -254,6 +323,7 @@
   let history = [];
   let session = null;
   let canManageNotes = false;
+  let isExecOrOwner = false;
 
   function scrollToBottom() {
     const log = el('log');
@@ -271,7 +341,13 @@
     return { cls: 'ac-bubble', html: esc(content) };
   }
 
-  function renderMessage({ role, content, queries, isError, retryable }) {
+  // Answers eligible for "Save report" park their full context here (the
+  // question + answer + SQL can be long, so a dataset attribute is the
+  // wrong place for it) keyed by a counter stamped on the button.
+  const saveContexts = new Map();
+  let saveContextSeq = 0;
+
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -281,6 +357,14 @@
       queriesHtml = `<details class="ac-queries"><summary>${queries.length} quer${queries.length === 1 ? 'y' : 'ies'} run</summary>${
         queries.map(q => `<pre>${esc(q)}</pre>`).join('')
       }</details>`;
+    }
+    // Only answers that ran real SQL are worth pinning -- a clarification
+    // reply with no queries has nothing to re-run later.
+    let saveHtml = '';
+    if (saveCtx && queries && queries.length) {
+      const ctxId = ++saveContextSeq;
+      saveContexts.set(ctxId, { question: saveCtx.question, answer: content, queries });
+      saveHtml = `<div class="ac-answer-actions"><button type="button" class="ac-save-btn" data-save-id="${ctxId}">Save report</button></div>`;
     }
     // Errors get a short next-step note -- a retry button when the request
     // is safe to just resend (transient timeout/network issues), otherwise
@@ -297,6 +381,7 @@
       <div>
         <div class="${bubble.cls}">${bubble.html}</div>
         ${queriesHtml}
+        ${saveHtml}
         ${retryHtml}
       </div>`;
     el('log').appendChild(wrap);
@@ -340,7 +425,8 @@
         return;
       }
       history.push({ role: 'assistant', content: data.answer });
-      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run });
+      const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
+      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question } });
     } catch (err) {
       removeTyping();
       renderMessage({ role: 'assistant', content: 'Request failed: ' + err.message, isError: true, retryable: true });
@@ -374,8 +460,32 @@
     const suggestion = e.target.closest('.ac-suggestion');
     if (suggestion) { sendMessage(suggestion.dataset.q); return; }
     const retry = e.target.closest('.ac-retry-btn');
-    if (retry) { retry.disabled = true; askSilo(); }
+    if (retry) { retry.disabled = true; askSilo(); return; }
+    const saveBtn = e.target.closest('.ac-save-btn');
+    if (saveBtn) saveReport(saveBtn);
   });
+
+  async function saveReport(btn) {
+    const ctx = saveContexts.get(Number(btn.dataset.saveId));
+    if (!ctx) return;
+    const defaultTitle = ctx.question.length > 70 ? ctx.question.slice(0, 67) + '…' : ctx.question;
+    const title = (window.prompt('Name this report:', defaultTitle) || '').trim();
+    if (!title) return;
+    btn.disabled = true;
+    const { error } = await sb.from('silo_chat_saved_reports').insert({
+      title,
+      question: ctx.question,
+      answer: ctx.answer,
+      queries_run: ctx.queries,
+    });
+    if (error) {
+      setStatus('Could not save report: ' + error.message, 'error', 4000);
+      btn.disabled = false;
+      return;
+    }
+    btn.textContent = 'Saved ✓';
+    setStatus('Report saved — find it under "Saved reports".', 'pos', 3500);
+  }
   el('btnNewChat').addEventListener('click', () => {
     history = [];
     el('log').innerHTML = `
@@ -486,7 +596,136 @@
     }
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeNotesModal();
+    if (e.key === 'Escape') { closeNotesModal(); closeSavedModal(); }
+  });
+
+  // ── Saved reports modal ───────────────────────────────────────────────
+  // List → detail → refresh. Refresh re-executes the report's stored SQL
+  // through chat_run_readonly_query (the same RLS-scoped RPC the chat
+  // uses) and renders the fresh rows as tables — no LLM call involved.
+  let savedReportsCache = [];
+
+  async function openSavedModal() {
+    el('savedBackdrop').classList.add('open');
+    el('savedBody').innerHTML = `<div class="ac-notes-empty">Loading…</div>`;
+    const { data, error } = await sb
+      .from('silo_chat_saved_reports_v')
+      .select('id, title, question, answer, queries_run, created_by, created_by_name, created_at')
+      .order('created_at', { ascending: false });
+    if (error) {
+      el('savedBody').innerHTML = `<div class="ac-notes-empty">Couldn't load reports: ${esc(error.message)}</div>`;
+      return;
+    }
+    savedReportsCache = data || [];
+    renderSavedList();
+  }
+  function closeSavedModal() {
+    el('savedBackdrop').classList.remove('open');
+  }
+
+  function renderSavedList() {
+    if (!savedReportsCache.length) {
+      el('savedBody').innerHTML = `<div class="ac-notes-empty">Nothing saved yet — ask a question, then hit "Save report" under the answer.</div>`;
+      return;
+    }
+    el('savedBody').innerHTML = savedReportsCache.map(r => `
+      <div class="ac-report-item" data-id="${esc(r.id)}">
+        <div>
+          <div class="ac-report-item-title">${esc(r.title)}</div>
+          <div class="ac-report-item-meta">${esc(r.created_by_name || 'Unknown')} · ${new Date(r.created_at).toLocaleDateString()}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  // Mirrors the RLS delete policy (creator or exec/owner) — deliberately
+  // NOT canManageNotes: a silo_chat_managers grantee can train notes but
+  // has no special rights over other people's saved reports.
+  function canDeleteReport(r) {
+    return isExecOrOwner || r.created_by === session?.user?.id;
+  }
+
+  function renderSavedDetail(r) {
+    const answerHtml = (window.marked && window.DOMPurify)
+      ? window.DOMPurify.sanitize(window.marked.parse(r.answer ?? ''))
+      : esc(r.answer);
+    const queries = r.queries_run || [];
+    el('savedBody').innerHTML = `
+      <button type="button" class="ac-report-back" data-id="${esc(r.id)}">← All reports</button>
+      <div>
+        <div class="ac-report-item-title">${esc(r.title)}</div>
+        <div class="ac-report-item-meta">${esc(r.created_by_name || 'Unknown')} · saved ${new Date(r.created_at).toLocaleDateString()}</div>
+      </div>
+      <div class="ac-report-question">“${esc(r.question)}”</div>
+      <div class="ac-report-answer">${answerHtml}</div>
+      <div class="ac-report-freshness">Answer text is a snapshot from when this was saved — "Refresh data" below re-runs the saved queries against live data.</div>
+      <div class="ac-report-actions">
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnRerunReport" data-id="${esc(r.id)}" ${queries.length ? '' : 'disabled'}>Refresh data (${queries.length} quer${queries.length === 1 ? 'y' : 'ies'})</button>
+        ${canDeleteReport(r) ? `<button type="button" class="bcn-btn bcn-btn--ghost" id="btnDeleteReport" data-id="${esc(r.id)}">Delete</button>` : ''}
+      </div>
+      <div id="rerunResults" class="ac-rerun-block"></div>`;
+  }
+
+  function rowsToTableHtml(rows) {
+    if (!Array.isArray(rows) || !rows.length) return `<div class="ac-rerun-note">0 rows</div>`;
+    const cols = Object.keys(rows[0]);
+    const shown = rows.slice(0, 100);
+    const body = shown.map(row =>
+      `<tr>${cols.map(c => `<td>${esc(row[c] === null ? '' : row[c])}</td>`).join('')}</tr>`).join('');
+    const truncNote = rows.length > shown.length
+      ? `<div class="ac-rerun-note">Showing first ${shown.length} of ${rows.length} rows</div>` : '';
+    return `<div class="ac-rerun-table-wrap"><table class="ac-rerun-table">
+      <thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+      <tbody>${body}</tbody></table></div>${truncNote}`;
+  }
+
+  async function rerunReport(r, btn) {
+    btn.disabled = true;
+    const out = el('rerunResults');
+    out.innerHTML = `<div class="ac-rerun-note">Running ${r.queries_run.length} quer${r.queries_run.length === 1 ? 'y' : 'ies'}…</div>`;
+    const blocks = [];
+    for (const q of r.queries_run) {
+      const sqlToggle = `<details class="ac-rerun-sql"><summary>SQL</summary><pre>${esc(q)}</pre></details>`;
+      try {
+        const { data: rows, error } = await sb.rpc('chat_run_readonly_query', { query: q });
+        blocks.push(error
+          ? `${sqlToggle}<div class="ac-rerun-error">${esc(error.message)} — the schema may have changed since this was saved.</div>`
+          : `${sqlToggle}${rowsToTableHtml(rows)}`);
+      } catch (err) {
+        blocks.push(`${sqlToggle}<div class="ac-rerun-error">${esc(err.message)}</div>`);
+      }
+      out.innerHTML = blocks.join('');
+    }
+    out.innerHTML = `<div class="ac-rerun-note">Live results as of ${new Date().toLocaleString()}</div>` + blocks.join('');
+    btn.disabled = false;
+  }
+
+  async function deleteReport(id) {
+    const { error } = await sb.from('silo_chat_saved_reports').delete().eq('id', id);
+    if (error) { setStatus('Could not delete report: ' + error.message, 'error', 4000); return; }
+    savedReportsCache = savedReportsCache.filter(r => r.id !== id);
+    renderSavedList();
+  }
+
+  el('btnSaved').addEventListener('click', openSavedModal);
+  el('savedBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'savedBackdrop' || e.target.closest('#btnCloseSaved')) { closeSavedModal(); return; }
+    if (e.target.closest('.ac-report-back')) { renderSavedList(); return; }
+    const rerunBtn = e.target.closest('#btnRerunReport');
+    if (rerunBtn) {
+      const r = savedReportsCache.find(x => x.id === rerunBtn.dataset.id);
+      if (r) rerunReport(r, rerunBtn);
+      return;
+    }
+    const delBtn = e.target.closest('#btnDeleteReport');
+    if (delBtn) {
+      if (confirm('Delete this saved report for the whole company?')) deleteReport(delBtn.dataset.id);
+      return;
+    }
+    const item = e.target.closest('.ac-report-item');
+    if (item) {
+      const r = savedReportsCache.find(x => x.id === item.dataset.id);
+      if (r) renderSavedDetail(r);
+    }
   });
 
   async function boot() {
@@ -502,7 +741,8 @@
     // boundary is silo_chat_notes' RLS (can_manage_silo_notes()). The RLS
     // select policy on silo_chat_managers lets a user see their own row
     // even if they're not exec/owner, so this self-check works for them.
-    canManageNotes = ['owner', 'executive'].includes(String(profile?.role || '').toLowerCase());
+    isExecOrOwner = ['owner', 'executive'].includes(String(profile?.role || '').toLowerCase());
+    canManageNotes = isExecOrOwner;
     if (!canManageNotes) {
       const { data: grant } = await sb.from('silo_chat_managers').select('id').eq('user_id', user.id).maybeSingle();
       canManageNotes = !!grant;
