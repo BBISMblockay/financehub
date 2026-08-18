@@ -648,7 +648,7 @@ export function collapseSalesRows(rows) {
  * the current sellable catalog, not historical labeling. */
 const PRODUCT_STATUSES_FOR_LABELING = ['active', 'archived', 'draft'];
 
-async function loadSkuMeta(headers, base) {
+export async function loadSkuMeta(headers, base) {
   const [variants, ...productsByStatus] = await Promise.all([
     getAll(headers, `${base}/variants.json?limit=250`),
     ...PRODUCT_STATUSES_FOR_LABELING.map((status) => getAll(headers, `${base}/products.json?limit=250&status=${status}`)),

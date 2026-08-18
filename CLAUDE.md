@@ -444,8 +444,11 @@ Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows 
 **One sync, one source of truth.** Sales and inventory come from the Shopify API via the nightly GitHub Action. There is no dual-write conflict.
 
 Manual-only workflows (`workflow_dispatch`, no cron): `redo-backfill.yml` (Redo returns REST backfill),
-`backfill-company-entity-large-tables.yml`, `mailroom-backfill.yml`, `legacy-payment-requests-import.yml`,
-`one-time-sales-backfill.yml`, `diagnose-shopify-gross.yml`, `diagnose-shopify-returns.yml`.
+`shopify-orders-backfill.yml` (historical `shopify_orders`/`shopify_order_lines` backfill — order facts
+only, no `sales_by_day` involvement, idempotent per range; the nightly sync only covers orders touched in
+its ~2-day window going forward), `backfill-company-entity-large-tables.yml`, `mailroom-backfill.yml`,
+`legacy-payment-requests-import.yml`, `one-time-sales-backfill.yml`, `diagnose-shopify-gross.yml`,
+`diagnose-shopify-returns.yml`.
 
 Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (set in GitHub repo settings).
 Additionally: `ANTHROPIC_API_KEY` for the insights narrative (falls back to findings-only if unset) and

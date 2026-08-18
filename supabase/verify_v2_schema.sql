@@ -809,3 +809,13 @@ select
       then 'MISSING — silo_chat_saved_reports_v view'
     else 'ok'
   end as silo_chat_saved_reports;
+
+-- 27. Orders backfill job type (migration 20260818060000)
+select
+  case
+    when not exists (select 1 from pg_constraint
+                     where conname = 'sync_jobs_job_type_check'
+                       and pg_get_constraintdef(oid) ilike '%orders_backfill%')
+      then 'MISSING — run 20260818060000_orders_backfill_job_type.sql'
+    else 'ok'
+  end as orders_backfill_job_type;

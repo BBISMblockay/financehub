@@ -9711,3 +9711,17 @@ left join public.profiles p on p.id = r.created_by;
 
 revoke all on public.silo_chat_saved_reports_v from anon;
 grant select on public.silo_chat_saved_reports_v to authenticated;
+
+-- ============================================================
+-- 20260818060000_orders_backfill_job_type.sql
+-- Allow 'orders_backfill' in sync_jobs.job_type (see migration file —
+-- logged by scripts/shopify-orders-backfill.mjs).
+-- ============================================================
+alter table public.sync_jobs drop constraint if exists sync_jobs_job_type_check;
+alter table public.sync_jobs add constraint sync_jobs_job_type_check
+  check (job_type in (
+    'test_connection', 'history_import', 'incremental_sales',
+    'inventory_snapshot', 'catalog_sync', 'payouts_sync', 'draft_orders_sync',
+    'google_ads_kpis', 'meta_ads_kpis', 'tiktok_ads_kpis', 'ga4_kpis',
+    'orders_backfill'
+  ));

@@ -274,6 +274,7 @@ supabase/
     20260817200000_product_samples_request_source.sql
     20260817210000_shopify_order_level_analytics.sql
     20260818050000_silo_chat_saved_reports.sql
+    20260818060000_orders_backfill_job_type.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

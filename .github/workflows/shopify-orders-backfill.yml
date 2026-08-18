@@ -1,0 +1,74 @@
+name: Shopify Orders Backfill
+
+# One-shot historical backfill of shopify_orders / shopify_order_lines.
+# Manual only (workflow_dispatch, no cron) — the nightly shopify-sync.yml
+# keeps these tables current going forward; this fills the history from
+# before each store's first post-20260817210000 sync. Writes ONLY order
+# facts (no sales_by_day involvement), keyed on Shopify's own ids, so
+# re-running any range is idempotent and overlapping the nightly sync is
+# safe. See scripts/shopify-orders-backfill.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      backfill_days:
+        description: Days back from today (default = each connection's history_days_default, else 365). Ignored if start/end dates are set
+        required: false
+      start_date:
+        description: Explicit range start (YYYY-MM-DD) — set both dates or neither
+        required: false
+      end_date:
+        description: Explicit range end (YYYY-MM-DD)
+        required: false
+      chunk_days:
+        description: Days per fetch window (default 30)
+        required: false
+        default: '30'
+      company_entity_id:
+        description: Optional company UUID (limit to one entity)
+        required: false
+      connection_id:
+        description: Optional shopify_connections.id (limit to one store)
+        required: false
+
+jobs:
+  orders-backfill:
+    runs-on: ubuntu-latest
+    # Same ceiling as the main sync's full-history path — a 730-day backfill
+    # of the flagship store is the worst case; per-store runs finish far faster.
+    timeout-minutes: 330
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BACKFILL_DAYS: ${{ github.event.inputs.backfill_days || '' }}
+      BACKFILL_START: ${{ github.event.inputs.start_date || '' }}
+      BACKFILL_END: ${{ github.event.inputs.end_date || '' }}
+      BACKFILL_CHUNK_DAYS: ${{ github.event.inputs.chunk_days || '30' }}
+      SHOPIFY_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
+      SHOPIFY_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify Supabase envs exist
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          echo "Supabase env vars present"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run orders backfill
+        # Same heap headroom as the main sync — a 250-order page with full
+        # line items and refunds is memory-heavy on the flagship store.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: node scripts/shopify-orders-backfill.mjs
