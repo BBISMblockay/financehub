@@ -866,3 +866,15 @@ select
       then 'MISSING — run 20260818170000_sample_requested_vs_received_on_insert.sql'
     else 'ok'
   end as sample_requested_vs_received_on_insert;
+
+-- 31. Sample insert no double-fire (migration 20260818180000)
+select
+  case
+    when not exists (
+      select 1 from pg_proc p join pg_language l on l.oid = p.prolang
+      where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
+        and pg_get_functiondef(p.oid) ilike '%and (new.size_requests is null or btrim(new.size_requests) = '''')%'
+    )
+      then 'MISSING — run 20260818180000_sample_insert_no_double_fire.sql'
+    else 'ok'
+  end as sample_insert_no_double_fire;
