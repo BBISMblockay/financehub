@@ -77,7 +77,7 @@
             </div>
             <div class="mt-2 table-wrap soft-scroll">
               <table class="w-full min-w-[1040px] border-separate border-spacing-0 text-xs">
-                <thead><tr><th style="width:52px;">Status</th><th style="width:260px;">Factory Name</th><th style="width:130px;">Short Code</th><th style="width:190px;">Contact Name</th><th style="width:240px;">Contact Email</th><th style="width:140px;">Contact Phone</th><th style="width:260px;">Notes</th><th style="width:120px;text-align:right;">Actions</th></tr></thead>
+                <thead><tr><th style="width:52px;">Status</th><th style="width:240px;">Factory Name</th><th style="width:120px;">Short Code</th><th style="width:170px;">Contact Name</th><th style="width:220px;">Contact Email</th><th style="width:130px;">Contact Phone</th><th style="width:150px;">Country</th><th style="width:220px;">Notes</th><th style="width:120px;text-align:right;">Actions</th></tr></thead>
                 <tbody id="factoryTbody"></tbody>
               </table>
             </div>
@@ -100,6 +100,7 @@
         <div><label class="muted-label">Contact Name</label><input id="newContactName" class="w-full" placeholder="Optional contact" /></div>
         <div><label class="muted-label">Contact Email</label><input id="newContactEmail" class="w-full" placeholder="Optional email" /></div>
         <div><label class="muted-label">Contact Phone</label><input id="newContactPhone" class="w-full" placeholder="Optional phone" /></div>
+        <div><label class="muted-label">Country</label><select id="newCountry" class="w-full"><option value="">—</option></select></div>
         <div><label class="muted-label">Notes</label><input id="newNotes" class="w-full" placeholder="Optional notes" /></div>
       </div>
       <div class="mt-4 flex justify-end gap-2"><button class="btn btn-secondary" data-close="factoryModal">Cancel</button><button id="btnCreateFactory" class="btn btn-primary">Create Factory</button></div>
@@ -115,14 +116,16 @@
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
-    const OPTIONAL_COLUMNS = ['contact_phone', 'notes'];
+    const KNOWN_COUNTRIES = ['Bangladesh','Brazil','Cambodia','Canada','China','Colombia','Dominican Republic','Egypt','El Salvador','France','Germany','Guatemala','Haiti','Honduras','India','Indonesia','Italy','Japan','Jordan','Malaysia','Mexico','Morocco','Myanmar','Nicaragua','Pakistan','Peru','Philippines','Portugal','South Korea','Spain','Sri Lanka','Taiwan','Thailand','Tunisia','Turkey','United Kingdom','United States','Vietnam'];
+    const OPTIONAL_COLUMNS = ['contact_phone', 'notes', 'country'];
     const BASE_COLUMNS = ['id', 'factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS];
     const state = { factories: [], filtered: [], changed: new Set(), supportedColumns: new Set(BASE_COLUMNS), missingOptionalColumns: new Set() };
     const el = {
       btnRefresh: document.getElementById('btnRefresh'), btnExport: document.getElementById('btnExport'), btnNewFactory: document.getElementById('btnNewFactory'), btnSaveAllChanged: document.getElementById('btnSaveAllChanged'), btnClearFilters: document.getElementById('btnClearFilters'), btnCreateFactory: document.getElementById('btnCreateFactory'),
       searchInput: document.getElementById('searchInput'), completenessFilter: document.getElementById('completenessFilter'), factoryCount: document.getElementById('factoryCount'), kpiFactories: document.getElementById('kpiFactories'), kpiEmail: document.getElementById('kpiEmail'), loadStatus: document.getElementById('loadStatus'), factoryTbody: document.getElementById('factoryTbody'), factoryModal: document.getElementById('factoryModal'),
-      newFactoryName: document.getElementById('newFactoryName'), newShortCode: document.getElementById('newShortCode'), newContactName: document.getElementById('newContactName'), newContactEmail: document.getElementById('newContactEmail'), newContactPhone: document.getElementById('newContactPhone'), newNotes: document.getElementById('newNotes')
+      newFactoryName: document.getElementById('newFactoryName'), newShortCode: document.getElementById('newShortCode'), newContactName: document.getElementById('newContactName'), newContactEmail: document.getElementById('newContactEmail'), newContactPhone: document.getElementById('newContactPhone'), newCountry: document.getElementById('newCountry'), newNotes: document.getElementById('newNotes')
     };
+    el.newCountry.innerHTML += KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
 
     function escapeHtml(str){ return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
     function clean(value){ const v = String(value ?? '').trim(); return v || null; }
@@ -172,7 +175,7 @@
       el.factoryCount.textContent = `${state.filtered.length.toLocaleString()} row${state.filtered.length === 1 ? '' : 's'}`;
       el.kpiFactories.textContent = state.factories.length.toLocaleString();
       el.kpiEmail.textContent = state.factories.filter(row => clean(row.contact_email)).length.toLocaleString();
-      if (!state.filtered.length) { el.factoryTbody.innerHTML = '<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-slate-500">No factories match the current filters.</td></tr>'; return; }
+      if (!state.filtered.length) { el.factoryTbody.innerHTML = '<tr><td colspan="9" class="px-3 py-10 text-center text-sm text-slate-500">No factories match the current filters.</td></tr>'; return; }
       el.factoryTbody.innerHTML = state.filtered.map(row => {
         const dirty = state.changed.has(row.id);
         return `<tr data-row-id="${escapeHtml(row.id)}">
@@ -182,10 +185,16 @@
           <td><input class="cell-input" data-field="contact_name" value="${escapeHtml(row.contact_name || '')}" /></td>
           <td><input class="cell-input" data-field="contact_email" value="${escapeHtml(row.contact_email || '')}" /></td>
           <td><input class="cell-input" data-field="contact_phone" value="${escapeHtml(row.contact_phone || '')}" ${state.supportedColumns.has('contact_phone') ? '' : 'disabled placeholder="Column missing"'} /></td>
+          <td>${countrySelect(row.country, state.supportedColumns.has('country'))}</td>
           <td><input class="cell-input" data-field="notes" value="${escapeHtml(row.notes || '')}" ${state.supportedColumns.has('notes') ? '' : 'disabled placeholder="Column missing"'} /></td>
           <td class="text-right"><div class="flex items-center justify-end gap-1"><button class="btn btn-secondary" data-save-row="${escapeHtml(row.id)}">Save</button><button class="btn btn-danger" data-delete-row="${escapeHtml(row.id)}">Del</button></div></td>
         </tr>`;
       }).join('');
+    }
+
+    function countrySelect(value, supported){
+      const opts = ['<option value="">—</option>', ...KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}" ${value === c ? 'selected' : ''}>${escapeHtml(c)}</option>`)].join('');
+      return `<select class="cell-input" data-field="country" ${supported ? '' : 'disabled'}>${supported ? opts : '<option>Column missing</option>'}</select>`;
     }
 
     function markChanged(rowId){
@@ -216,6 +225,8 @@
 
     async function saveAllChanged(){ for (const id of [...state.changed]) await saveRow(id); await loadFactories(); }
 
+
+
     async function deleteRow(rowId){
       const row = state.factories.find(f => String(f.id) === String(rowId));
       if (!confirm(`Delete ${row?.factory_name || 'this factory'}? This may affect PO history if referenced.`)) return;
@@ -227,6 +238,7 @@
     function newFactoryPayload(){
       const payload = { factory_name: clean(el.newFactoryName.value), short_code: clean(el.newShortCode.value), contact_name: clean(el.newContactName.value), contact_email: clean(el.newContactEmail.value) };
       if (state.supportedColumns.has('contact_phone')) payload.contact_phone = clean(el.newContactPhone.value);
+      if (state.supportedColumns.has('country')) payload.country = clean(el.newCountry.value);
       if (state.supportedColumns.has('notes')) payload.notes = clean(el.newNotes.value);
       if (!payload.factory_name) throw new Error('Factory name is required.');
       return payload;
@@ -238,7 +250,7 @@
       clearNewFactory(); modalClose(el.factoryModal); await loadFactories();
     }
 
-    function clearNewFactory(){ [el.newFactoryName,el.newShortCode,el.newContactName,el.newContactEmail,el.newContactPhone,el.newNotes].forEach(n=>n.value=''); }
+    function clearNewFactory(){ [el.newFactoryName,el.newShortCode,el.newContactName,el.newContactEmail,el.newContactPhone,el.newCountry,el.newNotes].forEach(n=>n.value=''); }
 
     function exportCsv(){
       const cols = ['factory_name','short_code','contact_name','contact_email', ...OPTIONAL_COLUMNS.filter(col => state.supportedColumns.has(col))];
@@ -270,7 +282,9 @@
     el.btnSaveAllChanged.addEventListener('click', async()=>{ try{ await saveAllChanged(); }catch(e){ console.error(e); alert(e.message || 'Save changed rows failed'); } });
     el.btnClearFilters.addEventListener('click', clearFilters);
     el.searchInput.addEventListener('input', applyFilters); el.completenessFilter.addEventListener('change', applyFilters);
-    document.addEventListener('input', ev => { const input = ev.target.closest('[data-field]'); if (!input) return; const tr = input.closest('[data-row-id]'); if (tr) markChanged(tr.getAttribute('data-row-id')); });
+    function onFieldEdited(ev){ const input = ev.target.closest('[data-field]'); if (!input) return; const tr = input.closest('[data-row-id]'); if (tr) markChanged(tr.getAttribute('data-row-id')); }
+    document.addEventListener('input', onFieldEdited);
+    document.addEventListener('change', onFieldEdited);
     document.addEventListener('click', async ev => {
       const close = ev.target.closest('[data-close]'); if (close) { const node = document.getElementById(close.getAttribute('data-close')); if (node) modalClose(node); return; }
       const save = ev.target.closest('[data-save-row]'); if (save) { try{ await saveRow(save.getAttribute('data-save-row')); }catch(e){ console.error(e); alert(e.message || 'Save row failed'); } return; }

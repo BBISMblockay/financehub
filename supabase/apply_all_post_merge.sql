@@ -10290,3 +10290,9 @@ select
 from public.incoming_shipments s
 left join public.incoming_shipment_lines sl on sl.shipment_id = s.id
 left join public.po_lines pl on pl.id = sl.po_line_id;
+
+-- ---------------------------------------------------------------------------
+-- 20260818220000_factories_country.sql
+-- factories.country — powers the shipment status map on /v2/po-report.html.
+-- ---------------------------------------------------------------------------
+alter table public.factories add column if not exists country text;

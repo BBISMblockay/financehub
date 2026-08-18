@@ -421,6 +421,37 @@
     .pick-count--full { background: #dcfce7; color: #166534; }
     .pick-qty { width: 62px; height: 22px; font-size: .64rem; padding: .15rem .3rem; flex: none; }
     .ship-unassigned { font-size: .68rem; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 10px 12px; margin-top: 12px; line-height: 1.5; }
+
+    /* ─── Shipment status map ────────────────────────────────────── */
+    .map-card {
+      background: #fff; border: 1px solid rgba(15,23,42,.07); border-radius: 16px;
+      box-shadow: 0 1px 2px rgba(15,23,42,.03); padding: 14px 16px; position: relative;
+    }
+    .map-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .map-card-title { font-size: .78rem; font-weight: 900; color: #0f172a; }
+    .map-card-sub { font-size: .64rem; color: #94a3b8; margin-top: 1px; }
+    .map-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .map-legend-item { display: flex; align-items: center; gap: 5px; font-size: .62rem; font-weight: 700; color: #64748b; }
+    .map-legend-dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+    .map-svg-wrap { position: relative; width: 100%; max-width: 100%; }
+    .map-svg-wrap svg { width: 100%; height: auto; display: block; max-height: 260px; }
+    .map-pin { cursor: pointer; }
+    .map-pin circle.pin-dot { transition: r .12s ease; }
+    .map-pin:hover circle.pin-dot { r: 8; }
+    .map-pin circle.pin-pulse { opacity: .35; }
+    .map-pin text { font-size: 8px; font-weight: 800; fill: #fff; pointer-events: none; }
+    .map-tooltip {
+      position: absolute; z-index: 5; pointer-events: none;
+      background: #0f172a; color: #fff; border-radius: 10px; padding: 8px 10px;
+      font-size: .66rem; line-height: 1.5; box-shadow: 0 8px 20px rgba(15,23,42,.25);
+      max-width: 240px; transform: translate(-50%, calc(-100% - 12px));
+    }
+    .map-tooltip-title { font-weight: 800; margin-bottom: 3px; }
+    .map-tooltip-row { display: flex; align-items: center; gap: 5px; color: rgba(255,255,255,.75); }
+    .map-tooltip-row + .map-tooltip-row { margin-top: 2px; }
+    .map-unmapped { margin-top: 10px; font-size: .64rem; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .map-unmapped a { color: #92400e; font-weight: 800; text-decoration: underline; }
+    .map-empty { padding: 24px 12px; text-align: center; color: #94a3b8; font-size: .7rem; }
   </style>
 </head>
 
@@ -475,6 +506,30 @@
       </section>
 
       <div class="po-report-main">
+
+        <!-- Shipment status map -->
+        <section class="map-card">
+          <div class="map-card-head">
+            <div>
+              <div class="map-card-title">Shipment status map</div>
+              <div class="map-card-sub">Plotted by factory country from logged shipments — approximate, not live GPS/carrier tracking.</div>
+            </div>
+            <div class="map-legend">
+              <span class="map-legend-item"><span class="map-legend-dot" style="background:#94a3b8;"></span>Not shipped</span>
+              <span class="map-legend-item"><span class="map-legend-dot" style="background:#6366f1;"></span>Booked / in transit</span>
+              <span class="map-legend-item"><span class="map-legend-dot" style="background:#ef4444;"></span>Delayed</span>
+              <span class="map-legend-item"><span class="map-legend-dot" style="background:#16a34a;"></span>Delivered / received</span>
+            </div>
+          </div>
+          <div class="map-svg-wrap" id="mapSvgWrap">
+            <svg id="mapSvg" viewBox="0 0 880 400" xmlns="http://www.w3.org/2000/svg">
+              <g id="mapDots"></g>
+              <g id="mapPins"></g>
+            </svg>
+            <div class="map-tooltip hidden-safe" id="mapTooltip"></div>
+          </div>
+          <div class="map-unmapped hidden-safe" id="mapUnmapped"></div>
+        </section>
 
         <!-- Horizontal filter strip -->
         <div class="rpt-filter-strip">
@@ -658,6 +713,87 @@
     const ICON_TAG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L11 3.83A2 2 0 009.59 3.24L3 3v6.59a2 2 0 00.59 1.41l9.58 9.58a2 2 0 002.83 0l4.59-4.59a2 2 0 000-2.83z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></svg>';
     const ICON_CALENDAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
 
+    // Illustrative-only world map: a low-res land/sea grid (hand-approximated,
+    // not survey data) plus one representative lat/lng per known sourcing
+    // country. There is no carrier-tracking API wired up, so a shipment's pin
+    // sits at its factory's country centroid, not a live GPS position.
+    const WORLD_GRID = {
+      cols: 110, rows: 50,
+      lngMin: -180, lngMax: 180, latMin: -58, latMax: 78,
+      data: [
+        '00000000000000000000000000000000000000111111111100000000000000000000000000000000000000000000000000000000000000',
+        '00000000000000000000000000000000000000111111111100000000000000000000000000000000000000000000000000000000000000',
+        '00000000000000000000111000000000000001111111111000000000000000000000000000000001111111111111111111111000000000',
+        '00000111111111111111111111110000000000111111110000000000000001111111110000000111111111111111111111111111110000',
+        '00001111111111111111111111111100000000111111000000000000000011111111111111111111111111111111111111111111111111',
+        '00001111111111111111111111111111000000011110000000000000001111111111111111111111111111111111111111111111111111',
+        '00000111111111111111111111111111111000000000000000000000011111111111111111111111111111111111111111111111111111',
+        '00000000000000111111111111111111111100000000000000000010011111111111111111111111111111111111111111111111000000',
+        '00000000000000011111111111111111111110000000000000000110011111111111111111111111111111111111111111111110000000',
+        '00000000000000001111111111111111111111000000000000000110011111111111110011111111111111111111111111111110000000',
+        '00000000000000001111111111111111111110000000000000000001111111111111110111111111111111111111111111111100000000',
+        '00000000000000000111111111111111111100000000000000000111111111111101111111111111111111111111111111100000000000',
+        '00000000000000000111111111111111110000000000000000000111110111111111111111111111111111111111111111100000000000',
+        '00000000000000000111111111111111110000000000000000001111000011111111111111111111111111111111111111100000000000',
+        '00000000000000000011111111111111100000000000000000001110000000001111100000111111111111111111111111000000000000',
+        '00000000000000000011111111111111000000000000000000000011111000000000000000011111111111111111111111000000000000',
+        '00000000000000000001111111111111000000000000000000000111111100000010000000111111111111111111111000000000000000',
+        '00000000000000000000011111111110000000000000000000001111111111111011000000111111111111111111000000000000000000',
+        '00000000000000000000001110001110000000000000000000011111111111111111111101111111111101111111000000000000000000',
+        '00000000000000000000001111000000000000000000000000011111111111111111111100111111111001111111000000000000000000',
+        '00000000000000000000000111100000000000000000000000111111111111111111111000001111110001111110000000000000000000',
+        '00000000000000000000000111111000000000000000000000111111111111111111111000000111110011111100000000000000000000',
+        '00000000000000000000000001111100000000000000000000111111111111111111110000000111111111111000000000000000000000',
+        '00000000000000000000000000011110000000000000000000111111111111111111100000000011110011110000000000000000000000',
+        '00000000000000000000000000000110000000000000000000111111111111111111111000000011100011110000100000000000000000',
+        '00000000000000000000000000000011111100000000000000011111111111111111111000000011000001100000100000000000000000',
+        '00000000000000000000000000000001111111100000000000000110111111111111111000000000000000000000000000000000000000',
+        '00000000000000000000000000000001111111111000000000000000001111111111110000000000000001110110000000000000000000',
+        '00000000000000000000000000000001111111111100000000000000001111111111100000000000000000111111110000000000000000',
+        '00000000000000000000000000000001111111111110000000000000000111111111000000000000000000011111111100000000000000',
+        '00000000000000000000000000000001111111111111000000000000000111111111000000000000000000011111110000000000000000',
+        '00000000000000000000000000000001111111111111000000000000000111111111000000000000000000001111100000000000000000',
+        '00000000000000000000000000000001111111111111000000000000000111111111000000000000000000000000000000000000000000',
+        '00000000000000000000000000000000111111111110000000000000000111111110100000000000000000000000000111100000000000',
+        '00000000000000000000000000000000011111111110000000000000000111111110110000000000000000000000011111100000000000',
+        '00000000000000000000000000000000011111111100000000000000000111111110110000000000000000000000111111110000000000',
+        '00000000000000000000000000000000011111111000000000000000000111111100110000000000000000000011111111111000000000',
+        '00000000000000000000000000000000011111111000000000000000000111111100100000000000000000000011111111111000000000',
+        '00000000000000000000000000000000001111110000000000000000000011111000000000000000000000000011111111111100000000',
+        '00000000000000000000000000000000001111100000000000000000000011110000000000000000000000000011111111111100000000',
+        '00000000000000000000000000000000001111000000000000000000000001100000000000000000000000000011110111111000000000',
+        '00000000000000000000000000000000011110000000000000000000000000000000000000000000000000000000000011111000000000',
+        '00000000000000000000000000000000011110000000000000000000000000000000000000000000000000000000000000110000000010',
+        '00000000000000000000000000000000011110000000000000000000000000000000000000000000000000000000000000000000000010',
+        '00000000000000000000000000000000011110000000000000000000000000000000000000000000000000000000000000000000000110',
+        '00000000000000000000000000000000011110000000000000000000000000000000000000000000000000000000000000000000000000',
+        '00000000000000000000000000000000011100000000000000000000000000000000000000000000000000000000000000000000000000',
+        '00000000000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000',
+        '00000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000',
+        '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000',
+      ]
+    };
+
+    const COUNTRY_CENTROIDS = {
+      'Bangladesh': [23.8, 90.4], 'Brazil': [-23.5, -46.6], 'Cambodia': [11.5, 104.9],
+      'Canada': [43.7, -79.4], 'China': [31.2, 121.5], 'Colombia': [4.7, -74.1],
+      'Dominican Republic': [18.5, -69.9], 'Egypt': [30.0, 31.2], 'El Salvador': [13.7, -89.2],
+      'France': [48.9, 2.3], 'Germany': [52.5, 13.4], 'Guatemala': [14.6, -90.5],
+      'Haiti': [18.6, -72.3], 'Honduras': [14.1, -87.2], 'India': [19.1, 72.9],
+      'Indonesia': [-6.2, 106.8], 'Italy': [41.9, 12.5], 'Japan': [35.7, 139.7],
+      'Jordan': [31.9, 35.9], 'Malaysia': [3.1, 101.7], 'Mexico': [19.4, -99.1],
+      'Morocco': [33.6, -7.6], 'Myanmar': [16.8, 96.2], 'Nicaragua': [12.1, -86.3],
+      'Pakistan': [24.9, 67.0], 'Peru': [-12.0, -77.0], 'Philippines': [14.6, 121.0],
+      'Portugal': [38.7, -9.1], 'South Korea': [37.6, 127.0], 'Spain': [40.4, -3.7],
+      'Sri Lanka': [6.9, 79.9], 'Taiwan': [25.0, 121.6], 'Thailand': [13.8, 100.5],
+      'Tunisia': [36.8, 10.2], 'Turkey': [41.0, 28.9], 'United Kingdom': [51.5, -0.1],
+      'United States': [39.8, -98.6], 'Vietnam': [21.0, 105.8]
+    };
+
+    const MAP_DOT_SPACING = 8;
+    const MAP_W = WORLD_GRID.cols * MAP_DOT_SPACING;
+    const MAP_H = WORLD_GRID.rows * MAP_DOT_SPACING;
+
     const state = {
       poRows: [],
       lineRows: [],
@@ -666,6 +802,7 @@
       productRows: [],
       shipments: [],
       shipmentLines: [],
+      factories: [],
       shipDrawerPoId: null,
       scope: 'open',
       shipDrawerExpandedGroups: new Set()
@@ -704,7 +841,13 @@
       shipDrawerTitle: document.getElementById('shipDrawerTitle'),
       shipDrawerBody: document.getElementById('shipDrawerBody'),
       shipDrawerClose: document.getElementById('shipDrawerClose'),
-      shipAddBtn: document.getElementById('shipAddBtn')
+      shipAddBtn: document.getElementById('shipAddBtn'),
+
+      mapSvgWrap: document.getElementById('mapSvgWrap'),
+      mapDots: document.getElementById('mapDots'),
+      mapPins: document.getElementById('mapPins'),
+      mapTooltip: document.getElementById('mapTooltip'),
+      mapUnmapped: document.getElementById('mapUnmapped')
     };
 
     function money(v){
@@ -794,6 +937,12 @@
       state.poRows = poData || [];
       state.lineRows = (lineData || []).filter(r => r.po_line_id);
 
+      const { data: factoryData, error: factoryError } = await sb
+        .from('factories')
+        .select('id, factory_name, country');
+      if(factoryError) throw factoryError;
+      state.factories = factoryData || [];
+
       await loadShipments();
 
       populateFilters();
@@ -814,6 +963,7 @@
 
       state.shipments = shipData || [];
       state.shipmentLines = shipLineData || [];
+      renderShipmentMap();
     }
 
     function shipmentsForPO(poId){
@@ -830,6 +980,131 @@
         .map(sl => state.shipments.find(s => String(s.id) === String(sl.shipment_id)))
         .filter(Boolean);
       return rows;
+    }
+
+    function projectPoint(lat, lng){
+      const x = (lng - WORLD_GRID.lngMin) / (WORLD_GRID.lngMax - WORLD_GRID.lngMin) * MAP_W;
+      const y = (WORLD_GRID.latMax - lat) / (WORLD_GRID.latMax - WORLD_GRID.latMin) * MAP_H;
+      return [x, y];
+    }
+
+    function renderMapDots(){
+      let dots = '';
+      for(let r = 0; r < WORLD_GRID.rows; r++){
+        const row = WORLD_GRID.data[r];
+        for(let c = 0; c < WORLD_GRID.cols; c++){
+          if(row[c] !== '1') continue;
+          const x = c * MAP_DOT_SPACING + MAP_DOT_SPACING / 2;
+          const y = r * MAP_DOT_SPACING + MAP_DOT_SPACING / 2;
+          dots += `<circle cx="${x}" cy="${y}" r="1.6" fill="#cbd5e1" />`;
+        }
+      }
+      el.mapDots.innerHTML = dots;
+    }
+
+    const MAP_STATUS_COLOR = {
+      'Not Shipped': '#94a3b8', 'Booked': '#6366f1', 'Shipped': '#6366f1',
+      'In Transit': '#6366f1', 'Delayed': '#ef4444', 'Delivered': '#16a34a', 'Received': '#16a34a'
+    };
+    const MAP_STATUS_PRIORITY = ['Delayed', 'In Transit', 'Shipped', 'Booked', 'Not Shipped', 'Delivered', 'Received'];
+
+    function pickRepresentativeStatus(statuses){
+      for(const st of MAP_STATUS_PRIORITY){
+        if(statuses.includes(st)) return st;
+      }
+      return statuses[0] || 'Not Shipped';
+    }
+
+    function factoryCountryFor(poHeaderId){
+      const po = state.poRows.find(p => String(p.id) === String(poHeaderId));
+      if(!po || !po.factory_id) return null;
+      const factory = state.factories.find(f => String(f.id) === String(po.factory_id));
+      return factory?.country || null;
+    }
+
+    function renderShipmentMap(){
+      if(!el.mapPins) return;
+
+      const groups = new Map();
+      const unmapped = [];
+
+      for(const s of state.shipments){
+        const po = state.poRows.find(p => String(p.id) === String(s.po_header_id));
+        const country = factoryCountryFor(s.po_header_id);
+        const centroid = country ? COUNTRY_CENTROIDS[country] : null;
+
+        if(!centroid){
+          unmapped.push({ shipment: s, po, country });
+          continue;
+        }
+
+        if(!groups.has(country)){
+          groups.set(country, { country, lat: centroid[0], lng: centroid[1], items: [] });
+        }
+        groups.get(country).items.push({ shipment: s, po });
+      }
+
+      el.mapPins.innerHTML = [...groups.values()].map(g => {
+        const [x, y] = projectPoint(g.lat, g.lng);
+        const statuses = g.items.map(it => it.shipment.shipment_status);
+        const repStatus = pickRepresentativeStatus(statuses);
+        const color = MAP_STATUS_COLOR[repStatus] || '#94a3b8';
+        const count = g.items.length;
+        const isDelayed = repStatus === 'Delayed';
+
+        return `
+          <g class="map-pin" data-country="${escapeHtml(g.country)}">
+            ${isDelayed ? `<circle class="pin-pulse" cx="${x}" cy="${y}" r="11" fill="${color}"><animate attributeName="r" values="7;13;7" dur="1.8s" repeatCount="indefinite" /><animate attributeName="opacity" values=".35;0;.35" dur="1.8s" repeatCount="indefinite" /></circle>` : ''}
+            <circle class="pin-dot" cx="${x}" cy="${y}" r="7" fill="${color}" stroke="#fff" stroke-width="1.6" />
+            ${count > 1 ? `<text x="${x}" y="${y + 2.6}" text-anchor="middle">${count}</text>` : ''}
+          </g>
+        `;
+      }).join('');
+
+      el.mapPins.querySelectorAll('.map-pin').forEach(pinEl => {
+        const country = pinEl.dataset.country;
+        const group = groups.get(country);
+        pinEl.addEventListener('mouseenter', (e) => showMapTooltip(e, group));
+        pinEl.addEventListener('mousemove', (e) => positionMapTooltip(e));
+        pinEl.addEventListener('mouseleave', hideMapTooltip);
+      });
+
+      if(!groups.size && !unmapped.length){
+        el.mapPins.innerHTML = '';
+      }
+
+      if(unmapped.length){
+        const missingFactories = [...new Set(unmapped.map(u => u.po?.factory_name).filter(Boolean))];
+        el.mapUnmapped.classList.remove('hidden-safe');
+        el.mapUnmapped.innerHTML = `
+          <span>${unmapped.length} shipment${unmapped.length === 1 ? '' : 's'} not shown — factory country not set${missingFactories.length ? ' (' + escapeHtml(missingFactories.slice(0,4).join(', ')) + (missingFactories.length > 4 ? ', …' : '') + ')' : ''}.</span>
+          <a href="/pages/factories.html" target="_blank" rel="noopener">Set factory countries →</a>
+        `;
+      } else {
+        el.mapUnmapped.classList.add('hidden-safe');
+        el.mapUnmapped.innerHTML = '';
+      }
+    }
+
+    function showMapTooltip(e, group){
+      if(!group) return;
+      const rows = group.items.slice(0, 6).map(it => `
+        <div class="map-tooltip-row">${statusBadge(it.shipment.shipment_status)} ${escapeHtml(it.po?.po_name || 'Untitled PO')}${it.shipment.tracking_number ? ' · ' + escapeHtml(it.shipment.tracking_number) : ''}</div>
+      `).join('');
+      const more = group.items.length > 6 ? `<div class="map-tooltip-row">+ ${group.items.length - 6} more</div>` : '';
+      el.mapTooltip.innerHTML = `<div class="map-tooltip-title">${escapeHtml(group.country)}</div>${rows}${more}`;
+      el.mapTooltip.classList.remove('hidden-safe');
+      positionMapTooltip(e);
+    }
+
+    function positionMapTooltip(e){
+      const wrapRect = el.mapSvgWrap.getBoundingClientRect();
+      el.mapTooltip.style.left = `${e.clientX - wrapRect.left}px`;
+      el.mapTooltip.style.top = `${e.clientY - wrapRect.top}px`;
+    }
+
+    function hideMapTooltip(){
+      el.mapTooltip.classList.add('hidden-safe');
     }
 
     function populateFilters(){
@@ -1523,6 +1798,8 @@
         supabaseClient: sb,
       });
     }
+    renderMapDots();
+
     boot().catch(e => {
       console.error(e);
       alert(e.message || 'Initial load failed');
