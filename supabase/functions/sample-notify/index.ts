@@ -15,15 +15,19 @@
 // resolved at send time rather than hardcoded, so the list stays correct
 // as staff changes.
 //
-// When there's an assignee, they're also DMed on Slack (in addition to,
-// not instead of, the existing #samples-channel webhook post below — that
-// channel is a separate, optional team-wide feed). There's no stored Slack
-// user id anywhere in this repo, so the DM is resolved the same way the
-// email is: by the assignee's SILO email, via Slack's
-// users.lookupByEmail — this only works if that address matches a real
-// account in the Baseballism Slack workspace. Silently skipped (no error)
-// if SLACK_BOT_TOKEN is unset or the lookup/open/post fails, same
-// optional-secret posture as RESEND_API_KEY / SLACK_SAMPLES_WEBHOOK_URL.
+// When there's an assignee, they're also DMed on Slack, in addition to the
+// #samples-channel post — except for SAMPLE_ASSIGNED itself, which is
+// DM+email only and never posted to the channel. Confirmed live: who a
+// sample got routed to reads as a private/internal detail, not something
+// to announce to the whole channel, whereas the sample's actual lifecycle
+// (requested, received, ready, sizes needed) is genuinely team-relevant
+// and broadcasts regardless of assignment. There's no stored Slack user id
+// anywhere in this repo, so the DM is resolved the same way the email is:
+// by the assignee's SILO email, via Slack's users.lookupByEmail — this
+// only works if that address matches a real account in the Baseballism
+// Slack workspace. Silently skipped (no error) if SLACK_BOT_TOKEN is unset
+// or the lookup/open/post fails, same optional-secret posture as
+// RESEND_API_KEY / SLACK_SAMPLES_WEBHOOK_URL.
 //
 // Every attempt is also logged to sample_notification_log (20260818150000)
 // — this trigger's net.http_post is fire-and-forget from Postgres, so
@@ -354,9 +358,18 @@ Deno.serve(async (req: Request) => {
       slackText = `:straight_ruler: *Sizes requested* — ${title}${ref}: *${record.size_requests}*\n${link}`;
     }
 
+    // Every event type posts to the channel regardless of assignment,
+    // EXCEPT SAMPLE_ASSIGNED — who a sample got routed to is confirmed to
+    // be a private/internal detail, not something to announce to the
+    // whole #samples channel, so that one event is DM+email only. Every
+    // other event (requested, received, ready, size-request) still
+    // broadcasts to the channel even when there's an assignee — the
+    // assignee's personal DM is additional reach, not a replacement.
     const [emailResult, slackResult, slackDmResult] = await Promise.all([
       sendEmail(toEmails, subject, html),
-      sendSlack(slackText),
+      type === 'SAMPLE_ASSIGNED'
+        ? Promise.resolve<SendResult>({ sent: false, reason: 'assignment kept private — DM/email only' })
+        : sendSlack(slackText),
       sendSlackDM(assigneeEmail, slackText),
     ]);
 
