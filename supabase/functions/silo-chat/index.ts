@@ -56,9 +56,9 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - sales_by_day(day_date, location_tag, total_net_sales, total_refunds, total_gross_sales, total_quantity_sold, product_type, sku, ...) -- daily sales rollup by location/SKU
 - sales_by_day_verification_v -- de-duped view over sales_by_day (prefers shopify_api source)
 - sales_monthly_location_rollup_v / sales_sku_location_rollup_v / sales_velocity_by_sku_location_v -- pre-aggregated sales rollups, faster than grouping sales_by_day yourself for monthly/SKU-level questions
-- inventory_on_hand / inventory_workboard_v -- current inventory by SKU/location, with sell-through metrics
-- products_master -- product catalog (title, product_type, vendor, cost, reorder points)
-- po_headers / po_lines / v_po_header_summary / v_open_pos / incoming_shipments -- purchase orders and inbound shipment tracking
+- inventory_on_hand / inventory_workboard_v -- current inventory by SKU/location, with sell-through metrics. The SKU column here is called variant_sku, not sku
+- products_master -- product catalog. Real columns: sku, product_title, variant_title, product_type, vendor_original (not vendor), category, subcategory, department, unit_cost (not cost), msrp, reorder_point_units, is_active, is_discontinued, lifecycle_status. category and product_type are always identical (100% match across every row, fully redundant) -- use either, don't waste a round checking both. department is sparse (~7% populated) -- don't rely on it for filtering. category/product_type hold granular values (e.g. "Youth Cap", "Youth Jacket"), not just broad buckets -- match a broad group with ilike 'Youth%' rather than an exact = 'Youth', which will under-match
+- po_headers / po_lines / v_po_header_summary / v_open_pos / incoming_shipments -- purchase orders and inbound shipment tracking. po_lines joins to po_headers on po_lines.po_header_id = po_headers.id (not po_id)
 - po_costing / po_costing_lines / v_po_costing_summary -- landed cost
 - factories -- supplier/factory directory
 - payment_requests / payment_requests_v -- AP requests and status
