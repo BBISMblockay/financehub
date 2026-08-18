@@ -121,34 +121,38 @@
     .status-Booked{background:#eff6ff;color:#1d4ed8}.status-Booked .status-dot{background:#3b82f6}
     .status-Delayed{background:#fef2f2;color:#991b1b}.status-Delayed .status-dot{background:#ef4444}
     .status-Delivered{background:#f0fdf4;color:#166534}.status-Delivered .status-dot{background:#16a34a}
+    .status-badge.is-clickable{cursor:pointer;border:1px solid transparent}
+    .status-badge.is-clickable:hover{filter:brightness(.96)}
     .table-wrap{
       overflow:auto;
-      border-radius:9px;
-      border:1px solid rgba(15,23,42,.06);
+      border-radius:14px;
+      border:1px solid rgba(15,23,42,.07);
       background:white;
+      box-shadow:0 1px 2px rgba(15,23,42,.03);
     }
     .sticky-head thead th{
       position:sticky;
       top:0;
       z-index:2;
-      background:#f8fafc;
+      background:#fbfcfe;
+      box-shadow:0 1px 0 rgba(15,23,42,.07);
     }
     th{
-      padding:6px 7px;
+      padding:10px 12px;
       font-size:.58rem;
       text-transform:uppercase;
-      letter-spacing:.095em;
-      color:#64748b;
+      letter-spacing:.1em;
+      color:#94a3b8;
       font-weight:800;
-      border-bottom:1px solid rgba(15,23,42,.08);
       white-space:nowrap;
     }
     td{
-      padding:5px 7px;
-      border-bottom:1px solid rgba(15,23,42,.055);
+      padding:9px 12px;
+      border-top:1px solid rgba(15,23,42,.045);
       vertical-align:middle;
-      font-size:.70rem;
+      font-size:.72rem;
     }
+    tbody tr{transition:background .1s ease}
     tbody tr:hover{background:#f8fafc}
     .right{text-align:right}
     .kpi-title{
@@ -188,64 +192,115 @@
     .v2-classic-bar a { color: #4f46e5; font-weight: 700; text-decoration: none; }
     .bcn-header-sub { display: none; }
     .bcn-header { padding-top: 8px; padding-bottom: 8px; }
-    .bcn-kpi-band { padding-top: 4px; padding-bottom: 4px; }
-    .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
-    .bcn-kpi-value { font-size: 15px !important; }
+
+    /* ─── Stat cards (KPI band) ─────────────────────────────────── */
+    .bcn-kpi-band {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      background: transparent;
+      border: none;
+      padding: 4px 0 0;
+    }
+    .bcn-kpi {
+      background: #fff;
+      border: 1px solid rgba(15,23,42,.07);
+      border-radius: 14px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 2px rgba(15,23,42,.03);
+      transition: box-shadow .15s ease, transform .15s ease;
+    }
+    .bcn-kpi:hover { box-shadow: 0 6px 16px rgba(15,23,42,.08); transform: translateY(-1px); }
+    .bcn-kpi-label { font-size: .56rem; letter-spacing: .14em; color: #94a3b8; font-weight: 800; text-transform: uppercase; }
+    .bcn-kpi-value { font-size: 17px !important; margin-top: 3px; letter-spacing: -.02em; }
     .bcn-kpi-delta { display: none; }
 
     /* ─── Report layout v2 ──────────────────────────────────────── */
+    .po-report-main { display: flex; flex-direction: column; gap: 12px; }
     .rpt-filter-strip {
       display: flex;
       flex-wrap: wrap;
       align-items: flex-end;
-      gap: 8px;
-      padding: 10px 12px;
-      background: rgba(255,255,255,.92);
-      border: 1px solid rgba(15,23,42,.08);
-      border-radius: 10px;
+      gap: 10px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,.94);
+      border: 1px solid rgba(15,23,42,.07);
+      border-radius: 16px;
+      box-shadow: 0 1px 2px rgba(15,23,42,.03);
     }
     .rpt-filter-field {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 3px;
       min-width: 0;
     }
-    .rpt-filter-field--search { flex: 1 1 180px; }
+    .rpt-filter-field--search { flex: 1 1 200px; }
     .rpt-filter-field--sel    { flex: 0 1 130px; }
     .rpt-filter-field--date   { flex: 0 1 112px; }
+    .rpt-filter-field--scope  { flex: 1 1 340px; }
     .rpt-filter-field input,
-    .rpt-filter-field select  { width: 100%; min-width: 0; }
+    .rpt-filter-field select  { width: 100%; min-width: 0; border-radius: 10px; }
+
+    /* Segmented control (Scope filter) */
+    .seg-control {
+      display: inline-flex;
+      padding: 3px;
+      background: #f1f5f9;
+      border-radius: 10px;
+      gap: 2px;
+      width: 100%;
+    }
+    .seg-btn {
+      flex: 1;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      padding: .38rem .5rem;
+      font-size: .66rem;
+      font-weight: 700;
+      color: #64748b;
+      cursor: pointer;
+      white-space: nowrap;
+      text-align: center;
+      transition: background .12s ease, color .12s ease, box-shadow .12s ease;
+    }
+    .seg-btn:hover { color: #0f172a; }
+    .seg-btn.active { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+
+    /* Pill tabs */
     .rpt-tabs {
-      display: flex;
-      align-items: flex-end;
-      border-bottom: 2px solid rgba(15,23,42,.09);
-      gap: 0;
+      display: inline-flex;
+      align-items: center;
+      background: #eef1f6;
+      border-radius: 12px;
+      padding: 4px;
+      gap: 2px;
+      width: fit-content;
     }
     .rpt-tab {
       display: flex;
       align-items: center;
       gap: 7px;
-      padding: 8px 16px;
+      padding: 7px 14px;
+      border-radius: 9px;
       font-size: .64rem;
       font-weight: 800;
-      letter-spacing: .09em;
+      letter-spacing: .05em;
       text-transform: uppercase;
       color: #64748b;
       background: none;
       border: none;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
       cursor: pointer;
       white-space: nowrap;
-      transition: color .12s;
+      transition: background .12s ease, color .12s ease, box-shadow .12s ease;
     }
     .rpt-tab:hover { color: #0f172a; }
-    .rpt-tab.active { color: #0f172a; border-bottom-color: #0f172a; }
+    .rpt-tab.active { color: #0f172a; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.1); }
     .rpt-tab-count {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 22px;
+      min-width: 20px;
       padding: 1px 6px;
       border-radius: 999px;
       font-size: .58rem;
@@ -258,42 +313,114 @@
     .rpt-panel { display: none; }
     .rpt-panel.active { display: block; }
 
+    /* ─── PO card list (replaces the PO Summary table) ──────────── */
+    .po-list { display: flex; flex-direction: column; gap: 10px; }
+    .po-card {
+      background: #fff;
+      border: 1px solid rgba(15,23,42,.07);
+      border-radius: 16px;
+      padding: 14px 16px;
+      box-shadow: 0 1px 2px rgba(15,23,42,.03);
+      transition: box-shadow .15s ease, border-color .15s ease;
+    }
+    .po-card:hover { box-shadow: 0 6px 20px rgba(15,23,42,.07); border-color: rgba(15,23,42,.1); }
+    .po-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .po-card-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .po-card-name { font-size: .92rem; font-weight: 900; letter-spacing: -.01em; color: #0f172a; }
+    .po-card-factory { font-size: .68rem; color: #64748b; font-weight: 600; }
+    .po-card-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+    .po-timeline { display: flex; align-items: center; margin: 14px 0 12px; }
+    .po-tl-step { display: flex; flex-direction: column; gap: 2px; min-width: 84px; }
+    .po-tl-step-head { display: flex; align-items: center; gap: 6px; }
+    .po-tl-dot { width: 8px; height: 8px; border-radius: 999px; background: #cbd5e1; flex: none; }
+    .po-tl-step.is-set .po-tl-dot { background: #0f172a; }
+    .po-tl-label { font-size: .55rem; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: #94a3b8; }
+    .po-tl-date { font-size: .72rem; font-weight: 700; color: #334155; margin-left: 14px; }
+    .po-tl-step.is-set .po-tl-date { color: #0f172a; }
+    .po-tl-line { flex: 1 1 24px; height: 1px; background: rgba(15,23,42,.12); margin: 0 6px 14px; min-width: 16px; }
+
+    .po-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid rgba(15,23,42,.055); border-bottom: 1px solid rgba(15,23,42,.055); }
+    .po-stat-label { display: block; font-size: .55rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; }
+    .po-stat-value { display: block; margin-top: 2px; font-size: .78rem; font-weight: 800; color: #0f172a; font-variant-numeric: tabular-nums; }
+
+    .po-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    .icon-btn { display: inline-flex; align-items: center; gap: 6px; }
+    .icon-btn svg { width: 13px; height: 13px; flex: none; }
+    .empty-state { padding: 48px 16px; text-align: center; color: #94a3b8; font-size: .78rem; background: #fff; border: 1px dashed rgba(15,23,42,.14); border-radius: 16px; }
+
     /* ─── Shipments drawer ──────────────────────────────────────── */
     .ship-drawer-backdrop {
       position: fixed; inset: 0; z-index: 60;
+      background: rgba(15,23,42,.38);
+      backdrop-filter: blur(2px);
     }
     .ship-drawer {
       position: fixed; top: 0; right: 0; bottom: 0; z-index: 61;
-      width: min(600px, 100vw);
-      background: #fff;
-      border-left: 1px solid rgba(15,23,42,.10);
-      box-shadow: -12px 0 32px rgba(15,23,42,.14);
+      width: min(640px, 100vw);
+      background: #f8fafc;
+      border-left: 1px solid rgba(15,23,42,.08);
+      box-shadow: -16px 0 40px rgba(15,23,42,.16);
       display: flex; flex-direction: column;
     }
     .ship-drawer-head {
       display: flex; align-items: flex-start; justify-content: space-between;
-      gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(15,23,42,.08);
+      gap: 10px; padding: 16px 18px; border-bottom: 1px solid rgba(15,23,42,.07);
+      background: #fff;
     }
-    .ship-drawer-head h3 { margin: 2px 0 0; font-size: .95rem; }
-    .ship-drawer-body { flex: 1; overflow: auto; padding: 14px 16px; }
-    .ship-status { margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; font-size: .68rem; font-weight: 700; }
+    .ship-drawer-head h3 { margin: 2px 0 0; font-size: 1rem; letter-spacing: -.01em; }
+    .ship-drawer-body { flex: 1; overflow: auto; padding: 16px 18px; }
+    .ship-status { margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; font-size: .7rem; font-weight: 600; }
     .ship-status--info { background: #eff6ff; color: #1d4ed8; }
     .ship-status--error { background: #fef2f2; color: #991b1b; }
     .ship-card {
-      border: 1px solid rgba(15,23,42,.09); border-radius: 10px;
-      padding: 10px 12px; margin-bottom: 10px; background: #f8fafc;
+      border: 1px solid rgba(15,23,42,.08); border-radius: 16px;
+      padding: 14px 16px; margin-bottom: 14px; background: #fff;
+      box-shadow: 0 1px 2px rgba(15,23,42,.03);
     }
-    .ship-card-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-    .ship-card-row > div { flex: 1 1 130px; min-width: 0; }
-    .ship-card-row input, .ship-card-row select, .ship-card-row textarea { width: 100%; }
-    .ship-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
-    .ship-lines { border-top: 1px dashed rgba(15,23,42,.14); margin-top: 8px; padding-top: 8px; }
-    .ship-line-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: .68rem; }
-    .ship-line-row .sl-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ship-line-row input[type="number"] { width: 70px; height: 24px; font-size: .66rem; padding: .2rem .35rem; }
-    .ship-add-line { display: flex; gap: 6px; margin-top: 6px; }
-    .ship-add-line select { flex: 1; }
-    .ship-unassigned { font-size: .66rem; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 8px; margin-top: 10px; }
+
+    /* Status stepper */
+    .ship-stepper { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }
+    .step-chip {
+      border: 1px solid rgba(15,23,42,.09); background: #f8fafc; color: #64748b;
+      border-radius: 999px; padding: .3rem .6rem; font-size: .62rem; font-weight: 700;
+      cursor: pointer; white-space: nowrap; transition: .12s ease;
+    }
+    .step-chip:hover { border-color: rgba(15,23,42,.2); color: #0f172a; }
+    .step-chip.is-active { background: #0f172a; color: #fff; border-color: #0f172a; }
+    .step-chip.is-active[data-status="Delayed"] { background: #dc2626; border-color: #dc2626; }
+
+    .ship-field-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+    .ship-field-label { display: flex; align-items: center; gap: 5px; margin-bottom: .18rem; font-size: .56rem; font-weight: 800; text-transform: uppercase; letter-spacing: .12em; color: #94a3b8; }
+    .ship-field-label svg { width: 11px; height: 11px; color: #94a3b8; }
+    .ship-field-grid input { width: 100%; }
+    .ship-notes-row { margin-bottom: 4px; }
+    .ship-notes-row input { width: 100%; }
+
+    .ship-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(15,23,42,.06); }
+
+    /* Product picker */
+    .ship-products { border-top: 1px dashed rgba(15,23,42,.14); margin-top: 12px; padding-top: 12px; }
+    .ship-products-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .pick-list { max-height: 320px; overflow: auto; border: 1px solid rgba(15,23,42,.07); border-radius: 12px; background: #fbfcfe; }
+    .pick-group + .pick-group { border-top: 1px solid rgba(15,23,42,.06); }
+    .pick-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; }
+    .pick-row--parent { background: #f8fafc; font-weight: 700; }
+    .pick-row--parent:hover { background: #f1f5f9; }
+    .pick-row-label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; }
+    .pick-row--child { padding-left: 30px; font-weight: 500; cursor: pointer; }
+    .pick-row--child:hover { background: #f8fafc; }
+    .pick-chevron { background: none; border: none; cursor: pointer; color: #94a3b8; font-size: .74rem; width: 18px; height: 18px; flex: none; padding: 0; }
+    .pick-chevron:hover { color: #0f172a; }
+    .pick-check { flex: none; width: 14px; height: 14px; margin: 0; }
+    .pick-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; color: #0f172a; }
+    .pick-sku { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .68rem; color: #334155; }
+    .pick-meta { font-size: .6rem; color: #94a3b8; white-space: nowrap; flex: none; }
+    .pick-count { font-size: .6rem; font-weight: 800; color: #94a3b8; background: rgba(15,23,42,.06); border-radius: 999px; padding: .1rem .42rem; flex: none; }
+    .pick-count--partial { background: #fef3c7; color: #92400e; }
+    .pick-count--full { background: #dcfce7; color: #166534; }
+    .pick-qty { width: 62px; height: 22px; font-size: .64rem; padding: .15rem .3rem; flex: none; }
+    .ship-unassigned { font-size: .68rem; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 10px 12px; margin-top: 12px; line-height: 1.5; }
   </style>
 </head>
 
@@ -381,14 +508,14 @@
             <label class="bcn-label">Arrival to</label>
             <input id="arrivalTo" class="bcn-field bcn-field--mono" type="date" />
           </div>
-          <div class="rpt-filter-field rpt-filter-field--sel">
+          <div class="rpt-filter-field rpt-filter-field--scope">
             <label class="bcn-label">Scope</label>
-            <select id="scopeFilter" class="bcn-field bcn-field--mono">
-              <option value="open">Open incoming only</option>
-              <option value="all">All POs</option>
-              <option value="production">Production statuses</option>
-              <option value="arriving">Has expected arrival</option>
-            </select>
+            <div class="seg-control" id="scopeSeg">
+              <button type="button" class="seg-btn active" data-scope="open">Open incoming</button>
+              <button type="button" class="seg-btn" data-scope="all">All POs</button>
+              <button type="button" class="seg-btn" data-scope="production">Production</button>
+              <button type="button" class="seg-btn" data-scope="arriving">Arriving</button>
+            </div>
           </div>
         </div>
 
@@ -407,36 +534,7 @@
 
         <!-- PO Summary panel -->
         <div class="rpt-panel active" data-panel="pos">
-          <section class="bcn-card po-report-card">
-            <header class="bcn-card-header">
-              <span class="bcn-pill bcn-pill--accent">POs</span>
-              <h2>PO summary</h2>
-            </header>
-            <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
-              <table class="min-w-[1120px] w-full border-separate border-spacing-0">
-                <thead>
-                  <tr>
-                    <th class="text-left">PO</th>
-                    <th class="text-left">Factory</th>
-                    <th class="text-left">Status</th>
-                    <th class="text-left">Bucket</th>
-                    <th class="text-left">Order</th>
-                    <th class="text-left">Req Ship</th>
-                    <th class="text-left">Expected</th>
-                    <th class="right">Lines</th>
-                    <th class="right">Styles</th>
-                    <th class="right">Units</th>
-                    <th class="right">Retail</th>
-                    <th class="right">Cost</th>
-                    <th class="right">Spread</th>
-                    <th class="text-left">Shipments</th>
-                    <th class="text-left">Open</th>
-                  </tr>
-                </thead>
-                <tbody id="poTbody"></tbody>
-              </table>
-            </div>
-          </section>
+          <div class="po-list" id="poTbody"></div>
         </div>
 
         <!-- Products panel -->
@@ -554,6 +652,12 @@
 
     const SHIPMENT_STATUSES = ['Not Shipped','Booked','Shipped','In Transit','Delayed','Delivered','Received'];
 
+    const ICON_PACKAGE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>';
+    const ICON_ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>';
+    const ICON_TRUCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h13v13H1z"/><path d="M14 8h4l4 4v4h-8V8z"/><circle cx="5.5" cy="18.5" r="1.8"/><circle cx="16.5" cy="18.5" r="1.8"/></svg>';
+    const ICON_TAG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L11 3.83A2 2 0 009.59 3.24L3 3v6.59a2 2 0 00.59 1.41l9.58 9.58a2 2 0 002.83 0l4.59-4.59a2 2 0 000-2.83z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></svg>';
+    const ICON_CALENDAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
+
     const state = {
       poRows: [],
       lineRows: [],
@@ -562,7 +666,9 @@
       productRows: [],
       shipments: [],
       shipmentLines: [],
-      shipDrawerPoId: null
+      shipDrawerPoId: null,
+      scope: 'open',
+      shipDrawerExpandedGroups: new Set()
     };
 
     const el = {
@@ -572,7 +678,7 @@
       bucketFilter: document.getElementById('bucketFilter'),
       arrivalFrom: document.getElementById('arrivalFrom'),
       arrivalTo: document.getElementById('arrivalTo'),
-      scopeFilter: document.getElementById('scopeFilter'),
+      scopeSeg: document.getElementById('scopeSeg'),
 
       btnRefresh: document.getElementById('btnRefresh'),
       btnExportPOs: document.getElementById('btnExportPOs'),
@@ -646,7 +752,7 @@
     }
 
     function matchesScope(row){
-      const scope = el.scopeFilter.value;
+      const scope = state.scope;
       if(scope === 'all') return true;
       if(scope === 'open') return isOpenStatus(row.status);
       if(scope === 'production') return PRODUCTION_STATUSES.has(row.status);
@@ -838,7 +944,7 @@
       el.poTableCount.textContent = state.filteredPOs.length.toLocaleString();
 
       if(!state.filteredPOs.length){
-        el.poTbody.innerHTML = `<tr><td colspan="15" class="py-10 text-center text-slate-500">No purchase orders match the current filters.</td></tr>`;
+        el.poTbody.innerHTML = `<div class="empty-state">No purchase orders match the current filters.</div>`;
         return;
       }
 
@@ -846,29 +952,52 @@
         const shipments = shipmentsForPO(r.id);
         const shipLabel = shipments.length
           ? `${shipments.length} shipment${shipments.length === 1 ? '' : 's'}`
-          : 'None yet';
+          : 'Log a shipment';
+
         return `
-        <tr>
-          <td class="font-extrabold text-slate-900">${escapeHtml(r.po_name || '—')}</td>
-          <td>${escapeHtml(r.factory_name || '—')}</td>
-          <td>${statusBadge(r.status)}</td>
-          <td>${escapeHtml(r.date_bucket || '—')}</td>
-          <td>${dateLabel(r.order_date)}</td>
-          <td>${dateLabel(r.req_ship_date)}</td>
-          <td>${dateLabel(r.expected_arrival_date)}</td>
-          <td class="right">${num(r.line_count).toLocaleString()}</td>
-          <td class="right">${num(r.style_count).toLocaleString()}</td>
-          <td class="right font-bold">${num(r.total_units).toLocaleString()}</td>
-          <td class="right font-bold">${money(r.total_retail_value)}</td>
-          <td class="right font-bold">${money(r.total_estimated_cost)}</td>
-          <td class="right">${money(r.retail_cost_spread)}</td>
-          <td>
-            <button class="pill hover:bg-slate-50" type="button" data-ship-po="${escapeHtml(r.id)}">${escapeHtml(shipLabel)}</button>
-          </td>
-          <td>
-            <a class="pill hover:bg-slate-50" href="/v2/po-builder.html?po_id=${encodeURIComponent(r.id)}" title="Open in v2 PO builder">Builder</a>
-          </td>
-        </tr>
+        <article class="po-card">
+          <div class="po-card-top">
+            <div class="po-card-id">
+              <span class="po-card-name">${escapeHtml(r.po_name || 'Untitled PO')}</span>
+              <span class="po-card-factory">${escapeHtml(r.factory_name || 'No factory')}</span>
+            </div>
+            <div class="po-card-badges">
+              ${r.date_bucket ? `<span class="pill">${escapeHtml(r.date_bucket)}</span>` : ''}
+              ${statusBadge(r.status)}
+            </div>
+          </div>
+
+          <div class="po-timeline">
+            <div class="po-tl-step ${r.order_date ? 'is-set' : ''}">
+              <div class="po-tl-step-head"><span class="po-tl-dot"></span><span class="po-tl-label">Ordered</span></div>
+              <span class="po-tl-date">${dateLabel(r.order_date)}</span>
+            </div>
+            <div class="po-tl-line"></div>
+            <div class="po-tl-step ${r.req_ship_date ? 'is-set' : ''}">
+              <div class="po-tl-step-head"><span class="po-tl-dot"></span><span class="po-tl-label">Req. ship</span></div>
+              <span class="po-tl-date">${dateLabel(r.req_ship_date)}</span>
+            </div>
+            <div class="po-tl-line"></div>
+            <div class="po-tl-step ${r.expected_arrival_date ? 'is-set' : ''}">
+              <div class="po-tl-step-head"><span class="po-tl-dot"></span><span class="po-tl-label">Expected</span></div>
+              <span class="po-tl-date">${dateLabel(r.expected_arrival_date)}</span>
+            </div>
+          </div>
+
+          <div class="po-stats">
+            <div><span class="po-stat-label">Lines</span><span class="po-stat-value">${num(r.line_count).toLocaleString()}</span></div>
+            <div><span class="po-stat-label">Styles</span><span class="po-stat-value">${num(r.style_count).toLocaleString()}</span></div>
+            <div><span class="po-stat-label">Units</span><span class="po-stat-value">${num(r.total_units).toLocaleString()}</span></div>
+            <div><span class="po-stat-label">Retail</span><span class="po-stat-value">${money(r.total_retail_value)}</span></div>
+            <div><span class="po-stat-label">Cost</span><span class="po-stat-value">${money(r.total_estimated_cost)}</span></div>
+            <div><span class="po-stat-label">Spread</span><span class="po-stat-value">${money(r.retail_cost_spread)}</span></div>
+          </div>
+
+          <div class="po-card-foot">
+            <button class="btn btn-secondary icon-btn" type="button" data-ship-po="${escapeHtml(r.id)}">${ICON_PACKAGE}${escapeHtml(shipLabel)}</button>
+            <a class="btn btn-secondary icon-btn" href="/v2/po-builder.html?po_id=${encodeURIComponent(r.id)}" title="Open in v2 PO builder">Open in Builder${ICON_ARROW}</a>
+          </div>
+        </article>
       `;
       }).join('');
     }
@@ -1006,74 +1135,98 @@
       setTimeout(() => banner.remove(), 4000);
     }
 
-    function renderShipLineRow(sl, poLines){
-      const line = poLines.find(l => String(l.po_line_id) === String(sl.po_line_id));
-      const label = line
-        ? `${line.sku || line.product_title || 'Untitled'}${line.variant_title ? ' — ' + line.variant_title : ''}`
-        : '(product no longer on this PO)';
+    function groupLinesByProduct(poLines){
+      const map = new Map();
+      for(const l of poLines){
+        const key = l.product_title || 'Untitled';
+        if(!map.has(key)) map.set(key, []);
+        map.get(key).push(l);
+      }
+      return [...map.entries()].map(([title, lines]) => ({ title, lines }));
+    }
+
+    function renderPickLineRow(shipmentId, line, checked){
+      const existing = checked ? shipmentLinesFor(shipmentId).find(sl => String(sl.po_line_id) === String(line.po_line_id)) : null;
+      const label = `${line.sku || 'No SKU'}${line.variant_title ? ' — ' + line.variant_title : ''}`;
       return `
-        <div class="ship-line-row">
-          <span class="sl-title" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-          <input type="number" min="0" step="1" placeholder="${line ? num(line.qty) : 'qty'}" value="${sl.qty ?? ''}" data-line-qty="${escapeHtml(sl.id)}" title="Qty in this shipment — blank means the full line qty" />
-          <button class="btn btn-secondary" style="padding:.2rem .4rem;color:#991b1b;" data-remove-line="${escapeHtml(sl.id)}" type="button">✕</button>
-        </div>
+        <label class="pick-row pick-row--child">
+          <input type="checkbox" class="pick-check" data-line-shipment="${escapeHtml(shipmentId)}" data-line-po-line="${escapeHtml(line.po_line_id)}" ${checked ? 'checked' : ''} />
+          <span class="pick-sku" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+          <span class="pick-meta">qty ${num(line.qty).toLocaleString()}</span>
+          ${checked ? `<input type="number" min="0" step="1" class="pick-qty" value="${existing?.qty ?? ''}" placeholder="${num(line.qty)}" data-line-qty="${escapeHtml(existing?.id || '')}" title="Qty in this shipment — blank means the full line qty" onclick="event.stopPropagation()" />` : ''}
+        </label>
       `;
     }
 
-    function renderShipCard(s, poLines){
-      const lines = shipmentLinesFor(s.id);
-      const assignedIds = new Set(lines.map(sl => String(sl.po_line_id)));
-      const available = poLines.filter(l => !assignedIds.has(String(l.po_line_id)));
+    function renderProductPicker(shipmentId, poLines){
+      const assignedIds = new Set(shipmentLinesFor(shipmentId).map(sl => String(sl.po_line_id)));
+      const groups = groupLinesByProduct(poLines);
 
+      return groups.map(g => {
+        const groupKey = `${shipmentId}::${g.title}`;
+        const expanded = state.shipDrawerExpandedGroups.has(groupKey);
+        const checkedCount = g.lines.filter(l => assignedIds.has(String(l.po_line_id))).length;
+        const allChecked = checkedCount === g.lines.length;
+        const someChecked = checkedCount > 0 && !allChecked;
+        const totalQty = g.lines.reduce((sum, l) => sum + num(l.qty), 0);
+        const countClass = allChecked ? 'pick-count--full' : someChecked ? 'pick-count--partial' : '';
+
+        return `
+          <div class="pick-group">
+            <div class="pick-row pick-row--parent">
+              <button class="pick-chevron" type="button" data-toggle-shipment="${escapeHtml(shipmentId)}" data-toggle-title="${escapeHtml(g.title)}" aria-label="${expanded ? 'Collapse' : 'Expand'}">${expanded ? '▾' : '▸'}</button>
+              <label class="pick-row-label">
+                <input type="checkbox" class="pick-check" data-group-shipment="${escapeHtml(shipmentId)}" data-group-title="${escapeHtml(g.title)}" ${allChecked ? 'checked' : ''} ${someChecked ? 'data-indeterminate="1"' : ''} />
+                <span class="pick-title">${escapeHtml(g.title)}</span>
+                <span class="pick-meta">${g.lines.length} SKU${g.lines.length === 1 ? '' : 's'} · ${totalQty.toLocaleString()} units</span>
+                <span class="pick-count ${countClass}">${checkedCount}/${g.lines.length}</span>
+              </label>
+            </div>
+            ${expanded ? `<div class="pick-sub">${g.lines.map(l => renderPickLineRow(shipmentId, l, assignedIds.has(String(l.po_line_id)))).join('')}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderShipCard(s, poLines){
       return `
         <div class="ship-card" data-shipment-id="${escapeHtml(s.id)}">
-          <div class="ship-card-row">
+          <div class="ship-stepper">
+            ${SHIPMENT_STATUSES.map(st => `<button type="button" class="step-chip ${st === s.shipment_status ? 'is-active' : ''}" data-status="${escapeHtml(st)}" data-ship-field="shipment_status" data-shipment-id="${escapeHtml(s.id)}">${escapeHtml(st)}</button>`).join('')}
+          </div>
+
+          <div class="ship-field-grid">
             <div>
-              <label class="muted-label">Status</label>
-              <select data-ship-field="shipment_status" data-shipment-id="${escapeHtml(s.id)}">
-                ${SHIPMENT_STATUSES.map(st => `<option value="${escapeHtml(st)}" ${st === s.shipment_status ? 'selected' : ''}>${escapeHtml(st)}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="muted-label">Tracking #</label>
+              <label class="ship-field-label">${ICON_TAG} Tracking #</label>
               <input type="text" value="${escapeHtml(s.tracking_number || '')}" data-ship-field="tracking_number" data-shipment-id="${escapeHtml(s.id)}" placeholder="1Z999…" />
             </div>
             <div>
-              <label class="muted-label">Carrier</label>
+              <label class="ship-field-label">${ICON_TRUCK} Carrier</label>
               <input type="text" value="${escapeHtml(s.carrier || '')}" data-ship-field="carrier" data-shipment-id="${escapeHtml(s.id)}" placeholder="UPS, FedEx…" />
             </div>
-          </div>
-          <div class="ship-card-row">
             <div>
-              <label class="muted-label">Ship date</label>
+              <label class="ship-field-label">${ICON_CALENDAR} Ship date</label>
               <input type="date" value="${s.ship_date || ''}" data-ship-field="ship_date" data-shipment-id="${escapeHtml(s.id)}" />
             </div>
             <div>
-              <label class="muted-label">ETA</label>
+              <label class="ship-field-label">${ICON_CALENDAR} ETA</label>
               <input type="date" value="${s.eta || ''}" data-ship-field="eta" data-shipment-id="${escapeHtml(s.id)}" />
             </div>
             <div>
-              <label class="muted-label">Received date</label>
+              <label class="ship-field-label">${ICON_CALENDAR} Received</label>
               <input type="date" value="${s.received_date || ''}" data-ship-field="received_date" data-shipment-id="${escapeHtml(s.id)}" />
             </div>
           </div>
-          <div class="ship-card-row">
-            <div style="flex:1 1 100%;">
-              <label class="muted-label">Notes</label>
-              <input type="text" value="${escapeHtml(s.notes || '')}" data-ship-field="notes" data-shipment-id="${escapeHtml(s.id)}" placeholder="e.g. 2nd half shipment" />
-            </div>
+          <div class="ship-notes-row">
+            <label class="ship-field-label">Notes</label>
+            <input type="text" value="${escapeHtml(s.notes || '')}" data-ship-field="notes" data-shipment-id="${escapeHtml(s.id)}" placeholder="e.g. 2nd half shipment" />
           </div>
 
-          <div class="ship-lines">
-            <label class="muted-label">Products in this shipment</label>
-            ${lines.length ? lines.map(sl => renderShipLineRow(sl, poLines)).join('') : '<div style="font-size:.68rem;color:#94a3b8;">No products assigned yet.</div>'}
-            ${available.length ? `
-            <div class="ship-add-line">
-              <select data-add-line-shipment="${escapeHtml(s.id)}">
-                <option value="">+ Add product…</option>
-                ${available.map(l => `<option value="${escapeHtml(l.po_line_id)}">${escapeHtml(l.sku || l.product_title || 'Untitled')}${l.variant_title ? ' — ' + escapeHtml(l.variant_title) : ''} (qty ${num(l.qty).toLocaleString()})</option>`).join('')}
-              </select>
-            </div>` : ''}
+          <div class="ship-products">
+            <div class="ship-products-head">
+              <label class="muted-label" style="margin:0;">Products in this shipment</label>
+            </div>
+            <div class="pick-list">${renderProductPicker(s.id, poLines)}</div>
           </div>
 
           <div class="ship-card-foot">
@@ -1109,10 +1262,13 @@
       }
 
       el.shipDrawerBody.innerHTML = html;
+
+      el.shipDrawerBody.querySelectorAll('[data-indeterminate="1"]').forEach(cb => { cb.indeterminate = true; });
     }
 
     function openShipDrawer(poId){
       state.shipDrawerPoId = poId;
+      state.shipDrawerExpandedGroups.clear();
       el.shipDrawerBackdrop.classList.remove('hidden-safe');
       el.shipDrawer.classList.remove('hidden-safe');
       renderShipDrawer();
@@ -1144,7 +1300,7 @@
         if(error) throw error;
         const idx = state.shipments.findIndex(s => String(s.id) === String(id));
         if(idx >= 0) state.shipments[idx] = { ...state.shipments[idx], ...payload };
-        if(field === 'shipment_status') renderLineTable();
+        if(field === 'shipment_status'){ renderShipDrawer(); renderLineTable(); }
       }catch(e){
         console.error(e);
         showShipError(e.message || 'Failed to save — reverting');
@@ -1178,6 +1334,41 @@
       }catch(e){
         console.error(e);
         showShipError(e.message || 'Failed to add product');
+      }
+    }
+
+    async function toggleGroupSelection(shipmentId, title, checked){
+      const poId = state.shipDrawerPoId;
+      const groupLines = state.lineRows.filter(l => String(l.po_header_id) === String(poId) && (l.product_title || 'Untitled') === title);
+      const existingLines = shipmentLinesFor(shipmentId);
+      const assignedIds = new Set(existingLines.map(sl => String(sl.po_line_id)));
+
+      try{
+        if(checked){
+          const toAdd = groupLines
+            .filter(l => !assignedIds.has(String(l.po_line_id)))
+            .map(l => ({ shipment_id: shipmentId, po_line_id: l.po_line_id }));
+          if(toAdd.length){
+            const { error } = await sb.from('incoming_shipment_lines').insert(toAdd);
+            if(error) throw error;
+          }
+        } else {
+          const toRemoveIds = existingLines
+            .filter(sl => groupLines.some(l => String(l.po_line_id) === String(sl.po_line_id)))
+            .map(sl => sl.id);
+          if(toRemoveIds.length){
+            const { error } = await sb.from('incoming_shipment_lines').delete().in('id', toRemoveIds);
+            if(error) throw error;
+          }
+        }
+        await loadShipments();
+        renderShipDrawer();
+        renderLineTable();
+      }catch(e){
+        console.error(e);
+        showShipError(e.message || 'Failed to update product selection');
+        await loadShipments();
+        renderShipDrawer();
       }
     }
 
@@ -1227,23 +1418,46 @@
     el.shipDrawerBody.addEventListener('click', (e) => {
       const del = e.target.closest('[data-delete-shipment]');
       if(del){ deleteShipment(del.dataset.deleteShipment); return; }
-      const rm = e.target.closest('[data-remove-line]');
-      if(rm){ removeShipmentLine(rm.dataset.removeLine); return; }
+
+      const step = e.target.closest('[data-status][data-ship-field="shipment_status"]');
+      if(step){ updateShipmentField(step.dataset.shipmentId, 'shipment_status', step.dataset.status); return; }
+
+      const chevron = e.target.closest('[data-toggle-shipment]');
+      if(chevron){
+        const key = `${chevron.dataset.toggleShipment}::${chevron.dataset.toggleTitle}`;
+        if(state.shipDrawerExpandedGroups.has(key)) state.shipDrawerExpandedGroups.delete(key);
+        else state.shipDrawerExpandedGroups.add(key);
+        renderShipDrawer();
+      }
     });
 
     el.shipDrawerBody.addEventListener('change', (e) => {
-      const field = e.target.closest('[data-ship-field]');
+      const field = e.target.closest('[data-ship-field]:not([data-status])');
       if(field){
         updateShipmentField(field.dataset.shipmentId, field.dataset.shipField, field.value);
         return;
       }
-      const addSel = e.target.closest('[data-add-line-shipment]');
-      if(addSel && addSel.value){
-        addLineToShipment(addSel.dataset.addLineShipment, addSel.value);
+
+      const groupCheck = e.target.closest('[data-group-shipment]');
+      if(groupCheck){
+        toggleGroupSelection(groupCheck.dataset.groupShipment, groupCheck.dataset.groupTitle, groupCheck.checked);
         return;
       }
+
+      const lineCheck = e.target.closest('[data-line-shipment]');
+      if(lineCheck){
+        if(lineCheck.checked){
+          addLineToShipment(lineCheck.dataset.lineShipment, lineCheck.dataset.linePoLine);
+        } else {
+          const existing = shipmentLinesFor(lineCheck.dataset.lineShipment)
+            .find(sl => String(sl.po_line_id) === String(lineCheck.dataset.linePoLine));
+          if(existing) removeShipmentLine(existing.id);
+        }
+        return;
+      }
+
       const qtyInput = e.target.closest('[data-line-qty]');
-      if(qtyInput){
+      if(qtyInput && qtyInput.dataset.lineQty){
         updateShipmentLineQty(qtyInput.dataset.lineQty, qtyInput.value);
         return;
       }
@@ -1269,11 +1483,18 @@
       el.factoryFilter,
       el.bucketFilter,
       el.arrivalFrom,
-      el.arrivalTo,
-      el.scopeFilter
+      el.arrivalTo
     ].forEach(node => {
       node.addEventListener('input', applyFilters);
       node.addEventListener('change', applyFilters);
+    });
+
+    el.scopeSeg.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-scope]');
+      if(!btn) return;
+      state.scope = btn.dataset.scope;
+      el.scopeSeg.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+      applyFilters();
     });
 
     document.querySelectorAll('.rpt-tab').forEach(btn => {
