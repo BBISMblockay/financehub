@@ -114,6 +114,11 @@
         <div class="bcn-card-body" id="goalsBody"></div>
       </div>
 
+      <div class="bcn-card" id="employeeResponseCard" hidden>
+        <div class="bcn-card-header"><span>Employee's Comments</span></div>
+        <div class="bcn-card-body" id="employeeResponseBody"></div>
+      </div>
+
       <div class="bcn-card re-notes-card">
         <div class="bcn-card-header">
           <span style="display:inline-flex;align-items:center;gap:6px">
@@ -166,6 +171,22 @@
     if (s === 'finished') el.innerHTML = '<span class="bcn-pill bcn-pill--pos">Finished</span>';
     else if (s === 'sent') el.innerHTML = '<span class="bcn-pill bcn-pill--accent">Sent — awaiting employee</span>';
     else el.innerHTML = '<span class="bcn-pill">Draft</span>';
+  }
+
+  function renderEmployeeResponse(review){
+    const card = document.getElementById('employeeResponseCard');
+    if (review.status !== 'finished'){ card.hidden = true; return; }
+    card.hidden = false;
+    const signedAt = review.employee_signed_at
+      ? new Date(review.employee_signed_at).toLocaleString('en-US', { dateStyle:'long', timeStyle:'short' })
+      : '';
+    document.getElementById('employeeResponseBody').innerHTML = `
+      ${review.employee_response
+        ? `<div class="re-answer" style="font-size:13px;color:var(--bcn-ink-2);line-height:1.7;white-space:pre-wrap;margin-bottom:12px">${esc(review.employee_response)}</div>`
+        : `<div class="re-empty" style="padding:0 0 12px;text-align:left">No comments left.</div>`}
+      <div style="font-size:11px;color:var(--bcn-ink-3);font-family:var(--bcn-mono);border-top:1px dashed var(--bcn-border);padding-top:8px">
+        ✓ Signed by ${esc(review.employee_signed_name || EMPLOYEE?.name || 'employee')}${signedAt ? ' · ' + signedAt : ''}
+      </div>`;
   }
 
   // ---- questions ----------------------------------------------------------
@@ -455,6 +476,7 @@
       btnSend.textContent = review.status === 'sent' ? 'Resend link' : 'Send to employee';
     }
     statusPill(review.status);
+    renderEmployeeResponse(review);
 
     const { data: qs } = await sb.from('review_template_questions')
       .select('*').eq('template_id', review.template_id).order('position');

@@ -73,7 +73,7 @@ Deno.serve(async (req: Request) => {
       await sendEmail(
         mgr.email,
         `${review.employees.name} signed their performance review`,
-        `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p style="font-size:14px"><strong>${review.employees.name}</strong> acknowledged and signed their ${review.period_label ? review.period_label + ' ' : ''}review in SILO.</p>${response ? `<p style="font-size:13px;color:#444;border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap">${String(response).slice(0, 2000)}</p>` : ''}<p style="font-size:12px;color:#7f8b96">Open the Review Board in SILO to see the finished review.</p></div>`,
+        `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p style="font-size:14px"><strong>${review.employees.name}</strong> acknowledged and signed their ${review.period_label ? review.period_label + ' ' : ''}review in SILO.</p>${response ? `<p style="font-size:12px;font-weight:600;color:#7f8b96;margin:16px 0 4px;text-transform:uppercase;letter-spacing:.04em">Employee's Comments</p><p style="font-size:13px;color:#444;border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap;margin-top:0">${String(response).slice(0, 2000)}</p>` : ''}<p style="font-size:12px;color:#7f8b96">Open the Review Board in SILO to see the finished review.</p></div>`,
       );
     }
     return json({ ok: true });
