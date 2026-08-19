@@ -254,7 +254,7 @@
     const el = document.getElementById('dAck');
     if (r.status === 'finished'){
       el.innerHTML = `
-        ${r.employee_response ? `<div class="mr-subhead">Your response</div><div class="mr-answer" style="margin-bottom:12px">${esc(r.employee_response)}</div>` : ''}
+        ${r.employee_response ? `<div class="mr-subhead">Employee's Comments</div><div class="mr-answer" style="margin-bottom:12px">${esc(r.employee_response)}</div>` : ''}
         <div class="mr-signed">
           <div class="mr-signed-name">✓ Signed by ${esc(r.employee_signed_name || 'you')}</div>
           <div class="mr-signed-at">${r.employee_signed_at ? new Date(r.employee_signed_at).toLocaleString('en-US',{dateStyle:'long',timeStyle:'short'}) : ''}</div>
@@ -268,7 +268,7 @@
           You can add a written response; your manager will see it.
         </p>
         <div class="bcn-field-group">
-          <label class="bcn-label" for="ackResponse">Your response (optional)</label>
+          <label class="bcn-label" for="ackResponse">Employee's Comments (optional)</label>
           <textarea class="bcn-field" id="ackResponse" placeholder="Anything you'd like to add or clarify…"></textarea>
         </div>
         <div class="bcn-field-group">

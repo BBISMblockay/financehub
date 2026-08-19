@@ -202,7 +202,7 @@
     const ack = document.getElementById('ackBody');
     if (completed){
       ack.innerHTML = `
-        ${review.employee_response ? `<div class="subhead">Your response</div><div class="q-answer" style="margin-bottom:14px">${esc(review.employee_response)}</div>` : ''}
+        ${review.employee_response ? `<div class="subhead">Employee's Comments</div><div class="q-answer" style="margin-bottom:14px">${esc(review.employee_response)}</div>` : ''}
         <div class="signed-box">
           <div class="signed-name">✓ Signed by ${esc(review.employee_signed_name || employee.name)}</div>
           <div class="signed-at">${review.employee_signed_at ? new Date(review.employee_signed_at).toLocaleString('en-US',{dateStyle:'long',timeStyle:'short'}) : ''}</div>
@@ -214,7 +214,7 @@
           Signing confirms you've read and discussed this review with your manager — it doesn't have to mean you agree with every point.
           You can add a written response below; your manager will see it.
         </p>
-        <label class="fl" for="resp">Your response (optional)</label>
+        <label class="fl" for="resp">Employee's Comments (optional)</label>
         <textarea id="resp" placeholder="Anything you'd like to add or clarify…"></textarea>
         <label class="fl" for="signName">Type your full name to sign</label>
         <input type="text" id="signName" placeholder="${esc(employee.name)}" autocomplete="name" />
