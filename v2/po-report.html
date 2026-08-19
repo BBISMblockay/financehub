@@ -427,9 +427,17 @@
       background: #fff; border: 1px solid rgba(15,23,42,.07); border-radius: 16px;
       box-shadow: 0 1px 2px rgba(15,23,42,.03); padding: 14px 16px; position: relative;
     }
-    .map-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-    .map-card-title { font-size: .78rem; font-weight: 900; color: #0f172a; }
+    .map-card-head {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+      width: 100%; border: none; background: none; padding: 0; margin: 0 0 8px; font: inherit; text-align: left; cursor: pointer;
+    }
+    .map-card-title { font-size: .78rem; font-weight: 900; color: #0f172a; display: flex; align-items: center; }
     .map-card-sub { font-size: .64rem; color: #94a3b8; margin-top: 1px; }
+    .map-chevron { font-size: .7rem; color: #94a3b8; transition: transform .15s ease; flex: none; align-self: center; }
+    .map-card-head[aria-expanded="false"] .map-chevron { transform: rotate(-90deg); }
+    .map-card-head[aria-expanded="false"] .map-legend { display: none; }
+    #mapBody { overflow: hidden; }
+    #mapBody.is-collapsed { display: none; }
     .map-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .map-legend-item { display: flex; align-items: center; gap: 5px; font-size: .62rem; font-weight: 700; color: #64748b; }
     .map-legend-dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
@@ -509,26 +517,34 @@
 
         <!-- Shipment status map -->
         <section class="map-card">
-          <div class="map-card-head">
+          <button class="map-card-head" id="mapToggle" type="button" aria-expanded="true">
             <div>
-              <div class="map-card-title">Shipment status map</div>
+              <div class="map-card-title">
+                Shipment status map
+                <span class="pill" id="mapSummaryPill" style="margin-left:6px;"></span>
+              </div>
               <div class="map-card-sub">Plotted by factory country from logged shipments — approximate, not live GPS/carrier tracking.</div>
             </div>
-            <div class="map-legend">
-              <span class="map-legend-item"><span class="map-legend-dot" style="background:#94a3b8;"></span>Not shipped</span>
-              <span class="map-legend-item"><span class="map-legend-dot" style="background:#6366f1;"></span>Booked / in transit</span>
-              <span class="map-legend-item"><span class="map-legend-dot" style="background:#ef4444;"></span>Delayed</span>
-              <span class="map-legend-item"><span class="map-legend-dot" style="background:#16a34a;"></span>Delivered / received</span>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div class="map-legend">
+                <span class="map-legend-item"><span class="map-legend-dot" style="background:#94a3b8;"></span>Not shipped</span>
+                <span class="map-legend-item"><span class="map-legend-dot" style="background:#6366f1;"></span>Booked / in transit</span>
+                <span class="map-legend-item"><span class="map-legend-dot" style="background:#ef4444;"></span>Delayed</span>
+                <span class="map-legend-item"><span class="map-legend-dot" style="background:#16a34a;"></span>Delivered / received</span>
+              </div>
+              <span class="map-chevron" id="mapChevron">▾</span>
             </div>
+          </button>
+          <div id="mapBody">
+            <div class="map-svg-wrap" id="mapSvgWrap">
+              <svg id="mapSvg" viewBox="0 0 880 400" xmlns="http://www.w3.org/2000/svg">
+                <g id="mapDots"></g>
+                <g id="mapPins"></g>
+              </svg>
+              <div class="map-tooltip hidden-safe" id="mapTooltip"></div>
+            </div>
+            <div class="map-unmapped hidden-safe" id="mapUnmapped"></div>
           </div>
-          <div class="map-svg-wrap" id="mapSvgWrap">
-            <svg id="mapSvg" viewBox="0 0 880 400" xmlns="http://www.w3.org/2000/svg">
-              <g id="mapDots"></g>
-              <g id="mapPins"></g>
-            </svg>
-            <div class="map-tooltip hidden-safe" id="mapTooltip"></div>
-          </div>
-          <div class="map-unmapped hidden-safe" id="mapUnmapped"></div>
         </section>
 
         <!-- Horizontal filter strip -->
@@ -847,7 +863,10 @@
       mapDots: document.getElementById('mapDots'),
       mapPins: document.getElementById('mapPins'),
       mapTooltip: document.getElementById('mapTooltip'),
-      mapUnmapped: document.getElementById('mapUnmapped')
+      mapUnmapped: document.getElementById('mapUnmapped'),
+      mapToggle: document.getElementById('mapToggle'),
+      mapBody: document.getElementById('mapBody'),
+      mapSummaryPill: document.getElementById('mapSummaryPill')
     };
 
     function money(v){
@@ -1084,6 +1103,17 @@
         el.mapUnmapped.classList.add('hidden-safe');
         el.mapUnmapped.innerHTML = '';
       }
+
+      const shipmentCount = state.shipments.length;
+      el.mapSummaryPill.textContent = shipmentCount
+        ? `${shipmentCount.toLocaleString()} shipment${shipmentCount === 1 ? '' : 's'} · ${groups.size.toLocaleString()} countr${groups.size === 1 ? 'y' : 'ies'}`
+        : 'No shipments logged yet';
+    }
+
+    function setMapCollapsed(collapsed){
+      el.mapToggle.setAttribute('aria-expanded', String(!collapsed));
+      el.mapBody.classList.toggle('is-collapsed', collapsed);
+      try { localStorage.setItem('silo-po-report-map-collapsed', collapsed ? '1' : '0'); } catch(e){}
     }
 
     function showMapTooltip(e, group){
@@ -1805,6 +1835,14 @@
         supabaseClient: sb,
       });
     }
+    el.mapToggle.addEventListener('click', () => {
+      setMapCollapsed(el.mapToggle.getAttribute('aria-expanded') === 'true');
+    });
+
+    try {
+      setMapCollapsed(localStorage.getItem('silo-po-report-map-collapsed') === '1');
+    } catch(e){}
+
     renderMapDots();
 
     boot().catch(e => {
