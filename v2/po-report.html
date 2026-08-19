@@ -1131,9 +1131,16 @@
       const factory = el.factoryFilter.value;
       const bucket = el.bucketFilter.value;
 
+      // v_po_incoming_summary is PO-level — it has no product/SKU columns, so a
+      // search for a product title needs to check that PO's lines too, not just
+      // the PO's own fields (po_name/factory/status/bucket).
+      const matchingLinePOIds = q
+        ? new Set(state.lineRows.filter(l => rowHaystack(l).includes(q)).map(l => String(l.po_header_id)))
+        : null;
+
       state.filteredPOs = state.poRows.filter(row => {
         const hay = rowHaystack(row);
-        return (!q || hay.includes(q))
+        return (!q || hay.includes(q) || matchingLinePOIds.has(String(row.id)))
           && (!status || row.status === status)
           && (!factory || row.factory_name === factory)
           && (!bucket || row.date_bucket === bucket)
