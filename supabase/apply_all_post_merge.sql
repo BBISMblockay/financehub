@@ -10310,3 +10310,15 @@ create index if not exists sales_by_day_product_name_trgm_idx
 
 create index if not exists sales_by_day_sku_trgm_idx
   on public.sales_by_day using gin (sku extensions.gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 20260820140000_inventory_on_hand_trgm_search_indexes.sql
+-- Companion trigram indexes on inventory_on_hand (product_title/variant_sku)
+-- so Ask SILO's restock questions don't seq-scan 3.5M rows into the 10s
+-- chat statement_timeout.
+-- ---------------------------------------------------------------------------
+create index if not exists inventory_on_hand_product_title_trgm_idx
+  on public.inventory_on_hand using gin (product_title extensions.gin_trgm_ops);
+
+create index if not exists inventory_on_hand_variant_sku_trgm_idx
+  on public.inventory_on_hand using gin (variant_sku extensions.gin_trgm_ops);

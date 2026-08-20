@@ -949,3 +949,15 @@ select
       then 'MISSING — sales_by_day_sku_trgm_idx'
     else 'ok'
   end as sales_by_day_trgm_search_indexes;
+
+-- Trigram search indexes on inventory (migration 20260820140000)
+select
+  case
+    when not exists (select 1 from pg_indexes where schemaname='public' and tablename='inventory_on_hand'
+                       and indexname='inventory_on_hand_product_title_trgm_idx')
+      then 'MISSING — run 20260820140000_inventory_on_hand_trgm_search_indexes.sql'
+    when not exists (select 1 from pg_indexes where schemaname='public' and tablename='inventory_on_hand'
+                       and indexname='inventory_on_hand_variant_sku_trgm_idx')
+      then 'MISSING — inventory_on_hand_variant_sku_trgm_idx'
+    else 'ok'
+  end as inventory_on_hand_trgm_search_indexes;
