@@ -56,7 +56,7 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - sales_by_day(day_date, location_tag, total_net_sales, total_refunds, total_gross_sales, total_quantity_sold, product_type, sku, ...) -- daily sales rollup by location/SKU
 - sales_by_day_verification_v -- de-duped view over sales_by_day (prefers shopify_api source)
 - sales_monthly_location_rollup_v / sales_sku_location_rollup_v / sales_velocity_by_sku_location_v -- pre-aggregated sales rollups, faster than grouping sales_by_day yourself for monthly/SKU-level questions
-- inventory_on_hand / inventory_workboard_v -- current inventory by SKU/location, with sell-through metrics. The SKU column here is called variant_sku, not sku
+- inventory_on_hand / inventory_workboard_v -- current inventory by SKU/location, with sell-through metrics. The SKU column here is called variant_sku, not sku. inventory_workboard_v is already the LATEST snapshot only (one row per variant_sku x location -- no need to dedupe by snapshot_at yourself); its real columns are total_available_quantity (there is no on_hand column), qty_sold_30d, avg_qty_sold_per_day, est_days_before_oos, plus velocity windows qty_7d/qty_90d/qty_365d and avg_day_7/avg_day_30/avg_day_90/avg_day_365, and last_sold_date. There is no sell_through_rate column -- compute it from qty_sold_30d and total_available_quantity if needed
 - products_master -- product catalog. Real columns: sku, product_title, variant_title, product_type, vendor_original (not vendor), category, subcategory, department, unit_cost (not cost), msrp, reorder_point_units, is_active, is_discontinued, lifecycle_status. category and product_type are always identical (100% match across every row, fully redundant) -- use either, don't waste a round checking both. department is sparse (~7% populated) -- don't rely on it for filtering. category/product_type hold granular values (e.g. "Youth Cap", "Youth Jacket"), not just broad buckets -- match a broad group with ilike 'Youth%' rather than an exact = 'Youth', which will under-match
 - po_headers / po_lines / v_po_header_summary / v_open_pos / incoming_shipments -- purchase orders and inbound shipment tracking. po_lines joins to po_headers on po_lines.po_header_id = po_headers.id (not po_id)
 - po_costing / po_costing_lines / v_po_costing_summary -- landed cost
@@ -70,7 +70,7 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - shopify_orders_v(order_id, order_number, source_name, resolved_channel_name, financial_status, fulfillment_status, customer_email, customer_name, total_price, shopify_created_at, ...) -- one row per Shopify order, the pre-aggregation counterpart to sales_by_day. Use this (not sales_by_day) for anything about individual orders, sales channel/source (source_name is Shopify's raw channel field -- "web", "pos", or an app id/slug for a third-party channel like TikTok, Faire, or Instagram/Facebook; resolved_channel_name is the human-readable name from shopify_channel_map when mapped, falling back to source_name when not), customer-level order history, or AOV by channel. total_price is the order's full total (subtotal + shipping + tax, before refunds) -- it is NOT the same metric as sales_by_day's total_gross_sales (pre-discount merchandise only) or Shopify Analytics' "Total sales"/"Gross sales" cards (which net out sales_reversals and exclude tax/shipping). Never call total_price "gross sales" -- describe it as "order total" and flag the difference if a user is comparing against a Shopify Analytics screenshot. shopify_order_lines has the per-SKU line items within each order (order_id, sku, product_id, title, quantity, price, discount_allocated, tax_allocated, vendor, product_type) for basket-level questions (attach rate, what's bought together). Coverage caveat: these tables backfill from each store's first sync forward, but until a full historical backfill has run for a store, rows before that point are sparse, not absent -- the nightly incremental job's rebuild-by-touched-order can pull in a handful of old orders (refunded/edited) without their surrounding days, so min(shopify_created_at) alone does NOT prove continuous coverage back to that date. Before trusting a date range wider than a few months, check for gaps (e.g. count distinct order dates vs. the number of calendar days in range) rather than just the min/max bounds, and say so if coverage looks discontinuous. If a channel's source_name shows up unmapped (resolved_channel_name = source_name, and source_name doesn't look like a human name), say so and suggest it gets added to shopify_channel_map rather than guessing what channel it is.
 - redo_returns / redo_return_items -- returns/exchanges/store-credit data from Redo (refund_amount, exchange_amount, store_credit_amount, status, reason, sku)
 - revenue_projections / revenue_projection_history -- revenue plan by location/month
-- launch_calendar / launch_tasks / launch_channel_items / launch_product_readiness -- marketing launch pipeline, channel plan, and SKU readiness per launch. launch_calendar's own name/title column is called title (not launch_name or name). launch_calendar also holds each launch's release brief -- design_intent, product_callouts, marketing_angle (the creative story/angle actually run), audience_tags (text[] -- structured, repeatable audience segments; prefer this over the free-text audience column when comparing/grouping across launches, e.g. unnest(audience_tags) or audience_tags && array['segment']), audience (free-text nuance a tag can't carry), special_callouts, copy_dos/copy_donts, creative_dos/creative_donts -- plus budget/forecast (preview_marketing_budget, post_launch_budget, projected_revenue) and after-the-fact performance (actual_preview_spend, actual_post_launch_spend, actual_revenue, performance_comparison, overperformed_notes, underperformed_notes). This is the primary source for "what angle/audience has this brand actually used, and did it work" -- treat it as more authoritative than inferring strategy from sales data alone. Note: actual_preview_spend/actual_post_launch_spend are hand-typed estimates, NOT synced from ad platforms -- marketing_kpis_daily is the authoritative ledger for real ad spend by platform/day, the two are not currently linked (no launch_id on marketing_kpis_daily) and may disagree; if a question is specifically about ad spend accuracy, prefer marketing_kpis_daily and say so if the two differ
+- launch_calendar / launch_tasks / launch_channel_items / launch_product_readiness -- marketing launch pipeline, channel plan, and SKU readiness per launch. launch_calendar's own name/title column is called title (not launch_name or name), and its date columns are launch_date and preview_start_date -- there is no launch_window_start/launch_window_end or start_date/end_date. Other real columns: product_sku, product_title, collection_name, expected_units, status, launch_type. launch_calendar also holds each launch's release brief -- design_intent, product_callouts, marketing_angle (the creative story/angle actually run), audience_tags (text[] -- structured, repeatable audience segments; prefer this over the free-text audience column when comparing/grouping across launches, e.g. unnest(audience_tags) or audience_tags && array['segment']), audience (free-text nuance a tag can't carry), special_callouts, copy_dos/copy_donts, creative_dos/creative_donts -- plus budget/forecast (preview_marketing_budget, post_launch_budget, projected_revenue) and after-the-fact performance (actual_preview_spend, actual_post_launch_spend, actual_revenue, performance_comparison, overperformed_notes, underperformed_notes). This is the primary source for "what angle/audience has this brand actually used, and did it work" -- treat it as more authoritative than inferring strategy from sales data alone. Note: actual_preview_spend/actual_post_launch_spend are hand-typed estimates, NOT synced from ad platforms -- marketing_kpis_daily is the authoritative ledger for real ad spend by platform/day, the two are not currently linked (no launch_id on marketing_kpis_daily) and may disagree; if a question is specifically about ad spend accuracy, prefer marketing_kpis_daily and say so if the two differ
 - locations -- sales channels/store locations
 - product_tags -- product tagging/collections
 - mail_items / mail_items_v -- mailroom queue
@@ -174,7 +174,7 @@ function buildSystemPrompt(notes: Note[]) {
   return BASE_SYSTEM_PROMPT + brandBlock + notesBlock;
 }
 
-async function callAnthropic(messages: unknown[], systemPrompt: string) {
+async function callAnthropic(messages: unknown[], systemPrompt: string, opts: { forceAnswer?: boolean } = {}) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -193,7 +193,11 @@ async function callAnthropic(messages: unknown[], systemPrompt: string) {
       // cache instead of repaying full input-token price for it. Different
       // requests only miss the cache when the notes list itself changed.
       system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+      // forceAnswer: tools stay declared (the transcript contains tool_use /
+      // tool_result blocks that must resolve against them) but tool_choice
+      // 'none' forbids any further calls, so the model can only answer.
       tools: TOOLS,
+      ...(opts.forceAnswer ? { tool_choice: { type: 'none' } } : {}),
       messages,
     }),
   });
@@ -201,14 +205,15 @@ async function callAnthropic(messages: unknown[], systemPrompt: string) {
   return res.json();
 }
 
-// Was 8. A genuinely multi-step question -- discover a column, aggregate
-// performance, join creative/product attributes, then characterize --
-// legitimately eats several rounds even with zero mistakes, and 8 left
-// almost no slack for a single wrong turn (see the 2026-08-17 incident:
-// a design/CPM/CAC question exhausted its budget mostly retrying the same
-// single-statement rejection -- fixed above -- but the fix alone still
-// leaves a genuinely hard question tight on room).
-const MAX_TOOL_ROUNDS = 12;
+// Was 8, then 12. With the trigram indexes (20260820130000/140000) making
+// every name-search query fast, the model now runs genuinely thorough
+// analyses -- the 2026-08-20 uncrustables restock question executed 18
+// clean queries (launch date, daily rates, on-hand, Black Friday YoY) and
+// then hit the 12 cap with the finished analysis in hand and no round left
+// to write the answer. 20 gives that class of question room; the
+// forced-answer fallback below (not this cap) is what actually guarantees
+// the user gets an answer either way.
+const MAX_TOOL_ROUNDS = 20;
 
 // One row per request: the question, the SQL actually run, the answer (or
 // error), and how many tool-rounds it took. Prerequisite for closing the
@@ -373,6 +378,38 @@ Deno.serve(async (req: Request) => {
         toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: resultContent });
       }
       messages.push({ role: 'user', content: toolResults });
+    }
+
+    // Round budget exhausted while the model still wanted tools. Never turn
+    // that into a user-facing error while sitting on real query results --
+    // the 2026-08-20 uncrustables incident ran 18 clean queries (the whole
+    // analysis) and then showed the user "couldn't land on an answer"
+    // because no round was left to write it. Force one final tool-less turn
+    // that answers from the data already gathered; the error path below
+    // survives only as a fallback for when even that fails.
+    try {
+      messages.push({
+        role: 'user',
+        content: 'Your tool budget is exhausted -- you cannot run any more queries or tools. Using ONLY the results already gathered above, give your best final answer to the original question now. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.',
+      });
+      const finalData = await callAnthropic(messages, systemPrompt, { forceAnswer: true });
+      const finalText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
+      if (finalText) {
+        await logAudit(callerClient!, {
+          question,
+          historySnapshot: history,
+          answer: finalText,
+          queriesRun,
+          toolRounds: MAX_TOOL_ROUNDS,
+          status: 'ok',
+          // Not an error, but flagged so round-cap saturation stays visible
+          // when auditing (a cluster of these means the cap needs raising).
+          errorMessage: 'forced final answer at round cap',
+        });
+        return reply({ answer: finalText, queries_run: queriesRun });
+      }
+    } catch (err) {
+      console.error('[silo-chat] forced final answer failed', err);
     }
 
     // Distinguish "the SQL was too heavy to finish" from "the model got
