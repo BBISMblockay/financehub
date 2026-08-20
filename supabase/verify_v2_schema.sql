@@ -961,3 +961,22 @@ select
       then 'MISSING — inventory_on_hand_variant_sku_trgm_idx'
     else 'ok'
   end as inventory_on_hand_trgm_search_indexes;
+
+-- Saved reports visibility (migration 20260821090000) — My reports vs Company reports
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='visibility')
+      then 'MISSING — run 20260821090000_silo_chat_saved_reports_visibility.sql'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_select'
+                       and qual like '%visibility%')
+      then 'MISSING — saved-reports select policy not visibility-aware'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports_v'
+                       and column_name='visibility')
+      then 'MISSING — silo_chat_saved_reports_v lacks visibility column'
+    else 'ok'
+  end as silo_chat_saved_reports_visibility;

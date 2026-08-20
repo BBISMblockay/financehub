@@ -10322,3 +10322,46 @@ create index if not exists inventory_on_hand_product_title_trgm_idx
 
 create index if not exists inventory_on_hand_variant_sku_trgm_idx
   on public.inventory_on_hand using gin (variant_sku extensions.gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 20260821090000_silo_chat_saved_reports_visibility.sql
+-- "My reports" vs "Company reports" on Ask SILO saved reports: visibility
+-- column ('company' default | 'private'), creator-only select on private
+-- rows (hidden from exec/owner too, like review_private_notes), view
+-- updated to expose it.
+-- ---------------------------------------------------------------------------
+alter table public.silo_chat_saved_reports
+  add column if not exists visibility text not null default 'company';
+
+do $$ begin
+  alter table public.silo_chat_saved_reports
+    add constraint silo_chat_saved_reports_visibility_check
+    check (visibility in ('company', 'private'));
+exception when duplicate_object then null; end $$;
+
+drop policy if exists silo_chat_saved_reports_select on public.silo_chat_saved_reports;
+create policy silo_chat_saved_reports_select on public.silo_chat_saved_reports
+  for select using (
+    company_entity_id = active_company_id()
+    and (visibility = 'company' or created_by = auth.uid())
+  );
+
+create or replace view public.silo_chat_saved_reports_v
+with (security_invoker = true) as
+select
+  r.id,
+  r.company_entity_id,
+  r.created_by,
+  p.name as created_by_name,
+  r.title,
+  r.question,
+  r.answer,
+  r.queries_run,
+  r.created_at,
+  r.updated_at,
+  r.visibility
+from public.silo_chat_saved_reports r
+left join public.profiles p on p.id = r.created_by;
+
+revoke all on public.silo_chat_saved_reports_v from anon;
+grant select on public.silo_chat_saved_reports_v to authenticated;

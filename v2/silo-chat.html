@@ -16,7 +16,10 @@
 
     .ac-msg { display:flex; gap:10px; max-width:760px; }
     .ac-msg--user { align-self:flex-end; flex-direction:row-reverse; }
-    .ac-msg--assistant { align-self:flex-start; }
+    /* Assistant answers get the full card width (wide tables were clipping
+       at 760px and forcing awkward inner scroll) -- user bubbles stay
+       narrow chat-style. */
+    .ac-msg--assistant { align-self:flex-start; max-width:min(1100px, 100%); }
     .ac-avatar {
       width:26px; height:26px; border-radius:50%; flex-shrink:0;
       display:flex; align-items:center; justify-content:center;
@@ -84,7 +87,15 @@
     .ac-save-btn:hover { background:var(--bcn-sunken); }
     .ac-save-btn:disabled { opacity:.5; cursor:default; }
 
-    /* Saved reports modal -- reuses the notes modal shell (ac-notes-*). */
+    /* Saved reports modal -- reuses the notes modal shell (ac-notes-*), but
+       wider: report answers carry full data tables that were unreadable at
+       the notes modal's 560px. */
+    #savedBackdrop .ac-notes-modal { width:min(1100px, 100%); }
+    .ac-report-section {
+      font-family:var(--bcn-mono); font-size:10.5px; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--bcn-ink-3); margin:6px 0 2px;
+    }
+    .ac-report-section:first-child { margin-top:0; }
     .ac-report-item {
       display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
       padding:10px 12px; border:1px solid var(--bcn-border); border-radius:8px;
@@ -129,6 +140,18 @@
     .ac-rerun-table th { background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; position:sticky; top:0; }
     .ac-rerun-note { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
     .ac-rerun-error { font-size:12px; color:var(--bcn-neg); }
+
+    /* Save-report dialog (name + My/Company visibility choice). */
+    .ac-save-vis-opts { display:flex; flex-direction:column; gap:8px; }
+    .ac-save-vis-opt {
+      display:flex; gap:10px; align-items:flex-start; padding:10px 12px;
+      border:1px solid var(--bcn-border); border-radius:8px; background:var(--bcn-sunken);
+      cursor:pointer; font-size:12.5px;
+    }
+    .ac-save-vis-opt:has(input:checked) { border-color:var(--bcn-accent); }
+    .ac-save-vis-opt input { margin-top:2px; }
+    .ac-save-vis-opt small { display:block; color:var(--bcn-ink-3); margin-top:2px; }
+    .ac-save-dialog-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
 
     .ac-empty {
       margin:auto; text-align:center; color:var(--bcn-ink-3); font-size:13px; max-width:420px;
@@ -289,6 +312,42 @@
   </div>
 </div>
 
+<!-- Save-report dialog: name the report and choose who sees it. "My
+     reports" (visibility=private) exists for personal daily workflows --
+     an analyst's or accounting person's routine pulls the company list
+     doesn't need. -->
+<div class="ac-notes-backdrop" id="saveDialogBackdrop">
+  <div class="ac-notes-modal" role="dialog" aria-modal="true" aria-labelledby="saveDialogTitle" style="width:min(460px,100%)">
+    <div class="ac-notes-head">
+      <h3 id="saveDialogTitle">Save report</h3>
+      <button class="ac-notes-close" type="button" id="btnCloseSaveDialog">✕</button>
+    </div>
+    <div class="ac-notes-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="saveDialogName">Report name</label>
+        <input class="bcn-field" id="saveDialogName" type="text" autocomplete="off" />
+      </div>
+      <div class="bcn-field-group">
+        <span class="bcn-label">Save to</span>
+        <div class="ac-save-vis-opts">
+          <label class="ac-save-vis-opt">
+            <input type="radio" name="saveVisibility" value="company" checked />
+            <span><strong>Company reports</strong><small>Everyone at the company can view and refresh it</small></span>
+          </label>
+          <label class="ac-save-vis-opt">
+            <input type="radio" name="saveVisibility" value="private" />
+            <span><strong>My reports</strong><small>Only you — for personal or daily-routine reports</small></span>
+          </label>
+        </div>
+      </div>
+      <div class="ac-save-dialog-actions">
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCancelSave">Cancel</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnConfirmSave">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
@@ -329,6 +388,13 @@
     const log = el('log');
     log.scrollTop = log.scrollHeight;
   }
+
+  // Answers write "~$24K" for approximations, and marked's GFM del rule
+  // pairs those single tildes across a sentence into strikethrough (seen
+  // live 2026-08-20 on an AP summary). Answers never intentionally use
+  // strikethrough, so disable the del tokenizer -- returning undefined
+  // means "no match here" and the tildes fall through as literal text.
+  if (window.marked?.use) window.marked.use({ tokenizer: { del: () => undefined } });
 
   // Assistant replies are markdown from Claude (tables, lists, etc.) --
   // render to HTML and sanitize before inserting. User text and error
@@ -465,27 +531,63 @@
     if (saveBtn) saveReport(saveBtn);
   });
 
-  async function saveReport(btn) {
+  // Save flow: dialog asks for a name and whether this is a shared company
+  // report or a personal one ("My reports", visibility=private) -- see the
+  // dialog markup above for why the split exists.
+  let pendingSave = null;
+
+  function saveReport(btn) {
     const ctx = saveContexts.get(Number(btn.dataset.saveId));
     if (!ctx) return;
+    pendingSave = { ctx, btn };
     const defaultTitle = ctx.question.length > 70 ? ctx.question.slice(0, 67) + '…' : ctx.question;
-    const title = (window.prompt('Name this report:', defaultTitle) || '').trim();
-    if (!title) return;
-    btn.disabled = true;
+    el('saveDialogName').value = defaultTitle;
+    document.querySelector('input[name="saveVisibility"][value="company"]').checked = true;
+    el('saveDialogBackdrop').classList.add('open');
+    el('saveDialogName').focus();
+    el('saveDialogName').select();
+  }
+
+  function closeSaveDialog() {
+    el('saveDialogBackdrop').classList.remove('open');
+    pendingSave = null;
+  }
+
+  async function confirmSave() {
+    if (!pendingSave) return;
+    const title = el('saveDialogName').value.trim();
+    if (!title) { el('saveDialogName').focus(); return; }
+    const visibility = document.querySelector('input[name="saveVisibility"]:checked')?.value === 'private'
+      ? 'private' : 'company';
+    const { ctx, btn } = pendingSave;
+    el('btnConfirmSave').disabled = true;
     const { error } = await sb.from('silo_chat_saved_reports').insert({
       title,
       question: ctx.question,
       answer: ctx.answer,
       queries_run: ctx.queries,
+      visibility,
     });
+    el('btnConfirmSave').disabled = false;
     if (error) {
       setStatus('Could not save report: ' + error.message, 'error', 4000);
-      btn.disabled = false;
       return;
     }
+    btn.disabled = true;
     btn.textContent = 'Saved ✓';
-    setStatus('Report saved — find it under "Saved reports".', 'pos', 3500);
+    closeSaveDialog();
+    setStatus(visibility === 'private' ? 'Saved to My reports.' : 'Saved to Company reports.', 'pos', 3500);
   }
+
+  el('btnConfirmSave').addEventListener('click', confirmSave);
+  el('btnCancelSave').addEventListener('click', closeSaveDialog);
+  el('saveDialogBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'saveDialogBackdrop' || e.target.closest('#btnCloseSaveDialog')) closeSaveDialog();
+  });
+  el('saveDialogName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmSave(); }
+    if (e.key === 'Escape') closeSaveDialog();
+  });
   el('btnNewChat').addEventListener('click', () => {
     history = [];
     el('log').innerHTML = `
@@ -610,7 +712,7 @@
     el('savedBody').innerHTML = `<div class="ac-notes-empty">Loading…</div>`;
     const { data, error } = await sb
       .from('silo_chat_saved_reports_v')
-      .select('id, title, question, answer, queries_run, created_by, created_by_name, created_at')
+      .select('id, title, question, answer, queries_run, created_by, created_by_name, created_at, visibility')
       .order('created_at', { ascending: false });
     if (error) {
       el('savedBody').innerHTML = `<div class="ac-notes-empty">Couldn't load reports: ${esc(error.message)}</div>`;
@@ -628,13 +730,21 @@
       el('savedBody').innerHTML = `<div class="ac-notes-empty">Nothing saved yet — ask a question, then hit "Save report" under the answer.</div>`;
       return;
     }
-    el('savedBody').innerHTML = savedReportsCache.map(r => `
+    // RLS already hides other people's private reports, so "My reports"
+    // here is exactly the caller's own private ones.
+    const itemHtml = r => `
       <div class="ac-report-item" data-id="${esc(r.id)}">
         <div>
           <div class="ac-report-item-title">${esc(r.title)}</div>
           <div class="ac-report-item-meta">${esc(r.created_by_name || 'Unknown')} · ${new Date(r.created_at).toLocaleDateString()}</div>
         </div>
-      </div>`).join('');
+      </div>`;
+    const mine = savedReportsCache.filter(r => r.visibility === 'private');
+    const company = savedReportsCache.filter(r => r.visibility !== 'private');
+    const section = (label, rows) => rows.length
+      ? `<div class="ac-report-section">${esc(label)}</div>` + rows.map(itemHtml).join('')
+      : '';
+    el('savedBody').innerHTML = section('My reports', mine) + section('Company reports', company);
   }
 
   // Mirrors the RLS delete policy (creator or exec/owner) — deliberately
@@ -653,7 +763,7 @@
       <button type="button" class="ac-report-back" data-id="${esc(r.id)}">← All reports</button>
       <div>
         <div class="ac-report-item-title">${esc(r.title)}</div>
-        <div class="ac-report-item-meta">${esc(r.created_by_name || 'Unknown')} · saved ${new Date(r.created_at).toLocaleDateString()}</div>
+        <div class="ac-report-item-meta">${esc(r.created_by_name || 'Unknown')} · saved ${new Date(r.created_at).toLocaleDateString()} · ${r.visibility === 'private' ? 'My reports (only you)' : 'Company reports'}</div>
       </div>
       <div class="ac-report-question">“${esc(r.question)}”</div>
       <div class="ac-report-answer">${answerHtml}</div>
@@ -718,7 +828,11 @@
     }
     const delBtn = e.target.closest('#btnDeleteReport');
     if (delBtn) {
-      if (confirm('Delete this saved report for the whole company?')) deleteReport(delBtn.dataset.id);
+      const rep = savedReportsCache.find(x => x.id === delBtn.dataset.id);
+      const msg = rep?.visibility === 'private'
+        ? 'Delete this report from My reports?'
+        : 'Delete this saved report for the whole company?';
+      if (confirm(msg)) deleteReport(delBtn.dataset.id);
       return;
     }
     const item = e.target.closest('.ac-report-item');
