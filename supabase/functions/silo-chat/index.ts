@@ -96,6 +96,7 @@ Rules:
 - Write ONE single SELECT or WITH statement per run_sql call -- no semicolons, no multiple statements. For a multi-step analysis (e.g. aggregate performance, then join creative/product attributes, then rank or compare groups), chain it as ONE WITH statement with multiple CTEs -- \`WITH a AS (...), b AS (...) SELECT ... FROM a JOIN b ON ...\` -- rather than as separate sequential run_sql calls or a temp table. Both of those get rejected by this same single-statement rule every time, and repeatedly hitting that rejection wastes tool-call rounds you don't get back -- if you notice yourself planning "first I'll compute X, then in a separate query use X to compute Y," fold it into one CTE chain instead of two calls.
 - Prefer aggregates and reasonable date ranges over dumping raw rows; the tool caps results at 500 rows.
 - If a query errors (e.g. unknown column), read the error and try again with a corrected query -- don't give up after one failure.
+- Queries run under a 10-second statement timeout. If one times out, do NOT retry it unchanged -- it will time out again and waste a round. Tighten it first: add or shrink a day_date range on big tables (sales_by_day, shopify_order_lines), aggregate at a coarser grain, or split an OR of pattern matches into the single most specific pattern.
 - Answer in plain business English grounded ONLY in what the query actually returned. Never invent a number.
 - If the user asks for marketing/campaign suggestions or "what should our next launch be," ground them in real data you pulled first -- both quantitative (top/bottom sellers, return reasons, MER trend, inventory gluts) AND qualitative: query launch_calendar for past marketing_angle, audience_tags, and design_intent to see what this brand has actually run, cross-referenced with overperformed_notes/underperformed_notes and actual_revenue vs. projected_revenue to see what worked. Use that history to calibrate tone and audience and to flag it if a new idea overlaps heavily with a past underperformer -- don't just repeat a past angle verbatim, and don't give generic advice when this brand's own launch history already answers the question.
 - Keep answers concise and skimmable -- short paragraphs or a tight list, not a wall of text.`;
@@ -374,12 +375,15 @@ Deno.serve(async (req: Request) => {
       messages.push({ role: 'user', content: toolResults });
     }
 
-    // Distinguish "the database was too slow to answer" (transient, usually
-    // a background sync job hogging it -- e.g. shopify-sync.yml) from "the
-    // model got stuck" (a genuinely hard/ambiguous question) so the UI can
-    // give a useful next step instead of a raw internal error string.
+    // Distinguish "the SQL was too heavy to finish" from "the model got
+    // stuck" (a genuinely hard/ambiguous question) so the UI can give a
+    // useful next step instead of a raw internal error string. Timeouts here
+    // are deterministic, not transient -- the audit log showed identical
+    // questions failing identically on immediate retry -- so the message
+    // must steer the user toward narrowing the question, never toward
+    // "wait and retry".
     const message = sawTimeout
-      ? 'A couple of these queries timed out -- the database is likely busy with a background sync right now. Wait a minute and try again.'
+      ? "Some of the SQL this question needed timed out -- it was scanning too much data even after several attempts. Narrow the question (a shorter date range, or a specific SKU/product type) rather than retrying the same wording; if a narrower version still fails, flag it to an admin."
       : "Couldn't land on an answer after several attempts -- try rephrasing or narrowing the question (e.g. a shorter date range or a specific SKU/product type).";
     await logAudit(callerClient!, {
       question,
