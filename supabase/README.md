@@ -284,6 +284,7 @@ supabase/
     20260818210000_incoming_shipment_lines.sql
     20260818220000_factories_country.sql
     20260820130000_sales_by_day_trgm_search_indexes.sql
+    20260820140000_inventory_on_hand_trgm_search_indexes.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
