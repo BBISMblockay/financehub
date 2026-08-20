@@ -283,6 +283,8 @@ supabase/
     20260818200000_sample_received_transition_within_family.sql
     20260818210000_incoming_shipment_lines.sql
     20260818220000_factories_country.sql
+    20260820100000_company_entity_id_not_null.sql
+    20260820110000_lock_orphaned_sales_sku_location_rollup_mv.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

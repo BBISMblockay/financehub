@@ -10296,3 +10296,39 @@ left join public.po_lines pl on pl.id = sl.po_line_id;
 -- factories.country — powers the shipment status map on /v2/po-report.html.
 -- ---------------------------------------------------------------------------
 alter table public.factories add column if not exists country text;
+
+-- ---------------------------------------------------------------------------
+-- 20260820100000_company_entity_id_not_null.sql
+-- Enforce company_entity_id NOT NULL on sales_by_day and inventory_on_hand
+-- (both confirmed zero-NULL in production as of 2026-08-20).
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_sales_null_count bigint;
+  v_inventory_null_count bigint;
+begin
+  select count(*) into v_sales_null_count
+    from public.sales_by_day where company_entity_id is null;
+  if v_sales_null_count > 0 then
+    raise exception 'sales_by_day has % row(s) with NULL company_entity_id — backfill before enforcing NOT NULL', v_sales_null_count;
+  end if;
+
+  select count(*) into v_inventory_null_count
+    from public.inventory_on_hand where company_entity_id is null;
+  if v_inventory_null_count > 0 then
+    raise exception 'inventory_on_hand has % row(s) with NULL company_entity_id — backfill before enforcing NOT NULL', v_inventory_null_count;
+  end if;
+end $$;
+
+alter table public.sales_by_day alter column company_entity_id set not null;
+alter table public.inventory_on_hand alter column company_entity_id set not null;
+
+-- ---------------------------------------------------------------------------
+-- 20260820110000_lock_orphaned_sales_sku_location_rollup_mv.sql
+-- sales_sku_location_rollup_mv is orphaned (no reader view, no repo
+-- references) and already had SELECT revoked in 20260708050000; this closes
+-- the residual non-SELECT (INSERT/UPDATE/DELETE/TRUNCATE/...) grants to
+-- anon/authenticated found via pg_class.relacl, matching the other 3
+-- matviews which already have zero anon/authenticated grants.
+-- ---------------------------------------------------------------------------
+revoke all on public.sales_sku_location_rollup_mv from anon, authenticated, public;

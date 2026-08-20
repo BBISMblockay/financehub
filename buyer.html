@@ -7,7 +7,7 @@
   <title>Silo ERP — Product Buyer</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/financehub/pages/config.js"></script>
+  <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
@@ -549,7 +549,7 @@
         if (error) console.warn("getSession error:", error);
 
         if (!data?.session) {
-          window.location.href = "/financehub/pages/login.html";
+          window.location.href = "/pages/login.html";
           return;
         }
 
@@ -562,7 +562,7 @@
           btn.addEventListener("click", async () => {
             try { await supabaseClient.auth.signOut(); }
             catch (e) { console.warn("signOut error:", e); }
-            window.location.href = "/financehub/pages/login.html";
+            window.location.href = "/pages/login.html";
           });
         }
       })();

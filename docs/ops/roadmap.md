@@ -30,12 +30,13 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 - [x] Test Company validated: all pages show zero Baseballism data when toggled to test-co
 
 ### Multi-tenant deferred (Phase 2)
-- [ ] `inventory_on_hand` backfill (2.6M rows) — needs batched approach, out of scope until inventory reporting is repiped per-company
-- [ ] `sales_by_day` backfill (1M rows) — same; sales sync is Baseballism-specific (Google Sheets / Better Reports). New companies need their own sync pipeline.
-- [ ] Materialized views (`sales_monthly_product_type_rollup_mv`, `sales_sku_location_rollup_mv`) — cannot use `security_invoker`; blocked until sales backfill is done
+- [x] `inventory_on_hand` backfill (2.6M rows) + RLS company-scoping — done `20260625130000`/`20260708030000`; `company_entity_id` enforced `NOT NULL` `20260820100000` (production audited 2026-08-20: zero NULL rows, two companies represented)
+- [x] `sales_by_day` backfill (1M rows) + RLS company-scoping — done `20260624000000`; `company_entity_id` enforced `NOT NULL` `20260820100000`. Sales sync is no longer Google Sheets/Better Reports-specific — the live Shopify API sync (`scripts/lib/shopify-sync-core.mjs`) already iterates per-company `shopify_connections` and stamps `company_entity_id` on every write; a new company just needs its own `shopify_connections` row, not a new pipeline
+- [x] Materialized views (`sales_monthly_product_type_rollup_mv`, `sales_velocity_by_sku_location_mv`, `inventory_on_hand_current_mv`) — company-scoped via `security_invoker=false` reader views filtering `WHERE company_entity_id = active_company_id()` (`20260708040000`/`20260708050000`/`20260708060000`). `sales_sku_location_rollup_mv` is confirmed orphaned (no reader view, no repo references) and fully grant-locked `20260820110000` rather than migrated
 - [x] Per-company nav menu — hide Baseballism-specific sections (AR, payroll, legacy finance) when on a non-Baseballism entity. Shipped in `v2/nav-config.js` (`grandfathered` / `standard` profiles, plus department, role, and grant-table gating) → see `docs/ops/nav-profiles.md`
 - [x] Insert-side `company_entity_id` wiring — DB `BEFORE INSERT` trigger + `withCompany()` helpers in `pages/config.js` (no per-page patches required)
-- [ ] Company switcher in the sidebar (without requiring full logout/login)
+- [ ] Company switcher in the sidebar (without requiring full logout/login) — the one item still genuinely open in this bucket
+- [ ] `bi-sales-overview` / `bi-daily-trend` / `bi-top-sellers` / `bi-product-types` / `bi-product-search` / `sales-verification` remain `grandfathered`-only in `v2/nav-config.js` — data isolation is no longer the blocker (see above); generalizing these is a product/UX decision, not a backend one (see `docs/ops/CHANGELOG.md` 2026-08-20 entry for the per-page findings)
 
 ---
 

@@ -228,7 +228,7 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 - `entities` — company registry (`entity_type = 'company'`, `entity_key`, `title`)
 - `entity_memberships` — links users to companies (`entity_id`, `user_id`, `role`)
 
-**Key column:** `company_entity_id uuid` on all operational tables (backfilled for Baseballism; `inventory_on_hand` and `sales_by_day` deferred).
+**Key column:** `company_entity_id uuid` on all operational tables, backfilled and RLS-scoped — including `inventory_on_hand` and `sales_by_day`, whose backfill/RLS work is complete (`20260624000000`, `20260708030000`) and whose `company_entity_id` column is enforced `NOT NULL` as of `20260820100000_company_entity_id_not_null.sql` (production audited 2026-08-20: zero NULL rows on both tables, two companies represented).
 
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
@@ -260,7 +260,7 @@ if (_co?.id) query = query.eq('company_entity_id', _co.id);
 Older pages still call the sync `getActiveCompany()`; prefer `ensureActiveCompany(db)` in new code
 (see "Config and auth" for why). On inserts, wrap the payload in `withCompany()` / `withCompanyRows()`.
 
-**Not yet isolated:** `inventory_on_hand`, `sales_by_day` — backfill deferred. These depend on Baseballism-specific Google Sheets / Better Reports sync pipelines. New companies need their own data pipeline before these tables can be partitioned.
+**`inventory_on_hand` / `sales_by_day` isolation status:** these two ARE company-isolated — backfilled, RLS-scoped (`company_entity_id = active_company_id()`), and `NOT NULL`-enforced on `company_entity_id`. They are no longer tied to the retired Google Sheets / Better Reports pipeline: the live Shopify sync (`scripts/lib/shopify-sync-core.mjs`) already iterates per-company `shopify_connections` and stamps `company_entity_id` on every write into both tables, so a new company only needs its own `shopify_connections` row to get isolated data — no per-tenant sync pipeline or GitHub Action needed. What's genuinely still open: the company switcher in the sidebar (see "Open roadmap items" below), and the BI/reporting pages built on top of these tables (`bi-*`, `sales-verification`) remain `grandfathered`-only in `v2/nav-config.js` — that's a nav/product-scope decision, not a data-isolation gap.
 
 ### Role system
 Roles are **per-company**: permission gates judge by `entity_memberships.role` (`owner_admin` | `admin` | `member` | `viewer`) for the caller's ACTIVE company. `profiles.role` (enum `app_role`: `owner`, `admin`, `executive`, `user`) is the legacy global role — gates fall back to it only when the user has no membership row, and the profile-level `executive` still passes exec gates everywhere.
@@ -548,7 +548,7 @@ than this section.
 ### Multi-tenant isolation — Phase 1 complete
 DB-level company isolation is live. Users in multiple companies pick a company at login; all data reads are scoped to `profiles.active_company_id`. See `supabase/README.md` for migration details.
 
-**Deferred:** `inventory_on_hand` and `sales_by_day` backfill, per-company sync pipelines, company switcher in sidebar.
+**Deferred:** company switcher in sidebar. (`inventory_on_hand` / `sales_by_day` backfill and per-company sync pipelines are done — see "Multi-tenant architecture" above.)
 
 **Attribution:** every table with a `created_by`/`changed_by` column has a `stamp_created_by`/`stamp_changed_by` BEFORE INSERT trigger (auth.uid() when not explicitly passed; service-role syncs stay null). Rows created before 2026-07-14 are unattributed and unrecoverable.
 
@@ -609,11 +609,12 @@ Not bugs to fix blind — context so you don't mistake leftovers for live code:
 See `docs/ops/roadmap.md` for current priorities. Key items:
 - Company switcher in sidebar (without full logout)
 - Finish Beacon shell migration for the remaining iframe pages
-- `inventory_on_hand` / `sales_by_day` company backfill (Phase 2 multi-tenant)
 - Smoke tests
 
-Done since that file was last pruned: per-company nav menu (`v2/nav-config.js`) and insert-side
-`company_entity_id` stamping (DB trigger + `withCompany()` helpers).
+Done since that file was last pruned: per-company nav menu (`v2/nav-config.js`), insert-side
+`company_entity_id` stamping (DB trigger + `withCompany()` helpers), and `inventory_on_hand` /
+`sales_by_day` company backfill + `NOT NULL` enforcement (Phase 2 multi-tenant item, closed
+2026-08-20).
 
 ### Known P2 items
 See `docs/ops/bugs.md`. No open P1s.

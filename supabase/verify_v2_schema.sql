@@ -935,3 +935,30 @@ select
       then 'MISSING — run 20260818220000_factories_country.sql'
     else 'ok'
   end as factories_country;
+
+-- 36. sales_by_day / inventory_on_hand company_entity_id NOT NULL (migration 20260820100000)
+select
+  case
+    when not exists (
+      select 1 from information_schema.columns
+      where table_schema='public' and table_name='sales_by_day'
+        and column_name='company_entity_id' and is_nullable='NO'
+    ) then 'MISSING — run 20260820100000_company_entity_id_not_null.sql (sales_by_day still nullable)'
+    when not exists (
+      select 1 from information_schema.columns
+      where table_schema='public' and table_name='inventory_on_hand'
+        and column_name='company_entity_id' and is_nullable='NO'
+    ) then 'MISSING — run 20260820100000_company_entity_id_not_null.sql (inventory_on_hand still nullable)'
+    else 'ok'
+  end as sales_inventory_company_entity_id_not_null;
+
+-- 37. sales_sku_location_rollup_mv orphaned-grant lockdown (migration 20260820110000)
+select
+  case
+    when has_table_privilege('anon', 'public.sales_sku_location_rollup_mv', 'TRUNCATE')
+      or has_table_privilege('authenticated', 'public.sales_sku_location_rollup_mv', 'TRUNCATE')
+      or has_table_privilege('anon', 'public.sales_sku_location_rollup_mv', 'INSERT')
+      or has_table_privilege('authenticated', 'public.sales_sku_location_rollup_mv', 'INSERT')
+    then 'MISSING — run 20260820110000_lock_orphaned_sales_sku_location_rollup_mv.sql'
+    else 'ok'
+  end as sales_sku_location_rollup_mv_locked;
