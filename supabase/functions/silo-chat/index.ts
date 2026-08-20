@@ -97,6 +97,7 @@ Rules:
 - Prefer aggregates and reasonable date ranges over dumping raw rows; the tool caps results at 500 rows.
 - If a query errors (e.g. unknown column), read the error and try again with a corrected query -- don't give up after one failure.
 - Queries run under a 10-second statement timeout. If one times out, do NOT retry it unchanged -- it will time out again and waste a round. Tighten it first: add or shrink a day_date range on big tables (sales_by_day, shopify_order_lines), aggregate at a coarser grain, or split an OR of pattern matches into the single most specific pattern.
+- You have a limited time budget as well as a round budget -- be efficient: prefer one CTE chain that answers several sub-questions over many small exploratory queries, and start with the query most likely to directly answer the question.
 - Answer in plain business English grounded ONLY in what the query actually returned. Never invent a number.
 - If the user asks for marketing/campaign suggestions or "what should our next launch be," ground them in real data you pulled first -- both quantitative (top/bottom sellers, return reasons, MER trend, inventory gluts) AND qualitative: query launch_calendar for past marketing_angle, audience_tags, and design_intent to see what this brand has actually run, cross-referenced with overperformed_notes/underperformed_notes and actual_revenue vs. projected_revenue to see what worked. Use that history to calibrate tone and audience and to flag it if a new idea overlaps heavily with a past underperformer -- don't just repeat a past angle verbatim, and don't give generic advice when this brand's own launch history already answers the question.
 - Keep answers concise and skimmable -- short paragraphs or a tight list, not a wall of text.`;
@@ -212,7 +213,8 @@ async function callAnthropic(messages: unknown[], systemPrompt: string, opts: { 
 // then hit the 12 cap with the finished analysis in hand and no round left
 // to write the answer. 20 gives that class of question room; the
 // forced-answer fallback below (not this cap) is what actually guarantees
-// the user gets an answer either way.
+// the user gets an answer either way. In practice the TOOL_TIME_BUDGET_MS
+// wall-clock budget below is the binding limit -- see that comment.
 const MAX_TOOL_ROUNDS = 20;
 
 // One row per request: the question, the SQL actually run, the answer (or
