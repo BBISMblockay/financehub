@@ -299,7 +299,19 @@ Deno.serve(async (req: Request) => {
     queriesRun = [];
     let sawTimeout = false;
 
+    // The platform gateway cuts the client connection on requests that take
+    // longer than ~150s -- the function keeps running and logs its audit row,
+    // but the browser gets a dropped connection and shows a generic error
+    // (2026-08-20: the uncrustables question produced a full server-side
+    // answer nobody ever saw). Until responses are streamed (which keeps the
+    // connection alive), tool rounds get a hard time budget that leaves room
+    // for the synthesis turn to complete and the response to reach the
+    // browser inside the gateway window.
+    const startedAt = Date.now();
+    const TOOL_TIME_BUDGET_MS = 100_000;
+
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      if (Date.now() - startedAt > TOOL_TIME_BUDGET_MS) break;
       const data = await callAnthropic(messages, systemPrompt);
       const blocks = data.content || [];
       const toolUses = blocks.filter((b: { type: string }) => b.type === 'tool_use');
