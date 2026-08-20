@@ -283,6 +283,7 @@ supabase/
     20260818200000_sample_received_transition_within_family.sql
     20260818210000_incoming_shipment_lines.sql
     20260818220000_factories_country.sql
+    20260820130000_sales_by_day_trgm_search_indexes.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

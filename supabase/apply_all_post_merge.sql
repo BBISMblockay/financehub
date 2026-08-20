@@ -10296,3 +10296,17 @@ left join public.po_lines pl on pl.id = sl.po_line_id;
 -- factories.country — powers the shipment status map on /v2/po-report.html.
 -- ---------------------------------------------------------------------------
 alter table public.factories add column if not exists country text;
+
+-- ---------------------------------------------------------------------------
+-- 20260820130000_sales_by_day_trgm_search_indexes.sql
+-- Trigram GIN indexes so Ask SILO's and BI Product Search's leading-wildcard
+-- ILIKE searches on product_name/sku stop seq-scanning 1.1M rows into the
+-- 10s chat statement_timeout.
+-- ---------------------------------------------------------------------------
+create extension if not exists pg_trgm with schema extensions;
+
+create index if not exists sales_by_day_product_name_trgm_idx
+  on public.sales_by_day using gin (product_name extensions.gin_trgm_ops);
+
+create index if not exists sales_by_day_sku_trgm_idx
+  on public.sales_by_day using gin (sku extensions.gin_trgm_ops);

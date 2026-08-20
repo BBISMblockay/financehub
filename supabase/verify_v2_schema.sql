@@ -935,3 +935,17 @@ select
       then 'MISSING — run 20260818220000_factories_country.sql'
     else 'ok'
   end as factories_country;
+
+-- Trigram search indexes (migration 20260820130000) — Ask SILO / BI Product Search ILIKE speed
+select
+  case
+    when not exists (select 1 from pg_extension where extname = 'pg_trgm')
+      then 'MISSING — run 20260820130000_sales_by_day_trgm_search_indexes.sql (pg_trgm not installed)'
+    when not exists (select 1 from pg_indexes where schemaname='public' and tablename='sales_by_day'
+                       and indexname='sales_by_day_product_name_trgm_idx')
+      then 'MISSING — sales_by_day_product_name_trgm_idx'
+    when not exists (select 1 from pg_indexes where schemaname='public' and tablename='sales_by_day'
+                       and indexname='sales_by_day_sku_trgm_idx')
+      then 'MISSING — sales_by_day_sku_trgm_idx'
+    else 'ok'
+  end as sales_by_day_trgm_search_indexes;
