@@ -145,6 +145,8 @@
       font-size:13px; line-height:1; padding:0; opacity:.7;
     }
     .smp-linked-chip button:hover { opacity:1; }
+    .smp-linked-chip--top { cursor:pointer; }
+    .smp-linked-chip--top:hover { background:oklch(.89 .07 245); }
 
     /* ── photo grid + lightbox ───────────────────────── */
     .smp-photo-grid { display:flex; flex-wrap:wrap; gap:8px; }
@@ -465,6 +467,7 @@
         <div class="bcn-field-group smp-full">
           <label class="bcn-label">Product Title <span style="color:var(--bcn-neg)">*</span></label>
           <input class="bcn-field" id="fldTitle" placeholder="e.g. Frozen Treats Hoodie (Cream)" />
+          <div id="linkedProductChipTop" style="margin-top:6px; display:none;"></div>
         </div>
         <div class="bcn-field-group">
           <label class="bcn-label">Factory</label>
@@ -495,7 +498,7 @@
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnNotifyAssignee" disabled>Notify now</button>
       </div>
       <div style="color:var(--bcn-ink-3); font-size:11px; margin-top:6px;">
-        Route this request to a warehouse/logistics person — they're emailed when it's saved, reassigned, or marked ready. "Notify now" re-sends on demand.
+        Route this request to a warehouse/logistics person — they're emailed and Slacked once, when the sample is first created. Manage everything after that here in SILO; use "Notify now" to re-send on demand.
       </div>
     </div>
 
@@ -1173,8 +1176,14 @@
   }
 
   // ── product search (samples) ───────────────────────────────────────────────
+  // Two chips share this state: the editable one down in More Details (link/
+  // unlink/search all live there), and a read-only one right under the
+  // Product Title field so the link is visible without expanding More
+  // Details — Chris/Blake, 2026-08-20 ("linked product higher up under the
+  // sample name so its easy to find").
   function updateLinkedChip() {
     const chip = $('linkedProductChip');
+    const chipTop = $('linkedProductChipTop');
     if (linkedProductId && linkedProductTitle) {
       chip.style.display = '';
       chip.innerHTML = `<span class="smp-linked-chip">${esc(linkedProductTitle)}<button type="button" id="btnUnlinkProduct" title="Unlink">×</button></span>`;
@@ -1186,9 +1195,18 @@
       });
       $('prodSearchInput').value = '';
       $('prodSearchResults').classList.remove('open');
+
+      chipTop.style.display = '';
+      chipTop.innerHTML = `<span class="smp-linked-chip smp-linked-chip--top" id="btnJumpToLinkedProduct" role="button" tabindex="0" title="Change link in More Details">🔗 ${esc(linkedProductTitle)}</span>`;
+      $('btnJumpToLinkedProduct').addEventListener('click', () => {
+        $('moreDetailsSection').open = true;
+        $('moreDetailsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     } else {
       chip.style.display = 'none';
       chip.innerHTML = '';
+      chipTop.style.display = 'none';
+      chipTop.innerHTML = '';
     }
   }
 
@@ -1693,7 +1711,13 @@
     pipelineOriginalStatus = sample?.sample_status || null;
     renderPipeline(sample?.sample_status || 'pps_received');
 
-    sizesExpanded = !!(sample?.size_requests || sample?.sizes_picked_up);
+    // A Catalog "Request Sample" pull's whole point is picking which sizes
+    // to request — the "Req" checkbox column can't stay hidden behind the
+    // compact-view toggle here or there's nothing to check. Chris hit this
+    // 2026-08-20: five catalog requests saved with no sizes because the
+    // toggle wasn't obvious, so the notification went out as a bare
+    // "sample requested" with no size info at all.
+    sizesExpanded = !!(sample?.size_requests || sample?.sizes_picked_up || pendingRequestSource === 'catalog_photo_request');
     applySizesCompactClass();
     renderAllSmpSizeGrids(sample?.size_requests||'', sample?.sizes_ready_warehouse||'', sample?.sizes_picked_up||'');
     renderPhotoGrid(sample?.id||null, []);
@@ -1941,17 +1965,17 @@
     // before" -- the DB trigger's net.http_post is async, so nothing in this
     // insert/update call itself confirms whether sample-notify actually ran.
     const isNew = !drawerSample;
-    const oldAssignedTo = drawerSample?.assigned_to || null;
     const oldSizeRequests = drawerSample?.size_requests || '';
     const beforeLogId = await latestNotifyLogId(drawerSample?.id);
+    // Mirrors notify_sample_events() post-20260820213000: only two triggers
+    // fire anything now — the initial insert (assignee or catalog pull,
+    // with no sizes yet), and a catalog pull's size_requests being set or
+    // changed. Assignment changes, status-only saves, and warehouse-ready
+    // no longer notify anyone, so this no longer predicts a poll for them.
+    const isCatalogSizeRequest = payload.request_source === 'catalog_photo_request' && !!payload.size_requests;
     const mightNotify = isNew
-      ? !!(payload.assigned_to || payload.request_source)
-      : !!(
-          (payload.assigned_to && payload.assigned_to !== oldAssignedTo)
-          || (RECEIVED_STATUSES.includes(newStatus) && !RECEIVED_STATUSES.includes(oldStatus))
-          || (newStatus==='warehouse_ready' && oldStatus!=='warehouse_ready')
-          || (payload.size_requests && payload.size_requests !== oldSizeRequests)
-        );
+      ? !!(isCatalogSizeRequest || ((payload.assigned_to || payload.request_source) && !payload.size_requests))
+      : !!(isCatalogSizeRequest && payload.size_requests !== oldSizeRequests);
 
     setStatus('Saving…','info');
     let sampleId;

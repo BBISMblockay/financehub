@@ -10150,3 +10150,44 @@ drop trigger if exists trg_sample_notify on public.product_samples;
 create trigger trg_sample_notify
   after insert or update on public.product_samples
   for each row execute function public.notify_sample_events();
+
+-- 20260820213000_sample_notify_reduce_to_essential_triggers.sql
+create or replace function public.notify_sample_events()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT'
+     and (new.assigned_to is not null or new.request_source is not null)
+     and (new.size_requests is null or btrim(new.size_requests) = '') then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object(
+        'type', case when coalesce(new.sample_status,'') in ('received','pps_received','full_run_received')
+                     then 'SAMPLE_RECEIVED' else 'SAMPLE_REQUESTED' end,
+        'record', row_to_json(new)
+      )
+    );
+  end if;
+
+  if new.request_source = 'catalog_photo_request'
+     and new.size_requests is not null and btrim(new.size_requests) <> ''
+     and (tg_op = 'INSERT' or old.size_requests is distinct from new.size_requests) then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_SIZE_REQUEST', 'record', row_to_json(new))
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.notify_sample_events() from public, anon;
+
+drop trigger if exists trg_sample_notify on public.product_samples;
+create trigger trg_sample_notify
+  after insert or update on public.product_samples
+  for each row execute function public.notify_sample_events();

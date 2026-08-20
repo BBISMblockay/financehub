@@ -830,12 +830,6 @@ select
     when not exists (select 1 from information_schema.views
                      where table_schema='public' and table_name='product_samples_v')
       then 'MISSING — product_samples_v view'
-    when not exists (
-      select 1 from pg_proc p join pg_language l on l.oid = p.prolang
-      where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
-        and pg_get_functiondef(p.oid) ilike '%SAMPLE_ASSIGNED%'
-    )
-      then 'MISSING — notify_sample_events() not updated with SAMPLE_REQUESTED/WAREHOUSE_READY/ASSIGNED'
     else 'ok'
   end as product_samples_assignee_notifications;
 
@@ -892,14 +886,25 @@ select
     else 'ok'
   end as sample_pps_full_run_received;
 
--- 33. Sample received transition within family (migration 20260818200000)
+-- 33. Sample notify reduced to essential triggers (migration 20260820213000)
+-- Superseded 20260818190000/200000's PPS<->Full Run transition logic and
+-- dropped SAMPLE_WAREHOUSE_READY / automatic SAMPLE_ASSIGNED entirely —
+-- notify_sample_events() now only fires on initial insert and on a
+-- catalog-sourced size request. Checks for the narrowed condition's
+-- presence and the removed types' absence.
 select
   case
     when not exists (
       select 1 from pg_proc p join pg_language l on l.oid = p.prolang
       where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
-        and pg_get_functiondef(p.oid) ilike '%old.sample_status is distinct from new.sample_status%'
+        and pg_get_functiondef(p.oid) ilike '%new.request_source = ''catalog_photo_request''%'
     )
-      then 'MISSING — run 20260818200000_sample_received_transition_within_family.sql'
+      then 'MISSING — run 20260820213000_sample_notify_reduce_to_essential_triggers.sql'
+    when exists (
+      select 1 from pg_proc p join pg_language l on l.oid = p.prolang
+      where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
+        and pg_get_functiondef(p.oid) ilike '%SAMPLE_WAREHOUSE_READY%'
+    )
+      then 'STALE — notify_sample_events() still fires SAMPLE_WAREHOUSE_READY, re-run 20260820213000'
     else 'ok'
-  end as sample_received_transition_within_family;
+  end as sample_notify_reduce_to_essential_triggers;
