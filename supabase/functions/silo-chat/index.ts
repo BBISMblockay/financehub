@@ -58,6 +58,16 @@
 // angle/audience/timing/spend/copy, a child concept (set) holds only what's
 // genuinely per-product (title/qty/factory/size). See
 // PRODUCT_CONCEPT_SYSTEM_BLOCK's "COLLECTIONS" section.
+// Truncation + nudge-enforcement fix (2026-08-21): a live holiday-collection
+// draft shipped a mid-word-truncated answer to the user -- max_tokens was
+// 4096 and stop_reason was never checked, so a cut-off (but non-empty)
+// answer was treated as finished. Fixed in callAnthropic/the main loop and
+// the round-cap forced-answer fallback: both now detect stop_reason ===
+// 'max_tokens' and continue instead of returning the fragment, and
+// max_tokens is raised to 8192. The same trace also showed the
+// PRE_DRAFT_NUDGE_ROUND circuit breaker being answered with prose instead
+// of the tool call it demanded -- forceNudgeTool now sets tool_choice to
+// force create_product_concept on the very next round instead of asking.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -390,7 +400,12 @@ function buildSystemPrompt(notes: Note[]) {
   return BASE_SYSTEM_PROMPT + dateBlock + brandBlock + notesBlock;
 }
 
-async function callAnthropic(messages: unknown[], systemPrompt: string, tools: unknown[], opts: { forceAnswer?: boolean } = {}) {
+async function callAnthropic(
+  messages: unknown[],
+  systemPrompt: string,
+  tools: unknown[],
+  opts: { forceAnswer?: boolean; forceTool?: string } = {},
+) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -400,7 +415,14 @@ async function callAnthropic(messages: unknown[], systemPrompt: string, tools: u
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 4096,
+      // Was 4096. A live holiday-collection draft (full launch-plan brief in
+      // prose after hitting query errors) got cut off mid-word at the old
+      // cap -- stop_reason was "max_tokens" but the code only checked "is
+      // there text?", so it shipped the truncated fragment as a finished
+      // answer. Raised as a mitigation; the real fix is the stop_reason
+      // check below, which now refuses to treat a max_tokens cutoff as done
+      // regardless of the cap.
+      max_tokens: 8192,
       // Cached as one block -- render order is tools -> system -> messages,
       // so this breakpoint covers TOOLS too. System prompt is long enough to
       // clear Sonnet 5's 1024-token minimum cacheable prefix. Content is
@@ -412,8 +434,16 @@ async function callAnthropic(messages: unknown[], systemPrompt: string, tools: u
       // forceAnswer: tools stay declared (the transcript contains tool_use /
       // tool_result blocks that must resolve against them) but tool_choice
       // 'none' forbids any further calls, so the model can only answer.
+      // forceTool: same idea, but forces the NEXT round to call one specific
+      // tool -- used to make the phase-1 draft nudge below an actual
+      // enforcement instead of a request the model can (and, live, did)
+      // answer past with a prose apology instead.
       tools,
-      ...(opts.forceAnswer ? { tool_choice: { type: 'none' } } : {}),
+      ...(opts.forceAnswer
+        ? { tool_choice: { type: 'none' } }
+        : opts.forceTool
+        ? { tool_choice: { type: 'tool', name: opts.forceTool } }
+        : {}),
       messages,
     }),
   });
@@ -543,15 +573,34 @@ Deno.serve(async (req: Request) => {
     // stop telling it to draft now with whatever it has.
     const PRE_DRAFT_NUDGE_ROUND = 4;
     let hasDraftedConcept = false;
+    // Set right after the nudge below is pushed, so the VERY NEXT round is
+    // forced to actually call create_product_concept instead of being asked
+    // nicely -- live, the model answered a nudge with a prose apology
+    // instead of the tool call the nudge asked for. Consumed (reset) after
+    // one use whether or not the model complied, so it never traps an
+    // unrelated later round.
+    let forceNudgeTool = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const data = await callAnthropic(messages, systemPrompt, tools);
+      const data = await callAnthropic(
+        messages,
+        systemPrompt,
+        tools,
+        forceNudgeTool ? { forceTool: 'create_product_concept' } : {},
+      );
+      forceNudgeTool = false;
       const blocks = data.content || [];
       const toolUses = blocks.filter((b: { type: string }) => b.type === 'tool_use');
 
       if (!toolUses.length) {
         const text = blocks.map((b: { text?: string }) => b.text || '').join('').trim();
-        if (text) {
+        // A max_tokens cutoff can still leave non-empty (but truncated,
+        // often mid-word) text -- observed live on a holiday-collection
+        // draft that hit the old 4096 cap while narrating a long answer.
+        // Treating any non-empty text as "done" shipped that fragment to
+        // the user as if it were complete. Never accept a cut-off response
+        // as final, even a long one; ask it to finish instead.
+        if (text && data.stop_reason !== 'max_tokens') {
           await logAudit(callerClient!, {
             question,
             historySnapshot: history,
@@ -561,6 +610,16 @@ Deno.serve(async (req: Request) => {
             status: 'ok',
           });
           return reply({ answer: text, queries_run: queriesRun });
+        }
+        if (text) {
+          // max_tokens cutoff with partial text -- continue the same
+          // answer rather than restarting it from scratch.
+          messages.push({ role: 'assistant', content: blocks });
+          messages.push({
+            role: 'user',
+            content: "That last response got cut off by the output length limit before it finished. Continue directly from where it left off -- do not restart or repeat what you already wrote. If you were narrating a long answer, cut it down and lead with the key numbers/decisions instead of restating everything.",
+          });
+          continue;
         }
         // A natural (non-round-cap) stop with literally no text in it --
         // observed live after a confused multi-round date-coverage
@@ -729,6 +788,11 @@ Deno.serve(async (req: Request) => {
           role: 'user',
           content: "You've used several tool rounds without creating a draft concept yet. Stop investigating further -- call create_product_concept now using your best assessment from what you've already gathered. Leave any field you're not confident about blank rather than continuing to research it.",
         });
+        // Live, the model answered this nudge with a prose apology instead
+        // of the tool call it asked for -- wording alone didn't hold, same
+        // lesson as the rest of this circuit breaker. Force the next round
+        // to actually call the tool.
+        forceNudgeTool = true;
       }
     }
 
@@ -744,8 +808,23 @@ Deno.serve(async (req: Request) => {
         role: 'user',
         content: 'Your tool budget is exhausted -- you cannot run any more queries or tools. Using ONLY the results already gathered above, give your best final answer to the original question now. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.',
       });
-      const finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
-      const finalText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
+      let finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
+      let finalText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
+      if (finalText && finalData.stop_reason === 'max_tokens') {
+        // Same truncation bug as the main loop, hitting this last-resort
+        // forced-answer path instead -- give it exactly one bounded
+        // continuation rather than shipping a cut-off answer with no
+        // chance to finish (there's no tool-round budget left to retry
+        // more than once here).
+        messages.push({ role: 'assistant', content: finalData.content || [] });
+        messages.push({
+          role: 'user',
+          content: "That got cut off by the output length limit. Finish it concisely -- lead with the key numbers/decision, don't restate what you already said.",
+        });
+        finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
+        const continuedText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
+        if (continuedText) finalText = continuedText;
+      }
       if (finalText) {
         await logAudit(callerClient!, {
           question,
