@@ -347,6 +347,17 @@ function buildSystemPrompt(notes: Note[]) {
   const brandNotes = notes.filter((n) => n.category === 'brand');
   const generalNotes = notes.filter((n) => n.category !== 'brand');
 
+  // The model has no other grounding for "today" -- without this it guesses,
+  // and guesses wrong (a live Product Concepts request queried "last Black
+  // Friday" as Nov 2024 when the real most recent one was Nov 2025, then
+  // burned its whole round budget on date-range coverage checks trying to
+  // figure out why the data looked off, and never produced an answer).
+  // Computed fresh per request so it can never go stale; identical across
+  // every round of one request (fine for the cache_control breakpoint
+  // below) and only changes the cache key once a day actually rolls over.
+  const now = new Date();
+  const dateBlock = `\n\nToday's date is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })} (${now.toISOString().slice(0, 10)}, UTC). Use this as "today" for any relative-date reasoning (most recent Black Friday, days since launch, this year's seasonality window, etc.) -- never assume or infer the current date from training data or conversation content.`;
+
   const brandBlock = brandNotes.length
     ? `\n\nBrand context (taught by this company's execs -- ground tone and any brand-voice-flavored answers in this):\n${
         brandNotes.map((n) => `- ${n.note}`).join('\n')
@@ -357,7 +368,7 @@ function buildSystemPrompt(notes: Note[]) {
         generalNotes.map((n) => `- ${n.note}${n.created_by_name ? ` (taught by ${n.created_by_name})` : ''}`).join('\n')
       }`
     : '';
-  return BASE_SYSTEM_PROMPT + brandBlock + notesBlock;
+  return BASE_SYSTEM_PROMPT + dateBlock + brandBlock + notesBlock;
 }
 
 async function callAnthropic(messages: unknown[], systemPrompt: string, tools: unknown[], opts: { forceAnswer?: boolean } = {}) {
@@ -521,15 +532,29 @@ Deno.serve(async (req: Request) => {
 
       if (!toolUses.length) {
         const text = blocks.map((b: { text?: string }) => b.text || '').join('').trim();
-        await logAudit(callerClient!, {
-          question,
-          historySnapshot: history,
-          answer: text,
-          queriesRun,
-          toolRounds: round + 1,
-          status: 'ok',
+        if (text) {
+          await logAudit(callerClient!, {
+            question,
+            historySnapshot: history,
+            answer: text,
+            queriesRun,
+            toolRounds: round + 1,
+            status: 'ok',
+          });
+          return reply({ answer: text, queries_run: queriesRun });
+        }
+        // A natural (non-round-cap) stop with literally no text in it --
+        // observed live after a confused multi-round date-coverage
+        // investigation. Logging and returning an empty answer here would
+        // silently show the user nothing at all. Nudge for a real answer
+        // instead of treating blank as done; naturally bounded by
+        // MAX_TOOL_ROUNDS same as any other round.
+        messages.push({ role: 'assistant', content: blocks });
+        messages.push({
+          role: 'user',
+          content: "That last response had no text in it. Answer the question now in plain language, using whatever you've already gathered -- don't just stop silently.",
         });
-        return reply({ answer: text, queries_run: queriesRun });
+        continue;
       }
 
       messages.push({ role: 'assistant', content: blocks });
