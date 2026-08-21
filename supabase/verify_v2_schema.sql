@@ -416,6 +416,16 @@ select
 select
   case
     when exists (
+      select 1 from pg_proc
+      where pronamespace = 'public'::regnamespace and proname = 'product_search_rollup'
+    ) and has_function_privilege('authenticated', 'public.product_search_rollup(date,date,text,text,boolean)', 'EXECUTE')
+    then 'ok'
+    else 'MISSING — run 20260821180000_product_search_rollup_rpc.sql (server-side rollup backing v2/bi-product-search.html)'
+  end as product_search_rollup_rpc;
+
+select
+  case
+    when exists (
       select 1 from pg_policies
       where schemaname = 'public' and tablename = 'launch_task_templates'
         and policyname = 'launch_task_templates_active_select'

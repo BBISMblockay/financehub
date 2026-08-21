@@ -291,6 +291,7 @@ supabase/
     20260821140000_product_concept_po_link.sql
     20260821160000_product_concept_launch_plan_fields.sql
     20260821170000_sku_collision_velocity_fix.sql
+    20260821180000_product_search_rollup_rpc.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
