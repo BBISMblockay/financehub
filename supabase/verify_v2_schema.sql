@@ -401,6 +401,21 @@ select
 select
   case
     when exists (
+      select 1 from pg_attribute
+      where attrelid = 'public.sales_velocity_by_sku_location_mv'::regclass
+        and attname = 'product_name' and not attisdropped
+    ) and exists (
+      select 1 from pg_attribute
+      where attrelid = 'public.inventory_workboard_v'::regclass
+        and attname = 'product_title' and not attisdropped
+    )
+    then 'ok'
+    else 'MISSING — run 20260821170000_sku_collision_velocity_fix.sql (product-name join key so two products sharing one SKU no longer blend sales/inventory)'
+  end as sales_velocity_sku_collision_fix;
+
+select
+  case
+    when exists (
       select 1 from pg_policies
       where schemaname = 'public' and tablename = 'launch_task_templates'
         and policyname = 'launch_task_templates_active_select'
