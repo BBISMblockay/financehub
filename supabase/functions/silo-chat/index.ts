@@ -37,13 +37,20 @@
 // inside Deno.serve below). No fetch/base64 tool needed here since
 // Anthropic's image blocks accept
 // a public URL directly.
-// Every concept defaults to a full launch brief (Loomis note, 2026-08-21):
+// Every concept can produce a full launch brief (Loomis note, 2026-08-21):
 // size-spread qty breakdown, channel/retail split, launch day+time,
 // marketing spend by platform, weekly revenue projection per channel,
 // email/SMS cadence, and draft marketing copy -- see
 // PRODUCT_CONCEPT_SYSTEM_BLOCK and 20260821160000_product_concept_launch_plan_fields.sql.
 // PO creation is the 8th item on that list; it's covered separately by
 // resulting_po_header_id (20260821140000), not a draft-time field here.
+// This is split into two phases, not generated all at once: phase 1 is the
+// fast core draft (create_product_concept -- title/angle/qty/factory/
+// channels/timing), phase 2 is the launch-plan fields above, only run once
+// the user explicitly asks to build it out (via update_product_concept).
+// Doing both in one pass was observed live burning the full 20-round tool
+// budget and running long enough to risk a client-side timeout -- see
+// PRODUCT_CONCEPT_SYSTEM_BLOCK's "PHASE 1"/"PHASE 2" split.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -139,35 +146,33 @@ Product Concepts (in testing -- available to you specifically): you can also hel
 
 The user can attach reference/inspiration images (e.g. a print style, a color direction, a similar product they like) directly in the conversation -- these arrive as real image content in the message, so just look at them like any other image. When you create_product_concept or update_product_concept afterward, pass their URLs through in reference_image_urls so they're saved on the row, not just visible in this one exchange -- copy the exact URLs you saw, never invent one. Reference this in your reasoning/notes when it visibly informed the direction (e.g. "print style follows the attached reference").
 
-Every concept is a full launch brief by default, not just a qty/angle sketch -- fill in as much of this as you can ground, every time, without being asked for each piece specifically:
-1. suggested_qty + suggested_size_breakdown -- total buy quantity AND its breakdown by size, not just a total
-2. suggested_channels + suggested_channel_split -- which DTC channels (e.g. meta ads, tiktok ads, amazon, owned site) and retail, as a percentage split, not just a channel list
-3. suggested_launch_date + suggested_launch_time -- day AND time of day, not just a date
-4. suggested_marketing_spend -- a recommended dollar budget per platform
-5. suggested_weekly_revenue_projection -- revenue projected by week, per channel, for the first several weeks post-launch
-6. suggested_email_sms_plan -- the email/SMS cadence and strategy around the launch (what sends when, and why)
-7. suggested_marketing_copy -- a draft of actual marketing copy (headline + short body), not just the marketing_angle one-liner
-8. PO creation -- handled downstream by approve_product_concept + the (still-manual) PO Builder link, not a draft-time field
+This is a two-phase flow -- draft the core idea fast, then only build out the full launch-plan brief once the user actually asks for it. Trying to do both in one pass burns the tool-round budget on cadence/spend/copy detail for an idea that might get rejected at the qty/angle stage anyway, and can run long enough to risk a timeout (this happened live: two drafts both ran the full 20-round budget trying to ground everything up front). Never guess which phase the user wants -- ask, so you know what to do next and how much budget to spend on it.
 
-Leave a piece blank rather than inventing a number with no basis, but always attempt all seven draft-time pieces first -- don't skip straight to a partial draft because grounding takes a couple extra queries. Flag low-confidence pieces plainly when you show the draft (e.g. "weekly revenue projection here is a rough estimate -- comparable launches don't have granular weekly data").
-
-Bias toward drafting fast, not interviewing:
+PHASE 1 -- fast core draft:
 1. Draft immediately from whatever they gave you, even a single rough sentence -- do NOT ask a round of clarifying questions (product type? angle? timing?) before doing anything. Only ask first if the message truly gives you nothing to start from (e.g. just "generate a concept" with zero direction). A vague-but-present starting point ("something for summer," "a new cap idea") is enough to draft against and refine, not a prompt to interview them.
-2. Before drafting, ground it in real data -- this is not optional and not just when asked:
+2. Before drafting, ground it in real data -- this is not optional and not just when asked, but keep it to the CORE sources only (the phase 2 sources below come later, only if asked):
    - launch_calendar for comparable past launches (by product_type/collection): marketing_angle, audience_tags, actual_revenue vs. projected_revenue, performance_comparison
    - sales_by_day for ACTUAL sell-through of comparable products -- specifically the first-90-days-from-launch quantity, not just how big past POs for the category were. PO size and sales velocity can disagree (PO history alone undersized a recent draft by ~25% here), so always check both, every time, not only when pushed
    - products_master for seasonality (peak_start_month/peak_end_month) on similar product types
    - po_lines joined to po_headers for which factory has actually produced this kind of product before
-   - shopify_order_lines or po_lines.variant_title_snapshot for the historical size curve of a comparable product -- ground suggested_size_breakdown in an actual past size split, not an even guess across sizes
-   - shopify_orders_v.resolved_channel_name (channel mix) and marketing_kpis_daily (spend/CAC/MER by platform) for comparable past launches -- ground suggested_channel_split and suggested_marketing_spend in what actually converted efficiently before, not an even split across platforms
-   - launch_calendar.actual_revenue trajectory (where available) for a comparable launch's real week-over-week pattern -- ground suggested_weekly_revenue_projection in that shape (front-loaded, steady, etc.) rather than a flat guess; if no comparable launch has week-level data, say so and give a labeled rough estimate instead
-   - silo_chat_notes/brand context for voice -- ground suggested_marketing_copy in it directly, not generic copy
    - web_search, specifically when the concept has an external hook -- a licensed IP/collab, a pop-culture reference, a named trend, or a competitor angle the user mentioned. Internal data can only tell you what Baseballism has done before, never whether the IP/trend is actually current or what competitors/comparable brands are doing with it right now, and this is a competitive industry -- that outside read matters as much as the internal sales-basis check. Keep it to a couple of well-targeted searches (per the run_sql/web_search efficiency rules above), and treat what it returns with the same "external, unverified" caution the base rules already require -- it's color that sharpens the angle, never a number to blend into the internally-grounded qty/revenue reasoning. Skip it for concepts with no external hook (e.g. a plain seasonal restock idea) -- it has nothing to add there.
    Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part.
-3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in what you can reason about now; leave the rest blank rather than inventing a number with no basis.
-4. Show the user the draft back clearly (a short readable summary, not raw JSON), and say plainly which parts are well-grounded vs. a rough guess.
-5. Revise with update_product_concept as the user gives feedback -- this can go back and forth as many times as needed.
-6. Only call approve_product_concept when the user explicitly says to approve it. If it fails for a permissions reason, tell them plainly (they need the same purchasing write access PO Builder requires) rather than retrying or working around it.
+3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in title, concept_summary, marketing_angle, audience, audience_tags, suggested_qty, suggested_factory_id, suggested_channels, suggested_retail_dtc_notes, suggested_launch_date, suggested_launch_notes, and reasoning; leave the rest blank rather than inventing a number with no basis. Leave every phase 2 field (suggested_size_breakdown, suggested_channel_split, suggested_marketing_spend, suggested_weekly_revenue_projection, suggested_email_sms_plan, suggested_marketing_copy, suggested_launch_time) unset at this stage -- those are phase 2, not part of the fast draft, even if you could technically guess at them now.
+4. Show the user the draft back clearly (a short readable summary, not raw JSON), say plainly which parts are well-grounded vs. a rough guess, and ask explicitly whether they want the full launch-plan brief built out next (size breakdown, channel spend, weekly revenue projection, email/SMS cadence, marketing copy) -- don't run phase 2 queries or fill those fields until they say yes to that specifically. This question is required, not optional politeness -- it's the only signal you have for whether to spend more tool budget.
+5. Revise the core draft with update_product_concept as the user gives feedback on phase 1 -- this can go back and forth as many times as needed, still without touching phase 2 fields.
+
+PHASE 2 -- full launch-plan brief (only once the user explicitly says to build it out, e.g. "build out the full plan," "flesh it out," "yes," "give me the rest"):
+6. Ground each remaining piece in its own real-data source, same standard as phase 1 -- don't guess an even split or a flat number:
+   - shopify_order_lines or po_lines.variant_title_snapshot for the historical size curve of a comparable product -- ground suggested_size_breakdown in an actual past size split
+   - shopify_orders_v.resolved_channel_name (channel mix) and marketing_kpis_daily (spend/CAC/MER by platform) for comparable past launches -- ground suggested_channel_split and suggested_marketing_spend in what actually converted efficiently before
+   - launch_calendar.actual_revenue trajectory (where available) for a comparable launch's real week-over-week pattern -- ground suggested_weekly_revenue_projection in that shape (front-loaded, steady, etc.); if no comparable launch has week-level data, say so and give a labeled rough estimate instead
+   - silo_chat_notes/brand context for voice -- ground suggested_marketing_copy in it directly, not generic copy
+   - suggested_launch_time doesn't need its own query -- reason from whatever day-of-week pattern is visible in comparable launches, or state the assumption plainly if none is
+   Same efficiency rule as phase 1: fold this into as few run_sql calls as you can.
+7. Call update_product_concept with the phase 2 fields once grounded, and show the user the expanded draft the same way as phase 1 -- plainly grounded vs. estimated.
+8. Only call approve_product_concept when the user explicitly says to approve it. If it fails for a permissions reason, tell them plainly (they need the same purchasing write access PO Builder requires) rather than retrying or working around it.
+
+PO creation itself (the 8th item a reviewer would expect) is handled downstream by approve_product_concept plus the still-manual PO Builder link -- not a field either phase writes directly.
 
 This whole flow only ever produces a draft or an approved concept row -- it does not create a PO, and nothing here places an order or commits money. Say so if a user seems to think approving a concept is the same as ordering it.
 
@@ -233,7 +238,7 @@ const TOOLS = [
 const PRODUCT_CONCEPT_TOOLS = [
   {
     name: 'create_product_concept',
-    description: 'Create a new draft product concept -- the first artifact in the product-generation flow, before any PO exists. Call this once you and the user have landed on enough of a direction to draft (title + at least a rough angle/qty), not on the very first message. After creating it, show the user the draft clearly and ask what to change before they approve it.',
+    description: 'Create a new draft product concept -- the first artifact in the product-generation flow, before any PO exists. Call this once you and the user have landed on enough of a direction to draft (title + at least a rough angle/qty), not on the very first message. This is the phase 1 (fast core draft) call -- leave suggested_size_breakdown/suggested_channel_split/suggested_marketing_spend/suggested_weekly_revenue_projection/suggested_email_sms_plan/suggested_marketing_copy/suggested_launch_time unset here even if you could guess at them; those are phase 2 fields, filled in later via update_product_concept only after the user asks to build out the full launch-plan brief. After creating it, show the user the draft clearly and ask whether they want the full plan built out next.',
     input_schema: {
       type: 'object',
       properties: {
