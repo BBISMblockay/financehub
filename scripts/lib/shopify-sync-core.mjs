@@ -863,8 +863,18 @@ export function ordersToSalesRows({
       const shopifyItemType = getShopifyItemType(li);
       const effectiveSku = li.sku || li.title || shopifyItemType || 'None';
       const metaSku = (li.sku && skuMeta.get(li.sku)) || {};
+      // li.title is the real per-order-line product name. skuMeta is keyed by
+      // SKU alone and silently picks one arbitrary product's title/type when
+      // two Shopify listings share a SKU (a renamed/relisted product, or a
+      // duplicate never-launched variant) -- see the 2026-08-21 "Doubles and
+      // Bubbles Cap - Toddler" misattribution, where a never-launched product
+      // sharing a SKU with the real Youth cap collected its sales. Preferring
+      // li.title, and folding it into the merge key below, keeps same-SKU
+      // products as separate sales_by_day rows instead of one merged row
+      // stamped with whichever title happened to win the catalog lookup.
+      const productName = li.title || metaSku.product_title || null;
 
-      const key = [orderDate, locationTag, effectiveSku].join('||');
+      const key = [orderDate, locationTag, effectiveSku, productName].join('||');
       const cur = dayMap.get(key);
 
       if (!cur) {
@@ -877,7 +887,7 @@ export function ordersToSalesRows({
             shopDomain: domain,
             orderDate,
             sku: effectiveSku,
-            productName: metaSku.product_title || li.title || null,
+            productName,
             productType:
               metaSku.product_type ||
               shopifyItemType ||
@@ -941,7 +951,7 @@ export function ordersToSalesRows({
           shopDomain: domain,
           refundDate,
           sku: effectiveSku,
-          productName: metaSku.product_title || li?.title || null,
+          productName: li?.title || metaSku.product_title || null,
           productType:
             metaSku.product_type ||
             shopifyItemType ||
@@ -1417,8 +1427,16 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     for (const p of products) productById.set(String(p.id), p);
   }
 
+  // Keyed by inventory_item_id -- Shopify's real 1:1-with-variant identifier
+  // -- not by SKU. Two DIFFERENT products/variants can carry the identical
+  // SKU string (a renamed/relisted product, or a duplicate never-launched
+  // listing left pointed at the same SKU as the real one -- see the
+  // 2026-08-21 "Doubles and Bubbles Cap - Toddler" misattribution, where a
+  // never-launched product shared the real Youth cap's SKU and picked up
+  // its sales and on-hand qty). Resolving metadata per inventory_item_id
+  // keeps each variant's own correct title/type instead of both variants
+  // racing to overwrite one SKU-keyed lookup.
   const invItemById = new Map();
-  const skuMeta = new Map();
 
   for (const v of variants) {
     if (!v?.sku) continue;
@@ -1427,8 +1445,10 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
       p.image?.src || (Array.isArray(p.images) && p.images[0]?.src) || null;
     const unitPrice = variantUnitPrice(v);
 
-    invItemById.set(String(v.inventory_item_id), { sku: v.sku, unit_price: unitPrice });
-    skuMeta.set(v.sku, {
+    invItemById.set(String(v.inventory_item_id), {
+      sku: v.sku,
+      product_id: v.product_id != null ? String(v.product_id) : null,
+      unit_price: unitPrice,
       product_title: (p.title || '').trim() || v.sku,
       variant_title: v.title && v.title !== 'Default Title' ? v.title : null,
       product_type:
@@ -1437,12 +1457,14 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         null,
       variant_barcode: v.barcode || null,
       product_image_url: imageUrl,
-      unit_price: unitPrice,
     });
   }
 
-  // Collapse by (locId, sku) — same SKU can appear on multiple inventory items
-  // at the same location; sum quantities so the upsert batch has no duplicates.
+  // Collapse by (locId, sku, product_id) — the same product can legitimately
+  // have more than one inventory item tracking the same SKU at a location
+  // (those should sum), but two DIFFERENT products sharing a SKU must not:
+  // including product_id keeps them as separate rows instead of one merged,
+  // mislabeled row.
   const invByKey = new Map();
 
   for (const loc of locations) {
@@ -1463,11 +1485,11 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
       const invItem = invItemById.get(String(lvl.inventory_item_id));
       if (!invItem?.sku) continue;
 
-      const { sku, unit_price: unitPrice } = invItem;
+      const { sku, product_id: productId, unit_price: unitPrice } = invItem;
       const qty = Number(lvl.available ?? 0);
       const lineRetail = Math.round(qty * unitPrice * 100) / 100;
 
-      const rowHash = hashRow([connection.company_entity_id, locId, sku, snapshotAt]);
+      const rowHash = hashRow([connection.company_entity_id, locId, sku, productId || '', snapshotAt]);
       const existing = invByKey.get(rowHash);
       if (existing) {
         existing.total_available_quantity += qty;
@@ -1475,21 +1497,20 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         continue;
       }
 
-      const metaSku = skuMeta.get(sku) || {};
       invByKey.set(rowHash, {
         company_entity_id: connection.company_entity_id,
         location_tag: locationTag,
         location_name: locationName,
         source: SOURCE,
         location: loc.name || null,
-        product_title: metaSku.product_title || sku,
-        variant_title: metaSku.variant_title || null,
+        product_title: invItem.product_title || sku,
+        variant_title: invItem.variant_title || null,
         variant_sku: sku,
         shop_domain: domain,
-        variant_barcode: metaSku.variant_barcode || null,
-        product_type: metaSku.product_type || null,
+        variant_barcode: invItem.variant_barcode || null,
+        product_type: invItem.product_type || null,
         product_image: null,
-        product_image_url: metaSku.product_image_url || null,
+        product_image_url: invItem.product_image_url || null,
         total_available_quantity: qty,
         total_available_inventory_value: lineRetail,
         snapshot_at: snapshotAt,
