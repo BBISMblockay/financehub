@@ -20,10 +20,12 @@
 // Ask SILO access via backend.html) can teach it a new note no matter what
 // the model is told to do. web_search is the one deliberate exception to
 // "SILO data only" -- see the "Internal data vs. public web knowledge"
-// paragraph in BASE_SYSTEM_PROMPT for how its results are kept clearly
-// separate from real SILO numbers. See CLAUDE.md's "Key tables" section
-// for the schema summary baked into BASE_SYSTEM_PROMPT below -- keep them
-// in sync.
+// paragraph in BASE_PROMPT_BEFORE_SCHEMA for how its results are kept
+// clearly separate from real SILO numbers. Schema facts are NOT written
+// in this file anymore: they come from silo_chat_schema_catalog
+// (auto-generated columns + curated descriptions -- see
+// 20260821210000_silo_chat_schema_catalog.sql and buildSchemaSection
+// below).
 //
 // Product Concepts (create/update/approve_product_concept, writing to the
 // new product_concepts table) is a fifth, in-testing capability gated to
@@ -94,7 +96,7 @@ function reply(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: CORS });
 }
 
-const BASE_SYSTEM_PROMPT = `You are the SILO data assistant -- an internal chat for this company's operations team to ask open-ended questions about their own business data (sales, inventory, purchasing, marketing, returns, planning) in plain English.
+const BASE_PROMPT_BEFORE_SCHEMA = `You are the SILO data assistant -- an internal chat for this company's operations team to ask open-ended questions about their own business data (sales, inventory, purchasing, marketing, returns, planning) in plain English.
 
 Brand context: SILO is used by more than one company, so nothing about brand identity/voice is hardcoded here -- if a "Brand context" section appears below, it's foundational, company-specific identity (tagline, positioning, personality, retail footprint) this company's execs have taught you. Ground your tone and any brand-voice-flavored answers (campaign name ideas, marketing copy) in it. If no Brand context section appears, this company hasn't taught you anything yet -- stay neutral and professional rather than inventing a personality.
 
@@ -102,42 +104,26 @@ Voice for data answers specifically: even where brand context exists and describ
 
 You have four tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do. web_search looks up public information on the open internet -- use it for anything outside this company's own database: competitor research, industry trends/benchmarks, or evaluating this brand's own public website/marketing the way an outside visitor sees it. view_ad_creative_image fetches the actual creative image for a specific Meta ad by ad_id, for visual-design questions (color, layout, imagery, composition) that the text fields in meta_ad_creatives can't answer.
 
-Internal data vs. public web knowledge: run_sql results are this company's own, verified, real operational numbers. web_search results are external, unverified, and can be wrong, outdated, written by a competitor about themselves, or simply not match SILO's own data -- never blend a web-sourced figure into an internal number, and never state a web claim with the same confidence as a number you actually queried. Say plainly when a fact came from the web rather than from SILO's own data. Use web_search efficiently -- a handful of well-targeted searches beats many near-duplicate ones.
+Internal data vs. public web knowledge: run_sql results are this company's own, verified, real operational numbers. web_search results are external, unverified, and can be wrong, outdated, written by a competitor about themselves, or simply not match SILO's own data -- never blend a web-sourced figure into an internal number, and never state a web claim with the same confidence as a number you actually queried. Say plainly when a fact came from the web rather than from SILO's own data. Use web_search efficiently -- a handful of well-targeted searches beats many near-duplicate ones.`;
 
-Key tables and views you can query (a curated starting list, NOT the full set -- see the discovery rule below):
-- sales_by_day(day_date, location_tag, total_net_sales, total_refunds, total_gross_sales, total_quantity_sold, product_type, sku, ...) -- daily sales rollup by location/SKU
-- sales_by_day_verification_v -- de-duped view over sales_by_day (prefers shopify_api source)
-- sales_monthly_location_rollup_v / sales_sku_location_rollup_v / sales_velocity_by_sku_location_v -- pre-aggregated sales rollups, faster than grouping sales_by_day yourself for monthly/SKU-level questions
-- inventory_on_hand / inventory_workboard_v -- current inventory by SKU/location, with sell-through metrics. The SKU column here is called variant_sku, not sku. inventory_workboard_v is already the LATEST snapshot only (one row per variant_sku x location -- no need to dedupe by snapshot_at yourself); its real columns are total_available_quantity (there is no on_hand column), qty_sold_30d, avg_qty_sold_per_day, est_days_before_oos, plus velocity windows qty_7d/qty_90d/qty_365d and avg_day_7/avg_day_30/avg_day_90/avg_day_365, and last_sold_date. There is no sell_through_rate column -- compute it from qty_sold_30d and total_available_quantity if needed
-- products_master -- product catalog. Real columns: sku, product_title, variant_title, product_type, vendor_original (not vendor), category, subcategory, department, unit_cost (not cost), msrp, reorder_point_units, is_active, is_discontinued, lifecycle_status. category and product_type are always identical (100% match across every row, fully redundant) -- use either, don't waste a round checking both. department is sparse (~7% populated) -- don't rely on it for filtering. category/product_type hold granular values (e.g. "Youth Cap", "Youth Jacket"), not just broad buckets -- match a broad group with ilike 'Youth%' rather than an exact = 'Youth', which will under-match. Exception: Women's product_type is the bare exact value 'Women' (not 'Women%' or a garment-suffixed value) -- an ilike 'Women%' pattern search here wastes rounds discovering that; go straight to product_type = 'Women' and narrow with product_title instead
-- po_headers / po_lines / v_po_header_summary / v_open_pos / incoming_shipments -- purchase orders and inbound shipment tracking. po_lines joins to po_headers on po_lines.po_header_id = po_headers.id (not po_id)
-- po_costing / po_costing_lines / v_po_costing_summary -- landed cost
-- factories -- supplier/factory directory
-- payment_requests / payment_requests_v -- AP requests and status
-- ar_customers / ar_invoices / ar_customer_rollup_v -- accounts receivable (wholesale customer balances, aging)
-- marketing_kpis_daily -- daily ad spend/revenue by platform (google_ads, meta_ads, tiktok_ads, ga4), campaign-level
-- meta_ad_performance_daily(day_date, ad_id, ad_name, campaign_name, adset_name, impressions, clicks, spend, conversions, conversion_value, view_content, add_to_cart, initiate_checkout) joined to meta_ad_creatives(ad_id, creative_id, thumbnail_url, body, title, object_type, effective_status) on ad_id -- ad-level (not just campaign-level) Meta performance and creative metadata, for "which specific ad/creative" or "what kind of design/structure performs best" questions. object_type is the ad's Meta-assigned format -- observed values are SHARE (single image/link ad), VIDEO, and STATUS (text-only), not a literal image/video/carousel taxonomy despite the field name. body is the ad copy, title is the headline. For the actual visual design (color, layout, imagery -- what the creative literally looks like), call view_ad_creative_image with the ad_id rather than guessing from object_type/body/title alone; use it sparingly, only for the specific ads the question is actually about (e.g. the top/bottom few by CPM or CAC), not every ad in a result set. Compute CPM as spend/impressions*1000 and CAC as spend/conversions per ad, then group/compare by object_type, look for patterns in body/title text, or view the images for the most/least efficient creatives
-- facebook_page_insights_daily / instagram_media_insights -- organic social performance
-- v_marketing_mer_daily(day_date, ad_spend, platform_conversions, platform_conv_value, online_net_sales, online_order_lines) -- ad spend vs. Shopify online net sales by day. Note: this view's spend column is ad_spend, but meta_ad_performance_daily's is just spend -- same concept, different name per table, don't assume a column name carries over from one table to another
-- shopify_orders_v(order_id, order_number, source_name, resolved_channel_name, financial_status, fulfillment_status, customer_email, customer_name, total_price, shopify_created_at, ...) -- one row per Shopify order, the pre-aggregation counterpart to sales_by_day. Use this (not sales_by_day) for anything about individual orders, sales channel/source (source_name is Shopify's raw channel field -- "web", "pos", or an app id/slug for a third-party channel like TikTok, Faire, or Instagram/Facebook; resolved_channel_name is the human-readable name from shopify_channel_map when mapped, falling back to source_name when not), customer-level order history, or AOV by channel. total_price is the order's full total (subtotal + shipping + tax, before refunds) -- it is NOT the same metric as sales_by_day's total_gross_sales (pre-discount merchandise only) or Shopify Analytics' "Total sales"/"Gross sales" cards (which net out sales_reversals and exclude tax/shipping). Never call total_price "gross sales" -- describe it as "order total" and flag the difference if a user is comparing against a Shopify Analytics screenshot. shopify_order_lines has the per-SKU line items within each order (order_id, sku, product_id, title, quantity, price, discount_allocated, tax_allocated, vendor, product_type) for basket-level questions (attach rate, what's bought together). Coverage caveat: these tables backfill from each store's first sync forward, but until a full historical backfill has run for a store, rows before that point are sparse, not absent -- the nightly incremental job's rebuild-by-touched-order can pull in a handful of old orders (refunded/edited) without their surrounding days, so min(shopify_created_at) alone does NOT prove continuous coverage back to that date. Before trusting a date range wider than a few months, check for gaps (e.g. count distinct order dates vs. the number of calendar days in range) rather than just the min/max bounds, and say so if coverage looks discontinuous. If a channel's source_name shows up unmapped (resolved_channel_name = source_name, and source_name doesn't look like a human name), say so and suggest it gets added to shopify_channel_map rather than guessing what channel it is.
-- redo_returns / redo_return_items -- returns/exchanges/store-credit data from Redo (refund_amount, exchange_amount, store_credit_amount, status, reason, sku)
-- revenue_projections / revenue_projection_history -- revenue plan by location/month
-- launch_calendar / launch_tasks / launch_channel_items / launch_product_readiness -- marketing launch pipeline, channel plan, and SKU readiness per launch. launch_calendar's own name/title column is called title (not launch_name or name), and its date columns are launch_date and preview_start_date -- there is no launch_window_start/launch_window_end or start_date/end_date. Other real columns: product_sku, product_title, collection_name, expected_units, status, launch_type. launch_calendar also holds each launch's release brief -- design_intent, product_callouts, marketing_angle (the creative story/angle actually run), audience_tags (text[] -- structured, repeatable audience segments; prefer this over the free-text audience column when comparing/grouping across launches, e.g. unnest(audience_tags) or audience_tags && array['segment']), audience (free-text nuance a tag can't carry), special_callouts, copy_dos/copy_donts, creative_dos/creative_donts -- plus budget/forecast (preview_marketing_budget, post_launch_budget, projected_revenue) and after-the-fact performance (actual_preview_spend, actual_post_launch_spend, actual_revenue, performance_comparison, overperformed_notes, underperformed_notes). This is the primary source for "what angle/audience has this brand actually used, and did it work" -- treat it as more authoritative than inferring strategy from sales data alone. Note: actual_preview_spend/actual_post_launch_spend are hand-typed estimates, NOT synced from ad platforms -- marketing_kpis_daily is the authoritative ledger for real ad spend by platform/day, the two are not currently linked (no launch_id on marketing_kpis_daily) and may disagree; if a question is specifically about ad spend accuracy, prefer marketing_kpis_daily and say so if the two differ
-- locations -- sales channels/store locations
-- product_tags -- product tagging/collections
-- mail_items / mail_items_v -- mailroom queue
-- live_sessions / live_sessions_v -- TikTok Live schedule and payouts
-- calendar_events_v -- org calendar
-- employees / reviews -- performance review roster (careful: private_notes and similar are RLS-gated to the author only, so you may get zero rows even with a correct query -- that's expected, not a bug)
-- silo_chat_notes / silo_chat_notes_v -- everything the team has taught you, both brand context and specific corrections (see below, and the save_note tool)
-
-Taught knowledge comes in two flavors, both via the save_note tool, both restricted to users with Ask SILO management access (exec/owner-tier, or anyone specifically granted access -- either way, RLS decides, not you):
+// The schema cheat sheet that used to be hand-typed between these two
+// prompt halves now lives in silo_chat_schema_catalog (see
+// 20260821210000_silo_chat_schema_catalog.sql): column names/types are
+// auto-generated from pg_catalog and cannot drift, curated business
+// meaning is seeded/edited on the table. buildSchemaSection() injects the
+// per-question slice between BEFORE and AFTER at request time. Every
+// column-name failure in the 2026-08 audit logs (inventory_workboard_v
+// "on_hand", launch_calendar "launch_window_start", po_lines "sku",
+// factories "name") was this hand-typed block being wrong or incomplete --
+// do NOT add schema facts back here; put them in the catalog's
+// description column instead.
+const BASE_PROMPT_AFTER_SCHEMA = `Taught knowledge comes in two flavors, both via the save_note tool, both restricted to users with Ask SILO management access (exec/owner-tier, or anyone specifically granted access -- either way, RLS decides, not you):
 - category "brand": foundational, lasting brand identity -- tagline, positioning, personality, target customer, retail footprint. Use this when a user is describing the company's overall identity/voice rather than a specific fact, e.g. "our tagline is..." or "we're more playful than corporate." Appears in the "Brand context" section above when present.
 - category "general" (the default -- omit category entirely for this case): a specific fact/correction no query could derive, e.g. a SKU that looks like a slow mover in raw sales data but is actually a one-time monthly collectible drop, not a restock signal. Appears in the "Taught institutional knowledge" section below when present, and should be weighed as authoritative context over your own inference from raw numbers.
 
 Call save_note when a user explicitly teaches or corrects you something ("remember that...", "for future reference...", "that's actually because...", "note that..."), not for every offhand comment -- don't save something the user didn't clearly intend as a lasting fact. If the insert fails for permission reasons, tell the user plainly (e.g. "you don't have Ask SILO management access yet -- ask an exec/owner to grant it, or to add this for you") rather than silently dropping it or erroring cryptically.
 
-Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- run a quick query against information_schema.tables and information_schema.columns for a name match (e.g. ilike '%keyword%') before concluding it doesn't exist. The list above is a cheat sheet for common questions, not the full schema, and there are tables/views not listed here that may answer the question. Only report something as unavailable after that search comes back empty.
+Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- run a quick query against information_schema.tables and information_schema.columns for a name match (e.g. ilike '%keyword%') before concluding it doesn't exist. The database map above is auto-generated and current, but a few internal/credential tables are deliberately omitted from it, so a name-match search can still surface something the map doesn't show. Only report something as unavailable after that search comes back empty.
 
 When you answer, be explicit about data confidence -- don't let a mediocre answer leave the user guessing whether SILO lacks the data or you just queried the wrong thing:
 - Available: you found the specific data asked about and are answering from it directly.
@@ -365,6 +351,84 @@ function annotateColumnError(message: string): string {
 
 type Note = { note: string; category: string; created_by_name: string | null };
 
+type CatalogRow = {
+  relname: string;
+  relkind: string;
+  columns: { name: string; type: string }[];
+  description: string | null;
+  keywords: string[] | null;
+};
+
+// Replaces the hand-typed schema cheat sheet that used to sit between the
+// two BASE_PROMPT halves (and rotted -- every column-name failure in the
+// 2026-08 audit logs traced back to it). Column names/types come from
+// silo_chat_schema_catalog, auto-generated from pg_catalog, so they cannot
+// drift from the live database; curated business meaning rides along in
+// description/keywords. The tables most relevant to this question get full
+// column detail; everything else appears as a one-line index so the model
+// knows it exists without paying for its columns.
+const SCHEMA_DETAIL_LIMIT = 8;
+// Topped up when keyword matching finds fewer than the limit -- a generic
+// business question ("how are we doing?") still deserves detail on the
+// workhorse tables.
+const SCHEMA_CORE_RELS = [
+  'sales_by_day_verification_v',
+  'inventory_workboard_v',
+  'products_master',
+  'shopify_orders_v',
+];
+
+function buildSchemaSection(question: string, rows: CatalogRow[]): string {
+  if (!rows.length) {
+    // Catalog unavailable (fetch failed / table empty) -- degrade to
+    // discovery guidance rather than breaking chat.
+    return '\n\nSchema map unavailable for this request -- discover table and column names via information_schema before querying; never guess a column name.';
+  }
+  const q = question.toLowerCase();
+  const tokens = [...new Set(q.match(/[a-z0-9_]{4,}/g) || [])];
+  const scored = rows.map((r) => {
+    const name = r.relname.toLowerCase();
+    const desc = (r.description || '').toLowerCase();
+    const kws = (r.keywords || []).map((k) => k.toLowerCase());
+    let score = 0;
+    for (const t of tokens) {
+      if (name.includes(t)) score += 5;
+      if (kws.some((k) => k.includes(t) || t.includes(k))) score += 3;
+      else if (desc.includes(t)) score += 1;
+    }
+    if (q.includes(name)) score += 10;
+    return { r, score };
+  });
+  const detail = scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, SCHEMA_DETAIL_LIMIT)
+    .map((s) => s.r);
+  for (const core of SCHEMA_CORE_RELS) {
+    if (detail.length >= SCHEMA_DETAIL_LIMIT) break;
+    const row = rows.find((r) => r.relname === core);
+    if (row && !detail.includes(row)) detail.push(row);
+  }
+  const detailNames = new Set(detail.map((r) => r.relname));
+  const card = (r: CatalogRow) =>
+    `### ${r.relname} (${r.relkind})\nColumns: ${(r.columns || []).map((c) => `${c.name} (${c.type})`).join(', ')}${
+      r.description ? `\n${r.description}` : ''
+    }`;
+  const indexLine = (r: CatalogRow) => {
+    const firstSentence = ((r.description || '').split('. ')[0] || '').trim();
+    const short = firstSentence.length > 140 ? firstSentence.slice(0, 137) + '...' : firstSentence;
+    return `- ${r.relname} (${r.relkind})${short ? ` -- ${short}` : ''}`;
+  };
+  return `\n\nDatabase map (auto-generated from the live schema -- the table/view names and column names below are EXACT; trust them over memory, and never guess a column that isn't listed):
+
+Most relevant to this question, with full columns:
+
+${detail.map(card).join('\n\n')}
+
+Everything else available (query directly; check information_schema for their columns first):
+${rows.filter((r) => !detailNames.has(r.relname)).map(indexLine).join('\n')}`;
+}
+
 // Notes are folded into the cached system-prompt block (fetched once per
 // request, same content across every tool-round of that request) rather
 // than looked up via run_sql, so the model always has them in view instead
@@ -372,7 +436,7 @@ type Note = { note: string; category: string; created_by_name: string | null };
 // category so brand identity reads as one cohesive voice description and
 // ad hoc corrections read as a distinct, attributed list -- see the
 // "Taught knowledge comes in two flavors" paragraph above.
-function buildSystemPrompt(notes: Note[]) {
+function buildSystemPrompt(notes: Note[], schemaSection: string) {
   const brandNotes = notes.filter((n) => n.category === 'brand');
   const generalNotes = notes.filter((n) => n.category !== 'brand');
 
@@ -397,7 +461,7 @@ function buildSystemPrompt(notes: Note[]) {
         generalNotes.map((n) => `- ${n.note}${n.created_by_name ? ` (taught by ${n.created_by_name})` : ''}`).join('\n')
       }`
     : '';
-  return BASE_SYSTEM_PROMPT + dateBlock + brandBlock + notesBlock;
+  return BASE_PROMPT_BEFORE_SCHEMA + schemaSection + '\n\n' + BASE_PROMPT_AFTER_SCHEMA + dateBlock + brandBlock + notesBlock;
 }
 
 async function callAnthropic(
@@ -554,10 +618,21 @@ Deno.serve(async (req: Request) => {
       .select('note, category, created_by_name')
       .order('created_at', { ascending: true })
       .limit(200);
+    // Same once-per-request rule as notes: the schema slice must be
+    // byte-identical across every tool-round of this request for the
+    // cache_control breakpoint to hit on rounds 2+.
+    const { data: catalogRows } = await callerClient
+      .from('silo_chat_schema_catalog')
+      .select('relname, relkind, columns, description, keywords')
+      .eq('is_hidden', false)
+      .order('relname');
     const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(
       (userData.user.email || '').toLowerCase(),
     );
-    const systemPrompt = buildSystemPrompt(notes ?? []) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : '');
+    const systemPrompt = buildSystemPrompt(
+      notes ?? [],
+      buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]),
+    ) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : '');
     const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;
 
     queriesRun = [];

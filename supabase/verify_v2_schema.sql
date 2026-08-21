@@ -1074,3 +1074,21 @@ select
       then 'MISSING — run 20260821170000_product_concept_collections.sql'
     else 'ok'
   end as product_concept_collections;
+
+-- Ask SILO schema catalog + health view (migration 20260821210000)
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='silo_chat_schema_catalog')
+      then 'MISSING — run 20260821210000_silo_chat_schema_catalog.sql'
+    when (select count(*) from public.silo_chat_schema_catalog) = 0
+      then 'MISSING — catalog empty: select refresh_chat_schema_catalog()'
+    when (select jsonb_array_length(columns) from public.silo_chat_schema_catalog where relname='sales_by_day')
+         is distinct from (select count(*)::int from information_schema.columns
+                           where table_schema='public' and table_name='sales_by_day')
+      then 'STALE — schema changed since last refresh: select refresh_chat_schema_catalog()'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='silo_chat_health_v')
+      then 'MISSING — silo_chat_health_v'
+    else 'ok'
+  end as silo_chat_schema_catalog;

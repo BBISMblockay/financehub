@@ -293,6 +293,7 @@ supabase/
     20260821170000_product_concept_collections.sql
     20260821170000_sku_collision_velocity_fix.sql
     20260821180000_product_search_rollup_rpc.sql
+    20260821210000_silo_chat_schema_catalog.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
