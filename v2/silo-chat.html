@@ -180,6 +180,32 @@
       flex:1; resize:none; border:1px solid var(--bcn-border); border-radius:8px; padding:9px 12px;
       font-family:var(--bcn-font); font-size:13px; line-height:1.4; max-height:120px;
     }
+    .ac-attach-btn {
+      display:flex; align-items:center; justify-content:center; flex-shrink:0;
+      width:36px; height:36px; border:1px solid var(--bcn-border); border-radius:8px;
+      background:var(--bcn-surface); color:var(--bcn-ink-3); cursor:pointer;
+    }
+    .ac-attach-btn:hover { color:var(--bcn-ink); background:var(--bcn-sunken); }
+    .ac-attach-btn.is-busy { opacity:.5; pointer-events:none; }
+
+    /* Queued reference images, shown above the input bar before send --
+       and the same chip look reused inline in a sent user message. */
+    .ac-pending-images {
+      display:flex; flex-wrap:wrap; gap:8px; padding:10px 12px 0; border-top:1px solid var(--bcn-border);
+    }
+    .ac-img-chip { position:relative; width:52px; height:52px; flex-shrink:0; }
+    .ac-img-chip img {
+      width:100%; height:100%; object-fit:cover; border-radius:6px; border:1px solid var(--bcn-border); display:block;
+    }
+    .ac-img-chip .ac-img-remove {
+      position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%;
+      background:var(--bcn-band); color:#fff; border:none; font-size:11px; line-height:1; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .ac-msg-images { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+    .ac-msg-images img {
+      width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--bcn-border);
+    }
 
     /* Taught-notes modal -- same shape as live-schedule.html's claim/finalize
        modals, just a different prefix (ac- to match this page's other classes). */
@@ -279,7 +305,17 @@
             </div>
           </div>
         </div>
+        <div class="ac-pending-images" id="pendingImages" hidden></div>
         <div class="ac-inputbar">
+          <!-- Product Concepts: in testing, unhidden in boot() only for
+               PRODUCT_CONCEPT_TESTERS -- same gate as the suggestion chip
+               and the matching image support in the silo-chat edge
+               function. Remove the hidden attribute (and the boot() check)
+               once this ships to everyone. -->
+          <button type="button" class="ac-attach-btn" id="btnAttach" hidden title="Attach a reference image">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input type="file" id="fileAttach" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
           <textarea id="input" rows="1" placeholder="Ask about sales, inventory, marketing, returns…"></textarea>
           <button id="btnSend" class="bcn-btn bcn-btn--primary">Send</button>
         </div>
@@ -387,6 +423,48 @@
 
   let history = [];
   let session = null;
+
+  // A refresh (accidental, or the "refresh the page" prompt on an error
+  // bubble) used to wipe the whole conversation -- history only ever lived
+  // in this JS variable. sessionStorage is tab-scoped, which is exactly
+  // right here: a reload of THIS tab restores it, a fresh tab starts clean.
+  const HISTORY_STORAGE_KEY = 'silo_chat_history_v1';
+
+  function saveHistoryToSession() {
+    try { sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history)); } catch {}
+  }
+
+  function clearHistorySession() {
+    try { sessionStorage.removeItem(HISTORY_STORAGE_KEY); } catch {}
+  }
+
+  // Replays a saved conversation into the log on boot. Per-message SQL
+  // (queries) is persisted alongside content so "Save report"/"N queries
+  // run" still work after a restore, not just on messages from this page
+  // load.
+  function restoreHistoryFromSession() {
+    let saved;
+    try {
+      const raw = sessionStorage.getItem(HISTORY_STORAGE_KEY);
+      saved = raw ? JSON.parse(raw) : null;
+    } catch { saved = null; }
+    if (!Array.isArray(saved) || !saved.length) return;
+    history = saved;
+    history.forEach((m, i) => {
+      if (m.role === 'assistant') {
+        const question = [...history.slice(0, i)].reverse().find(x => x.role === 'user')?.content || '';
+        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, saveCtx: { question } });
+      } else {
+        renderMessage({ role: 'user', content: m.content, images: m.imageUrls });
+      }
+    });
+  }
+
+  // Product Concepts: in testing -- reference-image upload. Bucket mirrors
+  // the sample-images/launch-images pattern (public bucket, concepts/
+  // folder prefix); see 20260821130000_product_concept_images.sql.
+  const CONCEPT_IMAGE_BUCKET = 'product-concept-images';
+  let pendingImages = []; // [{ url, name }] queued for the next send
   let canManageNotes = false;
   let isExecOrOwner = false;
 
@@ -419,11 +497,16 @@
   const saveContexts = new Map();
   let saveContextSeq = 0;
 
-  function renderMessage({ role, content, queries, isError, retryable, saveCtx }) {
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
     const avatar = role === 'user' ? (session?.user?.email?.[0]?.toUpperCase() || 'U') : 'S';
+    // Product Concepts: in testing -- reference images attached to a user
+    // message render as small thumbnails above the bubble text.
+    const imagesHtml = images && images.length
+      ? `<div class="ac-msg-images">${images.map(u => `<img src="${esc(u)}" alt="Reference image">`).join('')}</div>`
+      : '';
     let queriesHtml = '';
     if (queries && queries.length) {
       queriesHtml = `<details class="ac-queries"><summary>${queries.length} quer${queries.length === 1 ? 'y' : 'ies'} run</summary>${
@@ -451,6 +534,7 @@
     wrap.innerHTML = `
       <div class="ac-avatar">${esc(avatar)}</div>
       <div>
+        ${imagesHtml}
         <div class="${bubble.cls}">${bubble.html}</div>
         ${queriesHtml}
         ${saveHtml}
@@ -496,7 +580,10 @@
         renderMessage({ role: 'assistant', content: data.error || 'Something went wrong.', isError: true, retryable: data.retryable });
         return;
       }
-      history.push({ role: 'assistant', content: data.answer });
+      const historyEntry = { role: 'assistant', content: data.answer };
+      if (data.queries_run && data.queries_run.length) historyEntry.queries = data.queries_run;
+      history.push(historyEntry);
+      saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
       renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question } });
     } catch (err) {
@@ -509,13 +596,72 @@
   }
 
   async function sendMessage(text) {
-    if (!text.trim()) return;
+    const images = pendingImages.map(p => p.url);
+    if (!text.trim() && !images.length) return;
     el('input').value = '';
     el('input').style.height = 'auto';
-    history.push({ role: 'user', content: text });
-    renderMessage({ role: 'user', content: text });
+    const entry = { role: 'user', content: text };
+    // Product Concepts: in testing -- imageUrls rides alongside content as
+    // a sibling field (content itself stays plain text everywhere else in
+    // this file -- rendering, save-report question text, etc. all assume a
+    // string). The edge function turns this into real image content blocks
+    // only for entries that carry it.
+    if (images.length) entry.imageUrls = images;
+    history.push(entry);
+    saveHistoryToSession();
+    renderMessage({ role: 'user', content: text, images });
+    clearPendingImages();
     await askSilo();
   }
+
+  // Product Concepts: in testing -- reference image upload. Mirrors the
+  // sample-images upload pattern in v2/products.html (same bucket shape,
+  // different bucket/folder). Hidden entirely for anyone but
+  // PRODUCT_CONCEPT_TESTERS -- see boot().
+  function renderPendingImages() {
+    const box = el('pendingImages');
+    if (!pendingImages.length) { box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.innerHTML = pendingImages.map((img, i) => `
+      <div class="ac-img-chip">
+        <img src="${esc(img.url)}" alt="${esc(img.name)}">
+        <button type="button" class="ac-img-remove" data-idx="${i}" title="Remove">✕</button>
+      </div>`).join('');
+  }
+
+  function clearPendingImages() {
+    pendingImages = [];
+    renderPendingImages();
+  }
+
+  el('pendingImages').addEventListener('click', (e) => {
+    const btn = e.target.closest('.ac-img-remove');
+    if (!btn) return;
+    pendingImages.splice(Number(btn.dataset.idx), 1);
+    renderPendingImages();
+  });
+
+  el('btnAttach').addEventListener('click', () => el('fileAttach').click());
+
+  el('fileAttach').addEventListener('change', async () => {
+    const files = Array.from(el('fileAttach').files || []);
+    if (!files.length) return;
+    const attachBtn = el('btnAttach');
+    attachBtn.classList.add('is-busy');
+    try {
+      for (const file of files) {
+        const path = `concepts/${crypto.randomUUID()}/${file.name}`;
+        const { error } = await sb.storage.from(CONCEPT_IMAGE_BUCKET).upload(path, file, { upsert: false });
+        if (error) { setStatus('Image upload failed: ' + error.message, 'neg', 4000); continue; }
+        const { data: pub } = sb.storage.from(CONCEPT_IMAGE_BUCKET).getPublicUrl(path);
+        pendingImages.push({ url: pub.publicUrl, name: file.name });
+      }
+      renderPendingImages();
+    } finally {
+      attachBtn.classList.remove('is-busy');
+      el('fileAttach').value = '';
+    }
+  });
 
   el('btnSend').addEventListener('click', () => sendMessage(el('input').value));
   el('input').addEventListener('keydown', (e) => {
@@ -596,6 +742,7 @@
   });
   el('btnNewChat').addEventListener('click', () => {
     history = [];
+    clearHistorySession();
     el('log').innerHTML = `
       <div class="ac-empty" id="emptyState">
         <h3>Ask anything about your data</h3>
@@ -885,8 +1032,10 @@
     const conceptTesterEmail = (profile?.email || user.email || '').toLowerCase();
     if (['blake@baseballism.com'].includes(conceptTesterEmail)) {
       el('suggestionConcept').hidden = false;
+      el('btnAttach').hidden = false;
     }
 
+    restoreHistoryFromSession();
     el('input').focus();
   }
 

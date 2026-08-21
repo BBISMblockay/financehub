@@ -998,3 +998,20 @@ select
       then 'MISSING — product_concepts_v view'
     else 'ok'
   end as product_concepts;
+
+-- Product Concepts reference images (migration 20260821130000) — reference/
+-- inspiration image upload, still gated to PRODUCT_CONCEPT_TESTERS.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts'
+                       and column_name='reference_image_urls')
+      then 'MISSING — run 20260821130000_product_concept_images.sql'
+    when not exists (select 1 from storage.buckets where id='product-concept-images')
+      then 'MISSING — product-concept-images storage bucket'
+    when not exists (select 1 from pg_policies
+                     where schemaname='storage' and tablename='objects'
+                       and policyname='product_concept_images_public_read')
+      then 'MISSING — product-concept-images storage policies'
+    else 'ok'
+  end as product_concept_images;

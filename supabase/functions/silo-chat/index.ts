@@ -30,6 +30,13 @@
 // PRODUCT_CONCEPT_TESTERS below -- only those callers get the extra tools
 // and system-prompt block. Like everything else here it runs through
 // callerClient, so RLS on product_concepts is still the real boundary.
+// Reference-image upload rides on top of it: the client uploads to the
+// public product-concept-images bucket itself and sends the resulting
+// URL(s) as an `imageUrls` field alongside a history entry's `content`
+// (content itself stays plain text everywhere -- see the messages mapping
+// inside Deno.serve below). No fetch/base64 tool needed here since
+// Anthropic's image blocks accept
+// a public URL directly.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -71,7 +78,7 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - sales_by_day_verification_v -- de-duped view over sales_by_day (prefers shopify_api source)
 - sales_monthly_location_rollup_v / sales_sku_location_rollup_v / sales_velocity_by_sku_location_v -- pre-aggregated sales rollups, faster than grouping sales_by_day yourself for monthly/SKU-level questions
 - inventory_on_hand / inventory_workboard_v -- current inventory by SKU/location, with sell-through metrics. The SKU column here is called variant_sku, not sku. inventory_workboard_v is already the LATEST snapshot only (one row per variant_sku x location -- no need to dedupe by snapshot_at yourself); its real columns are total_available_quantity (there is no on_hand column), qty_sold_30d, avg_qty_sold_per_day, est_days_before_oos, plus velocity windows qty_7d/qty_90d/qty_365d and avg_day_7/avg_day_30/avg_day_90/avg_day_365, and last_sold_date. There is no sell_through_rate column -- compute it from qty_sold_30d and total_available_quantity if needed
-- products_master -- product catalog. Real columns: sku, product_title, variant_title, product_type, vendor_original (not vendor), category, subcategory, department, unit_cost (not cost), msrp, reorder_point_units, is_active, is_discontinued, lifecycle_status. category and product_type are always identical (100% match across every row, fully redundant) -- use either, don't waste a round checking both. department is sparse (~7% populated) -- don't rely on it for filtering. category/product_type hold granular values (e.g. "Youth Cap", "Youth Jacket"), not just broad buckets -- match a broad group with ilike 'Youth%' rather than an exact = 'Youth', which will under-match
+- products_master -- product catalog. Real columns: sku, product_title, variant_title, product_type, vendor_original (not vendor), category, subcategory, department, unit_cost (not cost), msrp, reorder_point_units, is_active, is_discontinued, lifecycle_status. category and product_type are always identical (100% match across every row, fully redundant) -- use either, don't waste a round checking both. department is sparse (~7% populated) -- don't rely on it for filtering. category/product_type hold granular values (e.g. "Youth Cap", "Youth Jacket"), not just broad buckets -- match a broad group with ilike 'Youth%' rather than an exact = 'Youth', which will under-match. Exception: Women's product_type is the bare exact value 'Women' (not 'Women%' or a garment-suffixed value) -- an ilike 'Women%' pattern search here wastes rounds discovering that; go straight to product_type = 'Women' and narrow with product_title instead
 - po_headers / po_lines / v_po_header_summary / v_open_pos / incoming_shipments -- purchase orders and inbound shipment tracking. po_lines joins to po_headers on po_lines.po_header_id = po_headers.id (not po_id)
 - po_costing / po_costing_lines / v_po_costing_summary -- landed cost
 - factories -- supplier/factory directory
@@ -123,15 +130,29 @@ const PRODUCT_CONCEPT_SYSTEM_BLOCK = `
 
 Product Concepts (in testing -- available to you specifically): you can also help generate a brand-new product concept before any PO exists, using three extra tools -- create_product_concept, update_product_concept, approve_product_concept -- plus product_concepts_v, which run_sql can query like any other view.
 
-When a user wants to brainstorm or generate a new product idea, walk them through it as a conversation, not a form dump:
-1. Get a rough sense of the idea (what kind of product, any starting angle) if they haven't already said.
-2. Before suggesting anything, ground it in real data -- query launch_calendar for comparable past launches (by product_type/collection: their marketing_angle, audience_tags, actual_revenue vs. projected_revenue, performance_comparison), products_master for seasonality (peak_start_month/peak_end_month) on similar product types, po_lines joined to po_headers for which factory has actually produced this kind of product before, and silo_chat_notes/brand context for voice. Do this even if the user didn't ask for data -- an ungrounded suggestion here is worse than a slow one.
-3. Call create_product_concept once you have enough to draft (title, and at least a rough angle and quantity) -- don't wait for every field to be filled. Fill in what you can reason about now; leave the rest blank rather than inventing a number with no basis.
+The user can attach reference/inspiration images (e.g. a print style, a color direction, a similar product they like) directly in the conversation -- these arrive as real image content in the message, so just look at them like any other image. When you create_product_concept or update_product_concept afterward, pass their URLs through in reference_image_urls so they're saved on the row, not just visible in this one exchange -- copy the exact URLs you saw, never invent one. Reference this in your reasoning/notes when it visibly informed the direction (e.g. "print style follows the attached reference").
+
+When a user wants to brainstorm or generate a new product idea, bias toward drafting fast, not interviewing:
+1. Draft immediately from whatever they gave you, even a single rough sentence -- do NOT ask a round of clarifying questions (product type? angle? timing?) before doing anything. Only ask first if the message truly gives you nothing to start from (e.g. just "generate a concept" with zero direction). A vague-but-present starting point ("something for summer," "a new cap idea") is enough to draft against and refine, not a prompt to interview them.
+2. Before drafting, ground it in real data -- this is not optional and not just when asked:
+   - launch_calendar for comparable past launches (by product_type/collection): marketing_angle, audience_tags, actual_revenue vs. projected_revenue, performance_comparison
+   - sales_by_day for ACTUAL sell-through of comparable products -- specifically the first-90-days-from-launch quantity, not just how big past POs for the category were. PO size and sales velocity can disagree (PO history alone undersized a recent draft by ~25% here), so always check both, every time, not only when pushed
+   - products_master for seasonality (peak_start_month/peak_end_month) on similar product types
+   - po_lines joined to po_headers for which factory has actually produced this kind of product before
+   - silo_chat_notes/brand context for voice
+   Fold this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part.
+3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in what you can reason about now; leave the rest blank rather than inventing a number with no basis.
 4. Show the user the draft back clearly (a short readable summary, not raw JSON), and say plainly which parts are well-grounded vs. a rough guess.
 5. Revise with update_product_concept as the user gives feedback -- this can go back and forth as many times as needed.
 6. Only call approve_product_concept when the user explicitly says to approve it. If it fails for a permissions reason, tell them plainly (they need the same purchasing write access PO Builder requires) rather than retrying or working around it.
 
-This whole flow only ever produces a draft or an approved concept row -- it does not create a PO, and nothing here places an order or commits money. Say so if a user seems to think approving a concept is the same as ordering it.`;
+This whole flow only ever produces a draft or an approved concept row -- it does not create a PO, and nothing here places an order or commits money. Say so if a user seems to think approving a concept is the same as ordering it.
+
+Column names that have burned real rounds in this flow -- use these directly instead of guessing and re-discovering via information_schema:
+- sales_by_day's product name column is product_name, not product_title (product_title is products_master's column, not this table's)
+- joining sales_by_day to locations is on location_name, not location_tag
+- po_lines' quantity column is qty, not quantity_ordered
+- factories' name column is factory_name, not name`;
 
 const TOOLS = [
   {
@@ -205,6 +226,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_launch_date: { type: 'string', description: 'Suggested launch date (YYYY-MM-DD), reasoned from products_master seasonality (peak_start_month/peak_end_month) for this product type when available.' },
         suggested_launch_notes: { type: 'string', description: 'Short note on why that timing.' },
         reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from.' },
+        reference_image_urls: { type: 'array', items: { type: 'string' }, description: 'Public URLs of reference/inspiration images the user attached in this conversation, if any -- pass through exactly what you saw, do not invent URLs.' },
       },
       required: ['title'],
     },
@@ -229,6 +251,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_launch_notes: { type: 'string' },
         reasoning: { type: 'string' },
         notes: { type: 'string' },
+        reference_image_urls: { type: 'array', items: { type: 'string' } },
       },
       required: ['id'],
     },
@@ -245,6 +268,29 @@ const PRODUCT_CONCEPT_TOOLS = [
     },
   },
 ];
+
+// Live corrections for column-name guesses that have actually recurred in
+// production run_sql errors, even after being named in the system prompt --
+// e.g. factories.factory_name and po_lines.qty were both listed in
+// PRODUCT_CONCEPT_SYSTEM_BLOCK's corrected-column-names paragraph and the
+// model still tried factories.name and po_lines.quantity_ordered/quantity/
+// qty_ordered in a later session. A static prompt line competes with a lot
+// of other text over a long tool-heavy conversation; a correction attached
+// directly to the error the model just received doesn't need to be
+// remembered, only read. Matched case-insensitively against the raw
+// Postgres error text -- cheap, and false positives just add a harmless
+// extra sentence.
+const KNOWN_COLUMN_ERRORS: Array<{ pattern: RegExp; hint: string }> = [
+  { pattern: /\bf(?:actor(?:y|ies))?\.name\b/i, hint: "factories' name column is factory_name, not name." },
+  { pattern: /\bpl\.(?:quantity_ordered|quantity|qty_ordered)\b/i, hint: "po_lines' quantity column is qty, not quantity_ordered/quantity/qty_ordered." },
+  { pattern: /\bproduct_title\b.*sales_by_day|sales_by_day.*\bproduct_title\b/i, hint: "sales_by_day's product name column is product_name, not product_title." },
+  { pattern: /\blocation_tag\b/i, hint: "if this join was sales_by_day to locations, the join key is location_name, not location_tag." },
+];
+
+function annotateColumnError(message: string): string {
+  const hints = KNOWN_COLUMN_ERRORS.filter((c) => c.pattern.test(message)).map((c) => c.hint);
+  return hints.length ? `${message} Hint: ${hints.join(' ')}` : message;
+}
 
 type Note = { note: string; category: string; created_by_name: string | null };
 
@@ -353,7 +399,7 @@ Deno.serve(async (req: Request) => {
 
   let callerClient: ReturnType<typeof createClient> | null = null;
   let question = '';
-  let history: { role: string; content: string }[] = [];
+  let history: { role: string; content: string; imageUrls?: string[] }[] = [];
   let queriesRun: string[] = [];
 
   try {
@@ -379,10 +425,24 @@ Deno.serve(async (req: Request) => {
     }
     question = history[history.length - 1]?.content || '';
 
-    const messages = history.map((m: { role: string; content: string }) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    }));
+    // Product Concepts: in testing -- a history entry may carry imageUrls
+    // (public URLs already uploaded by the client to product-concept-images)
+    // alongside its plain-text content. Only those entries get a real
+    // content-block array; everything else stays a plain string exactly as
+    // before. `content` itself is never anything but a string -- question/
+    // logAudit/etc. below all keep assuming that.
+    const messages = history.map((m: { role: string; content: string; imageUrls?: string[] }) => {
+      const role = m.role === 'assistant' ? 'assistant' : 'user';
+      if (Array.isArray(m.imageUrls) && m.imageUrls.length) {
+        const blocks: Array<Record<string, unknown>> = m.imageUrls.map((url) => ({
+          type: 'image',
+          source: { type: 'url', url },
+        }));
+        if (m.content) blocks.push({ type: 'text', text: m.content });
+        return { role, content: blocks };
+      }
+      return { role, content: m.content };
+    });
 
     // Fetched once per request (not per tool-round) so the system prompt
     // stays byte-identical across every round of this request -- required
@@ -483,6 +543,7 @@ Deno.serve(async (req: Request) => {
               suggested_launch_date: input.suggested_launch_date || null,
               suggested_launch_notes: input.suggested_launch_notes ?? null,
               reasoning: input.reasoning ?? null,
+              reference_image_urls: Array.isArray(input.reference_image_urls) ? input.reference_image_urls : [],
             };
             const { data: row, error } = await callerClient
               .from('product_concepts')
@@ -505,7 +566,7 @@ Deno.serve(async (req: Request) => {
                 'title', 'concept_summary', 'marketing_angle', 'audience', 'audience_tags',
                 'suggested_qty', 'suggested_factory_id', 'suggested_channels',
                 'suggested_retail_dtc_notes', 'suggested_launch_date', 'suggested_launch_notes',
-                'reasoning', 'notes',
+                'reasoning', 'notes', 'reference_image_urls',
               ]
             ) {
               if (input[key] !== undefined) patch[key] = input[key];
@@ -546,7 +607,7 @@ Deno.serve(async (req: Request) => {
             if (error) throw new Error(error.message);
             resultContent = JSON.stringify(rows);
           } catch (err) {
-            resultContent = `Error: ${String((err as Error)?.message || err)}`;
+            resultContent = `Error: ${annotateColumnError(String((err as Error)?.message || err))}`;
             if (/statement timeout/i.test(resultContent)) sawTimeout = true;
           }
         }
