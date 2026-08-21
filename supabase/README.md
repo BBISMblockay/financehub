@@ -290,6 +290,7 @@ supabase/
     20260821130000_product_concept_images.sql
     20260821140000_product_concept_po_link.sql
     20260821160000_product_concept_launch_plan_fields.sql
+    20260821170000_product_concept_collections.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
