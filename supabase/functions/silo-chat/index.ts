@@ -156,7 +156,7 @@ PHASE 1 -- fast core draft:
    - products_master for seasonality (peak_start_month/peak_end_month) on similar product types
    - po_lines joined to po_headers for which factory has actually produced this kind of product before
    - web_search, specifically when the concept has an external hook -- a licensed IP/collab, a pop-culture reference, a named trend, or a competitor angle the user mentioned. Internal data can only tell you what Baseballism has done before, never whether the IP/trend is actually current or what competitors/comparable brands are doing with it right now, and this is a competitive industry -- that outside read matters as much as the internal sales-basis check. Keep it to a couple of well-targeted searches (per the run_sql/web_search efficiency rules above), and treat what it returns with the same "external, unverified" caution the base rules already require -- it's color that sharpens the angle, never a number to blend into the internally-grounded qty/revenue reasoning. Skip it for concepts with no external hook (e.g. a plain seasonal restock idea) -- it has nothing to add there.
-   Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part.
+   Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part. Aim for 1-3 run_sql calls total for phase 1, not an open-ended investigation -- a live draft once ran 14 rounds before drafting at all, including two rounds that just re-ran pieces of a query it already had the answer to. Once your first combined query comes back, do NOT re-run any part of it separately to "see it more cleanly," and do NOT chase a sub-thread further just because it came back thin or empty (e.g. no exact-match launches for an unusual angle) -- note the gap plainly in reasoning and move on to drafting rather than searching for a better match.
 3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in title, concept_summary, marketing_angle, audience, audience_tags, suggested_qty, suggested_factory_id, suggested_channels, suggested_retail_dtc_notes, suggested_launch_date, suggested_launch_notes, and reasoning; leave the rest blank rather than inventing a number with no basis. Leave every phase 2 field (suggested_size_breakdown, suggested_channel_split, suggested_marketing_spend, suggested_weekly_revenue_projection, suggested_email_sms_plan, suggested_marketing_copy, suggested_launch_time) unset at this stage -- those are phase 2, not part of the fast draft, even if you could technically guess at them now.
 4. Show the user the draft back clearly (a short readable summary, not raw JSON), say plainly which parts are well-grounded vs. a rough guess, and ask explicitly whether they want the full launch-plan brief built out next (size breakdown, channel spend, weekly revenue projection, email/SMS cadence, marketing copy) -- don't run phase 2 queries or fill those fields until they say yes to that specifically. This question is required, not optional politeness -- it's the only signal you have for whether to spend more tool budget.
 5. Revise the core draft with update_product_concept as the user gives feedback on phase 1 -- this can go back and forth as many times as needed, still without touching phase 2 fields.
@@ -502,6 +502,17 @@ Deno.serve(async (req: Request) => {
 
     queriesRun = [];
     let sawTimeout = false;
+    // Circuit breaker for Product Concepts phase 1: a live draft ran 14
+    // rounds before calling create_product_concept at all -- 2 of them were
+    // outright redundant re-runs of a query it already had the answer to,
+    // the rest were open-ended follow-up investigation past what a "fast
+    // core draft" needs. Prompt wording alone didn't hold (it broke its own
+    // "combine into one query" instruction in the very next round), so this
+    // is enforced in code: past PRE_DRAFT_NUDGE_ROUND rounds with no
+    // create_product_concept/update_product_concept call yet, inject a hard
+    // stop telling it to draft now with whatever it has.
+    const PRE_DRAFT_NUDGE_ROUND = 4;
+    let hasDraftedConcept = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const data = await callAnthropic(messages, systemPrompt, tools);
@@ -526,6 +537,7 @@ Deno.serve(async (req: Request) => {
       const toolResults = [];
       for (const use of toolUses) {
         let resultContent: string | Array<Record<string, unknown>>;
+        if (use.name === 'create_product_concept' || use.name === 'update_product_concept') hasDraftedConcept = true;
         if (use.name === 'save_note') {
           const note = String(use.input?.note || '').trim();
           const category = use.input?.category === 'brand' ? 'brand' : 'general';
@@ -666,6 +678,13 @@ Deno.serve(async (req: Request) => {
         toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: resultContent });
       }
       messages.push({ role: 'user', content: toolResults });
+
+      if (conceptsEnabled && !hasDraftedConcept && round === PRE_DRAFT_NUDGE_ROUND) {
+        messages.push({
+          role: 'user',
+          content: "You've used several tool rounds without creating a draft concept yet. Stop investigating further -- call create_product_concept now using your best assessment from what you've already gathered. Leave any field you're not confident about blank rather than continuing to research it.",
+        });
+      }
     }
 
     // Round budget exhausted while the model still wanted tools. Never turn
