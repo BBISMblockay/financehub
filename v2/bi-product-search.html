@@ -40,9 +40,34 @@
 
     .ps-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
 
+    /* Results (left, dominant) + By-product-type pivot (right, narrower) —
+       same proportions as the old Power BI export: one wide row-level table,
+       one narrow type rollup beside it. Both read the same filtered dataset
+       (state.rowsRaw), so Store/date/search/type changes move both at once
+       with no extra query. */
+    .ps-main-row { display:flex; align-items:flex-start; gap:12px; }
+    .ps-results-card { flex:1; min-width:0; }
+    .ps-type-card { flex:0 0 420px; }
+    /* Type names are short ("Cap", "Youth") — the 170px sticky-column width
+       tuned for Results' Product-name column is wasted space here and was
+       pushing "% Total" past the narrower card's right edge. Compound
+       selector (not just .ps-type-tbl) to out-specificity .ps-tbl's rule
+       below regardless of source order. */
+    .ps-type-tbl.ps-tbl th:first-child, .ps-type-tbl.ps-tbl td:first-child { min-width:0; }
+    @media (max-width:1100px) {
+      .ps-main-row { flex-direction:column; }
+      .ps-type-card { flex:1 1 auto; width:100%; }
+    }
+
     .ps-table-wrap { overflow:auto; }
     .ps-table-wrap::-webkit-scrollbar{ height:6px; width:6px; }
     .ps-table-wrap::-webkit-scrollbar-thumb{ background:var(--bcn-border-strong); border-radius:3px; }
+    .ps-type-scroll { max-height:min(64vh, 620px); overflow:auto; }
+
+    .ps-type-tbl tbody tr { cursor:pointer; }
+    .ps-type-tbl tbody tr.active td { background:color-mix(in oklab, var(--bcn-accent) 12%, transparent); }
+    .ps-type-tbl tbody tr.active td:first-child { font-weight:700; }
+    .ps-type-clear { font-size:10.5px; font-family:var(--bcn-mono); color:var(--bcn-accent); cursor:pointer; text-decoration:underline; margin-left:8px; }
 
     .ps-tbl { width:max-content; min-width:100%; border-collapse:collapse; }
     .ps-tbl th {
@@ -84,7 +109,7 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Product Search</h1>
-        <div class="bcn-header-sub">Row-level drill-down by product name or SKU over any date range. Add Store or Month as columns to break results out further.</div>
+        <div class="bcn-header-sub">Row-level drill-down by product name or SKU over any date range, with a by-type rollup alongside it — click a type to filter Results to it.</div>
       </div>
       <div class="bcn-header-actions">
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
@@ -146,21 +171,40 @@
     </div>
 
     <div class="ps-content">
-      <div class="bcn-card">
-        <div class="bcn-card-header">
-          <h2>Results</h2>
-          <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
-          <button id="btnExport" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
-        </div>
-        <div class="bcn-card-body" style="padding:0;overflow:visible">
-          <div class="ps-table-wrap">
-            <table class="ps-tbl">
-              <thead id="tblHead"></thead>
-              <tbody id="tblBody"><tr><td class="ps-empty">Loading…</td></tr></tbody>
-            </table>
+      <div class="ps-main-row">
+        <div class="bcn-card ps-results-card">
+          <div class="bcn-card-header">
+            <h2>Results</h2>
+            <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+            <button id="btnExport" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
+            <div class="ps-table-wrap">
+              <table class="ps-tbl">
+                <thead id="tblHead"></thead>
+                <tbody id="tblBody"><tr><td class="ps-empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="capNote" class="ps-cap-note" hidden></div>
         </div>
-        <div id="capNote" class="ps-cap-note" hidden></div>
+
+        <div class="bcn-card ps-type-card">
+          <div class="bcn-card-header">
+            <h2>By product type</h2>
+            <span id="typeRowCount" class="bcn-card-meta" style="margin-left:auto">0 types</span>
+            <button id="btnExportType" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
+            <div class="ps-table-wrap ps-type-scroll">
+              <table class="ps-tbl ps-type-tbl">
+                <thead id="typeTblHead"></thead>
+                <tbody id="typeTblBody"><tr><td class="ps-empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="ps-cap-note">Click a row to filter Results to that type. <span id="typeClear" class="ps-type-clear" hidden>Clear</span></div>
+        </div>
       </div>
     </div>
 
@@ -210,7 +254,7 @@
     activeType:'', searchName:'', searchSku:'',
     showStore:false, showMonth:false,
     sortKey:'total', sortDir:'desc',
-    rowsRaw:[], lastRows:[],
+    rowsRaw:[], lastRows:[], lastTypeRows:[],
     // Server-side search push-down bookkeeping: the name/SKU terms the
     // current fetch was requested with (set at request time, '' = fetched
     // unfiltered), a token so a superseded fetch can't clobber a newer one,
@@ -236,6 +280,11 @@
     tblHead: document.getElementById('tblHead'),
     tblBody: document.getElementById('tblBody'),
     capNote: document.getElementById('capNote'),
+    btnExportType: document.getElementById('btnExportType'),
+    typeTblHead: document.getElementById('typeTblHead'),
+    typeTblBody: document.getElementById('typeTblBody'),
+    typeRowCount: document.getElementById('typeRowCount'),
+    typeClear: document.getElementById('typeClear'),
     kpiResults: document.getElementById('kpiResults'),
     kpiTotal: document.getElementById('kpiTotal'),
     kpiUnits: document.getElementById('kpiUnits'),
@@ -408,6 +457,78 @@
     });
   }
 
+  // Rolls the same filtered raw rows up by product type — always at the
+  // type grain regardless of the Store/Month column toggles on Results, and
+  // deliberately ignores the Type filter itself so the full type mix stays
+  // visible to click into (a pivot/slicer, not a view that hides itself the
+  // moment one type is picked).
+  function computeTypeRows(){
+    const nameQuery = state.searchName.trim().toLowerCase();
+    const skuQuery = state.searchSku.trim().toLowerCase();
+    const byType = new Map();
+    for (const r of state.rowsRaw){
+      if (!inGroup(r)) continue;
+      if (nameQuery && !String(r.product_name||'').toLowerCase().includes(nameQuery)) continue;
+      if (skuQuery && !String(r.sku||'').toLowerCase().includes(skuQuery)) continue;
+
+      const type = r.product_type || 'Uncategorized';
+      const cur = byType.get(type) || { type, qty:0, gross:0, discounts:0, refunds:0, net:0, total:0, skus:new Set() };
+      cur.qty += Number(r.total_quantity_sold||0);
+      cur.gross += Number(r.total_gross_sales||0);
+      cur.discounts += Number(r.total_discounts||0);
+      cur.refunds += Number(r.total_refunds||0);
+      cur.net += Number(r.total_net_sales||0);
+      cur.total += Number(r.total_sales||0);
+      if (r.sku) cur.skus.add(r.sku);
+      byType.set(type, cur);
+    }
+    return [...byType.values()].sort((a,b)=>b.total-a.total);
+  }
+
+  function renderTypeHead(){
+    el.typeTblHead.innerHTML = `<tr><th class="l">Type</th><th>SKUs</th><th>Qty</th><th>Total $</th><th>% Total</th></tr>`;
+  }
+
+  function renderTypeTable(){
+    const rows = computeTypeRows();
+    state.lastTypeRows = rows;
+    el.typeRowCount.textContent = `${rows.length} type${rows.length===1?'':'s'}`;
+    el.typeClear.hidden = !state.activeType;
+    if (!rows.length){
+      el.typeTblBody.innerHTML = `<tr><td class="ps-empty" colspan="5">No results.</td></tr>`;
+      return;
+    }
+    const grandTotal = rows.reduce((a,r)=>a+r.total,0);
+    const maxTotal = Math.max(1, ...rows.map(r=>r.total));
+    el.typeTblBody.innerHTML = rows.map(r=>{
+      const pct = grandTotal ? (r.total/grandTotal)*100 : 0;
+      const heat = `color-mix(in oklab, var(--bcn-accent) ${Math.round(6+30*(r.total/maxTotal))}%, transparent)`;
+      return `<tr data-type="${esc(r.type)}" class="${r.type===state.activeType?'active':''}">
+        <td class="l">${esc(r.type)}</td>
+        <td>${numFmt(r.skus.size)}</td>
+        <td>${numFmt(r.qty)}</td>
+        <td style="background:${heat}">${money(r.total)}</td>
+        <td>${pct.toFixed(1)}%</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function exportTypeCsv(){
+    const total = state.lastTypeRows.reduce((a,r)=>a+r.total,0);
+    downloadCsv('product-search-by-type.csv',
+      ['Type','SKUs','Qty','Gross $','Discounts $','Refunds $','Net $','Total $','% of Total'],
+      state.lastTypeRows.map(r=>[r.type, r.skus.size, r.qty, r.gross.toFixed(2), r.discounts.toFixed(2), r.refunds.toFixed(2), r.net.toFixed(2), r.total.toFixed(2), total?((r.total/total)*100).toFixed(1):'0.0']));
+  }
+
+  // Shared by the Type dropdown and the pivot table's row clicks — clicking
+  // the already-active type (or the Clear link) resets to "All types",
+  // matching a toggleable slicer rather than a one-way drill.
+  function setActiveType(type){
+    state.activeType = state.activeType===type ? '' : type;
+    el.typeSelect.value = state.activeType;
+    renderAll();
+  }
+
   function recompute(){
     renderAll();
     setStatus(`Scanned ${state.rowsRaw.length} rows.`);
@@ -557,13 +678,20 @@
     renderHead();
     renderKpis(rows);
     renderTable(rows);
+    renderTypeTable();
   }
 
   el.btnRefresh.addEventListener('click', runLoad);
   el.btnExport.addEventListener('click', exportResultsCsv);
+  el.btnExportType.addEventListener('click', exportTypeCsv);
   el.searchName.addEventListener('input', () => { state.searchName = el.searchName.value; onSearchInput(); });
   el.searchSku.addEventListener('input', () => { state.searchSku = el.searchSku.value; onSearchInput(); });
   el.typeSelect.addEventListener('change', () => { state.activeType = el.typeSelect.value; renderAll(); });
+  el.typeTblBody.addEventListener('click', (ev) => {
+    const tr = ev.target.closest('[data-type]'); if (!tr) return;
+    setActiveType(tr.dataset.type);
+  });
+  el.typeClear.addEventListener('click', () => setActiveType(''));
   el.toggleStore.addEventListener('change', () => { state.showStore = el.toggleStore.checked; renderAll(); });
   el.toggleMonth.addEventListener('change', () => { state.showMonth = el.toggleMonth.checked; renderAll(); });
   el.tblHead.addEventListener('click', (ev) => {
@@ -617,6 +745,7 @@
       applyPreset(30);
     }
 
+    renderTypeHead();
     await runLoad();
   }
 
