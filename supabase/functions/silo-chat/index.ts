@@ -78,7 +78,7 @@ Key tables and views you can query (a curated starting list, NOT the full set --
 - sales_by_day_verification_v -- de-duped view over sales_by_day (prefers shopify_api source)
 - sales_monthly_location_rollup_v / sales_sku_location_rollup_v / sales_velocity_by_sku_location_v -- pre-aggregated sales rollups, faster than grouping sales_by_day yourself for monthly/SKU-level questions
 - inventory_on_hand / inventory_workboard_v -- current inventory by SKU/location, with sell-through metrics. The SKU column here is called variant_sku, not sku. inventory_workboard_v is already the LATEST snapshot only (one row per variant_sku x location -- no need to dedupe by snapshot_at yourself); its real columns are total_available_quantity (there is no on_hand column), qty_sold_30d, avg_qty_sold_per_day, est_days_before_oos, plus velocity windows qty_7d/qty_90d/qty_365d and avg_day_7/avg_day_30/avg_day_90/avg_day_365, and last_sold_date. There is no sell_through_rate column -- compute it from qty_sold_30d and total_available_quantity if needed
-- products_master -- product catalog. Real columns: sku, product_title, variant_title, product_type, vendor_original (not vendor), category, subcategory, department, unit_cost (not cost), msrp, reorder_point_units, is_active, is_discontinued, lifecycle_status. category and product_type are always identical (100% match across every row, fully redundant) -- use either, don't waste a round checking both. department is sparse (~7% populated) -- don't rely on it for filtering. category/product_type hold granular values (e.g. "Youth Cap", "Youth Jacket"), not just broad buckets -- match a broad group with ilike 'Youth%' rather than an exact = 'Youth', which will under-match
+- products_master -- product catalog. Real columns: sku, product_title, variant_title, product_type, vendor_original (not vendor), category, subcategory, department, unit_cost (not cost), msrp, reorder_point_units, is_active, is_discontinued, lifecycle_status. category and product_type are always identical (100% match across every row, fully redundant) -- use either, don't waste a round checking both. department is sparse (~7% populated) -- don't rely on it for filtering. category/product_type hold granular values (e.g. "Youth Cap", "Youth Jacket"), not just broad buckets -- match a broad group with ilike 'Youth%' rather than an exact = 'Youth', which will under-match. Exception: Women's product_type is the bare exact value 'Women' (not 'Women%' or a garment-suffixed value) -- an ilike 'Women%' pattern search here wastes rounds discovering that; go straight to product_type = 'Women' and narrow with product_title instead
 - po_headers / po_lines / v_po_header_summary / v_open_pos / incoming_shipments -- purchase orders and inbound shipment tracking. po_lines joins to po_headers on po_lines.po_header_id = po_headers.id (not po_id)
 - po_costing / po_costing_lines / v_po_costing_summary -- landed cost
 - factories -- supplier/factory directory
@@ -268,6 +268,29 @@ const PRODUCT_CONCEPT_TOOLS = [
     },
   },
 ];
+
+// Live corrections for column-name guesses that have actually recurred in
+// production run_sql errors, even after being named in the system prompt --
+// e.g. factories.factory_name and po_lines.qty were both listed in
+// PRODUCT_CONCEPT_SYSTEM_BLOCK's corrected-column-names paragraph and the
+// model still tried factories.name and po_lines.quantity_ordered/quantity/
+// qty_ordered in a later session. A static prompt line competes with a lot
+// of other text over a long tool-heavy conversation; a correction attached
+// directly to the error the model just received doesn't need to be
+// remembered, only read. Matched case-insensitively against the raw
+// Postgres error text -- cheap, and false positives just add a harmless
+// extra sentence.
+const KNOWN_COLUMN_ERRORS: Array<{ pattern: RegExp; hint: string }> = [
+  { pattern: /\bf(?:actor(?:y|ies))?\.name\b/i, hint: "factories' name column is factory_name, not name." },
+  { pattern: /\bpl\.(?:quantity_ordered|quantity|qty_ordered)\b/i, hint: "po_lines' quantity column is qty, not quantity_ordered/quantity/qty_ordered." },
+  { pattern: /\bproduct_title\b.*sales_by_day|sales_by_day.*\bproduct_title\b/i, hint: "sales_by_day's product name column is product_name, not product_title." },
+  { pattern: /\blocation_tag\b/i, hint: "if this join was sales_by_day to locations, the join key is location_name, not location_tag." },
+];
+
+function annotateColumnError(message: string): string {
+  const hints = KNOWN_COLUMN_ERRORS.filter((c) => c.pattern.test(message)).map((c) => c.hint);
+  return hints.length ? `${message} Hint: ${hints.join(' ')}` : message;
+}
 
 type Note = { note: string; category: string; created_by_name: string | null };
 
@@ -584,7 +607,7 @@ Deno.serve(async (req: Request) => {
             if (error) throw new Error(error.message);
             resultContent = JSON.stringify(rows);
           } catch (err) {
-            resultContent = `Error: ${String((err as Error)?.message || err)}`;
+            resultContent = `Error: ${annotateColumnError(String((err as Error)?.message || err))}`;
             if (/statement timeout/i.test(resultContent)) sawTimeout = true;
           }
         }

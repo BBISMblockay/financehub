@@ -424,6 +424,42 @@
   let history = [];
   let session = null;
 
+  // A refresh (accidental, or the "refresh the page" prompt on an error
+  // bubble) used to wipe the whole conversation -- history only ever lived
+  // in this JS variable. sessionStorage is tab-scoped, which is exactly
+  // right here: a reload of THIS tab restores it, a fresh tab starts clean.
+  const HISTORY_STORAGE_KEY = 'silo_chat_history_v1';
+
+  function saveHistoryToSession() {
+    try { sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history)); } catch {}
+  }
+
+  function clearHistorySession() {
+    try { sessionStorage.removeItem(HISTORY_STORAGE_KEY); } catch {}
+  }
+
+  // Replays a saved conversation into the log on boot. Per-message SQL
+  // (queries) is persisted alongside content so "Save report"/"N queries
+  // run" still work after a restore, not just on messages from this page
+  // load.
+  function restoreHistoryFromSession() {
+    let saved;
+    try {
+      const raw = sessionStorage.getItem(HISTORY_STORAGE_KEY);
+      saved = raw ? JSON.parse(raw) : null;
+    } catch { saved = null; }
+    if (!Array.isArray(saved) || !saved.length) return;
+    history = saved;
+    history.forEach((m, i) => {
+      if (m.role === 'assistant') {
+        const question = [...history.slice(0, i)].reverse().find(x => x.role === 'user')?.content || '';
+        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, saveCtx: { question } });
+      } else {
+        renderMessage({ role: 'user', content: m.content, images: m.imageUrls });
+      }
+    });
+  }
+
   // Product Concepts: in testing -- reference-image upload. Bucket mirrors
   // the sample-images/launch-images pattern (public bucket, concepts/
   // folder prefix); see 20260821130000_product_concept_images.sql.
@@ -544,7 +580,10 @@
         renderMessage({ role: 'assistant', content: data.error || 'Something went wrong.', isError: true, retryable: data.retryable });
         return;
       }
-      history.push({ role: 'assistant', content: data.answer });
+      const historyEntry = { role: 'assistant', content: data.answer };
+      if (data.queries_run && data.queries_run.length) historyEntry.queries = data.queries_run;
+      history.push(historyEntry);
+      saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
       renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question } });
     } catch (err) {
@@ -569,6 +608,7 @@
     // only for entries that carry it.
     if (images.length) entry.imageUrls = images;
     history.push(entry);
+    saveHistoryToSession();
     renderMessage({ role: 'user', content: text, images });
     clearPendingImages();
     await askSilo();
@@ -702,6 +742,7 @@
   });
   el('btnNewChat').addEventListener('click', () => {
     history = [];
+    clearHistorySession();
     el('log').innerHTML = `
       <div class="ac-empty" id="emptyState">
         <h3>Ask anything about your data</h3>
@@ -994,6 +1035,7 @@
       el('btnAttach').hidden = false;
     }
 
+    restoreHistoryFromSession();
     el('input').focus();
   }
 
