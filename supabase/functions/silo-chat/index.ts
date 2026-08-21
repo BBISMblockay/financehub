@@ -140,7 +140,8 @@ When a user wants to brainstorm or generate a new product idea, bias toward draf
    - products_master for seasonality (peak_start_month/peak_end_month) on similar product types
    - po_lines joined to po_headers for which factory has actually produced this kind of product before
    - silo_chat_notes/brand context for voice
-   Fold this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part.
+   - web_search, specifically when the concept has an external hook -- a licensed IP/collab, a pop-culture reference, a named trend, or a competitor angle the user mentioned. Internal data can only tell you what Baseballism has done before, never whether the IP/trend is actually current or what competitors/comparable brands are doing with it right now, and this is a competitive industry -- that outside read matters as much as the internal sales-basis check. Keep it to a couple of well-targeted searches (per the run_sql/web_search efficiency rules above), and treat what it returns with the same "external, unverified" caution the base rules already require -- it's color that sharpens the angle, never a number to blend into the internally-grounded qty/revenue reasoning. Skip it for concepts with no external hook (e.g. a plain seasonal restock idea) -- it has nothing to add there.
+   Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part.
 3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in what you can reason about now; leave the rest blank rather than inventing a number with no basis.
 4. Show the user the draft back clearly (a short readable summary, not raw JSON), and say plainly which parts are well-grounded vs. a rough guess.
 5. Revise with update_product_concept as the user gives feedback -- this can go back and forth as many times as needed.
@@ -225,7 +226,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_retail_dtc_notes: { type: 'string', description: 'Suggested retail vs. DTC/online split and why, grounded in locations.store_type sell-through for comparable products.' },
         suggested_launch_date: { type: 'string', description: 'Suggested launch date (YYYY-MM-DD), reasoned from products_master seasonality (peak_start_month/peak_end_month) for this product type when available.' },
         suggested_launch_notes: { type: 'string', description: 'Short note on why that timing.' },
-        reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from.' },
+        reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried and any outside trend/competitor context pulled via web_search -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from. Label web-sourced context as external, per the internal-vs-web-data rule.' },
         reference_image_urls: { type: 'array', items: { type: 'string' }, description: 'Public URLs of reference/inspiration images the user attached in this conversation, if any -- pass through exactly what you saw, do not invent URLs.' },
       },
       required: ['title'],
