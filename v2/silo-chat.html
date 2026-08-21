@@ -270,6 +270,12 @@
               <button class="ac-suggestion" data-q="Which SKUs get returned the most, and why?">Which SKUs get returned the most, and why?</button>
               <button class="ac-suggestion" data-q="How is our marketing spend trending against online sales this month?">How is our marketing spend trending against online sales this month?</button>
               <button class="ac-suggestion" data-q="Suggest a marketing campaign idea based on what's actually selling well right now.">Suggest a marketing campaign idea based on what's actually selling well right now.</button>
+              <!-- Product Concepts: in testing, unhidden in boot() only for
+                   PRODUCT_CONCEPT_TESTERS -- see the matching gate in the
+                   silo-chat edge function. Remove the hidden attribute (and
+                   the boot() check that toggles it) once this ships to
+                   everyone. -->
+              <button class="ac-suggestion" id="suggestionConcept" data-q="I want to generate a new product concept." hidden>Generate a new product concept</button>
             </div>
           </div>
         </div>
@@ -871,6 +877,16 @@
         supabaseClient: sb,
       });
     }
+
+    // Product Concepts: in testing -- see the matching PRODUCT_CONCEPT_TESTERS
+    // gate in the silo-chat edge function (that gate is the real boundary;
+    // this only controls whether the suggestion chip is visible). Remove
+    // this check once the feature ships to everyone.
+    const conceptTesterEmail = (profile?.email || user.email || '').toLowerCase();
+    if (['blake@baseballism.com'].includes(conceptTesterEmail)) {
+      el('suggestionConcept').hidden = false;
+    }
+
     el('input').focus();
   }
 

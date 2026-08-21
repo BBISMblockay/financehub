@@ -286,6 +286,7 @@ supabase/
     20260820130000_sales_by_day_trgm_search_indexes.sql
     20260820140000_inventory_on_hand_trgm_search_indexes.sql
     20260821090000_silo_chat_saved_reports_visibility.sql
+    20260821110000_product_concepts.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
