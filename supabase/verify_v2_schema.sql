@@ -1053,3 +1053,14 @@ select
       then 'MISSING — run 20260821160000_product_concept_launch_plan_fields.sql'
     else 'ok'
   end as product_concept_launch_plan_fields;
+
+-- Product Concepts collections (migration 20260821170000) — parent/child
+-- grouping for multi-product releases sharing one strategic brief.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts'
+                       and column_name='parent_concept_id')
+      then 'MISSING — run 20260821170000_product_concept_collections.sql'
+    else 'ok'
+  end as product_concept_collections;

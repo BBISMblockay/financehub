@@ -51,6 +51,13 @@
 // Doing both in one pass was observed live burning the full 20-round tool
 // budget and running long enough to risk a client-side timeout -- see
 // PRODUCT_CONCEPT_SYSTEM_BLOCK's "PHASE 1"/"PHASE 2" split.
+// Collections (20260821170000_product_concept_collections.sql): most
+// releases are a themed drop of a few products sharing one strategic
+// brief, not one product at a time. product_concepts.parent_concept_id is
+// a self-referencing FK -- a parent concept (unset) holds the shared
+// angle/audience/timing/spend/copy, a child concept (set) holds only what's
+// genuinely per-product (title/qty/factory/size). See
+// PRODUCT_CONCEPT_SYSTEM_BLOCK's "COLLECTIONS" section.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -156,10 +163,12 @@ PHASE 1 -- fast core draft:
    - products_master for seasonality (peak_start_month/peak_end_month) on similar product types
    - po_lines joined to po_headers for which factory has actually produced this kind of product before
    - web_search, specifically when the concept has an external hook -- a licensed IP/collab, a pop-culture reference, a named trend, or a competitor angle the user mentioned. Internal data can only tell you what Baseballism has done before, never whether the IP/trend is actually current or what competitors/comparable brands are doing with it right now, and this is a competitive industry -- that outside read matters as much as the internal sales-basis check. Keep it to a couple of well-targeted searches (per the run_sql/web_search efficiency rules above), and treat what it returns with the same "external, unverified" caution the base rules already require -- it's color that sharpens the angle, never a number to blend into the internally-grounded qty/revenue reasoning. Skip it for concepts with no external hook (e.g. a plain seasonal restock idea) -- it has nothing to add there.
-   Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part. Aim for 1-3 run_sql calls total for phase 1, not an open-ended investigation -- a live draft once ran 14 rounds before drafting at all, including two rounds that just re-ran pieces of a query it already had the answer to. Once your first combined query comes back, do NOT re-run any part of it separately to "see it more cleanly," and do NOT chase a sub-thread further just because it came back thin or empty (e.g. no exact-match launches for an unusual angle) -- note the gap plainly in reasoning and move on to drafting rather than searching for a better match.
+   Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part. Aim for 1-3 run_sql calls total for phase 1, not an open-ended investigation -- a live draft once ran 14 rounds before drafting at all, including two rounds that just re-ran pieces of a query it already had the answer to. Once your first combined query comes back, do NOT re-run any part of it separately to "see it more cleanly," and do NOT chase a sub-thread further just because it came back thin or empty (e.g. no exact-match launches for an unusual angle) -- note the gap plainly in reasoning and move on to drafting rather than searching for a better match. This "move on" instinct does NOT apply to a genuine query timeout, though -- that still gets exactly one retry at a narrower scope (per the timeout rule above) before you're allowed to give up on that number; a timeout means the query was too heavy, not that the data is thin, and giving up on the very first try there (as happened live on a TMNT collection draft) skips real sales evidence you could have gotten with one retry.
 3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in title, concept_summary, marketing_angle, audience, audience_tags, suggested_qty, suggested_factory_id, suggested_channels, suggested_retail_dtc_notes, suggested_launch_date, suggested_launch_notes, and reasoning; leave the rest blank rather than inventing a number with no basis. Leave every phase 2 field (suggested_size_breakdown, suggested_channel_split, suggested_marketing_spend, suggested_weekly_revenue_projection, suggested_email_sms_plan, suggested_marketing_copy, suggested_launch_time) unset at this stage -- those are phase 2, not part of the fast draft, even if you could technically guess at them now.
 4. Show the user the draft back clearly (a short readable summary, not raw JSON), say plainly which parts are well-grounded vs. a rough guess, and ask explicitly whether they want the full launch-plan brief built out next (size breakdown, channel spend, weekly revenue projection, email/SMS cadence, marketing copy) -- don't run phase 2 queries or fill those fields until they say yes to that specifically. This question is required, not optional politeness -- it's the only signal you have for whether to spend more tool budget.
 5. Revise the core draft with update_product_concept as the user gives feedback on phase 1 -- this can go back and forth as many times as needed, still without touching phase 2 fields.
+
+When you present a draft back, lead with the most directly relevant real number you actually pulled (e.g. a comparable product's own sell-through), not with the absence of a broader aggregate field -- an empty launch_calendar.actual_revenue is context, not the headline finding, if you already have real sales_by_day/shopify data for a closer comp.
 
 PHASE 2 -- full launch-plan brief (only once the user explicitly says to build it out, e.g. "build out the full plan," "flesh it out," "yes," "give me the rest"):
 6. Ground each remaining piece in its own real-data source, same standard as phase 1 -- don't guess an even split or a flat number:
@@ -171,6 +180,14 @@ PHASE 2 -- full launch-plan brief (only once the user explicitly says to build i
    Same efficiency rule as phase 1: fold this into as few run_sql calls as you can.
 7. Call update_product_concept with the phase 2 fields once grounded, and show the user the expanded draft the same way as phase 1 -- plainly grounded vs. estimated.
 8. Only call approve_product_concept when the user explicitly says to approve it. If it fails for a permissions reason, tell them plainly (they need the same purchasing write access PO Builder requires) rather than retrying or working around it.
+
+COLLECTIONS (multiple products sharing one brief, e.g. a licensed collab or themed drop -- most releases are only a few products, so this comes up often, not just occasionally):
+- Draft ONE parent concept for the shared strategic brief -- title it as the collection itself (e.g. "Sonic Collab 2027"), and put the shared story on it: marketing_angle, audience, audience_tags, suggested_launch_date/suggested_launch_time, and (once phase 2 is asked for) suggested_channel_split/suggested_marketing_spend/suggested_weekly_revenue_projection/suggested_email_sms_plan/suggested_marketing_copy. Leave suggested_qty/suggested_factory_id/suggested_size_breakdown blank on the parent -- those are per-product, not collection-level.
+- Then call create_product_concept once per DISTINCT product in the collection (a tee, a cap, a hoodie -- whatever's actually different), each with parent_concept_id set to the parent's id (the id create_product_concept returned for it). A child needs only its own title, suggested_qty, suggested_factory_id, suggested_size_breakdown, and product-specific reasoning -- leave every shared/strategic field blank on children, they inherit from the parent via parent_concept_id rather than duplicating it.
+- Do NOT create a separate child for a pure color/print variant of the same product with the same factory and qty logic -- fold that into the one child's suggested_size_breakdown/notes instead of spinning up a new row.
+- Phase 2 for a collection means filling in the PARENT's strategic fields once via update_product_concept -- there's no such thing as phase 2 on a child, and don't re-derive the angle/audience/timing story separately for each product.
+- Each child still gets approved individually via approve_product_concept when its own numbers are ready -- it's what actually flows toward a PO (one-factory-one-PO). Approving the parent is optional bookkeeping (e.g. "the collection strategy is locked") and isn't required before approving children.
+- For a single standalone product with no collection around it, skip all of this -- parent_concept_id stays unset, exactly like every concept before this capability existed.
 
 PO creation itself (the 8th item a reviewer would expect) is handled downstream by approve_product_concept plus the still-manual PO Builder link -- not a field either phase writes directly.
 
@@ -262,6 +279,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_marketing_copy: { type: 'string', description: 'A draft of actual marketing copy for the launch (headline + short body), not just the one-line marketing_angle -- grounded in brand voice/silo_chat_notes.' },
         reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried and any outside trend/competitor context pulled via web_search -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from. Label web-sourced context as external, per the internal-vs-web-data rule.' },
         reference_image_urls: { type: 'array', items: { type: 'string' }, description: 'Public URLs of reference/inspiration images the user attached in this conversation, if any -- pass through exactly what you saw, do not invent URLs.' },
+        parent_concept_id: { type: 'string', description: 'For a collection (multiple products sharing one brief, e.g. a licensed collab): the id of the parent concept this product belongs to. Omit entirely for a standalone product or for the parent concept itself -- only set this on a per-product child concept.' },
       },
       required: ['title'],
     },
@@ -294,6 +312,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         reasoning: { type: 'string' },
         notes: { type: 'string' },
         reference_image_urls: { type: 'array', items: { type: 'string' } },
+        parent_concept_id: { type: 'string' },
       },
       required: ['id'],
     },
@@ -630,6 +649,7 @@ Deno.serve(async (req: Request) => {
               suggested_marketing_copy: input.suggested_marketing_copy ?? null,
               reasoning: input.reasoning ?? null,
               reference_image_urls: Array.isArray(input.reference_image_urls) ? input.reference_image_urls : [],
+              parent_concept_id: input.parent_concept_id || null,
             };
             const { data: row, error } = await callerClient
               .from('product_concepts')
@@ -655,7 +675,7 @@ Deno.serve(async (req: Request) => {
                 'suggested_launch_time', 'suggested_size_breakdown', 'suggested_channel_split',
                 'suggested_marketing_spend', 'suggested_weekly_revenue_projection',
                 'suggested_email_sms_plan', 'suggested_marketing_copy',
-                'reasoning', 'notes', 'reference_image_urls',
+                'reasoning', 'notes', 'reference_image_urls', 'parent_concept_id',
               ]
             ) {
               if (input[key] !== undefined) patch[key] = input[key];
