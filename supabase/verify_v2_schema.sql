@@ -980,3 +980,21 @@ select
       then 'MISSING — silo_chat_saved_reports_v lacks visibility column'
     else 'ok'
   end as silo_chat_saved_reports_visibility;
+
+-- Product Concepts (migration 20260821110000) — Ask SILO's product-generation
+-- branch, still gated to PRODUCT_CONCEPT_TESTERS in the silo-chat edge
+-- function while it's tested.
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='product_concepts')
+      then 'MISSING — run 20260821110000_product_concepts.sql'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='product_concepts'
+                       and policyname='product_concepts_select')
+      then 'MISSING — product_concepts RLS policies'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='product_concepts_v')
+      then 'MISSING — product_concepts_v view'
+    else 'ok'
+  end as product_concepts;

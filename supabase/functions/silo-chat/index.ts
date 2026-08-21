@@ -24,6 +24,12 @@
 // separate from real SILO numbers. See CLAUDE.md's "Key tables" section
 // for the schema summary baked into BASE_SYSTEM_PROMPT below -- keep them
 // in sync.
+//
+// Product Concepts (create/update/approve_product_concept, writing to the
+// new product_concepts table) is a fifth, in-testing capability gated to
+// PRODUCT_CONCEPT_TESTERS below -- only those callers get the extra tools
+// and system-prompt block. Like everything else here it runs through
+// callerClient, so RLS on product_concepts is still the real boundary.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -31,6 +37,14 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') || '';
 const MODEL = Deno.env.get('CHAT_MODEL') || 'claude-sonnet-5';
+
+// Product Concepts (Ask SILO's product-generation branch -- see the
+// 2026-08-21 planning thread) is still being built and tested. Gating it
+// to specific emails keeps the new tools and suggested-question flow
+// invisible to the rest of the team while it's exercised. Once it's ready
+// for everyone, delete this constant and the two `conceptsEnabled` checks
+// below rather than widening the list.
+const PRODUCT_CONCEPT_TESTERS = ['blake@baseballism.com'];
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -101,6 +115,24 @@ Rules:
 - If the user asks for marketing/campaign suggestions or "what should our next launch be," ground them in real data you pulled first -- both quantitative (top/bottom sellers, return reasons, MER trend, inventory gluts) AND qualitative: query launch_calendar for past marketing_angle, audience_tags, and design_intent to see what this brand has actually run, cross-referenced with overperformed_notes/underperformed_notes and actual_revenue vs. projected_revenue to see what worked. Use that history to calibrate tone and audience and to flag it if a new idea overlaps heavily with a past underperformer -- don't just repeat a past angle verbatim, and don't give generic advice when this brand's own launch history already answers the question.
 - Keep answers concise and skimmable -- short paragraphs or a tight list, not a wall of text.`;
 
+// Appended to the system prompt only for PRODUCT_CONCEPT_TESTERS (see the
+// constant above). Describes the product-generation walkthrough: gather
+// enough to draft, ground every suggestion in real queries, draft, let the
+// human revise, and never approve without an explicit yes.
+const PRODUCT_CONCEPT_SYSTEM_BLOCK = `
+
+Product Concepts (in testing -- available to you specifically): you can also help generate a brand-new product concept before any PO exists, using three extra tools -- create_product_concept, update_product_concept, approve_product_concept -- plus product_concepts_v, which run_sql can query like any other view.
+
+When a user wants to brainstorm or generate a new product idea, walk them through it as a conversation, not a form dump:
+1. Get a rough sense of the idea (what kind of product, any starting angle) if they haven't already said.
+2. Before suggesting anything, ground it in real data -- query launch_calendar for comparable past launches (by product_type/collection: their marketing_angle, audience_tags, actual_revenue vs. projected_revenue, performance_comparison), products_master for seasonality (peak_start_month/peak_end_month) on similar product types, po_lines joined to po_headers for which factory has actually produced this kind of product before, and silo_chat_notes/brand context for voice. Do this even if the user didn't ask for data -- an ungrounded suggestion here is worse than a slow one.
+3. Call create_product_concept once you have enough to draft (title, and at least a rough angle and quantity) -- don't wait for every field to be filled. Fill in what you can reason about now; leave the rest blank rather than inventing a number with no basis.
+4. Show the user the draft back clearly (a short readable summary, not raw JSON), and say plainly which parts are well-grounded vs. a rough guess.
+5. Revise with update_product_concept as the user gives feedback -- this can go back and forth as many times as needed.
+6. Only call approve_product_concept when the user explicitly says to approve it. If it fails for a permissions reason, tell them plainly (they need the same purchasing write access PO Builder requires) rather than retrying or working around it.
+
+This whole flow only ever produces a draft or an approved concept row -- it does not create a PO, and nothing here places an order or commits money. Say so if a user seems to think approving a concept is the same as ordering it.`;
+
 const TOOLS = [
   {
     name: 'run_sql',
@@ -148,6 +180,72 @@ const TOOLS = [
   },
 ];
 
+// Product Concepts write tools -- only appended to the request's tool list
+// for PRODUCT_CONCEPT_TESTERS (see above). Deliberately narrow, single-
+// purpose inserts/updates against product_concepts, same philosophy as
+// save_note: no general-purpose write tool, one tool per real action.
+// Reads don't need a dedicated tool -- product_concepts_v is just another
+// view run_sql can already query.
+const PRODUCT_CONCEPT_TOOLS = [
+  {
+    name: 'create_product_concept',
+    description: 'Create a new draft product concept -- the first artifact in the product-generation flow, before any PO exists. Call this once you and the user have landed on enough of a direction to draft (title + at least a rough angle/qty), not on the very first message. After creating it, show the user the draft clearly and ask what to change before they approve it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Working product title/name.' },
+        concept_summary: { type: 'string', description: 'One or two sentence pitch of the idea.' },
+        marketing_angle: { type: 'string', description: 'The creative story/angle, in the style of launch_calendar.marketing_angle.' },
+        audience: { type: 'string', description: 'Free-text audience description.' },
+        audience_tags: { type: 'array', items: { type: 'string' }, description: 'Structured audience segment tags, in the style of launch_calendar.audience_tags.' },
+        suggested_qty: { type: 'integer', description: 'Suggested buy quantity, reasoned from comparable past launches -- cite what you compared it to in reasoning.' },
+        suggested_factory_id: { type: 'string', description: 'UUID of a row in factories, chosen by looking at which factory has actually produced this product type before (query po_lines joined to po_headers). Omit if no clear precedent exists -- do not guess.' },
+        suggested_channels: { type: 'array', items: { type: 'string' }, description: 'Suggested marketing channels, e.g. ["email","instagram","tiktok"].' },
+        suggested_retail_dtc_notes: { type: 'string', description: 'Suggested retail vs. DTC/online split and why, grounded in locations.store_type sell-through for comparable products.' },
+        suggested_launch_date: { type: 'string', description: 'Suggested launch date (YYYY-MM-DD), reasoned from products_master seasonality (peak_start_month/peak_end_month) for this product type when available.' },
+        suggested_launch_notes: { type: 'string', description: 'Short note on why that timing.' },
+        reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from.' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'update_product_concept',
+    description: 'Revise fields on an existing draft product concept (e.g. after the user asks to change the quantity or angle). Only pass the fields that changed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The product_concepts.id to update.' },
+        title: { type: 'string' },
+        concept_summary: { type: 'string' },
+        marketing_angle: { type: 'string' },
+        audience: { type: 'string' },
+        audience_tags: { type: 'array', items: { type: 'string' } },
+        suggested_qty: { type: 'integer' },
+        suggested_factory_id: { type: 'string' },
+        suggested_channels: { type: 'array', items: { type: 'string' } },
+        suggested_retail_dtc_notes: { type: 'string' },
+        suggested_launch_date: { type: 'string' },
+        suggested_launch_notes: { type: 'string' },
+        reasoning: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'approve_product_concept',
+    description: 'Mark a draft product concept approved -- the human sign-off gate. Only call this when the user has explicitly confirmed approval (e.g. "approve it", "looks good, approve"), never on your own judgment or because the draft looks complete. Requires purchasing write access (the same access PO Builder requires); if the caller lacks it, tell them plainly rather than retrying.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The product_concepts.id to approve.' },
+      },
+      required: ['id'],
+    },
+  },
+];
+
 type Note = { note: string; category: string; created_by_name: string | null };
 
 // Notes are folded into the cached system-prompt block (fetched once per
@@ -174,7 +272,7 @@ function buildSystemPrompt(notes: Note[]) {
   return BASE_SYSTEM_PROMPT + brandBlock + notesBlock;
 }
 
-async function callAnthropic(messages: unknown[], systemPrompt: string, opts: { forceAnswer?: boolean } = {}) {
+async function callAnthropic(messages: unknown[], systemPrompt: string, tools: unknown[], opts: { forceAnswer?: boolean } = {}) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -196,7 +294,7 @@ async function callAnthropic(messages: unknown[], systemPrompt: string, opts: { 
       // forceAnswer: tools stay declared (the transcript contains tool_use /
       // tool_result blocks that must resolve against them) but tool_choice
       // 'none' forbids any further calls, so the model can only answer.
-      tools: TOOLS,
+      tools,
       ...(opts.forceAnswer ? { tool_choice: { type: 'none' } } : {}),
       messages,
     }),
@@ -294,13 +392,17 @@ Deno.serve(async (req: Request) => {
       .select('note, category, created_by_name')
       .order('created_at', { ascending: true })
       .limit(200);
-    const systemPrompt = buildSystemPrompt(notes ?? []);
+    const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(
+      (userData.user.email || '').toLowerCase(),
+    );
+    const systemPrompt = buildSystemPrompt(notes ?? []) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : '');
+    const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;
 
     queriesRun = [];
     let sawTimeout = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const data = await callAnthropic(messages, systemPrompt);
+      const data = await callAnthropic(messages, systemPrompt, tools);
       const blocks = data.content || [];
       const toolUses = blocks.filter((b: { type: string }) => b.type === 'tool_use');
 
@@ -363,6 +465,79 @@ Deno.serve(async (req: Request) => {
           } catch (err) {
             resultContent = `Error: could not load creative image -- ${String((err as Error)?.message || err)}`;
           }
+        } else if (use.name === 'create_product_concept') {
+          const input = use.input || {};
+          try {
+            const title = String(input.title || '').trim();
+            if (!title) throw new Error('title is required');
+            const payload = {
+              title,
+              concept_summary: input.concept_summary ?? null,
+              marketing_angle: input.marketing_angle ?? null,
+              audience: input.audience ?? null,
+              audience_tags: Array.isArray(input.audience_tags) ? input.audience_tags : [],
+              suggested_qty: input.suggested_qty != null ? Number(input.suggested_qty) : null,
+              suggested_factory_id: input.suggested_factory_id || null,
+              suggested_channels: Array.isArray(input.suggested_channels) ? input.suggested_channels : [],
+              suggested_retail_dtc_notes: input.suggested_retail_dtc_notes ?? null,
+              suggested_launch_date: input.suggested_launch_date || null,
+              suggested_launch_notes: input.suggested_launch_notes ?? null,
+              reasoning: input.reasoning ?? null,
+            };
+            const { data: row, error } = await callerClient
+              .from('product_concepts')
+              .insert(payload)
+              .select('*')
+              .single();
+            if (error) throw new Error(error.message);
+            resultContent = JSON.stringify(row);
+          } catch (err) {
+            resultContent = `Error: could not create product concept -- ${String((err as Error)?.message || err)}`;
+          }
+        } else if (use.name === 'update_product_concept') {
+          const input = use.input || {};
+          try {
+            const id = String(input.id || '').trim();
+            if (!id) throw new Error('id is required');
+            const patch: Record<string, unknown> = {};
+            for (
+              const key of [
+                'title', 'concept_summary', 'marketing_angle', 'audience', 'audience_tags',
+                'suggested_qty', 'suggested_factory_id', 'suggested_channels',
+                'suggested_retail_dtc_notes', 'suggested_launch_date', 'suggested_launch_notes',
+                'reasoning', 'notes',
+              ]
+            ) {
+              if (input[key] !== undefined) patch[key] = input[key];
+            }
+            if (!Object.keys(patch).length) throw new Error('no fields to update');
+            const { data: row, error } = await callerClient
+              .from('product_concepts')
+              .update(patch)
+              .eq('id', id)
+              .select('*')
+              .single();
+            if (error) throw new Error(error.message);
+            resultContent = JSON.stringify(row);
+          } catch (err) {
+            resultContent = `Error: could not update product concept -- ${String((err as Error)?.message || err)}`;
+          }
+        } else if (use.name === 'approve_product_concept') {
+          const input = use.input || {};
+          try {
+            const id = String(input.id || '').trim();
+            if (!id) throw new Error('id is required');
+            const { data: row, error } = await callerClient
+              .from('product_concepts')
+              .update({ status: 'approved', approved_by: userData.user.id, approved_at: new Date().toISOString() })
+              .eq('id', id)
+              .select('*')
+              .single();
+            if (error) throw new Error(error.message);
+            resultContent = JSON.stringify(row);
+          } catch (err) {
+            resultContent = `Error: could not approve product concept -- ${String((err as Error)?.message || err)}. This likely means the caller doesn't have purchasing write access yet (the same access PO Builder requires) -- tell the user plainly rather than retrying.`;
+          }
         } else {
           const query = String(use.input?.query || '');
           queriesRun.push(query);
@@ -392,7 +567,7 @@ Deno.serve(async (req: Request) => {
         role: 'user',
         content: 'Your tool budget is exhausted -- you cannot run any more queries or tools. Using ONLY the results already gathered above, give your best final answer to the original question now. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.',
       });
-      const finalData = await callAnthropic(messages, systemPrompt, { forceAnswer: true });
+      const finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
       const finalText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
       if (finalText) {
         await logAudit(callerClient!, {
