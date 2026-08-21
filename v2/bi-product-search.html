@@ -361,34 +361,38 @@
     return (state.groupByTag.get(r.location_tag)||'retail')===state.activeGroup;
   }
 
-  // Paged fetch — mirrors the rest of the suite. No total_orders filter here:
-  // Product Search shows raw activity (sales AND refund adjustment rows),
-  // matching the legacy PBI row-level export it's replacing.
+  // Rolled up server-side via product_search_rollup() (migration
+  // 20260821180000) instead of fetching one row per day: the old raw fetch
+  // shipped 50,502 rows for the default 30-day window (159,167 for 90d,
+  // 291,092 for 180d) and re-aggregated them in JS on every load and every
+  // filter change — that's what made this page heavy. The RPC does the SUM
+  // in Postgres and returns one row per (location, sku, product[, month])
+  // instead of per day, bounded by catalog size rather than date range
+  // (~18k rows for 90d instead of 159k). Location is always included so the
+  // store-group filter and "Add Store column" toggle stay instant with no
+  // refetch; month is opt-in (p_group_month) since only "Add Month column"
+  // needs day-level enough detail to bucket by calendar month, and that
+  // toggle now triggers its own refetch (same pattern as the window
+  // selector on bi-top-sellers.html) rather than being free.
   //
-  // When a name/SKU search term is set, it's pushed down as a server-side
-  // ILIKE so a search like "mlb" over a season fetches ~1% of the rows the
-  // old fetch-everything approach did (the trigram indexes from migration
-  // 20260820130000 make the ILIKE itself cheap). The server filter is a
-  // strict superset of the client-side substring filter in computeRows(),
-  // which still runs on top — so displayed numbers are identical either way.
-  // Terms containing PostgREST-reserved characters (, or parens) skip the
-  // push-down and fall back to the unfiltered fetch + client filter.
-  function likeSafe(term){
-    const t = String(term||'').trim();
-    if (!t || /[,()]/.test(t)) return '';
-    return t.replace(/[\\%_]/g, m => '\\' + m);
-  }
-  async function loadPagedRange(dateFrom,dateTo,{nameTerm='',skuTerm='',token}={}){
-    const nameLike = likeSafe(nameTerm), skuLike = likeSafe(skuTerm);
+  // Name/SKU search terms are always pushed down now — the SQL function
+  // escapes LIKE metacharacters itself, so unlike the old client-side
+  // ilike() filter there's no PostgREST-reserved-character fallback case.
+  // The server filter is a strict superset of the client-side substring
+  // filter in computeRows(), which still runs on top for instant
+  // keystroke-level filtering — so displayed numbers are identical either way.
+  async function loadPagedRange(dateFrom,dateTo,{nameTerm='',skuTerm='',groupMonth=false,token}={}){
+    const name = String(nameTerm||'').trim(), sku = String(skuTerm||'').trim();
     const PAGE_SIZE=10000; let from=0, out=[];
     for(;;){
-      let q = sb.from('sales_by_day_verification_v')
-        .select('day_date,location_tag,location_name,product_name,sku,product_type,total_quantity_sold,total_gross_sales,total_discounts,total_refunds,total_net_sales,total_sales')
-        .gte('day_date',dateFrom).lte('day_date',dateTo)
-        .range(from,from+PAGE_SIZE-1);
-      if (nameLike) q = q.ilike('product_name', `%${nameLike}%`);
-      if (skuLike) q = q.ilike('sku', `%${skuLike}%`);
-      q = scopeQ(q);
+      // No scopeQ() here — the RPC is security invoker over RLS-scoped
+      // sales_by_day, and its output has no company_entity_id column to
+      // filter on (unlike the plain-table selects elsewhere on this page).
+      const q = sb.rpc('product_search_rollup', {
+        p_date_from: dateFrom, p_date_to: dateTo,
+        p_name_term: name || null, p_sku_term: sku || null,
+        p_group_month: groupMonth,
+      }).range(from,from+PAGE_SIZE-1);
       const { data,error } = await q;
       if (token !== undefined && token !== state.loadToken) return null; // superseded by a newer load
       if (error) throw error;
@@ -397,9 +401,7 @@
       from += PAGE_SIZE;
       setStatus(`Loading… ${out.length.toLocaleString()} rows so far`);
     }
-    // Report which terms were actually applied server-side (raw, not
-    // escaped) so needsRefetch() can tell refinements from broadenings.
-    return { rows: out, nameTerm: nameLike ? String(nameTerm).trim() : '', skuTerm: skuLike ? String(skuTerm).trim() : '' };
+    return { rows: out, nameTerm: name, skuTerm: sku, groupMonth };
   }
 
   // Grouping grain follows whichever optional columns are switched on —
@@ -415,7 +417,10 @@
       if (nameQuery && !String(r.product_name||'').toLowerCase().includes(nameQuery)) continue;
       if (skuQuery && !String(r.sku||'').toLowerCase().includes(skuQuery)) continue;
 
-      const monthKey = String(r.day_date).slice(0,7);
+      // r.month is only populated when the fetch was run with groupMonth
+      // (i.e. state.showMonth triggered a refetch at month grain) — see
+      // el.toggleMonth's handler below.
+      const monthKey = r.month || '';
       const keyParts = [r.sku||'', r.product_name||'', r.product_type||''];
       if (state.showStore) keyParts.push(r.location_tag||'');
       if (state.showMonth) keyParts.push(monthKey);
@@ -552,7 +557,7 @@
       [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
 
       const dateFrom = el.dateFrom.value, dateTo = el.dateTo.value;
-      const res = await loadPagedRange(dateFrom, dateTo, { nameTerm: state.searchName, skuTerm: state.searchSku, token });
+      const res = await loadPagedRange(dateFrom, dateTo, { nameTerm: state.searchName, skuTerm: state.searchSku, groupMonth: state.showMonth, token });
       if (!res) return; // superseded — a newer load owns the UI now
       state.rowsRaw = res.rows;
       state.fetchedName = res.nameTerm;
@@ -692,8 +697,13 @@
     setActiveType(tr.dataset.type);
   });
   el.typeClear.addEventListener('click', () => setActiveType(''));
+  // Store needs no refetch — location is always in the loaded rollup. Month
+  // does: the default fetch only carries enough detail to bucket by month
+  // when explicitly asked for (see loadPagedRange's groupMonth), so toggling
+  // it on/off re-fetches at the right grain rather than silently showing
+  // stale (or absent) month buckets.
   el.toggleStore.addEventListener('change', () => { state.showStore = el.toggleStore.checked; renderAll(); });
-  el.toggleMonth.addEventListener('change', () => { state.showMonth = el.toggleMonth.checked; renderAll(); });
+  el.toggleMonth.addEventListener('change', () => { state.showMonth = el.toggleMonth.checked; runLoad(); });
   el.tblHead.addEventListener('click', (ev) => {
     const th = ev.target.closest('[data-sort]'); if (!th) return;
     const key = th.dataset.sort;
