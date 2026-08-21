@@ -1015,3 +1015,14 @@ select
       then 'MISSING — product-concept-images storage policies'
     else 'ok'
   end as product_concept_images;
+
+-- Product Concepts PO link (migration 20260821140000) — prep column so an
+-- approved concept can be connected to the PO it becomes.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts'
+                       and column_name='resulting_po_header_id')
+      then 'MISSING — run 20260821140000_product_concept_po_link.sql'
+    else 'ok'
+  end as product_concept_po_link;
