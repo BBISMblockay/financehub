@@ -37,6 +37,13 @@
 // inside Deno.serve below). No fetch/base64 tool needed here since
 // Anthropic's image blocks accept
 // a public URL directly.
+// Every concept defaults to a full launch brief (Loomis note, 2026-08-21):
+// size-spread qty breakdown, channel/retail split, launch day+time,
+// marketing spend by platform, weekly revenue projection per channel,
+// email/SMS cadence, and draft marketing copy -- see
+// PRODUCT_CONCEPT_SYSTEM_BLOCK and 20260821160000_product_concept_launch_plan_fields.sql.
+// PO creation is the 8th item on that list; it's covered separately by
+// resulting_po_header_id (20260821140000), not a draft-time field here.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -132,14 +139,29 @@ Product Concepts (in testing -- available to you specifically): you can also hel
 
 The user can attach reference/inspiration images (e.g. a print style, a color direction, a similar product they like) directly in the conversation -- these arrive as real image content in the message, so just look at them like any other image. When you create_product_concept or update_product_concept afterward, pass their URLs through in reference_image_urls so they're saved on the row, not just visible in this one exchange -- copy the exact URLs you saw, never invent one. Reference this in your reasoning/notes when it visibly informed the direction (e.g. "print style follows the attached reference").
 
-When a user wants to brainstorm or generate a new product idea, bias toward drafting fast, not interviewing:
+Every concept is a full launch brief by default, not just a qty/angle sketch -- fill in as much of this as you can ground, every time, without being asked for each piece specifically:
+1. suggested_qty + suggested_size_breakdown -- total buy quantity AND its breakdown by size, not just a total
+2. suggested_channels + suggested_channel_split -- which DTC channels (e.g. meta ads, tiktok ads, amazon, owned site) and retail, as a percentage split, not just a channel list
+3. suggested_launch_date + suggested_launch_time -- day AND time of day, not just a date
+4. suggested_marketing_spend -- a recommended dollar budget per platform
+5. suggested_weekly_revenue_projection -- revenue projected by week, per channel, for the first several weeks post-launch
+6. suggested_email_sms_plan -- the email/SMS cadence and strategy around the launch (what sends when, and why)
+7. suggested_marketing_copy -- a draft of actual marketing copy (headline + short body), not just the marketing_angle one-liner
+8. PO creation -- handled downstream by approve_product_concept + the (still-manual) PO Builder link, not a draft-time field
+
+Leave a piece blank rather than inventing a number with no basis, but always attempt all seven draft-time pieces first -- don't skip straight to a partial draft because grounding takes a couple extra queries. Flag low-confidence pieces plainly when you show the draft (e.g. "weekly revenue projection here is a rough estimate -- comparable launches don't have granular weekly data").
+
+Bias toward drafting fast, not interviewing:
 1. Draft immediately from whatever they gave you, even a single rough sentence -- do NOT ask a round of clarifying questions (product type? angle? timing?) before doing anything. Only ask first if the message truly gives you nothing to start from (e.g. just "generate a concept" with zero direction). A vague-but-present starting point ("something for summer," "a new cap idea") is enough to draft against and refine, not a prompt to interview them.
 2. Before drafting, ground it in real data -- this is not optional and not just when asked:
    - launch_calendar for comparable past launches (by product_type/collection): marketing_angle, audience_tags, actual_revenue vs. projected_revenue, performance_comparison
    - sales_by_day for ACTUAL sell-through of comparable products -- specifically the first-90-days-from-launch quantity, not just how big past POs for the category were. PO size and sales velocity can disagree (PO history alone undersized a recent draft by ~25% here), so always check both, every time, not only when pushed
    - products_master for seasonality (peak_start_month/peak_end_month) on similar product types
    - po_lines joined to po_headers for which factory has actually produced this kind of product before
-   - silo_chat_notes/brand context for voice
+   - shopify_order_lines or po_lines.variant_title_snapshot for the historical size curve of a comparable product -- ground suggested_size_breakdown in an actual past size split, not an even guess across sizes
+   - shopify_orders_v.resolved_channel_name (channel mix) and marketing_kpis_daily (spend/CAC/MER by platform) for comparable past launches -- ground suggested_channel_split and suggested_marketing_spend in what actually converted efficiently before, not an even split across platforms
+   - launch_calendar.actual_revenue trajectory (where available) for a comparable launch's real week-over-week pattern -- ground suggested_weekly_revenue_projection in that shape (front-loaded, steady, etc.) rather than a flat guess; if no comparable launch has week-level data, say so and give a labeled rough estimate instead
+   - silo_chat_notes/brand context for voice -- ground suggested_marketing_copy in it directly, not generic copy
    - web_search, specifically when the concept has an external hook -- a licensed IP/collab, a pop-culture reference, a named trend, or a competitor angle the user mentioned. Internal data can only tell you what Baseballism has done before, never whether the IP/trend is actually current or what competitors/comparable brands are doing with it right now, and this is a competitive industry -- that outside read matters as much as the internal sales-basis check. Keep it to a couple of well-targeted searches (per the run_sql/web_search efficiency rules above), and treat what it returns with the same "external, unverified" caution the base rules already require -- it's color that sharpens the angle, never a number to blend into the internally-grounded qty/revenue reasoning. Skip it for concepts with no external hook (e.g. a plain seasonal restock idea) -- it has nothing to add there.
    Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part.
 3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in what you can reason about now; leave the rest blank rather than inventing a number with no basis.
@@ -226,6 +248,13 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_retail_dtc_notes: { type: 'string', description: 'Suggested retail vs. DTC/online split and why, grounded in locations.store_type sell-through for comparable products.' },
         suggested_launch_date: { type: 'string', description: 'Suggested launch date (YYYY-MM-DD), reasoned from products_master seasonality (peak_start_month/peak_end_month) for this product type when available.' },
         suggested_launch_notes: { type: 'string', description: 'Short note on why that timing.' },
+        suggested_launch_time: { type: 'string', description: 'Suggested day-of-week and time-of-day for the launch (e.g. "Thursday 9:00am PT"), reasoned from when comparable past launches actually went live if that pattern is visible, otherwise a reasonable default with the assumption stated.' },
+        suggested_size_breakdown: { type: 'object', description: 'Units by size, e.g. {"S":40,"M":120,"L":100,"XL":40} -- should sum to suggested_qty. Ground it in the historical size curve of a comparable past product (shopify_order_lines or po_lines.variant_title_snapshot), not an even split.' },
+        suggested_channel_split: { type: 'object', description: 'Percentage allocation across DTC channels and retail, e.g. {"meta_ads":25,"tiktok_ads":20,"amazon":15,"retail_wholesale":40} -- should sum to ~100. Ground it in shopify_orders_v channel mix and marketing_kpis_daily platform efficiency for comparable past launches.' },
+        suggested_marketing_spend: { type: 'object', description: 'Recommended marketing spend in dollars by platform, e.g. {"meta_ads":5000,"tiktok_ads":3000}. Ground it in marketing_kpis_daily spend/CAC/MER for comparable past launches -- should be consistent with suggested_channel_split, not sized independently of it.' },
+        suggested_weekly_revenue_projection: { type: 'array', items: { type: 'object' }, description: 'Revenue projected by week per channel for the first several weeks post-launch, e.g. [{"week":1,"channel":"dtc_web","revenue":8000}, ...]. Ground it in a comparable launch\'s actual week-over-week revenue shape where available; if none has week-level granularity, say so and give a clearly-labeled rough estimate instead.' },
+        suggested_email_sms_plan: { type: 'array', items: { type: 'object' }, description: 'The email/SMS cadence and strategy around the launch, e.g. [{"channel":"email","timing":"T-7","theme":"teaser"},{"channel":"sms","timing":"T0","theme":"launch alert"}].' },
+        suggested_marketing_copy: { type: 'string', description: 'A draft of actual marketing copy for the launch (headline + short body), not just the one-line marketing_angle -- grounded in brand voice/silo_chat_notes.' },
         reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried and any outside trend/competitor context pulled via web_search -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from. Label web-sourced context as external, per the internal-vs-web-data rule.' },
         reference_image_urls: { type: 'array', items: { type: 'string' }, description: 'Public URLs of reference/inspiration images the user attached in this conversation, if any -- pass through exactly what you saw, do not invent URLs.' },
       },
@@ -250,6 +279,13 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_retail_dtc_notes: { type: 'string' },
         suggested_launch_date: { type: 'string' },
         suggested_launch_notes: { type: 'string' },
+        suggested_launch_time: { type: 'string' },
+        suggested_size_breakdown: { type: 'object' },
+        suggested_channel_split: { type: 'object' },
+        suggested_marketing_spend: { type: 'object' },
+        suggested_weekly_revenue_projection: { type: 'array', items: { type: 'object' } },
+        suggested_email_sms_plan: { type: 'array', items: { type: 'object' } },
+        suggested_marketing_copy: { type: 'string' },
         reasoning: { type: 'string' },
         notes: { type: 'string' },
         reference_image_urls: { type: 'array', items: { type: 'string' } },
@@ -543,6 +579,13 @@ Deno.serve(async (req: Request) => {
               suggested_retail_dtc_notes: input.suggested_retail_dtc_notes ?? null,
               suggested_launch_date: input.suggested_launch_date || null,
               suggested_launch_notes: input.suggested_launch_notes ?? null,
+              suggested_launch_time: input.suggested_launch_time ?? null,
+              suggested_size_breakdown: input.suggested_size_breakdown ?? null,
+              suggested_channel_split: input.suggested_channel_split ?? null,
+              suggested_marketing_spend: input.suggested_marketing_spend ?? null,
+              suggested_weekly_revenue_projection: input.suggested_weekly_revenue_projection ?? null,
+              suggested_email_sms_plan: input.suggested_email_sms_plan ?? null,
+              suggested_marketing_copy: input.suggested_marketing_copy ?? null,
               reasoning: input.reasoning ?? null,
               reference_image_urls: Array.isArray(input.reference_image_urls) ? input.reference_image_urls : [],
             };
@@ -567,6 +610,9 @@ Deno.serve(async (req: Request) => {
                 'title', 'concept_summary', 'marketing_angle', 'audience', 'audience_tags',
                 'suggested_qty', 'suggested_factory_id', 'suggested_channels',
                 'suggested_retail_dtc_notes', 'suggested_launch_date', 'suggested_launch_notes',
+                'suggested_launch_time', 'suggested_size_breakdown', 'suggested_channel_split',
+                'suggested_marketing_spend', 'suggested_weekly_revenue_projection',
+                'suggested_email_sms_plan', 'suggested_marketing_copy',
                 'reasoning', 'notes', 'reference_image_urls',
               ]
             ) {
