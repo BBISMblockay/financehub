@@ -559,6 +559,31 @@
     el('typingIndicator')?.remove();
   }
 
+  // Looks up the most recent successful answer to the current question in
+  // silo_chat_audit_log (RLS already lets a user read their own rows) --
+  // used only when the client-side fetch itself failed, to recover an
+  // answer the edge function actually finished computing. Tightly scoped
+  // (exact question text, last 2 minutes, status ok) so this can't surface
+  // a stale answer to a repeated identical question.
+  async function tryRecoverAnswer() {
+    try {
+      const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
+      if (!lastUserMsg) return null;
+      const { data } = await sb.from('silo_chat_audit_log')
+        .select('answer, queries_run, status, created_at')
+        .eq('question', lastUserMsg.content)
+        .eq('status', 'ok')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!data?.answer) return null;
+      if (Date.now() - new Date(data.created_at).getTime() > 2 * 60 * 1000) return null;
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
   // Posts the current `history` as-is and renders the reply. Split out from
   // sendMessage so a failed request can be retried (via the error bubble's
   // "Try again" button) without re-pushing/re-rendering the user's message.
@@ -588,7 +613,27 @@
       renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question } });
     } catch (err) {
       removeTyping();
-      renderMessage({ role: 'assistant', content: 'Request failed: ' + err.message, isError: true, retryable: true });
+      // "Load failed" (or any network-level drop) usually means the
+      // connection died while waiting, NOT that the request failed --
+      // Product Concepts drafts run several tool-rounds server-side and
+      // can take long enough for a flaky mobile connection or an
+      // app-backgrounding to kill the fetch after the edge function
+      // already finished and logged a real answer. Recover it from
+      // silo_chat_audit_log (the caller can already read their own rows)
+      // instead of discarding a completed answer and forcing an expensive
+      // full re-ask.
+      const recovered = await tryRecoverAnswer();
+      if (recovered) {
+        const historyEntry = { role: 'assistant', content: recovered.answer };
+        if (recovered.queries_run?.length) historyEntry.queries = recovered.queries_run;
+        history.push(historyEntry);
+        saveHistoryToSession();
+        const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
+        renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question } });
+        setStatus('Recovered your answer after a connection drop.', 'pos', 4000);
+      } else {
+        renderMessage({ role: 'assistant', content: 'Request failed: ' + err.message, isError: true, retryable: true });
+      }
     } finally {
       el('btnSend').disabled = false;
       el('input').focus();
