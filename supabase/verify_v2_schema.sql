@@ -1026,3 +1026,15 @@ select
       then 'MISSING — run 20260821140000_product_concept_po_link.sql'
     else 'ok'
   end as product_concept_po_link;
+
+-- Product Concepts full launch-plan fields (migration 20260821160000) —
+-- size breakdown, channel split, launch time, marketing spend, weekly
+-- revenue projection, email/SMS plan, marketing copy.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts'
+                       and column_name='suggested_marketing_copy')
+      then 'MISSING — run 20260821160000_product_concept_launch_plan_fields.sql'
+    else 'ok'
+  end as product_concept_launch_plan_fields;
