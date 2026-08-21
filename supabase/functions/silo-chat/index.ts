@@ -30,6 +30,13 @@
 // PRODUCT_CONCEPT_TESTERS below -- only those callers get the extra tools
 // and system-prompt block. Like everything else here it runs through
 // callerClient, so RLS on product_concepts is still the real boundary.
+// Reference-image upload rides on top of it: the client uploads to the
+// public product-concept-images bucket itself and sends the resulting
+// URL(s) as an `imageUrls` field alongside a history entry's `content`
+// (content itself stays plain text everywhere -- see the messages mapping
+// inside Deno.serve below). No fetch/base64 tool needed here since
+// Anthropic's image blocks accept
+// a public URL directly.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -122,6 +129,8 @@ Rules:
 const PRODUCT_CONCEPT_SYSTEM_BLOCK = `
 
 Product Concepts (in testing -- available to you specifically): you can also help generate a brand-new product concept before any PO exists, using three extra tools -- create_product_concept, update_product_concept, approve_product_concept -- plus product_concepts_v, which run_sql can query like any other view.
+
+The user can attach reference/inspiration images (e.g. a print style, a color direction, a similar product they like) directly in the conversation -- these arrive as real image content in the message, so just look at them like any other image. When you create_product_concept or update_product_concept afterward, pass their URLs through in reference_image_urls so they're saved on the row, not just visible in this one exchange -- copy the exact URLs you saw, never invent one. Reference this in your reasoning/notes when it visibly informed the direction (e.g. "print style follows the attached reference").
 
 When a user wants to brainstorm or generate a new product idea, bias toward drafting fast, not interviewing:
 1. Draft immediately from whatever they gave you, even a single rough sentence -- do NOT ask a round of clarifying questions (product type? angle? timing?) before doing anything. Only ask first if the message truly gives you nothing to start from (e.g. just "generate a concept" with zero direction). A vague-but-present starting point ("something for summer," "a new cap idea") is enough to draft against and refine, not a prompt to interview them.
@@ -217,6 +226,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_launch_date: { type: 'string', description: 'Suggested launch date (YYYY-MM-DD), reasoned from products_master seasonality (peak_start_month/peak_end_month) for this product type when available.' },
         suggested_launch_notes: { type: 'string', description: 'Short note on why that timing.' },
         reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from.' },
+        reference_image_urls: { type: 'array', items: { type: 'string' }, description: 'Public URLs of reference/inspiration images the user attached in this conversation, if any -- pass through exactly what you saw, do not invent URLs.' },
       },
       required: ['title'],
     },
@@ -241,6 +251,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         suggested_launch_notes: { type: 'string' },
         reasoning: { type: 'string' },
         notes: { type: 'string' },
+        reference_image_urls: { type: 'array', items: { type: 'string' } },
       },
       required: ['id'],
     },
@@ -365,7 +376,7 @@ Deno.serve(async (req: Request) => {
 
   let callerClient: ReturnType<typeof createClient> | null = null;
   let question = '';
-  let history: { role: string; content: string }[] = [];
+  let history: { role: string; content: string; imageUrls?: string[] }[] = [];
   let queriesRun: string[] = [];
 
   try {
@@ -391,10 +402,24 @@ Deno.serve(async (req: Request) => {
     }
     question = history[history.length - 1]?.content || '';
 
-    const messages = history.map((m: { role: string; content: string }) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    }));
+    // Product Concepts: in testing -- a history entry may carry imageUrls
+    // (public URLs already uploaded by the client to product-concept-images)
+    // alongside its plain-text content. Only those entries get a real
+    // content-block array; everything else stays a plain string exactly as
+    // before. `content` itself is never anything but a string -- question/
+    // logAudit/etc. below all keep assuming that.
+    const messages = history.map((m: { role: string; content: string; imageUrls?: string[] }) => {
+      const role = m.role === 'assistant' ? 'assistant' : 'user';
+      if (Array.isArray(m.imageUrls) && m.imageUrls.length) {
+        const blocks: Array<Record<string, unknown>> = m.imageUrls.map((url) => ({
+          type: 'image',
+          source: { type: 'url', url },
+        }));
+        if (m.content) blocks.push({ type: 'text', text: m.content });
+        return { role, content: blocks };
+      }
+      return { role, content: m.content };
+    });
 
     // Fetched once per request (not per tool-round) so the system prompt
     // stays byte-identical across every round of this request -- required
@@ -495,6 +520,7 @@ Deno.serve(async (req: Request) => {
               suggested_launch_date: input.suggested_launch_date || null,
               suggested_launch_notes: input.suggested_launch_notes ?? null,
               reasoning: input.reasoning ?? null,
+              reference_image_urls: Array.isArray(input.reference_image_urls) ? input.reference_image_urls : [],
             };
             const { data: row, error } = await callerClient
               .from('product_concepts')
@@ -517,7 +543,7 @@ Deno.serve(async (req: Request) => {
                 'title', 'concept_summary', 'marketing_angle', 'audience', 'audience_tags',
                 'suggested_qty', 'suggested_factory_id', 'suggested_channels',
                 'suggested_retail_dtc_notes', 'suggested_launch_date', 'suggested_launch_notes',
-                'reasoning', 'notes',
+                'reasoning', 'notes', 'reference_image_urls',
               ]
             ) {
               if (input[key] !== undefined) patch[key] = input[key];
