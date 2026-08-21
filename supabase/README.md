@@ -288,6 +288,7 @@ supabase/
     20260821090000_silo_chat_saved_reports_visibility.sql
     20260821110000_product_concepts.sql
     20260821130000_product_concept_images.sql
+    20260821140000_product_concept_po_link.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
