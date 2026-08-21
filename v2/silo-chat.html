@@ -561,10 +561,11 @@
 
   // Looks up the most recent successful answer to the current question in
   // silo_chat_audit_log (RLS already lets a user read their own rows) --
-  // used only when the client-side fetch itself failed, to recover an
-  // answer the edge function actually finished computing. Tightly scoped
-  // (exact question text, last 2 minutes, status ok) so this can't surface
-  // a stale answer to a repeated identical question.
+  // used whenever the request comes back as a failure (thrown network
+  // exception, or a non-2xx/errorless response), to recover an answer the
+  // edge function actually finished computing. Tightly scoped (exact
+  // question text, recent only, status ok) so this can't surface a stale
+  // answer to a repeated identical question.
   async function tryRecoverAnswer() {
     try {
       const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
@@ -577,10 +578,35 @@
         .limit(1)
         .maybeSingle();
       if (!data?.answer) return null;
-      if (Date.now() - new Date(data.created_at).getTime() > 2 * 60 * 1000) return null;
+      // Product Concepts drafts can run 20 full tool-rounds server-side
+      // (Anthropic call + DB round-trips per round) before the forced-
+      // final-answer fallback kicks in -- observed taking long enough that
+      // a platform/gateway timeout can kill the client's connection before
+      // that finishes. 2 minutes was too tight for that class of request;
+      // widened after a real case where both the gateway-timeout response
+      // AND the completed audit-log row were confirmed to exist for the
+      // same question, 3+ minutes apart.
+      if (Date.now() - new Date(data.created_at).getTime() > 6 * 60 * 1000) return null;
       return data;
     } catch {
       return null;
+    }
+  }
+
+  // Shared by both failure paths below: try to recover a completed answer
+  // from the audit log before falling back to a plain error bubble.
+  async function recoverOrShowError(fallbackContent, retryable) {
+    const recovered = await tryRecoverAnswer();
+    if (recovered) {
+      const historyEntry = { role: 'assistant', content: recovered.answer };
+      if (recovered.queries_run?.length) historyEntry.queries = recovered.queries_run;
+      history.push(historyEntry);
+      saveHistoryToSession();
+      const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
+      renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question } });
+      setStatus('Recovered your answer after a connection drop.', 'pos', 4000);
+    } else {
+      renderMessage({ role: 'assistant', content: fallbackContent, isError: true, retryable });
     }
   }
 
@@ -602,7 +628,14 @@
       const data = await res.json();
       removeTyping();
       if (!res.ok || data.error) {
-        renderMessage({ role: 'assistant', content: data.error || 'Something went wrong.', isError: true, retryable: data.retryable });
+        // A slow request can come back as a non-2xx gateway/platform
+        // response (e.g. a timeout) rather than throwing -- that resolves
+        // here, not in the catch below, but the edge function may well have
+        // kept running and already logged a real answer (confirmed live:
+        // both res-not-ok cases here had a matching status='ok' row in
+        // silo_chat_audit_log). Try recovery here too, not just on a thrown
+        // network exception.
+        await recoverOrShowError(data.error || 'Something went wrong.', data.retryable);
         return;
       }
       const historyEntry = { role: 'assistant', content: data.answer };
@@ -622,18 +655,7 @@
       // silo_chat_audit_log (the caller can already read their own rows)
       // instead of discarding a completed answer and forcing an expensive
       // full re-ask.
-      const recovered = await tryRecoverAnswer();
-      if (recovered) {
-        const historyEntry = { role: 'assistant', content: recovered.answer };
-        if (recovered.queries_run?.length) historyEntry.queries = recovered.queries_run;
-        history.push(historyEntry);
-        saveHistoryToSession();
-        const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-        renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question } });
-        setStatus('Recovered your answer after a connection drop.', 'pos', 4000);
-      } else {
-        renderMessage({ role: 'assistant', content: 'Request failed: ' + err.message, isError: true, retryable: true });
-      }
+      await recoverOrShowError('Request failed: ' + err.message, true);
     } finally {
       el('btnSend').disabled = false;
       el('input').focus();
