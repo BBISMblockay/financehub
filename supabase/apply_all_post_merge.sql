@@ -11230,3 +11230,18 @@ group by 1;
 
 revoke all on public.silo_chat_health_v from anon;
 grant select on public.silo_chat_health_v to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 20260822010000_shopify_order_lines_trgm_indexes.sql
+-- Trigram indexes on shopify_order_lines (title/sku) — same ILIKE-speed fix
+-- as sales_by_day/inventory_on_hand, for Ask SILO licensed-product and
+-- basket-level name searches (MLB lockout question timed out here).
+-- ---------------------------------------------------------------------------
+
+create extension if not exists pg_trgm with schema extensions;
+
+create index if not exists shopify_order_lines_title_trgm_idx
+  on public.shopify_order_lines using gin (title extensions.gin_trgm_ops);
+
+create index if not exists shopify_order_lines_sku_trgm_idx
+  on public.shopify_order_lines using gin (sku extensions.gin_trgm_ops);
