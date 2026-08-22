@@ -629,6 +629,25 @@ Deno.serve(async (req: Request) => {
     const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(
       (userData.user.email || '').toLowerCase(),
     );
+    // The phase-1 draft circuit breaker below used to arm on conceptsEnabled
+    // alone -- i.e. on EVERY question a tester asked. Any analytical question
+    // that legitimately ran 5+ tool rounds (overstock analysis, sales
+    // performance) got hijacked mid-investigation by a forced
+    // create_product_concept call, stamping junk "TBD Concept - Needs
+    // Direction" placeholder rows into product_concepts (two created live on
+    // 2026-08-21, both deleted). Arm it only when the conversation actually
+    // reads like product drafting: some user message carries concept/drafting
+    // language, AND the latest message isn't shaped like an analytical
+    // question. A missed arm just means a slow draft goes unhurried -- far
+    // cheaper than hijacking a data question. Note for the Product Concepts
+    // owner: a phase-2 "build out the full plan" request can still arm this
+    // and be told to call create (not update) -- pre-existing, unaddressed
+    // here.
+    const CONCEPT_LANGUAGE = /\b(concepts?|drafts?|design|mock ?up|product idea|new product|product for|collection|collab)\b/i;
+    const ANALYTICAL_QUESTION = /\?|^\s*(which|what|how|why|when|where|who|show|list|compare|summarize|do we|are we|is|should|can|give me|tell me)\b/i;
+    const conceptBreakerArmed = conceptsEnabled
+      && history.some((m) => m.role === 'user' && CONCEPT_LANGUAGE.test(String(m.content || '')))
+      && !ANALYTICAL_QUESTION.test(question.trim());
     const systemPrompt = buildSystemPrompt(
       notes ?? [],
       buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]),
@@ -858,7 +877,7 @@ Deno.serve(async (req: Request) => {
       }
       messages.push({ role: 'user', content: toolResults });
 
-      if (conceptsEnabled && !hasDraftedConcept && round === PRE_DRAFT_NUDGE_ROUND) {
+      if (conceptBreakerArmed && !hasDraftedConcept && round === PRE_DRAFT_NUDGE_ROUND) {
         messages.push({
           role: 'user',
           content: "You've used several tool rounds without creating a draft concept yet. Stop investigating further -- call create_product_concept now using your best assessment from what you've already gathered. Leave any field you're not confident about blank rather than continuing to research it.",
