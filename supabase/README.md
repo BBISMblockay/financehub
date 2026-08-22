@@ -294,6 +294,7 @@ supabase/
     20260821170000_sku_collision_velocity_fix.sql
     20260821180000_product_search_rollup_rpc.sql
     20260821210000_silo_chat_schema_catalog.sql
+    20260822010000_shopify_order_lines_trgm_indexes.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

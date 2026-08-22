@@ -1092,3 +1092,15 @@ select
       then 'MISSING — silo_chat_health_v'
     else 'ok'
   end as silo_chat_schema_catalog;
+
+-- Trigram search indexes on shopify_order_lines (migration 20260822010000)
+select
+  case
+    when not exists (select 1 from pg_indexes where schemaname='public' and tablename='shopify_order_lines'
+                       and indexname='shopify_order_lines_title_trgm_idx')
+      then 'MISSING — run 20260822010000_shopify_order_lines_trgm_indexes.sql'
+    when not exists (select 1 from pg_indexes where schemaname='public' and tablename='shopify_order_lines'
+                       and indexname='shopify_order_lines_sku_trgm_idx')
+      then 'MISSING — shopify_order_lines_sku_trgm_idx'
+    else 'ok'
+  end as shopify_order_lines_trgm_search_indexes;
