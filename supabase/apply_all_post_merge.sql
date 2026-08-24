@@ -11245,3 +11245,183 @@ create index if not exists shopify_order_lines_title_trgm_idx
 
 create index if not exists shopify_order_lines_sku_trgm_idx
   on public.shopify_order_lines using gin (sku extensions.gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 20260824000000_comp_adjustment_requests.sql
+-- Compensation Adjustment Requests — Team module phase 2: raise / bonus /
+-- promotion / equity requests, manager-submitted, routed to finance for
+-- review and decision. See migrations/20260824000000_comp_adjustment_requests.sql
+-- for the full commentary.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.current_user_can_manage_comp_requests()
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $function$
+  select exists (
+    select 1
+    from public.profiles p
+    left join public.entity_memberships em
+      on em.user_id = p.id and em.entity_id = p.active_company_id
+    where p.id = auth.uid()
+      and p.is_active = true
+      and (
+        case when em.role is not null
+             then em.role in ('owner_admin','admin')
+             else p.role::text = 'admin'
+        end
+        or p.department in ('finance','admin','exec')
+      )
+  );
+$function$;
+
+revoke execute on function public.current_user_can_manage_comp_requests() from public, anon;
+grant execute on function public.current_user_can_manage_comp_requests() to authenticated, service_role;
+
+create table if not exists public.comp_adjustment_requests (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid,
+  employee_id uuid not null references public.employees(id) on delete cascade,
+  adjustment_type text not null check (adjustment_type in ('raise', 'bonus', 'promotion', 'equity', 'other')),
+  current_compensation numeric(12,2),
+  proposed_compensation numeric(12,2),
+  current_title text,
+  proposed_title text,
+  effective_date date,
+  justification text not null,
+  status text not null default 'draft'
+    check (status in ('draft', 'submitted', 'in_review', 'needs_info', 'approved', 'denied')),
+  finance_notes text,
+  reviewed_by uuid references public.profiles(id),
+  decided_at timestamptz,
+  submitted_at timestamptz,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists comp_adjustment_requests_employee_idx on public.comp_adjustment_requests (employee_id);
+create index if not exists comp_adjustment_requests_created_by_idx on public.comp_adjustment_requests (created_by);
+create index if not exists comp_adjustment_requests_status_idx on public.comp_adjustment_requests (company_entity_id, status);
+
+create table if not exists public.comp_adjustment_request_activity (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid not null references public.comp_adjustment_requests(id) on delete cascade,
+  company_entity_id uuid,
+  activity_type text not null,
+  message text,
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists comp_adjustment_request_activity_request_idx
+  on public.comp_adjustment_request_activity (request_id);
+
+create or replace function public.tg_comp_adjustment_requests_touch_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists touch_updated_at on public.comp_adjustment_requests;
+create trigger touch_updated_at before update on public.comp_adjustment_requests
+  for each row execute function public.tg_comp_adjustment_requests_touch_updated_at();
+
+drop trigger if exists stamp_created_by on public.comp_adjustment_requests;
+create trigger stamp_created_by before insert on public.comp_adjustment_requests
+  for each row execute function public.stamp_created_by();
+
+drop trigger if exists stamp_created_by on public.comp_adjustment_request_activity;
+create trigger stamp_created_by before insert on public.comp_adjustment_request_activity
+  for each row execute function public.stamp_created_by();
+
+select public.attach_stamp_company_entity_id_triggers();
+
+alter table public.comp_adjustment_requests enable row level security;
+alter table public.comp_adjustment_request_activity enable row level security;
+
+revoke all on public.comp_adjustment_requests, public.comp_adjustment_request_activity from anon;
+
+drop policy if exists comp_adjustment_requests_active_select on public.comp_adjustment_requests;
+create policy comp_adjustment_requests_active_select on public.comp_adjustment_requests for select to authenticated
+  using (
+    company_entity_id = public.active_company_id()
+    and (
+      created_by = auth.uid()
+      or public.is_employee_manager(employee_id)
+      or public.current_user_can_manage_comp_requests()
+      or public.is_exec_or_owner()
+    )
+  );
+
+drop policy if exists comp_adjustment_requests_active_insert on public.comp_adjustment_requests;
+create policy comp_adjustment_requests_active_insert on public.comp_adjustment_requests for insert to authenticated
+  with check (
+    company_entity_id = public.active_company_id()
+    and created_by = auth.uid()
+    and (public.is_employee_manager(employee_id) or public.is_exec_or_owner())
+  );
+
+drop policy if exists comp_adjustment_requests_active_update on public.comp_adjustment_requests;
+create policy comp_adjustment_requests_active_update on public.comp_adjustment_requests for update to authenticated
+  using (
+    company_entity_id = public.active_company_id()
+    and (
+      public.current_user_can_manage_comp_requests()
+      or public.is_exec_or_owner()
+      or (created_by = auth.uid() and public.is_employee_manager(employee_id) and status = 'draft')
+    )
+  )
+  with check (
+    company_entity_id = public.active_company_id()
+    and (
+      public.current_user_can_manage_comp_requests()
+      or public.is_exec_or_owner()
+      or (created_by = auth.uid() and public.is_employee_manager(employee_id) and status in ('draft', 'submitted'))
+    )
+  );
+
+drop policy if exists comp_adjustment_requests_active_delete on public.comp_adjustment_requests;
+create policy comp_adjustment_requests_active_delete on public.comp_adjustment_requests for delete to authenticated
+  using (
+    company_entity_id = public.active_company_id()
+    and (
+      public.is_exec_or_owner()
+      or (created_by = auth.uid() and status = 'draft')
+    )
+  );
+
+drop policy if exists comp_adjustment_request_activity_select on public.comp_adjustment_request_activity;
+create policy comp_adjustment_request_activity_select on public.comp_adjustment_request_activity for select to authenticated
+  using (exists (select 1 from public.comp_adjustment_requests r where r.id = comp_adjustment_request_activity.request_id));
+
+drop policy if exists comp_adjustment_request_activity_insert on public.comp_adjustment_request_activity;
+create policy comp_adjustment_request_activity_insert on public.comp_adjustment_request_activity for insert to authenticated
+  with check (exists (select 1 from public.comp_adjustment_requests r where r.id = comp_adjustment_request_activity.request_id));
+
+create or replace view public.comp_adjustment_requests_v
+with (security_invoker = true) as
+select
+  r.*,
+  e.name as employee_name,
+  e.email as employee_email,
+  e.job_title as employee_job_title,
+  rp.name as requested_by_name,
+  rp.email as requested_by_email,
+  vp.name as reviewed_by_name,
+  vp.email as reviewed_by_email
+from public.comp_adjustment_requests r
+join public.employees e on e.id = r.employee_id
+left join public.profiles rp on rp.id = r.created_by
+left join public.profiles vp on vp.id = r.reviewed_by;
+
+revoke all on public.comp_adjustment_requests_v from anon;
+grant select on public.comp_adjustment_requests_v to authenticated;

@@ -1104,3 +1104,22 @@ select
       then 'MISSING — shopify_order_lines_sku_trgm_idx'
     else 'ok'
   end as shopify_order_lines_trgm_search_indexes;
+
+-- Compensation Adjustment Requests (migration 20260824000000) — Team module
+-- phase 2: raise/bonus/promotion/equity requests routed to finance.
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='comp_adjustment_requests')
+      then 'MISSING — run 20260824000000_comp_adjustment_requests.sql'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='comp_adjustment_request_activity')
+      then 'MISSING — comp_adjustment_request_activity'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='comp_adjustment_requests_v')
+      then 'MISSING — comp_adjustment_requests_v'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname='public' and p.proname='current_user_can_manage_comp_requests')
+      then 'MISSING — current_user_can_manage_comp_requests()'
+    else 'ok'
+  end as comp_adjustment_requests;
