@@ -68,7 +68,12 @@
     { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
     // WPV Receivables removed 2026-08-16 — stale Google Sheets flow, page retired.
     { id: 'finance/payment-request', section: 'Accounting', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
+    // logistics added alongside FINANCE_DEPTS so that department can still
+    // see Request Manager to track payment requests they submitted --
+    // RLS (payment_requests_active_select) already lets anyone see their
+    // own created_by rows regardless of department; this just keeps the
+    // nav link (and dept-guard.js on the page itself) from hiding it.
+    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
     { id: 'finance/mail-intake', section: 'Accounting', sectionStandard: 'Operations', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Accounting', sectionStandard: 'Operations', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
     // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
