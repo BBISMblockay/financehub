@@ -10,6 +10,38 @@
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
     .silo-main { overflow-y: auto; }
+    /* Beacon sets display:flex/inline-flex on .bcn-field-group/.bcn-btn,
+       which overrides the browser's built-in [hidden] -> display:none —
+       same page-wide patch used on v2/reviews.html and v2/comp-requests.html. */
+    [hidden] { display: none !important; }
+
+    .ls-view-tabs { margin-bottom: 2px; }
+
+    .ls-month-nav { display: flex; align-items: center; gap: 8px; }
+    .ls-month-nav-label { font-weight: 700; font-size: 14px; min-width: 148px; text-align: center; }
+    .ls-month-legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--bcn-ink-3); margin-left: auto; }
+    .ls-month-legend-item { display: flex; align-items: center; gap: 5px; }
+    .ls-month-legend-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+    .ls-month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; padding: 4px; }
+    .ls-month-dow { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-3); text-align: center; padding: 2px 0 6px; }
+    .ls-month-cell {
+      border: 1px solid var(--bcn-border); border-radius: 8px; min-height: 84px;
+      padding: 6px 7px; display: flex; flex-direction: column; gap: 6px;
+      cursor: pointer; background: var(--bcn-surface); transition: border-color .12s ease, background .12s ease;
+    }
+    .ls-month-cell:hover { border-color: var(--bcn-accent); }
+    .ls-month-cell--empty { visibility: hidden; cursor: default; border: none; }
+    .ls-month-cell--today { border-color: var(--bcn-accent); box-shadow: inset 0 0 0 1px var(--bcn-accent); }
+    .ls-month-cell--past { opacity: .72; }
+    .ls-month-daynum { font-family: var(--bcn-mono); font-size: 12px; font-weight: 700; color: var(--bcn-ink-2); }
+    .ls-month-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--bcn-sunken); }
+    .ls-month-bar > span { display: block; height: 100%; }
+    .ls-month-bar-finalized { background: var(--bcn-pos); }
+    .ls-month-bar-claimed { background: var(--bcn-accent); }
+    .ls-month-counts { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--bcn-ink-3); margin-top: auto; }
+    .ls-month-counts strong { color: var(--bcn-ink-2); }
+    .ls-month-payout { font-family: var(--bcn-mono); font-size: 10.5px; color: var(--bcn-pos); font-weight: 700; }
 
     .ls-slot-time { white-space: nowrap; }
     .ls-slot-time--anchor { font-weight: 700; }
@@ -94,49 +126,83 @@
       </div>
     </section>
 
-    <section class="bcn-filter-bar">
-      <div class="bcn-filter">
-        <label class="bcn-label" for="dateInput">Day</label>
-        <input class="bcn-field bcn-field--mono" type="date" id="dateInput" />
-      </div>
-      <div class="bcn-filter">
-        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevDayBtn">‹ PREV</button>
-        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="todayBtn">TODAY</button>
-        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextDayBtn">NEXT ›</button>
-      </div>
-    </section>
+    <div class="bcn-tabs ls-view-tabs">
+      <button class="bcn-tab bcn-tab--active" type="button" data-view="month">Month</button>
+      <button class="bcn-tab" type="button" data-view="day">Day</button>
+    </div>
 
     <div class="bcn-status" id="status" hidden></div>
 
-    <section class="bcn-card">
-      <header class="bcn-card-header bcn-card-header--dark">
-        <span class="bcn-pill">SCHEDULE</span>
-        <h2 id="boardTitle">Claim board</h2>
-        <span class="bcn-card-meta">20 hourly slots · 8am ET – midnight PT · one moment shown in four zones</span>
-      </header>
-      <div class="bcn-card-body">
-        <div class="bcn-matrix-scroll">
-          <table class="bcn-table">
-            <thead>
-              <tr>
-                <th class="bcn-mono">PST</th>
-                <th class="bcn-mono">MTN</th>
-                <th class="bcn-mono">CTRL</th>
-                <th class="bcn-mono">EST</th>
-                <th>Status</th>
-                <th>Claimed by</th>
-                <th>Live location</th>
-                <th class="bcn-num">Entry</th>
-                <th style="text-align:right;">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="boardTbody">
-              <tr><td colspan="9">Loading…</td></tr>
-            </tbody>
-          </table>
+    <div id="monthView">
+      <section class="bcn-card">
+        <header class="bcn-card-header bcn-card-header--dark">
+          <span class="bcn-pill">OVERVIEW</span>
+          <h2 id="monthTitle">Month view</h2>
+          <span class="bcn-card-meta">Click a day to open its claim board</span>
+        </header>
+        <div class="bcn-card-body">
+          <div class="ls-month-nav" style="margin-bottom:12px;">
+            <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevMonthBtn">‹ PREV</button>
+            <span class="ls-month-nav-label" id="monthNavLabel">—</span>
+            <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextMonthBtn">NEXT ›</button>
+            <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="thisMonthBtn">THIS MONTH</button>
+            <div class="ls-month-legend">
+              <span class="ls-month-legend-item"><span class="ls-month-legend-swatch" style="background:var(--bcn-pos);"></span>Finalized</span>
+              <span class="ls-month-legend-item"><span class="ls-month-legend-swatch" style="background:var(--bcn-accent);"></span>Claimed</span>
+              <span class="ls-month-legend-item"><span class="ls-month-legend-swatch" style="background:var(--bcn-sunken);border:1px solid var(--bcn-border);"></span>Open</span>
+            </div>
+          </div>
+          <div class="ls-month-grid" id="monthGrid">
+            <div class="ls-month-dow">Sun</div><div class="ls-month-dow">Mon</div><div class="ls-month-dow">Tue</div>
+            <div class="ls-month-dow">Wed</div><div class="ls-month-dow">Thu</div><div class="ls-month-dow">Fri</div><div class="ls-month-dow">Sat</div>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
+
+    <div id="dayView" hidden>
+      <section class="bcn-filter-bar">
+        <div class="bcn-filter">
+          <label class="bcn-label" for="dateInput">Day</label>
+          <input class="bcn-field bcn-field--mono" type="date" id="dateInput" />
+        </div>
+        <div class="bcn-filter">
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevDayBtn">‹ PREV</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="todayBtn">TODAY</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextDayBtn">NEXT ›</button>
+        </div>
+      </section>
+
+      <section class="bcn-card">
+        <header class="bcn-card-header bcn-card-header--dark">
+          <span class="bcn-pill">SCHEDULE</span>
+          <h2 id="boardTitle">Claim board</h2>
+          <span class="bcn-card-meta">20 hourly slots · 8am ET – midnight PT · one moment shown in four zones</span>
+        </header>
+        <div class="bcn-card-body">
+          <div class="bcn-matrix-scroll">
+            <table class="bcn-table">
+              <thead>
+                <tr>
+                  <th class="bcn-mono">PST</th>
+                  <th class="bcn-mono">MTN</th>
+                  <th class="bcn-mono">CTRL</th>
+                  <th class="bcn-mono">EST</th>
+                  <th>Status</th>
+                  <th>Claimed by</th>
+                  <th>Live location</th>
+                  <th class="bcn-num">Entry</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="boardTbody">
+                <tr><td colspan="9">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
   </main>
 </div>
 
@@ -238,6 +304,8 @@
   const COMMISSION_RATE = 0.03;
   const HOURLY_RATE = 25.00; // W-2 hourly pay per claimed slot (slots are 1 hour)
 
+  const SLOTS_PER_DAY = SLOT_LAST_HOUR_ET - SLOT_FIRST_HOUR_ET + 1; // 20
+
   const el = (id) => document.getElementById(id);
   const els = {
     status: el('status'),
@@ -265,18 +333,29 @@
     totalPreview: el('totalPreview'),
     payeePreview: el('payeePreview'),
     finalizeSubmitBtn: el('finalizeSubmitBtn'),
+    viewTabs: document.querySelectorAll('[data-view]'),
+    monthView: el('monthView'),
+    dayView: el('dayView'),
+    monthGrid: el('monthGrid'),
+    monthNavLabel: el('monthNavLabel'),
+    prevMonthBtn: el('prevMonthBtn'),
+    nextMonthBtn: el('nextMonthBtn'),
+    thisMonthBtn: el('thisMonthBtn'),
   };
 
   const state = {
     user: null,
     profile: null,
     isAdmin: false,
+    view: 'month',        // 'month' | 'day'
     date: null,          // 'YYYY-MM-DD' — the day in ET
     slots: [],           // Date[] for the selected day
     sessions: new Map(), // slot_start ms → live_sessions_v row
     pendingSlot: null,   // Date being claimed/finalized
     pendingSession: null,
     busy: false,
+    monthDate: null,      // 'YYYY-MM-01' — the displayed month, in ET
+    dayCounts: new Map(), // 'YYYY-MM-DD' -> { open, claimed, finalized, payout }
   };
 
   function setStatus(msg, type = 'info', ms = 0) {
@@ -336,6 +415,28 @@
     return `${day} · ${fmtHour(date, ET)} ET / ${fmtHour(date, 'America/Los_Angeles')} PT`;
   }
 
+  // A day's board runs 8am ET through 3am ET the NEXT calendar day (the
+  // late PT-midnight slot, SLOT_LAST_HOUR_ET=27 wraps past midnight) — so a
+  // slot_start that reads as 0am-3am ET still belongs to the PREVIOUS
+  // calendar day's board, same grouping loadDay() already builds via
+  // utcForEtHour(state.date, h) for h up to 27.
+  function scheduleDayForSlot(ts) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: ET, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+    }).formatToParts(new Date(ts));
+    const g = (t) => Number(parts.find((p) => p.type === t).value);
+    const hour = g('hour') % 24;
+    const d = new Date(Date.UTC(g('year'), g('month') - 1, g('day')));
+    if (hour < SLOT_FIRST_HOUR_ET) d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function daysInMonth(monthDateStr) {
+    const [y, m] = monthDateStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m, 0)).getUTCDate();
+  }
+
   // ── Data ──────────────────────────────────────────────────
   async function loadDay() {
     const slots = [];
@@ -354,6 +455,85 @@
 
     state.sessions = new Map((data || []).map((r) => [new Date(r.slot_start).getTime(), r]));
     render();
+  }
+
+  async function loadMonth() {
+    const nDays = daysInMonth(state.monthDate);
+    const lastDay = state.monthDate.slice(0, 8) + String(nDays).padStart(2, '0');
+    const rangeStart = utcForEtHour(state.monthDate, SLOT_FIRST_HOUR_ET);
+    const rangeEnd = utcForEtHour(lastDay, SLOT_LAST_HOUR_ET);
+
+    let q = supabaseClient.from('live_sessions_v').select('*')
+      .gte('slot_start', rangeStart.toISOString())
+      .lte('slot_start', rangeEnd.toISOString());
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+
+    const { data, error } = await q;
+    if (error) { setStatus(`Failed to load month: ${error.message}`, 'neg'); return; }
+
+    const counts = new Map();
+    for (const row of (data || [])) {
+      const day = scheduleDayForSlot(row.slot_start);
+      if (!counts.has(day)) counts.set(day, { claimed: 0, finalized: 0, payout: 0 });
+      const c = counts.get(day);
+      if (row.status === 'finalized') {
+        c.finalized++;
+        c.payout += Number(row.payout_total ?? row.commission_amount) || 0;
+      } else {
+        c.claimed++;
+      }
+    }
+    state.dayCounts = counts;
+    renderMonth();
+  }
+
+  function renderMonth() {
+    const [y, m] = state.monthDate.split('-').map(Number);
+    els.monthNavLabel.textContent = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' })
+      .format(new Date(Date.UTC(y, m - 1, 1)));
+    document.getElementById('monthTitle').textContent = `Month view — ${els.monthNavLabel.textContent}`;
+
+    const firstWeekday = new Date(Date.UTC(y, m - 1, 1)).getUTCDay(); // 0=Sun
+    const nDays = daysInMonth(state.monthDate);
+    const today = todayEt();
+
+    let monthOpen = 0, monthClaimed = 0, monthFinalized = 0, monthPayout = 0;
+    const cells = [];
+    for (let i = 0; i < firstWeekday; i++) cells.push('<div class="ls-month-cell ls-month-cell--empty"></div>');
+
+    for (let day = 1; day <= nDays; day++) {
+      const dateStr = `${state.monthDate.slice(0, 8)}${String(day).padStart(2, '0')}`;
+      const c = state.dayCounts.get(dateStr) || { claimed: 0, finalized: 0, payout: 0 };
+      const open = Math.max(0, SLOTS_PER_DAY - c.claimed - c.finalized);
+      monthOpen += open; monthClaimed += c.claimed; monthFinalized += c.finalized; monthPayout += c.payout;
+
+      const finalizedPct = (c.finalized / SLOTS_PER_DAY) * 100;
+      const claimedPct = (c.claimed / SLOTS_PER_DAY) * 100;
+      const classes = ['ls-month-cell'];
+      if (dateStr === today) classes.push('ls-month-cell--today');
+      if (dateStr < today) classes.push('ls-month-cell--past');
+
+      cells.push(`
+        <div class="${classes.join(' ')}" data-day="${dateStr}">
+          <span class="ls-month-daynum">${day}</span>
+          <div class="ls-month-bar">
+            <span class="ls-month-bar-finalized" style="width:${finalizedPct}%"></span>
+            <span class="ls-month-bar-claimed" style="width:${claimedPct}%"></span>
+          </div>
+          <div class="ls-month-counts">
+            <span><strong>${c.finalized + c.claimed}</strong>/${SLOTS_PER_DAY} filled</span>
+            ${c.payout > 0 ? `<span class="ls-month-payout">${money(c.payout)}</span>` : ''}
+          </div>
+        </div>`);
+    }
+
+    els.monthGrid.querySelectorAll('.ls-month-cell').forEach((n) => n.remove());
+    els.monthGrid.insertAdjacentHTML('beforeend', cells.join(''));
+
+    els.kpiOpen.textContent = String(monthOpen);
+    els.kpiClaimed.textContent = String(monthClaimed);
+    els.kpiFinalized.textContent = String(monthFinalized);
+    els.kpiCommission.textContent = money(monthPayout);
   }
 
   // ── Render ────────────────────────────────────────────────
@@ -609,8 +789,39 @@
     loadDay();
   }
 
+  function shiftMonth(delta) {
+    const [y, m] = state.monthDate.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+    state.monthDate = d.toISOString().slice(0, 10);
+    loadMonth();
+  }
+
+  function switchView(view) {
+    state.view = view;
+    els.viewTabs.forEach((tab) => tab.classList.toggle('bcn-tab--active', tab.dataset.view === view));
+    els.monthView.hidden = view !== 'month';
+    els.dayView.hidden = view !== 'day';
+    if (view === 'month') loadMonth();
+    else loadDay();
+  }
+
   function wireEvents() {
-    els.refreshBtn.addEventListener('click', () => loadDay());
+    els.viewTabs.forEach((tab) => tab.addEventListener('click', () => switchView(tab.dataset.view)));
+    els.prevMonthBtn.addEventListener('click', () => shiftMonth(-1));
+    els.nextMonthBtn.addEventListener('click', () => shiftMonth(1));
+    els.thisMonthBtn.addEventListener('click', () => {
+      state.monthDate = todayEt().slice(0, 8) + '01';
+      loadMonth();
+    });
+    els.monthGrid.addEventListener('click', (e) => {
+      const cell = e.target.closest('[data-day]');
+      if (!cell) return;
+      state.date = cell.dataset.day;
+      els.dateInput.value = state.date;
+      switchView('day');
+    });
+
+    els.refreshBtn.addEventListener('click', () => (state.view === 'month' ? loadMonth() : loadDay()));
     els.prevDayBtn.addEventListener('click', () => shiftDay(-1));
     els.nextDayBtn.addEventListener('click', () => shiftDay(1));
     els.todayBtn.addEventListener('click', () => {
@@ -669,8 +880,9 @@
 
       state.date = todayEt();
       els.dateInput.value = state.date;
+      state.monthDate = state.date.slice(0, 8) + '01';
       wireEvents();
-      await loadDay();
+      await loadMonth();
     } catch (err) {
       console.error(err);
       setStatus(`Init failed: ${err.message || 'Unknown error'}`, 'neg');
