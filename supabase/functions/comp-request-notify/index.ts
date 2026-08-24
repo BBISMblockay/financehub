@@ -122,10 +122,15 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({ error: 'Not authorized for this request' }), { status: 403, headers: CORS });
       }
 
-      // entity_memberships first, then profiles .in() — a bare
+      // entity_memberships first, then profiles .eq() — a bare
       // profiles.department filter would leak other companies' finance
       // teams into this company's email (same fix already applied in
-      // sample-notify's logistics fallback).
+      // sample-notify's logistics fallback). Deliberately department =
+      // 'finance' only, NOT the broader admin/exec fallback
+      // current_user_can_manage_comp_requests() itself uses for who CAN
+      // act on a request — comp data is more sensitive than AP, and at
+      // Baseballism today admin/exec would have pulled in 11 recipients
+      // instead of the actual finance team.
       const { data: memberships } = await db
         .from('entity_memberships')
         .select('user_id')
@@ -137,7 +142,7 @@ Deno.serve(async (req: Request) => {
           .from('profiles')
           .select('email')
           .in('id', userIds)
-          .in('department', ['finance', 'admin', 'exec'])
+          .eq('department', 'finance')
           .eq('is_active', true);
         toEmails = (financeProfiles || []).map((p) => p.email).filter(Boolean) as string[];
       }
