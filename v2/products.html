@@ -950,7 +950,7 @@
   }
 
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+  let _co = null;
 
   // ── constants ─────────────────────────────────────────────────────────────
   // 'received' split into two more specific stages per Blake/Chris —
@@ -1445,21 +1445,30 @@
     // e.g. just linking a launch) wiped the real value.
     let _qpt=sb.from('products_master').select('product_type').not('product_type','is',null).limit(20000);
     if(_co?.id) _qpt=_qpt.eq('company_entity_id',_co.id);
-    // Active team members, for the sample drawer's "Notify" assignee picker
-    // (same query shape as v2/mail-intake.html's loadAssigneeOptions()).
-    const _qpr=sb.from('profiles').select('id,name,email').eq('is_active',true).order('name');
-    const [lR,pR,fR,tR,prR]=await Promise.all([
+    const [lR,pR,fR,tR]=await Promise.all([
       _qlc,
       _qph,
       _qf,
       _qpt,
-      _qpr,
     ]);
     allLaunches     = lR.data||[];
     allPOs          = pR.data||[];
     allFactories    = fR.data||[];
     allProductTypes = [...new Set((tR.data||[]).map(t=>t.product_type).filter(Boolean))].sort();
-    allProfiles     = prR.data||[];
+    // Active team members, for the sample drawer's "Notify" assignee picker
+    // (same query shape as v2/mail-intake.html's loadAssigneeOptions()).
+    // profiles has no company column, so scope through entity_memberships
+    // for the active company -- otherwise every active user across every
+    // company shows up as a notify target.
+    allProfiles = [];
+    if (_co?.id) {
+      const { data: mems } = await sb.from('entity_memberships').select('user_id').eq('entity_id', _co.id);
+      const ids = [...new Set((mems || []).map(m => m.user_id))];
+      if (ids.length) {
+        const { data } = await sb.from('profiles').select('id,name,email').in('id', ids).eq('is_active',true).order('name');
+        allProfiles = data || [];
+      }
+    }
   }
 
   function fillSelect(id, items, valFn, lblFn, blank) {
@@ -2665,6 +2674,7 @@
       }
       currentUser=data.session.user;
     }
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     try {
       await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems(), loadSampleTrackerLinks()]);
       populateLaunchFilter();
