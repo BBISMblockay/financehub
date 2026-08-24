@@ -370,7 +370,6 @@
   }
 
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
   /* ── Status helper (forward declared so config error can use it) ── */
   function setStatus(msg, type = 'info', ms = 0) {
@@ -392,6 +391,9 @@
   const currentUser  = session.user;
   const currentEmail = currentUser.email || '';
   let   currentRole  = 'user';
+  // ensureActiveCompany (not the sync getActiveCompany) so a bookmarked/deep-linked
+  // tab with no cached sessionStorage company still resolves one for the queries below.
+  const _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
 
   /* ── State ─────────────────────────────────────────────────────── */
   let allTasks      = [];
@@ -454,6 +456,25 @@
       .replace(/"/g, '&quot;');
   }
 
+  // profiles has no company column, so scope the assignee list through
+  // entity_memberships for the active company -- two separate queries, not
+  // an embed: entity_memberships.user_id's FK points at auth.users, not
+  // profiles, so PostgREST has no relationship to follow for a profiles(...)
+  // embed. Without this, every active user across every company (including
+  // removed/other-company test accounts) showed up as an assignee here.
+  async function loadActiveCompanyProfiles(co) {
+    if (!co?.id) return [];
+    const { data: mems, error: memErr } = await db.from('entity_memberships')
+      .select('user_id').eq('entity_id', co.id);
+    if (memErr) throw memErr;
+    const ids = [...new Set((mems || []).map(m => m.user_id))];
+    if (!ids.length) return [];
+    const { data, error } = await db.from('profiles')
+      .select('id, name, email, avatar_url').in('id', ids).eq('is_active', true).order('name');
+    if (error) throw error;
+    return data || [];
+  }
+
   /* ── Load all data in parallel ─────────────────────────────────── */
   async function loadAll() {
     setStatus('Loading…', 'info');
@@ -462,20 +483,19 @@
       if (_co?.id) _qt = _qt.eq('company_entity_id', _co.id);
       let _ql = db.from('launch_calendar').select('id, title, launch_date').order('launch_date', { ascending: false });
       if (_co?.id) _ql = _ql.eq('company_entity_id', _co.id);
-      const [tasksRes, launchRes, profilesRes, profileMe] = await Promise.all([
+      const [tasksRes, launchRes, profilesData, profileMe] = await Promise.all([
         _qt,
         _ql,
-        db.from('profiles').select('id, name, email, avatar_url').eq('is_active', true).order('name'),
+        loadActiveCompanyProfiles(_co),
         db.from('profiles').select('role').eq('id', currentUser.id).single(),
       ]);
 
       if (tasksRes.error)    throw tasksRes.error;
       if (launchRes.error)   throw launchRes.error;
-      if (profilesRes.error) throw profilesRes.error;
 
       allTasks    = tasksRes.data    || [];
       allLaunches = launchRes.data   || [];
-      allProfiles = profilesRes.data || [];
+      allProfiles = profilesData     || [];
       if (profileMe.data) currentRole = profileMe.data.role || 'user';
 
       populateFilterDropdowns();

@@ -213,7 +213,7 @@
 
   const BUCKET = "mail-item-files";
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+  let _co = null;
 
   const els = {
     authCard: document.getElementById("authCard"),
@@ -290,12 +290,22 @@
     }
   }
 
+  // profiles has no company column, so scope through entity_memberships for
+  // the active company (see the same pattern in v2/tasks.html and
+  // v2/reviews.html) -- otherwise every active user across every company
+  // shows up as an assignee.
   async function loadAssigneeOptions() {
     try {
-      let _q = supabaseClient.from("profiles").select("id, name, email").eq("is_active", true).order("name", { ascending: true });
-      const { data, error } = await _q;
-      if (error) throw error;
-      const rows = data || [];
+      if (!_co?.id) { els.assignedTo.innerHTML = '<option value="">Unassigned</option>'; return; }
+      const { data: mems, error: memErr } = await supabaseClient.from("entity_memberships").select("user_id").eq("entity_id", _co.id);
+      if (memErr) throw memErr;
+      const ids = [...new Set((mems || []).map(m => m.user_id))];
+      let rows = [];
+      if (ids.length) {
+        const { data, error } = await supabaseClient.from("profiles").select("id, name, email").in("id", ids).eq("is_active", true).order("name", { ascending: true });
+        if (error) throw error;
+        rows = data || [];
+      }
       els.assignedTo.innerHTML =
         '<option value="">Unassigned</option>' +
         rows.map(p => `<option value="${escapeAttr(p.id)}">${escapeAttr(p.name || p.email)}</option>`).join("");
@@ -443,6 +453,7 @@
 
       showAuthState();
       if (currentUser) {
+        _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient) || null;
         await loadAssigneeOptions();
       }
 
@@ -450,6 +461,7 @@
         currentUser = session?.user || null;
         showAuthState();
         if (currentUser) {
+          _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient) || null;
           await loadAssigneeOptions();
         }
       });
