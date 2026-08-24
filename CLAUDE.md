@@ -549,7 +549,8 @@ than this section.
 - **Compensation Requests** (`/v2/comp-requests.html`) — Team module phase 2, on top of Performance
   Reviews' `employees`/`employee_managers` roster: a manager requests a raise/bonus/promotion/equity
   change for a report, routed to finance for review/decision (`comp_adjustment_requests`, same
-  approval boundary as `payment_requests`)
+  approval boundary as `payment_requests`). Page exists and works but is deliberately **not** in the
+  nav yet (`v2/nav-config.js`) — row commented out until the workflow's been reviewed end-to-end
 - **Redo returns** — webhook + REST backfill into `redo_returns`; `/v2/returns-overview.html` exists
   but is deliberately **not** in the nav until coverage is complete
 - **Ask SILO** (`/v2/silo-chat.html`) — agentic chat with taught notes (`silo_chat_notes`) and a
