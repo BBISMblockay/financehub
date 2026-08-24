@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Compensation Requests</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    /* Beacon sets display:flex/inline-flex on .bcn-field-group and .bcn-btn,
+       which overrides the browser's built-in [hidden] -> display:none —
+       same page-wide patch used on v2/reviews.html. Without it the
+       Finance Queue tab and its finance-only controls render for everyone. */
+    [hidden] { display: none !important; }
+
+    .cr-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
+    .cr-content > .bcn-card { flex-shrink:0; }
+
+    .cr-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .cr-toolbar .bcn-field { max-width:220px; }
+    .cr-spacer { flex:1; }
+
+    .cr-table-wrap { overflow-x:auto; }
+    .cr-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .cr-table th {
+      text-align:left; font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--bcn-ink-3); font-weight:600;
+      padding:8px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
+    }
+    .cr-table td { padding:10px; border-bottom:1px solid var(--bcn-border); vertical-align:middle; }
+    .cr-table tr:last-child td { border-bottom:none; }
+    .cr-table tbody tr { transition: background .12s ease; cursor:pointer; }
+    .cr-table tbody tr:hover { background: var(--bcn-sunken); }
+    .cr-name { font-weight:650; color:var(--bcn-ink); }
+    .cr-sub { font-size:11px; color:var(--bcn-ink-3); }
+    .cr-muted { color:var(--bcn-ink-3); }
+    .cr-num { font-family:var(--bcn-mono); }
+
+    .cr-empty { padding:42px 24px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; line-height:1.6; }
+    .cr-empty strong { display:block; color:var(--bcn-ink-2); font-size:13px; margin-bottom:4px; }
+
+    dialog.cr-dialog {
+      border:1px solid var(--bcn-border); border-radius:6px; padding:0;
+      width:min(520px, calc(100vw - 32px)); background:var(--bcn-surface); color:var(--bcn-ink);
+    }
+    dialog.cr-dialog::backdrop { background:rgba(10,14,20,.45); }
+    .cr-dialog-head { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--bcn-border); }
+    .cr-dialog-title { font-weight:700; font-size:14px; }
+    .cr-dialog-body { padding:16px; display:flex; flex-direction:column; gap:12px; max-height:70vh; overflow-y:auto; }
+    .cr-dialog-foot { padding:12px 16px; border-top:1px solid var(--bcn-border); display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+    .cr-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+    .cr-activity { border-top:1px solid var(--bcn-border); padding-top:10px; margin-top:2px; }
+    .cr-activity-item { font-size:11.5px; color:var(--bcn-ink-3); padding:4px 0; }
+    .cr-activity-item b { color:var(--bcn-ink-2); }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Team</span>
+        </div>
+        <h1>Compensation Requests</h1>
+        <div class="bcn-header-sub">Request a raise, bonus, promotion, or equity change for your reports. Submissions route to finance for review.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--primary" id="btnNewRequest">New request</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">My requests</div><div id="kpiMine" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Pending decision</div><div id="kpiPending" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Approved</div><div id="kpiApproved" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi" id="kpiQueueWrap" hidden><div class="bcn-kpi-label">Finance queue</div><div id="kpiQueue" class="bcn-kpi-value">—</div></div>
+    </div>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="cr-content">
+      <div class="bcn-tabs">
+        <button class="bcn-tab bcn-tab--active" data-tab="mine">My Requests</button>
+        <button class="bcn-tab" data-tab="queue" id="tabBtnQueue" hidden>Finance Queue</button>
+      </div>
+
+      <div id="tabMine" class="bcn-card">
+        <div class="bcn-card-header"><span>My requests</span></div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="cr-table-wrap">
+            <table class="cr-table">
+              <thead>
+                <tr><th>Employee</th><th>Type</th><th>Current</th><th>Proposed</th><th>Effective</th><th>Status</th><th>Updated</th></tr>
+              </thead>
+              <tbody id="mineBody"><tr><td colspan="7"><div class="cr-empty">Loading…</div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="tabQueue" class="bcn-card" hidden>
+        <div class="cr-toolbar" style="padding:12px 14px 0">
+          <select class="bcn-field" id="queueStatusFilter">
+            <option value="">All open</option>
+            <option value="submitted">Submitted</option>
+            <option value="in_review">In review</option>
+            <option value="needs_info">Needs info</option>
+            <option value="approved">Approved</option>
+            <option value="denied">Denied</option>
+          </select>
+          <div class="cr-spacer"></div>
+        </div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="cr-table-wrap">
+            <table class="cr-table">
+              <thead>
+                <tr><th>Employee</th><th>Requested by</th><th>Type</th><th>Current</th><th>Proposed</th><th>Submitted</th><th>Status</th></tr>
+              </thead>
+              <tbody id="queueBody"><tr><td colspan="7"><div class="cr-empty">Loading…</div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<dialog class="cr-dialog" id="dlgRequest">
+  <div class="cr-dialog-head">
+    <span class="cr-dialog-title" id="dlgRequestTitle">New request</span>
+    <button class="bcn-btn bcn-btn--ghost" data-close="dlgRequest">✕</button>
+  </div>
+  <form id="formRequest" method="dialog">
+    <div class="cr-dialog-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="reqEmployee">Employee</label>
+        <select class="bcn-field" id="reqEmployee" required></select>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="reqType">Type</label>
+        <select class="bcn-field" id="reqType" required>
+          <option value="raise">Raise</option>
+          <option value="bonus">Bonus</option>
+          <option value="promotion">Promotion</option>
+          <option value="equity">Equity</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="cr-row-2">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="reqCurrentComp">Current comp ($)</label>
+          <input class="bcn-field bcn-field--mono" id="reqCurrentComp" type="number" step="0.01" min="0" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="reqProposedComp">Proposed comp ($)</label>
+          <input class="bcn-field bcn-field--mono" id="reqProposedComp" type="number" step="0.01" min="0" />
+        </div>
+      </div>
+      <div class="cr-row-2" id="reqTitleWrap" hidden>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="reqCurrentTitle">Current title</label>
+          <input class="bcn-field" id="reqCurrentTitle" type="text" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="reqProposedTitle">Proposed title</label>
+          <input class="bcn-field" id="reqProposedTitle" type="text" />
+        </div>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="reqEffectiveDate">Effective date</label>
+        <input class="bcn-field" id="reqEffectiveDate" type="date" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="reqJustification">Justification</label>
+        <textarea class="bcn-field" id="reqJustification" rows="4" required placeholder="Why does this employee deserve this change? Include performance context, market data, or scope change."></textarea>
+      </div>
+      <div class="cr-activity" id="reqActivityWrap" hidden>
+        <label class="bcn-label">Activity</label>
+        <div id="reqActivityList"></div>
+      </div>
+    </div>
+    <div class="cr-dialog-foot">
+      <button type="button" class="bcn-btn bcn-btn--danger" id="btnDeleteRequest" hidden style="margin-right:auto">Delete draft…</button>
+      <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgRequest">Cancel</button>
+      <button type="button" class="bcn-btn bcn-btn--ghost" id="btnSaveDraft">Save draft</button>
+      <button type="button" class="bcn-btn bcn-btn--primary" id="btnSubmitRequest">Submit to finance</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="cr-dialog" id="dlgDecision">
+  <div class="cr-dialog-head">
+    <span class="cr-dialog-title">Review request</span>
+    <button class="bcn-btn bcn-btn--ghost" data-close="dlgDecision">✕</button>
+  </div>
+  <div class="cr-dialog-body">
+    <div id="decSummary"></div>
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="decStatus">Status</label>
+      <select class="bcn-field" id="decStatus">
+        <option value="submitted">Submitted</option>
+        <option value="in_review">In review</option>
+        <option value="needs_info">Needs more information</option>
+        <option value="approved">Approved</option>
+        <option value="denied">Denied</option>
+      </select>
+    </div>
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="decNotes">Notes to the manager</label>
+      <textarea class="bcn-field" id="decNotes" rows="3" placeholder="Visible to the requesting manager once you save."></textarea>
+    </div>
+    <div class="cr-activity" id="decActivityWrap" hidden>
+      <label class="bcn-label">Activity</label>
+      <div id="decActivityList"></div>
+    </div>
+  </div>
+  <div class="cr-dialog-foot">
+    <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgDecision">Cancel</button>
+    <button type="button" class="bcn-btn bcn-btn--primary" id="btnSaveDecision">Save decision</button>
+  </div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  const money = (n) => n == null ? '—' : `$${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const fmtDate = (d) => !d ? '—' : new Date(`${d}T00:00:00`).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
+  const fmtDateTime = (d) => !d ? '—' : new Date(d).toLocaleString('en-US',{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+
+  function setStatus(msg, type='info', ms=0){
+    const s = document.getElementById('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+  }
+
+  const TYPE_LABELS = { raise:'Raise', bonus:'Bonus', promotion:'Promotion', equity:'Equity', other:'Other' };
+  const STATUS_LABELS = { draft:'Draft', submitted:'Submitted', in_review:'In review', needs_info:'Needs info', approved:'Approved', denied:'Denied' };
+  function statusPill(status){
+    const cls = status === 'approved' ? 'bcn-pill--pos' : status === 'denied' ? 'bcn-pill--neg' : status === 'draft' ? '' : 'bcn-pill--accent';
+    return `<span class="bcn-pill ${cls}">${esc(STATUS_LABELS[status] || status)}</span>`;
+  }
+
+  let ME = null;
+  let CAN_MANAGE = false;
+  let MY_ROSTER = [];       // employees this user manages (or all, if exec) — for the "New request" employee picker
+  let MINE = [];
+  let QUEUE = [];
+  let EDITING_ID = null;    // request currently open in dlgRequest, null = new
+  let DECIDING_ID = null;   // request currently open in dlgDecision
+
+  // ---- tabs -------------------------------------------------------------
+  document.querySelectorAll('.bcn-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.hidden) return;
+      document.querySelectorAll('.bcn-tab').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
+      document.getElementById('tabMine').hidden = tab.dataset.tab !== 'mine';
+      document.getElementById('tabQueue').hidden = tab.dataset.tab !== 'queue';
+      if (tab.dataset.tab === 'queue') loadQueue();
+    });
+  });
+
+  document.querySelectorAll('[data-close]').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.preventDefault(); document.getElementById(btn.dataset.close).close(); });
+  });
+
+  document.getElementById('reqType').addEventListener('change', (e) => {
+    document.getElementById('reqTitleWrap').hidden = e.target.value !== 'promotion';
+  });
+
+  // ---- my requests --------------------------------------------------------
+  async function loadMine(){
+    const { data, error } = await sb.from('comp_adjustment_requests_v')
+      .select('*').eq('created_by', ME.id).order('created_at', { ascending:false });
+    if (error) return setStatus(`Load failed: ${error.message}`, 'neg');
+    MINE = data || [];
+    renderMine();
+  }
+
+  function renderMine(){
+    const body = document.getElementById('mineBody');
+    document.getElementById('kpiMine').textContent = MINE.length;
+    document.getElementById('kpiPending').textContent = MINE.filter(r => ['submitted','in_review','needs_info'].includes(r.status)).length;
+    document.getElementById('kpiApproved').textContent = MINE.filter(r => r.status === 'approved').length;
+
+    if (!MINE.length){
+      body.innerHTML = `<tr><td colspan="7"><div class="cr-empty"><strong>No requests yet</strong>Submit a raise, bonus, promotion, or equity request for one of your reports.</div></td></tr>`;
+      return;
+    }
+    body.innerHTML = MINE.map(r => `
+      <tr data-id="${esc(r.id)}">
+        <td><div class="cr-name">${esc(r.employee_name)}</div><div class="cr-sub">${esc(r.employee_job_title || '')}</div></td>
+        <td>${esc(TYPE_LABELS[r.adjustment_type] || r.adjustment_type)}</td>
+        <td class="cr-num">${money(r.current_compensation)}</td>
+        <td class="cr-num">${money(r.proposed_compensation)}</td>
+        <td>${fmtDate(r.effective_date)}</td>
+        <td>${statusPill(r.status)}</td>
+        <td class="cr-sub">${fmtDate(r.updated_at)}</td>
+      </tr>`).join('');
+    body.querySelectorAll('tr[data-id]').forEach(tr => {
+      tr.addEventListener('click', () => openRequestDialog(MINE.find(r => r.id === tr.dataset.id)));
+    });
+  }
+
+  // ---- finance queue --------------------------------------------------------
+  async function loadQueue(){
+    if (!CAN_MANAGE) return;
+    let q = sb.from('comp_adjustment_requests_v').select('*').neq('status', 'draft').order('created_at', { ascending:false });
+    const filter = document.getElementById('queueStatusFilter').value;
+    if (filter) q = q.eq('status', filter);
+    else q = q.in('status', ['submitted','in_review','needs_info']);
+    const { data, error } = await q;
+    if (error) return setStatus(`Load failed: ${error.message}`, 'neg');
+    QUEUE = data || [];
+    renderQueue();
+  }
+  document.getElementById('queueStatusFilter').addEventListener('change', loadQueue);
+
+  async function loadQueueCount(){
+    if (!CAN_MANAGE) return;
+    const { count } = await sb.from('comp_adjustment_requests_v')
+      .select('id', { count:'exact', head:true })
+      .in('status', ['submitted','in_review','needs_info']);
+    document.getElementById('kpiQueue').textContent = count ?? 0;
+  }
+
+  function renderQueue(){
+    const body = document.getElementById('queueBody');
+    if (!QUEUE.length){
+      body.innerHTML = `<tr><td colspan="7"><div class="cr-empty"><strong>Nothing to review</strong>Requests submitted by managers will land here.</div></td></tr>`;
+      return;
+    }
+    body.innerHTML = QUEUE.map(r => `
+      <tr data-id="${esc(r.id)}">
+        <td><div class="cr-name">${esc(r.employee_name)}</div><div class="cr-sub">${esc(r.employee_job_title || '')}</div></td>
+        <td>${esc(r.requested_by_name || r.requested_by_email || '—')}</td>
+        <td>${esc(TYPE_LABELS[r.adjustment_type] || r.adjustment_type)}</td>
+        <td class="cr-num">${money(r.current_compensation)}</td>
+        <td class="cr-num">${money(r.proposed_compensation)}</td>
+        <td class="cr-sub">${fmtDate(r.submitted_at || r.created_at)}</td>
+        <td>${statusPill(r.status)}</td>
+      </tr>`).join('');
+    body.querySelectorAll('tr[data-id]').forEach(tr => {
+      tr.addEventListener('click', () => openDecisionDialog(QUEUE.find(r => r.id === tr.dataset.id)));
+    });
+  }
+
+  // ---- activity ----------------------------------------------------------
+  async function loadActivity(requestId){
+    const { data } = await sb.from('comp_adjustment_request_activity')
+      .select('*, profiles:created_by(name,email)').eq('request_id', requestId).order('created_at', { ascending:false });
+    return data || [];
+  }
+  function renderActivity(rows){
+    if (!rows.length) return '<div class="cr-sub">No activity yet.</div>';
+    return rows.map(a => `<div class="cr-activity-item"><b>${esc(a.profiles?.name || a.profiles?.email || 'System')}</b> — ${esc(a.message || a.activity_type)} <span class="cr-muted">· ${fmtDateTime(a.created_at)}</span></div>`).join('');
+  }
+
+  // ---- request dialog (manager side: create / edit draft / view) --------
+  async function openRequestDialog(existing){
+    EDITING_ID = existing ? existing.id : null;
+    const form = document.getElementById('formRequest');
+    form.reset();
+    document.getElementById('dlgRequestTitle').textContent = existing ? `${existing.employee_name} — ${TYPE_LABELS[existing.adjustment_type] || existing.adjustment_type}` : 'New request';
+
+    const empSel = document.getElementById('reqEmployee');
+    empSel.innerHTML = MY_ROSTER.map(e => `<option value="${esc(e.id)}">${esc(e.name)}${e.job_title ? ' — ' + esc(e.job_title) : ''}</option>`).join('');
+
+    const isFinancePastDraft = existing && existing.status !== 'draft';
+    const locked = isFinancePastDraft; // once submitted, only finance can move it — manager view goes read-only here
+
+    if (existing){
+      empSel.value = existing.employee_id;
+      document.getElementById('reqType').value = existing.adjustment_type;
+      document.getElementById('reqTitleWrap').hidden = existing.adjustment_type !== 'promotion';
+      document.getElementById('reqCurrentComp').value = existing.current_compensation ?? '';
+      document.getElementById('reqProposedComp').value = existing.proposed_compensation ?? '';
+      document.getElementById('reqCurrentTitle').value = existing.current_title || '';
+      document.getElementById('reqProposedTitle').value = existing.proposed_title || '';
+      document.getElementById('reqEffectiveDate').value = existing.effective_date || '';
+      document.getElementById('reqJustification').value = existing.justification || '';
+      document.getElementById('reqActivityWrap').hidden = false;
+      document.getElementById('reqActivityList').innerHTML = renderActivity(await loadActivity(existing.id));
+    } else {
+      document.getElementById('reqActivityWrap').hidden = true;
+    }
+
+    [empSel, ...form.querySelectorAll('input, select, textarea')].forEach(el => { el.disabled = locked; });
+    document.getElementById('btnDeleteRequest').hidden = !existing || existing.status !== 'draft';
+    document.getElementById('btnSaveDraft').hidden = locked;
+    document.getElementById('btnSubmitRequest').hidden = locked;
+    document.getElementById('btnSubmitRequest').textContent = existing ? 'Submit to finance' : 'Submit to finance';
+
+    document.getElementById('dlgRequest').showModal();
+  }
+
+  function collectRequestForm(){
+    const type = document.getElementById('reqType').value;
+    return {
+      employee_id: document.getElementById('reqEmployee').value,
+      adjustment_type: type,
+      current_compensation: document.getElementById('reqCurrentComp').value || null,
+      proposed_compensation: document.getElementById('reqProposedComp').value || null,
+      current_title: type === 'promotion' ? (document.getElementById('reqCurrentTitle').value || null) : null,
+      proposed_title: type === 'promotion' ? (document.getElementById('reqProposedTitle').value || null) : null,
+      effective_date: document.getElementById('reqEffectiveDate').value || null,
+      justification: document.getElementById('reqJustification').value,
+    };
+  }
+
+  async function saveRequest(nextStatus){
+    const fields = collectRequestForm();
+    if (!fields.employee_id) return setStatus('Pick an employee.', 'neg');
+    if (!fields.justification.trim()) return setStatus('Justification is required.', 'neg');
+
+    try {
+      let id = EDITING_ID;
+      if (id){
+        const patch = { ...fields, status: nextStatus, submitted_at: nextStatus === 'submitted' ? new Date().toISOString() : undefined };
+        const { error } = await sb.from('comp_adjustment_requests').update(patch).eq('id', id);
+        if (error) throw new Error(error.message);
+      } else {
+        id = crypto.randomUUID();
+        const payload = cfg.withCompany({ id, ...fields, status: nextStatus, submitted_at: nextStatus === 'submitted' ? new Date().toISOString() : null });
+        const { error } = await sb.from('comp_adjustment_requests').insert(payload);
+        if (error) throw new Error(error.message);
+      }
+
+      if (nextStatus === 'submitted'){
+        await sb.from('comp_adjustment_request_activity').insert({
+          request_id: id, activity_type: 'submitted', message: 'Submitted to finance for review',
+        });
+        // Fire-and-forget — a failed notify shouldn't block the submission itself.
+        sb.functions.invoke('comp-request-notify', { body: { comp_adjustment_request_id: id, action: 'submitted' } }).catch(() => {});
+      }
+
+      document.getElementById('dlgRequest').close();
+      setStatus(nextStatus === 'submitted' ? 'Submitted to finance.' : 'Draft saved.', 'pos', 2500);
+      await loadMine();
+    } catch (err) {
+      setStatus(`Save failed: ${err.message}`, 'neg');
+    }
+  }
+
+  document.getElementById('btnSaveDraft').addEventListener('click', () => saveRequest('draft'));
+  document.getElementById('btnSubmitRequest').addEventListener('click', () => saveRequest('submitted'));
+  document.getElementById('btnNewRequest').addEventListener('click', () => openRequestDialog(null));
+
+  document.getElementById('btnDeleteRequest').addEventListener('click', async () => {
+    if (!EDITING_ID) return;
+    if (!confirm('Delete this draft request? This cannot be undone.')) return;
+    const { error } = await sb.from('comp_adjustment_requests').delete().eq('id', EDITING_ID);
+    if (error) return setStatus(`Delete failed: ${error.message}`, 'neg');
+    document.getElementById('dlgRequest').close();
+    setStatus('Draft deleted.', 'pos', 2000);
+    await loadMine();
+  });
+
+  // ---- decision dialog (finance side) ------------------------------------
+  async function openDecisionDialog(r){
+    DECIDING_ID = r.id;
+    document.getElementById('decSummary').innerHTML = `
+      <div class="cr-name" style="font-size:14px">${esc(r.employee_name)}</div>
+      <div class="cr-sub" style="margin-bottom:8px">${esc(r.employee_job_title || '')} · requested by ${esc(r.requested_by_name || r.requested_by_email || '—')}</div>
+      <table class="cr-table" style="border:1px solid var(--bcn-border);border-radius:var(--bcn-radius)">
+        <tr><td class="cr-sub">Type</td><td>${esc(TYPE_LABELS[r.adjustment_type] || r.adjustment_type)}</td></tr>
+        <tr><td class="cr-sub">Current</td><td class="cr-num">${money(r.current_compensation)}</td></tr>
+        <tr><td class="cr-sub">Proposed</td><td class="cr-num">${money(r.proposed_compensation)}</td></tr>
+        ${r.adjustment_type === 'promotion' ? `<tr><td class="cr-sub">Title change</td><td>${esc(r.current_title || '—')} → ${esc(r.proposed_title || '—')}</td></tr>` : ''}
+        <tr><td class="cr-sub">Effective</td><td>${fmtDate(r.effective_date)}</td></tr>
+        <tr><td class="cr-sub">Justification</td><td>${esc(r.justification)}</td></tr>
+      </table>`;
+    document.getElementById('decStatus').value = r.status === 'draft' ? 'submitted' : r.status;
+    document.getElementById('decNotes').value = r.finance_notes || '';
+    document.getElementById('decActivityWrap').hidden = false;
+    document.getElementById('decActivityList').innerHTML = renderActivity(await loadActivity(r.id));
+    document.getElementById('dlgDecision').showModal();
+  }
+
+  document.getElementById('btnSaveDecision').addEventListener('click', async () => {
+    if (!DECIDING_ID) return;
+    const status = document.getElementById('decStatus').value;
+    const finance_notes = document.getElementById('decNotes').value || null;
+    const patch = { status, finance_notes, reviewed_by: ME.id };
+    if (['approved','denied'].includes(status)) patch.decided_at = new Date().toISOString();
+
+    const { error } = await sb.from('comp_adjustment_requests').update(patch).eq('id', DECIDING_ID);
+    if (error) return setStatus(`Save failed: ${error.message}`, 'neg');
+
+    await sb.from('comp_adjustment_request_activity').insert({
+      request_id: DECIDING_ID, activity_type: 'status_change',
+      message: `Status → ${STATUS_LABELS[status] || status}${finance_notes ? `: "${finance_notes}"` : ''}`,
+    });
+
+    if (['approved','denied','needs_info'].includes(status)){
+      sb.functions.invoke('comp-request-notify', { body: { comp_adjustment_request_id: DECIDING_ID, action: 'decided' } }).catch(() => {});
+    }
+
+    document.getElementById('dlgDecision').close();
+    setStatus('Decision saved.', 'pos', 2500);
+    await Promise.all([loadQueue(), loadQueueCount(), loadMine()]);
+  });
+
+  // ---- boot ---------------------------------------------------------------
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname); return; }
+    const user = sess.data.session.user;
+
+    const { data: prof } = await sb.from('profiles').select('id, email, name, role, department').eq('id', user.id).single();
+    ME = { id: user.id, email: user.email, name: prof?.name || user.email };
+
+    window.SiloChrome?.mount?.({
+      appEl: '#silo-app',
+      active: 'team/comp-requests',
+      user: { email: ME.email, role: prof?.role },
+      crumbs: ['Team', 'Compensation'],
+      supabaseClient: sb,
+    });
+
+    await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+
+    const { data: canManage } = await sb.rpc('current_user_can_manage_comp_requests');
+    CAN_MANAGE = !!canManage;
+    if (CAN_MANAGE){
+      document.getElementById('tabBtnQueue').hidden = false;
+      document.getElementById('kpiQueueWrap').hidden = false;
+      loadQueueCount();
+    }
+
+    const { data: roster, error: rosterErr } = await sb.from('employees').select('id, name, job_title').eq('is_active', true).order('name');
+    if (rosterErr) setStatus(`Roster load failed: ${rosterErr.message}`, 'neg');
+    MY_ROSTER = roster || [];
+    if (!MY_ROSTER.length){
+      setStatus('You have no employees on your roster yet — add them in Performance Reviews first.', 'info');
+    }
+
+    await loadMine();
+  }
+
+  boot().catch(err => setStatus(`Failed to load: ${err.message}`, 'neg'));
+</script>
+</body>
+</html>
