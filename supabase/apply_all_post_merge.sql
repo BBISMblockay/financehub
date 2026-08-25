@@ -7173,6 +7173,12 @@ create policy employees_active_select on public.employees for select to authenti
       public.is_employee_manager(employees.id)
       or public.is_exec_or_owner()
       or profile_id = auth.uid()
+      -- A comp reviewer sees this person only because a request about them
+      -- is sitting in the queue -- not because they are on the roster.
+      or (
+        public.current_user_can_manage_comp_requests()
+        and public.employee_has_open_comp_request(employees.id)
+      )
     )
   );
 
@@ -11357,8 +11363,9 @@ create policy comp_adjustment_requests_active_select on public.comp_adjustment_r
     and (
       created_by = auth.uid()
       or public.is_employee_manager(employee_id)
-      or public.current_user_can_manage_comp_requests()
       or public.is_exec_or_owner()
+      -- Finance sees a request once the manager sends it, never their draft.
+      or (public.current_user_can_manage_comp_requests() and status <> 'draft')
     )
   );
 
