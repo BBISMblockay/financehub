@@ -297,7 +297,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `po_lines` | PO line items |
 | `po_costing` | Landed cost calculations per PO |
 | `po_costing_lines` | Per-SKU costing breakdown |
-| `launch_calendar` | Marketing launches |
+| `launch_calendar` | Marketing launches. `launch_end_date` (nullable) bounds a multi-day campaign; null means a point-in-time drop. **Some older multi-day campaigns are still entered as TWO rows** (a start plus a separate "… End" / `launch_type = 'Promotion End'` row) rather than one row with an end date — those measure as two independent point launches until merged, which is a human data decision since merging discards whatever was typed on the losing row |
 | `launch_tasks` | Tasks per launch |
 | `launch_comments` | Comments with author_name, author_email, user_id |
 | `launch_assets` | Asset URLs per launch |
@@ -378,7 +378,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `v_marketing_mer_daily` | View: daily marketing efficiency ratio (spend vs revenue) |
 | `silo_chat_notes_v` / `silo_chat_managers_v` | Views: Ask SILO notes and access grants with names |
 | `shopify_orders_v` | View: `shopify_orders` with `resolved_channel_name` joined in from `shopify_channel_map` (falls back to raw `source_name` when unmapped) |
-| `launch_actuals_v` | View: what each launch actually sold vs. what it planned — units/net sales at 30/60/90/365 days from `launch_date`, the committed PO buy, and percent-of-plan variance. Resolves SKUs **only** through `linked_po_id` → `po_lines.sku_snapshot`; `launch_calendar.product_sku` is a PRODUCT-level id that does not match `sales_by_day`'s size-prefixed variant SKUs (0 of 2 match, not even as a suffix), so a fallback to it would silently return 0 units for a launch that sold well. `sku_source = null` means NOT MEASURABLE, never "sold nothing". Check the `window_*_complete` flags before treating a figure as final |
+| `launch_actuals_v` | View: what each launch actually sold vs. what it planned. Measures BOTH launch shapes — a **period** (`launch_end_date` set, e.g. a Back To School or Labor Day sale) via `units_in_period`, and a **point drop** via 30/60/90/365-day tails from `launch_date`; `units_preview` covers `[preview_start_date, launch_date)`. Resolves SKUs **only** through `linked_po_id` → `po_lines.sku_snapshot` — `launch_calendar.product_sku` is PRODUCT-level and does not match `sales_by_day`'s size-prefixed variant SKUs (0 of 2 match), so a fallback would silently report 0 units for a launch that sold well. `sku_source = null` means NOT MEASURABLE, never "sold nothing". Two caveats it documents: `pct_of_po_units_sold` is only valid for `is_new_product_po` (a restock mixes in units from earlier POs and can exceed 100% — measured 141% on one), and `expected_arrival_date` is a warehouse date, not a selling start |
 
 ### RPC functions (backend admin)
 ```
