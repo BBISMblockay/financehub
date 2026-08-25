@@ -6,6 +6,7 @@
   <title>SILO · Ask SILO</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="evidence-card.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -78,72 +79,6 @@
       margin:6px 0 0; padding:8px 10px; background:var(--bcn-surface); border:1px solid var(--bcn-border);
       border-radius:6px; overflow-x:auto; white-space:pre-wrap; word-break:break-word;
     }
-
-    /* Product Concepts: in testing -- structured concept card. Renders the
-       saved concept row as a scannable brief instead of relying on the model
-       to re-narrate every field as prose. Only ever appears when the edge
-       function returns a `concepts` array (concept drafting/revision turns);
-       an ordinary data answer is untouched. */
-    .ac-concept {
-      margin-top:10px; border:1px solid var(--bcn-border); border-radius:10px;
-      background:var(--bcn-surface); overflow:hidden;
-    }
-    .ac-concept-head { padding:11px 13px; border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken); }
-    .ac-concept-title { font-weight:700; font-size:13.5px; color:var(--bcn-ink); }
-    .ac-concept-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
-    .ac-chip {
-      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.06em;
-      padding:2px 7px; border-radius:999px; border:1px solid var(--bcn-border); color:var(--bcn-ink-2);
-      background:var(--bcn-surface); white-space:nowrap;
-    }
-    .ac-chip--strong { border-color:var(--bcn-pos); color:var(--bcn-pos); }
-    .ac-chip--moderate { border-color:var(--bcn-warn); color:var(--bcn-warn); }
-    .ac-chip--early { border-color:var(--bcn-neg); color:var(--bcn-neg); }
-    .ac-chip--approved { border-color:var(--bcn-pos); color:var(--bcn-pos); }
-
-    .ac-concept-body { padding:11px 13px; font-size:12.5px; line-height:1.55; color:var(--bcn-ink-2); }
-    .ac-concept-body > * + * { margin-top:10px; }
-    .ac-concept-exec { color:var(--bcn-ink); }
-
-    .ac-kv { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; align-items:baseline; }
-    .ac-kv dt {
-      font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em;
-      color:var(--bcn-ink-3); white-space:nowrap;
-    }
-    .ac-kv dd { margin:0; color:var(--bcn-ink); }
-    .ac-kv .bcn-num, .ac-num-cell { font-family:var(--bcn-mono); }
-
-    /* Evidence class badge -- INPUT / DATA / ASSUMPTION / RECOMMENDATION.
-       Deliberately understated (the brief says not to over-design this):
-       a small mono tag next to a value, not a colored callout per field. */
-    .ac-ev {
-      font-family:var(--bcn-mono); font-size:8.5px; letter-spacing:.06em; text-transform:uppercase;
-      padding:1px 5px; border-radius:4px; margin-left:6px; vertical-align:1px;
-      border:1px solid var(--bcn-border); color:var(--bcn-ink-3); background:var(--bcn-sunken);
-    }
-    .ac-ev--data { border-color:var(--bcn-pos); color:var(--bcn-pos); }
-    .ac-ev--input { border-color:var(--bcn-accent); color:var(--bcn-accent); }
-    .ac-ev--assumption { border-color:var(--bcn-warn); color:var(--bcn-warn); }
-    .ac-ev--recommendation { border-color:var(--bcn-ink-3); color:var(--bcn-ink-2); }
-
-    .ac-concept details { border-top:1px solid var(--bcn-border); padding-top:8px; }
-    .ac-concept details summary {
-      cursor:pointer; user-select:none; font-family:var(--bcn-mono); font-size:10px;
-      text-transform:uppercase; letter-spacing:.06em; color:var(--bcn-ink-3);
-    }
-    .ac-concept details summary:hover { color:var(--bcn-accent); }
-    .ac-concept details > *:not(summary) { margin-top:8px; }
-    .ac-concept ul { margin:0; padding-left:17px; }
-    .ac-concept li { margin-bottom:3px; }
-    .ac-concept-foot {
-      padding:9px 13px; border-top:1px solid var(--bcn-border); background:var(--bcn-sunken);
-      font-size:12px; color:var(--bcn-ink);
-    }
-    .ac-concept-foot strong {
-      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.06em;
-      color:var(--bcn-ink-3); display:block; margin-bottom:3px; font-weight:500;
-    }
-    .ac-concept-unknown { color:var(--bcn-ink-3); font-style:italic; }
 
     .ac-answer-actions { margin-top:6px; }
     .ac-save-btn {
@@ -462,6 +397,7 @@
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script src="nav-config.js"></script>
 <script src="silo-chrome.js"></script>
+<script src="evidence-card.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || '';
@@ -563,142 +499,117 @@
   const saveContexts = new Map();
   let saveContextSeq = 0;
 
-  // ── Product Concepts: structured concept card (in testing) ────────────
-  // The edge function returns the concept rows it created/updated this turn
-  // in `concepts`. Rendering them here keeps the answer scannable without
-  // asking the model to spend output tokens restating every field, and
-  // keeps the chat live underneath so "cut the buy 25%" still just works.
-  // Everything is defensive about missing fields: a legacy concept (or a
-  // deliberately-unknown field) simply omits that section rather than
-  // showing an empty row or a fabricated placeholder.
+  // ── Product Concepts: concept spec for the shared evidence card ───────
+  // The card itself lives in evidence-card.js (window.SiloEvidenceCard);
+  // only the product-concept field mapping belongs here. A concept is the
+  // container the rest of the SILO lifecycle unpacks -- once an approved
+  // concept pre-fills a PO, launch calendar row and marketing brief, those
+  // views render their own spec against the same component so a buy
+  // quantity carries its evidence class wherever it is shown.
+  const CONCEPT_SPEC = {
+    title: (c) => c.title || 'Untitled concept',
 
-  const EVIDENCE_CLASSES = { INPUT: 'input', DATA: 'data', ASSUMPTION: 'assumption', RECOMMENDATION: 'recommendation' };
+    chips: (c, h) => {
+      const strength = (c.evidence_strength || '').toLowerCase();
+      return [
+        h.chip(c.status, c.status === 'approved' ? 'approved' : ''),
+        strength ? h.chip(`evidence: ${strength}`, strength) : '',
+        c.current_revision_number > 1 ? h.chip(`rev ${c.current_revision_number}`) : '',
+        c.parent_concept_id ? h.chip('in collection') : '',
+        c.primary_goal ? h.chip(`goal: ${String(c.primary_goal).replace(/_/g, ' ')}`) : '',
+      ].filter(Boolean).join('');
+    },
 
-  // Small mono tag showing which evidence class a value belongs to.
-  function evBadge(fieldEvidence, key) {
-    const info = fieldEvidence && fieldEvidence[key];
-    const cls = info && EVIDENCE_CLASSES[String(info.class || '').toUpperCase()];
-    if (!cls) return '';
-    const title = [info.strength ? `strength: ${info.strength}` : '', info.note || ''].filter(Boolean).join(' — ');
-    return `<span class="ac-ev ac-ev--${cls}"${title ? ` title="${esc(title)}"` : ''}>${esc(String(info.class).toUpperCase())}</span>`;
-  }
+    exec: (c, h) => [
+      c.concept_summary ? `<div class="ec-exec">${h.esc(c.concept_summary)}</div>` : '',
+      c.objective ? `<div>${h.esc(c.objective)}</div>` : '',
+    ].filter(Boolean).join(''),
 
-  const fmtNum = (n) => (n == null || n === '' || isNaN(Number(n)) ? null : Number(n).toLocaleString());
-  // Cents only when the figure actually has them -- a unit cost of 12.4
-  // must read as $12.40, but an $8,060 inventory line shouldn't grow a
-  // pointless ".00".
-  const fmtMoney = (n) => {
-    if (n == null || n === '' || isNaN(Number(n))) return null;
-    const v = Number(n);
-    return '$' + v.toLocaleString(undefined, Number.isInteger(v) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    numbers: (c, h) => {
+      const econ = c.economics || {};
+      const cell = (v) => (v ? `<span class="ec-num">${h.esc(v)}</span>` : '');
+      return [
+        h.kv('Buy qty', h.num(c.suggested_qty) ? cell(h.num(c.suggested_qty)) + h.badge('suggested_qty') : ''),
+        h.kv('Launch', c.suggested_launch_date
+          ? `${h.esc(c.suggested_launch_date)}${c.suggested_launch_time ? ' · ' + h.esc(c.suggested_launch_time) : ''}${h.badge('suggested_launch_date')}`
+          : ''),
+        h.kv('Factory', c.suggested_factory_name ? `${h.esc(c.suggested_factory_name)}${h.badge('suggested_factory_id')}` : ''),
+        h.kv('Unit cost', cell(h.money(econ.unit_cost))),
+        h.kv('MSRP', cell(h.money(econ.msrp))),
+        h.kv('Gross margin', econ.gross_margin_pct != null ? cell(`${econ.gross_margin_pct}%`) : ''),
+        h.kv('Inventory investment', cell(h.money(econ.inventory_investment))),
+        h.kv('Channels', (c.suggested_channels || []).length ? h.esc((c.suggested_channels || []).join(', ')) : ''),
+      ].join('');
+    },
+
+    sections: (c, h) => {
+      const evidence = Array.isArray(c.historical_evidence) ? c.historical_evidence : [];
+      const evidenceHtml = evidence.length
+        ? `<ul>${evidence.map((e) => `<li>${h.esc(e.label || e.metric || 'Evidence')}${
+            e.value != null && e.value !== '' ? ` — <span class="ec-num">${h.esc(e.value)}</span>` : ''
+          }${e.metric && e.label ? ` (${h.esc(e.metric)})` : ''}${
+            e.source ? ` <span class="ec-badge ec-badge--data">${h.esc(e.source)}</span>` : ''
+          }</li>`).join('')}</ul>`
+        : '';
+
+      const fc = c.forecast || {};
+      const scenarios = ['conservative', 'base', 'upside'].filter((k) => fc[k]);
+      const forecastHtml = scenarios.length
+        ? `<dl class="ec-kv">${scenarios.map((k) => {
+            const s = fc[k] || {};
+            const bits = [h.num(s.units) ? `${h.num(s.units)} units` : '', h.money(s.revenue) || ''].filter(Boolean).join(' · ');
+            return h.kv(k, `${h.esc(bits || '—')}${s.assumptions ? `<div class="ec-muted">${h.esc(s.assumptions)}</div>` : ''}`);
+          }).join('')}</dl>`
+        : '';
+
+      const risks = Array.isArray(c.risks) ? c.risks : [];
+      const unknowns = Array.isArray(c.unknowns) ? c.unknowns : [];
+      const riskHtml = (risks.length || unknowns.length)
+        ? `<ul>${
+            risks.map((r) => `<li>${r.category ? `<strong>${h.esc(r.category)}:</strong> ` : ''}${h.esc(r.detail || '')}</li>`).join('')
+          }${
+            unknowns.map((u) => `<li class="ec-muted">Unknown — ${h.esc(u.field || '')}: ${h.esc(u.why || '')}</li>`).join('')
+          }</ul>`
+        : '';
+
+      const creative = [
+        c.creative_story ? `<p>${h.esc(c.creative_story)}</p>` : '',
+        c.visual_direction ? `<p><strong>Visual:</strong> ${h.esc(c.visual_direction)}</p>` : '',
+        c.brand_fit ? `<p><strong>Brand fit:</strong> ${h.esc(c.brand_fit)}</p>` : '',
+        c.suggested_marketing_copy ? `<p><em>${h.esc(c.suggested_marketing_copy)}</em></p>` : '',
+      ].filter(Boolean).join('');
+
+      // Provenance -- the "why did SILO recommend 1,800 units?" trail.
+      // Never raw SQL; the edge function does not put any in this field.
+      const prov = Array.isArray(c.provenance) ? c.provenance : [];
+      const provHtml = prov.length
+        ? `<ul>${prov.map((pr) => `<li><strong>${h.esc(pr.claim || 'claim')}</strong> — ${
+            h.esc([(pr.tables || []).join(', '), pr.date_range, (pr.metrics || []).join(', ')].filter(Boolean).join(' · '))
+          }${pr.note ? `<div class="ec-muted">${h.esc(pr.note)}</div>` : ''}</li>`).join('')}</ul>`
+        : '';
+
+      return [
+        { label: 'Why SILO thinks this', open: true, html: [
+          evidenceHtml,
+          c.buy_rationale ? `<p>${h.esc(c.buy_rationale)}</p>` : '',
+          c.reasoning ? `<p>${h.esc(c.reasoning)}</p>` : '',
+        ].filter(Boolean).join('') },
+        { label: 'Forecast', html: forecastHtml },
+        { label: 'Creative direction', html: creative },
+        { label: 'Risks & unknowns', open: true, html: riskHtml },
+        { label: 'Provenance', html: provHtml },
+      ];
+    },
+
+    foot: (c, h) => [
+      c.recommendation
+        ? `<strong>Recommendation</strong>${h.esc(String(c.recommendation).replace(/_/g, ' '))}${
+            c.recommendation_reasoning ? ` — ${h.esc(c.recommendation_reasoning)}` : ''
+          }`
+        : '',
+      c.next_decision ? `<div style="margin-top:7px"><strong>Next decision</strong>${h.esc(c.next_decision)}</div>` : '',
+    ].filter(Boolean).join(''),
   };
-
-  // A <dl> row, skipped entirely when there is no value to show.
-  function kvRow(label, valueHtml) {
-    return valueHtml ? `<dt>${esc(label)}</dt><dd>${valueHtml}</dd>` : '';
-  }
-
-  function renderConceptCard(c) {
-    if (!c || !c.id) return '';
-    const fe = c.field_evidence || {};
-    const strength = (c.evidence_strength || '').toLowerCase();
-
-    const chips = [
-      c.status ? `<span class="ac-chip${c.status === 'approved' ? ' ac-chip--approved' : ''}">${esc(c.status)}</span>` : '',
-      strength ? `<span class="ac-chip ac-chip--${esc(strength)}">evidence: ${esc(strength)}</span>` : '',
-      c.current_revision_number > 1 ? `<span class="ac-chip">rev ${esc(c.current_revision_number)}</span>` : '',
-      c.parent_concept_id ? `<span class="ac-chip">in collection</span>` : '',
-      c.primary_goal ? `<span class="ac-chip">goal: ${esc(String(c.primary_goal).replace(/_/g, ' '))}</span>` : '',
-    ].filter(Boolean).join('');
-
-    // Key numbers -- only the ones that actually carry a value.
-    const econ = c.economics || {};
-    const keyNumbers = [
-      kvRow('Buy qty', fmtNum(c.suggested_qty) ? `<span class="ac-num-cell">${esc(fmtNum(c.suggested_qty))}</span>${evBadge(fe, 'suggested_qty')}` : ''),
-      kvRow('Launch', c.suggested_launch_date ? `${esc(c.suggested_launch_date)}${c.suggested_launch_time ? ' · ' + esc(c.suggested_launch_time) : ''}${evBadge(fe, 'suggested_launch_date')}` : ''),
-      kvRow('Factory', c.suggested_factory_name ? `${esc(c.suggested_factory_name)}${evBadge(fe, 'suggested_factory_id')}` : ''),
-      kvRow('Unit cost', fmtMoney(econ.unit_cost) ? `<span class="ac-num-cell">${esc(fmtMoney(econ.unit_cost))}</span>` : ''),
-      kvRow('MSRP', fmtMoney(econ.msrp) ? `<span class="ac-num-cell">${esc(fmtMoney(econ.msrp))}</span>` : ''),
-      kvRow('Gross margin', econ.gross_margin_pct != null ? `<span class="ac-num-cell">${esc(econ.gross_margin_pct)}%</span>` : ''),
-      kvRow('Inventory investment', fmtMoney(econ.inventory_investment) ? `<span class="ac-num-cell">${esc(fmtMoney(econ.inventory_investment))}</span>` : ''),
-      kvRow('Channels', (c.suggested_channels || []).length ? esc((c.suggested_channels || []).join(', ')) : ''),
-    ].join('');
-
-    // Evidence actually consulted.
-    const evidence = Array.isArray(c.historical_evidence) ? c.historical_evidence : [];
-    const evidenceHtml = evidence.length
-      ? `<ul>${evidence.map(e => `<li>${esc(e.label || e.metric || 'Evidence')}${
-          e.value != null && e.value !== '' ? ` — <span class="ac-num-cell">${esc(e.value)}</span>` : ''
-        }${e.metric && e.label ? ` (${esc(e.metric)})` : ''}${
-          e.source ? ` <span class="ac-ev ac-ev--data">${esc(e.source)}</span>` : ''
-        }</li>`).join('')}</ul>`
-      : '';
-
-    // Forecast scenarios.
-    const fc = c.forecast || {};
-    const scenarios = ['conservative', 'base', 'upside'].filter(k => fc[k]);
-    const forecastHtml = scenarios.length
-      ? `<dl class="ac-kv">${scenarios.map(k => {
-          const s = fc[k] || {};
-          const bits = [fmtNum(s.units) ? `${fmtNum(s.units)} units` : '', fmtMoney(s.revenue) || ''].filter(Boolean).join(' · ');
-          return kvRow(k, `${esc(bits || '—')}${s.assumptions ? `<div class="ac-concept-unknown">${esc(s.assumptions)}</div>` : ''}`);
-        }).join('')}</dl>`
-      : '';
-
-    const risks = Array.isArray(c.risks) ? c.risks : [];
-    const unknowns = Array.isArray(c.unknowns) ? c.unknowns : [];
-    const riskHtml = (risks.length || unknowns.length)
-      ? `<ul>${
-          risks.map(r => `<li>${r.category ? `<strong>${esc(r.category)}:</strong> ` : ''}${esc(r.detail || '')}</li>`).join('')
-        }${
-          unknowns.map(u => `<li class="ac-concept-unknown">Unknown — ${esc(u.field || '')}: ${esc(u.why || '')}</li>`).join('')
-        }</ul>`
-      : '';
-
-    const creative = [
-      c.creative_story ? `<p>${esc(c.creative_story)}</p>` : '',
-      c.visual_direction ? `<p><strong>Visual:</strong> ${esc(c.visual_direction)}</p>` : '',
-      c.brand_fit ? `<p><strong>Brand fit:</strong> ${esc(c.brand_fit)}</p>` : '',
-      c.suggested_marketing_copy ? `<p><em>${esc(c.suggested_marketing_copy)}</em></p>` : '',
-    ].filter(Boolean).join('');
-
-    // Provenance -- the "why did SILO recommend 1,800 units?" trail. Never
-    // shows raw SQL (the edge function does not put any in this field).
-    const prov = Array.isArray(c.provenance) ? c.provenance : [];
-    const provHtml = prov.length
-      ? `<ul>${prov.map(p => `<li><strong>${esc(p.claim || 'claim')}</strong> — ${
-          esc([(p.tables || []).join(', '), p.date_range, (p.metrics || []).join(', ')].filter(Boolean).join(' · '))
-        }${p.note ? `<div class="ac-concept-unknown">${esc(p.note)}</div>` : ''}</li>`).join('')}</ul>`
-      : '';
-
-    const section = (label, inner, open) =>
-      inner ? `<details${open ? ' open' : ''}><summary>${esc(label)}</summary>${inner}</details>` : '';
-
-    return `
-      <div class="ac-concept">
-        <div class="ac-concept-head">
-          <div class="ac-concept-title">${esc(c.title || 'Untitled concept')}</div>
-          <div class="ac-concept-meta">${chips}</div>
-        </div>
-        <div class="ac-concept-body">
-          ${c.concept_summary ? `<div class="ac-concept-exec">${esc(c.concept_summary)}</div>` : ''}
-          ${c.objective ? `<div>${esc(c.objective)}</div>` : ''}
-          ${keyNumbers ? `<dl class="ac-kv">${keyNumbers}</dl>` : ''}
-          ${section('Why SILO thinks this', [evidenceHtml, c.buy_rationale ? `<p>${esc(c.buy_rationale)}</p>` : '', c.reasoning ? `<p>${esc(c.reasoning)}</p>` : ''].filter(Boolean).join(''), true)}
-          ${section('Forecast', forecastHtml)}
-          ${section('Creative direction', creative)}
-          ${section('Risks & unknowns', riskHtml, true)}
-          ${section('Provenance', provHtml)}
-        </div>
-        ${c.recommendation || c.next_decision ? `
-          <div class="ac-concept-foot">
-            ${c.recommendation ? `<strong>Recommendation</strong>${esc(String(c.recommendation).replace(/_/g, ' '))}${
-              c.recommendation_reasoning ? ` — ${esc(c.recommendation_reasoning)}` : ''
-            }` : ''}
-            ${c.next_decision ? `<div style="margin-top:7px"><strong>Next decision</strong>${esc(c.next_decision)}</div>` : ''}
-          </div>` : ''}
-      </div>`;
-  }
 
   function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts }) {
     el('emptyState')?.remove();
@@ -734,7 +645,7 @@
         : `<div class="ac-retry-note">If this keeps happening, refresh the page.</div>`;
     }
     const conceptsHtml = Array.isArray(concepts) && concepts.length
-      ? concepts.map(renderConceptCard).join('')
+      ? (window.SiloEvidenceCard?.renderAll?.(concepts, CONCEPT_SPEC) || '')
       : '';
     const bubble = renderBubbleContent(content, role, isError);
     wrap.innerHTML = `
