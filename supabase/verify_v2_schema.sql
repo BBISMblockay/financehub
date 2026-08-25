@@ -1185,3 +1185,30 @@ select
       then 'MISSING — current_user_can_manage_comp_requests()'
     else 'ok'
   end as comp_adjustment_requests;
+
+-- Launch actuals (migration 20260826010000) — the measurement hop of
+-- concept -> PO -> launch -> actuals. Also asserts the PO-side links from
+-- 20260825210000, since launch_actuals_v resolves SKUs exclusively through
+-- linked_po_id -> po_lines and is meaningless without them.
+select
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='launch_actuals_v')
+      then 'MISSING — run 20260826010000_launch_actuals.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_actuals_v'
+                       and column_name='sku_source')
+      then 'MISSING — sku_source not exposed on launch_actuals_v'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_actuals_v'
+                       and column_name='window_90d_complete')
+      then 'MISSING — window completeness flags not exposed on launch_actuals_v'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='po_concept_links')
+      then 'MISSING — run 20260825210000_concept_to_po_links.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_calendar'
+                       and column_name='source_concept_id')
+      then 'MISSING — launch_calendar.source_concept_id'
+    else 'ok'
+  end as launch_actuals;

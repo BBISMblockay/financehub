@@ -228,7 +228,7 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 - `entities` — company registry (`entity_type = 'company'`, `entity_key`, `title`)
 - `entity_memberships` — links users to companies (`entity_id`, `user_id`, `role`)
 
-**Key column:** `company_entity_id uuid` on all operational tables (backfilled for Baseballism; `inventory_on_hand` and `sales_by_day` deferred).
+**Key column:** `company_entity_id uuid` on all operational tables, fully backfilled — including `inventory_on_hand` and `sales_by_day`, which older notes list as deferred. Verified 2026-08-25: 3,471,114/3,471,114 and 1,137,938/1,137,938 rows stamped, across 2 companies.
 
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
@@ -260,7 +260,7 @@ if (_co?.id) query = query.eq('company_entity_id', _co.id);
 Older pages still call the sync `getActiveCompany()`; prefer `ensureActiveCompany(db)` in new code
 (see "Config and auth" for why). On inserts, wrap the payload in `withCompany()` / `withCompanyRows()`.
 
-**Not yet isolated:** `inventory_on_hand`, `sales_by_day` — backfill deferred. These depend on Baseballism-specific Google Sheets / Better Reports sync pipelines. New companies need their own data pipeline before these tables can be partitioned.
+**Isolation status:** every operational table is isolated, `inventory_on_hand` and `sales_by_day` included. Both have RLS enabled with `select` and write policies scoped to `company_entity_id = active_company_id()` (verified 2026-08-25 against `pg_policies`). The backfill that older notes call deferred was completed — see `.github/workflows/backfill-company-entity-large-tables.yml`. A new company still needs its own sync pipeline to POPULATE these tables, but that is a data-availability question, not an isolation gap.
 
 ### Role system
 Roles are **per-company**: permission gates judge by `entity_memberships.role` (`owner_admin` | `admin` | `member` | `viewer`) for the caller's ACTIVE company. `profiles.role` (enum `app_role`: `owner`, `admin`, `executive`, `user`) is the legacy global role — gates fall back to it only when the user has no membership row, and the profile-level `executive` still passes exec gates everywhere.
@@ -378,6 +378,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `v_marketing_mer_daily` | View: daily marketing efficiency ratio (spend vs revenue) |
 | `silo_chat_notes_v` / `silo_chat_managers_v` | Views: Ask SILO notes and access grants with names |
 | `shopify_orders_v` | View: `shopify_orders` with `resolved_channel_name` joined in from `shopify_channel_map` (falls back to raw `source_name` when unmapped) |
+| `launch_actuals_v` | View: what each launch actually sold vs. what it planned — units/net sales at 30/60/90/365 days from `launch_date`, the committed PO buy, and percent-of-plan variance. Resolves SKUs **only** through `linked_po_id` → `po_lines.sku_snapshot`; `launch_calendar.product_sku` is a PRODUCT-level id that does not match `sales_by_day`'s size-prefixed variant SKUs (0 of 2 match, not even as a suffix), so a fallback to it would silently return 0 units for a launch that sold well. `sku_source = null` means NOT MEASURABLE, never "sold nothing". Check the `window_*_complete` flags before treating a figure as final |
 
 ### RPC functions (backend admin)
 ```
@@ -624,7 +625,6 @@ Not bugs to fix blind — context so you don't mistake leftovers for live code:
 See `docs/ops/roadmap.md` for current priorities. Key items:
 - Company switcher in sidebar (without full logout)
 - Finish Beacon shell migration for the remaining iframe pages
-- `inventory_on_hand` / `sales_by_day` company backfill (Phase 2 multi-tenant)
 - Smoke tests
 
 Done since that file was last pruned: per-company nav menu (`v2/nav-config.js`) and insert-side
