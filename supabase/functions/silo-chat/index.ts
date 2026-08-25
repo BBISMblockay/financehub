@@ -70,6 +70,19 @@
 // PRE_DRAFT_NUDGE_ROUND circuit breaker being answered with prose instead
 // of the tool call it demanded -- forceNudgeTool now sets tool_choice to
 // force create_product_concept on the very next round instead of asking.
+// Structured concept workflow (20260825120000): concepts now carry a real
+// brief (objective/economics/forecast/risks/recommendation/next_decision)
+// plus per-field evidence classification -- INPUT/DATA/ASSUMPTION/
+// RECOMMENDATION with a qualitative strong/moderate/early strength, never
+// a fake confidence percentage -- and provenance for "why did SILO
+// recommend 1,800 units?". See STRUCTURED_CONCEPT_FIELDS. Refinement is
+// now a REVISION of the existing row (a DB trigger snapshots the prior
+// state into product_concept_revisions on every update) rather than a
+// second stamped concept, which is what used to make a single idea look
+// like four unrelated ones. The response gained an additive `concepts`
+// field carrying the rows touched this turn so the client can render the
+// structured card; a non-concept question omits it entirely and every
+// other part of this function's behavior is unchanged.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -161,6 +174,7 @@ PHASE 1 -- fast core draft:
    - web_search, specifically when the concept has an external hook -- a licensed IP/collab, a pop-culture reference, a named trend, or a competitor angle the user mentioned. Internal data can only tell you what Baseballism has done before, never whether the IP/trend is actually current or what competitors/comparable brands are doing with it right now, and this is a competitive industry -- that outside read matters as much as the internal sales-basis check. Keep it to a couple of well-targeted searches (per the run_sql/web_search efficiency rules above), and treat what it returns with the same "external, unverified" caution the base rules already require -- it's color that sharpens the angle, never a number to blend into the internally-grounded qty/revenue reasoning. Skip it for concepts with no external hook (e.g. a plain seasonal restock idea) -- it has nothing to add there.
    Fold the internal-data half of this into as few run_sql calls as you can (single CTE chains, per the run_sql rules above) so grounding a draft doesn't itself become the slow part. Aim for 1-3 run_sql calls total for phase 1, not an open-ended investigation -- a live draft once ran 14 rounds before drafting at all, including two rounds that just re-ran pieces of a query it already had the answer to. Once your first combined query comes back, do NOT re-run any part of it separately to "see it more cleanly," and do NOT chase a sub-thread further just because it came back thin or empty (e.g. no exact-match launches for an unusual angle) -- note the gap plainly in reasoning and move on to drafting rather than searching for a better match. This "move on" instinct does NOT apply to a genuine query timeout, though -- that still gets exactly one retry at a narrower scope (per the timeout rule above) before you're allowed to give up on that number; a timeout means the query was too heavy, not that the data is thin, and giving up on the very first try there (as happened live on a TMNT collection draft) skips real sales evidence you could have gotten with one retry.
 3. Call create_product_concept as soon as you have a title plus a rough angle and quantity -- don't wait for every field. Fill in title, concept_summary, marketing_angle, audience, audience_tags, suggested_qty, suggested_factory_id, suggested_channels, suggested_retail_dtc_notes, suggested_launch_date, suggested_launch_notes, and reasoning; leave the rest blank rather than inventing a number with no basis. Leave every phase 2 field (suggested_size_breakdown, suggested_channel_split, suggested_marketing_spend, suggested_weekly_revenue_projection, suggested_email_sms_plan, suggested_marketing_copy, suggested_launch_time) unset at this stage -- those are phase 2, not part of the fast draft, even if you could technically guess at them now.
+3b. Also fill the lightweight structured fields in that same phase 1 call -- they cost no extra queries because they only describe work you already did: suggested_product_type (required for the concept to hand off cleanly into a PO later), objective, primary_goal, audience_rationale, buy_rationale, historical_evidence (the comparables you actually pulled), evidence_strength, field_evidence for at least suggested_qty/suggested_launch_date/suggested_factory_id, risks, unknowns, recommendation, recommendation_reasoning, and next_decision. Leave the heavier structured fields (economics, forecast, creative_story, visual_direction, brand_fit, provenance) for phase 2 alongside the other launch-plan fields.
 4. Show the user the draft back clearly (a short readable summary, not raw JSON), say plainly which parts are well-grounded vs. a rough guess, and ask explicitly whether they want the full launch-plan brief built out next (size breakdown, channel spend, weekly revenue projection, email/SMS cadence, marketing copy) -- don't run phase 2 queries or fill those fields until they say yes to that specifically. This question is required, not optional politeness -- it's the only signal you have for whether to spend more tool budget.
 5. Revise the core draft with update_product_concept as the user gives feedback on phase 1 -- this can go back and forth as many times as needed, still without touching phase 2 fields.
 
@@ -174,6 +188,7 @@ PHASE 2 -- full launch-plan brief (only once the user explicitly says to build i
    - silo_chat_notes/brand context for voice -- ground suggested_marketing_copy in it directly, not generic copy
    - suggested_launch_time doesn't need its own query -- reason from whatever day-of-week pattern is visible in comparable launches, or state the assumption plainly if none is
    Same efficiency rule as phase 1: fold this into as few run_sql calls as you can.
+6b. Fill the remaining structured fields in the same phase 2 call: economics (omitting any key you cannot ground), forecast (conservative/base/upside with the assumption separating them), creative_story, visual_direction, brand_fit, and provenance recording which tables/date ranges/metrics backed each significant claim. Update field_evidence and unknowns to cover the new values too.
 7. Call update_product_concept with the phase 2 fields once grounded, and show the user the expanded draft the same way as phase 1 -- plainly grounded vs. estimated.
 8. Only call approve_product_concept when the user explicitly says to approve it. If it fails for a permissions reason, tell them plainly (they need the same purchasing write access PO Builder requires) rather than retrying or working around it.
 
@@ -188,6 +203,27 @@ COLLECTIONS (multiple products sharing one brief, e.g. a licensed collab or them
 PO creation itself (the 8th item a reviewer would expect) is handled downstream by approve_product_concept plus the still-manual PO Builder link -- not a field either phase writes directly.
 
 This whole flow only ever produces a draft or an approved concept row -- it does not create a PO, and nothing here places an order or commits money. Say so if a user seems to think approving a concept is the same as ordering it.
+
+REVISIONS -- refine the concept you already made, never stamp a second one:
+- Once a concept exists in this conversation, EVERY later refinement of that same idea is an update_product_concept call on its id. "Make the buy more conservative", "move it to November", "make this retail only", "cut the buy 25%" are all revisions, not new concepts. Creating a second concept row for a refinement is the single worst outcome in this flow -- it is what made saved concepts unreadable before revisions existed.
+- Each update automatically creates a numbered revision preserving the previous state, so nothing is ever lost by revising and there is no reason to hesitate. Always pass a one-line revision_note describing the change.
+- When you report a revision back, show what actually moved and why, e.g. "Buy: 900 -> 650 units. Reduced opening inventory based on the youth cap's actual 90-day velocity. Revision 3." -- not a full re-listing of every unchanged field.
+- product_concepts always holds the CURRENT state of each concept, one row each. History lives in product_concept_revisions/product_concept_revisions_v. So "what's our current Youth Cap concept?" is a plain query on product_concepts_v with no revision filtering, and you should only touch the revisions table when the user explicitly asks how a concept changed over time. Never present old revisions as if they were separate active concepts.
+- Only create a genuinely NEW concept when the user is describing a different product, or a sibling product within a collection (which is parent_concept_id, above).
+
+EVIDENCE CLASSIFICATION -- say which parts you actually know:
+- Every important value belongs to one of four classes, recorded in field_evidence: INPUT (the user told you), DATA (a real figure you queried from SILO), ASSUMPTION (needed for planning, not directly supported), RECOMMENDATION (your own derived judgment). At minimum classify suggested_qty, suggested_launch_date, suggested_factory_id, and anything inside economics/forecast.
+- evidence_strength is the overall read, and it is qualitative on purpose: strong (direct historical SKU/sales evidence), moderate (reasonable inference from adjacent data), early (mostly thesis, comparables weak or absent). Never invent a confidence percentage -- the column rejects one, and a computed-looking number would imply precision you do not have. A licensed collab with no launched comparable is "early" even when the creative thesis is strong; say that plainly rather than dressing it up.
+- Keep the distinction visible in your prose too: "we know this" vs. "this is a reasonable inference" vs. "we're still guessing" are three different statements and should never be flattened into one confident voice.
+
+DON'T FABRICATE COMPLETENESS:
+- If the template has a field and the data to support it does not exist, leave the field unset and record why in unknowns (e.g. {"field":"economics.unit_cost","why":"no prior PO for this factory + product type"}). An explicit unknown is a good answer. A plausible invented number is the failure this whole structure exists to prevent -- filling in economics with a guessed unit cost is worse than leaving it blank, because it looks queried.
+- Same rule for historical_evidence: only real results you actually pulled. If nothing comparable exists, say so and leave it out rather than padding the list.
+- Always fill in next_decision -- the concept is not finished without an identified next human decision (approve the opening buy, confirm the factory, wait for a comparable's actuals, finalize the date).
+
+STALE ASSUMPTIONS: when you are looking at an existing concept, sanity-check its dates against reality before repeating them -- if a target launch date has passed or is now too close given the production lead time you can see in po_headers history, flag it ("Launch assumption appears stale -- the March date implies a PO placed by December") rather than quietly restating it as if it were still current.
+
+PRESSURE TEST: when the user challenges a number ("is 8,000 units too aggressive?"), answer from the same evidence discipline -- separate what direct historical data says from what rests on an analogy or an assumption, give a clear view, and do not manufacture certainty in either direction. Pressure-testing an existing concept does not require changing it; only call update_product_concept if the user actually asks for a change.
 
 Column names that have burned real rounds in this flow -- use these directly instead of guessing and re-discovering via information_schema:
 - sales_by_day's product name column is product_name, not product_title (product_title is products_master's column, not this table's)
@@ -242,6 +278,66 @@ const TOOLS = [
   },
 ];
 
+// The structured-brief half of a concept (20260825120000): the parts of a
+// real product brief that used to have nowhere to go except prose inside
+// `reasoning`. Defined once and spread into BOTH create and update so the
+// two tool schemas can never drift apart -- they did drift once already
+// between the phase-1 and phase-2 field sets.
+//
+// field_evidence/evidence_strength are the point of this block: they let a
+// number that came from a real comparable's sell-through be told apart
+// from one guessed off a thin analogy, which was impossible once a concept
+// was saved.
+const STRUCTURED_CONCEPT_FIELDS: Record<string, Record<string, unknown>> = {
+  suggested_product_type: { type: 'string', description: "The product category, using products_master.product_type's own vocabulary (e.g. \"Youth Cap\", \"Youth Jacket\", \"Women\") rather than a phrase you invent -- you are already querying that column for seasonality, so use a value that actually exists there. This is what carries into the PO and the product tracker when a concept becomes a real buy, so a concept without it loses its category at the first step out of chat." },
+  objective: { type: 'string', description: 'Why this product should exist at all -- the business case in a sentence or two, not a restatement of the concept summary.' },
+  primary_goal: { type: 'string', enum: ['revenue', 'margin', 'brand', 'acquisition', 'existing_demand', 'experiment'], description: 'The single main goal this product serves. Pick the one that actually drives it; omit if genuinely unclear.' },
+  secondary_audience: { type: 'string', description: 'A secondary audience, only if there is a real one -- omit rather than padding.' },
+  audience_rationale: { type: 'string', description: 'Why this audience/use case, grounded in what you queried (past launch audience_tags, who actually bought comparables).' },
+  historical_evidence: {
+    type: 'array',
+    items: { type: 'object' },
+    description: 'The specific historical evidence you actually consulted, one entry per item, e.g. [{"label":"Youth food shorts","metric":"units, first 90 days","value":"2400","source":"sales_by_day","strength":"strong"}]. Only real queried results belong here -- never invent an entry to make the list look fuller, and leave the array out entirely if nothing comparable exists.',
+  },
+  evidence_strength: { type: 'string', enum: ['strong', 'moderate', 'early'], description: 'Overall qualitative confidence in the concept: "strong" = direct historical SKU/sales evidence; "moderate" = reasonable inference from adjacent data; "early" = mostly thesis, comparables are weak or absent. Never express this as a percentage -- the column rejects one.' },
+  buy_rationale: { type: 'string', description: 'Why suggested_qty is that number and not another -- name the comparable and the figure it came from.' },
+  supply_notes: { type: 'string', description: 'Production/lead-time considerations for this factory and product type.' },
+  supply_constraints: { type: 'string', description: 'Known supply constraints or dependencies (MOQ, lead time vs. launch date, single-source risk).' },
+  economics: { type: 'object', description: 'Unit economics where supported by data, e.g. {"unit_cost":12.40,"msrp":48,"gross_margin_pct":74,"inventory_investment":22320,"revenue_expectation":86400}. Omit ANY key you cannot ground -- a missing key means "unavailable" and is the correct output; a guessed cost is not.' },
+  forecast: { type: 'object', description: 'Three-scenario forecast with the assumption behind each, e.g. {"conservative":{"units":900,"revenue":43200,"assumptions":"..."},"base":{...},"upside":{...}}. State the assumption that separates the scenarios, not just three numbers.' },
+  creative_story: { type: 'string', description: 'The core creative story -- distinct from marketing_angle (the one-line hook) and suggested_marketing_copy (draft copy).' },
+  visual_direction: { type: 'string', description: 'Visual/design direction. Reference any attached inspiration images here when they informed it.' },
+  brand_fit: { type: 'string', description: 'Why this fits the brand and customer, grounded in taught brand context rather than generic praise.' },
+  risks: { type: 'array', items: { type: 'object' }, description: 'Risks and unknowns, e.g. [{"category":"data","detail":"no comparable launch has week-level revenue"}]. Categories worth using: data, comparable, assumption, dependency, timing, licensing, forecast.' },
+  unknowns: { type: 'array', items: { type: 'object' }, description: 'Template fields you deliberately left blank and why, e.g. [{"field":"economics.unit_cost","why":"no prior PO for this factory + product type"}]. Fill this in rather than quietly omitting a field -- an explicit unknown is a valid, useful answer; a fabricated value is not.' },
+  recommendation: { type: 'string', enum: ['proceed', 'proceed_with_changes', 'refine', 'hold', 'reject'], description: 'Your overall call on the concept.' },
+  recommendation_reasoning: { type: 'string', description: 'Concise reasoning for that call -- two or three sentences.' },
+  next_decision: { type: 'string', description: 'The next HUMAN decision needed to move this forward, e.g. "Approve opening buy", "Confirm factory", "Wait for the Snack Shack actuals". Always fill this in -- a concept with no identified next decision is not finished.' },
+  field_evidence: {
+    type: 'object',
+    description: 'Per-field evidence classification, keyed by the concept column name, e.g. {"suggested_qty":{"class":"RECOMMENDATION","strength":"moderate","note":"derived from youth cap 90-day sell-through"},"title":{"class":"INPUT"}}. class is one of INPUT (the user told you), DATA (a real queried SILO figure), ASSUMPTION (needed for planning, not directly supported), RECOMMENDATION (your own derived judgment). Classify at least the values a reviewer would question -- suggested_qty, suggested_launch_date, suggested_factory_id, and anything in economics/forecast.',
+  },
+  provenance: {
+    type: 'array',
+    items: { type: 'object' },
+    description: 'What backed each significant claim, so "why did SILO recommend 1,800 units?" is answerable later, e.g. [{"claim":"suggested_qty","tables":["sales_by_day","launch_calendar"],"date_range":"2025-09-01..2026-08-01","metrics":["units_90d"],"skus":["YTH-CAP-001"],"note":"..."}]. Record the source tables and date ranges you actually queried -- not raw SQL.',
+  },
+};
+
+// Column names accepted by update_product_concept, kept next to the schema
+// so adding a field is a one-place change.
+const CONCEPT_UPDATABLE_FIELDS = [
+  'title', 'concept_summary', 'marketing_angle', 'audience', 'audience_tags',
+  'suggested_qty', 'suggested_factory_id', 'suggested_channels',
+  'suggested_retail_dtc_notes', 'suggested_launch_date', 'suggested_launch_notes',
+  'suggested_launch_time', 'suggested_size_breakdown', 'suggested_channel_split',
+  'suggested_marketing_spend', 'suggested_weekly_revenue_projection',
+  'suggested_email_sms_plan', 'suggested_marketing_copy',
+  'reasoning', 'notes', 'reference_image_urls', 'parent_concept_id',
+  ...Object.keys(STRUCTURED_CONCEPT_FIELDS),
+  'revision_note',
+];
+
 // Product Concepts write tools -- only appended to the request's tool list
 // for PRODUCT_CONCEPT_TESTERS (see above). Deliberately narrow, single-
 // purpose inserts/updates against product_concepts, same philosophy as
@@ -276,17 +372,19 @@ const PRODUCT_CONCEPT_TOOLS = [
         reasoning: { type: 'string', description: 'The overall rationale, naming the specific comparable launches/data queried and any outside trend/competitor context pulled via web_search -- this is what a reviewer sees to judge the suggestion, and what next cycle’s generation should be able to learn from. Label web-sourced context as external, per the internal-vs-web-data rule.' },
         reference_image_urls: { type: 'array', items: { type: 'string' }, description: 'Public URLs of reference/inspiration images the user attached in this conversation, if any -- pass through exactly what you saw, do not invent URLs.' },
         parent_concept_id: { type: 'string', description: 'For a collection (multiple products sharing one brief, e.g. a licensed collab): the id of the parent concept this product belongs to. Omit entirely for a standalone product or for the parent concept itself -- only set this on a per-product child concept.' },
+        ...STRUCTURED_CONCEPT_FIELDS,
       },
       required: ['title'],
     },
   },
   {
     name: 'update_product_concept',
-    description: 'Revise fields on an existing draft product concept (e.g. after the user asks to change the quantity or angle). Only pass the fields that changed.',
+    description: 'Revise an EXISTING concept in place -- always use this rather than creating a second concept when the user refines an idea you already drafted ("make the buy more conservative", "move it to November", "make this retail only"). Every update automatically creates a numbered revision preserving the prior state, so refining costs nothing and loses nothing. Only pass the fields that changed, plus a one-line revision_note describing the change.',
     input_schema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The product_concepts.id to update.' },
+        revision_note: { type: 'string', description: 'One line describing this change, e.g. "Reduced opening buy based on historical velocity." Saved onto the revision this update creates -- always pass it so the concept has a readable history.' },
         title: { type: 'string' },
         concept_summary: { type: 'string' },
         marketing_angle: { type: 'string' },
@@ -309,6 +407,7 @@ const PRODUCT_CONCEPT_TOOLS = [
         notes: { type: 'string' },
         reference_image_urls: { type: 'array', items: { type: 'string' } },
         parent_concept_id: { type: 'string' },
+        ...STRUCTURED_CONCEPT_FIELDS,
       },
       required: ['id'],
     },
@@ -656,6 +755,16 @@ Deno.serve(async (req: Request) => {
 
     queriesRun = [];
     let sawTimeout = false;
+    // Concepts created/updated/approved during THIS request, keyed by id so
+    // a concept revised twice in one turn is returned once, in its final
+    // state. Returned alongside the answer so the client can render the
+    // structured card instead of relying on the model to re-narrate every
+    // field as prose. Purely additive to the response shape -- a general
+    // (non-concept) question leaves this empty and the field is omitted,
+    // so nothing about an ordinary Ask SILO response changes.
+    const conceptsTouched = new Map<string, Record<string, unknown>>();
+    const conceptsPayload = () =>
+      conceptsTouched.size ? { concepts: [...conceptsTouched.values()] } : {};
     // Circuit breaker for Product Concepts phase 1: a live draft ran 14
     // rounds before calling create_product_concept at all -- 2 of them were
     // outright redundant re-runs of a query it already had the answer to,
@@ -703,7 +812,7 @@ Deno.serve(async (req: Request) => {
             toolRounds: round + 1,
             status: 'ok',
           });
-          return reply({ answer: text, queries_run: queriesRun });
+          return reply({ answer: text, queries_run: queriesRun, ...conceptsPayload() });
         }
         if (text) {
           // max_tokens cutoff with partial text -- continue the same
@@ -804,12 +913,21 @@ Deno.serve(async (req: Request) => {
               reference_image_urls: Array.isArray(input.reference_image_urls) ? input.reference_image_urls : [],
               parent_concept_id: input.parent_concept_id || null,
             };
+            // Structured-brief fields (20260825120000). Only keys the model
+            // actually supplied are sent -- an omitted field must stay NULL
+            // ("not recorded") rather than being written as an empty value,
+            // since telling those two apart is the whole point of the
+            // evidence/unknowns design.
+            for (const key of Object.keys(STRUCTURED_CONCEPT_FIELDS)) {
+              if (input[key] !== undefined) payload[key] = input[key];
+            }
             const { data: row, error } = await callerClient
               .from('product_concepts')
               .insert(payload)
               .select('*')
               .single();
             if (error) throw new Error(error.message);
+            if (row) conceptsTouched.set(row.id, row);
             resultContent = JSON.stringify(row);
           } catch (err) {
             resultContent = `Error: could not create product concept -- ${String((err as Error)?.message || err)}`;
@@ -820,20 +938,15 @@ Deno.serve(async (req: Request) => {
             const id = String(input.id || '').trim();
             if (!id) throw new Error('id is required');
             const patch: Record<string, unknown> = {};
-            for (
-              const key of [
-                'title', 'concept_summary', 'marketing_angle', 'audience', 'audience_tags',
-                'suggested_qty', 'suggested_factory_id', 'suggested_channels',
-                'suggested_retail_dtc_notes', 'suggested_launch_date', 'suggested_launch_notes',
-                'suggested_launch_time', 'suggested_size_breakdown', 'suggested_channel_split',
-                'suggested_marketing_spend', 'suggested_weekly_revenue_projection',
-                'suggested_email_sms_plan', 'suggested_marketing_copy',
-                'reasoning', 'notes', 'reference_image_urls', 'parent_concept_id',
-              ]
-            ) {
+            for (const key of CONCEPT_UPDATABLE_FIELDS) {
               if (input[key] !== undefined) patch[key] = input[key];
             }
-            if (!Object.keys(patch).length) throw new Error('no fields to update');
+            // revision_note alone is not a change worth recording -- the
+            // DB trigger ignores it when diffing, so an update carrying
+            // only a note would bump nothing and mint no revision.
+            if (!Object.keys(patch).some((k) => k !== 'revision_note')) {
+              throw new Error('no fields to update');
+            }
             const { data: row, error } = await callerClient
               .from('product_concepts')
               .update(patch)
@@ -841,6 +954,7 @@ Deno.serve(async (req: Request) => {
               .select('*')
               .single();
             if (error) throw new Error(error.message);
+            if (row) conceptsTouched.set(row.id, row);
             resultContent = JSON.stringify(row);
           } catch (err) {
             resultContent = `Error: could not update product concept -- ${String((err as Error)?.message || err)}`;
@@ -852,11 +966,17 @@ Deno.serve(async (req: Request) => {
             if (!id) throw new Error('id is required');
             const { data: row, error } = await callerClient
               .from('product_concepts')
-              .update({ status: 'approved', approved_by: userData.user.id, approved_at: new Date().toISOString() })
+              .update({
+                status: 'approved',
+                approved_by: userData.user.id,
+                approved_at: new Date().toISOString(),
+                revision_note: 'Approved.',
+              })
               .eq('id', id)
               .select('*')
               .single();
             if (error) throw new Error(error.message);
+            if (row) conceptsTouched.set(row.id, row);
             resultContent = JSON.stringify(row);
           } catch (err) {
             resultContent = `Error: could not approve product concept -- ${String((err as Error)?.message || err)}. This likely means the caller doesn't have purchasing write access yet (the same access PO Builder requires) -- tell the user plainly rather than retrying.`;
@@ -931,7 +1051,7 @@ Deno.serve(async (req: Request) => {
           // when auditing (a cluster of these means the cap needs raising).
           errorMessage: 'forced final answer at round cap',
         });
-        return reply({ answer: finalText, queries_run: queriesRun });
+        return reply({ answer: finalText, queries_run: queriesRun, ...conceptsPayload() });
       }
     } catch (err) {
       console.error('[silo-chat] forced final answer failed', err);

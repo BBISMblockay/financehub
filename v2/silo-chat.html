@@ -6,6 +6,7 @@
   <title>SILO · Ask SILO</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="evidence-card.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -396,6 +397,7 @@
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script src="nav-config.js"></script>
 <script src="silo-chrome.js"></script>
+<script src="evidence-card.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || '';
@@ -497,7 +499,120 @@
   const saveContexts = new Map();
   let saveContextSeq = 0;
 
-  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images }) {
+  // ── Product Concepts: concept spec for the shared evidence card ───────
+  // The card itself lives in evidence-card.js (window.SiloEvidenceCard);
+  // only the product-concept field mapping belongs here. A concept is the
+  // container the rest of the SILO lifecycle unpacks -- once an approved
+  // concept pre-fills a PO, launch calendar row and marketing brief, those
+  // views render their own spec against the same component so a buy
+  // quantity carries its evidence class wherever it is shown.
+  const CONCEPT_SPEC = {
+    title: (c) => c.title || 'Untitled concept',
+
+    chips: (c, h) => {
+      const strength = (c.evidence_strength || '').toLowerCase();
+      return [
+        h.chip(c.status, c.status === 'approved' ? 'approved' : ''),
+        strength ? h.chip(`evidence: ${strength}`, strength) : '',
+        c.current_revision_number > 1 ? h.chip(`rev ${c.current_revision_number}`) : '',
+        c.parent_concept_id ? h.chip('in collection') : '',
+        c.suggested_product_type ? h.chip(c.suggested_product_type) : '',
+        c.primary_goal ? h.chip(`goal: ${String(c.primary_goal).replace(/_/g, ' ')}`) : '',
+      ].filter(Boolean).join('');
+    },
+
+    exec: (c, h) => [
+      c.concept_summary ? `<div class="ec-exec">${h.esc(c.concept_summary)}</div>` : '',
+      c.objective ? `<div>${h.esc(c.objective)}</div>` : '',
+    ].filter(Boolean).join(''),
+
+    numbers: (c, h) => {
+      const econ = c.economics || {};
+      const cell = (v) => (v ? `<span class="ec-num">${h.esc(v)}</span>` : '');
+      return [
+        h.kv('Buy qty', h.num(c.suggested_qty) ? cell(h.num(c.suggested_qty)) + h.badge('suggested_qty') : ''),
+        h.kv('Launch', c.suggested_launch_date
+          ? `${h.esc(c.suggested_launch_date)}${c.suggested_launch_time ? ' · ' + h.esc(c.suggested_launch_time) : ''}${h.badge('suggested_launch_date')}`
+          : ''),
+        h.kv('Factory', c.suggested_factory_name ? `${h.esc(c.suggested_factory_name)}${h.badge('suggested_factory_id')}` : ''),
+        h.kv('Unit cost', cell(h.money(econ.unit_cost))),
+        h.kv('MSRP', cell(h.money(econ.msrp))),
+        h.kv('Gross margin', econ.gross_margin_pct != null ? cell(`${econ.gross_margin_pct}%`) : ''),
+        h.kv('Inventory investment', cell(h.money(econ.inventory_investment))),
+        h.kv('Channels', (c.suggested_channels || []).length ? h.esc((c.suggested_channels || []).join(', ')) : ''),
+      ].join('');
+    },
+
+    sections: (c, h) => {
+      const evidence = Array.isArray(c.historical_evidence) ? c.historical_evidence : [];
+      const evidenceHtml = evidence.length
+        ? `<ul>${evidence.map((e) => `<li>${h.esc(e.label || e.metric || 'Evidence')}${
+            e.value != null && e.value !== '' ? ` — <span class="ec-num">${h.esc(e.value)}</span>` : ''
+          }${e.metric && e.label ? ` (${h.esc(e.metric)})` : ''}${
+            e.source ? ` <span class="ec-badge ec-badge--data">${h.esc(e.source)}</span>` : ''
+          }</li>`).join('')}</ul>`
+        : '';
+
+      const fc = c.forecast || {};
+      const scenarios = ['conservative', 'base', 'upside'].filter((k) => fc[k]);
+      const forecastHtml = scenarios.length
+        ? `<dl class="ec-kv">${scenarios.map((k) => {
+            const s = fc[k] || {};
+            const bits = [h.num(s.units) ? `${h.num(s.units)} units` : '', h.money(s.revenue) || ''].filter(Boolean).join(' · ');
+            return h.kv(k, `${h.esc(bits || '—')}${s.assumptions ? `<div class="ec-muted">${h.esc(s.assumptions)}</div>` : ''}`);
+          }).join('')}</dl>`
+        : '';
+
+      const risks = Array.isArray(c.risks) ? c.risks : [];
+      const unknowns = Array.isArray(c.unknowns) ? c.unknowns : [];
+      const riskHtml = (risks.length || unknowns.length)
+        ? `<ul>${
+            risks.map((r) => `<li>${r.category ? `<strong>${h.esc(r.category)}:</strong> ` : ''}${h.esc(r.detail || '')}</li>`).join('')
+          }${
+            unknowns.map((u) => `<li class="ec-muted">Unknown — ${h.esc(u.field || '')}: ${h.esc(u.why || '')}</li>`).join('')
+          }</ul>`
+        : '';
+
+      const creative = [
+        c.creative_story ? `<p>${h.esc(c.creative_story)}</p>` : '',
+        c.visual_direction ? `<p><strong>Visual:</strong> ${h.esc(c.visual_direction)}</p>` : '',
+        c.brand_fit ? `<p><strong>Brand fit:</strong> ${h.esc(c.brand_fit)}</p>` : '',
+        c.suggested_marketing_copy ? `<p><em>${h.esc(c.suggested_marketing_copy)}</em></p>` : '',
+      ].filter(Boolean).join('');
+
+      // Provenance -- the "why did SILO recommend 1,800 units?" trail.
+      // Never raw SQL; the edge function does not put any in this field.
+      const prov = Array.isArray(c.provenance) ? c.provenance : [];
+      const provHtml = prov.length
+        ? `<ul>${prov.map((pr) => `<li><strong>${h.esc(pr.claim || 'claim')}</strong> — ${
+            h.esc([(pr.tables || []).join(', '), pr.date_range, (pr.metrics || []).join(', ')].filter(Boolean).join(' · '))
+          }${pr.note ? `<div class="ec-muted">${h.esc(pr.note)}</div>` : ''}</li>`).join('')}</ul>`
+        : '';
+
+      return [
+        { label: 'Why SILO thinks this', open: true, html: [
+          evidenceHtml,
+          c.buy_rationale ? `<p>${h.esc(c.buy_rationale)}</p>` : '',
+          c.reasoning ? `<p>${h.esc(c.reasoning)}</p>` : '',
+        ].filter(Boolean).join('') },
+        { label: 'Forecast', html: forecastHtml },
+        { label: 'Creative direction', html: creative },
+        { label: 'Risks & unknowns', open: true, html: riskHtml },
+        { label: 'Provenance', html: provHtml },
+      ];
+    },
+
+    foot: (c, h) => [
+      c.recommendation
+        ? `<strong>Recommendation</strong>${h.esc(String(c.recommendation).replace(/_/g, ' '))}${
+            c.recommendation_reasoning ? ` — ${h.esc(c.recommendation_reasoning)}` : ''
+          }`
+        : '',
+      c.next_decision ? `<div style="margin-top:7px"><strong>Next decision</strong>${h.esc(c.next_decision)}</div>` : '',
+    ].filter(Boolean).join(''),
+  };
+
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -530,12 +645,16 @@
         ? `<div class="ac-retry-note">You can try again, or refresh the page if it keeps happening.<button type="button" class="ac-retry-btn">Try again</button></div>`
         : `<div class="ac-retry-note">If this keeps happening, refresh the page.</div>`;
     }
+    const conceptsHtml = Array.isArray(concepts) && concepts.length
+      ? (window.SiloEvidenceCard?.renderAll?.(concepts, CONCEPT_SPEC) || '')
+      : '';
     const bubble = renderBubbleContent(content, role, isError);
     wrap.innerHTML = `
       <div class="ac-avatar">${esc(avatar)}</div>
       <div>
         ${imagesHtml}
         <div class="${bubble.cls}">${bubble.html}</div>
+        ${conceptsHtml}
         ${queriesHtml}
         ${saveHtml}
         ${retryHtml}
@@ -663,7 +782,7 @@
       history.push(historyEntry);
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question } });
+      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts });
     } catch (err) {
       removeTyping();
       // "Load failed" (or any network-level drop) usually means the

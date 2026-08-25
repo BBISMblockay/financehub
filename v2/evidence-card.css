@@ -1,0 +1,118 @@
+/* Evidence card -- shared styles for window.SiloEvidenceCard.
+   Extracted from v2/silo-chat.html's Product Concept card so PO Builder,
+   launch briefs and projections can render the same artifact shape once a
+   concept starts pre-filling them. Uses only existing Beacon tokens; adds
+   no new CSS variables. Namespaced ec-* (evidence card) rather than the
+   ac-* prefix it started with, which meant "Ask SILO chat" and would be
+   wrong on every other page. */
+
+.ec-card {
+  margin-top: 10px;
+  border: 1px solid var(--bcn-border);
+  border-radius: 10px;
+  background: var(--bcn-surface);
+  overflow: hidden;
+}
+
+.ec-head {
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--bcn-border);
+  background: var(--bcn-sunken);
+}
+.ec-title { font-weight: 700; font-size: 13.5px; color: var(--bcn-ink); }
+.ec-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+
+.ec-chip {
+  font-family: var(--bcn-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--bcn-border);
+  color: var(--bcn-ink-2);
+  background: var(--bcn-surface);
+  white-space: nowrap;
+}
+.ec-chip--strong   { border-color: var(--bcn-pos);  color: var(--bcn-pos); }
+.ec-chip--moderate { border-color: var(--bcn-warn); color: var(--bcn-warn); }
+.ec-chip--early    { border-color: var(--bcn-neg);  color: var(--bcn-neg); }
+.ec-chip--approved { border-color: var(--bcn-pos);  color: var(--bcn-pos); }
+
+.ec-body {
+  padding: 11px 13px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--bcn-ink-2);
+}
+.ec-body > * + * { margin-top: 10px; }
+.ec-exec { color: var(--bcn-ink); }
+
+.ec-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: baseline; }
+.ec-kv dt {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--bcn-ink-3);
+  white-space: nowrap;
+}
+.ec-kv dd { margin: 0; color: var(--bcn-ink); }
+.ec-num { font-family: var(--bcn-mono); }
+
+/* Evidence class badge -- INPUT / DATA / ASSUMPTION / RECOMMENDATION.
+   Deliberately understated: a small mono tag beside a value, not a
+   colored callout per field. */
+.ec-badge {
+  font-family: var(--bcn-mono);
+  font-size: 8.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  border: 1px solid var(--bcn-border);
+  color: var(--bcn-ink-3);
+  background: var(--bcn-sunken);
+}
+.ec-badge--data           { border-color: var(--bcn-pos);    color: var(--bcn-pos); }
+.ec-badge--input          { border-color: var(--bcn-accent); color: var(--bcn-accent); }
+.ec-badge--assumption     { border-color: var(--bcn-warn);   color: var(--bcn-warn); }
+.ec-badge--recommendation { border-color: var(--bcn-ink-3);  color: var(--bcn-ink-2); }
+
+.ec-card details { border-top: 1px solid var(--bcn-border); padding-top: 8px; }
+.ec-card details summary {
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--bcn-ink-3);
+}
+.ec-card details summary:hover { color: var(--bcn-accent); }
+.ec-card details > *:not(summary) { margin-top: 8px; }
+.ec-card ul { margin: 0; padding-left: 17px; }
+.ec-card li { margin-bottom: 3px; }
+
+.ec-foot {
+  padding: 9px 13px;
+  border-top: 1px solid var(--bcn-border);
+  background: var(--bcn-sunken);
+  font-size: 12px;
+  color: var(--bcn-ink);
+}
+.ec-foot strong {
+  font-family: var(--bcn-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--bcn-ink-3);
+  display: block;
+  margin-bottom: 3px;
+  font-weight: 500;
+}
+
+/* "Recorded as unknown" / secondary annotation inside a card. */
+.ec-muted { color: var(--bcn-ink-3); font-style: italic; }
