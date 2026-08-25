@@ -516,6 +516,7 @@
         strength ? h.chip(`evidence: ${strength}`, strength) : '',
         c.current_revision_number > 1 ? h.chip(`rev ${c.current_revision_number}`) : '',
         c.parent_concept_id ? h.chip('in collection') : '',
+        c.suggested_product_type ? h.chip(c.suggested_product_type) : '',
         c.primary_goal ? h.chip(`goal: ${String(c.primary_goal).replace(/_/g, ' ')}`) : '',
       ].filter(Boolean).join('');
     },

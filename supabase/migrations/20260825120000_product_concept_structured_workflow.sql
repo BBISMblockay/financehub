@@ -46,6 +46,16 @@
 -- sentence.
 
 alter table public.product_concepts
+  -- Product/category, in products_master.product_type's own vocabulary
+  -- (e.g. "Youth Cap", "Women"). Concept identity carried this only
+  -- implicitly, inside the title/summary prose, which breaks the handoff
+  -- into the rest of SILO: po_lines.product_type_snapshot feeds
+  -- product_tracker.product_type via PO Builder's new-product tracker
+  -- sync, and every comparable-launch query groups by product_type. A
+  -- concept that cannot name its own category loses that categorization
+  -- at the first hop out of chat.
+  add column if not exists suggested_product_type text,
+
   -- Objective: why this product should exist at all.
   add column if not exists objective text,
   add column if not exists primary_goal text,
@@ -294,11 +304,20 @@ create trigger trg_product_concept_revision
 -- ---------------------------------------------------------------------------
 -- 4. Views
 -- ---------------------------------------------------------------------------
--- product_concepts_v gains the new columns. Column ORDER is preserved for
--- everything that already existed and new columns are appended, so any
--- consumer selecting by name (all of them) is unaffected.
+-- product_concepts_v gains the new columns.
+--
+-- DROP then CREATE rather than CREATE OR REPLACE: replace can only APPEND
+-- columns, never insert one into the middle, so re-running this migration
+-- after adding a column anywhere but the end fails with "cannot change
+-- name of view column X to Y" -- hit for real while adding
+-- suggested_product_type here. Dropping first makes the migration
+-- re-runnable no matter how the column list is later reordered. Safe
+-- because nothing in the database depends on this view (it is read by
+-- Ask SILO queries and the UI, not by other views/matviews), and the
+-- grants below are reissued immediately after.
 
-create or replace view public.product_concepts_v
+drop view if exists public.product_concepts_v;
+create view public.product_concepts_v
 with (security_invoker = true) as
 select
   c.id,
@@ -338,6 +357,7 @@ select
   c.parent_concept_id,
   parent.title as parent_title,
   -- structured template (20260825120000)
+  c.suggested_product_type,
   c.objective,
   c.primary_goal,
   c.secondary_audience,
@@ -374,7 +394,8 @@ grant select on public.product_concepts_v to authenticated;
 
 -- History with author names and the concept's title, for a revision
 -- drawer or an "how did this concept evolve" question in chat.
-create or replace view public.product_concept_revisions_v
+drop view if exists public.product_concept_revisions_v;
+create view public.product_concept_revisions_v
 with (security_invoker = true) as
 select
   r.id,
@@ -409,7 +430,7 @@ select public.refresh_chat_schema_catalog();
 
 update public.silo_chat_schema_catalog set
   keywords = array['concepts','product','draft','idea','brief','revision','evidence'],
-  description = $d$Ask SILO's Product Concepts. ONE row per real concept, always the CURRENT state -- superseded states live in product_concept_revisions, so this table never needs an is_current filter and never returns the same concept twice. Two independent axes: parent_concept_id groups a COLLECTION (sibling products sharing one strategic brief -- parent holds angle/audience/timing/spend, children hold title/qty/factory/size), while revision history is the separate time axis. Beyond the suggested_* draft fields it carries a structured brief: objective/primary_goal, historical_evidence, economics, forecast (conservative/base/upside), risks, unknowns, recommendation/next_decision, plus field_evidence (per-field INPUT/DATA/ASSUMPTION/RECOMMENDATION classification with a qualitative strength) and provenance (which tables/date ranges/metrics backed each claim). evidence_strength is qualitative -- strong/moderate/early, never a percentage. Legacy concepts created before 2026-08-25 have these columns null and no revisions; that means "not recorded", not "zero". product_concepts_v adds creator/approver/factory/parent names and revision_count.$d$
+  description = $d$Ask SILO's Product Concepts. ONE row per real concept, always the CURRENT state -- superseded states live in product_concept_revisions, so this table never needs an is_current filter and never returns the same concept twice. Two independent axes: parent_concept_id groups a COLLECTION (sibling products sharing one strategic brief -- parent holds angle/audience/timing/spend, children hold title/qty/factory/size), while revision history is the separate time axis. suggested_product_type names the category in products_master.product_type's own vocabulary (e.g. "Youth Cap") and is what carries into po_lines.product_type_snapshot when a concept becomes a PO. Beyond the suggested_* draft fields it carries a structured brief: objective/primary_goal, historical_evidence, economics, forecast (conservative/base/upside), risks, unknowns, recommendation/next_decision, plus field_evidence (per-field INPUT/DATA/ASSUMPTION/RECOMMENDATION classification with a qualitative strength) and provenance (which tables/date ranges/metrics backed each claim). evidence_strength is qualitative -- strong/moderate/early, never a percentage. Legacy concepts created before 2026-08-25 have these columns null and no revisions; that means "not recorded", not "zero". product_concepts_v adds creator/approver/factory/parent names and revision_count.$d$
 where relname = 'product_concepts';
 
 update public.silo_chat_schema_catalog set
