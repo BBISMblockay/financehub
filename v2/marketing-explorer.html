@@ -10,53 +10,123 @@
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <style>
-    .bcn-kpi-band { flex-wrap:wrap; }
-    .mx-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    .mx-content { flex:1; padding:10px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:10px; }
 
-    /* Date range + filters */
-    .mx-range { display:flex; align-items:center; gap:6px; }
+    /* ── Compact control strip: not a card, just a rule ────────────── */
+    .mx-bar {
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:8px 2px; border-bottom:1px solid var(--bcn-border);
+    }
+    .mx-trail { display:flex; align-items:center; gap:5px; flex-wrap:wrap; font-size:12.5px; min-width:0; }
+    .mx-trail button {
+      background:none; border:none; padding:2px 5px; border-radius:4px; cursor:pointer;
+      font:inherit; color:var(--bcn-ink-3);
+    }
+    .mx-trail button:hover { background:var(--bcn-sunken); color:var(--bcn-accent); }
+    .mx-trail .mx-now { color:var(--bcn-ink); font-weight:700; padding:2px 5px; }
+    .mx-trail .mx-sep { color:var(--bcn-ink-4); font-size:11px; }
+    .mx-bar-right { display:flex; align-items:center; gap:7px; margin-left:auto; }
+    .mx-search {
+      font-size:12px; padding:5px 10px; border:1px solid var(--bcn-border-strong);
+      border-radius:6px; background:var(--bcn-surface); color:var(--bcn-ink); width:180px;
+    }
+    .mx-bar .bcn-btn { padding:5px 11px; font-size:11.5px; }
+    .mx-bar .bcn-btn.is-active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+
+    /* Date controls in the header */
+    .mx-range { display:flex; align-items:center; gap:5px; }
     .mx-range input[type="date"] {
       font-family:var(--bcn-mono); font-size:11px; padding:4px 7px;
       border:1px solid var(--bcn-border-strong); border-radius:6px;
       background:var(--bcn-surface); color:var(--bcn-ink);
     }
-    .mx-range span { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
-    .mx-presets { display:flex; gap:4px; }
-    .mx-presets .bcn-btn { padding:4px 10px; font-size:10.5px; }
+    .mx-range span { font-size:10.5px; color:var(--bcn-ink-3); }
+    .mx-presets { display:flex; gap:3px; }
+    .mx-presets .bcn-btn { padding:4px 9px; font-size:10.5px; }
     .mx-presets .bcn-btn.is-active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
 
-    /* Breadcrumb drill trail */
-    .mx-trail { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-family:var(--bcn-mono); font-size:11px; }
-    .mx-trail button {
-      background:none; border:none; padding:2px 6px; border-radius:4px; cursor:pointer;
-      font-family:inherit; font-size:inherit; color:var(--bcn-accent); text-decoration:underline;
-    }
-    .mx-trail button:hover { background:var(--bcn-sunken); }
-    .mx-trail .mx-trail-now { color:var(--bcn-ink); font-weight:700; padding:2px 6px; }
-    .mx-trail .mx-trail-sep { color:var(--bcn-ink-4); }
+    /* ── KPI band: four, and they carry weight ─────────────────────── */
+    .bcn-kpi-band { flex-wrap:wrap; }
+    .bcn-kpi-value { font-size:26px; }
+    .mx-delta { font-family:var(--bcn-mono); font-size:10.5px; }
+    .mx-delta--pos { color:var(--bcn-pos); }
+    .mx-delta--neg { color:var(--bcn-neg); }
+    .mx-delta--flat { color:var(--bcn-ink-4); }
 
-    /* Tables */
+    /* ── Sparkline strip, not a hero chart ─────────────────────────── */
+    .mx-spark { display:flex; align-items:center; gap:14px; padding:2px 0; }
+    .mx-spark svg { display:block; width:100%; height:96px; overflow:visible; }
+    .mx-spark-wrap { flex:1; min-width:0; }
+    .mx-spark-key { display:flex; gap:12px; font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+    .mx-spark-key i { width:9px; height:9px; border-radius:2px; display:inline-block; margin-right:5px; vertical-align:-1px; }
+    .mx-grid { stroke:var(--bcn-border); stroke-width:1; }
+    .mx-axis { fill:var(--bcn-ink-4); font-size:9.5px; font-family:var(--bcn-mono); }
+    .mx-l-spend { fill:none; stroke:var(--bcn-accent); stroke-width:1.75; stroke-linejoin:round; }
+    .mx-a-spend { fill:var(--bcn-accent); opacity:.09; }
+    .mx-l-rev { fill:none; stroke:oklch(0.60 0.18 145); stroke-width:1.75; stroke-linejoin:round; }
+
+    /* ── The table is the page ─────────────────────────────────────── */
     .mx-tbl { width:100%; border-collapse:collapse; }
     .mx-tbl thead th {
-      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.1em;
-      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
-      text-align:right; white-space:nowrap; cursor:pointer; user-select:none;
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.09em;
+      color:var(--bcn-ink-4); padding:8px 12px; border-bottom:1px solid var(--bcn-border);
+      text-align:right; white-space:nowrap; cursor:pointer; user-select:none; font-weight:600;
     }
-    .mx-tbl thead th:first-child { text-align:left; }
-    .mx-tbl thead th:hover { color:var(--bcn-ink); }
+    .mx-tbl thead th.mx-c-rank { width:34px; text-align:right; padding-right:2px; cursor:default; }
+    .mx-tbl thead th.mx-c-name { text-align:left; }
+    .mx-tbl thead th:hover { color:var(--bcn-ink-2); }
     .mx-tbl thead th.is-sorted { color:var(--bcn-accent); }
-    .mx-tbl tbody td {
-      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
-      padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right; white-space:nowrap;
-    }
-    .mx-tbl tbody td:first-child { text-align:left; font-family:var(--bcn-font); white-space:normal; }
-    .mx-tbl tbody tr:hover td { background:var(--bcn-sunken); }
-    .mx-tbl tbody tr.mx-drillable { cursor:pointer; }
-    .mx-tbl tbody tr.mx-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
-    .mx-name { font-weight:600; color:var(--bcn-ink); font-size:12px; line-height:1.3; }
-    .mx-sub { font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-top:2px; }
 
-    .mx-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+    .mx-tbl tbody td {
+      padding:9px 12px; border-bottom:1px solid var(--bcn-border);
+      text-align:right; white-space:nowrap;
+      font-family:var(--bcn-mono); font-size:12px; font-variant-numeric:tabular-nums;
+      color:var(--bcn-ink-2);
+    }
+    .mx-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .mx-drillable { cursor:pointer; }
+
+    .mx-c-rank { width:34px; padding-right:2px !important; color:var(--bcn-ink-4) !important; font-size:10.5px !important; }
+    .mx-c-name { text-align:left !important; white-space:normal !important; font-family:var(--bcn-font) !important; }
+    .mx-name { font-size:13px; font-weight:650; color:var(--bcn-ink); line-height:1.3; }
+    .mx-sub { font-size:10.5px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); margin-top:1px; }
+
+    /* Primary measure reads first; secondaries recede. */
+    .mx-c-primary { font-size:13.5px !important; color:var(--bcn-ink) !important; font-weight:600; }
+    .mx-c-dim { color:var(--bcn-ink-3) !important; font-size:11.5px !important; }
+
+    /* Share-of-spend bar sits behind the number instead of adding a column. */
+    .mx-barcell { position:relative; }
+    .mx-barcell::before {
+      content:''; position:absolute; right:8px; top:50%; transform:translateY(-50%);
+      height:22px; width:var(--w,0%); max-width:calc(100% - 16px);
+      background:var(--bcn-accent); opacity:.12; border-radius:3px; pointer-events:none;
+    }
+    .mx-barcell > span { position:relative; }
+
+    .mx-roas { font-family:var(--bcn-mono); font-size:12px; padding:2px 8px; border-radius:20px; font-weight:600; }
+    .mx-roas--good { background:color-mix(in oklch, var(--bcn-pos) 15%, transparent); color:var(--bcn-pos); }
+    .mx-roas--bad  { background:color-mix(in oklch, var(--bcn-neg) 14%, transparent); color:var(--bcn-neg); }
+    .mx-roas--mid  { color:var(--bcn-ink-2); }
+    .mx-roas--na   { color:var(--bcn-ink-4); }
+
+    .mx-flag {
+      font-family:var(--bcn-mono); font-size:9px; text-transform:uppercase; letter-spacing:.06em;
+      padding:1px 6px; border-radius:3px; background:var(--bcn-sunken); color:var(--bcn-ink-3);
+      border:1px solid var(--bcn-border); margin-left:7px; vertical-align:1px;
+    }
+
+    .mx-tbl tbody tr.mx-total td {
+      background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700;
+      border-bottom:none; font-size:12px;
+    }
+    .mx-tbl tbody tr.mx-total .mx-c-name { color:var(--bcn-band-ink) !important; font-weight:700; }
+    .mx-tbl tbody tr.mx-total .mx-roas { background:none; color:var(--bcn-band-ink); }
+
+    .mx-thumb { width:38px; height:38px; object-fit:cover; border-radius:5px; border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; flex:none; }
+    .mx-ad-cell { display:flex; align-items:center; gap:9px; min-width:200px; }
+
+    .mx-empty { padding:36px; text-align:center; color:var(--bcn-ink-4); font-size:12.5px; }
     .mx-spinner {
       display:inline-block; width:12px; height:12px; margin-right:7px; vertical-align:-2px;
       border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
@@ -64,30 +134,23 @@
     }
     @keyframes mx-spin { to { transform:rotate(360deg); } }
 
-    .mx-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; line-height:1.5; }
-    .mx-pill-sm { font-size:9.5px; padding:1px 7px; }
-    .mx-delta { font-size:10px; font-family:var(--bcn-mono); }
-    .mx-delta--pos { color:var(--bcn-pos); }
-    .mx-delta--neg { color:var(--bcn-neg); }
+    /* Caveats belong above the numbers they qualify, and short. */
+    .mx-caveat {
+      display:flex; align-items:flex-start; gap:7px; padding:7px 12px;
+      font-size:11px; color:var(--bcn-ink-3); line-height:1.45;
+      border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken);
+    }
+    .mx-caveat b { color:var(--bcn-ink-2); font-weight:650; }
 
-    .mx-thumb { width:44px; height:44px; object-fit:cover; border-radius:6px; border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; flex:none; }
-    .mx-ad-cell { display:flex; align-items:center; gap:10px; min-width:240px; }
-
-    /* Chart */
-    .mx-chart-wrap { position:relative; width:100%; }
-    .mx-chart-wrap svg { display:block; width:100%; overflow:visible; }
-    .mx-gridline { stroke:var(--bcn-border); stroke-width:1; }
-    .mx-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
-    .mx-line-spend { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-    .mx-area-spend { fill:var(--bcn-accent); opacity:.10; }
-    .mx-line-value { fill:none; stroke:oklch(0.60 0.18 145); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-    .mx-legend { display:flex; gap:16px; font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-bottom:6px; }
-    .mx-legend span { display:inline-flex; align-items:center; gap:6px; }
-    .mx-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
-
-    .mx-search { font-family:var(--bcn-mono); font-size:11px; padding:4px 9px; border:1px solid var(--bcn-border-strong);
-      border-radius:6px; background:var(--bcn-surface); color:var(--bcn-ink); min-width:190px; }
-    .mx-toolbar { display:flex; align-items:center; gap:8px; margin-left:auto; }
+    /* Day detail is opt-in, not a second wall. */
+    .mx-days summary {
+      cursor:pointer; padding:10px 14px; font-size:12.5px; font-weight:650; color:var(--bcn-ink-2);
+      list-style:none; display:flex; align-items:center; gap:8px;
+    }
+    .mx-days summary::-webkit-details-marker { display:none; }
+    .mx-days summary::before { content:'▸'; color:var(--bcn-ink-4); font-size:10px; }
+    .mx-days[open] summary::before { content:'▾'; }
+    .mx-days summary:hover { background:var(--bcn-sunken); }
   </style>
 </head>
 <body class="silo-brand">
@@ -101,15 +164,12 @@
         </div>
         <h1>Marketing Explorer</h1>
         <div class="bcn-header-sub">
-          Every paid marketing row in SILO, filterable to any day range and drillable from platform down to the individual ad.
-          Every table exports. See <a href="/v2/marketing-overview.html">Marketing Performance</a> for the one-screen summary.
+          Any date range, down to the day. Drill platform → campaign → ad set → ad. Every table exports.
         </div>
       </div>
       <div class="bcn-header-actions" style="flex-wrap:wrap;justify-content:flex-end">
         <div class="mx-range">
-          <input type="date" id="dtStart" />
-          <span>to</span>
-          <input type="date" id="dtEnd" />
+          <input type="date" id="dtStart" /><span>to</span><input type="date" id="dtEnd" />
         </div>
         <div class="mx-presets" id="presetBtns">
           <button class="bcn-btn bcn-btn--ghost" data-days="7">7d</button>
@@ -119,79 +179,64 @@
           <button class="bcn-btn bcn-btn--ghost" data-preset="ytd">YTD</button>
           <button class="bcn-btn bcn-btn--ghost" data-preset="all">All</button>
         </div>
-        <label style="display:flex;align-items:center;gap:5px;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);cursor:pointer">
-          <input type="checkbox" id="cmpToggle" checked /> compare prior period
-        </label>
-        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
       </div>
     </header>
 
-    <div class="bcn-kpi-band" id="kpiBand">
+    <div class="bcn-kpi-band">
       <div class="bcn-kpi"><div class="bcn-kpi-label">Ad Spend</div><div id="kpiSpend" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dSpend">&nbsp;</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Attributed Rev</div><div id="kpiRev" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dRev">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Attributed Revenue</div><div id="kpiRev" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dRev">&nbsp;</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">ROAS</div><div id="kpiRoas" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dRoas">&nbsp;</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">CPA</div><div id="kpiCpa" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dCpa">&nbsp;</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">CTR</div><div id="kpiCtr" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dCtr">&nbsp;</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">CPM</div><div id="kpiCpm" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dCpm">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Cost per Conversion</div><div id="kpiCpa" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dCpa">&nbsp;</div></div>
     </div>
 
     <div class="mx-content">
 
-      <!-- Drill trail -->
-      <div class="bcn-card">
-        <div class="bcn-card-body" style="padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <div class="mx-trail" id="trail"></div>
-          <div class="mx-toolbar">
-            <input type="search" id="rowSearch" class="mx-search" placeholder="Filter rows…" />
-            <button id="btnExport" class="bcn-btn bcn-btn--ghost">Export CSV</button>
-          </div>
+      <div class="mx-bar">
+        <div class="mx-trail" id="trail"></div>
+        <div class="mx-bar-right">
+          <input type="search" id="rowSearch" class="mx-search" placeholder="Filter…" />
+          <button id="btnCols" class="bcn-btn bcn-btn--ghost">All metrics</button>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--bcn-ink-3);cursor:pointer;white-space:nowrap">
+            <input type="checkbox" id="cmpToggle" checked /> vs prior
+          </label>
+          <button id="btnExport" class="bcn-btn bcn-btn--ghost">Export CSV</button>
         </div>
       </div>
 
-      <!-- Daily chart for current selection -->
       <div class="bcn-card">
-        <div class="bcn-card-header"><h2 id="chartTitle">Daily spend vs. attributed revenue</h2></div>
-        <div class="bcn-card-body">
-          <div class="mx-legend">
-            <span><i style="background:var(--bcn-accent)"></i> Spend</span>
-            <span><i style="background:oklch(0.60 0.18 145)"></i> Attributed revenue</span>
+        <div class="bcn-card-body" style="padding:10px 14px">
+          <div class="mx-spark-key">
+            <span><i style="background:var(--bcn-accent)"></i>Spend</span>
+            <span><i style="background:oklch(0.60 0.18 145)"></i>Attributed revenue</span>
+            <span id="sparkRange" style="margin-left:auto;color:var(--bcn-ink-4)"></span>
           </div>
-          <div class="mx-chart-wrap" id="chartWrap"><div class="mx-empty"><span class="mx-spinner"></span>Loading…</div></div>
+          <div class="mx-spark"><div class="mx-spark-wrap" id="chartWrap"></div></div>
         </div>
       </div>
 
-      <!-- Main drill table -->
       <div class="bcn-card">
         <div class="bcn-card-header">
           <h2 id="tableTitle">By platform</h2>
-          <span id="tableHint" class="bcn-pill bcn-pill--accent mx-pill-sm">click a row to drill in</span>
+          <span id="tableHint" style="font-size:11px;color:var(--bcn-ink-4)"></span>
         </div>
         <div class="bcn-card-body" style="padding:0">
+          <div id="caveat"></div>
           <div class="bcn-matrix-scroll">
             <table class="mx-tbl" id="mainTbl">
               <thead id="mainHead"></thead>
-              <tbody id="mainBody"><tr><td class="mx-empty" colspan="10"><span class="mx-spinner"></span>Loading…</td></tr></tbody>
+              <tbody id="mainBody"><tr><td class="mx-empty" colspan="8"><span class="mx-spinner"></span>Loading…</td></tr></tbody>
             </table>
           </div>
-          <div class="mx-note" id="mainNote"></div>
         </div>
       </div>
 
-      <!-- Day-by-day rows for the current selection -->
       <div class="bcn-card">
-        <div class="bcn-card-header">
-          <h2>Day by day</h2>
-          <span class="bcn-pill mx-pill-sm" id="dayCount">—</span>
-        </div>
-        <div class="bcn-card-body" style="padding:0">
-          <div class="bcn-matrix-scroll" style="max-height:420px">
-            <table class="mx-tbl" id="dayTbl">
-              <thead id="dayHead"></thead>
-              <tbody id="dayBody"></tbody>
-            </table>
+        <details class="mx-days" id="dayDetails">
+          <summary>Day by day <span id="dayCount" style="color:var(--bcn-ink-4);font-weight:400;font-family:var(--bcn-mono);font-size:11px"></span></summary>
+          <div class="bcn-matrix-scroll" style="max-height:400px;border-top:1px solid var(--bcn-border)">
+            <table class="mx-tbl" id="dayTbl"><thead id="dayHead"></thead><tbody id="dayBody"></tbody></table>
           </div>
-          <div class="mx-note">Every row above respects the current date range and drill selection. Use Export CSV to pull exactly what is on screen.</div>
-        </div>
+        </details>
       </div>
 
     </div>
@@ -226,6 +271,13 @@
   const intFmt = v => (v==null||!isFinite(v)) ? '—' : Math.round(Number(v)).toLocaleString();
   const pctFmt = v => (v==null||!isFinite(v)) ? '—' : `${(v*100).toFixed(2)}%`;
   const xFmt   = v => (v==null||!isFinite(v)) ? '—' : `${Number(v).toFixed(2)}x`;
+  // Compact money for axis ticks -- "$750k" reads, "$760,081" does not.
+  const moneyShort = v => {
+    const n = Number(v||0);
+    if (n >= 1e6) return `$${(n/1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+    if (n >= 1e3) return `$${Math.round(n/1e3)}k`;
+    return `$${Math.round(n)}`;
+  };
 
   const PLATFORM_LABEL = { google_ads:'Google Ads', meta_ads:'Meta Ads', tiktok_ads:'TikTok Ads', ga4:'GA4' };
 
@@ -374,83 +426,80 @@
   const level = () => state.drill.adsetId ? 3 : state.drill.campaignId ? 2 : state.drill.platform ? 1 : 0;
   const usingAdFeed = () => level() >= 2;
 
+  // ── Column presets ──────────────────────────────────────────────────
+  // Ten numeric columns at equal weight is a spreadsheet, not a report.
+  // Four carry the decision; the rest are one click away.
+  const CORE = ['spend','conversion_value','roas','cpa'];
+  let showAllCols = false;
+  const activeMeasures = () => showAllCols ? MEASURES : MEASURES.filter(m => CORE.includes(m.key));
+
   // ── Render ──────────────────────────────────────────────────────────
   function render(){ renderKpis(); renderTrail(); renderTable(); renderDays(); renderChart(); }
 
   function renderKpis(){
     const cur  = withRatios(selectedFacts(FACTS).reduce((a,r)=>addInto(a,r), blankAgg()));
     const prev = withRatios(selectedFacts(FACTS_PRIOR).reduce((a,r)=>addInto(a,r), blankAgg()));
-    const set = (id, val, fmt) => { el(id).textContent = fmt(val); };
-    set('kpiSpend', cur.spend, money);
-    set('kpiRev',   cur.conversion_value, money);
-    set('kpiRoas',  cur.roas, xFmt);
-    set('kpiCpa',   cur.cpa, money2);
-    set('kpiCtr',   cur.ctr, pctFmt);
-    set('kpiCpm',   cur.cpm, money2);
+    el('kpiSpend').textContent = money(cur.spend);
+    el('kpiRev').textContent   = money(cur.conversion_value);
+    el('kpiRoas').textContent  = xFmt(cur.roas);
+    el('kpiCpa').textContent   = money2(cur.cpa);
 
-    // Lower is better for cost measures, so the arrow colour flips.
+    // Lower is better for cost measures, so the colour flips.
     const delta = (id, c, p, lowerIsBetter=false) => {
       const node = el(id);
-      if (!state.compare || p == null || !isFinite(p) || p === 0 || c == null || !isFinite(c)){
-        node.textContent = state.compare ? 'no prior data' : 'vs. prior off';
-        node.className = 'bcn-kpi-delta'; return;
+      if (!state.compare){ node.textContent = ''; node.className='bcn-kpi-delta'; return; }
+      if (p == null || !isFinite(p) || p === 0 || c == null || !isFinite(c)){
+        node.textContent = 'no prior-period data'; node.className = 'bcn-kpi-delta mx-delta mx-delta--flat'; return;
       }
       const pct = (c - p) / Math.abs(p);
+      const flat = Math.abs(pct) < 0.005;
       const good = lowerIsBetter ? pct < 0 : pct > 0;
-      node.textContent = `${pct >= 0 ? '+' : ''}${(pct*100).toFixed(1)}% vs prior`;
-      node.className = `bcn-kpi-delta mx-delta mx-delta--${good ? 'pos' : 'neg'}`;
+      node.textContent = `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct*100).toFixed(1)}% vs prior ${daysBetween(state.start,state.end)}d`;
+      node.className = `bcn-kpi-delta mx-delta mx-delta--${flat ? 'flat' : good ? 'pos' : 'neg'}`;
     };
     delta('dSpend', cur.spend, prev.spend);
     delta('dRev',   cur.conversion_value, prev.conversion_value);
     delta('dRoas',  cur.roas, prev.roas);
     delta('dCpa',   cur.cpa, prev.cpa, true);
-    delta('dCtr',   cur.ctr, prev.ctr);
-    delta('dCpm',   cur.cpm, prev.cpm, true);
   }
 
   function renderTrail(){
     const d = state.drill;
-    const parts = [];
-    const crumb = (label, fn) => `<button data-jump="${fn}">${esc(label)}</button>`;
-    parts.push(d.platform ? crumb('All platforms','root') : `<span class="mx-trail-now">All platforms</span>`);
+    const p = [];
+    const crumb = (label, to) => `<button data-jump="${to}">${esc(label)}</button>`;
+    p.push(d.platform ? crumb('All platforms','root') : `<span class="mx-now">All platforms</span>`);
     if (d.platform){
-      parts.push('<span class="mx-trail-sep">›</span>');
+      p.push('<span class="mx-sep">/</span>');
       const lbl = PLATFORM_LABEL[d.platform] || d.platform;
-      parts.push(d.campaignId ? crumb(lbl,'platform') : `<span class="mx-trail-now">${esc(lbl)}</span>`);
+      p.push(d.campaignId ? crumb(lbl,'platform') : `<span class="mx-now">${esc(lbl)}</span>`);
     }
     if (d.campaignId){
-      parts.push('<span class="mx-trail-sep">›</span>');
-      parts.push(d.adsetId ? crumb(d.campaignName,'campaign') : `<span class="mx-trail-now">${esc(d.campaignName)}</span>`);
+      p.push('<span class="mx-sep">/</span>');
+      p.push(d.adsetId ? crumb(d.campaignName,'campaign') : `<span class="mx-now">${esc(d.campaignName)}</span>`);
     }
-    if (d.adsetId){
-      parts.push('<span class="mx-trail-sep">›</span>');
-      parts.push(`<span class="mx-trail-now">${esc(d.adsetName)}</span>`);
-    }
-    el('trail').innerHTML = parts.join('');
-    el('trail').querySelectorAll('button[data-jump]').forEach(b => {
-      b.addEventListener('click', () => {
-        const to = b.dataset.jump;
-        if (to === 'root')     state.drill = { platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
-        if (to === 'platform') state.drill = { ...state.drill, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
-        if (to === 'campaign') state.drill = { ...state.drill, adsetId:null, adsetName:null };
-        state.search = ''; el('rowSearch').value = '';
-        render();
-      });
-    });
+    if (d.adsetId){ p.push('<span class="mx-sep">/</span>'); p.push(`<span class="mx-now">${esc(d.adsetName)}</span>`); }
+    el('trail').innerHTML = p.join('');
+    el('trail').querySelectorAll('button[data-jump]').forEach(b => b.addEventListener('click', () => {
+      const to = b.dataset.jump;
+      if (to === 'root')     state.drill = { platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
+      if (to === 'platform') state.drill = { ...state.drill, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
+      if (to === 'campaign') state.drill = { ...state.drill, adsetId:null, adsetName:null };
+      state.search = ''; el('rowSearch').value = '';
+      render();
+    }));
   }
 
-  // Rows for the current level, already rolled up and ratio-derived.
   function currentRows(){
     const lv = level();
     if (lv === 0)
       return rollup(FACTS, r => r.platform, r => ({
-        name: PLATFORM_LABEL[r.platform] || r.platform, sub: r.account_name || '', drillId: r.platform }));
+        name: PLATFORM_LABEL[r.platform] || r.platform, sub:'', drillId: r.platform }));
     if (lv === 1)
       return rollup(selectedFacts(FACTS), r => r.campaign_id ?? r.campaign_name, r => ({
-        name: r.campaign_name || '(no campaign)', sub: '', drillId: r.campaign_id, drillName: r.campaign_name }));
+        name: r.campaign_name || '(no campaign)', sub:'', drillId: r.campaign_id, drillName: r.campaign_name }));
     if (lv === 2)
       return rollup(selectedAdPerf(), r => r.adset_id, r => ({
-        name: r.adset_name || '(no ad set)', sub: '', drillId: r.adset_id, drillName: r.adset_name }));
+        name: r.adset_name || '(no ad set)', sub:'', drillId: r.adset_id, drillName: r.adset_name }));
     return rollup(selectedAdPerf(), r => r.ad_id, r => {
       const c = CREATIVES.get(r.ad_id) || {};
       return { name: r.ad_name || c.ad_name || r.ad_id, sub: c.effective_status || '', thumb: c.thumbnail_url || '' };
@@ -464,9 +513,8 @@
     const { key, dir } = state.sort;
     return rows.slice().sort((a,b) => {
       if (key === 'name') return dir * String(a.name).localeCompare(String(b.name));
-      const av = a[key], bv = b[key];
-      const an = (av == null || !isFinite(av)) ? -Infinity : av;
-      const bn = (bv == null || !isFinite(bv)) ? -Infinity : bv;
+      const an = (a[key] == null || !isFinite(a[key])) ? -Infinity : a[key];
+      const bn = (b[key] == null || !isFinite(b[key])) ? -Infinity : b[key];
       return dir * (an - bn);
     });
   }
@@ -480,77 +528,110 @@
     return sortRows(rows);
   }
 
+  // A campaign whose attributed revenue is a rounding error against its spend
+  // is almost always an awareness objective. Reading it on ROAS is a category
+  // error, so it is labelled and its ROAS is de-emphasised rather than shown
+  // as a failure.
+  const isUpperFunnel = r => Number(r.spend||0) > 0 && Number(r.conversion_value||0) < Number(r.spend) * 0.1;
+
+  function roasCell(r, benchmark){
+    if (isUpperFunnel(r)) return `<span class="mx-roas mx-roas--na">${xFmt(r.roas)}</span>`;
+    if (r.roas == null || !isFinite(r.roas)) return `<span class="mx-roas mx-roas--na">—</span>`;
+    let cls = 'mid';
+    if (benchmark > 0){
+      if (r.roas >= benchmark * 1.15) cls = 'good';
+      else if (r.roas <= benchmark * 0.85) cls = 'bad';
+    }
+    return `<span class="mx-roas mx-roas--${cls}">${xFmt(r.roas)}</span>`;
+  }
+
   function renderTable(){
     const lv = level();
-    el('tableTitle').textContent = LEVEL_TITLE[lv];
-    el('tableHint').textContent = lv === 3 ? 'deepest level' : 'click a row to drill in';
-    el('tableHint').hidden = false;
-
-    const cols = [{ key:'name', label:LEVEL_COL[lv] }, ...MEASURES];
-    el('mainHead').innerHTML = `<tr>${cols.map(c =>
-      `<th data-sort="${c.key}" class="${state.sort.key===c.key?'is-sorted':''}">${esc(c.label)}${
-        state.sort.key===c.key ? (state.sort.dir<0?' ↓':' ↑') : ''}</th>`).join('')}</tr>`;
-    el('mainHead').querySelectorAll('th[data-sort]').forEach(th => {
-      th.addEventListener('click', () => {
-        const k = th.dataset.sort;
-        state.sort = (state.sort.key === k) ? { key:k, dir:-state.sort.dir } : { key:k, dir: k==='name' ? 1 : -1 };
-        renderTable();
-      });
-    });
-
     const rows = visibleRows();
+    const measures = activeMeasures();
+    el('tableTitle').textContent = LEVEL_TITLE[lv];
+    el('tableHint').textContent = lv === 3 ? 'deepest level' : rows.length ? 'click a row to drill in' : '';
+    el('btnCols').classList.toggle('is-active', showAllCols);
+    el('btnCols').textContent = showAllCols ? 'Key metrics' : 'All metrics';
+
+    renderCaveat(lv);
+
+    const nCols = measures.length + 2;
+    el('mainHead').innerHTML = `<tr>
+      <th class="mx-c-rank"></th>
+      <th class="mx-c-name ${state.sort.key==='name'?'is-sorted':''}" data-sort="name">${esc(LEVEL_COL[lv])}${state.sort.key==='name'?(state.sort.dir<0?' ↓':' ↑'):''}</th>
+      ${measures.map(m => `<th data-sort="${m.key}" class="${state.sort.key===m.key?'is-sorted':''}">${esc(m.label)}${state.sort.key===m.key?(state.sort.dir<0?' ↓':' ↑'):''}</th>`).join('')}
+    </tr>`;
+    el('mainHead').querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => {
+      const k = th.dataset.sort;
+      state.sort = (state.sort.key === k) ? { key:k, dir:-state.sort.dir } : { key:k, dir: k==='name' ? 1 : -1 };
+      renderTable();
+    }));
+
     if (!rows.length){
-      el('mainBody').innerHTML = `<tr><td class="mx-empty" colspan="${cols.length}">${
+      el('mainBody').innerHTML = `<tr><td class="mx-empty" colspan="${nCols}">${
         lv >= 2 ? 'No Meta ad-level rows for this selection in this date range.' : 'No marketing rows in this date range.'}</td></tr>`;
-      el('mainNote').textContent = levelNote();
       return;
     }
 
+    const tot = withRatios(rows.reduce((a,r)=>addInto(a,r), blankAgg()));
+    const maxSpend = Math.max(...rows.map(r => Number(r.spend||0)), 0);
     const canDrill = lv < 3;
+
+    const cellFor = (m, r) => {
+      if (m.key === 'roas') return `<td>${roasCell(r, tot.roas)}</td>`;
+      if (m.key === 'spend'){
+        const w = maxSpend > 0 ? (Number(r.spend||0) / maxSpend * 100) : 0;
+        return `<td class="mx-c-primary mx-barcell" style="--w:${w.toFixed(1)}%"><span>${money(r.spend)}</span></td>`;
+      }
+      const dim = !CORE.includes(m.key) ? ' mx-c-dim' : '';
+      return `<td class="${dim}">${m.fmt(r[m.key])}</td>`;
+    };
+
     el('mainBody').innerHTML = rows.map((r,i) => {
-      const nameCell = r.thumb
+      const nameInner = r.thumb
         ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${esc(r.name)}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}</div></div>`
-        : `<div class="mx-name">${esc(r.name)}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
+        : `<div class="mx-name">${esc(r.name)}${isUpperFunnel(r)?'<span class="mx-flag" title="Attributed revenue under 10% of spend — likely an awareness objective, not a ROAS play">awareness</span>':''}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
       return `<tr class="${canDrill?'mx-drillable':''}" data-idx="${i}">
-        <td>${nameCell}</td>
-        ${MEASURES.map(m => `<td>${m.fmt(r[m.key])}</td>`).join('')}
+        <td class="mx-c-rank">${i+1}</td>
+        <td class="mx-c-name">${nameInner}</td>
+        ${measures.map(m => cellFor(m, r)).join('')}
       </tr>`;
     }).join('');
 
-    // Total row: re-derive ratios from the summed components, never average the column.
-    const tot = withRatios(rows.reduce((a,r)=>addInto(a,r), blankAgg()));
-    el('mainBody').insertAdjacentHTML('beforeend',
-      `<tr class="mx-total"><td>Total (${rows.length} row${rows.length===1?'':'s'})</td>${
-        MEASURES.map(m => `<td>${m.fmt(tot[m.key])}</td>`).join('')}</tr>`);
+    // Total row re-derives its ratios from summed components, never averages the column.
+    el('mainBody').insertAdjacentHTML('beforeend', `<tr class="mx-total">
+      <td class="mx-c-rank"></td>
+      <td class="mx-c-name">Total · ${rows.length} ${LEVEL_COL[lv].toLowerCase()}${rows.length===1?'':'s'}</td>
+      ${measures.map(m => m.key === 'roas'
+        ? `<td><span class="mx-roas">${xFmt(tot.roas)}</span></td>`
+        : `<td>${m.fmt(tot[m.key])}</td>`).join('')}
+    </tr>`);
 
     if (canDrill){
-      el('mainBody').querySelectorAll('tr[data-idx]').forEach(tr => {
-        tr.addEventListener('click', () => {
-          const r = rows[Number(tr.dataset.idx)];
-          if (lv === 0) state.drill = { ...state.drill, platform: r.drillId };
-          if (lv === 1) state.drill = { ...state.drill, campaignId: r.drillId, campaignName: r.name };
-          if (lv === 2) state.drill = { ...state.drill, adsetId: r.drillId, adsetName: r.name };
-          state.search = ''; el('rowSearch').value = '';
-          render();
-        });
-      });
+      el('mainBody').querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', () => {
+        const r = rows[Number(tr.dataset.idx)];
+        if (lv === 0) state.drill = { ...state.drill, platform: r.drillId };
+        if (lv === 1) state.drill = { ...state.drill, campaignId: r.drillId, campaignName: r.name };
+        if (lv === 2) state.drill = { ...state.drill, adsetId: r.drillId, adsetName: r.name };
+        state.search = ''; el('rowSearch').value = '';
+        render();
+      }));
     }
-    el('mainNote').textContent = levelNote();
   }
 
-  function levelNote(){
-    const lv = level();
-    const bits = [];
-    if (lv === 0) bits.push('GA4 is excluded here — it carries no spend, and its "conversions" are GA4 key events, not orders.');
-    if (lv === 1 && state.drill.platform !== 'meta_ads')
-      bits.push('Ad set and ad depth exist for Meta only — Google and TikTok stop at campaign until the sync pulls ad-group rows.');
+  // One caveat, the one that applies here, above the numbers it qualifies.
+  function renderCaveat(lv){
+    let msg = '';
     if (lv >= 2 && ADPERF_MIN)
-      bits.push(`Ad-level figures come from Meta's ad feed, which starts ${ADPERF_MIN} — earlier dates in your range have no ad rows and totals here will be lower than the campaign level.`);
-    bits.push('Ratios (ROAS, CPA, CPC, CTR, CPM) are recomputed from summed spend/clicks/impressions at this grain — not averaged from the rows beneath.');
-    return bits.join(' ');
+      msg = `<b>Ad-level data starts ${ADPERF_MIN}.</b> Earlier days in this range have no ad rows, so these totals are lower than the campaign level above.`;
+    else if (lv === 1 && state.drill.platform !== 'meta_ads')
+      msg = `<b>Campaign is the deepest level here.</b> Ad set and ad detail exist for Meta only.`;
+    else if (lv === 0)
+      msg = `<b>Paid platforms only.</b> GA4 is excluded — it carries no spend, and its conversions are site key events, not orders.`;
+    el('caveat').innerHTML = msg ? `<div class="mx-caveat"><span>${msg}</span></div>` : '';
   }
 
-  // ── Day-by-day ──────────────────────────────────────────────────────
   function dayRows(){
     const src = usingAdFeed() ? selectedAdPerf() : selectedFacts(FACTS);
     return rollup(src, r => r.day_date, r => ({ name: r.day_date }))
@@ -559,44 +640,49 @@
 
   function renderDays(){
     const rows = dayRows();
-    el('dayCount').textContent = `${rows.length} day${rows.length===1?'':'s'}`;
-    el('dayHead').innerHTML = `<tr><th>Day</th>${MEASURES.map(m=>`<th>${esc(m.label)}</th>`).join('')}</tr>`;
+    const measures = activeMeasures();
+    el('dayCount').textContent = rows.length ? `· ${rows.length} days` : '';
+    if (!el('dayDetails').open) return;   // built on demand, not every render
+    el('dayHead').innerHTML = `<tr><th class="mx-c-name" style="cursor:default">Day</th>${measures.map(m=>`<th style="cursor:default">${esc(m.label)}</th>`).join('')}</tr>`;
     el('dayBody').innerHTML = rows.length
-      ? rows.map(r => `<tr><td>${esc(r.name)}</td>${MEASURES.map(m=>`<td>${m.fmt(r[m.key])}</td>`).join('')}</tr>`).join('')
-      : `<tr><td class="mx-empty" colspan="${MEASURES.length+1}">No rows for this selection.</td></tr>`;
+      ? rows.map(r => `<tr><td class="mx-c-name"><span class="bcn-mono" style="font-size:12px">${esc(r.name)}</span></td>${
+          measures.map(m => `<td${CORE.includes(m.key)?'':' class="mx-c-dim"'}>${m.fmt(r[m.key])}</td>`).join('')}</tr>`).join('')
+      : `<tr><td class="mx-empty" colspan="${measures.length+1}">No rows for this selection.</td></tr>`;
   }
 
-  // ── Chart ───────────────────────────────────────────────────────────
   function renderChart(){
     const rows = dayRows().slice().sort((a,b) => String(a.name).localeCompare(String(b.name)));
     const wrap = el('chartWrap');
-    if (rows.length < 2){ wrap.innerHTML = `<div class="mx-empty">Not enough days in range to chart.</div>`; return; }
+    el('sparkRange').textContent = `${state.start} → ${state.end}`;
+    if (rows.length < 2){ wrap.innerHTML = `<div class="mx-empty" style="padding:20px">Not enough days in range to chart.</div>`; return; }
 
-    const W = 1000, H = 240, PADL = 58, PADR = 14, PADT = 12, PADB = 26;
-    const maxV = Math.max(1, ...rows.map(r => Math.max(Number(r.spend||0), Number(r.conversion_value||0))));
+    const W = 1000, H = 96, PADL = 46, PADR = 8, PADT = 8, PADB = 18;
+    const rawMax = Math.max(1, ...rows.map(r => Math.max(Number(r.spend||0), Number(r.conversion_value||0))));
+    // Round the ceiling to a readable step so ticks land on $250k, not $253,360.
+    const mag = Math.pow(10, Math.floor(Math.log10(rawMax)));
+    const maxV = Math.ceil(rawMax / (mag/2)) * (mag/2);
     const x = i => PADL + (i / (rows.length - 1)) * (W - PADL - PADR);
     const y = v => PADT + (1 - (Number(v||0) / maxV)) * (H - PADT - PADB);
     const path = key => rows.map((r,i) => `${i?'L':'M'}${x(i).toFixed(1)},${y(r[key]).toFixed(1)}`).join('');
     const area = `${path('spend')}L${x(rows.length-1).toFixed(1)},${(H-PADB).toFixed(1)}L${x(0).toFixed(1)},${(H-PADB).toFixed(1)}Z`;
 
-    const ticks = [0, .25, .5, .75, 1].map(f => {
-      const v = maxV * f, yy = y(v);
-      return `<line class="mx-gridline" x1="${PADL}" y1="${yy.toFixed(1)}" x2="${W-PADR}" y2="${yy.toFixed(1)}" />
-              <text class="mx-axis-label" x="${PADL-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(v)}</text>`;
+    const ticks = [0, .5, 1].map(f => {
+      const yy = y(maxV*f);
+      return `<line class="mx-grid" x1="${PADL}" y1="${yy.toFixed(1)}" x2="${W-PADR}" y2="${yy.toFixed(1)}" />
+              <text class="mx-axis" x="${PADL-7}" y="${(yy+3).toFixed(1)}" text-anchor="end">${moneyShort(maxV*f)}</text>`;
     }).join('');
 
-    const step = Math.max(1, Math.ceil(rows.length / 10));
+    const step = Math.max(1, Math.ceil(rows.length / 7));
     const xlab = rows.map((r,i) => (i % step === 0 || i === rows.length-1)
-      ? `<text class="mx-axis-label" x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle">${esc(String(r.name).slice(5))}</text>` : '').join('');
+      ? `<text class="mx-axis" x="${x(i).toFixed(1)}" y="${H-5}" text-anchor="middle">${esc(String(r.name).slice(5))}</text>` : '').join('');
 
     wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
       aria-label="Daily spend and attributed revenue across the selected range">
       ${ticks}${xlab}
-      <path class="mx-area-spend" d="${area}" />
-      <path class="mx-line-spend" d="${path('spend')}" />
-      <path class="mx-line-value" d="${path('conversion_value')}" />
+      <path class="mx-a-spend" d="${area}" />
+      <path class="mx-l-spend" d="${path('spend')}" />
+      <path class="mx-l-rev" d="${path('conversion_value')}" />
     </svg>`;
-    el('chartTitle').textContent = `Daily spend vs. attributed revenue — ${state.start} to ${state.end}`;
   }
 
   // ── CSV export ──────────────────────────────────────────────────────
@@ -675,6 +761,52 @@
     el('rowSearch').addEventListener('input', () => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => { state.search = el('rowSearch').value.trim(); renderTable(); }, 180);
+    });
+  }
+
+  // ── Date + control wiring ───────────────────────────────────────────
+  function setRange(start, end, { clearPreset = true } = {}){
+    state.start = start; state.end = end;
+    el('dtStart').value = start; el('dtEnd').value = end;
+    if (clearPreset) document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.remove('is-active'));
+  }
+
+  function wireControls(){
+    document.querySelectorAll('#presetBtns .bcn-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const today = iso(new Date());
+        if (btn.dataset.days){
+          setRange(addDays(today, -(Number(btn.dataset.days) - 1)), today);
+        } else if (btn.dataset.preset === 'ytd'){
+          setRange(`${today.slice(0,4)}-01-01`, today);
+        } else {
+          const { data } = await scopeQ(sb.from('marketing_kpis_daily').select('day_date'))
+            .order('day_date', { ascending:true }).limit(1);
+          setRange(data?.[0]?.day_date || addDays(today,-365), today);
+        }
+        document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+        runLoad();
+      });
+    });
+
+    const onDate = () => {
+      const s = el('dtStart').value, e = el('dtEnd').value;
+      if (!s || !e) return;
+      if (s > e){ el('dtStart').value = state.start; el('dtEnd').value = state.end; return; }
+      setRange(s, e); runLoad();
+    };
+    el('dtStart').addEventListener('change', onDate);
+    el('dtEnd').addEventListener('change', onDate);
+
+    el('cmpToggle').addEventListener('change', () => { state.compare = el('cmpToggle').checked; runLoad(); });
+    el('btnExport').addEventListener('click', exportCsv);
+    el('btnCols').addEventListener('click', () => { showAllCols = !showAllCols; renderTable(); renderDays(); });
+    el('dayDetails').addEventListener('toggle', () => { if (el('dayDetails').open) renderDays(); });
+
+    let t;
+    el('rowSearch').addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => { state.search = el('rowSearch').value.trim(); renderTable(); }, 180);
     });
   }
 
