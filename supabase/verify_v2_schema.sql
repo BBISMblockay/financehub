@@ -1203,6 +1203,14 @@ select
                      where table_schema='public' and table_name='launch_actuals_v'
                        and column_name='window_90d_complete')
       then 'MISSING — window completeness flags not exposed on launch_actuals_v'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_calendar'
+                       and column_name='launch_end_date')
+      then 'MISSING — run 20260826020000_launch_period.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_actuals_v'
+                       and column_name='units_in_period')
+      then 'MISSING — period measurement not exposed on launch_actuals_v'
     when not exists (select 1 from information_schema.tables
                      where table_schema='public' and table_name='po_concept_links')
       then 'MISSING — run 20260825210000_concept_to_po_links.sql'
