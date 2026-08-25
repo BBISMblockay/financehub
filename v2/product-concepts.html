@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Product Concepts</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="evidence-card.css" />
+  <style>
+    .pc-content { flex:1; min-height:0; display:flex; gap:14px; padding:12px 18px 18px; }
+
+    /* Two panes: the list is the workflow surface (what needs my
+       attention), the detail is the artifact. On narrow screens the list
+       collapses above the detail rather than side-by-side. */
+    .pc-list-pane { width:340px; flex-shrink:0; display:flex; flex-direction:column; min-height:0; }
+    .pc-detail-pane { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
+    .pc-scroll { flex:1; min-height:0; overflow-y:auto; }
+
+    .pc-item {
+      padding:11px 13px; border-bottom:1px solid var(--bcn-border); cursor:pointer;
+      transition:background .12s ease;
+    }
+    .pc-item:last-child { border-bottom:none; }
+    .pc-item:hover { background:var(--bcn-sunken); }
+    .pc-item--active { background:var(--bcn-sunken); box-shadow:inset 3px 0 0 var(--bcn-accent); }
+    .pc-item-title { font-weight:650; font-size:13px; color:var(--bcn-ink); line-height:1.35; }
+    .pc-item-meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; align-items:center; }
+    .pc-item-date {
+      font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); margin-left:auto; white-space:nowrap;
+    }
+    .pc-item-child { margin-left:14px; border-left:2px solid var(--bcn-border); }
+
+    .pc-empty { padding:36px 20px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+
+    .pc-detail-actions { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+
+    @media (max-width: 900px) {
+      .pc-content { flex-direction:column; }
+      .pc-list-pane { width:auto; max-height:38vh; }
+    }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Product Concepts</h1>
+        <div class="bcn-header-sub">Product ideas drafted in Ask SILO, before any PO exists — with the evidence behind each number.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <a class="bcn-btn bcn-btn--primary" href="/v2/silo-chat.html">New concept in Ask SILO</a>
+      </div>
+    </header>
+
+    <section class="bcn-filter-bar">
+      <div class="bcn-filter">
+        <label class="bcn-label" for="fStatus">Status</label>
+        <select class="bcn-field" id="fStatus">
+          <option value="">All</option>
+          <option value="draft" selected>Draft</option>
+          <option value="approved">Approved</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <label class="bcn-label" for="fPhase">Completeness</label>
+        <select class="bcn-field" id="fPhase">
+          <option value="">All</option>
+          <option value="core_draft">Core draft</option>
+          <option value="full_brief">Full brief</option>
+        </select>
+      </div>
+      <div class="bcn-filter" style="flex:1;max-width:320px">
+        <label class="bcn-label" for="fSearch">Search</label>
+        <input class="bcn-field" type="text" id="fSearch" placeholder="Title, angle, audience…" autocomplete="off" />
+      </div>
+    </section>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="pc-content">
+      <div class="bcn-card pc-list-pane">
+        <div class="bcn-card-header"><span>Concepts</span><span id="countLabel" class="bcn-mono" style="font-size:11px;color:var(--bcn-ink-3)"></span></div>
+        <div class="pc-scroll" id="list"></div>
+      </div>
+      <div class="pc-detail-pane">
+        <div class="pc-scroll" id="detail"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script src="evidence-card.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const box = el('status');
+    box.className = `bcn-status bcn-status--${type}`;
+    box.textContent = msg;
+    box.hidden = false;
+    if (ms) setTimeout(() => { box.hidden = true; }, ms);
+  }
+
+  let concepts = [];
+  let selectedId = null;
+
+  // Same presentation as the card in Ask SILO -- deliberately the SAME
+  // component (evidence-card.js), not a copy, so a concept reads
+  // identically wherever it appears and the two can never drift.
+  // The actions differ: from here the workflow step is "take this into
+  // Ask SILO and act on it", since the acting itself is a conversation.
+  const CONCEPT_SPEC = {
+    title: (c) => c.title || 'Untitled concept',
+
+    chips: (c, h) => {
+      const strength = (c.evidence_strength || '').toLowerCase();
+      return [
+        h.chip(c.status, c.status === 'approved' ? 'approved' : ''),
+        c.phase ? h.chip(c.phase === 'full_brief' ? 'full brief' : 'core draft') : '',
+        strength ? h.chip(`evidence: ${strength}`, strength) : '',
+        c.current_revision_number > 1 ? h.chip(`rev ${c.current_revision_number}`) : '',
+        c.parent_title ? h.chip(`in: ${c.parent_title}`) : '',
+        c.child_count > 0 ? h.chip(`${c.child_count} product${c.child_count === 1 ? '' : 's'}`) : '',
+        c.suggested_product_type ? h.chip(c.suggested_product_type) : '',
+        c.resulting_po_name ? h.chip(`PO: ${c.resulting_po_name}`) : '',
+      ].filter(Boolean).join('');
+    },
+
+    exec: (c, h) => [
+      c.concept_summary ? `<div class="ec-exec">${h.esc(c.concept_summary)}</div>` : '',
+      c.objective ? `<div>${h.esc(c.objective)}</div>` : '',
+      c.marketing_angle ? `<div><strong>Angle:</strong> ${h.esc(c.marketing_angle)}</div>` : '',
+    ].filter(Boolean).join(''),
+
+    numbers: (c, h) => {
+      const econ = c.economics || {};
+      const cell = (v) => (v ? `<span class="ec-num">${h.esc(v)}</span>` : '');
+      return [
+        h.kv('Buy qty', h.num(c.suggested_qty) ? cell(h.num(c.suggested_qty)) + h.badge('suggested_qty') : ''),
+        h.kv('Launch', c.suggested_launch_date
+          ? `${h.esc(c.suggested_launch_date)}${c.suggested_launch_time ? ' · ' + h.esc(c.suggested_launch_time) : ''}${h.badge('suggested_launch_date')}`
+          : ''),
+        h.kv('Factory', c.suggested_factory_name ? `${h.esc(c.suggested_factory_name)}${h.badge('suggested_factory_id')}` : ''),
+        h.kv('Product type', c.suggested_product_type ? h.esc(c.suggested_product_type) : ''),
+        h.kv('Unit cost', cell(h.money(econ.unit_cost))),
+        h.kv('MSRP', cell(h.money(econ.msrp))),
+        h.kv('Audience', c.audience ? h.esc(c.audience) : ''),
+        h.kv('Channels', (c.suggested_channels || []).length ? h.esc((c.suggested_channels || []).join(', ')) : ''),
+        h.kv('Created by', c.created_by_name ? h.esc(c.created_by_name) : ''),
+      ].join('');
+    },
+
+    sections: (c, h) => {
+      const evidence = Array.isArray(c.historical_evidence) ? c.historical_evidence : [];
+      const evidenceHtml = evidence.length
+        ? `<ul>${evidence.map((e) => `<li>${h.esc(e.label || e.metric || 'Evidence')}${
+            e.value != null && e.value !== '' ? ` — <span class="ec-num">${h.esc(e.value)}</span>` : ''
+          }${e.source ? ` <span class="ec-badge ec-badge--data">${h.esc(e.source)}</span>` : ''}</li>`).join('')}</ul>`
+        : '';
+
+      const fc = c.forecast || {};
+      const scenarios = ['conservative', 'base', 'upside'].filter((k) => fc[k]);
+      const forecastHtml = scenarios.length
+        ? `<dl class="ec-kv">${scenarios.map((k) => {
+            const s = fc[k] || {};
+            const bits = [h.num(s.units) ? `${h.num(s.units)} units` : '', h.money(s.revenue) || ''].filter(Boolean).join(' · ');
+            return h.kv(k, `${h.esc(bits || '—')}${s.assumptions ? `<div class="ec-muted">${h.esc(s.assumptions)}</div>` : ''}`);
+          }).join('')}</dl>`
+        : '';
+
+      const risks = Array.isArray(c.risks) ? c.risks : [];
+      const unknowns = Array.isArray(c.unknowns) ? c.unknowns : [];
+      const riskHtml = (risks.length || unknowns.length)
+        ? `<ul>${
+            risks.map((r) => `<li>${r.category ? `<strong>${h.esc(r.category)}:</strong> ` : ''}${h.esc(r.detail || '')}</li>`).join('')
+          }${
+            unknowns.map((u) => `<li class="ec-muted">Unknown — ${h.esc(u.field || '')}: ${h.esc(u.why || '')}</li>`).join('')
+          }</ul>`
+        : '';
+
+      const plan = [
+        c.suggested_size_breakdown ? `<div><strong>Size breakdown</strong><div class="ec-num">${h.esc(JSON.stringify(c.suggested_size_breakdown))}</div></div>` : '',
+        c.suggested_channel_split ? `<div><strong>Channel split</strong><div class="ec-num">${h.esc(JSON.stringify(c.suggested_channel_split))}</div></div>` : '',
+        c.suggested_marketing_spend ? `<div><strong>Marketing spend</strong><div class="ec-num">${h.esc(JSON.stringify(c.suggested_marketing_spend))}</div></div>` : '',
+        c.suggested_marketing_copy ? `<div><strong>Copy</strong><div>${h.esc(c.suggested_marketing_copy)}</div></div>` : '',
+      ].filter(Boolean).join('');
+
+      const prov = Array.isArray(c.provenance) ? c.provenance : [];
+      const provHtml = prov.length
+        ? `<ul>${prov.map((pr) => `<li><strong>${h.esc(pr.claim || 'claim')}</strong> — ${
+            h.esc([(pr.tables || []).join(', '), pr.date_range, (pr.metrics || []).join(', ')].filter(Boolean).join(' · '))
+          }${pr.note ? `<div class="ec-muted">${h.esc(pr.note)}</div>` : ''}</li>`).join('')}</ul>`
+        : '';
+
+      return [
+        { label: 'Why SILO thinks this', open: true, html: [
+          evidenceHtml,
+          c.buy_rationale ? `<p>${h.esc(c.buy_rationale)}</p>` : '',
+          c.reasoning ? `<p>${h.esc(c.reasoning)}</p>` : '',
+        ].filter(Boolean).join('') },
+        { label: 'Launch plan', html: plan },
+        { label: 'Forecast', html: forecastHtml },
+        { label: 'Risks & unknowns', open: true, html: riskHtml },
+        { label: 'Provenance', html: provHtml },
+      ];
+    },
+
+    foot: (c, h) => [
+      c.recommendation
+        ? `<strong>Recommendation</strong>${h.esc(String(c.recommendation).replace(/_/g, ' '))}${
+            c.recommendation_reasoning ? ` — ${h.esc(c.recommendation_reasoning)}` : ''
+          }`
+        : '',
+      c.next_decision ? `<div style="margin-top:7px"><strong>Next decision</strong>${h.esc(c.next_decision)}</div>` : '',
+    ].filter(Boolean).join(''),
+  };
+
+  // ── List ──────────────────────────────────────────────────────────────
+  // Children render indented under their parent so a collection reads as
+  // one release rather than as unrelated products that happen to share a
+  // theme.
+  function orderForDisplay(rows) {
+    const parents = rows.filter((r) => !r.parent_concept_id);
+    const byParent = new Map();
+    for (const r of rows) {
+      if (!r.parent_concept_id) continue;
+      if (!byParent.has(r.parent_concept_id)) byParent.set(r.parent_concept_id, []);
+      byParent.get(r.parent_concept_id).push(r);
+    }
+    const out = [];
+    for (const p of parents) {
+      out.push({ row: p, child: false });
+      for (const ch of byParent.get(p.id) || []) out.push({ row: ch, child: true });
+      byParent.delete(p.id);
+    }
+    // Orphans: a child whose parent is filtered out or deleted still has to
+    // appear, or it silently vanishes from the list.
+    for (const [, kids] of byParent) for (const k of kids) out.push({ row: k, child: false });
+    return out;
+  }
+
+  function renderList() {
+    const status = el('fStatus').value;
+    const phase = el('fPhase').value;
+    const q = el('fSearch').value.trim().toLowerCase();
+
+    const filtered = concepts.filter((c) => {
+      if (status && c.status !== status) return false;
+      if (phase && c.phase !== phase) return false;
+      if (q) {
+        const hay = [c.title, c.concept_summary, c.marketing_angle, c.audience, c.suggested_product_type]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    el('countLabel').textContent = `${filtered.length} of ${concepts.length}`;
+
+    if (!filtered.length) {
+      el('list').innerHTML = `<div class="pc-empty">No concepts match these filters.</div>`;
+      return;
+    }
+
+    el('list').innerHTML = orderForDisplay(filtered).map(({ row: c, child }) => `
+      <div class="pc-item${child ? ' pc-item-child' : ''}${c.id === selectedId ? ' pc-item--active' : ''}" data-id="${esc(c.id)}">
+        <div class="pc-item-title">${esc(c.title || 'Untitled concept')}</div>
+        <div class="pc-item-meta">
+          <span class="ec-chip${c.status === 'approved' ? ' ec-chip--approved' : ''}">${esc(c.status)}</span>
+          <span class="ec-chip">${esc(c.phase === 'full_brief' ? 'full brief' : 'core draft')}</span>
+          ${c.evidence_strength ? `<span class="ec-chip ec-chip--${esc(c.evidence_strength)}">${esc(c.evidence_strength)}</span>` : ''}
+          <span class="pc-item-date">${esc((c.updated_at || '').slice(0, 10))}</span>
+        </div>
+      </div>`).join('');
+  }
+
+  function renderDetail() {
+    const c = concepts.find((x) => x.id === selectedId);
+    if (!c) {
+      el('detail').innerHTML = `<div class="pc-empty">Select a concept to see its full brief and evidence.</div>`;
+      return;
+    }
+    // Acting on a concept is a conversation, so the action here is to hand
+    // it to Ask SILO with the concept already bound -- silo-chat reads
+    // ?concept=<id> and arms the composer against that row.
+    const chatUrl = `/v2/silo-chat.html?concept=${encodeURIComponent(c.id)}`;
+    el('detail').innerHTML = `
+      <div class="pc-detail-actions">
+        <a class="bcn-btn bcn-btn--primary" href="${chatUrl}">Open in Ask SILO</a>
+        ${c.resulting_po_header_id ? `<a class="bcn-btn bcn-btn--ghost" href="/v2/po-report.html">View resulting PO</a>` : ''}
+      </div>
+      ${window.SiloEvidenceCard.render(c, CONCEPT_SPEC)}`;
+  }
+
+  el('list').addEventListener('click', (ev) => {
+    const item = ev.target.closest('.pc-item');
+    if (!item) return;
+    selectedId = item.dataset.id;
+    renderList();
+    renderDetail();
+  });
+
+  ['fStatus', 'fPhase'].forEach((id) => el(id).addEventListener('change', renderList));
+  el('fSearch').addEventListener('input', renderList);
+
+  async function load() {
+    const _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
+    let query = db.from('product_concepts_v')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(500);
+    if (_co?.id) query = query.eq('company_entity_id', _co.id);
+    const { data, error } = await query;
+    if (error) { setStatus('Could not load concepts: ' + error.message, 'neg'); return; }
+    concepts = data || [];
+    // Deep link straight to one concept, e.g. from an Ask SILO card.
+    const want = new URLSearchParams(location.search).get('concept');
+    if (want && concepts.some((c) => c.id === want)) selectedId = want;
+    renderList();
+    renderDetail();
+  }
+
+  async function boot() {
+    const sess = await db.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    const { data: prof } = await db.from('profiles').select('email, role').eq('id', user.id).single();
+
+    window.SiloChrome?.mount?.({
+      appEl: '#silo-app',
+      active: 'reports/silo-chat',
+      user: { email: user.email, role: prof?.role },
+      crumbs: ['Reports', 'Product Concepts'],
+      supabaseClient: db,
+    });
+
+    await load();
+  }
+
+  boot();
+</script>
+</body>
+</html>

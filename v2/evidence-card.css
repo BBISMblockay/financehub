@@ -116,3 +116,31 @@
 
 /* "Recorded as unknown" / secondary annotation inside a card. */
 .ec-muted { color: var(--bcn-ink-3); font-style: italic; }
+
+/* Action bar. What turns the card from a readout into a workflow step:
+   each button carries the record's id, so an action can never be
+   ambiguous about which artifact it applies to. */
+.ec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 13px;
+  border-top: 1px solid var(--bcn-border);
+  background: var(--bcn-surface);
+}
+.ec-btn {
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  padding: 4px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--bcn-border);
+  background: var(--bcn-surface);
+  color: var(--bcn-ink-2);
+  cursor: pointer;
+  transition: border-color .12s ease, color .12s ease, background .12s ease;
+}
+.ec-btn:hover:not(:disabled) { background: var(--bcn-sunken); border-color: var(--bcn-accent); color: var(--bcn-accent); }
+.ec-btn:disabled { opacity: .45; cursor: default; }
+.ec-btn--primary { border-color: var(--bcn-accent); color: var(--bcn-accent); }
+.ec-btn--go { border-color: var(--bcn-pos); color: var(--bcn-pos); }
+.ec-btn--go:hover:not(:disabled) { background: color-mix(in oklab, var(--bcn-pos) 10%, var(--bcn-surface)); border-color: var(--bcn-pos); color: var(--bcn-pos); }

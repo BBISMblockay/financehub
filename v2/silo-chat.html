@@ -280,6 +280,11 @@
       <div class="bcn-header-actions">
         <button id="btnSaved" class="bcn-btn bcn-btn--ghost">Saved reports</button>
         <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Training</button>
+        <!-- Product Concepts: in testing -- unhidden in boot() for the same
+             allowlist as the concept suggestion chip. Not a nav entry yet,
+             matching how comp-requests is kept out of the sidebar until the
+             workflow has been reviewed end to end. -->
+        <a id="btnConcepts" class="bcn-btn bcn-btn--ghost" href="/v2/product-concepts.html" hidden>Concepts</a>
         <button id="btnNewChat" class="bcn-btn bcn-btn--ghost">New chat</button>
       </div>
     </header>
@@ -441,9 +446,12 @@
   }
 
   // Replays a saved conversation into the log on boot. Per-message SQL
-  // (queries) is persisted alongside content so "Save report"/"N queries
-  // run" still work after a restore, not just on messages from this page
-  // load.
+  // (queries) and any drafted Product Concepts (concepts) are persisted
+  // alongside content so "Save report"/"N queries run" and the concept
+  // cards still work after a restore, not just on messages from this page
+  // load. Anything the response returns that the card/actions need has to
+  // be stored on the history entry -- restore can only replay what the
+  // entry carries.
   function restoreHistoryFromSession() {
     let saved;
     try {
@@ -455,7 +463,7 @@
     history.forEach((m, i) => {
       if (m.role === 'assistant') {
         const question = [...history.slice(0, i)].reverse().find(x => x.role === 'user')?.content || '';
-        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, saveCtx: { question } });
+        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, saveCtx: { question } });
       } else {
         renderMessage({ role: 'user', content: m.content, images: m.imageUrls });
       }
@@ -513,6 +521,10 @@
       const strength = (c.evidence_strength || '').toLowerCase();
       return [
         h.chip(c.status, c.status === 'approved' ? 'approved' : ''),
+        // Completeness, shown next to approval because they are separate
+        // axes -- an approved core draft is a real and normal state, and
+        // collapsing the two would hide that.
+        c.phase ? h.chip(c.phase === 'full_brief' ? 'full brief' : 'core draft') : '',
         strength ? h.chip(`evidence: ${strength}`, strength) : '',
         c.current_revision_number > 1 ? h.chip(`rev ${c.current_revision_number}`) : '',
         c.parent_concept_id ? h.chip('in collection') : '',
@@ -610,7 +622,90 @@
         : '',
       c.next_decision ? `<div style="margin-top:7px"><strong>Next decision</strong>${h.esc(c.next_decision)}</div>` : '',
     ].filter(Boolean).join(''),
+
+    // The §6 concept actions. Each one sends a turn carrying this
+    // concept's id, which is what makes the action unambiguous -- the
+    // model is told exactly which row to revise instead of inferring it
+    // from conversation it may no longer have.
+    // Gated on real state, not guesswork: "Build full plan" only shows on
+    // a core_draft, "Approve" only on a draft. An archived concept gets
+    // no actions at all.
+    actions: (c) => {
+      if (c.status === 'archived') return [];
+      return [
+        c.phase === 'core_draft'
+          ? { label: 'Build full plan', action: 'build_full_plan', variant: 'primary',
+              title: 'Ground and fill the launch-plan brief (size curve, channel split, spend, revenue shape, cadence, copy)' }
+          : null,
+        { label: 'Pressure test', action: 'pressure_test',
+          title: 'Challenge the numbers against real data without changing the concept' },
+        { label: 'Revise…', action: 'revise',
+          title: 'Describe a change; it becomes a new revision of this concept' },
+        c.status === 'draft'
+          ? { label: 'Approve', action: 'approve', variant: 'go',
+              title: 'Human sign-off. Requires the same purchasing write access PO Builder needs' }
+          : null,
+      ];
+    },
   };
+
+  // Prompts sent for each card action. Written as things a person would
+  // actually say, because they render in the thread as the user's own
+  // turn -- the concept id rides alongside as a sibling field rather than
+  // being pasted into visible text.
+  // Set by the "Revise…" card action; consumed by the next sendMessage so
+  // that message revises the named concept instead of being read as a new
+  // idea. Cleared on send or Esc.
+  let pendingConceptId = null;
+
+  function clearPendingConcept() {
+    if (!pendingConceptId) return;
+    pendingConceptId = null;
+    el('input').placeholder = 'Ask about sales, inventory, marketing, returns…';
+    el('status').hidden = true;
+  }
+
+  const CONCEPT_ACTION_PROMPTS = {
+    build_full_plan: 'Build out the full launch-plan brief for this concept.',
+    pressure_test: 'Pressure test this concept against real data — is the quantity and timing defensible? Do not change it, just tell me what holds up and what does not.',
+    approve: 'Approve this concept.',
+  };
+
+  // Delegated so it covers cards rendered now and cards replayed from a
+  // restored session alike.
+  el('log').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-ec-action]');
+    if (!btn) return;
+    const action = btn.dataset.ecAction;
+    const conceptId = btn.dataset.ecId;
+    if (!conceptId) return;
+
+    // "Revise…" has no canned prompt -- the change is whatever the user
+    // types. Rather than a browser dialog (wrong for a chat surface, and
+    // against this app's no-alert convention), arm the composer: the next
+    // message sent is bound to this concept.
+    if (action === 'revise') {
+      pendingConceptId = conceptId;
+      const box = el('input');
+      box.placeholder = 'Describe the change to this concept…';
+      box.focus();
+      setStatus('Next message will revise this concept. Press Esc to cancel.', 'info');
+      return;
+    }
+
+    const text = CONCEPT_ACTION_PROMPTS[action];
+    if (!text) return;
+
+    // Same shape as an image attachment: content stays plain text, the id
+    // rides alongside. saveHistoryToSession persists it, so the binding
+    // survives a reload -- which is exactly the case that used to produce
+    // a duplicate concept.
+    const entry = { role: 'user', content: text, conceptId };
+    history.push(entry);
+    saveHistoryToSession();
+    renderMessage({ role: 'user', content: text });
+    await askSilo();
+  });
 
   function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts }) {
     el('emptyState')?.remove();
@@ -779,6 +874,13 @@
       }
       const historyEntry = { role: 'assistant', content: data.answer };
       if (data.queries_run && data.queries_run.length) historyEntry.queries = data.queries_run;
+      // Product Concepts: persist the concept rows alongside the answer for
+      // the same reason `queries` is persisted -- without this the card is
+      // rendered once and then lost on the next page load, since restore
+      // replays only what the history entry carries. Reported live: a
+      // refresh mid-draft made the drafted concept vanish from the thread
+      // even though the row existed in the database the whole time.
+      if (data.concepts && data.concepts.length) historyEntry.concepts = data.concepts;
       history.push(historyEntry);
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
@@ -831,10 +933,15 @@
     // string). The edge function turns this into real image content blocks
     // only for entries that carry it.
     if (images.length) entry.imageUrls = images;
+    // Armed by the "Revise…" card action -- binds this message to a
+    // specific concept so the model revises it rather than treating the
+    // request as a new idea.
+    if (pendingConceptId) entry.conceptId = pendingConceptId;
     history.push(entry);
     saveHistoryToSession();
     renderMessage({ role: 'user', content: text, images });
     clearPendingImages();
+    clearPendingConcept();
     await askSilo();
   }
 
@@ -893,6 +1000,8 @@
       e.preventDefault();
       sendMessage(el('input').value);
     }
+    // Back out of a "Revise…" binding without sending anything.
+    if (e.key === 'Escape') clearPendingConcept();
   });
   el('input').addEventListener('input', function () {
     this.style.height = 'auto';
@@ -1257,6 +1366,23 @@
     if (['blake@baseballism.com'].includes(conceptTesterEmail)) {
       el('suggestionConcept').hidden = false;
       el('btnAttach').hidden = false;
+      el('btnConcepts').hidden = false;
+    }
+
+    // Arrived from the Product Concepts list via "Open in Ask SILO": bind
+    // the composer to that concept so the first thing typed revises it
+    // rather than being read as a brand-new idea. This is the same
+    // mechanism the card's Revise action uses -- the id travels with the
+    // message instead of relying on conversation the model may not have.
+    const wantConcept = new URLSearchParams(location.search).get('concept');
+    if (wantConcept) {
+      const { data: c } = await sb.from('product_concepts_v')
+        .select('id, title').eq('id', wantConcept).maybeSingle();
+      if (c) {
+        pendingConceptId = c.id;
+        el('input').placeholder = `Describe the change to "${c.title}"…`;
+        setStatus(`Working on "${c.title}". Your next message revises it — press Esc to cancel.`, 'info');
+      }
     }
 
     restoreHistoryFromSession();

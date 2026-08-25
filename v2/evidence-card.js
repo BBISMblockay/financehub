@@ -118,9 +118,27 @@
       .map((s) => section(s.label, s.html, s.open))
       .join('');
 
+    // Actions turn the card into a workflow step rather than a readout.
+    // Each button carries the record's id in a data attribute, so whatever
+    // the host page does with a click, it cannot be ambiguous about which
+    // artifact was acted on -- which is precisely the ambiguity that lets
+    // a "revise this" request get misread as "create a new one".
+    // Presentation only: this component never binds handlers or mutates
+    // anything; the host page delegates clicks off [data-ec-action].
+    const actions = (spec.actions ? spec.actions(row, h) : []) || [];
+    const actionsHtml = actions.filter(Boolean).length
+      ? `<div class="ec-actions">${
+          actions.filter(Boolean).map((a) => `<button type="button" class="ec-btn${
+            a.variant ? ` ec-btn--${esc(a.variant)}` : ''
+          }" data-ec-action="${esc(a.action)}" data-ec-id="${esc(row.id ?? '')}"${
+            a.title ? ` title="${esc(a.title)}"` : ''
+          }${a.disabled ? ' disabled' : ''}>${esc(a.label)}</button>`).join('')
+        }</div>`
+      : '';
+
     // An artifact with no title and no content at all renders nothing
     // rather than an empty shell.
-    if (!title && !exec && !numbers && !sectionsHtml && !foot) return '';
+    if (!title && !exec && !numbers && !sectionsHtml && !foot && !actionsHtml) return '';
 
     return `
       <div class="ec-card">
@@ -134,6 +152,7 @@
           ${sectionsHtml}
         </div>
         ${foot ? `<div class="ec-foot">${foot}</div>` : ''}
+        ${actionsHtml}
       </div>`;
   }
 

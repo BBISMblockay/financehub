@@ -115,7 +115,7 @@ Now the majority of `v2/` — 33 pages. Anything in `v2/` that loads `silo-chrom
 `bi-product-types`, `bi-sales-overview`, `bi-top-sellers`, `calendar`, `finance`, `insights`,
 `integrations`, `inventory`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`,
 `marketing-overview`, `my-review`, `planning-scenarios`, `po-builder`, `po-costing`, `po-report`,
-`products`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
+`product-concepts`, `products`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
 `review-editor`, `review-templates`, `reviews`, `sales-verification`, `silo-chat`, `tasks`.
 
 Asset load order (must follow exactly):
@@ -554,6 +554,7 @@ than this section.
   nav yet (`v2/nav-config.js`) — row commented out until the workflow's been reviewed end-to-end
 - **Redo returns** — webhook + REST backfill into `redo_returns`; `/v2/returns-overview.html` exists
   but is deliberately **not** in the nav until coverage is complete
+- **Product Concepts** (`/v2/product-concepts.html`) — browse/filter concepts drafted in Ask SILO with the full evidence brief, collection children nested under their parent; "Open in Ask SILO" deep-links via `?concept=<id>`, which arms the composer against that row so a refinement revises it instead of creating a second concept. Reachable from the **Concepts** button in Ask SILO's header (unhidden for the same tester allowlist); deliberately **not** in the nav yet, same stance as comp-requests
 - **Ask SILO** (`/v2/silo-chat.html`) — agentic chat with taught notes (`silo_chat_notes`) and a
   dedicated access grant (`silo_chat_managers`); exec-only in the sidebar during soft launch
 - **Nav profiles** (`v2/nav-config.js`) — grandfathered vs standard menus, plus department/role/grant

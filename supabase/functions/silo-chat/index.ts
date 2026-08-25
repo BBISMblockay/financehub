@@ -204,6 +204,10 @@ PO creation itself (the 8th item a reviewer would expect) is handled downstream 
 
 This whole flow only ever produces a draft or an approved concept row -- it does not create a PO, and nothing here places an order or commits money. Say so if a user seems to think approving a concept is the same as ordering it.
 
+CONCEPT ACTIONS: the user can act on a saved concept directly from its card (Revise, Pressure test, Build full plan, Approve). Those arrive with a line reading "[Acting on existing product concept id ...]" at the top of the message. When you see it, that id is authoritative -- use update_product_concept on THAT id and never create a new concept for it, no matter how the request is phrased. The id is also your cue that the concept already exists even if nothing earlier in this conversation mentions it (a page reload or a dropped request can leave you with no memory of drafting it).
+
+PHASE IS RECORDED ON THE ROW: product_concepts.phase is 'core_draft' (title/angle/qty/factory/timing only) or 'full_brief' (launch-plan fields filled in too). You do not set it and should not try -- it is inferred from what you actually write, so filling any launch-plan field moves it automatically. Read it to know where a concept stands: a 'core_draft' has not had phase 2 run yet, whatever the conversation implies. It is orthogonal to status (draft/approved/archived) -- an approved core_draft and an unapproved full_brief are both perfectly normal, so never infer one axis from the other.
+
 REVISIONS -- refine the concept you already made, never stamp a second one:
 - Once a concept exists in this conversation, EVERY later refinement of that same idea is an update_product_concept call on its id. "Make the buy more conservative", "move it to November", "make this retail only", "cut the buy 25%" are all revisions, not new concepts. Creating a second concept row for a refinement is the single worst outcome in this flow -- it is what made saved concepts unreadable before revisions existed.
 - Each update automatically creates a numbered revision preserving the previous state, so nothing is ever lost by revising and there is no reason to hesitate. Always pass a one-line revision_note describing the change.
@@ -323,6 +327,16 @@ const STRUCTURED_CONCEPT_FIELDS: Record<string, Record<string, unknown>> = {
     description: 'What backed each significant claim, so "why did SILO recommend 1,800 units?" is answerable later, e.g. [{"claim":"suggested_qty","tables":["sales_by_day","launch_calendar"],"date_range":"2025-09-01..2026-08-01","metrics":["units_90d"],"skus":["YTH-CAP-001"],"note":"..."}]. Record the source tables and date ranges you actually queried -- not raw SQL.',
   },
 };
+
+// The launch-plan fields that define phase 2. Writing any of them is what
+// moves a concept from 'core_draft' to 'full_brief' (20260825140000) --
+// phase is inferred from content rather than asserted, so the row can
+// never claim a completeness it does not have.
+const PHASE_2_FIELDS = [
+  'suggested_size_breakdown', 'suggested_channel_split', 'suggested_marketing_spend',
+  'suggested_weekly_revenue_projection', 'suggested_email_sms_plan',
+  'suggested_marketing_copy', 'economics', 'forecast',
+];
 
 // Column names accepted by update_product_concept, kept next to the schema
 // so adding a field is a one-place change.
@@ -696,17 +710,29 @@ Deno.serve(async (req: Request) => {
     // content-block array; everything else stays a plain string exactly as
     // before. `content` itself is never anything but a string -- question/
     // logAudit/etc. below all keep assuming that.
-    const messages = history.map((m: { role: string; content: string; imageUrls?: string[] }) => {
+    const messages = history.map((m: { role: string; content: string; imageUrls?: string[]; conceptId?: string }) => {
       const role = m.role === 'assistant' ? 'assistant' : 'user';
+      // Product Concept card actions (Revise / Pressure test / Build full
+      // plan / Approve) send the concept's id alongside the text, the same
+      // sibling-field shape as imageUrls. This is what makes an action
+      // unambiguous: the id travels with the request instead of the model
+      // having to remember it. It cannot remember it -- the client persists
+      // only {role, content} into history, so a concept id created on an
+      // earlier turn is simply not in context. That gap is what produced a
+      // duplicate concept live on 2026-08-25: asked to change a quantity,
+      // the model had no id to update and created a second row.
+      const text = m.conceptId
+        ? `[Acting on existing product concept id ${m.conceptId} -- revise THIS concept with update_product_concept, do not create a new one.]\n${m.content}`
+        : m.content;
       if (Array.isArray(m.imageUrls) && m.imageUrls.length) {
         const blocks: Array<Record<string, unknown>> = m.imageUrls.map((url) => ({
           type: 'image',
           source: { type: 'url', url },
         }));
-        if (m.content) blocks.push({ type: 'text', text: m.content });
+        if (text) blocks.push({ type: 'text', text });
         return { role, content: blocks };
       }
-      return { role, content: m.content };
+      return { role, content: text };
     });
 
     // Fetched once per request (not per tool-round) so the system prompt
@@ -890,7 +916,37 @@ Deno.serve(async (req: Request) => {
           try {
             const title = String(input.title || '').trim();
             if (!title) throw new Error('title is required');
-            const payload = {
+            // Duplicate guard. The prompt already says refinement is a
+            // revision, never a second concept -- but that instruction
+            // depends on an id the model often cannot see (see the history
+            // mapping above), so it cannot hold on its own. Live on
+            // 2026-08-25 a request to change a quantity produced a second
+            // "Timeless Ballplayers Tee" row five minutes after the first.
+            //
+            // Checked server-side because that is the only place it works
+            // from a cold thread: a client-side failure means the assistant
+            // turn is never recorded at all, and the recovery path reads
+            // silo_chat_audit_log, which stores answers and SQL but not
+            // concepts. Exact (case-insensitive) title match only --
+            // fuzzy matching would block legitimate collection siblings,
+            // which differ precisely by title. RLS scopes this to the
+            // caller's own company automatically.
+            const { data: dupe } = await callerClient
+              .from('product_concepts')
+              .select('id, title, status, phase, current_revision_number')
+              .eq('status', 'draft')
+              .ilike('title', title)
+              .limit(1)
+              .maybeSingle();
+            if (dupe) {
+              resultContent = `Error: a draft concept titled "${dupe.title}" already exists (id ${dupe.id}, phase ${dupe.phase}, revision ${dupe.current_revision_number}). Do NOT create a duplicate -- call update_product_concept with id ${dupe.id} to revise that concept instead. Only create a new concept if this is genuinely a DIFFERENT product (for a collection sibling, give it its own distinct title and set parent_concept_id).`;
+              toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: resultContent });
+              continue;
+            }
+            // Typed as an open record because the structured-brief loop
+            // below adds keys dynamically; an inferred literal type makes
+            // that a compile error.
+            const payload: Record<string, unknown> = {
               title,
               concept_summary: input.concept_summary ?? null,
               marketing_angle: input.marketing_angle ?? null,
@@ -947,6 +1003,12 @@ Deno.serve(async (req: Request) => {
             if (!Object.keys(patch).some((k) => k !== 'revision_note')) {
               throw new Error('no fields to update');
             }
+            // Phase is derived from what was actually written, not from the
+            // model asserting it: filling any launch-plan field IS what
+            // "full brief" means. Keeping it inferred here means the row's
+            // phase can never disagree with its own contents, and the card
+            // can offer "Build full plan" purely from state.
+            if (PHASE_2_FIELDS.some((k) => patch[k] != null)) patch.phase = 'full_brief';
             const { data: row, error } = await callerClient
               .from('product_concepts')
               .update(patch)

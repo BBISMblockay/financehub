@@ -1111,6 +1111,32 @@ select
     else 'ok'
   end as product_concept_structured_workflow;
 
+-- Product Concepts phase (migration 20260825140000) — completeness axis
+-- ('core_draft' | 'full_brief'), orthogonal to the status approval axis.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts'
+                       and column_name='phase')
+      then 'MISSING — run 20260825140000_product_concept_phase.sql'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.product_concepts'::regclass
+                       and conname='product_concepts_phase_check')
+      then 'MISSING — product_concepts_phase_check constraint'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts_v'
+                       and column_name='phase')
+      then 'MISSING — phase not exposed on product_concepts_v'
+    -- The backfill suspends the revision trigger; a migration that left it
+    -- disabled would silently stop recording concept history from then on.
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.product_concepts'::regclass
+                       and tgname='trg_product_concept_revision'
+                       and tgenabled = 'O')
+      then 'BROKEN — trg_product_concept_revision is disabled; concept history is not being recorded'
+    else 'ok'
+  end as product_concept_phase;
+
 -- Ask SILO schema catalog + health view (migration 20260821210000)
 select
   case
