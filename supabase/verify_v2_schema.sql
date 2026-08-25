@@ -140,6 +140,17 @@ select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_returns') then 'ok' else 'MISSING' end as redo_returns,
   case when exists (select 1 from pg_indexes where schemaname='public' and tablename='redo_returns' and indexname='idx_redo_returns_company_return') then 'ok' else 'MISSING' end as redo_returns_unique_idx;
 
+-- 7d2. QuickBooks Online integration (20260826060000_quickbooks_integration.sql)
+select
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_connections') then 'ok' else 'MISSING' end as quickbooks_connections,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_oauth_states') then 'ok' else 'MISSING' end as quickbooks_oauth_states,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_accounts') then 'ok' else 'MISSING' end as quickbooks_accounts,
+  case when exists (select 1 from pg_indexes where schemaname='public' and tablename='quickbooks_connections' and indexname='uq_quickbooks_connections_company_realm') then 'ok' else 'MISSING' end as quickbooks_connections_unique_idx,
+  case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='accounting_coa_map' and column_name='qbo_account_id') then 'ok' else 'MISSING' end as coa_map_qbo_account_id,
+  case when exists (select 1 from pg_policies where schemaname='public' and tablename='quickbooks_connections' and policyname='quickbooks_connections_admin_select') then 'ok' else 'MISSING' end as quickbooks_connections_admin_select,
+  -- Credential-bearing table: a non-admin select policy here would expose live OAuth tokens.
+  case when not exists (select 1 from pg_policies where schemaname='public' and tablename='quickbooks_connections' and policyname='quickbooks_connections_active_select') then 'ok' else 'OVERBROAD POLICY PRESENT' end as quickbooks_connections_no_broad_select;
+
 -- 7e. Redo return items + customer columns (20260812130000_redo_return_items.sql)
 select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_return_items') then 'ok' else 'MISSING' end as redo_return_items,
