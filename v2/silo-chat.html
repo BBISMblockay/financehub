@@ -533,10 +533,19 @@
       ].filter(Boolean).join('');
     },
 
-    exec: (c, h) => [
-      c.concept_summary ? `<div class="ec-exec">${h.esc(c.concept_summary)}</div>` : '',
-      c.objective ? `<div>${h.esc(c.objective)}</div>` : '',
-    ].filter(Boolean).join(''),
+    exec: (c, h) => {
+      // Reference images the user attached while drafting. They were being
+      // saved onto the row and rendered nowhere -- for a visual product
+      // concept the imagery is the first thing worth seeing, so it leads.
+      const imgs = Array.isArray(c.reference_image_urls) ? c.reference_image_urls.filter(Boolean) : [];
+      return [
+        imgs.length
+          ? `<div class="ec-imgs">${imgs.map((u) => `<a href="${h.esc(u)}" target="_blank" rel="noopener noreferrer"><img src="${h.esc(u)}" alt="Reference image" loading="lazy"></a>`).join('')}</div>`
+          : '',
+        c.concept_summary ? `<div class="ec-exec">${h.esc(c.concept_summary)}</div>` : '',
+        c.objective ? `<div>${h.esc(c.objective)}</div>` : '',
+      ].filter(Boolean).join('');
+    },
 
     numbers: (c, h) => {
       const econ = c.economics || {};

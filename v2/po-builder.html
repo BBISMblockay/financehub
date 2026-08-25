@@ -176,6 +176,18 @@
             </div>
           </div>
           <footer class="bcn-card-foot">
+            <!-- Product Concepts: the concept -> PO hop. DELIBERATELY NOT
+                 SURFACED YET -- this button is hidden and NOTHING unhides
+                 it, by design: the workflow is still being reviewed and
+                 buyers should not see a concept picker in PO Builder until
+                 it is. The plumbing below is complete and wired, so
+                 enabling it later means removing this `hidden` attribute
+                 (and adding whatever gate is wanted then), not writing new
+                 code. Same stance as comp-requests being kept out of the
+                 nav until its workflow was reviewed end to end.
+                 Not `disabled` like its neighbours because it can start a
+                 PO from scratch -- the concept supplies the factory. -->
+            <button id="btnFromConcept" class="bcn-btn bcn-btn--mono" type="button" hidden>FROM CONCEPT</button>
             <button id="btnAddCatalogLine" class="bcn-btn bcn-btn--mono" type="button" disabled>CATALOG LINE</button>
             <button id="btnBulkSku" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled>BULK SKU</button>
             <button id="btnImportLines" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled>IMPORT</button>
@@ -215,6 +227,38 @@
         </section>
       </div>
     </main>
+  </div>
+
+  <!-- Product Concepts -> PO. A collection is the normal case (a themed
+       drop of several products), and working through one product at a time
+       is the part that takes a designer forever -- so children render
+       nested under their parent with a select-all, and the whole drop
+       becomes lines in one action. -->
+  <div id="conceptModal" class="po-modal hidden-safe">
+    <div class="po-modal-backdrop" data-close="conceptModal"></div>
+    <div class="po-modal-panel po-modal-panel--lg">
+      <div class="po-modal-head">
+        <div>
+          <h3 class="po-modal-title">Start from concept</h3>
+          <p class="po-modal-sub">Approved concepts become PO lines from their size breakdown. One PO is one factory, so concepts must share a factory to combine.</p>
+        </div>
+        <div class="toolbar" style="margin:0;">
+          <button id="btnAddFromConcept" class="bcn-btn" type="button">Add to PO</button>
+          <button class="bcn-btn bcn-btn--ghost" type="button" data-close="conceptModal">Close</button>
+        </div>
+      </div>
+      <div class="po-modal-grid" style="grid-template-columns:1fr auto;align-items:end;gap:10px;">
+        <div class="field"><label>Search</label><input id="conceptSearch" type="search" placeholder="Title, product type…" /></div>
+        <label class="field" style="flex-direction:row;align-items:center;gap:6px;">
+          <input id="conceptIncludeDrafts" type="checkbox" />
+          <span>Include drafts</span>
+        </label>
+      </div>
+      <div id="conceptGuard" class="bcn-status bcn-status--neg" hidden style="margin-top:10px;"></div>
+      <div class="line-table-wrap" style="margin-top:12px;max-height:58vh;">
+        <div id="conceptList"></div>
+      </div>
+    </div>
   </div>
 
   <div id="catalogModal" class="po-modal hidden-safe">
@@ -662,6 +706,174 @@
       const {error}=await sb.from('product_tracker').insert(trackerPayload);
       if(error){ setStatus('Tracker sync failed: '+error.message,'neg'); return; }
       setStatus(`"${title}" added to Product Tracker.`,'pos',3000);
+    }
+
+    // ---- Product Concepts -> PO ------------------------------------------
+    // The concept carries strategy; the PO is where a human commits to
+    // real numbers. So this pre-fills and never auto-approves: quantities
+    // land as editable lines, and the buyer adjusts before saving.
+    const CONCEPT_TESTERS=['blake@baseballism.com'];
+    state.concepts=[];
+
+    async function loadConcepts(){
+      const includeDrafts=document.getElementById('conceptIncludeDrafts').checked;
+      let q=sb.from('product_concepts_v')
+        .select('id,title,status,phase,parent_concept_id,parent_title,suggested_qty,suggested_factory_id,suggested_factory_name,suggested_product_type,suggested_size_breakdown,economics,evidence_strength,child_count')
+        .order('created_at',{ascending:false}).limit(300);
+      q = includeDrafts ? q.in('status',['approved','draft']) : q.eq('status','approved');
+      if(_co?.id) q=q.eq('company_entity_id',_co.id);
+      const {data,error}=await q; if(error) throw error;
+      // Exclude anything already on THIS po, so re-opening the picker
+      // doesn't offer to duplicate lines already added.
+      let already=new Set();
+      if(state.currentPO?.id){
+        const {data:links}=await sb.from('po_concept_links').select('concept_id').eq('po_header_id',state.currentPO.id);
+        already=new Set((links||[]).map(l=>l.concept_id));
+      }
+      state.concepts=(data||[]).filter(c=>!already.has(c.id));
+      renderConceptList();
+    }
+
+    function conceptUnits(c){
+      const sb_=c.suggested_size_breakdown;
+      if(sb_ && typeof sb_==='object' && !Array.isArray(sb_)){
+        const total=Object.values(sb_).reduce((a,b)=>a+(Number(b)||0),0);
+        if(total>0) return total;
+      }
+      return Number(c.suggested_qty)||0;
+    }
+
+    function renderConceptList(){
+      const term=(document.getElementById('conceptSearch').value||'').trim().toLowerCase();
+      const match=c=>!term || [c.title,c.suggested_product_type,c.parent_title].filter(Boolean).join(' ').toLowerCase().includes(term);
+      const rows=state.concepts.filter(match);
+      const parents=rows.filter(c=>!c.parent_concept_id);
+      const kids=new Map();
+      for(const c of rows){ if(!c.parent_concept_id) continue; if(!kids.has(c.parent_concept_id)) kids.set(c.parent_concept_id,[]); kids.get(c.parent_concept_id).push(c); }
+
+      const line=(c,isChild)=>{
+        const units=conceptUnits(c);
+        const sizes=c.suggested_size_breakdown && typeof c.suggested_size_breakdown==='object'
+          ? Object.entries(c.suggested_size_breakdown).map(([k,v])=>`${escapeHtml(k)} ${Number(v)||0}`).join(' · ') : '';
+        return `<label class="pc-pick" style="display:flex;gap:9px;align-items:flex-start;padding:9px 10px;border-bottom:1px solid var(--bcn-border);${isChild?'margin-left:20px;border-left:2px solid var(--bcn-border);':''}">
+          <input type="checkbox" data-concept-pick="${escapeHtml(c.id)}" data-factory="${escapeHtml(c.suggested_factory_id||'')}" style="margin-top:3px" />
+          <span style="flex:1;min-width:0">
+            <span style="font-weight:650;font-size:13px">${escapeHtml(c.title||'Untitled')}</span>
+            <span style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;font-family:var(--bcn-mono);font-size:9.5px;color:var(--bcn-ink-3)">
+              <span>${escapeHtml(c.status)}</span>
+              ${c.suggested_product_type?`<span>· ${escapeHtml(c.suggested_product_type)}</span>`:''}
+              ${units?`<span>· ${units} units</span>`:'<span style="color:var(--bcn-neg)">· no qty</span>'}
+              ${c.suggested_factory_name?`<span>· ${escapeHtml(c.suggested_factory_name)}</span>`:'<span style="color:var(--bcn-neg)">· no factory</span>'}
+              ${c.evidence_strength?`<span>· evidence ${escapeHtml(c.evidence_strength)}</span>`:''}
+            </span>
+            ${sizes?`<span style="display:block;margin-top:4px;font-family:var(--bcn-mono);font-size:10px;color:var(--bcn-ink-3)">${sizes}</span>`:''}
+          </span>
+        </label>`;
+      };
+
+      const html=parents.map(p=>{
+        const children=kids.get(p.id)||[];
+        const head=children.length
+          ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bcn-sunken);border-bottom:1px solid var(--bcn-border)">
+               <button type="button" class="bcn-btn bcn-btn--ghost" data-pick-collection="${escapeHtml(p.id)}" style="font-size:10px;padding:2px 8px">Select all ${children.length}</button>
+               <span style="font-family:var(--bcn-mono);font-size:10px;color:var(--bcn-ink-3)">collection</span>
+             </div>` : '';
+        return head + line(p,false) + children.map(c=>line(c,true)).join('');
+      }).join('');
+
+      // Children whose parent was filtered out still need to appear.
+      const shownIds=new Set(parents.map(p=>p.id));
+      const orphans=rows.filter(c=>c.parent_concept_id && !shownIds.has(c.parent_concept_id));
+      document.getElementById('conceptList').innerHTML =
+        (html + orphans.map(c=>line(c,false)).join('')) ||
+        '<div style="padding:26px;text-align:center;color:var(--bcn-ink-3);font-size:12.5px">No concepts match. Approve a concept in Ask SILO, or tick "Include drafts".</div>';
+      checkConceptFactoryGuard();
+    }
+
+    function pickedConcepts(){
+      return [...document.querySelectorAll('[data-concept-pick]:checked')]
+        .map(i=>state.concepts.find(c=>c.id===i.getAttribute('data-concept-pick')))
+        .filter(Boolean);
+    }
+
+    // One PO is one factory (po_headers.factory_id is a single FK), so a
+    // collection spanning two factories is necessarily two POs. Say that
+    // plainly at selection time rather than failing at save.
+    function checkConceptFactoryGuard(){
+      const picked=pickedConcepts();
+      const guard=document.getElementById('conceptGuard');
+      const facs=[...new Set(picked.map(c=>c.suggested_factory_id).filter(Boolean))];
+      const noFactory=picked.filter(c=>!c.suggested_factory_id);
+      const poFactory=el.factoryId.value||null;
+      let msg='';
+      if(facs.length>1){
+        msg=`Selected concepts span ${facs.length} factories. One PO is one factory — pick concepts from a single factory and make a second PO for the rest.`;
+      } else if(poFactory && facs.length===1 && facs[0]!==poFactory){
+        msg='These concepts name a different factory than this PO. Change the PO factory, or pick different concepts.';
+      } else if(noFactory.length){
+        msg=`${noFactory.length} selected concept(s) have no factory — their lines will be added, but set the PO factory yourself.`;
+      }
+      guard.hidden=!msg; guard.textContent=msg;
+      guard.className='bcn-status bcn-status--'+(facs.length>1||(poFactory&&facs.length===1&&facs[0]!==poFactory)?'neg':'info');
+      document.getElementById('btnAddFromConcept').disabled = !picked.length || facs.length>1;
+    }
+
+    // One line per size when a breakdown exists, otherwise a single line.
+    // Sizes come straight from the concept's own breakdown so the buyer
+    // adjusts real numbers rather than re-deriving them.
+    function conceptToLines(c, poId){
+      const econ=c.economics&&typeof c.economics==='object'?c.economics:{};
+      const cost=Number(econ.unit_cost)||null, retail=Number(econ.msrp)||null;
+      const base={ po_header_id:poId, product_type_snapshot:c.suggested_product_type||null,
+        title_snapshot:c.title||null, unit_cost:cost, retail_price:retail,
+        source_concept_id:c.id,
+        line_notes:`From concept: ${c.title||''}`.trim() };
+      const bd=c.suggested_size_breakdown;
+      if(bd && typeof bd==='object' && !Array.isArray(bd) && Object.keys(bd).length){
+        return Object.entries(bd)
+          .filter(([,v])=>Number(v)>0)
+          .map(([size,v])=>({...base, variant_title_snapshot:String(size), qty:Number(v)||0,
+            retail_value:retail?(Number(v)||0)*retail:0}));
+      }
+      const qty=Number(c.suggested_qty)||0;
+      return [{...base, qty, retail_value:retail?qty*retail:0}];
+    }
+
+    async function addFromConcepts(){
+      const picked=pickedConcepts();
+      if(!picked.length){ alert('Select at least one concept.'); return; }
+      const facs=[...new Set(picked.map(c=>c.suggested_factory_id).filter(Boolean))];
+      if(facs.length>1){ alert('Selected concepts span more than one factory. One PO is one factory.'); return; }
+
+      // No PO open yet: the concept supplies enough to start one. A
+      // collection uses the parent's title so the PO reads as the drop.
+      if(!state.currentPO?.id){
+        const parent=picked.find(c=>!c.parent_concept_id)||picked[0];
+        if(facs[0]) el.factoryId.value=facs[0];
+        if(!el.factoryId.value){ alert('These concepts have no factory. Pick a factory in the header first.'); return; }
+        el.isNewProductPO.checked=true;
+        if(!el.poName.value.trim()) el.poName.value='';
+        await saveHeader();
+        if(!state.currentPO?.id){ alert('Could not start a PO from these concepts.'); return; }
+      }
+      const poId=state.currentPO.id;
+
+      const lines=picked.flatMap(c=>conceptToLines(c,poId))
+        .map(l=>({...l,...(_co?.id?{company_entity_id:_co.id}:{})}));
+      if(!lines.length){ alert('These concepts have no quantities to add.'); return; }
+
+      const {error}=await sb.from('po_lines').insert(lines); if(error) throw error;
+
+      // Record which concepts this PO was built from. Ignore duplicate-key
+      // errors: re-adding a concept is harmless and the unique constraint
+      // is what makes it idempotent.
+      const links=picked.map(c=>({po_header_id:poId, concept_id:c.id, ...(_co?.id?{company_entity_id:_co.id}:{})}));
+      const {error:linkErr}=await sb.from('po_concept_links').insert(links);
+      if(linkErr && !/duplicate key/i.test(linkErr.message||'')) setStatus('Lines added, but the concept link failed: '+linkErr.message,'neg');
+
+      await refreshAll(); await openPO(poId);
+      modalClose(document.getElementById('conceptModal'));
+      setStatus(`Added ${lines.length} line${lines.length===1?'':'s'} from ${picked.length} concept${picked.length===1?'':'s'}. Adjust quantities before approving.`,'pos',6000);
     }
 
     async function addCatalogLine(productId, qty){
@@ -1181,6 +1393,38 @@
     el.btnSaveHeader.addEventListener('click',async()=>{ try{ await saveHeader(); }catch(e){ console.error(e); alert(e.message||'Save failed'); } });
     el.btnGeneratePdf.addEventListener('click',()=>{ try{ generateVendorPdf(); }catch(e){ console.error(e); alert(e.message||'PDF generation failed'); } });
     el.btnDuplicatePO.addEventListener('click',async()=>{ try{ await duplicateCurrentPO(); }catch(e){ console.error(e); alert(e.message||'Duplicate failed'); } });
+    // Product Concepts -> PO. Wired but unreachable: #btnFromConcept is
+    // hidden and nothing unhides it (see the markup comment). Listeners
+    // live here so the path is complete and testable by removing that one
+    // attribute, rather than half-built.
+    document.getElementById('btnFromConcept').addEventListener('click',async()=>{
+      modalOpen(document.getElementById('conceptModal'));
+      try{ await loadConcepts(); }catch(e){ console.error(e); alert(e.message||'Could not load concepts'); }
+    });
+    document.getElementById('conceptSearch').addEventListener('input',renderConceptList);
+    document.getElementById('conceptIncludeDrafts').addEventListener('change',async()=>{
+      try{ await loadConcepts(); }catch(e){ console.error(e); }
+    });
+    document.getElementById('conceptList').addEventListener('change',ev=>{
+      if(ev.target.matches('[data-concept-pick]')) checkConceptFactoryGuard();
+    });
+    document.getElementById('conceptList').addEventListener('click',ev=>{
+      // "Select all N" on a collection -- the bulk path, so a themed drop
+      // does not have to be ticked product by product.
+      const btn=ev.target.closest('[data-pick-collection]');
+      if(!btn) return;
+      ev.preventDefault();
+      const parentId=btn.getAttribute('data-pick-collection');
+      const ids=new Set(state.concepts.filter(c=>c.parent_concept_id===parentId).map(c=>c.id));
+      const boxes=[...document.querySelectorAll('[data-concept-pick]')].filter(b=>ids.has(b.getAttribute('data-concept-pick')));
+      const turnOn=boxes.some(b=>!b.checked);
+      boxes.forEach(b=>{ b.checked=turnOn; });
+      checkConceptFactoryGuard();
+    });
+    document.getElementById('btnAddFromConcept').addEventListener('click',async()=>{
+      try{ await addFromConcepts(); }catch(e){ console.error(e); alert(e.message||'Could not add concept lines'); }
+    });
+
     el.btnAddCatalogLine.addEventListener('click',async()=>{ modalOpen(el.catalogModal); try{ await searchCatalog(); }catch(e){ console.error(e); alert(e.message||'Catalog load failed'); } });
     el.btnBulkSku.addEventListener('click',()=>{ el.bulkSkuResult.textContent=''; modalOpen(el.bulkSkuModal); });
     el.btnImportLines.addEventListener('click',()=>{ el.importResult.textContent=''; modalOpen(el.importModal); });
