@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Help</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    [hidden] { display: none !important; }
+
+    .hp-content { flex:1; padding:16px 18px 40px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:16px; }
+    .hp-content > .bcn-card { flex-shrink:0; }
+
+    .hp-jump { display:flex; flex-wrap:wrap; gap:6px; }
+    .hp-jump a {
+      font-family:var(--bcn-mono); font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+      color:var(--bcn-ink-2); text-decoration:none; border:1px solid var(--bcn-border); border-radius:999px;
+      padding:5px 12px; background:var(--bcn-surface); transition:border-color .12s ease, color .12s ease;
+    }
+    .hp-jump a:hover { border-color:var(--bcn-accent); color:var(--bcn-accent); }
+
+    .hp-item { border-bottom:1px solid var(--bcn-border); }
+    .hp-item:last-child { border-bottom:none; }
+    .hp-item summary {
+      cursor:pointer; list-style:none; padding:13px 16px; display:flex; align-items:center; gap:10px;
+      font-weight:650; font-size:13.5px; color:var(--bcn-ink);
+    }
+    .hp-item summary::-webkit-details-marker { display:none; }
+    .hp-item summary::before {
+      content:'›'; display:inline-block; font-size:15px; color:var(--bcn-ink-3);
+      transition:transform .15s ease; transform:rotate(0deg); width:12px;
+    }
+    .hp-item[open] summary::before { transform:rotate(90deg); }
+    .hp-item summary:hover { background:var(--bcn-sunken); }
+    .hp-item-path { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); font-weight:500; margin-left:auto; white-space:nowrap; }
+    .hp-body { padding:0 16px 16px 38px; font-size:13px; line-height:1.6; color:var(--bcn-ink-2); }
+    .hp-body p { margin:0 0 8px; }
+    .hp-body p:last-child { margin-bottom:0; }
+    .hp-body strong { color:var(--bcn-ink); }
+    .hp-body code { font-family:var(--bcn-mono); font-size:11.5px; background:var(--bcn-sunken); padding:1px 5px; border-radius:3px; }
+    .hp-body ul { margin:6px 0 8px; padding-left:18px; }
+    .hp-body li { margin-bottom:4px; }
+
+    .hp-empty { padding:32px 20px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Start</span>
+        </div>
+        <h1>Help &amp; Training</h1>
+        <div class="bcn-header-sub">What each tool does and how to use it. Search below, or jump to a section.</div>
+      </div>
+    </header>
+
+    <section class="bcn-filter-bar">
+      <div class="bcn-filter" style="flex:1;max-width:420px;">
+        <label class="bcn-label" for="searchInput">Search</label>
+        <input class="bcn-field" type="text" id="searchInput" placeholder="e.g. comp request, PO, live schedule, active company…" autocomplete="off" />
+      </div>
+    </section>
+
+    <div class="hp-jump" id="jumpNav"></div>
+
+    <div class="hp-content" id="hpContent">
+      <!-- sections injected by script below -->
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // ── Content ────────────────────────────────────────────────────────────
+  // Kept in plain JS objects (not markdown/CMS) so this stays a simple
+  // static page — same "no build step" shape as the rest of v2/. Update
+  // this array whenever a tool's workflow changes materially; it's not
+  // wired to nav-config.js, so a new tool needs its own entry here too.
+  const SECTIONS = [
+    {
+      id: 'general',
+      title: 'General',
+      items: [
+        {
+          q: 'What\'s the difference between my role and my department?',
+          a: `<p><strong>Role</strong> (owner / admin / executive / member / viewer) controls how much you can DO —
+             write access to things like POs, review templates, roster visibility.</p>
+             <p><strong>Department</strong> (finance, logistics, marketing, retail, exec, …) mostly controls what
+             shows up in your <strong>sidebar</strong> and which broadcast emails you're on (e.g. finance-only
+             comp request notifications, logistics-only sample notifications). Changing department rarely changes
+             what you're actually allowed to click — that's almost always governed by role/membership instead.</p>`,
+        },
+        {
+          q: 'Why don\'t I see a tool in my sidebar that a coworker has?',
+          a: `<p>Sidebar visibility is gated by department and/or role in <code>nav-config.js</code> — it's a
+             convenience filter, not the real security boundary (that's always the database's row-level security).
+             A few tools are also intentionally hidden from everyone right now while they're still being reviewed
+             — those still work if you go to the URL directly, just ask if you're not sure a link should exist yet.</p>`,
+        },
+        {
+          q: 'What is "active company" and why does it matter?',
+          a: `<p>SILO supports more than one company in the same login system. Your <strong>active company</strong>
+             is whichever one your current session is scoped to — it's what determines which company's data you
+             see. If you belong to only one company it's set automatically at login. If a page ever looks
+             empty right after you followed a bookmark or a shared link, it can mean the tab never picked up your
+             active company — reloading from the sidebar (not a raw bookmark) usually fixes it.</p>`,
+        },
+        {
+          q: 'A page shows a red "failed" status — what do I do?',
+          a: `<p>Most pages show a clear inline error message (never a silent failure) — read it first, it usually
+             names the actual problem (a required field, a permission issue, a network hiccup). If it mentions
+             a permission error and you believe you should have access, check with an admin — it may mean your
+             account needs a role/department update rather than something being broken.</p>`,
+        },
+      ],
+    },
+    {
+      id: 'accounting',
+      title: 'Accounting / Operations',
+      items: [
+        {
+          q: 'Payment Request — how do I ask for something to be paid?',
+          path: '/v2/purchase_request.html',
+          a: `<p>This is the intake form <strong>everyone</strong> can use — no special role needed. Fill in the
+             vendor, amount, request type (invoice, reimbursement, refund, etc.), and attach any invoice/receipt.
+             Submitting emails you a confirmation right away and routes the request into AP's queue
+             (Request Manager) for review.</p>`,
+        },
+        {
+          q: 'Request Manager — how does AP actually process requests?',
+          path: '/v2/request_manager.html',
+          a: `<p>This is the finance-facing queue (also visible to <strong>logistics</strong> so that department
+             can track requests it submitted). It moves a request through <code>new → in_review → needs_info →
+             approved → processing → paid</code> (or rejected/cancelled), supports bulk status updates, and files
+             attachments. Marking something <strong>paid</strong> emails the original requester automatically.</p>`,
+        },
+        {
+          q: 'Accounting Export — what is this for?',
+          path: '/v2/accounting-export.html',
+          a: `<p>Finance-only. Turns a selected month into journal-ready entries plus a Shopify Payments deposit
+             register, built from actual payout data — this is what closes the books each month, not a live
+             dashboard.</p>`,
+        },
+        {
+          q: 'Mail Intake vs. Mailroom — what\'s the difference?',
+          path: '/v2/mail-intake.html · /v2/mailroom.html',
+          a: `<p><strong>Mail Intake</strong> (open to everyone) is where you log a piece of mail that came in —
+             who it's from, priority, who should handle it. <strong>Mailroom</strong> (finance/exec) is the queue
+             view for routing and closing those items out. Assigning or completing an item emails the relevant
+             person automatically.</p>`,
+        },
+      ],
+    },
+    {
+      id: 'planning',
+      title: 'Planning',
+      items: [
+        {
+          q: 'Org Calendar — what shows up here?',
+          path: '/v2/calendar.html',
+          a: `<p>One combined calendar over everything else in SILO that has a date — launches, task due dates,
+             PO ship/arrival, AP due dates, paydays, claimed TikTok Live slots, mail deadlines — plus manual
+             events you add yourself. You only ever see what you'd already be able to see in the source tool; there's
+             no separate permission system for the calendar.</p>`,
+        },
+        {
+          q: 'Revenue Projection / Planning Scenarios — what\'s the relationship?',
+          path: '/v2/projections.html · /v2/planning-scenarios.html',
+          a: `<p><strong>Revenue Projection</strong> is the monthly plan by location/channel, with full version
+             history. <strong>Planning Scenarios</strong> is more exploratory — modeling "what if" against open PO
+             lines rather than committing a number to the plan.</p>`,
+        },
+        {
+          q: 'Launch Calendar — what belongs here vs. Task Manager?',
+          path: '/v2/launch-calendar.html · /v2/tasks.html',
+          a: `<p><strong>Launch Calendar</strong> is specifically for product launches — the release brief
+             (design intent, marketing angle, audience, budget), channel plan, and readiness tracking for one
+             drop. <strong>Task Manager</strong> is general-purpose to-dos not tied to a specific launch.</p>`,
+        },
+        {
+          q: 'TikTok Live Schedule — how do I claim a slot?',
+          path: '/v2/live-schedule.html',
+          a: `<p>Opens on a <strong>Month view</strong> — a calendar grid showing how filled each day is
+             (green = finalized, blue = claimed) and that day's total payout. Click any day to open its hourly
+             claim board, then click <strong>Claim</strong> on an open slot. One person live at a time, company-wide.
+             After you go live, come back and click <strong>Finalize</strong> on your slot, enter gross sales, and
+             it automatically calculates <strong>$25/hr + 3% of gross</strong> and files an AP payroll payment for
+             you — no separate payment request needed. You can <strong>Unclaim</strong> a slot you're not going to
+             use so someone else can take it.</p>`,
+        },
+      ],
+    },
+    {
+      id: 'team',
+      title: 'Team',
+      items: [
+        {
+          q: 'Performance Reviews — how do I add someone to my roster?',
+          path: '/v2/reviews.html',
+          a: `<p>Click <strong>Add employee</strong> (or <strong>Import CSV</strong> for a batch) — you're
+             automatically set as their manager. An employee can have more than one manager (dual reporting):
+             open <strong>Edit</strong> on their row to add a co-manager, who then sees them on their own roster
+             too and runs their own independent review. Executives/owner see the whole company roster; everyone
+             else sees only people they manage.</p>`,
+        },
+        {
+          q: 'How does a review actually get to the employee?',
+          path: '/v2/reviews.html · /v2/review-editor.html',
+          a: `<p>From the <strong>Review Board</strong> tab, click <strong>Start review</strong>, pick a template
+             and period. Fill it out in the review editor, then <strong>Send</strong> — this emails the employee a
+             secure link. If they have a SILO login they can sign in-app (<code>/v2/my-review.html</code>);
+             associates without a login use the emailed link directly. Once they sign it, the review is
+             locked/finished and can't be deleted.</p>`,
+        },
+        {
+          q: 'Who can build review templates?',
+          path: '/v2/review-templates.html',
+          a: `<p>Executive/owner only. Publishing a template locks its questions — to change a published template,
+             duplicate it as a new draft rather than editing in place, so past reviews stay consistent with
+             whatever template they were actually run against.</p>`,
+        },
+        {
+          q: 'Compensation Requests — how does this work? <span class="bcn-pill bcn-pill--accent" style="margin-left:6px;font-size:9px;vertical-align:1px;">not yet in sidebar</span>',
+          path: '/v2/comp-requests.html',
+          a: `<p>Built on top of the same roster as Performance Reviews. A manager opens a request for one of
+             their reports — raise, bonus, promotion, or equity — with current vs. proposed comp, an effective
+             date, and a justification. It saves as a <strong>draft</strong> you can keep editing.</p>
+             <p>Clicking <strong>Submit to finance</strong> locks it from further edits on your side and emails
+             everyone in the finance department. Finance works it in their <strong>Finance Queue</strong> tab —
+             moving it to <code>in_review</code>, kicking it back with <code>needs info</code>, or deciding
+             <code>approved</code>/<code>denied</code> with a note. You get an email the moment a decision is
+             saved. Every step is logged in the request's own <strong>Activity</strong> trail.</p>
+             <p>This page isn't linked from the sidebar yet — it's reachable directly at the URL above while the
+             workflow is still being reviewed end-to-end.</p>`,
+        },
+      ],
+    },
+    {
+      id: 'purchasing',
+      title: 'Purchasing',
+      items: [
+        {
+          q: 'PO Builder — what do I need before I can create a PO?',
+          path: '/v2/po-builder.html',
+          a: `<p>At least one factory has to exist first (add it under <strong>Factories</strong> if it's not
+             there). From there, create a header, add line items, and the PO name is generated for you.</p>`,
+        },
+        {
+          q: 'PO Landed Cost — when do I use this vs. PO Builder?',
+          path: '/v2/po-costing.html',
+          a: `<p>After a PO exists — this is where you break down the full landed cost per SKU (freight, duty,
+             etc. on top of unit cost), separate from the PO Builder's ordering workflow.</p>`,
+        },
+        {
+          q: 'PO Report — how do I track a shipment?',
+          path: '/v2/po-report.html',
+          a: `<p>Open the <strong>Shipments</strong> drawer on any PO in PO Summary. You can log any number of
+             shipments per PO (a PO that splits into a "2nd half shipment" gets two shipment rows), each with its
+             own carrier/tracking/dates/status, and assign specific line items to each one.</p>`,
+        },
+      ],
+    },
+    {
+      id: 'inventory',
+      title: 'Inventory & Products',
+      items: [
+        {
+          q: 'Inventory Manager — where does this data come from?',
+          path: '/v2/inventory.html',
+          a: `<p>Synced nightly from the Shopify API (no more manual Google Sheets pulls). It shows current
+             on-hand plus sell-through metrics per SKU/location.</p>`,
+        },
+        {
+          q: 'Products — what\'s the Catalog tab\'s "Request Sample" button?',
+          path: '/v2/products.html',
+          a: `<p>Lets you request a physical sample straight from the catalog view (e.g. for a reshoot), separate
+             from the factory-sample pipeline used during product development. Whoever it's assigned to (or the
+             logistics team, if unassigned) gets notified by email and Slack.</p>`,
+        },
+      ],
+    },
+    {
+      id: 'reports',
+      title: 'Reports',
+      items: [
+        {
+          q: 'Which sales report should I use?',
+          path: '/v2/bi-sales-overview.html · /v2/bi-daily-trend.html · /v2/bi-top-sellers.html',
+          a: `<p><strong>Sales Performance Overview</strong> is the day/MTD/YTD comparison snapshot.
+             <strong>Daily Sales Trend</strong> is the day-by-day line. <strong>Top Sellers</strong> and
+             <strong>Product Type Performance</strong> break it down by product. <strong>Product Search</strong>
+             is for looking up one product/SKU specifically across locations and time.</p>`,
+        },
+        {
+          q: 'Sales Report — what does this verify?',
+          path: '/v2/sales-verification.html',
+          a: `<p>A reconciliation view, not a general dashboard — it exists to catch discrepancies in the
+             underlying sales data itself.</p>`,
+        },
+        {
+          q: 'Ask SILO — what can I actually ask it?',
+          path: '/v2/silo-chat.html',
+          a: `<p>A chat assistant with real, live read access to SILO's data (via a read-only query tool) — ask it
+             normal business questions ("how did the Sonic collab do", "what's overstocked right now") rather than
+             needing to know which report has the answer. It also remembers anything the team has explicitly
+             taught it (the <strong>Notes</strong> button). Currently visible to executives/owner only while it's
+             in soft launch.</p>`,
+        },
+      ],
+    },
+    {
+      id: 'settings',
+      title: 'Settings',
+      items: [
+        {
+          q: 'Integrations — who can see this?',
+          path: '/v2/integrations.html',
+          a: `<p>Admin-level roles only — this page manages live credentials for Shopify, ad platforms, and Redo,
+             so it's restricted at the database level, not just hidden from the sidebar.</p>`,
+        },
+      ],
+    },
+  ];
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+  function renderSections() {
+    const jump = document.getElementById('jumpNav');
+    const content = document.getElementById('hpContent');
+
+    jump.innerHTML = SECTIONS.map((s) => `<a href="#sec-${s.id}">${esc(s.title)}</a>`).join('');
+
+    content.innerHTML = SECTIONS.map((s) => `
+      <section class="bcn-card" id="sec-${s.id}">
+        <div class="bcn-card-header"><span>${esc(s.title)}</span></div>
+        <div class="bcn-card-body" style="padding:0">
+          ${s.items.map((item, i) => `
+            <details class="hp-item" data-idx="${s.id}-${i}">
+              <summary>
+                <span>${item.q}</span>
+                ${item.path ? `<span class="hp-item-path">${esc(item.path)}</span>` : ''}
+              </summary>
+              <div class="hp-body">${item.a}</div>
+            </details>`).join('')}
+        </div>
+      </section>`).join('') + `<div class="hp-empty" id="hpEmpty" hidden>No matches — try a different term.</div>`;
+  }
+
+  function applySearch(query) {
+    const q = query.trim().toLowerCase();
+    let anyVisible = false;
+    document.querySelectorAll('.hp-item').forEach((el) => {
+      const text = el.textContent.toLowerCase();
+      const match = !q || text.includes(q);
+      el.hidden = !match;
+      if (match) { anyVisible = true; el.open = !!q; }
+      else el.open = false;
+    });
+    document.querySelectorAll('section.bcn-card[id^="sec-"]').forEach((sec) => {
+      const hasVisible = [...sec.querySelectorAll('.hp-item')].some((el) => !el.hidden);
+      sec.hidden = !hasVisible;
+    });
+    document.getElementById('hpEmpty').hidden = anyVisible || !q;
+  }
+
+  document.getElementById('searchInput').addEventListener('input', (e) => applySearch(e.target.value));
+
+  // ── Boot ──────────────────────────────────────────────────────────────
+  async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) { window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname); return; }
+    const user = sess.data.session.user;
+
+    const { data: prof } = await sb.from('profiles').select('email, role').eq('id', user.id).single();
+
+    window.SiloChrome?.mount?.({
+      appEl: '#silo-app',
+      active: 'start/help',
+      user: { email: user.email, role: prof?.role },
+      crumbs: ['Help'],
+      supabaseClient: sb,
+    });
+
+    renderSections();
+  }
+
+  boot();
+</script>
+</body>
+</html>
