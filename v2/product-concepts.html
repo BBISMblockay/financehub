@@ -202,7 +202,7 @@
         ? `<ul>${
             risks.map((r) => `<li>${r.category ? `<strong>${h.esc(r.category)}:</strong> ` : ''}${h.esc(r.detail || '')}</li>`).join('')
           }${
-            unknowns.map((u) => `<li class="ec-muted">Unknown — ${h.esc(u.field || '')}: ${h.esc(u.why || '')}</li>`).join('')
+            unknowns.map((u) => `<li class="ec-muted">Unknown — ${h.esc(h.humanizeField(u.field))}: ${h.esc(u.why || '')}</li>`).join('')
           }</ul>`
         : '';
 
