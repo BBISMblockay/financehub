@@ -693,7 +693,7 @@ Deno.serve(async (req: Request) => {
 
   let callerClient: ReturnType<typeof createClient> | null = null;
   let question = '';
-  let history: { role: string; content: string; imageUrls?: string[] }[] = [];
+  let history: { role: string; content: string; imageUrls?: string[]; conceptId?: string }[] = [];
   let queriesRun: string[] = [];
 
   try {
@@ -713,7 +713,17 @@ Deno.serve(async (req: Request) => {
     const { data: userData, error: userErr } = await callerClient.auth.getUser();
     if (userErr || !userData?.user) return reply({ error: 'Not authenticated' }, 401);
 
-    ({ history } = await req.json());
+    const body = await req.json();
+    ({ history } = body);
+    // Named workflow rather than a boolean: Product Concept is the first
+    // structured workflow behind this boundary, not the only one intended.
+    // `conceptMode` is still accepted because the UI is statically hosted
+    // and a browser holding a cached page would otherwise silently lose
+    // concept access until it refreshed.
+    const activeWorkflow: string | null =
+      typeof body?.workflow === 'string' ? body.workflow
+      : body?.conceptMode === true ? 'product_concept'
+      : null;
     if (!Array.isArray(history) || !history.length) {
       return reply({ error: 'history (array of {role, content}) is required' }, 400);
     }
@@ -766,9 +776,27 @@ Deno.serve(async (req: Request) => {
       .select('relname, relkind, columns, description, keywords')
       .eq('is_hidden', false)
       .order('relname');
+    // Concept capability is now an EXPLICIT mode, not inferred intent.
+    // Previously the allowlist alone enabled it, so every question a tester
+    // asked carried the concept tools and prompt block -- and a text
+    // heuristic then tried to work out whether they were drafting. It got
+    // it wrong in both directions, and on 2026-08-25 an analytical
+    // demand-planning question was force-written into a junk concept row.
+    //
+    // The user knows which they are doing, so they say so once (the "New
+    // concept" toggle, or the concept suggestion chip) instead of the model
+    // guessing every turn. When the mode is off the tools are not sent AT
+    // ALL, so a concept cannot be created from an analytical question
+    // regardless of wording -- the failure mode is removed rather than
+    // mitigated. Acting on an existing concept from its card counts as
+    // intent too: those messages carry a conceptId.
+    //
+    // Also materially cheaper: an ordinary question no longer pays for
+    // ~4KB of concept prompt and three unused tool schemas.
+    const actingOnConcept = history.some((m) => typeof m?.conceptId === 'string' && !!m.conceptId);
     const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(
       (userData.user.email || '').toLowerCase(),
-    );
+    ) && (activeWorkflow === 'product_concept' || actingOnConcept);
     // The phase-1 draft circuit breaker below used to arm on conceptsEnabled
     // alone -- i.e. on EVERY question a tester asked. Any analytical question
     // that legitimately ran 5+ tool rounds (overstock analysis, sales
@@ -783,15 +811,49 @@ Deno.serve(async (req: Request) => {
     // owner: a phase-2 "build out the full plan" request can still arm this
     // and be told to call create (not update) -- pre-existing, unaddressed
     // here.
-    const CONCEPT_LANGUAGE = /\b(concepts?|drafts?|design|mock ?up|product idea|new product|product for|collection|collab)\b/i;
+    // 'design' and 'mock up' were removed after a live hijack: "generate
+    // mock up demand planning by product type for 2027..." matched
+    // 'mock ?up', armed the breaker, and forced a junk concept row named
+    // after the analysis. Both words are at least as common in analytical
+    // requests ("mock up a plan", "design a report") as in product
+    // drafting, so they are false-positive generators, not signal.
+    const CONCEPT_LANGUAGE = /\b(concepts?|drafts?|product idea|new product|product for|collection|collab)\b/i;
     const ANALYTICAL_QUESTION = /\?|^\s*(which|what|how|why|when|where|who|show|list|compare|summarize|do we|are we|is|should|can|give me|tell me)\b/i;
+    // The disarm above only catches interrogatives and question marks, so
+    // an imperative analytical request ("generate ... define ... suggest
+    // strategy") slipped straight past it. These name an ANALYSIS
+    // deliverable rather than a product, and no product concept is called
+    // a demand plan or a forecast.
+    const ANALYTICAL_DELIVERABLE = /\b(demand plan\w*|forecast\w*|projection\w*|analysis|analyze|analyse|report|breakdown|gap|variance|budget|scenario|model out|planning)\b/i;
     const conceptBreakerArmed = conceptsEnabled
       && history.some((m) => m.role === 'user' && CONCEPT_LANGUAGE.test(String(m.content || '')))
-      && !ANALYTICAL_QUESTION.test(question.trim());
+      && !ANALYTICAL_QUESTION.test(question.trim())
+      && !ANALYTICAL_DELIVERABLE.test(question);
+    // When a tester has the capability but has NOT started the workflow,
+    // say so in one line. Without this the model has no idea Product
+    // Concepts exists -- it simply lacks the tools -- so "draft me a youth
+    // hoodie concept" with the mode off gets a friendly prose answer,
+    // nothing is saved, and nothing explains why. That is a worse failure
+    // than the one the mode fixed, because it is silent.
+    const isConceptTester = PRODUCT_CONCEPT_TESTERS.includes(
+      (userData.user.email || '').toLowerCase(),
+    );
+    // Same text heuristic that used to arm the circuit breaker -- but here
+    // its consequence is offering a dismissible button, not forcing a
+    // write. A false positive costs one ignorable line; the version that
+    // could misfire into a junk concept row is gone. Worth being explicit
+    // that this is why the same imperfect regex is acceptable in one place
+    // and was not in the other.
+    const suggestConceptWorkflow = !conceptsEnabled && isConceptTester
+      && /\b(concepts?|draft|design|new product|product idea|collection|collab)\b/i.test(question);
+    const conceptModeHint = (!conceptsEnabled && isConceptTester)
+      ? `\n\nProduct Concepts: you have access to a structured product-concept workflow, but it is NOT active in this chat, so you currently have no tools to create, revise or approve a concept. If the user asks you to draft, save, revise or approve a product concept, do not improvise one in prose as though it were saved -- ask them whether they want to start it -- a one-click button to do so is shown beneath your answer, so end with that offer rather than a lecture about where to click. Make clear nothing is saved until they start it. Answering an ordinary data question is unaffected.`
+      : '';
+
     const systemPrompt = buildSystemPrompt(
       notes ?? [],
       buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]),
-    ) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : '');
+    ) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : conceptModeHint);
     const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;
 
     queriesRun = [];
@@ -804,8 +866,10 @@ Deno.serve(async (req: Request) => {
     // (non-concept) question leaves this empty and the field is omitted,
     // so nothing about an ordinary Ask SILO response changes.
     const conceptsTouched = new Map<string, Record<string, unknown>>();
-    const conceptsPayload = () =>
-      conceptsTouched.size ? { concepts: [...conceptsTouched.values()] } : {};
+    const conceptsPayload = () => ({
+      ...(conceptsTouched.size ? { concepts: [...conceptsTouched.values()] } : {}),
+      ...(suggestConceptWorkflow ? { suggest_workflow: 'product_concept' } : {}),
+    });
     // Circuit breaker for Product Concepts phase 1: a live draft ran 14
     // rounds before calling create_product_concept at all -- 2 of them were
     // outright redundant re-runs of a query it already had the answer to,
@@ -1077,13 +1141,20 @@ Deno.serve(async (req: Request) => {
       if (conceptBreakerArmed && !hasDraftedConcept && round === PRE_DRAFT_NUDGE_ROUND) {
         messages.push({
           role: 'user',
-          content: "You've used several tool rounds without creating a draft concept yet. Stop investigating further -- call create_product_concept now using your best assessment from what you've already gathered. Leave any field you're not confident about blank rather than continuing to research it.",
+          content: "You've used several tool rounds without creating a draft concept yet. If this conversation is drafting a PRODUCT, stop investigating and call create_product_concept now using your best assessment from what you've already gathered -- leave any field you're not confident about blank rather than continuing to research it. If it is NOT a product-drafting request (an analytical question, a plan, a forecast, a report), ignore this entirely and simply answer the question -- do NOT create a concept.",
         });
-        // Live, the model answered this nudge with a prose apology instead
-        // of the tool call it asked for -- wording alone didn't hold, same
-        // lesson as the rest of this circuit breaker. Force the next round
-        // to actually call the tool.
-        forceNudgeTool = true;
+        // Deliberately NOT forcing tool_choice here any more. Forcing it
+        // guaranteed a write on a misread: live on 2026-08-25 an analytical
+        // demand-planning question armed the breaker, and because the tool
+        // was forced the model could not decline -- it wrote a concept row
+        // titled after the analysis, with no quantity. The arming
+        // heuristics are text-matching and will keep misfiring in both
+        // directions (a trailing "?" disarms a genuine draft; "mock up"
+        // armed an analysis), so the escape hatch has to survive a wrong
+        // arm. A slow draft that goes unhurried costs a few rounds; a
+        // forced spurious write costs a junk row in a table people are
+        // meant to trust.
+        forceNudgeTool = false;
       }
     }
 

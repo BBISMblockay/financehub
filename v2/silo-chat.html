@@ -80,6 +80,17 @@
       border-radius:6px; overflow-x:auto; white-space:pre-wrap; word-break:break-word;
     }
 
+    /* Product concept mode banner -- the mode is explicit, so it should
+       always be visible that it is on and trivially reversible. */
+    .ac-mode-bar {
+      display:flex; align-items:center; gap:12px; margin:0 18px 8px;
+      padding:8px 12px; border-radius:8px; font-size:12.5px;
+      border:1px solid var(--bcn-accent); color:var(--bcn-ink);
+      background:color-mix(in oklab, var(--bcn-accent) 8%, var(--bcn-surface));
+    }
+    .ac-mode-bar span { flex:1; min-width:0; }
+    #btnConceptMode.is-on { border-color:var(--bcn-accent); color:var(--bcn-accent); }
+
     .ac-answer-actions { margin-top:6px; }
     .ac-save-btn {
       font-family:var(--bcn-mono); font-size:11px; padding:3px 10px; border-radius:6px;
@@ -284,11 +295,16 @@
              allowlist as the concept suggestion chip. Not a nav entry yet,
              matching how comp-requests is kept out of the sidebar until the
              workflow has been reviewed end to end. -->
+        <button id="btnConceptMode" class="bcn-btn bcn-btn--ghost" type="button" hidden>New concept</button>
         <a id="btnConcepts" class="bcn-btn bcn-btn--ghost" href="/v2/product-concepts.html" hidden>Concepts</a>
         <button id="btnNewChat" class="bcn-btn bcn-btn--ghost">New chat</button>
       </div>
     </header>
 
+    <div id="workflowBar" class="ac-mode-bar" hidden>
+      <span><strong>Product concept mode</strong> — SILO can draft and revise concepts in this chat. Ordinary questions still work.</span>
+      <button type="button" id="btnExitConceptMode" class="bcn-btn bcn-btn--ghost">Exit</button>
+    </div>
     <div class="bcn-status" id="status" hidden></div>
 
     <div class="ac-content">
@@ -436,6 +452,46 @@
   // in this JS variable. sessionStorage is tab-scoped, which is exactly
   // right here: a reload of THIS tab restores it, a fresh tab starts clean.
   const HISTORY_STORAGE_KEY = 'silo_chat_history_v1';
+  const WORKFLOW_KEY = 'silo_chat_workflow_v1';
+
+  // Product Concepts: an EXPLICIT mode rather than inferred intent.
+  // Concept tools and the concept prompt block are only sent when this is
+  // on, so a concept cannot be created from an analytical question no
+  // matter how the wording reads -- which is what happened live on
+  // 2026-08-25, when "generate mock up demand planning..." was text-matched
+  // as drafting and a forced tool call wrote a junk row. Guessing intent
+  // from words kept failing in both directions; the user knows which they
+  // are doing, so ask once instead of inferring every turn. It is also
+  // cheaper: an ordinary question no longer carries ~4KB of concept prompt
+  // and three unused tool schemas.
+  // Named rather than boolean: Product Concept is the FIRST structured
+  // workflow, not the only one -- Forecast, Purchase Plan and Campaign
+  // Analysis are meant to sit behind the same boundary. A named workflow
+  // makes adding one additive (its own tools and prompt block, sent only
+  // in its own mode) instead of a change to the client/server contract,
+  // which is the part that gets expensive once more surfaces depend on it.
+  let activeWorkflow = null; // null = ordinary chat
+
+  const WORKFLOWS = {
+    product_concept: { label: 'Product concept mode', blurb: 'SILO can draft and revise concepts in this chat. Ordinary questions still work.' },
+  };
+
+  function setWorkflow(name) {
+    activeWorkflow = WORKFLOWS[name] ? name : null;
+    try {
+      activeWorkflow ? sessionStorage.setItem(WORKFLOW_KEY, activeWorkflow) : sessionStorage.removeItem(WORKFLOW_KEY);
+    } catch {}
+    const bar = el('workflowBar');
+    if (bar) {
+      bar.hidden = !activeWorkflow;
+      if (activeWorkflow) {
+        const w = WORKFLOWS[activeWorkflow];
+        bar.querySelector('span').innerHTML = `<strong>${esc(w.label)}</strong> — ${esc(w.blurb)}`;
+      }
+    }
+    const btn = el('btnConceptMode');
+    if (btn) btn.classList.toggle('is-on', activeWorkflow === 'product_concept');
+  }
 
   function saveHistoryToSession() {
     try { sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history)); } catch {}
@@ -716,7 +772,7 @@
     await askSilo();
   });
 
-  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts }) {
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, suggestWorkflow }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -752,6 +808,12 @@
     const conceptsHtml = Array.isArray(concepts) && concepts.length
       ? (window.SiloEvidenceCard?.renderAll?.(concepts, CONCEPT_SPEC) || '')
       : '';
+    // Offered when the answer looks like a drafting request made with the
+    // workflow off. One click starts it and re-asks, rather than telling
+    // the user to go find a button in the header.
+    const suggestHtml = suggestWorkflow === 'product_concept' && activeWorkflow !== 'product_concept'
+      ? `<div class="ac-answer-actions"><button type="button" class="ac-save-btn" id="btnStartConceptFlow">Start product concept workflow</button></div>`
+      : '';
     const bubble = renderBubbleContent(content, role, isError);
     wrap.innerHTML = `
       <div class="ac-avatar">${esc(avatar)}</div>
@@ -759,6 +821,7 @@
         ${imagesHtml}
         <div class="${bubble.cls}">${bubble.html}</div>
         ${conceptsHtml}
+        ${suggestHtml}
         ${queriesHtml}
         ${saveHtml}
         ${retryHtml}
@@ -866,7 +929,7 @@
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ history }),
+        body: JSON.stringify({ history, workflow: activeWorkflow }),
       });
       const data = await res.json();
       removeTyping();
@@ -893,7 +956,7 @@
       history.push(historyEntry);
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts });
+      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, suggestWorkflow: data.suggest_workflow });
     } catch (err) {
       removeTyping();
       // "Load failed" (or any network-level drop) usually means the
@@ -1018,7 +1081,16 @@
   });
   el('log').addEventListener('click', (e) => {
     const suggestion = e.target.closest('.ac-suggestion');
-    if (suggestion) { sendMessage(suggestion.dataset.q); return; }
+    if (suggestion) {
+      if (suggestion.id === 'suggestionConcept') setWorkflow('product_concept');
+      sendMessage(suggestion.dataset.q);
+      return;
+    }
+    if (e.target.closest('#btnStartConceptFlow')) {
+      setWorkflow('product_concept');
+      sendMessage('Yes — start the product concept workflow and draft it.');
+      return;
+    }
     const retry = e.target.closest('.ac-retry-btn');
     if (retry) { retry.disabled = true; retryAsk(); return; }
     const saveBtn = e.target.closest('.ac-save-btn');
@@ -1082,9 +1154,16 @@
     if (e.key === 'Enter') { e.preventDefault(); confirmSave(); }
     if (e.key === 'Escape') closeSaveDialog();
   });
+  el('btnConceptMode').addEventListener('click', () => {
+    setWorkflow(activeWorkflow === 'product_concept' ? null : 'product_concept');
+    if (activeWorkflow) el('input').focus();
+  });
+  el('btnExitConceptMode').addEventListener('click', () => setWorkflow(null));
+
   el('btnNewChat').addEventListener('click', () => {
     history = [];
     clearHistorySession();
+    setWorkflow(null);
     el('log').innerHTML = `
       <div class="ac-empty" id="emptyState">
         <h3>Ask anything about your data</h3>
@@ -1376,6 +1455,9 @@
       el('suggestionConcept').hidden = false;
       el('btnAttach').hidden = false;
       el('btnConcepts').hidden = false;
+      el('btnConceptMode').hidden = false;
+      // Restore the mode alongside the thread it belongs to.
+      try { setWorkflow(sessionStorage.getItem(WORKFLOW_KEY)); } catch {}
     }
 
     // Arrived from the Product Concepts list via "Open in Ask SILO": bind
