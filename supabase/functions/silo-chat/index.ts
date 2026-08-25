@@ -693,7 +693,7 @@ Deno.serve(async (req: Request) => {
 
   let callerClient: ReturnType<typeof createClient> | null = null;
   let question = '';
-  let history: { role: string; content: string; imageUrls?: string[] }[] = [];
+  let history: { role: string; content: string; imageUrls?: string[]; conceptId?: string }[] = [];
   let queriesRun: string[] = [];
 
   try {
@@ -713,7 +713,9 @@ Deno.serve(async (req: Request) => {
     const { data: userData, error: userErr } = await callerClient.auth.getUser();
     if (userErr || !userData?.user) return reply({ error: 'Not authenticated' }, 401);
 
-    ({ history } = await req.json());
+    const body = await req.json();
+    ({ history } = body);
+    const conceptMode = body?.conceptMode === true;
     if (!Array.isArray(history) || !history.length) {
       return reply({ error: 'history (array of {role, content}) is required' }, 400);
     }
@@ -766,9 +768,27 @@ Deno.serve(async (req: Request) => {
       .select('relname, relkind, columns, description, keywords')
       .eq('is_hidden', false)
       .order('relname');
+    // Concept capability is now an EXPLICIT mode, not inferred intent.
+    // Previously the allowlist alone enabled it, so every question a tester
+    // asked carried the concept tools and prompt block -- and a text
+    // heuristic then tried to work out whether they were drafting. It got
+    // it wrong in both directions, and on 2026-08-25 an analytical
+    // demand-planning question was force-written into a junk concept row.
+    //
+    // The user knows which they are doing, so they say so once (the "New
+    // concept" toggle, or the concept suggestion chip) instead of the model
+    // guessing every turn. When the mode is off the tools are not sent AT
+    // ALL, so a concept cannot be created from an analytical question
+    // regardless of wording -- the failure mode is removed rather than
+    // mitigated. Acting on an existing concept from its card counts as
+    // intent too: those messages carry a conceptId.
+    //
+    // Also materially cheaper: an ordinary question no longer pays for
+    // ~4KB of concept prompt and three unused tool schemas.
+    const actingOnConcept = history.some((m) => typeof m?.conceptId === 'string' && !!m.conceptId);
     const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(
       (userData.user.email || '').toLowerCase(),
-    );
+    ) && (conceptMode || actingOnConcept);
     // The phase-1 draft circuit breaker below used to arm on conceptsEnabled
     // alone -- i.e. on EVERY question a tester asked. Any analytical question
     // that legitimately ran 5+ tool rounds (overstock analysis, sales
