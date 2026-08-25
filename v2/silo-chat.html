@@ -516,6 +516,10 @@
       const strength = (c.evidence_strength || '').toLowerCase();
       return [
         h.chip(c.status, c.status === 'approved' ? 'approved' : ''),
+        // Completeness, shown next to approval because they are separate
+        // axes -- an approved core draft is a real and normal state, and
+        // collapsing the two would hide that.
+        c.phase ? h.chip(c.phase === 'full_brief' ? 'full brief' : 'core draft') : '',
         strength ? h.chip(`evidence: ${strength}`, strength) : '',
         c.current_revision_number > 1 ? h.chip(`rev ${c.current_revision_number}`) : '',
         c.parent_concept_id ? h.chip('in collection') : '',
@@ -613,7 +617,90 @@
         : '',
       c.next_decision ? `<div style="margin-top:7px"><strong>Next decision</strong>${h.esc(c.next_decision)}</div>` : '',
     ].filter(Boolean).join(''),
+
+    // The §6 concept actions. Each one sends a turn carrying this
+    // concept's id, which is what makes the action unambiguous -- the
+    // model is told exactly which row to revise instead of inferring it
+    // from conversation it may no longer have.
+    // Gated on real state, not guesswork: "Build full plan" only shows on
+    // a core_draft, "Approve" only on a draft. An archived concept gets
+    // no actions at all.
+    actions: (c) => {
+      if (c.status === 'archived') return [];
+      return [
+        c.phase === 'core_draft'
+          ? { label: 'Build full plan', action: 'build_full_plan', variant: 'primary',
+              title: 'Ground and fill the launch-plan brief (size curve, channel split, spend, revenue shape, cadence, copy)' }
+          : null,
+        { label: 'Pressure test', action: 'pressure_test',
+          title: 'Challenge the numbers against real data without changing the concept' },
+        { label: 'Revise…', action: 'revise',
+          title: 'Describe a change; it becomes a new revision of this concept' },
+        c.status === 'draft'
+          ? { label: 'Approve', action: 'approve', variant: 'go',
+              title: 'Human sign-off. Requires the same purchasing write access PO Builder needs' }
+          : null,
+      ];
+    },
   };
+
+  // Prompts sent for each card action. Written as things a person would
+  // actually say, because they render in the thread as the user's own
+  // turn -- the concept id rides alongside as a sibling field rather than
+  // being pasted into visible text.
+  // Set by the "Revise…" card action; consumed by the next sendMessage so
+  // that message revises the named concept instead of being read as a new
+  // idea. Cleared on send or Esc.
+  let pendingConceptId = null;
+
+  function clearPendingConcept() {
+    if (!pendingConceptId) return;
+    pendingConceptId = null;
+    el('input').placeholder = 'Ask about sales, inventory, marketing, returns…';
+    el('status').hidden = true;
+  }
+
+  const CONCEPT_ACTION_PROMPTS = {
+    build_full_plan: 'Build out the full launch-plan brief for this concept.',
+    pressure_test: 'Pressure test this concept against real data — is the quantity and timing defensible? Do not change it, just tell me what holds up and what does not.',
+    approve: 'Approve this concept.',
+  };
+
+  // Delegated so it covers cards rendered now and cards replayed from a
+  // restored session alike.
+  el('log').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-ec-action]');
+    if (!btn) return;
+    const action = btn.dataset.ecAction;
+    const conceptId = btn.dataset.ecId;
+    if (!conceptId) return;
+
+    // "Revise…" has no canned prompt -- the change is whatever the user
+    // types. Rather than a browser dialog (wrong for a chat surface, and
+    // against this app's no-alert convention), arm the composer: the next
+    // message sent is bound to this concept.
+    if (action === 'revise') {
+      pendingConceptId = conceptId;
+      const box = el('input');
+      box.placeholder = 'Describe the change to this concept…';
+      box.focus();
+      setStatus('Next message will revise this concept. Press Esc to cancel.', 'info');
+      return;
+    }
+
+    const text = CONCEPT_ACTION_PROMPTS[action];
+    if (!text) return;
+
+    // Same shape as an image attachment: content stays plain text, the id
+    // rides alongside. saveHistoryToSession persists it, so the binding
+    // survives a reload -- which is exactly the case that used to produce
+    // a duplicate concept.
+    const entry = { role: 'user', content: text, conceptId };
+    history.push(entry);
+    saveHistoryToSession();
+    renderMessage({ role: 'user', content: text });
+    await askSilo();
+  });
 
   function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts }) {
     el('emptyState')?.remove();
@@ -841,10 +928,15 @@
     // string). The edge function turns this into real image content blocks
     // only for entries that carry it.
     if (images.length) entry.imageUrls = images;
+    // Armed by the "Revise…" card action -- binds this message to a
+    // specific concept so the model revises it rather than treating the
+    // request as a new idea.
+    if (pendingConceptId) entry.conceptId = pendingConceptId;
     history.push(entry);
     saveHistoryToSession();
     renderMessage({ role: 'user', content: text, images });
     clearPendingImages();
+    clearPendingConcept();
     await askSilo();
   }
 
@@ -903,6 +995,8 @@
       e.preventDefault();
       sendMessage(el('input').value);
     }
+    // Back out of a "Revise…" binding without sending anything.
+    if (e.key === 'Escape') clearPendingConcept();
   });
   el('input').addEventListener('input', function () {
     this.style.height = 'auto';
