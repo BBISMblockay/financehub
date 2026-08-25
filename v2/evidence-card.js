@@ -79,9 +79,42 @@
   const chip = (text, variant) =>
     (text ? `<span class="ec-chip${variant ? ` ec-chip--${variant}` : ''}">${esc(text)}</span>` : '');
 
+  // Acronyms that should not be sentence-cased into "Dtc" / "Msrp".
+  const ACRONYMS = { dtc: 'DTC', msrp: 'MSRP', sms: 'SMS', po: 'PO', sku: 'SKU', roi: 'ROI', moq: 'MOQ' };
+
+  // Turn a record's field name into something a person would say.
+  // These artifacts are read by marketing and design, not only analysts,
+  // so a label like "suggested_retail_dtc_notes" is noise to most of the
+  // audience. Applied at render time as a safety net: the model is also
+  // told to write human field names, but display shouldn't depend on it
+  // complying -- same reasoning as every other guard here.
+  //   suggested_retail_dtc_notes -> Retail DTC notes
+  //   economics.unit_cost        -> Unit cost
+  //   suggested_factory_id       -> Factory
+  // A few identifiers that survive the generic rules but still read badly.
+  const FIELD_ALIASES = { qty: 'Buy quantity', dtc: 'DTC split' };
+
+  function humanizeField(key) {
+    if (!key) return '';
+    const raw = String(key).trim();
+    // Already written for a human ("Retail vs. DTC split") -- leave it be.
+    // Only bare snake_case/dotted identifiers get rewritten, so this can
+    // never damage a label the model wrote properly.
+    if (/\s/.test(raw) || !/^[a-z0-9_.]+$/.test(raw)) return raw;
+    let s = raw.split('.').pop();                  // economics.unit_cost -> unit_cost
+    s = s.replace(/^suggested_/, '').replace(/_id$/, '');
+    if (FIELD_ALIASES[s]) return FIELD_ALIASES[s];
+    const words = s.split('_').filter(Boolean).map((w) => ACRONYMS[w.toLowerCase()] || w);
+    if (!words.length) return '';
+    const first = words[0];
+    // Only capitalise the first word; an acronym is already upper-case.
+    words[0] = ACRONYMS[first.toLowerCase()] ? first : first.charAt(0).toUpperCase() + first.slice(1);
+    return words.join(' ');
+  }
+
   // Helpers handed to every spec callback, so a spec never has to import
   // or re-implement escaping/formatting.
-  const H = { esc, num, money, badge, kv, section, chip };
+  const H = { esc, num, money, badge, kv, section, chip, humanizeField };
 
   /**
    * Render one artifact as an evidence card.
