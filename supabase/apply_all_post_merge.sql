@@ -12817,3 +12817,213 @@ CRITICAL CAVEAT on pct_of_po_units_sold: it is only meaningful when the linked P
 
 Measurement runs through launch_calendar.linked_po_id -> po_lines.sku_snapshot -> sales_by_day.sku, joined on exact SKU equality. Do NOT substitute launch_calendar.product_sku: where a store records it at product level while sales and PO lines are variant level, it matches nothing and would report 0 units for a launch that sold well. sku_source = null means NOT MEASURABLE (no PO linked) -- report it that way, never as zero sales. Check period_complete / window_*_complete before treating a figure as final: a partial window is not a result. Note also that a PO's expected_arrival_date is a WAREHOUSE date, not a selling start -- measured POs routinely show zero units in the first 14 days after arrival and thousands over 90, so never treat arrival as a launch date. Finally, a multi-day campaign entered as TWO rows (a start plus a separate "... End" row) rather than one row with launch_end_date will measure as two point launches until merged.$d$
 where relname = 'launch_actuals_v';
+
+-- ---------------------------------------------------------------------------
+-- 20260826040000_silo_chat_strategy_notes
+-- ---------------------------------------------------------------------------
+-- Strategy as a first-class taught note.
+--
+-- Notes already reach every request: buildSystemPrompt() injects them into
+-- the cached system prompt, so anything taught here is in context for every
+-- question including product-concept generation. What was missing is a
+-- CATEGORY for forward-looking intent, and the framing that goes with it.
+--
+-- Why this matters beyond tidiness. A concept generator grounded entirely
+-- in historical data converges on the historical mean: a new category, a
+-- collab, a first youth line has no comparable, no sales history and no
+-- precedent, so it scores worse than a restock of a proven seller every
+-- single time. Left alone that system politely argues you out of growth.
+--
+-- A strategy note is the deliberate override. The evidence model already
+-- has the right slot for it -- INPUT means "a human told us", as opposed to
+-- DATA ("queried from SILO"). A stated strategic bet is legitimately INPUT:
+-- it does not need historical support, it must not be dressed up as DATA,
+-- and it must not be discounted for being neither. "Unproven and still the
+-- right call" is a coherent position the system should be able to hold.
+--
+-- Distinct from the existing two categories:
+--   brand   -- lasting identity/voice (tagline, positioning, personality)
+--   general -- a fact/correction no query could derive (e.g. "the SKU
+--              column is sku_snapshot"); a corrective lens on data
+--   strategy -- forward-looking intent that should shape what SILO
+--              PROPOSES, not just how it reads numbers
+--
+-- effective_until exists because strategy is the one category that goes
+-- stale. "The SKU column is sku_snapshot" is true indefinitely; "we are
+-- pushing youth in 2027" is not, and a strategy note silently steering
+-- concepts two years later is a real hazard. Nullable -- an open-ended
+-- direction is legitimate -- but when set, an expired note is surfaced as
+-- expired rather than quietly applied.
+
+alter table public.silo_chat_notes
+  drop constraint if exists silo_chat_notes_category_check;
+alter table public.silo_chat_notes
+  add constraint silo_chat_notes_category_check
+  check (category = any (array['general'::text, 'brand'::text, 'strategy'::text]));
+
+alter table public.silo_chat_notes
+  add column if not exists effective_until date;
+
+comment on column public.silo_chat_notes.effective_until is
+  'Optional horizon for a strategy note. Null = open-ended. Past = expired: still readable, but presented as expired rather than applied as current direction. Unused for brand/general notes, which do not go stale the same way.';
+
+-- View gains the new column plus a computed expiry flag, so neither the
+-- edge function nor the UI has to re-derive "is this still current".
+drop view if exists public.silo_chat_notes_v;
+create view public.silo_chat_notes_v
+with (security_invoker = true) as
+select
+  n.id,
+  n.note,
+  n.category,
+  n.effective_until,
+  (n.effective_until is not null and n.effective_until < current_date) as is_expired,
+  n.created_at,
+  n.created_by,
+  p.name as created_by_name,
+  n.company_entity_id
+from public.silo_chat_notes n
+left join public.profiles p on p.id = n.created_by;
+
+revoke all on public.silo_chat_notes_v from anon;
+grant select on public.silo_chat_notes_v to authenticated;
+
+select public.refresh_chat_schema_catalog();
+
+update public.silo_chat_schema_catalog set
+  keywords = array['note','notes','taught','knowledge','brand','strategy','correction','memory'],
+  description = $d$Taught knowledge injected into every Ask SILO request. category is one of: "brand" (lasting identity/voice), "general" (a fact or correction no query could derive -- a corrective lens on how to read the data), or "strategy" (forward-looking intent that should shape what SILO proposes, not just how it reads numbers). A strategy note is INPUT-class evidence: it is a stated human bet, valid without historical support, and must never be presented as though it were queried data. effective_until optionally bounds a strategy note; is_expired marks one whose horizon has passed -- an expired note is context, not current direction.$d$
+where relname in ('silo_chat_notes', 'silo_chat_notes_v');
+
+-- ---------------------------------------------------------------------------
+-- 20260826050000_demand_coverage
+-- ---------------------------------------------------------------------------
+-- Unit-based demand coverage. Context for planning, never a gate.
+--
+-- Deliberately UNIT-based, not dollar-based: qty is recorded on 2,471 of
+-- 2,471 PO lines, while unit_cost is present on only ~45% (and just 41% of
+-- lines on POs already Sent to Factory -- 148,890 units with no cost). A
+-- dollar view would confidently report about half of real commitment,
+-- which is the silent-wrong-number failure this codebase keeps designing
+-- against. Money can multiply in later wherever cost exists.
+--
+-- DESIGNED AGAINST A RATCHET. A planner grounded only in history converges
+-- on the historical mean: a new category has no sales, so it reads as zero
+-- demand and always loses to a restock of a proven seller. That system
+-- politely argues its owner out of growth. Three properties keep this one
+-- honest:
+--
+--   1. Nothing is silently dropped. Categories are unioned from all three
+--      legs, so one that exists only on POs (a first buy into a new
+--      category) still appears -- with null demand, which reads as
+--      "unproven", NOT as zero. has_sales_history distinguishes those two.
+--   2. Signals are symmetric. weeks_of_cover shows over-commitment;
+--      momentum_pct and a null/low cover show under-investment. A view
+--      that could only ever argue "buy less" would be a stagnation engine.
+--   3. There is no target and no budget here on purpose. Coverage and
+--      momentum are useful with nothing to be measured against, and
+--      nothing to be measured against is nothing to be locked to. A stated
+--      intent, if one is ever wanted, belongs somewhere it can be restated
+--      freely -- not baked in here.
+--
+-- Grain is the PO buying vocabulary (29 categories), because that is what
+-- purchasing decisions are actually made in; sales carries a finer 116-type
+-- vocabulary. 24 of 29 PO types match sales and 25 of 29 match inventory --
+-- the rest surface as rows with missing legs rather than disappearing.
+--
+-- Built on pre-aggregated sources. Deriving categories from a 365-day scan
+-- of sales_by_day measured 6,888 ms -- close enough to the 10s statement
+-- timeout that Ask SILO would fail on it under load. Reading
+-- sales_monthly_product_type_rollup_mv instead measures 98 ms, a 70x
+-- difference, which is the same lesson already written into the schema
+-- catalog: prefer the rollup.
+--
+-- The CURRENT month is excluded from both windows. It is partial by
+-- definition, and including it would drag the recent run rate below the
+-- 12-month average every time, manufacturing a decline signal on the 25th
+-- of every month.
+
+create or replace view public.demand_coverage_by_type_v
+with (security_invoker = true) as
+with co as (select public.active_company_id() as id),
+bounds as (select date_trunc('month', current_date)::date as this_month_start),
+sold as (
+  select r.product_type,
+         sum(r.units) filter (where r.month_start >= (select this_month_start from bounds) - interval '12 months') as units_12m,
+         sum(r.units) filter (where r.month_start >= (select this_month_start from bounds) - interval '3 months')  as units_3m
+  from public.sales_monthly_product_type_rollup_mv r, co
+  where r.company_entity_id = co.id
+    and nullif(r.product_type, '') is not null
+    and r.month_start < (select this_month_start from bounds)
+  group by r.product_type
+),
+onhand as (
+  select i.product_type, sum(i.total_available_quantity) as on_hand
+  from public.inventory_on_hand_current_mv i, co
+  where i.company_entity_id = co.id and nullif(i.product_type, '') is not null
+  group by i.product_type
+),
+onorder as (
+  select pl.product_type_snapshot as product_type,
+         sum(pl.qty) filter (where h.status in ('Confirmed','Sent to Factory','In Production','In Transit')) as on_order,
+         sum(pl.qty) filter (where h.status = 'Draft') as on_order_draft
+  from public.po_lines pl
+  join public.po_headers h on h.id = pl.po_header_id, co
+  where pl.company_entity_id = co.id and nullif(pl.product_type_snapshot, '') is not null
+  group by pl.product_type_snapshot
+),
+types as (
+  select product_type from sold
+  union select product_type from onhand
+  union select product_type from onorder
+)
+select
+  t.product_type,
+
+  -- which legs actually contributed. has_sales_history is the one that
+  -- matters most: false means UNPROVEN, not zero demand.
+  (s.product_type is not null) as has_sales_history,
+  (oh.product_type is not null) as has_inventory,
+  (oo.product_type is not null) as has_purchase_history,
+
+  coalesce(oh.on_hand, 0)::numeric        as units_on_hand,
+  coalesce(oo.on_order, 0)::numeric       as units_on_order,
+  coalesce(oo.on_order_draft, 0)::numeric as units_on_order_draft,
+  (coalesce(oh.on_hand,0) + coalesce(oo.on_order,0))::numeric as units_available_committed,
+
+  s.units_12m,
+  s.units_3m,
+  round(s.units_12m / 52.0, 1) as units_per_week_12m,
+  round(s.units_3m  / 13.0, 1) as units_per_week_3m,
+
+  -- coverage: how long what you hold plus what is inbound would last at the
+  -- trailing-year rate. Null when there is no sales history -- "cannot be
+  -- computed", never "infinite" and never zero.
+  case when s.units_12m > 0
+       then round((coalesce(oh.on_hand,0) + coalesce(oo.on_order,0)) / (s.units_12m / 52.0), 1)
+  end as weeks_of_cover,
+
+  -- momentum: recent run rate vs the trailing year. This is the growth
+  -- signal -- a category accelerating while thinly covered is an argument
+  -- to buy MORE, which is the half a history-only planner forgets.
+  case when s.units_12m > 0 and s.units_3m is not null
+       then round(((s.units_3m / 13.0) / (s.units_12m / 52.0) - 1) * 100, 1)
+  end as momentum_pct
+from types t
+left join sold    s  on s.product_type  = t.product_type
+left join onhand  oh on oh.product_type = t.product_type
+left join onorder oo on oo.product_type = t.product_type;
+
+revoke all on public.demand_coverage_by_type_v from anon;
+grant select on public.demand_coverage_by_type_v to authenticated;
+
+select public.refresh_chat_schema_catalog();
+
+update public.silo_chat_schema_catalog set
+  keywords = array['demand','coverage','weeks of cover','on hand','on order','gap','planning','overstock','understock','momentum','buy more','category'],
+  description = $d$Unit-based demand coverage per product category -- the fastest way to answer "do we need more of this, and how much is already coming". Per product_type: units_on_hand, units_on_order (Confirmed/Sent to Factory/In Production/In Transit) and units_on_order_draft separately, trailing units_12m/units_3m, per-week run rates, weeks_of_cover, and momentum_pct (recent run rate vs the trailing year). UNITS only -- deliberately no dollars, because unit_cost is missing on ~55% of PO lines while qty is complete.
+
+READ IT SYMMETRICALLY. High weeks_of_cover argues against another buy; low or null cover with positive momentum_pct argues FOR one. Reporting only the first would make this a stagnation engine.
+
+has_sales_history = false means the category is UNPROVEN, NOT that demand is zero: a first buy into a new category has no sales yet by definition, and must never be scored as a failure for that. weeks_of_cover is null in that case -- "cannot be computed", not "infinite" and not zero. The current partial month is excluded from both windows so the recent run rate is not artificially depressed. Grain is the PO buying vocabulary (29 categories); sales uses a finer 116-type vocabulary, so a handful of categories appear with some legs missing rather than being dropped.$d$
+where relname = 'demand_coverage_by_type_v';
