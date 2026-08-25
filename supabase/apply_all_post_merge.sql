@@ -12221,3 +12221,14 @@ update public.silo_chat_schema_catalog set
   description = coalesce(description, '') || $d$ SPEED: 2 GB and day-grain. If you only need totals, velocity or a size curve, sales_velocity_by_sku_location_v is pre-computed and far faster; come here for per-day detail or for date ranges spanning the pre-API history.$d$
 where relname = 'sales_by_day'
   and coalesce(description, '') not like '%SPEED:%';
+
+
+-- ---------------------------------------------------------------------------
+-- 20260825190000_chat_catalog_source_coverage_reality.sql
+-- Ask SILO schema catalog: describe what each source ACTUALLY contains
+-- today. launch_calendar's brief fields are empty across all 51 rows, so
+-- grounding angle/audience/revenue there costs a round and returns nothing
+-- -- and reporting their absence as a concept risk is noise. Also records
+-- the ad-data coverage boundaries (marketing_kpis_daily from 2025-08-14;
+-- meta_ad_performance_daily only ~7 weeks).
+-- ---------------------------------------------------------------------------
