@@ -266,6 +266,13 @@
       white-space: nowrap;
     }
 
+    .ax-map-note {
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      color: var(--bcn-ink-3);
+      margin-top: 4px;
+    }
+
     .ax-map-actions {
       display: flex;
       gap: 8px;
@@ -497,6 +504,10 @@
               <b>Accounting note:</b> discounts are contra-revenue, sales tax payable is a liability,
               and Shopify deposits should clear through a Shopify clearing account instead of generic AR.
               Use <code>{location}</code> in a template to insert the location name.
+              <br /><br />
+              Connect QuickBooks in <a href="/v2/integrations.html">Integrations</a> to pick real QBO
+              accounts here instead of typing names. Per-location revenue and refund accounts stay
+              free text — one QBO account cannot cover every location — and are matched by name.
             </div>
           </div>
         </div>
@@ -559,7 +570,11 @@
     global: { fetch: (url, o = {}) => fetch(url, { ...o, cache: 'no-store' }) },
   });
 
-  const _co = cfg.getActiveCompany?.() || null;
+  // Resolved in boot() via ensureActiveCompany(), which self-heals from
+  // profiles.active_company_id when sessionStorage is empty (deep link, new
+  // tab). The sync getActiveCompany() returned null there, which silently
+  // dropped company_entity_id from the mapping upsert below.
+  let _co = null;
 
   const el = {
     month: document.getElementById('month'),
@@ -629,19 +644,19 @@
     processing_fees: 'Shopify Processing Fees',
   };
 
-  const LEGACY_RENAMES = {
-    'In Store Retail Revenue - Shopify ({location})': MAP_DEFAULTS.revenue_template,
-    'Freight Revenue': MAP_DEFAULTS.freight,
-    'Sales Refunds - ({location})': MAP_DEFAULTS.refunds_template,
-    'COGS - Sales Discounts': MAP_DEFAULTS.discounts,
-    'COGS - Sales Tax Liability': MAP_DEFAULTS.tax_liability,
-    'Sales Tax Income All': MAP_DEFAULTS.tax_income_all,
-    'Accounts Receivable': MAP_DEFAULTS.accounts_receivable,
-    'COGS - Processing Fees': MAP_DEFAULTS.processing_fees,
-  };
+  // Keys whose account name is per-location ({location} is substituted at
+  // journal time), so a single QBO account cannot express them. They stay
+  // free text and are matched to QBO by name -- see the note in the mapping
+  // card and TEMPLATE_KEYS' use in renderMap().
+  const TEMPLATE_KEYS = new Set(['revenue_template', 'refunds_template']);
 
   const state = {
     coa: { ...MAP_DEFAULTS },
+    // map_key -> QBO Account.Id, the authority for posting once a QuickBooks
+    // connection exists. Empty when no connection is set up.
+    qboIds: {},
+    // Chart of accounts pulled from QBO by quickbooks-accounts-sync.
+    qboAccounts: [],
     buckets: [],
     payouts: [],
     storeNames: new Map(),
@@ -865,17 +880,54 @@
   }
 
   function renderMap() {
-    el.mapGrid.innerHTML = MAP_KEYS.map(([key, label]) =>
-      `<div class="ax-map-key">${esc(label)}</div>
-       <input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}" value="${esc(state.coa[key] || '')}" />`
-    ).join('');
+    const hasQbo = state.qboAccounts.length > 0;
+
+    el.mapGrid.innerHTML = MAP_KEYS.map(([key, label]) => {
+      const keyCell = `<div class="ax-map-key">${esc(label)}</div>`;
+
+      // A {location} template expands to a different account per location, so
+      // one QBO account cannot represent it. Left as free text; posting will
+      // resolve it by name (see docs/ops/quickbooks-integration.md).
+      if (!hasQbo || TEMPLATE_KEYS.has(key)) {
+        const note = hasQbo
+          ? `<div class="ax-map-note">Per-location — matched to QuickBooks by name</div>`
+          : '';
+        return keyCell +
+          `<div><input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}"
+             data-kind="text" value="${esc(state.coa[key] || '')}" />${note}</div>`;
+      }
+
+      const selectedId = state.qboIds[key] || '';
+      const options = state.qboAccounts.map(a => {
+        const label2 = a.fully_qualified_name || a.name;
+        const type = a.account_type ? ` · ${a.account_type}` : '';
+        return `<option value="${esc(a.qbo_account_id)}"${
+          a.qbo_account_id === selectedId ? ' selected' : ''
+        }>${esc(label2)}${esc(type)}</option>`;
+      }).join('');
+
+      // A stored id that is no longer in the pulled list means the account was
+      // archived or deleted in QBO. Surfaced as its own option so the mapping
+      // reads as broken instead of silently resetting to "not mapped".
+      const missing = selectedId
+        && !state.qboAccounts.some(a => a.qbo_account_id === selectedId);
+      const missingOpt = missing
+        ? `<option value="${esc(selectedId)}" selected>⚠ ${esc(state.coa[key] || selectedId)} — not in QuickBooks</option>`
+        : '';
+
+      return keyCell +
+        `<select class="bcn-field bcn-field--mono" data-map-key="${esc(key)}" data-kind="qbo">
+           <option value=""${selectedId ? '' : ' selected'}>— not mapped —</option>
+           ${missingOpt}${options}
+         </select>`;
+    }).join('');
   }
 
   function applyRecommendedMap() {
     state.coa = { ...MAP_DEFAULTS };
     renderMap();
     render();
-    setStatus('Recommended account names applied. Save mapping to persist them.', 'info', 4000);
+    setStatus('Recommended account names applied — click Save mapping to persist them.', 'info', 6000);
   }
 
   function csvEscape(v) {
@@ -951,27 +1003,78 @@
   }
 
   async function loadCoaMap() {
-    const { data, error } = await sb.from('accounting_coa_map').select('map_key, account_name');
+    let q = sb.from('accounting_coa_map').select('map_key, account_name, qbo_account_id');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
     if (error) {
       console.warn('COA map load failed', error);
       return;
     }
 
     for (const r of data || []) {
-      const raw = r.account_name || '';
-      state.coa[r.map_key] = LEGACY_RENAMES[raw] || raw;
+      if (r.account_name) state.coa[r.map_key] = r.account_name;
+      if (r.qbo_account_id) state.qboIds[r.map_key] = r.qbo_account_id;
     }
   }
 
-  async function saveCoaMap() {
-    const inputs = [...el.mapGrid.querySelectorAll('[data-map-key]')];
+  // Chart of accounts mirrored from QuickBooks. Absent (empty array) whenever
+  // no QBO connection exists, which is what keeps the mapping card on plain
+  // text fields.
+  async function loadQboAccounts() {
+    let q = sb.from('quickbooks_accounts')
+      .select('qbo_account_id, name, fully_qualified_name, account_type, is_active')
+      .eq('is_active', true)
+      .order('fully_qualified_name');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) {
+      // Not fatal: the page is fully usable as a CSV export with no QBO
+      // connection at all.
+      console.warn('QBO account load failed', error);
+      return;
+    }
+    state.qboAccounts = data || [];
+  }
 
-    const rows = inputs.map(i => ({
-      map_key: i.dataset.mapKey,
-      account_name: i.value.trim() || MAP_DEFAULTS[i.dataset.mapKey],
-      updated_at: new Date().toISOString(),
-      ...(_co?.id ? { company_entity_id: _co.id } : {}),
-    }));
+  async function saveCoaMap() {
+    // Without a company the upsert's conflict target and the RLS check both
+    // operate on a null, so refuse rather than appear to save.
+    if (!_co?.id) {
+      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
+      return;
+    }
+
+    const fields = [...el.mapGrid.querySelectorAll('[data-map-key]')];
+
+    const rows = fields.map(f => {
+      const key = f.dataset.mapKey;
+
+      if (f.dataset.kind === 'qbo') {
+        const id = f.value || null;
+        const acct = state.qboAccounts.find(a => a.qbo_account_id === id);
+        return {
+          company_entity_id: _co.id,
+          map_key: key,
+          // Keep account_name populated even when mapped by id: the CSV
+          // export emits names, and it is the fallback if QBO is disconnected.
+          account_name: acct
+            ? (acct.fully_qualified_name || acct.name)
+            : (state.coa[key] || MAP_DEFAULTS[key]),
+          qbo_account_id: id,
+          qbo_account_name: acct ? (acct.fully_qualified_name || acct.name) : null,
+          updated_at: new Date().toISOString(),
+        };
+      }
+
+      return {
+        company_entity_id: _co.id,
+        map_key: key,
+        account_name: f.value.trim() || MAP_DEFAULTS[key],
+        qbo_account_id: null,
+        qbo_account_name: null,
+        updated_at: new Date().toISOString(),
+      };
+    });
 
     const { error } = await sb
       .from('accounting_coa_map')
@@ -982,8 +1085,14 @@
       return;
     }
 
-    for (const r of rows) state.coa[r.map_key] = r.account_name;
+    for (const r of rows) {
+      state.coa[r.map_key] = r.account_name;
+      if (r.qbo_account_id) state.qboIds[r.map_key] = r.qbo_account_id;
+      else delete state.qboIds[r.map_key];
+    }
+
     setStatus('Mapping saved.', 'pos', 2500);
+    renderMap();
     render();
   }
 
@@ -1082,7 +1191,9 @@
     const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
     el.month.value = prev.toISOString().slice(0, 7);
 
-    await Promise.all([loadCoaMap(), loadStoreNames()]);
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    await Promise.all([loadCoaMap(), loadQboAccounts(), loadStoreNames()]);
     renderMap();
     await run();
   }

@@ -450,6 +450,35 @@
             </tfoot>
           </table>
         </div>
+
+        <p class="int-section-label" style="margin-top:28px;">QuickBooks Online</p>
+        <p class="int-onboarding-note">Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed.</p>
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Environment</th>
+                <th>Chart of accounts</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="qbo-connections-list">
+              <tr><td colspan="5"><div class="empty-state" id="qbo-empty"><strong>Not connected</strong>Connect QuickBooks below</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="int-add-row">
+                <td colspan="5">
+                  <div class="form-row" style="padding:10px 0;gap:8px;">
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-qbo-sandbox">Connect sandbox company →</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-qbo-production">Connect production company →</button>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
     </main>
   </div>
@@ -511,6 +540,7 @@
       loadConnections();
       loadAdConnections();
       loadRedoConnection();
+      loadQboConnection();
 
       // Handle OAuth redirect-back (Shopify + ad platforms share the params;
       // ad-platform callbacks add &platform=)
@@ -520,6 +550,9 @@
         setStatus(oauthPlatform
           ? `✓ ${AD_PLATFORM_LABELS[oauthPlatform] || oauthPlatform} connected — set the account ID, test, then enable sync.`
           : '✓ Shopify store connected — enable sync when ready.', 'pos', 8000);
+        history.replaceState({}, '', window.location.pathname);
+      } else if (urlParams.get('qbo_connected')) {
+        setStatus('✓ QuickBooks connected — click “Pull accounts” to mirror the chart of accounts.', 'pos', 10000);
         history.replaceState({}, '', window.location.pathname);
       } else if (urlParams.get('oauth_error')) {
         setStatus('Connection failed: ' + urlParams.get('oauth_error'), 'neg', 10000);
@@ -1792,6 +1825,140 @@
       setStatus('✓ Redo connected — copy the webhook URL + secret into Redo\'s dashboard.', 'pos', 10000);
       loadRedoConnection();
     });
+
+    // ── QuickBooks Online ──────────────────────────────────────────
+    // Read-only in this phase: connect, pull the chart of accounts, disconnect.
+    // Nothing here writes to the general ledger.
+    let _qboRow = null;
+    let _qboAccountCount = null;
+
+    async function loadQboConnection() {
+      if (!_co?.id) return;
+      const { data, error } = await db.from('quickbooks_connections')
+        .select('*')
+        .eq('company_entity_id', _co.id)
+        .order('created_at')
+        .limit(1);
+      if (error) { setStatus('Failed to load QuickBooks connection: ' + error.message, 'neg'); return; }
+      _qboRow = (data || [])[0] || null;
+      if (_qboRow) await refreshQboAccountCount();
+      renderQboConnection(_qboRow);
+    }
+
+    async function refreshQboAccountCount() {
+      if (!_co?.id) return;
+      const { count } = await db.from('quickbooks_accounts')
+        .select('id', { count: 'exact', head: true })
+        .eq('company_entity_id', _co.id)
+        .eq('is_active', true);
+      _qboAccountCount = count ?? null;
+    }
+
+    function renderQboConnection(row) {
+      const tbody = document.getElementById('qbo-connections-list');
+      const sandboxBtn = document.getElementById('btn-connect-qbo-sandbox');
+      const prodBtn = document.getElementById('btn-connect-qbo-production');
+
+      if (!row) {
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Connect QuickBooks below</div></td></tr>';
+        sandboxBtn.hidden = false;
+        prodBtn.hidden = false;
+        return;
+      }
+      sandboxBtn.hidden = true;
+      prodBtn.hidden = true;
+
+      const accounts = row.accounts_synced_at
+        ? `${_qboAccountCount ?? '—'} accounts · ${new Date(row.accounts_synced_at).toLocaleString()}`
+        : '<span class="bcn-pill">Not pulled yet</span>';
+
+      // A dead refresh token cannot be recovered by retrying — it needs a
+      // human to re-consent — so it gets its own message rather than the
+      // generic error text.
+      const refreshDead = row.refresh_token_expires_at
+        && new Date(row.refresh_token_expires_at) < new Date();
+      const status = refreshDead
+        ? '<span class="bcn-pill bcn-pill--neg">Authorization expired — reconnect</span>'
+        : row.last_test_success === false
+          ? `<span class="bcn-pill bcn-pill--neg">${escHtml(row.last_test_error || 'Error')}</span>`
+          : row.last_test_success
+            ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
+            : '<span class="bcn-pill">Untested</span>';
+
+      tbody.innerHTML = `<tr>
+        <td>
+          <div>${escHtml(row.company_name || 'QuickBooks company')}</div>
+          <div class="bcn-mono" style="font-size:11px;opacity:.6;">Realm ${escHtml(row.realm_id)}</div>
+        </td>
+        <td><span class="bcn-pill ${row.environment === 'production' ? 'bcn-pill--accent' : ''}">${escHtml(row.environment)}</span></td>
+        <td>${accounts}</td>
+        <td>${status}</td>
+        <td style="white-space:nowrap;">
+          <button class="int-btn" onclick="syncQboAccounts()">Pull accounts</button>
+          <button class="int-btn int-btn--danger" onclick="removeQboConnection()">Disconnect</button>
+        </td>
+      </tr>`;
+    }
+
+    async function connectQbo(environment) {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      if (environment === 'production'
+        && !confirm('Connect a PRODUCTION QuickBooks company? This reads your real chart of accounts. Nothing is written, but sandbox is the safer place to start.')) return;
+
+      const { data: { session } } = await db.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/quickbooks-oauth-start`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ company_entity_id: _co.id, environment }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.url) {
+        setStatus('Could not start QuickBooks connect: ' + (body.error || res.status), 'neg', 8000);
+        return;
+      }
+      window.location.href = body.url;
+    }
+
+    async function syncQboAccounts() {
+      if (!_qboRow) return;
+      setStatus('Pulling chart of accounts from QuickBooks…', 'info');
+      const { data: { session } } = await db.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/quickbooks-accounts-sync`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ connection_id: _qboRow.id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus('Account pull failed: ' + (body.error || res.status), 'neg', 10000);
+        await loadQboConnection();
+        return;
+      }
+      setStatus(`✓ Pulled ${body.accounts} accounts from QuickBooks.`, 'pos', 6000);
+      await loadQboConnection();
+    }
+
+    async function removeQboConnection() {
+      if (!_qboRow) return;
+      if (!confirm('Disconnect QuickBooks? The stored chart of accounts is deleted with it, and any Accounting Export mapping that points at a QBO account will fall back to its account name.')) return;
+      const { error } = await db.from('quickbooks_connections').delete().eq('id', _qboRow.id);
+      if (error) { setStatus('Disconnect failed: ' + error.message, 'neg'); return; }
+      _qboRow = null;
+      _qboAccountCount = null;
+      setStatus('QuickBooks disconnected.', 'info', 4000);
+      loadQboConnection();
+    }
+
+    document.getElementById('btn-connect-qbo-sandbox')
+      .addEventListener('click', () => connectQbo('sandbox'));
+    document.getElementById('btn-connect-qbo-production')
+      .addEventListener('click', () => connectQbo('production'));
   </script>
 </body>
 </html>
