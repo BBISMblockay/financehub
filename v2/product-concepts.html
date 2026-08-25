@@ -357,6 +357,25 @@
     const user = sess.data.session.user;
     const { data: prof } = await db.from('profiles').select('email, role').eq('id', user.id).single();
 
+    // Product Concepts is in testing. The same allowlist gates the concept
+    // tools in the silo-chat edge function and the entry points in Ask
+    // SILO; without it here the feature would be allowlisted everywhere
+    // except the one page that shows all of it, which anyone could reach
+    // by typing the URL.
+    //
+    // This is discovery gating, not a security boundary -- a client-side
+    // check never is. The real boundary stays where it always is: RLS
+    // scopes every row to the caller's own company, and writes are gated
+    // by product_concepts' own policies. When this ships to everyone,
+    // delete this block rather than widening the list, same as the
+    // PRODUCT_CONCEPT_TESTERS constant in the edge function.
+    const CONCEPT_TESTERS = ['blake@baseballism.com'];
+    const email = (prof?.email || user.email || '').toLowerCase();
+    if (!CONCEPT_TESTERS.includes(email)) {
+      window.location.replace('/v2/silo-chat.html');
+      return;
+    }
+
     window.SiloChrome?.mount?.({
       appEl: '#silo-app',
       active: 'reports/silo-chat',
