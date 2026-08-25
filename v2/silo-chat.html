@@ -108,12 +108,6 @@
       letter-spacing:.06em; color:var(--bcn-ink-3); margin:6px 0 2px;
     }
     .ac-report-section:first-child { margin-top:0; }
-    .ac-report-item {
-      display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
-      padding:10px 12px; border:1px solid var(--bcn-border); border-radius:8px;
-      background:var(--bcn-sunken); cursor:pointer;
-    }
-    .ac-report-item:hover { border-color:var(--bcn-accent); }
     .ac-report-item-title { font-size:13px; font-weight:700; line-height:1.4; }
     .ac-report-item-meta { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); margin-top:4px; }
     .ac-report-back {
@@ -164,6 +158,67 @@
     .ac-save-vis-opt input { margin-top:2px; }
     .ac-save-vis-opt small { display:block; color:var(--bcn-ink-3); margin-top:2px; }
     .ac-save-dialog-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
+
+    /* Saved reports: cards, not a bare list. The old list showed only a
+       title and a date, so telling two reports apart meant opening both.
+       A snippet of the answer is the cheapest way to make the list
+       scannable, and the filter matters once there are more than a screenful. */
+    .ac-report-toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+    .ac-report-search {
+      flex:1; padding:7px 10px; font-size:12.5px; font-family:inherit;
+      border:1px solid var(--bcn-border); border-radius:8px;
+      background:var(--bcn-surface); color:var(--bcn-ink);
+    }
+    .ac-report-search:focus { outline:none; border-color:var(--bcn-accent); }
+    .ac-report-count { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); white-space:nowrap; }
+    /* auto-fit, not auto-fill: auto-fill reserves empty tracks, so a
+       section holding two reports rendered two narrow cards against half a
+       row of dead space. auto-fit collapses the empties, so a short list
+       gets wide readable cards and a long one still wraps at ~250px. */
+    .ac-report-grid {
+      display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:10px;
+    }
+    .ac-report-card {
+      display:flex; flex-direction:column; gap:6px; text-align:left;
+      padding:11px 12px; border:1px solid var(--bcn-border); border-radius:8px;
+      background:var(--bcn-sunken); cursor:pointer; font:inherit; color:inherit;
+    }
+    .ac-report-card:hover { border-color:var(--bcn-accent); }
+    .ac-report-card-title { font-size:13px; font-weight:700; line-height:1.35; }
+    .ac-report-snippet {
+      font-size:12px; line-height:1.45; color:var(--bcn-ink-2);
+      display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+    }
+    .ac-report-card-foot {
+      display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:auto; padding-top:4px;
+    }
+    .ac-pill {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.05em;
+      padding:2px 6px; border-radius:999px; border:1px solid var(--bcn-border); color:var(--bcn-ink-3);
+      white-space:nowrap;
+    }
+    .ac-pill--private { border-color:var(--bcn-accent); color:var(--bcn-accent); }
+    .ac-pill--expired { border-color:var(--bcn-neg); color:var(--bcn-neg); }
+    .ac-pill--horizon { border-color:var(--bcn-ink-3); }
+
+    /* Strategy notes read differently from corrections: they are direction
+       with a horizon, and an expired one must be visibly expired rather
+       than sitting in the list looking current. */
+    .ac-note-item--expired { opacity:.62; }
+    .ac-note-badges { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:5px; }
+    .ac-notes-section-hint {
+      font-size:11.5px; color:var(--bcn-ink-3); margin:-2px 0 8px; line-height:1.45;
+    }
+    .ac-note-date-wrap { display:flex; gap:6px; align-items:center; }
+    /* An explicit display: value beats the [hidden] attribute's UA
+       display:none, so without this the horizon field renders even while
+       marked hidden -- caught by rendering the page, not by reading it. */
+    .ac-note-date-wrap[hidden] { display:none; }
+    .ac-note-date-wrap input[type="date"] {
+      padding:5px 8px; font-family:var(--bcn-mono); font-size:11px;
+      border:1px solid var(--bcn-border); border-radius:6px;
+      background:var(--bcn-surface); color:var(--bcn-ink);
+    }
 
     .ac-empty {
       margin:auto; text-align:center; color:var(--bcn-ink-3); font-size:13px; max-width:420px;
@@ -1177,7 +1232,7 @@
     list.innerHTML = `<div class="ac-notes-empty">Loading…</div>`;
     const { data, error } = await sb
       .from('silo_chat_notes_v')
-      .select('id, note, category, created_at, created_by_name')
+      .select('id, note, category, created_at, created_by_name, effective_until, is_expired')
       .order('created_at', { ascending: false });
     if (error) {
       list.innerHTML = `<div class="ac-notes-empty">Couldn't load notes: ${esc(error.message)}</div>`;
@@ -1187,20 +1242,30 @@
   }
 
   function noteItemHtml(n) {
+    // An expired strategy note is still shown -- dropping it would erase
+    // context -- but it must LOOK expired. Ask SILO treats it the same way:
+    // prior direction, never acted on as current.
+    const badges = [];
+    if (n.effective_until) {
+      badges.push(`<span class="ac-pill ac-pill--horizon">through ${esc(n.effective_until)}</span>`);
+    }
+    if (n.is_expired) badges.push(`<span class="ac-pill ac-pill--expired">Expired</span>`);
     return `
-      <div class="ac-note-item" data-id="${esc(n.id)}">
+      <div class="ac-note-item${n.is_expired ? ' ac-note-item--expired' : ''}" data-id="${esc(n.id)}">
         <div>
           <div class="ac-note-item-text">${esc(n.note)}</div>
+          ${badges.length ? `<div class="ac-note-badges">${badges.join('')}</div>` : ''}
           <div class="ac-note-item-meta">${esc(n.created_by_name || 'Unknown')} · ${new Date(n.created_at).toLocaleDateString()}</div>
         </div>
         ${canManageNotes ? `<button class="ac-note-delete" type="button" title="Remove">✕</button>` : ''}
       </div>`;
   }
 
-  function notesSectionHtml(title, items, emptyHint) {
+  function notesSectionHtml(title, items, emptyHint, hint) {
     return `
       <div class="ac-notes-section">
         <h4 class="ac-notes-section-title">${esc(title)}</h4>
+        ${hint ? `<div class="ac-notes-section-hint">${esc(hint)}</div>` : ''}
         ${items.length ? items.map(noteItemHtml).join('') : `<div class="ac-notes-empty">${esc(emptyHint)}</div>`}
       </div>`;
   }
@@ -1211,11 +1276,23 @@
   // edge function uses when assembling the system prompt.
   function renderNotes(notes) {
     const brand = notes.filter(n => n.category === 'brand');
-    const general = notes.filter(n => n.category !== 'brand');
+    const strategy = notes.filter(n => n.category === 'strategy');
+    const general = notes.filter(n => n.category !== 'brand' && n.category !== 'strategy');
+
+    // Strategy is sorted current-first: an expired note is history and
+    // should not sit above direction that still holds.
+    strategy.sort((a, b) => (a.is_expired === b.is_expired) ? 0 : (a.is_expired ? 1 : -1));
 
     el('notesList').innerHTML =
-      notesSectionHtml('Brand & voice', brand, canManageNotes ? 'No brand context trained yet — add one below.' : 'No brand context trained yet.') +
-      notesSectionHtml('Corrections', general, canManageNotes ? 'Nothing trained yet — add one below.' : 'Nothing trained yet.');
+      notesSectionHtml('Brand & voice', brand,
+        canManageNotes ? 'No brand context trained yet — add one below.' : 'No brand context trained yet.',
+        'Identity and voice — tagline, positioning, personality. Shapes how answers sound.') +
+      notesSectionHtml('Strategy', strategy,
+        canManageNotes ? 'No direction set — add one below.' : 'No direction set yet.',
+        'Direction the business has decided on. This is the one kind of training that shapes what SILO proposes, not just how it reads numbers — a stated decision counts as evidence even where history does not support it yet.') +
+      notesSectionHtml('Corrections', general,
+        canManageNotes ? 'Nothing trained yet — add one below.' : 'Nothing trained yet.',
+        'Specific facts no query could derive, e.g. how to read an unusual SKU.');
 
     el('notesAddArea').innerHTML = canManageNotes
       ? `<div class="ac-notes-add">
@@ -1223,8 +1300,13 @@
           <div class="ac-notes-add-actions">
             <select id="newNoteCategory">
               <option value="general">General correction</option>
-              <option value="brand">Brand & voice</option>
+              <option value="brand">Brand &amp; voice</option>
+              <option value="strategy">Strategy</option>
             </select>
+            <span class="ac-note-date-wrap" id="newNoteUntilWrap" hidden>
+              <label for="newNoteUntil" class="ac-report-count">through</label>
+              <input type="date" id="newNoteUntil" />
+            </span>
             <button class="bcn-btn bcn-btn--primary" type="button" id="btnAddNote">Train</button>
           </div>
         </div>`
@@ -1235,9 +1317,13 @@
     const textEl = el('newNoteText');
     const note = textEl.value.trim();
     if (!note) return;
-    const category = el('newNoteCategory')?.value === 'brand' ? 'brand' : 'general';
+    const picked = el('newNoteCategory')?.value;
+    const category = (picked === 'brand' || picked === 'strategy') ? picked : 'general';
+    // Only strategy notes take a horizon -- a date on a fact would expire
+    // something that is still true.
+    const effective_until = (category === 'strategy' && el('newNoteUntil')?.value) || null;
     el('btnAddNote').disabled = true;
-    const { error } = await sb.from('silo_chat_notes').insert({ note, category });
+    const { error } = await sb.from('silo_chat_notes').insert({ note, category, effective_until });
     if (error) {
       setStatus('Could not save training: ' + error.message, 'error', 4000);
       el('btnAddNote').disabled = false;
@@ -1271,6 +1357,11 @@
       if (id && confirm('Remove this from Ask SILO\'s training?')) deleteNote(id);
     }
   });
+  el('notesBackdrop').addEventListener('change', (e) => {
+    if (e.target.id !== 'newNoteCategory') return;
+    const wrap = el('newNoteUntilWrap');
+    if (wrap) wrap.hidden = e.target.value !== 'strategy';
+  });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { closeNotesModal(); closeSavedModal(); }
   });
@@ -1282,6 +1373,7 @@
   let savedReportsCache = [];
 
   async function openSavedModal() {
+    savedFilter = '';
     el('savedBackdrop').classList.add('open');
     el('savedBody').innerHTML = `<div class="ac-notes-empty">Loading…</div>`;
     const { data, error } = await sb
@@ -1299,26 +1391,79 @@
     el('savedBackdrop').classList.remove('open');
   }
 
+  // Free-text filter over the saved list. Kept in module scope (not read
+  // off the DOM at render time) because re-rendering replaces the input,
+  // which would otherwise lose what was typed on every keystroke.
+  let savedFilter = '';
+
+  // Strip markdown well enough for a one-line preview. Not a parser -- the
+  // detail view still renders properly via marked/DOMPurify; this only has
+  // to make a card readable at a glance.
+  function reportSnippet(r) {
+    const raw = String(r.answer || r.question || '');
+    return raw
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/^\s*\|.*$/gm, ' ')
+      .replace(/[#>*_`~-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   function renderSavedList() {
     if (!savedReportsCache.length) {
       el('savedBody').innerHTML = `<div class="ac-notes-empty">Nothing saved yet — ask a question, then hit "Save report" under the answer.</div>`;
       return;
     }
+    const q = savedFilter.trim().toLowerCase();
+    const match = r => !q
+      || String(r.title || '').toLowerCase().includes(q)
+      || String(r.question || '').toLowerCase().includes(q)
+      || String(r.answer || '').toLowerCase().includes(q);
+
     // RLS already hides other people's private reports, so "My reports"
     // here is exactly the caller's own private ones.
-    const itemHtml = r => `
-      <div class="ac-report-item" data-id="${esc(r.id)}">
-        <div>
-          <div class="ac-report-item-title">${esc(r.title)}</div>
-          <div class="ac-report-item-meta">${esc(r.created_by_name || 'Unknown')} · ${new Date(r.created_at).toLocaleDateString()}</div>
-        </div>
-      </div>`;
-    const mine = savedReportsCache.filter(r => r.visibility === 'private');
-    const company = savedReportsCache.filter(r => r.visibility !== 'private');
+    const visible = savedReportsCache.filter(match);
+    const mine = visible.filter(r => r.visibility === 'private');
+    const company = visible.filter(r => r.visibility !== 'private');
+
+    const cardHtml = r => {
+      const snippet = reportSnippet(r);
+      const nQueries = (r.queries_run || []).length;
+      return `
+      <button type="button" class="ac-report-card" data-id="${esc(r.id)}">
+        <span class="ac-report-card-title">${esc(r.title)}</span>
+        ${snippet ? `<span class="ac-report-snippet">${esc(snippet)}</span>` : ''}
+        <span class="ac-report-card-foot">
+          ${r.visibility === 'private' ? `<span class="ac-pill ac-pill--private">Only you</span>` : `<span class="ac-pill">Company</span>`}
+          ${nQueries ? `<span class="ac-pill">${nQueries} quer${nQueries === 1 ? 'y' : 'ies'}</span>` : ''}
+          <span class="ac-report-item-meta">${esc(r.created_by_name || 'Unknown')} · ${new Date(r.created_at).toLocaleDateString()}</span>
+        </span>
+      </button>`;
+    };
     const section = (label, rows) => rows.length
-      ? `<div class="ac-report-section">${esc(label)}</div>` + rows.map(itemHtml).join('')
+      ? `<div class="ac-report-section">${esc(label)}</div><div class="ac-report-grid">${rows.map(cardHtml).join('')}</div>`
       : '';
-    el('savedBody').innerHTML = section('My reports', mine) + section('Company reports', company);
+
+    const toolbar = `
+      <div class="ac-report-toolbar">
+        <input type="search" class="ac-report-search" id="savedSearch"
+               placeholder="Filter saved reports…" value="${esc(savedFilter)}" />
+        <span class="ac-report-count">${visible.length} of ${savedReportsCache.length}</span>
+      </div>`;
+
+    const body = (mine.length || company.length)
+      ? section('My reports', mine) + section('Company reports', company)
+      : `<div class="ac-notes-empty">No saved report matches “${esc(savedFilter)}”.</div>`;
+
+    el('savedBody').innerHTML = toolbar + body;
+
+    // Re-focus and restore the caret after the re-render, so typing in the
+    // filter feels continuous rather than losing focus every character.
+    const input = el('savedSearch');
+    if (input && savedFilter) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
   }
 
   // Mirrors the RLS delete policy (creator or exec/owner) — deliberately
@@ -1409,11 +1554,19 @@
       if (confirm(msg)) deleteReport(delBtn.dataset.id);
       return;
     }
-    const item = e.target.closest('.ac-report-item');
+    const item = e.target.closest('.ac-report-card');
     if (item) {
       const r = savedReportsCache.find(x => x.id === item.dataset.id);
       if (r) renderSavedDetail(r);
     }
+  });
+
+  // Delegated because renderSavedList replaces the input on every keystroke;
+  // a listener bound directly to the element would die with the first render.
+  el('savedBackdrop').addEventListener('input', (e) => {
+    if (e.target.id !== 'savedSearch') return;
+    savedFilter = e.target.value;
+    renderSavedList();
   });
 
   async function boot() {
