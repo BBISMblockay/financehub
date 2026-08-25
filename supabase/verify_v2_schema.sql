@@ -1220,3 +1220,34 @@ select
       then 'MISSING — launch_calendar.source_concept_id'
     else 'ok'
   end as launch_actuals;
+
+-- Strategy notes + unit demand coverage (20260826040000 / 20260826050000).
+-- Strategy notes are how a stated human bet overrides a history-only
+-- recommendation; demand coverage is the unit-based planning context.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_notes'
+                       and column_name='effective_until')
+      then 'MISSING — run 20260826040000_silo_chat_strategy_notes.sql'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.silo_chat_notes'::regclass
+                       and pg_get_constraintdef(oid) like '%strategy%')
+      then 'MISSING — strategy category not allowed by silo_chat_notes check constraint'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_notes_v'
+                       and column_name='is_expired')
+      then 'MISSING — is_expired not exposed on silo_chat_notes_v'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='demand_coverage_by_type_v')
+      then 'MISSING — run 20260826050000_demand_coverage.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='demand_coverage_by_type_v'
+                       and column_name='has_sales_history')
+      then 'MISSING — has_sales_history not exposed (unproven vs zero demand)'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='demand_coverage_by_type_v'
+                       and column_name='momentum_pct')
+      then 'MISSING — momentum_pct not exposed (the growth half of the signal)'
+    else 'ok'
+  end as strategy_notes_and_demand_coverage;
