@@ -295,6 +295,8 @@ supabase/
     20260821180000_product_search_rollup_rpc.sql
     20260821210000_silo_chat_schema_catalog.sql
     20260822010000_shopify_order_lines_trgm_indexes.sql
+    20260824000000_comp_adjustment_requests.sql
+    20260825120000_product_concept_structured_workflow.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

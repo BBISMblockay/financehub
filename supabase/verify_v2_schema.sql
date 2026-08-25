@@ -1075,6 +1075,42 @@ select
     else 'ok'
   end as product_concept_collections;
 
+-- Product Concepts structured workflow (migration 20260825120000) —
+-- structured brief columns, per-field evidence classification, and the
+-- immutable revision-history table + its write trigger.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts'
+                       and column_name='field_evidence')
+      then 'MISSING — run 20260825120000_product_concept_structured_workflow.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts'
+                       and column_name='current_revision_number')
+      then 'MISSING — product_concepts.current_revision_number'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='product_concept_revisions')
+      then 'MISSING — product_concept_revisions table'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='product_concept_revisions'
+                       and policyname='product_concept_revisions_select')
+      then 'MISSING — product_concept_revisions RLS policy'
+    -- History must stay immutable: a client-writable policy here would
+    -- silently defeat the "preserve prior concept work" guarantee.
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='product_concept_revisions'
+                   and cmd in ('INSERT','UPDATE','DELETE'))
+      then 'UNEXPECTED — product_concept_revisions must have no client write policies'
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.product_concepts'::regclass
+                       and tgname='trg_product_concept_revision')
+      then 'MISSING — trg_product_concept_revision trigger'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='product_concept_revisions_v')
+      then 'MISSING — product_concept_revisions_v view'
+    else 'ok'
+  end as product_concept_structured_workflow;
+
 -- Ask SILO schema catalog + health view (migration 20260821210000)
 select
   case
