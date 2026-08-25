@@ -829,10 +829,22 @@ Deno.serve(async (req: Request) => {
       && history.some((m) => m.role === 'user' && CONCEPT_LANGUAGE.test(String(m.content || '')))
       && !ANALYTICAL_QUESTION.test(question.trim())
       && !ANALYTICAL_DELIVERABLE.test(question);
+    // When a tester has the capability but has NOT started the workflow,
+    // say so in one line. Without this the model has no idea Product
+    // Concepts exists -- it simply lacks the tools -- so "draft me a youth
+    // hoodie concept" with the mode off gets a friendly prose answer,
+    // nothing is saved, and nothing explains why. That is a worse failure
+    // than the one the mode fixed, because it is silent.
+    const conceptModeHint = (!conceptsEnabled && PRODUCT_CONCEPT_TESTERS.includes(
+      (userData.user.email || '').toLowerCase(),
+    ))
+      ? `\n\nProduct Concepts: you have access to a structured product-concept workflow, but it is NOT active in this chat, so you currently have no tools to create, revise or approve a concept. If the user asks you to draft, save, revise or approve a product concept, do not improvise one in prose as though it were saved -- tell them plainly to click "New concept" in the header (or the "Generate a new product concept" suggestion) to start it, and that nothing is being saved until they do. Answering an ordinary data question is unaffected.`
+      : '';
+
     const systemPrompt = buildSystemPrompt(
       notes ?? [],
       buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]),
-    ) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : '');
+    ) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : conceptModeHint);
     const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;
 
     queriesRun = [];
