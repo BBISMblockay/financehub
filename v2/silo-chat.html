@@ -441,9 +441,12 @@
   }
 
   // Replays a saved conversation into the log on boot. Per-message SQL
-  // (queries) is persisted alongside content so "Save report"/"N queries
-  // run" still work after a restore, not just on messages from this page
-  // load.
+  // (queries) and any drafted Product Concepts (concepts) are persisted
+  // alongside content so "Save report"/"N queries run" and the concept
+  // cards still work after a restore, not just on messages from this page
+  // load. Anything the response returns that the card/actions need has to
+  // be stored on the history entry -- restore can only replay what the
+  // entry carries.
   function restoreHistoryFromSession() {
     let saved;
     try {
@@ -455,7 +458,7 @@
     history.forEach((m, i) => {
       if (m.role === 'assistant') {
         const question = [...history.slice(0, i)].reverse().find(x => x.role === 'user')?.content || '';
-        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, saveCtx: { question } });
+        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, saveCtx: { question } });
       } else {
         renderMessage({ role: 'user', content: m.content, images: m.imageUrls });
       }
@@ -779,6 +782,13 @@
       }
       const historyEntry = { role: 'assistant', content: data.answer };
       if (data.queries_run && data.queries_run.length) historyEntry.queries = data.queries_run;
+      // Product Concepts: persist the concept rows alongside the answer for
+      // the same reason `queries` is persisted -- without this the card is
+      // rendered once and then lost on the next page load, since restore
+      // replays only what the history entry carries. Reported live: a
+      // refresh mid-draft made the drafted concept vanish from the thread
+      // even though the row existed in the database the whole time.
+      if (data.concepts && data.concepts.length) historyEntry.concepts = data.concepts;
       history.push(historyEntry);
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
