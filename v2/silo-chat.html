@@ -80,6 +80,17 @@
       border-radius:6px; overflow-x:auto; white-space:pre-wrap; word-break:break-word;
     }
 
+    /* The [hidden] attribute is only a UA-level display:none, so ANY
+       explicit display: on the same element silently beats it. Several
+       components on this page set display:flex, and each one rendered
+       while marked hidden -- workflowBar announced "Product concept mode"
+       on every page load with the mode off, and btnAttach (gated to the
+       Product Concepts testers) was visible to everyone. Fixed as a class
+       rather than per-component so the next display:flex added here cannot
+       reintroduce it. Belongs in beacon.css eventually; kept page-local
+       here to avoid touching the shared design system in a hotfix. */
+    [hidden] { display: none !important; }
+
     /* Product concept mode banner -- the mode is explicit, so it should
        always be visible that it is on and trivially reversible. */
     .ac-mode-bar {
@@ -210,10 +221,6 @@
       font-size:11.5px; color:var(--bcn-ink-3); margin:-2px 0 8px; line-height:1.45;
     }
     .ac-note-date-wrap { display:flex; gap:6px; align-items:center; }
-    /* An explicit display: value beats the [hidden] attribute's UA
-       display:none, so without this the horizon field renders even while
-       marked hidden -- caught by rendering the page, not by reading it. */
-    .ac-note-date-wrap[hidden] { display:none; }
     .ac-note-date-wrap input[type="date"] {
       padding:5px 8px; font-family:var(--bcn-mono); font-size:11px;
       border:1px solid var(--bcn-border); border-radius:6px;
