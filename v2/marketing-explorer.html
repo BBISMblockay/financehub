@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Marketing Explorer</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+    .mx-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    /* Date range + filters */
+    .mx-range { display:flex; align-items:center; gap:6px; }
+    .mx-range input[type="date"] {
+      font-family:var(--bcn-mono); font-size:11px; padding:4px 7px;
+      border:1px solid var(--bcn-border-strong); border-radius:6px;
+      background:var(--bcn-surface); color:var(--bcn-ink);
+    }
+    .mx-range span { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
+    .mx-presets { display:flex; gap:4px; }
+    .mx-presets .bcn-btn { padding:4px 10px; font-size:10.5px; }
+    .mx-presets .bcn-btn.is-active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+
+    /* Breadcrumb drill trail */
+    .mx-trail { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-family:var(--bcn-mono); font-size:11px; }
+    .mx-trail button {
+      background:none; border:none; padding:2px 6px; border-radius:4px; cursor:pointer;
+      font-family:inherit; font-size:inherit; color:var(--bcn-accent); text-decoration:underline;
+    }
+    .mx-trail button:hover { background:var(--bcn-sunken); }
+    .mx-trail .mx-trail-now { color:var(--bcn-ink); font-weight:700; padding:2px 6px; }
+    .mx-trail .mx-trail-sep { color:var(--bcn-ink-4); }
+
+    /* Tables */
+    .mx-tbl { width:100%; border-collapse:collapse; }
+    .mx-tbl thead th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.1em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
+      text-align:right; white-space:nowrap; cursor:pointer; user-select:none;
+    }
+    .mx-tbl thead th:first-child { text-align:left; }
+    .mx-tbl thead th:hover { color:var(--bcn-ink); }
+    .mx-tbl thead th.is-sorted { color:var(--bcn-accent); }
+    .mx-tbl tbody td {
+      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
+      padding:7px 10px; border-bottom:1px solid var(--bcn-border); text-align:right; white-space:nowrap;
+    }
+    .mx-tbl tbody td:first-child { text-align:left; font-family:var(--bcn-font); white-space:normal; }
+    .mx-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .mx-tbl tbody tr.mx-drillable { cursor:pointer; }
+    .mx-tbl tbody tr.mx-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
+    .mx-name { font-weight:600; color:var(--bcn-ink); font-size:12px; line-height:1.3; }
+    .mx-sub { font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-top:2px; }
+
+    .mx-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+    .mx-spinner {
+      display:inline-block; width:12px; height:12px; margin-right:7px; vertical-align:-2px;
+      border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
+      border-radius:50%; animation:mx-spin .7s linear infinite;
+    }
+    @keyframes mx-spin { to { transform:rotate(360deg); } }
+
+    .mx-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; line-height:1.5; }
+    .mx-pill-sm { font-size:9.5px; padding:1px 7px; }
+    .mx-delta { font-size:10px; font-family:var(--bcn-mono); }
+    .mx-delta--pos { color:var(--bcn-pos); }
+    .mx-delta--neg { color:var(--bcn-neg); }
+
+    .mx-thumb { width:44px; height:44px; object-fit:cover; border-radius:6px; border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; flex:none; }
+    .mx-ad-cell { display:flex; align-items:center; gap:10px; min-width:240px; }
+
+    /* Chart */
+    .mx-chart-wrap { position:relative; width:100%; }
+    .mx-chart-wrap svg { display:block; width:100%; overflow:visible; }
+    .mx-gridline { stroke:var(--bcn-border); stroke-width:1; }
+    .mx-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
+    .mx-line-spend { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .mx-area-spend { fill:var(--bcn-accent); opacity:.10; }
+    .mx-line-value { fill:none; stroke:oklch(0.60 0.18 145); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .mx-legend { display:flex; gap:16px; font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-bottom:6px; }
+    .mx-legend span { display:inline-flex; align-items:center; gap:6px; }
+    .mx-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+    .mx-search { font-family:var(--bcn-mono); font-size:11px; padding:4px 9px; border:1px solid var(--bcn-border-strong);
+      border-radius:6px; background:var(--bcn-surface); color:var(--bcn-ink); min-width:190px; }
+    .mx-toolbar { display:flex; align-items:center; gap:8px; margin-left:auto; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Marketing Explorer</h1>
+        <div class="bcn-header-sub">
+          Every paid marketing row in SILO, filterable to any day range and drillable from platform down to the individual ad.
+          Every table exports. See <a href="/v2/marketing-overview.html">Marketing Performance</a> for the one-screen summary.
+        </div>
+      </div>
+      <div class="bcn-header-actions" style="flex-wrap:wrap;justify-content:flex-end">
+        <div class="mx-range">
+          <input type="date" id="dtStart" />
+          <span>to</span>
+          <input type="date" id="dtEnd" />
+        </div>
+        <div class="mx-presets" id="presetBtns">
+          <button class="bcn-btn bcn-btn--ghost" data-days="7">7d</button>
+          <button class="bcn-btn bcn-btn--ghost is-active" data-days="30">30d</button>
+          <button class="bcn-btn bcn-btn--ghost" data-days="90">90d</button>
+          <button class="bcn-btn bcn-btn--ghost" data-days="365">1y</button>
+          <button class="bcn-btn bcn-btn--ghost" data-preset="ytd">YTD</button>
+          <button class="bcn-btn bcn-btn--ghost" data-preset="all">All</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:5px;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);cursor:pointer">
+          <input type="checkbox" id="cmpToggle" checked /> compare prior period
+        </label>
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band" id="kpiBand">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Ad Spend</div><div id="kpiSpend" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dSpend">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Attributed Rev</div><div id="kpiRev" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dRev">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">ROAS</div><div id="kpiRoas" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dRoas">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">CPA</div><div id="kpiCpa" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dCpa">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">CTR</div><div id="kpiCtr" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dCtr">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">CPM</div><div id="kpiCpm" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="dCpm">&nbsp;</div></div>
+    </div>
+
+    <div class="mx-content">
+
+      <!-- Drill trail -->
+      <div class="bcn-card">
+        <div class="bcn-card-body" style="padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="mx-trail" id="trail"></div>
+          <div class="mx-toolbar">
+            <input type="search" id="rowSearch" class="mx-search" placeholder="Filter rows…" />
+            <button id="btnExport" class="bcn-btn bcn-btn--ghost">Export CSV</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Daily chart for current selection -->
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2 id="chartTitle">Daily spend vs. attributed revenue</h2></div>
+        <div class="bcn-card-body">
+          <div class="mx-legend">
+            <span><i style="background:var(--bcn-accent)"></i> Spend</span>
+            <span><i style="background:oklch(0.60 0.18 145)"></i> Attributed revenue</span>
+          </div>
+          <div class="mx-chart-wrap" id="chartWrap"><div class="mx-empty"><span class="mx-spinner"></span>Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- Main drill table -->
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2 id="tableTitle">By platform</h2>
+          <span id="tableHint" class="bcn-pill bcn-pill--accent mx-pill-sm">click a row to drill in</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="bcn-matrix-scroll">
+            <table class="mx-tbl" id="mainTbl">
+              <thead id="mainHead"></thead>
+              <tbody id="mainBody"><tr><td class="mx-empty" colspan="10"><span class="mx-spinner"></span>Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="mx-note" id="mainNote"></div>
+        </div>
+      </div>
+
+      <!-- Day-by-day rows for the current selection -->
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Day by day</h2>
+          <span class="bcn-pill mx-pill-sm" id="dayCount">—</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="bcn-matrix-scroll" style="max-height:420px">
+            <table class="mx-tbl" id="dayTbl">
+              <thead id="dayHead"></thead>
+              <tbody id="dayBody"></tbody>
+            </table>
+          </div>
+          <div class="mx-note">Every row above respects the current date range and drill selection. Use Export CSV to pull exactly what is on screen.</div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  let _co = null;
+  const scopeQ = q => _co?.id ? q.eq('company_entity_id', _co.id) : q;
+
+  const el = id => document.getElementById(id);
+  const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+  const money  = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v));
+  const money2 = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(v));
+  const intFmt = v => (v==null||!isFinite(v)) ? '—' : Math.round(Number(v)).toLocaleString();
+  const pctFmt = v => (v==null||!isFinite(v)) ? '—' : `${(v*100).toFixed(2)}%`;
+  const xFmt   = v => (v==null||!isFinite(v)) ? '—' : `${Number(v).toFixed(2)}x`;
+
+  const PLATFORM_LABEL = { google_ads:'Google Ads', meta_ads:'Meta Ads', tiktok_ads:'TikTok Ads', ga4:'GA4' };
+
+  // ── Measure registry ────────────────────────────────────────────────
+  // The semantic layer. Additive measures sum; RATIO measures are always
+  // recomputed from summed numerator/denominator at whatever grain is being
+  // displayed -- never averaged up from a lower grain, which is how pivot
+  // tools quietly produce wrong ROAS/CPA numbers. Mirrors the SQL in
+  // marketing_campaign_summary_v so page and database agree.
+  const MEASURES = [
+    { key:'spend',            label:'Spend',   kind:'sum',   fmt:money  },
+    { key:'impressions',      label:'Impr.',   kind:'sum',   fmt:intFmt },
+    { key:'clicks',           label:'Clicks',  kind:'sum',   fmt:intFmt },
+    { key:'conversions',      label:'Conv.',   kind:'sum',   fmt:intFmt },
+    { key:'conversion_value', label:'Revenue', kind:'sum',   fmt:money  },
+    { key:'roas',  label:'ROAS', kind:'ratio', num:'conversion_value', den:'spend',       fmt:xFmt   },
+    { key:'cpa',   label:'CPA',  kind:'ratio', num:'spend', den:'conversions',            fmt:money2 },
+    { key:'cpc',   label:'CPC',  kind:'ratio', num:'spend', den:'clicks',                 fmt:money2 },
+    { key:'ctr',   label:'CTR',  kind:'ratio', num:'clicks', den:'impressions',           fmt:pctFmt },
+    { key:'cpm',   label:'CPM',  kind:'ratio', num:'spend', den:'impressions', scale:1000, fmt:money2 },
+  ];
+  const SUM_KEYS = MEASURES.filter(m => m.kind === 'sum').map(m => m.key);
+
+  function blankAgg(){ const o = {}; for (const k of SUM_KEYS) o[k] = 0; return o; }
+  function addInto(agg, row){ for (const k of SUM_KEYS) agg[k] += Number(row[k] || 0); return agg; }
+
+  // Derive every ratio measure from the summed components.
+  function withRatios(agg){
+    const out = { ...agg };
+    for (const m of MEASURES){
+      if (m.kind !== 'ratio') continue;
+      const den = Number(agg[m.den] || 0);
+      out[m.key] = den > 0 ? (Number(agg[m.num] || 0) * (m.scale || 1)) / den : null;
+    }
+    return out;
+  }
+
+  function rollup(rows, keyFn, metaFn){
+    const map = new Map();
+    for (const r of rows){
+      const k = keyFn(r);
+      if (k == null) continue;
+      if (!map.has(k)) map.set(k, { _key:k, ...metaFn(r), ...blankAgg() });
+      addInto(map.get(k), r);
+    }
+    return [...map.values()].map(g => ({ ...g, ...withRatios(g) }));
+  }
+
+  // ── State ───────────────────────────────────────────────────────────
+  const state = {
+    start: null, end: null, compare: true,
+    drill: { platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null },
+    sort: { key:'spend', dir:-1 },
+    search: '',
+  };
+  let FACTS = [], FACTS_PRIOR = [], ADPERF = [], CREATIVES = new Map(), ADPERF_MIN = null;
+
+  const iso = d => d.toISOString().slice(0,10);
+  const addDays = (isoStr, n) => { const d = new Date(isoStr + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return iso(d); };
+  const daysBetween = (a,b) => Math.round((new Date(b+'T00:00:00Z') - new Date(a+'T00:00:00Z')) / 86400000) + 1;
+
+  function priorRange(){
+    const n = daysBetween(state.start, state.end);
+    return { start: addDays(state.start, -n), end: addDays(state.start, -1) };
+  }
+
+  // ── Load ────────────────────────────────────────────────────────────
+  async function loadPaged(build){
+    const PAGE = 1000; const out = [];
+    for (let from = 0;; from += PAGE){
+      const { data, error } = await build().range(from, from + PAGE - 1);
+      if (error) throw error;
+      out.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+    }
+    return out;
+  }
+
+  const FACT_COLS = 'platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,view_content,add_to_cart,initiate_checkout';
+
+  async function loadFacts(from, to){
+    return loadPaged(() => scopeQ(
+      sb.from('marketing_kpis_daily').select(FACT_COLS)
+        .neq('platform','ga4')             // GA4 has no spend and its conversions are key events, not orders
+        .gte('day_date', from).lte('day_date', to)
+        .order('day_date', { ascending:true })));
+  }
+
+  async function loadAdPerf(from, to){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('meta_ad_performance_daily')
+          .select('day_date,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,conversions,conversion_value')
+          .gte('day_date', from).lte('day_date', to)
+          .order('day_date', { ascending:true })));
+    } catch(e){ console.warn('meta_ad_performance_daily unavailable', e); return []; }
+  }
+
+  async function loadCreatives(){
+    try {
+      const rows = await loadPaged(() => scopeQ(
+        sb.from('meta_ad_creatives').select('ad_id,ad_name,thumbnail_url,title,effective_status')
+          .order('ad_id', { ascending:true })));
+      return new Map(rows.map(r => [r.ad_id, r]));
+    } catch(e){ console.warn('meta_ad_creatives unavailable', e); return new Map(); }
+  }
+
+  async function loadAdPerfMin(){
+    const { data } = await scopeQ(sb.from('meta_ad_performance_daily').select('day_date'))
+      .order('day_date', { ascending:true }).limit(1);
+    return data?.[0]?.day_date || null;
+  }
+
+  async function runLoad(){
+    el('mainBody').innerHTML = `<tr><td class="mx-empty" colspan="10"><span class="mx-spinner"></span>Loading…</td></tr>`;
+    const p = priorRange();
+    const [facts, prior, adperf, creatives, adMin] = await Promise.all([
+      loadFacts(state.start, state.end),
+      state.compare ? loadFacts(p.start, p.end) : Promise.resolve([]),
+      loadAdPerf(state.start, state.end),
+      CREATIVES.size ? Promise.resolve(CREATIVES) : loadCreatives(),
+      ADPERF_MIN === null ? loadAdPerfMin() : Promise.resolve(ADPERF_MIN),
+    ]);
+    FACTS = facts; FACTS_PRIOR = prior; ADPERF = adperf; CREATIVES = creatives; ADPERF_MIN = adMin;
+    render();
+  }
+
+  // ── Current selection ───────────────────────────────────────────────
+  // Below campaign level the numbers come from Meta's ad-level feed, which
+  // has a shorter history than the campaign feed -- surfaced in the note
+  // rather than silently showing a smaller total.
+  function selectedFacts(rows){
+    const d = state.drill;
+    let out = rows;
+    if (d.platform)   out = out.filter(r => r.platform === d.platform);
+    if (d.campaignId) out = out.filter(r => String(r.campaign_id) === String(d.campaignId));
+    return out;
+  }
+  function selectedAdPerf(){
+    const d = state.drill;
+    let out = ADPERF;
+    if (d.campaignId) out = out.filter(r => String(r.campaign_id) === String(d.campaignId));
+    if (d.adsetId)    out = out.filter(r => String(r.adset_id) === String(d.adsetId));
+    return out;
+  }
+  const level = () => state.drill.adsetId ? 3 : state.drill.campaignId ? 2 : state.drill.platform ? 1 : 0;
+  const usingAdFeed = () => level() >= 2;
+
+  // ── Render ──────────────────────────────────────────────────────────
+  function render(){ renderKpis(); renderTrail(); renderTable(); renderDays(); renderChart(); }
+
+  function renderKpis(){
+    const cur  = withRatios(selectedFacts(FACTS).reduce((a,r)=>addInto(a,r), blankAgg()));
+    const prev = withRatios(selectedFacts(FACTS_PRIOR).reduce((a,r)=>addInto(a,r), blankAgg()));
+    const set = (id, val, fmt) => { el(id).textContent = fmt(val); };
+    set('kpiSpend', cur.spend, money);
+    set('kpiRev',   cur.conversion_value, money);
+    set('kpiRoas',  cur.roas, xFmt);
+    set('kpiCpa',   cur.cpa, money2);
+    set('kpiCtr',   cur.ctr, pctFmt);
+    set('kpiCpm',   cur.cpm, money2);
+
+    // Lower is better for cost measures, so the arrow colour flips.
+    const delta = (id, c, p, lowerIsBetter=false) => {
+      const node = el(id);
+      if (!state.compare || p == null || !isFinite(p) || p === 0 || c == null || !isFinite(c)){
+        node.textContent = state.compare ? 'no prior data' : 'vs. prior off';
+        node.className = 'bcn-kpi-delta'; return;
+      }
+      const pct = (c - p) / Math.abs(p);
+      const good = lowerIsBetter ? pct < 0 : pct > 0;
+      node.textContent = `${pct >= 0 ? '+' : ''}${(pct*100).toFixed(1)}% vs prior`;
+      node.className = `bcn-kpi-delta mx-delta mx-delta--${good ? 'pos' : 'neg'}`;
+    };
+    delta('dSpend', cur.spend, prev.spend);
+    delta('dRev',   cur.conversion_value, prev.conversion_value);
+    delta('dRoas',  cur.roas, prev.roas);
+    delta('dCpa',   cur.cpa, prev.cpa, true);
+    delta('dCtr',   cur.ctr, prev.ctr);
+    delta('dCpm',   cur.cpm, prev.cpm, true);
+  }
+
+  function renderTrail(){
+    const d = state.drill;
+    const parts = [];
+    const crumb = (label, fn) => `<button data-jump="${fn}">${esc(label)}</button>`;
+    parts.push(d.platform ? crumb('All platforms','root') : `<span class="mx-trail-now">All platforms</span>`);
+    if (d.platform){
+      parts.push('<span class="mx-trail-sep">›</span>');
+      const lbl = PLATFORM_LABEL[d.platform] || d.platform;
+      parts.push(d.campaignId ? crumb(lbl,'platform') : `<span class="mx-trail-now">${esc(lbl)}</span>`);
+    }
+    if (d.campaignId){
+      parts.push('<span class="mx-trail-sep">›</span>');
+      parts.push(d.adsetId ? crumb(d.campaignName,'campaign') : `<span class="mx-trail-now">${esc(d.campaignName)}</span>`);
+    }
+    if (d.adsetId){
+      parts.push('<span class="mx-trail-sep">›</span>');
+      parts.push(`<span class="mx-trail-now">${esc(d.adsetName)}</span>`);
+    }
+    el('trail').innerHTML = parts.join('');
+    el('trail').querySelectorAll('button[data-jump]').forEach(b => {
+      b.addEventListener('click', () => {
+        const to = b.dataset.jump;
+        if (to === 'root')     state.drill = { platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
+        if (to === 'platform') state.drill = { ...state.drill, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
+        if (to === 'campaign') state.drill = { ...state.drill, adsetId:null, adsetName:null };
+        state.search = ''; el('rowSearch').value = '';
+        render();
+      });
+    });
+  }
+
+  // Rows for the current level, already rolled up and ratio-derived.
+  function currentRows(){
+    const lv = level();
+    if (lv === 0)
+      return rollup(FACTS, r => r.platform, r => ({
+        name: PLATFORM_LABEL[r.platform] || r.platform, sub: r.account_name || '', drillId: r.platform }));
+    if (lv === 1)
+      return rollup(selectedFacts(FACTS), r => r.campaign_id ?? r.campaign_name, r => ({
+        name: r.campaign_name || '(no campaign)', sub: '', drillId: r.campaign_id, drillName: r.campaign_name }));
+    if (lv === 2)
+      return rollup(selectedAdPerf(), r => r.adset_id, r => ({
+        name: r.adset_name || '(no ad set)', sub: '', drillId: r.adset_id, drillName: r.adset_name }));
+    return rollup(selectedAdPerf(), r => r.ad_id, r => {
+      const c = CREATIVES.get(r.ad_id) || {};
+      return { name: r.ad_name || c.ad_name || r.ad_id, sub: c.effective_status || '', thumb: c.thumbnail_url || '' };
+    });
+  }
+
+  const LEVEL_TITLE = ['By platform','Campaigns','Ad sets','Ads'];
+  const LEVEL_COL   = ['Platform','Campaign','Ad set','Ad'];
+
+  function sortRows(rows){
+    const { key, dir } = state.sort;
+    return rows.slice().sort((a,b) => {
+      if (key === 'name') return dir * String(a.name).localeCompare(String(b.name));
+      const av = a[key], bv = b[key];
+      const an = (av == null || !isFinite(av)) ? -Infinity : av;
+      const bn = (bv == null || !isFinite(bv)) ? -Infinity : bv;
+      return dir * (an - bn);
+    });
+  }
+
+  function visibleRows(){
+    let rows = currentRows();
+    if (state.search){
+      const q = state.search.toLowerCase();
+      rows = rows.filter(r => String(r.name).toLowerCase().includes(q));
+    }
+    return sortRows(rows);
+  }
+
+  function renderTable(){
+    const lv = level();
+    el('tableTitle').textContent = LEVEL_TITLE[lv];
+    el('tableHint').textContent = lv === 3 ? 'deepest level' : 'click a row to drill in';
+    el('tableHint').hidden = false;
+
+    const cols = [{ key:'name', label:LEVEL_COL[lv] }, ...MEASURES];
+    el('mainHead').innerHTML = `<tr>${cols.map(c =>
+      `<th data-sort="${c.key}" class="${state.sort.key===c.key?'is-sorted':''}">${esc(c.label)}${
+        state.sort.key===c.key ? (state.sort.dir<0?' ↓':' ↑') : ''}</th>`).join('')}</tr>`;
+    el('mainHead').querySelectorAll('th[data-sort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const k = th.dataset.sort;
+        state.sort = (state.sort.key === k) ? { key:k, dir:-state.sort.dir } : { key:k, dir: k==='name' ? 1 : -1 };
+        renderTable();
+      });
+    });
+
+    const rows = visibleRows();
+    if (!rows.length){
+      el('mainBody').innerHTML = `<tr><td class="mx-empty" colspan="${cols.length}">${
+        lv >= 2 ? 'No Meta ad-level rows for this selection in this date range.' : 'No marketing rows in this date range.'}</td></tr>`;
+      el('mainNote').textContent = levelNote();
+      return;
+    }
+
+    const canDrill = lv < 3;
+    el('mainBody').innerHTML = rows.map((r,i) => {
+      const nameCell = r.thumb
+        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${esc(r.name)}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}</div></div>`
+        : `<div class="mx-name">${esc(r.name)}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
+      return `<tr class="${canDrill?'mx-drillable':''}" data-idx="${i}">
+        <td>${nameCell}</td>
+        ${MEASURES.map(m => `<td>${m.fmt(r[m.key])}</td>`).join('')}
+      </tr>`;
+    }).join('');
+
+    // Total row: re-derive ratios from the summed components, never average the column.
+    const tot = withRatios(rows.reduce((a,r)=>addInto(a,r), blankAgg()));
+    el('mainBody').insertAdjacentHTML('beforeend',
+      `<tr class="mx-total"><td>Total (${rows.length} row${rows.length===1?'':'s'})</td>${
+        MEASURES.map(m => `<td>${m.fmt(tot[m.key])}</td>`).join('')}</tr>`);
+
+    if (canDrill){
+      el('mainBody').querySelectorAll('tr[data-idx]').forEach(tr => {
+        tr.addEventListener('click', () => {
+          const r = rows[Number(tr.dataset.idx)];
+          if (lv === 0) state.drill = { ...state.drill, platform: r.drillId };
+          if (lv === 1) state.drill = { ...state.drill, campaignId: r.drillId, campaignName: r.name };
+          if (lv === 2) state.drill = { ...state.drill, adsetId: r.drillId, adsetName: r.name };
+          state.search = ''; el('rowSearch').value = '';
+          render();
+        });
+      });
+    }
+    el('mainNote').textContent = levelNote();
+  }
+
+  function levelNote(){
+    const lv = level();
+    const bits = [];
+    if (lv === 0) bits.push('GA4 is excluded here — it carries no spend, and its "conversions" are GA4 key events, not orders.');
+    if (lv === 1 && state.drill.platform !== 'meta_ads')
+      bits.push('Ad set and ad depth exist for Meta only — Google and TikTok stop at campaign until the sync pulls ad-group rows.');
+    if (lv >= 2 && ADPERF_MIN)
+      bits.push(`Ad-level figures come from Meta's ad feed, which starts ${ADPERF_MIN} — earlier dates in your range have no ad rows and totals here will be lower than the campaign level.`);
+    bits.push('Ratios (ROAS, CPA, CPC, CTR, CPM) are recomputed from summed spend/clicks/impressions at this grain — not averaged from the rows beneath.');
+    return bits.join(' ');
+  }
+
+  // ── Day-by-day ──────────────────────────────────────────────────────
+  function dayRows(){
+    const src = usingAdFeed() ? selectedAdPerf() : selectedFacts(FACTS);
+    return rollup(src, r => r.day_date, r => ({ name: r.day_date }))
+      .sort((a,b) => String(b.name).localeCompare(String(a.name)));
+  }
+
+  function renderDays(){
+    const rows = dayRows();
+    el('dayCount').textContent = `${rows.length} day${rows.length===1?'':'s'}`;
+    el('dayHead').innerHTML = `<tr><th>Day</th>${MEASURES.map(m=>`<th>${esc(m.label)}</th>`).join('')}</tr>`;
+    el('dayBody').innerHTML = rows.length
+      ? rows.map(r => `<tr><td>${esc(r.name)}</td>${MEASURES.map(m=>`<td>${m.fmt(r[m.key])}</td>`).join('')}</tr>`).join('')
+      : `<tr><td class="mx-empty" colspan="${MEASURES.length+1}">No rows for this selection.</td></tr>`;
+  }
+
+  // ── Chart ───────────────────────────────────────────────────────────
+  function renderChart(){
+    const rows = dayRows().slice().sort((a,b) => String(a.name).localeCompare(String(b.name)));
+    const wrap = el('chartWrap');
+    if (rows.length < 2){ wrap.innerHTML = `<div class="mx-empty">Not enough days in range to chart.</div>`; return; }
+
+    const W = 1000, H = 240, PADL = 58, PADR = 14, PADT = 12, PADB = 26;
+    const maxV = Math.max(1, ...rows.map(r => Math.max(Number(r.spend||0), Number(r.conversion_value||0))));
+    const x = i => PADL + (i / (rows.length - 1)) * (W - PADL - PADR);
+    const y = v => PADT + (1 - (Number(v||0) / maxV)) * (H - PADT - PADB);
+    const path = key => rows.map((r,i) => `${i?'L':'M'}${x(i).toFixed(1)},${y(r[key]).toFixed(1)}`).join('');
+    const area = `${path('spend')}L${x(rows.length-1).toFixed(1)},${(H-PADB).toFixed(1)}L${x(0).toFixed(1)},${(H-PADB).toFixed(1)}Z`;
+
+    const ticks = [0, .25, .5, .75, 1].map(f => {
+      const v = maxV * f, yy = y(v);
+      return `<line class="mx-gridline" x1="${PADL}" y1="${yy.toFixed(1)}" x2="${W-PADR}" y2="${yy.toFixed(1)}" />
+              <text class="mx-axis-label" x="${PADL-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${money(v)}</text>`;
+    }).join('');
+
+    const step = Math.max(1, Math.ceil(rows.length / 10));
+    const xlab = rows.map((r,i) => (i % step === 0 || i === rows.length-1)
+      ? `<text class="mx-axis-label" x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle">${esc(String(r.name).slice(5))}</text>` : '').join('');
+
+    wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="Daily spend and attributed revenue across the selected range">
+      ${ticks}${xlab}
+      <path class="mx-area-spend" d="${area}" />
+      <path class="mx-line-spend" d="${path('spend')}" />
+      <path class="mx-line-value" d="${path('conversion_value')}" />
+    </svg>`;
+    el('chartTitle').textContent = `Daily spend vs. attributed revenue — ${state.start} to ${state.end}`;
+  }
+
+  // ── CSV export ──────────────────────────────────────────────────────
+  // Exports exactly what is on screen: same rows, same grain, same ratio
+  // definitions. Nothing is fetched that the page did not already read
+  // under the caller's own RLS.
+  function toCsv(headers, rows){
+    const cell = v => {
+      const s = v == null ? '' : String(v);
+      return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
+    };
+    return [headers.map(cell).join(','), ...rows.map(r => r.map(cell).join(','))].join('\n');
+  }
+
+  function exportCsv(){
+    const lv = level();
+    const rows = visibleRows();
+    // Raw numbers, not display strings -- this lands in a spreadsheet.
+    const headers = [LEVEL_COL[lv], ...MEASURES.map(m => m.label)];
+    const body = rows.map(r => [r.name, ...MEASURES.map(m => {
+      const v = r[m.key];
+      return (v == null || !isFinite(v)) ? '' : Number(v);
+    })]);
+    const scope = [
+      state.drill.platform ? (PLATFORM_LABEL[state.drill.platform] || state.drill.platform) : 'all-platforms',
+      state.drill.campaignName, state.drill.adsetName,
+    ].filter(Boolean).join('-').replace(/[^\w-]+/g,'_').slice(0,60);
+    const name = `silo-marketing-${LEVEL_TITLE[lv].toLowerCase().replace(/\s+/g,'-')}-${scope}-${state.start}-to-${state.end}.csv`;
+    const blob = new Blob([toCsv(headers, body)], { type:'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  }
+
+  // ── Date controls ───────────────────────────────────────────────────
+  function setRange(start, end, { clearPreset = true } = {}){
+    state.start = start; state.end = end;
+    el('dtStart').value = start; el('dtEnd').value = end;
+    if (clearPreset) document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.remove('is-active'));
+  }
+
+  function wireControls(){
+    document.querySelectorAll('#presetBtns .bcn-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const today = iso(new Date());
+        if (btn.dataset.days){
+          setRange(addDays(today, -(Number(btn.dataset.days) - 1)), today);
+        } else if (btn.dataset.preset === 'ytd'){
+          setRange(`${today.slice(0,4)}-01-01`, today);
+        } else {
+          const { data } = await scopeQ(sb.from('marketing_kpis_daily').select('day_date'))
+            .order('day_date', { ascending:true }).limit(1);
+          setRange(data?.[0]?.day_date || addDays(today,-365), today);
+        }
+        document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+        runLoad();
+      });
+    });
+
+    const onDate = () => {
+      const s = el('dtStart').value, e = el('dtEnd').value;
+      if (!s || !e) return;
+      if (s > e){ el('dtStart').value = state.start; el('dtEnd').value = state.end; return; }
+      setRange(s, e); runLoad();
+    };
+    el('dtStart').addEventListener('change', onDate);
+    el('dtEnd').addEventListener('change', onDate);
+
+    el('cmpToggle').addEventListener('change', () => { state.compare = el('cmpToggle').checked; runLoad(); });
+    el('btnRefresh').addEventListener('click', runLoad);
+    el('btnExport').addEventListener('click', exportCsv);
+
+    let searchTimer;
+    el('rowSearch').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { state.search = el('rowSearch').value.trim(); renderTable(); }, 180);
+    });
+  }
+
+  // ── Boot ────────────────────────────────────────────────────────────
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess.data.session){ location.href = '/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    // Self-heals when this tab never passed through login.html (deep links).
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/marketing-explorer',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Marketing Explorer'],
+        supabaseClient:sb,
+      });
+    }
+
+    const today = iso(new Date());
+    setRange(addDays(today, -29), today, { clearPreset:false });
+    wireControls();
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>

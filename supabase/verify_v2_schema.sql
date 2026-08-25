@@ -1251,3 +1251,35 @@ select
       then 'MISSING — momentum_pct not exposed (the growth half of the signal)'
     else 'ok'
   end as strategy_notes_and_demand_coverage;
+
+-- ── Marketing Explorer views (20260826060000) ─────────────────────────
+-- The defined measure layer behind /v2/marketing-explorer.html. Ratio
+-- metrics are computed from summed components inside these views, so a
+-- caller that re-derives them from day rows gets the same answer.
+select
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='marketing_facts_daily_v')
+      then 'MISSING — run 20260826060000_marketing_explorer_views.sql'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='marketing_campaign_summary_v')
+      then 'MISSING — marketing_campaign_summary_v not created'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='marketing_daily_totals_v')
+      then 'MISSING — marketing_daily_totals_v not created'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='meta_ad_performance_v')
+      then 'MISSING — meta_ad_performance_v not created'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='marketing_campaign_summary_v'
+                       and column_name='looks_upper_funnel')
+      then 'MISSING — looks_upper_funnel not exposed (awareness campaigns would skew portfolio ROAS)'
+    when exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                 where n.nspname='public'
+                   and c.relname in ('marketing_facts_daily_v','marketing_campaign_summary_v',
+                                     'marketing_daily_totals_v','meta_ad_performance_v')
+                   and c.relkind='v'
+                   and coalesce((c.reloptions::text like '%security_invoker=true%'), false) is false)
+      then 'MISSING — a marketing explorer view is not security_invoker (RLS would not propagate)'
+    else 'ok'
+  end as marketing_explorer_views;

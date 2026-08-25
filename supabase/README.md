@@ -297,6 +297,7 @@ supabase/
     20260822010000_shopify_order_lines_trgm_indexes.sql
     20260824000000_comp_adjustment_requests.sql
     20260825120000_product_concept_structured_workflow.sql
+    20260826060000_marketing_explorer_views.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
