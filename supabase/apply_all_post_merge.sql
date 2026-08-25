@@ -11270,10 +11270,10 @@ as $function$
       and p.is_active = true
       and (
         case when em.role is not null
-             then em.role in ('owner_admin','admin')
-             else p.role::text = 'admin'
+             then em.role = 'owner_admin'
+             else p.role::text = 'owner'
         end
-        or p.department in ('finance','admin','exec')
+        or p.department in ('finance','exec')
       )
   );
 $function$;
