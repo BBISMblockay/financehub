@@ -280,6 +280,11 @@
       <div class="bcn-header-actions">
         <button id="btnSaved" class="bcn-btn bcn-btn--ghost">Saved reports</button>
         <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Training</button>
+        <!-- Product Concepts: in testing -- unhidden in boot() for the same
+             allowlist as the concept suggestion chip. Not a nav entry yet,
+             matching how comp-requests is kept out of the sidebar until the
+             workflow has been reviewed end to end. -->
+        <a id="btnConcepts" class="bcn-btn bcn-btn--ghost" href="/v2/product-concepts.html" hidden>Concepts</a>
         <button id="btnNewChat" class="bcn-btn bcn-btn--ghost">New chat</button>
       </div>
     </header>
@@ -1361,6 +1366,23 @@
     if (['blake@baseballism.com'].includes(conceptTesterEmail)) {
       el('suggestionConcept').hidden = false;
       el('btnAttach').hidden = false;
+      el('btnConcepts').hidden = false;
+    }
+
+    // Arrived from the Product Concepts list via "Open in Ask SILO": bind
+    // the composer to that concept so the first thing typed revises it
+    // rather than being read as a brand-new idea. This is the same
+    // mechanism the card's Revise action uses -- the id travels with the
+    // message instead of relying on conversation the model may not have.
+    const wantConcept = new URLSearchParams(location.search).get('concept');
+    if (wantConcept) {
+      const { data: c } = await sb.from('product_concepts_v')
+        .select('id, title').eq('id', wantConcept).maybeSingle();
+      if (c) {
+        pendingConceptId = c.id;
+        el('input').placeholder = `Describe the change to "${c.title}"…`;
+        setStatus(`Working on "${c.title}". Your next message revises it — press Esc to cancel.`, 'info');
+      }
     }
 
     restoreHistoryFromSession();
