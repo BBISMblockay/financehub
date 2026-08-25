@@ -715,7 +715,15 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json();
     ({ history } = body);
-    const conceptMode = body?.conceptMode === true;
+    // Named workflow rather than a boolean: Product Concept is the first
+    // structured workflow behind this boundary, not the only one intended.
+    // `conceptMode` is still accepted because the UI is statically hosted
+    // and a browser holding a cached page would otherwise silently lose
+    // concept access until it refreshed.
+    const activeWorkflow: string | null =
+      typeof body?.workflow === 'string' ? body.workflow
+      : body?.conceptMode === true ? 'product_concept'
+      : null;
     if (!Array.isArray(history) || !history.length) {
       return reply({ error: 'history (array of {role, content}) is required' }, 400);
     }
@@ -788,7 +796,7 @@ Deno.serve(async (req: Request) => {
     const actingOnConcept = history.some((m) => typeof m?.conceptId === 'string' && !!m.conceptId);
     const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(
       (userData.user.email || '').toLowerCase(),
-    ) && (conceptMode || actingOnConcept);
+    ) && (activeWorkflow === 'product_concept' || actingOnConcept);
     // The phase-1 draft circuit breaker below used to arm on conceptsEnabled
     // alone -- i.e. on EVERY question a tester asked. Any analytical question
     // that legitimately ran 5+ tool rounds (overstock analysis, sales

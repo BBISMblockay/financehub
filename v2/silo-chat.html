@@ -301,7 +301,7 @@
       </div>
     </header>
 
-    <div id="conceptModeBar" class="ac-mode-bar" hidden>
+    <div id="workflowBar" class="ac-mode-bar" hidden>
       <span><strong>Product concept mode</strong> — SILO can draft and revise concepts in this chat. Ordinary questions still work.</span>
       <button type="button" id="btnExitConceptMode" class="bcn-btn bcn-btn--ghost">Exit</button>
     </div>
@@ -452,7 +452,7 @@
   // in this JS variable. sessionStorage is tab-scoped, which is exactly
   // right here: a reload of THIS tab restores it, a fresh tab starts clean.
   const HISTORY_STORAGE_KEY = 'silo_chat_history_v1';
-  const CONCEPT_MODE_KEY = 'silo_chat_concept_mode_v1';
+  const WORKFLOW_KEY = 'silo_chat_workflow_v1';
 
   // Product Concepts: an EXPLICIT mode rather than inferred intent.
   // Concept tools and the concept prompt block are only sent when this is
@@ -464,15 +464,33 @@
   // are doing, so ask once instead of inferring every turn. It is also
   // cheaper: an ordinary question no longer carries ~4KB of concept prompt
   // and three unused tool schemas.
-  let conceptMode = false;
+  // Named rather than boolean: Product Concept is the FIRST structured
+  // workflow, not the only one -- Forecast, Purchase Plan and Campaign
+  // Analysis are meant to sit behind the same boundary. A named workflow
+  // makes adding one additive (its own tools and prompt block, sent only
+  // in its own mode) instead of a change to the client/server contract,
+  // which is the part that gets expensive once more surfaces depend on it.
+  let activeWorkflow = null; // null = ordinary chat
 
-  function setConceptMode(on) {
-    conceptMode = !!on;
-    try { on ? sessionStorage.setItem(CONCEPT_MODE_KEY, '1') : sessionStorage.removeItem(CONCEPT_MODE_KEY); } catch {}
-    const banner = el('conceptModeBar');
-    if (banner) banner.hidden = !conceptMode;
+  const WORKFLOWS = {
+    product_concept: { label: 'Product concept mode', blurb: 'SILO can draft and revise concepts in this chat. Ordinary questions still work.' },
+  };
+
+  function setWorkflow(name) {
+    activeWorkflow = WORKFLOWS[name] ? name : null;
+    try {
+      activeWorkflow ? sessionStorage.setItem(WORKFLOW_KEY, activeWorkflow) : sessionStorage.removeItem(WORKFLOW_KEY);
+    } catch {}
+    const bar = el('workflowBar');
+    if (bar) {
+      bar.hidden = !activeWorkflow;
+      if (activeWorkflow) {
+        const w = WORKFLOWS[activeWorkflow];
+        bar.querySelector('span').innerHTML = `<strong>${esc(w.label)}</strong> — ${esc(w.blurb)}`;
+      }
+    }
     const btn = el('btnConceptMode');
-    if (btn) btn.classList.toggle('is-on', conceptMode);
+    if (btn) btn.classList.toggle('is-on', activeWorkflow === 'product_concept');
   }
 
   function saveHistoryToSession() {
@@ -904,7 +922,7 @@
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ history, conceptMode }),
+        body: JSON.stringify({ history, workflow: activeWorkflow }),
       });
       const data = await res.json();
       removeTyping();
@@ -1057,7 +1075,7 @@
   el('log').addEventListener('click', (e) => {
     const suggestion = e.target.closest('.ac-suggestion');
     if (suggestion) {
-      if (suggestion.id === 'suggestionConcept') setConceptMode(true);
+      if (suggestion.id === 'suggestionConcept') setWorkflow('product_concept');
       sendMessage(suggestion.dataset.q);
       return;
     }
@@ -1125,15 +1143,15 @@
     if (e.key === 'Escape') closeSaveDialog();
   });
   el('btnConceptMode').addEventListener('click', () => {
-    setConceptMode(!conceptMode);
-    if (conceptMode) el('input').focus();
+    setWorkflow(activeWorkflow === 'product_concept' ? null : 'product_concept');
+    if (activeWorkflow) el('input').focus();
   });
-  el('btnExitConceptMode').addEventListener('click', () => setConceptMode(false));
+  el('btnExitConceptMode').addEventListener('click', () => setWorkflow(null));
 
   el('btnNewChat').addEventListener('click', () => {
     history = [];
     clearHistorySession();
-    setConceptMode(false);
+    setWorkflow(null);
     el('log').innerHTML = `
       <div class="ac-empty" id="emptyState">
         <h3>Ask anything about your data</h3>
@@ -1427,7 +1445,7 @@
       el('btnConcepts').hidden = false;
       el('btnConceptMode').hidden = false;
       // Restore the mode alongside the thread it belongs to.
-      try { if (sessionStorage.getItem(CONCEPT_MODE_KEY)) setConceptMode(true); } catch {}
+      try { setWorkflow(sessionStorage.getItem(WORKFLOW_KEY)); } catch {}
     }
 
     // Arrived from the Product Concepts list via "Open in Ask SILO": bind
