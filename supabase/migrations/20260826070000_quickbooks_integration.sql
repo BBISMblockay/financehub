@@ -170,3 +170,22 @@ update public.accounting_coa_map set account_name = 'Shopify Clearing'
   where account_name = 'Accounts Receivable';
 update public.accounting_coa_map set account_name = 'Shopify Processing Fees'
   where account_name = 'COGS - Processing Fees';
+
+-- Ask SILO's schema map has to be refreshed after any migration that adds
+-- public tables, or the model has no idea these exist.
+select public.refresh_chat_schema_catalog();
+
+-- quickbooks_connections holds live OAuth tokens and quickbooks_oauth_states
+-- is a transient CSRF table -- both are noise or worse in the model's index,
+-- same treatment as shopify_connections / ad_platform_connections. RLS is
+-- still the actual boundary; this is index hygiene.
+update public.silo_chat_schema_catalog set is_hidden = true
+  where relname in ('quickbooks_connections', 'quickbooks_oauth_states');
+
+-- quickbooks_accounts carries no credentials and IS worth answering from --
+-- it is the company's real chart of accounts.
+update public.silo_chat_schema_catalog set
+  is_hidden = false,
+  keywords = array['chart of accounts','quickbooks','qbo','gl account','ledger account','account name','account type','coa'],
+  description = $d$The company's QuickBooks Online chart of accounts, mirrored by the quickbooks-accounts-sync edge function -- one row per QBO account with its qbo_account_id, name, fully_qualified_name (the "Parent:Child" path), account_type/account_sub_type, classification, and is_active. This is a READ-ONLY MIRROR of QBO, refreshed on demand from /v2/integrations.html; it is not SILO's own ledger and SILO does not post to QuickBooks. Join to accounting_coa_map.qbo_account_id to answer which SILO journal line maps to which real GL account. Archived accounts are kept with is_active = false rather than deleted, so a mapping pointing at one can be flagged instead of silently disappearing.$d$
+where relname = 'quickbooks_accounts';
