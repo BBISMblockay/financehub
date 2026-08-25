@@ -783,11 +783,24 @@ Deno.serve(async (req: Request) => {
     // owner: a phase-2 "build out the full plan" request can still arm this
     // and be told to call create (not update) -- pre-existing, unaddressed
     // here.
-    const CONCEPT_LANGUAGE = /\b(concepts?|drafts?|design|mock ?up|product idea|new product|product for|collection|collab)\b/i;
+    // 'design' and 'mock up' were removed after a live hijack: "generate
+    // mock up demand planning by product type for 2027..." matched
+    // 'mock ?up', armed the breaker, and forced a junk concept row named
+    // after the analysis. Both words are at least as common in analytical
+    // requests ("mock up a plan", "design a report") as in product
+    // drafting, so they are false-positive generators, not signal.
+    const CONCEPT_LANGUAGE = /\b(concepts?|drafts?|product idea|new product|product for|collection|collab)\b/i;
     const ANALYTICAL_QUESTION = /\?|^\s*(which|what|how|why|when|where|who|show|list|compare|summarize|do we|are we|is|should|can|give me|tell me)\b/i;
+    // The disarm above only catches interrogatives and question marks, so
+    // an imperative analytical request ("generate ... define ... suggest
+    // strategy") slipped straight past it. These name an ANALYSIS
+    // deliverable rather than a product, and no product concept is called
+    // a demand plan or a forecast.
+    const ANALYTICAL_DELIVERABLE = /\b(demand plan\w*|forecast\w*|projection\w*|analysis|analyze|analyse|report|breakdown|gap|variance|budget|scenario|model out|planning)\b/i;
     const conceptBreakerArmed = conceptsEnabled
       && history.some((m) => m.role === 'user' && CONCEPT_LANGUAGE.test(String(m.content || '')))
-      && !ANALYTICAL_QUESTION.test(question.trim());
+      && !ANALYTICAL_QUESTION.test(question.trim())
+      && !ANALYTICAL_DELIVERABLE.test(question);
     const systemPrompt = buildSystemPrompt(
       notes ?? [],
       buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]),
@@ -1077,13 +1090,20 @@ Deno.serve(async (req: Request) => {
       if (conceptBreakerArmed && !hasDraftedConcept && round === PRE_DRAFT_NUDGE_ROUND) {
         messages.push({
           role: 'user',
-          content: "You've used several tool rounds without creating a draft concept yet. Stop investigating further -- call create_product_concept now using your best assessment from what you've already gathered. Leave any field you're not confident about blank rather than continuing to research it.",
+          content: "You've used several tool rounds without creating a draft concept yet. If this conversation is drafting a PRODUCT, stop investigating and call create_product_concept now using your best assessment from what you've already gathered -- leave any field you're not confident about blank rather than continuing to research it. If it is NOT a product-drafting request (an analytical question, a plan, a forecast, a report), ignore this entirely and simply answer the question -- do NOT create a concept.",
         });
-        // Live, the model answered this nudge with a prose apology instead
-        // of the tool call it asked for -- wording alone didn't hold, same
-        // lesson as the rest of this circuit breaker. Force the next round
-        // to actually call the tool.
-        forceNudgeTool = true;
+        // Deliberately NOT forcing tool_choice here any more. Forcing it
+        // guaranteed a write on a misread: live on 2026-08-25 an analytical
+        // demand-planning question armed the breaker, and because the tool
+        // was forced the model could not decline -- it wrote a concept row
+        // titled after the analysis, with no quantity. The arming
+        // heuristics are text-matching and will keep misfiring in both
+        // directions (a trailing "?" disarms a genuine draft; "mock up"
+        // armed an analysis), so the escape hatch has to survive a wrong
+        // arm. A slow draft that goes unhurried costs a few rounds; a
+        // forced spurious write costs a junk row in a table people are
+        // meant to trust.
+        forceNudgeTool = false;
       }
     }
 
