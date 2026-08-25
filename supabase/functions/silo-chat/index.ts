@@ -835,10 +835,19 @@ Deno.serve(async (req: Request) => {
     // hoodie concept" with the mode off gets a friendly prose answer,
     // nothing is saved, and nothing explains why. That is a worse failure
     // than the one the mode fixed, because it is silent.
-    const conceptModeHint = (!conceptsEnabled && PRODUCT_CONCEPT_TESTERS.includes(
+    const isConceptTester = PRODUCT_CONCEPT_TESTERS.includes(
       (userData.user.email || '').toLowerCase(),
-    ))
-      ? `\n\nProduct Concepts: you have access to a structured product-concept workflow, but it is NOT active in this chat, so you currently have no tools to create, revise or approve a concept. If the user asks you to draft, save, revise or approve a product concept, do not improvise one in prose as though it were saved -- tell them plainly to click "New concept" in the header (or the "Generate a new product concept" suggestion) to start it, and that nothing is being saved until they do. Answering an ordinary data question is unaffected.`
+    );
+    // Same text heuristic that used to arm the circuit breaker -- but here
+    // its consequence is offering a dismissible button, not forcing a
+    // write. A false positive costs one ignorable line; the version that
+    // could misfire into a junk concept row is gone. Worth being explicit
+    // that this is why the same imperfect regex is acceptable in one place
+    // and was not in the other.
+    const suggestConceptWorkflow = !conceptsEnabled && isConceptTester
+      && /\b(concepts?|draft|design|new product|product idea|collection|collab)\b/i.test(question);
+    const conceptModeHint = (!conceptsEnabled && isConceptTester)
+      ? `\n\nProduct Concepts: you have access to a structured product-concept workflow, but it is NOT active in this chat, so you currently have no tools to create, revise or approve a concept. If the user asks you to draft, save, revise or approve a product concept, do not improvise one in prose as though it were saved -- ask them whether they want to start it -- a one-click button to do so is shown beneath your answer, so end with that offer rather than a lecture about where to click. Make clear nothing is saved until they start it. Answering an ordinary data question is unaffected.`
       : '';
 
     const systemPrompt = buildSystemPrompt(
@@ -857,8 +866,10 @@ Deno.serve(async (req: Request) => {
     // (non-concept) question leaves this empty and the field is omitted,
     // so nothing about an ordinary Ask SILO response changes.
     const conceptsTouched = new Map<string, Record<string, unknown>>();
-    const conceptsPayload = () =>
-      conceptsTouched.size ? { concepts: [...conceptsTouched.values()] } : {};
+    const conceptsPayload = () => ({
+      ...(conceptsTouched.size ? { concepts: [...conceptsTouched.values()] } : {}),
+      ...(suggestConceptWorkflow ? { suggest_workflow: 'product_concept' } : {}),
+    });
     // Circuit breaker for Product Concepts phase 1: a live draft ran 14
     // rounds before calling create_product_concept at all -- 2 of them were
     // outright redundant re-runs of a query it already had the answer to,

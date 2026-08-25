@@ -772,7 +772,7 @@
     await askSilo();
   });
 
-  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts }) {
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, suggestWorkflow }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -808,6 +808,12 @@
     const conceptsHtml = Array.isArray(concepts) && concepts.length
       ? (window.SiloEvidenceCard?.renderAll?.(concepts, CONCEPT_SPEC) || '')
       : '';
+    // Offered when the answer looks like a drafting request made with the
+    // workflow off. One click starts it and re-asks, rather than telling
+    // the user to go find a button in the header.
+    const suggestHtml = suggestWorkflow === 'product_concept' && activeWorkflow !== 'product_concept'
+      ? `<div class="ac-answer-actions"><button type="button" class="ac-save-btn" id="btnStartConceptFlow">Start product concept workflow</button></div>`
+      : '';
     const bubble = renderBubbleContent(content, role, isError);
     wrap.innerHTML = `
       <div class="ac-avatar">${esc(avatar)}</div>
@@ -815,6 +821,7 @@
         ${imagesHtml}
         <div class="${bubble.cls}">${bubble.html}</div>
         ${conceptsHtml}
+        ${suggestHtml}
         ${queriesHtml}
         ${saveHtml}
         ${retryHtml}
@@ -949,7 +956,7 @@
       history.push(historyEntry);
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts });
+      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, suggestWorkflow: data.suggest_workflow });
     } catch (err) {
       removeTyping();
       // "Load failed" (or any network-level drop) usually means the
@@ -1077,6 +1084,11 @@
     if (suggestion) {
       if (suggestion.id === 'suggestionConcept') setWorkflow('product_concept');
       sendMessage(suggestion.dataset.q);
+      return;
+    }
+    if (e.target.closest('#btnStartConceptFlow')) {
+      setWorkflow('product_concept');
+      sendMessage('Yes — start the product concept workflow and draft it.');
       return;
     }
     const retry = e.target.closest('.ac-retry-btn');
