@@ -550,9 +550,28 @@
       loadQueueCount();
     }
 
-    const { data: roster, error: rosterErr } = await sb.from('employees').select('id, name, job_title').eq('is_active', true).order('name');
+    // The picker must offer only people you can actually file for, which is
+    // narrower than what employees' RLS shows you: a comp reviewer can also
+    // read any employee a submitted request names (so the Finance Queue can
+    // resolve their name), and those are NOT people they manage. Selecting
+    // one would fail the insert policy and surface a raw RLS error, so scope
+    // the list the same way the insert gate does -- your own reports, or
+    // everyone if you are exec/owner.
+    const isExec = ['owner', 'executive'].includes(String(prof?.role || '').toLowerCase());
+    let roster = [];
+    let rosterErr = null;
+    if (isExec){
+      ({ data: roster, error: rosterErr } = await sb.from('employees')
+        .select('id, name, job_title').eq('is_active', true).order('name'));
+    } else {
+      ({ data: roster, error: rosterErr } = await sb.from('employees')
+        .select('id, name, job_title, employee_managers!inner(manager_user_id)')
+        .eq('is_active', true)
+        .eq('employee_managers.manager_user_id', ME.id)
+        .order('name'));
+    }
     if (rosterErr) setStatus(`Roster load failed: ${rosterErr.message}`, 'neg');
-    MY_ROSTER = roster || [];
+    MY_ROSTER = (roster || []).map(({ employee_managers, ...e }) => e);
     if (!MY_ROSTER.length){
       setStatus('You have no employees on your roster yet — add them in Performance Reviews first.', 'info');
     }
