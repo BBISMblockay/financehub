@@ -33,7 +33,20 @@
 
     .pc-empty { padding:36px 20px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
 
-    .pc-detail-actions { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    .pc-detail-actions { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+
+    /* Reference images. A product concept is a visual object -- these were
+       being saved on the row and rendered nowhere, so they sat invisible.
+       Shown near the top of the brief rather than in a collapsed section:
+       for a designer the imagery IS the concept. */
+    .pc-imgs { display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
+    .pc-imgs a {
+      display:block; width:92px; height:92px; border-radius:8px; overflow:hidden;
+      border:1px solid var(--bcn-border); background:var(--bcn-sunken); flex-shrink:0;
+    }
+    .pc-imgs img { width:100%; height:100%; object-fit:cover; display:block; }
+    .pc-imgs a:hover { border-color:var(--bcn-accent); }
+    .pc-upload-btn.is-busy { opacity:.55; pointer-events:none; }
 
     @media (max-width: 900px) {
       .pc-content { flex-direction:column; }
@@ -154,11 +167,18 @@
       ].filter(Boolean).join('');
     },
 
-    exec: (c, h) => [
-      c.concept_summary ? `<div class="ec-exec">${h.esc(c.concept_summary)}</div>` : '',
-      c.objective ? `<div>${h.esc(c.objective)}</div>` : '',
-      c.marketing_angle ? `<div><strong>Angle:</strong> ${h.esc(c.marketing_angle)}</div>` : '',
-    ].filter(Boolean).join(''),
+    exec: (c, h) => {
+      const imgs = Array.isArray(c.reference_image_urls) ? c.reference_image_urls.filter(Boolean) : [];
+      return [
+        // Imagery first: it is what a designer reads before any number.
+        imgs.length
+          ? `<div class="pc-imgs">${imgs.map((u) => `<a href="${h.esc(u)}" target="_blank" rel="noopener noreferrer" title="Open full size"><img src="${h.esc(u)}" alt="Reference image" loading="lazy"></a>`).join('')}</div>`
+          : '',
+        c.concept_summary ? `<div class="ec-exec">${h.esc(c.concept_summary)}</div>` : '',
+        c.objective ? `<div>${h.esc(c.objective)}</div>` : '',
+        c.marketing_angle ? `<div><strong>Angle:</strong> ${h.esc(c.marketing_angle)}</div>` : '',
+      ].filter(Boolean).join('');
+    },
 
     numbers: (c, h) => {
       const econ = c.economics || {};
@@ -312,12 +332,66 @@
     // it to Ask SILO with the concept already bound -- silo-chat reads
     // ?concept=<id> and arms the composer against that row.
     const chatUrl = `/v2/silo-chat.html?concept=${encodeURIComponent(c.id)}`;
+    const imgCount = Array.isArray(c.reference_image_urls) ? c.reference_image_urls.filter(Boolean).length : 0;
     el('detail').innerHTML = `
       <div class="pc-detail-actions">
         <a class="bcn-btn bcn-btn--primary" href="${chatUrl}">Open in Ask SILO</a>
-        ${c.resulting_po_header_id ? `<a class="bcn-btn bcn-btn--ghost" href="/v2/po-report.html">View resulting PO</a>` : ''}
+        <button type="button" class="bcn-btn bcn-btn--ghost pc-upload-btn" id="btnAddImage">Add reference image</button>
+        <input type="file" id="fileImage" accept="image/*" multiple hidden />
+        ${imgCount ? `<span class="bcn-mono" style="font-size:10.5px;color:var(--bcn-ink-3)">${imgCount} image${imgCount === 1 ? '' : 's'}</span>` : ''}
       </div>
       ${window.SiloEvidenceCard.render(c, CONCEPT_SPEC)}`;
+
+    el('btnAddImage').addEventListener('click', () => el('fileImage').click());
+    el('fileImage').addEventListener('change', (ev) => uploadImages([...(ev.target.files || [])], c));
+  }
+
+  // Same bucket and folder shape as the chat attach flow
+  // (20260821130000_product_concept_images.sql): public bucket,
+  // authenticated write, `concepts/` prefix enforced by policy.
+  const CONCEPT_IMAGE_BUCKET = 'product-concept-images';
+
+  async function uploadImages(files, concept) {
+    if (!files.length || !concept?.id) return;
+    const btn = el('btnAddImage');
+    btn.classList.add('is-busy');
+    const added = [];
+    try {
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        const path = `concepts/${crypto.randomUUID()}/${file.name}`;
+        const { error } = await db.storage.from(CONCEPT_IMAGE_BUCKET).upload(path, file, { upsert: false });
+        if (error) { setStatus('Upload failed: ' + error.message, 'neg', 5000); continue; }
+        const { data: pub } = db.storage.from(CONCEPT_IMAGE_BUCKET).getPublicUrl(path);
+        if (pub?.publicUrl) added.push(pub.publicUrl);
+      }
+      if (!added.length) return;
+
+      // Append rather than replace -- another tab or an Ask SILO turn may
+      // have added images since this page loaded, and a blind overwrite
+      // would drop them. Re-read the row, merge, then write.
+      const { data: fresh } = await db.from('product_concepts')
+        .select('reference_image_urls').eq('id', concept.id).single();
+      const merged = [...new Set([...(fresh?.reference_image_urls || []), ...added])];
+
+      const { error: upErr } = await db.from('product_concepts')
+        .update({
+          reference_image_urls: merged,
+          revision_note: `Added ${added.length} reference image${added.length === 1 ? '' : 's'}.`,
+        })
+        .eq('id', concept.id);
+      if (upErr) { setStatus('Saved the image but could not attach it: ' + upErr.message, 'neg', 6000); return; }
+
+      // Reflect locally so the card redraws without a full reload.
+      concept.reference_image_urls = merged;
+      const idx = concepts.findIndex((x) => x.id === concept.id);
+      if (idx >= 0) concepts[idx].reference_image_urls = merged;
+      renderDetail();
+      setStatus(`Added ${added.length} image${added.length === 1 ? '' : 's'}.`, 'pos', 4000);
+    } finally {
+      btn?.classList.remove('is-busy');
+      const f = el('fileImage'); if (f) f.value = '';
+    }
   }
 
   el('list').addEventListener('click', (ev) => {
