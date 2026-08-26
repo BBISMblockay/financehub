@@ -301,6 +301,7 @@ supabase/
     20260826070000_launch_measurability.sql
     20260826080000_launch_product_actuals.sql
     20260826070000_quickbooks_integration.sql
+    20260826090000_quickbooks_locations.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

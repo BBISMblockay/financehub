@@ -17,6 +17,25 @@ Phase 3 (posting journal entries) and phase 4 (pulling QBO reports into SILO)
 build on this, but a human approving each post is a requirement of the design,
 not a temporary limitation.
 
+### Scope boundary (agreed 2026-08-26)
+
+**In scope:** SILO builds the journal entry from Shopify sales and payouts,
+maps each line to a QBO account and location, a human reviews it, SILO posts it
+as a `JournalEntry`, logs the returned QBO document number, and blocks
+double-posting.
+
+**Out of scope, permanently:** the bank feed / "For Review" queue, categorizing
+bank transactions, reconciliation, AP bill entry, invoicing, payroll. Those stay
+in QuickBooks.
+
+The bank feed is not merely descoped — **the QBO Accounting API does not expose
+it.** There is no public endpoint to read the For Review queue, categorize its
+items, or accept matches; Intuit gates bank-feed data behind separate partner
+programs. What SILO *can* do is push a transaction that QBO's own matching
+engine then offers against the downloaded bank line, so the accountant clicks
+Match instead of categorizing from scratch. Do not re-open this as a feature
+request without new information from Intuit.
+
 ## Setup
 
 1. **Intuit app.** developer.intuit.com → workspace *Silo* → app *Silo*.
@@ -81,6 +100,8 @@ not a temporary limitation.
 | `quickbooks_oauth_states` | Single-use 10-minute CSRF nonces. RLS on, no policies — service-role only |
 | `quickbooks_accounts` | Mirror of the QBO chart of accounts, refreshed by `quickbooks-accounts-sync`. No credentials, so readable by any active company member (the mapping UI is not admin-only) |
 | `accounting_coa_map` | Gains `qbo_account_id` / `qbo_account_name`. `account_name` stays the CSV export's authority and the fallback with no connection |
+| `quickbooks_locations` | Mirror of QBO locations (its `Department` entity), same read policy as `quickbooks_accounts` |
+| `accounting_location_map` | `sales_by_day.location_tag` → QBO location id. Writable by any active company member, same as the COA mapping |
 
 ## Token handling — the thing most likely to break
 
@@ -99,15 +120,53 @@ When the refresh window does lapse, the Integrations row shows
 **"Authorization expired — reconnect"** rather than a generic error, because
 no amount of retrying fixes it.
 
-## Known limitation: per-location accounts
+## Locations
 
-`revenue_template` and `refunds_template` expand `{location}` into a different
-account per sales location, so a single QBO account cannot represent them.
-They stay free-text and will be matched to QBO **by name** at post time.
-Every other map key binds to a real QBO account id.
+QuickBooks calls this dimension **Location** in its UI and **`Department`** in
+its API (the UI label is even renameable — Location / Division / Store /
+Territory). Everything in SILO is named `location`, matching what a human sees
+in QuickBooks; only the API calls in `quickbooks-accounts-sync` say
+`Department`. This is *not* QBO `Class`, a separate dimension SILO does not
+use.
 
-If phase 3 shows name-matching to be too fragile, the fix is a per-location
-mapping table rather than widening these two keys.
+A journal line carries its location as a **tag**, not as a separate account.
+Baseballism runs 28 active locations — per-location accounts would mean 56
+accounts for revenue and refunds alone, which is why
+`accounting_coa_map.revenue_template` / `refunds_template` still carry a
+`{location}` placeholder. Location tagging replaces that: one account id, plus
+a location reference per line.
+
+Requires **location tracking enabled** in QuickBooks (Settings → Advanced →
+Categories → Track locations), which is a **Plus or Advanced** feature. The
+sync reads that preference into
+`quickbooks_connections.location_tracking_enabled`, so an empty location list
+can say *why* it is empty rather than showing a blank dropdown.
+
+### Why the mapping is keyed on `location_tag`
+
+`accounting_location_map` maps `sales_by_day.location_tag` → QBO location id,
+**not** `locations.location_code`.
+
+Measured 2026-08-26 over 12 months of sales: 19 distinct `location_tag` values,
+only **10** matching a `locations.location_code` exactly, and **3**
+(`field_of_dreams`, `st_louis`, `mission_viejo`) not matching even
+case-insensitively — `location_code` is inconsistently formatted, snake_case on
+some rows and Title Case with spaces and periods on others.
+
+Routing the mapping through `locations` would therefore drop real revenue
+locations silently. `location_tag` is what `accounting_sales_buckets()` emits
+and what the journal is built from, so it is the honest key.
+
+**That formatting inconsistency in `locations.location_code` is a real latent
+bug** for anything else joining those two tables. It is a separate cleanup and
+does not block this work.
+
+### Still open
+
+The journal entry itself has not yet been reshaped to use locations — the CSV
+export still emits per-location account names via the `{location}` templates.
+Collapsing those two keys to a single account plus a location tag belongs with
+phase 3, where the posted entry's shape is designed as a whole.
 
 ## Chart-of-accounts naming
 

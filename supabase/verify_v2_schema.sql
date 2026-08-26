@@ -151,6 +151,13 @@ select
   -- Credential-bearing table: a non-admin select policy here would expose live OAuth tokens.
   case when not exists (select 1 from pg_policies where schemaname='public' and tablename='quickbooks_connections' and policyname='quickbooks_connections_active_select') then 'ok' else 'OVERBROAD POLICY PRESENT' end as quickbooks_connections_no_broad_select;
 
+-- 7d3. QuickBooks locations + location mapping (20260826090000_quickbooks_locations.sql)
+select
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_locations') then 'ok' else 'MISSING' end as quickbooks_locations,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='accounting_location_map') then 'ok' else 'MISSING' end as accounting_location_map,
+  case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='quickbooks_connections' and column_name='location_tracking_enabled') then 'ok' else 'MISSING' end as location_tracking_flag,
+  case when exists (select 1 from pg_indexes where schemaname='public' and indexname='uq_accounting_location_map_company_tag') then 'ok' else 'MISSING' end as location_map_unique_idx;
+
 -- 7e. Redo return items + customer columns (20260812130000_redo_return_items.sql)
 select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_return_items') then 'ok' else 'MISSING' end as redo_return_items,

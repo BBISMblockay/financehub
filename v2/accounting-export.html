@@ -512,6 +512,22 @@
           </div>
         </div>
 
+        <div class="ax-card">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">QuickBooks location mapping</div>
+              <div class="ax-card-sub">Which QBO location each sales location posts to</div>
+            </div>
+          </div>
+          <div class="ax-card-body ax-pad">
+            <div class="ax-map-grid" id="locationMapGrid"></div>
+            <div class="ax-map-actions">
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveLocationMap">Save locations</button>
+            </div>
+            <div class="ax-hint" id="locationHint"></div>
+          </div>
+        </div>
+
         <div class="ax-card ax-wide">
           <div class="ax-card-header">
             <div>
@@ -585,6 +601,9 @@
     tblFees: document.querySelector('#tblFees tbody'),
     tblRegister: document.querySelector('#tblRegister tbody'),
     mapGrid: document.getElementById('mapGrid'),
+    locationMapGrid: document.getElementById('locationMapGrid'),
+    btnSaveLocationMap: document.getElementById('btnSaveLocationMap'),
+    locationHint: document.getElementById('locationHint'),
     btnSaveMap: document.getElementById('btnSaveMap'),
     btnRecommendedMap: document.getElementById('btnRecommendedMap'),
     btnExportJournal: document.getElementById('btnExportJournal'),
@@ -657,6 +676,11 @@
     qboIds: {},
     // Chart of accounts pulled from QBO by quickbooks-accounts-sync.
     qboAccounts: [],
+    // QBO locations (its Department entity) and their SILO mapping.
+    qboLocations: [],
+    locationTracking: null,
+    // location_tag -> qbo_location_id
+    locationMap: {},
     buckets: [],
     payouts: [],
     storeNames: new Map(),
@@ -1036,6 +1060,152 @@
     state.qboAccounts = data || [];
   }
 
+  // QBO locations, plus whether location tracking is even switched on in
+  // QuickBooks -- an empty list means something different in each case.
+  async function loadQboLocations() {
+    let lq = sb.from('quickbooks_locations')
+      .select('qbo_location_id, name, fully_qualified_name')
+      .eq('is_active', true)
+      .order('fully_qualified_name');
+    let cq = sb.from('quickbooks_connections').select('location_tracking_enabled').limit(1);
+    if (_co?.id) {
+      lq = lq.eq('company_entity_id', _co.id);
+      cq = cq.eq('company_entity_id', _co.id);
+    }
+
+    const [locRes, connRes] = await Promise.all([lq, cq]);
+    if (!locRes.error) state.qboLocations = locRes.data || [];
+    // quickbooks_connections is admin-gated, so a non-admin gets no row here.
+    // That is not an error -- it just means we cannot explain an empty list.
+    if (!connRes.error && connRes.data?.length) {
+      state.locationTracking = connRes.data[0].location_tracking_enabled;
+    }
+  }
+
+  async function loadLocationMap() {
+    let q = sb.from('accounting_location_map').select('location_tag, qbo_location_id');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) {
+      console.warn('Location map load failed', error);
+      return;
+    }
+    for (const r of data || []) {
+      if (r.qbo_location_id) state.locationMap[r.location_tag] = r.qbo_location_id;
+    }
+  }
+
+  // Rows are the union of the loaded period's locations and anything already
+  // mapped, so a location that had no sales this month stays editable rather
+  // than vanishing from the card.
+  function locationRows() {
+    const seen = new Map();
+    for (const b of state.buckets) {
+      const tag = b.location_tag;
+      if (tag) seen.set(tag, b.location_name || tag);
+    }
+    for (const tag of Object.keys(state.locationMap)) {
+      if (!seen.has(tag)) seen.set(tag, tag);
+    }
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }
+
+  function renderLocationMap() {
+    const rows = locationRows();
+    const hasLocations = state.qboLocations.length > 0;
+
+    if (!rows.length) {
+      el.locationMapGrid.innerHTML =
+        '<div class="ax-map-key">No sales locations in this period.</div><div></div>';
+    } else if (!hasLocations) {
+      el.locationMapGrid.innerHTML = rows.map(([tag, name]) =>
+        `<div class="ax-map-key">${esc(name)}</div>
+         <div class="ax-map-note">${esc(tag)} — no QuickBooks locations available</div>`
+      ).join('');
+    } else {
+      el.locationMapGrid.innerHTML = rows.map(([tag, name]) => {
+        const selected = state.locationMap[tag] || '';
+        const options = state.qboLocations.map(l => {
+          const label = l.fully_qualified_name || l.name;
+          return `<option value="${esc(l.qbo_location_id)}"${
+            l.qbo_location_id === selected ? ' selected' : ''
+          }>${esc(label)}</option>`;
+        }).join('');
+
+        // A stored id no longer in QBO means the location was archived or
+        // deleted; show it as broken rather than silently reverting to unmapped.
+        const missing = selected
+          && !state.qboLocations.some(l => l.qbo_location_id === selected);
+        const missingOpt = missing
+          ? `<option value="${esc(selected)}" selected>⚠ ${esc(selected)} — not in QuickBooks</option>`
+          : '';
+
+        return `<div class="ax-map-key">${esc(name)}<div class="ax-map-note">${esc(tag)}</div></div>
+          <select class="bcn-field bcn-field--mono" data-location-tag="${esc(tag)}">
+            <option value=""${selected ? '' : ' selected'}>— not mapped —</option>
+            ${missingOpt}${options}
+          </select>`;
+      }).join('');
+    }
+
+    const mapped = rows.filter(([tag]) => state.locationMap[tag]).length;
+    let hint;
+    if (state.locationTracking === false) {
+      hint = '<b>Location tracking is off in QuickBooks.</b> Turn it on under '
+        + 'Settings → Advanced → Categories → Track locations (a Plus or Advanced '
+        + 'feature), then re-run Pull accounts in Integrations.';
+    } else if (!hasLocations) {
+      hint = 'No QuickBooks locations found. Connect QuickBooks in '
+        + '<a href="/v2/integrations.html">Integrations</a> and click Pull accounts. '
+        + 'If location tracking is on but no locations exist yet, create them in QuickBooks first.';
+    } else {
+      hint = `${mapped} of ${rows.length} locations mapped. A journal line carries its `
+        + 'location as a tag, so one revenue account serves every store instead of one '
+        + 'account per store. Unmapped locations would post with no location.';
+    }
+    el.locationHint.innerHTML = hint;
+  }
+
+  async function saveLocationMap() {
+    if (!_co?.id) {
+      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
+      return;
+    }
+
+    const fields = [...el.locationMapGrid.querySelectorAll('[data-location-tag]')];
+    if (!fields.length) return;
+
+    const rows = fields.map(f => ({
+      company_entity_id: _co.id,
+      location_tag: f.dataset.locationTag,
+      qbo_location_id: f.value || null,
+      qbo_location_name: f.value
+        ? (() => {
+          const l = state.qboLocations.find(x => x.qbo_location_id === f.value);
+          return l ? (l.fully_qualified_name || l.name) : null;
+        })()
+        : null,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await sb
+      .from('accounting_location_map')
+      .upsert(rows, { onConflict: 'company_entity_id,location_tag' });
+
+    if (error) {
+      setStatus(`Location save failed: ${error.message}`, 'neg', 6000);
+      return;
+    }
+
+    for (const r of rows) {
+      if (r.qbo_location_id) state.locationMap[r.location_tag] = r.qbo_location_id;
+      else delete state.locationMap[r.location_tag];
+    }
+
+    setStatus('Location mapping saved.', 'pos', 2500);
+    renderLocationMap();
+  }
+
   async function saveCoaMap() {
     // Without a company the upsert's conflict target and the RLS check both
     // operate on a null, so refuse rather than appear to save.
@@ -1156,6 +1326,7 @@
       state.period = val;
       el.subTitle.textContent = `Journal-ready Shopify sales and payout entries — ${val}`;
       render();
+      renderLocationMap();
     } finally {
       el.btnRun.disabled = false;
     }
@@ -1163,6 +1334,7 @@
 
   el.btnRun.addEventListener('click', run);
   el.btnSaveMap.addEventListener('click', saveCoaMap);
+  el.btnSaveLocationMap.addEventListener('click', saveLocationMap);
   el.btnRecommendedMap.addEventListener('click', applyRecommendedMap);
   el.btnExportJournal.addEventListener('click', exportJournal);
   el.btnExportRegister.addEventListener('click', exportRegister);
@@ -1193,8 +1365,15 @@
 
     _co = await cfg.ensureActiveCompany?.(sb) || null;
 
-    await Promise.all([loadCoaMap(), loadQboAccounts(), loadStoreNames()]);
+    await Promise.all([
+      loadCoaMap(),
+      loadQboAccounts(),
+      loadQboLocations(),
+      loadLocationMap(),
+      loadStoreNames(),
+    ]);
     renderMap();
+    renderLocationMap();
     await run();
   }
 
