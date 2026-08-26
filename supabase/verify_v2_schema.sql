@@ -1371,3 +1371,19 @@ select
       then 'MISSING — the 500-row cap was dropped'
     else 'ok'
   end as chat_query_timeout;
+
+-- ── Top Sellers variance RPC (20260826120000) ─────────────────────────
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='top_sellers_type_variance')
+      then 'MISSING — run 20260826120000_top_sellers_type_variance.sql'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='top_sellers_type_variance' and p.prosecdef)
+      then 'MISSING — top_sellers_type_variance became SECURITY DEFINER; it must stay INVOKER so RLS scopes it to the caller''s company'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='top_sellers_type_variance'
+                       and pg_get_functiondef(p.oid) like '%364%')
+      then 'MISSING — the last-year window is not 364 days; 365 misaligns the weekdays and moves the number more than real demand does'
+    else 'ok'
+  end as top_sellers_type_variance;

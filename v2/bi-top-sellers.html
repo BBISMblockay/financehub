@@ -91,6 +91,15 @@
     .ts-bar-track { flex:1; height:14px; background:var(--bcn-sunken); border-radius:4px; }
     .ts-bar-fill { height:100%; border-radius:4px; min-width:3px; background:var(--bcn-accent); }
     .ts-bar-value { width:60px; flex-shrink:0; text-align:right; font-family:var(--bcn-mono); font-size:11px; font-weight:700; color:var(--bcn-ink); }
+      .ts-delta { font-variant-numeric: tabular-nums; }
+    .ts-delta.pos { color: var(--bcn-pos); }
+    .ts-delta.neg { color: var(--bcn-neg); }
+    .ts-delta.na  { color: var(--bcn-ink-4); }
+    .ts-var-note {
+      padding: 8px 12px; font-size: 10.5px; line-height: 1.5;
+      color: var(--bcn-ink-3); border-top: 1px solid var(--bcn-border);
+    }
+    .ts-var-note b { color: var(--bcn-ink-2); font-weight: 600; }
   </style>
 </head>
 <body class="silo-brand">
@@ -173,10 +182,11 @@
           <div class="bcn-card-body" style="padding:0;overflow:visible">
             <div class="ts-scroll ts-scroll--sub">
               <table class="ts-tbl">
-                <thead><tr><th>Type</th><th class="r">Qty</th><th class="r">SKUs</th><th class="r">% of total</th></tr></thead>
-                <tbody id="typeBody"><tr><td colspan="4" class="ts-empty">Loading…</td></tr></tbody>
+                <thead><tr><th>Type</th><th class="r">Qty</th><th class="r">SKUs</th><th class="r">% of total</th><th class="r" title="Versus the same number of complete days immediately before this window">vs prev</th><th class="r" title="Versus the same window 364 days back — 52 weeks, so the weekdays line up">vs LY</th></tr></thead>
+                <tbody id="typeBody"><tr><td colspan="6" class="ts-empty">Loading…</td></tr></tbody>
               </table>
             </div>
+            <div class="ts-var-note">Change compares complete days ending yesterday: <b>vs prev</b> against the window immediately before, <b>vs LY</b> against 364 days back (52 weeks, so weekdays align). Computed from sales history, so it can differ slightly from Qty, which comes from the velocity snapshot.</div>
           </div>
         </div>
 
@@ -251,7 +261,7 @@
   }
   const shared = loadSharedFilters();
 
-  const state = { groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all', activeType:'', activeWindow:'30', rowsRaw:[], rows:[], lastLeaderRows:[], lastTypeRows:[], lastLocationRows:[] };
+  const state = { groupByTag:new Map(), groups:[], typeVariance:new Map(), activeGroup:shared.storeGroup||'all', activeType:'', activeWindow:'30', rowsRaw:[], rows:[], lastLeaderRows:[], lastTypeRows:[], lastLocationRows:[] };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
@@ -308,8 +318,11 @@
   }
   function exportTypeCsv(){
     const total = state.lastTypeRows.reduce((a,r)=>a+r.qty,0);
-    downloadCsv(`top-sellers-by-type-${state.activeWindow}d.csv`, ['Type','Qty','SKUs','% of total'],
-      state.lastTypeRows.map(r=>[r.type, r.qty, r.skus, total?((r.qty/total)*100).toFixed(1):'0.0']));
+    const pct = v => (v == null || !isFinite(v)) ? '' : (v*100).toFixed(1);
+    downloadCsv(`top-sellers-by-type-${state.activeWindow}d.csv`,
+      ['Type','Qty','SKUs','% of total','% vs prev period','% vs same period LY'],
+      state.lastTypeRows.map(r=>[r.type, r.qty, r.skus,
+        total?((r.qty/total)*100).toFixed(1):'0.0', pct(r.vsPrev), pct(r.vsLy)]));
   }
   function exportLocationCsv(){
     downloadCsv(`top-sellers-by-location-${state.activeWindow}d.csv`, ['Location','Qty','SKUs'],
@@ -380,6 +393,44 @@
     return out.filter(r=>!EXCLUDED_TYPES.has(r.product_type));
   }
 
+  // Which location_tags the active store group covers. null = every store,
+  // which the RPC reads as "no filter".
+  function activeLocationTags(){
+    if (state.activeGroup === 'all') return null;
+    const tags = [];
+    for (const [tag, grp] of state.groupByTag) if (grp === state.activeGroup) tags.push(tag);
+    return tags.length ? tags : null;
+  }
+
+  // Period-over-period units by type. Not derivable from the page's own rows:
+  // inventory_workboard_v exposes trailing windows only (qty_7d / sold_30 /
+  // qty_90d / qty_365d) with no prior-period equivalent, and a 365-day
+  // comparison would need three years of sales_by_day pulled client-side.
+  async function loadTypeVariance(){
+    const m = new Map();
+    try {
+      const { data, error } = await sb.rpc('top_sellers_type_variance', {
+        p_days: Number(state.activeWindow) || 30,
+        p_location_tags: activeLocationTags(),
+      });
+      if (error) throw error;
+      for (const r of (data || [])){
+        const cur = Number(r.units_current || 0);
+        const prev = Number(r.units_prev || 0);
+        const ly = Number(r.units_ly || 0);
+        // A zero base is "no comparison", not "infinite growth".
+        m.set(r.product_type, {
+          vsPrev: prev > 0 ? (cur - prev) / prev : null,
+          vsLy:   ly   > 0 ? (cur - ly)   / ly   : null,
+        });
+      }
+    } catch(e){
+      // The table is still useful without the deltas; don't fail the page.
+      console.warn('top_sellers_type_variance unavailable', e);
+    }
+    state.typeVariance = m;
+  }
+
   function recompute(){
     state.rows = state.rowsRaw.filter(r=>inGroup(r) && inType(r));
     renderAll();
@@ -398,6 +449,7 @@
 
       state.activeWindow = el.windowSelect.value;
       state.rowsRaw = await loadWindowRows(state.activeWindow);
+      await loadTypeVariance();
       renderTypeOptions();
       recompute();
     } catch(e){
@@ -507,7 +559,17 @@
       cur.skus.add(r.variant_sku);
       byType.set(key,cur);
     }
-    return [...byType.entries()].map(([type,v])=>({ type, qty:v.qty, skus:v.skus.size })).sort((a,b)=>b.qty-a.qty);
+    return [...byType.entries()].map(([type,v])=>{
+      const d = state.typeVariance.get(type) || {};
+      return { type, qty:v.qty, skus:v.skus.size, vsPrev:d.vsPrev ?? null, vsLy:d.vsLy ?? null };
+    }).sort((a,b)=>b.qty-a.qty);
+  }
+
+  function deltaCell(pct){
+    if (pct == null || !isFinite(pct)) return `<td class="r ts-delta na" title="Nothing sold in the comparison window, so there is no basis for a change">—</td>`;
+    const cls = pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'na';
+    const sign = pct > 0 ? '+' : '';
+    return `<td class="r ts-delta ${cls}">${sign}${(pct*100).toFixed(1)}%</td>`;
   }
 
   function renderTypeTable(rows){
@@ -515,7 +577,7 @@
     const total = rows.reduce((a,r)=>a+r.qty,0);
     el.typeCount.textContent = `${rows.length} types`;
     if (!rows.length){
-      el.typeBody.innerHTML = `<tr><td colspan="4" class="ts-empty">No data.</td></tr>`;
+      el.typeBody.innerHTML = `<tr><td colspan="6" class="ts-empty">No data.</td></tr>`;
       return;
     }
     el.typeBody.innerHTML = rows.slice(0,25).map(r=>`<tr>
@@ -523,6 +585,8 @@
       <td class="r">${numFmt(r.qty)}</td>
       <td class="r">${numFmt(r.skus)}</td>
       <td class="r">${total?((r.qty/total)*100).toFixed(1):'0.0'}%</td>
+      ${deltaCell(r.vsPrev)}
+      ${deltaCell(r.vsLy)}
     </tr>`).join('');
   }
 
@@ -570,7 +634,8 @@
     state.activeGroup = btn.dataset.group;
     [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
     saveSharedFilters({ storeGroup: state.activeGroup });
-    recompute();
+    // The store group is part of the comparison, so it has to be refetched.
+    loadTypeVariance().then(recompute);
   });
 
   async function boot(){
