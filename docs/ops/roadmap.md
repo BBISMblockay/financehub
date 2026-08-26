@@ -10,13 +10,11 @@ is the authority on what is still to do.
 
 ## Now (stability)
 
-- [ ] **`silo-chat` prompt drift: repo is ahead of prod.** The concept-grounding
-      guidance in `supabase/functions/silo-chat/index.ts` (points at
-      `launch_product_actuals_v` instead of the empty `launch_actuals_v`) is
-      merged but NOT deployed — edge functions deploy manually. The same
-      guidance is live via a `silo_chat_notes` row as a stopgap, so behaviour
-      is broadly correct today, but the note and the function will drift.
-      Close it with `supabase functions deploy silo-chat --project-ref mkquclffrvlzyecnabyf`
+- [x] **`silo-chat` prompt drift: repo is ahead of prod.** Closed 2026-08-26 —
+      deployed as version 56; the deployed source was diffed against `main`
+      and matches. The `silo_chat_notes` stopgap row from 06:55 that day
+      ("supersedes older guidance in the system prompt") is now redundant with
+      the function itself and should be deleted, or it becomes the next drift
 - [ ] **Launch capture discipline.** 43 of 61 launches cannot be measured
       because nobody attached products or linked a PO, and nothing in the UI
       asks. This is unrecoverable after the fact — launches overlap heavily,
@@ -60,9 +58,18 @@ What remains is coverage and one missing branch.
       pull its own weight, or was it just a reason to run a sale" is
       unanswerable. A mapping table (same shape as `shopify_channel_map`) plus
       a picker
-- [ ] Verify phase 2 now fills `economics` / `forecast` / `provenance` with the
-      30s budget. If unknowns still cite timeouts, it is indexes not budget —
-      `shopify_orders` takes a seq scan filtering `created_at`
+- [x] Verify phase 2 fills `economics` / `forecast` with the 30s budget —
+      confirmed 2026-08-26 on the Back To School 2027 concept, which also ran
+      clean on time (11 rounds, 9 queries, no forced final). Its `unknowns` no
+      longer cite timeouts, which settles this item's own conditional: it is
+      NOT the `shopify_orders` seq scan
+- [ ] `provenance` is still empty on the one concept that reached phase 2 with
+      the column available (n=1, so not yet a pattern). It is not a code
+      problem — the field is in both tool schemas, and sibling arrays
+      (`historical_evidence`, `risks`, `unknowns`) wrote fine in the same call.
+      Watch the next phase-2 run; if it misses again, enforce it the way the
+      phase-1 draft nudge is enforced (`forceNudgeTool`), not with more prompt
+      text
 - [ ] Concept → PO surfacing decision (currently hidden on purpose)
 
 ---
@@ -76,12 +83,15 @@ What remains is coverage and one missing branch.
       `marketing_campaign_summary_v`, `marketing_daily_totals_v`,
       `meta_ad_performance_v`) — ratio metrics computed from summed components
       at the reported grain, so ROAS/CPA/CTR/CPM cannot be averaged wrong
-- [ ] **Product-title sales rollup.** The schema jumps from SKU (20,453) to
-      product type (129) with nothing at product title (4,585) — the grain
-      where buying decisions are actually made. Zero views group by it today,
-      so both demand planning and Ask SILO rebuild the
-      `sales_by_day.sku → products_master.sku → product_title` join by hand
-      every time
+- [x] **Product-title sales rollup.** `sales_by_product_title_daily_v`
+      (20260826230000) — company × product title × type × location × day,
+      `security_invoker`, in the Ask SILO schema catalog with a curated
+      description. 99.09% of rows join by `(company_entity_id, sku)`; the rest
+      fall back to `sales_by_day.product_name` flagged `title_source =
+      'sales_fallback'` rather than being dropped. Note the behavioural half
+      was already fixed separately by a `silo_chat_notes` row (2026-08-25)
+      telling the model to use title grain — this removes the hand-built join,
+      not a wrong answer
 - [ ] FB / Instagram organic. Tables exist, 0 rows. Blocked on Meta, not on us:
       the token needs `pages_read_engagement` / `instagram_basic` /
       `instagram_manage_insights`, the System User needs admin or analyst on

@@ -305,6 +305,7 @@ supabase/
     20260826090000_quickbooks_locations.sql
     20260826110000_per_location_accounts.sql
     20260826120000_top_sellers_type_variance.sql
+    20260826230000_sales_by_product_title_daily.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

@@ -1387,3 +1387,20 @@ select
       then 'MISSING — the last-year window is not 364 days; 365 misaligns the weekdays and moves the number more than real demand does'
     else 'ok'
   end as top_sellers_type_variance;
+
+-- ── Product-title sales rollup (20260826230000) ───────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='sales_by_product_title_daily_v')
+      then 'MISSING — run 20260826230000_sales_by_product_title_daily.sql'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='sales_by_product_title_daily_v'
+                       and c.reloptions::text like '%security_invoker=true%')
+      then 'MISSING — sales_by_product_title_daily_v is not security_invoker; RLS would stop scoping it to the active company'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='sales_by_product_title_daily_v'
+                       and column_name='title_source')
+      then 'MISSING — title_source dropped; unmatched SKUs would become indistinguishable from resolved ones'
+    else 'ok'
+  end as sales_by_product_title_daily_v;
