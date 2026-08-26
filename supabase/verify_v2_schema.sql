@@ -1424,3 +1424,20 @@ select
       then 'MISSING — last-year window is not 364 days; 365 misaligns the weekdays'
     else 'ok'
   end as wow_report_rpc;
+
+-- ── Week over Week written half (20260826140000) ──────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='wow_report_entries')
+      then 'MISSING — run 20260826140000_wow_report_entries.sql'
+    when not (select relrowsecurity from pg_class where oid='public.wow_report_entries'::regclass)
+      then 'MISSING — RLS not enabled on wow_report_entries'
+    when (select count(*) from pg_policies where schemaname='public' and tablename='wow_report_entries') < 3
+      then 'MISSING — wow_report_entries needs select/insert/update policies'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_report'
+                   and pg_get_functiondef(p.oid) like '%inventory_on_hand_current_mv%')
+      then 'MISSING — wow_report reads the matview directly; authenticated has no grant on it and it is not company-scoped. Use inventory_on_hand_current_v'
+    else 'ok'
+  end as wow_report_entries;

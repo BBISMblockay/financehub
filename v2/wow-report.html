@@ -11,7 +11,10 @@
   <script src="v2-shell.js" defer></script>
   <style>
     .bcn-kpi-band { flex-wrap:wrap; }
-    .wow-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    /* No overflow/flex:1 here on purpose. .silo-main already scrolls
+       (beacon.css); nesting a second scroll region traps every card in the
+       ~560px left under the header and forces the reader to zoom out. */
+    .wow-content { padding:12px 18px 24px; display:flex; flex-direction:column; gap:12px; }
 
     .wow-period {
       display:flex; align-items:center; gap:18px; flex-wrap:wrap;
@@ -59,6 +62,50 @@
       border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
       border-radius:50%; animation:wow-s .7s linear infinite; }
     @keyframes wow-s { to { transform:rotate(360deg); } }
+    .wow-say { border-top:1px solid var(--bcn-border); }
+    .wow-say > summary {
+      list-style:none; cursor:pointer; padding:8px 14px;
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase;
+      letter-spacing:.09em; color:var(--bcn-ink-4); font-weight:600;
+      display:flex; align-items:center; gap:7px;
+    }
+    .wow-say > summary::-webkit-details-marker { display:none; }
+    .wow-say > summary::before { content:'+'; font-size:12px; line-height:1; color:var(--bcn-ink-4); }
+    .wow-say[open] > summary::before { content:'–'; }
+    .wow-say > summary:hover { color:var(--bcn-ink-2); background:var(--bcn-sunken); }
+    .wow-say[data-filled="1"] > summary { color:var(--bcn-accent); }
+    .wow-say[data-filled="1"] > summary::after { content:'written'; margin-left:auto; font-size:9px; opacity:.75; }
+    .wow-say-body { padding:0 14px 12px; }
+    .wow-say-label { display:block; font-family:var(--bcn-mono); font-size:9.5px;
+      text-transform:uppercase; letter-spacing:.09em; color:var(--bcn-ink-4);
+      font-weight:600; margin-bottom:5px; }
+    .wow-say-hint { font-size:11px; color:var(--bcn-ink-4); margin:-2px 0 6px; line-height:1.45; }
+    .wow-say-box {
+      width:100%; font-family:var(--bcn-font); font-size:13px; line-height:1.5;
+      color:var(--bcn-ink); background:var(--bcn-surface);
+      border:1px solid var(--bcn-border-strong); border-radius:6px; padding:8px 10px;
+      resize:vertical;
+    }
+    .wow-say-box:focus { outline:none; border-color:var(--bcn-accent); box-shadow:0 0 0 2px color-mix(in oklch, var(--bcn-accent) 20%, transparent); }
+    .wow-say-box::placeholder { color:var(--bcn-ink-4); }
+
+    .wow-saved { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-4); white-space:nowrap; }
+    .wow-saved.dirty { color:var(--bcn-warn); }
+
+    /* Print = the meeting handout. Chrome and controls go; everything written stays. */
+    @media print {
+      .silo-sidebar, .bcn-header-actions, .bcn-status, #btnSave, #btnExport, #btnRefresh { display:none !important; }
+      body, .silo-app, .silo-main, .wow-content { display:block !important; background:#fff !important; overflow:visible !important; }
+      .bcn-card { break-inside:avoid; page-break-inside:avoid; border:1px solid #ccc !important; margin-bottom:10px; }
+      .wow-say[open], .wow-say { display:block !important; }
+      .wow-say > summary { list-style:none; color:var(--bcn-ink-3) !important; padding:8px 14px 2px; }
+      .wow-say > summary::before, .wow-say > summary::after { content:'' !important; }
+      .wow-say-body { display:block !important; padding:0 14px 10px; }
+      .wow-say-box { border:none !important; padding:0 !important; resize:none; }
+      .wow-say-box:placeholder-shown { display:none; }
+      .wow-say:has(.wow-say-box:placeholder-shown) { display:none; }
+      .bcn-matrix-scroll { overflow:visible !important; }
+    }
   </style>
 </head>
 <body class="silo-brand">
@@ -72,12 +119,13 @@
         </div>
         <h1>Week over Week</h1>
         <div class="bcn-header-sub">
-          Online store — 7 days ending the report date, against the week before and the same week last year.
-          Everything here is live; the manual sections are listed at the bottom.
+          Online store · live · notes save per week
         </div>
       </div>
       <div class="bcn-header-actions">
         <input type="date" id="reportDate" class="wow-date" />
+        <span class="wow-saved" id="savedAt">&nbsp;</span>
+        <button id="btnSave" class="bcn-btn bcn-btn--primary">Save</button>
         <button id="btnExport" class="bcn-btn bcn-btn--ghost">Export CSV</button>
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
       </div>
@@ -86,9 +134,10 @@
     <div class="bcn-status" id="status" hidden></div>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Online Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Shopify online store</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">matches Shopify "total sales"</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Net Sales</div><div id="kNet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kNetSub">after refunds</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Orders</div><div id="kOrders" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">excl. cancelled</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">online only</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">total sales ÷ orders</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Returning Rate</div><div id="kRet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kRetSub">&nbsp;</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Units On Hand</div><div id="kInv" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kInvSub">online warehouse</div></div>
     </div>
@@ -97,6 +146,13 @@
 
       <div class="wow-period" id="periodBar"></div>
 
+      <div class="wow-note" style="border-top:none;border-bottom:1px solid var(--bcn-border);padding-left:2px">
+        <b>Sales figures come from the same place Shopify's own online report does</b> — the daily sales
+        ledger for the online location, which nets refunds and includes every online channel
+        (Online Store, TikTok Shop, Shop App, Instagram/Facebook, AfterSell, Amazon). POS, wholesale
+        and draft orders are excluded. Verified against Shopify for 8/19–8/25: total $259,471, net $223,783.
+      </div>
+
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Traffic &amp; site revenue — year over year</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">GA4</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
@@ -104,6 +160,11 @@
           <tbody id="ga4Body"></tbody></table>
         </div></div>
         <div class="wow-note"><b>Add-to-cart, reach-checkout and complete-checkout are not here.</b> SILO only holds those counts for Meta ad traffic, not sitewide — a full funnel needs GA4 event-level data, which isn't synced. Take those three from GA4 directly.</div>
+      
+        <details class="wow-say" data-key="traffic">
+          <summary>What the traffic is telling us</summary>
+          <div class="wow-say-body"><textarea id="say_traffic" class="wow-say-box" data-say="traffic" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -113,6 +174,11 @@
           <tbody id="prodBody"><tr><td class="wow-empty" colspan="5"><span class="wow-spin"></span>Loading…</td></tr></tbody></table>
         </div></div>
         <div class="wow-note"><b>Days of stock</b> is units on hand ÷ this week's daily rate, so it reads as "at this pace". On-hand is de-duplicated to one row per SKU — the inventory snapshot carries duplicates and a naive sum overstates online units by about 5%.</div>
+      
+        <details class="wow-say" data-key="products">
+          <summary>Notes on products</summary>
+          <div class="wow-say-body"><textarea id="say_products" class="wow-say-box" data-say="products" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -121,6 +187,11 @@
           <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th>vs prior week</th></tr></thead>
           <tbody id="catBody"></tbody></table>
         </div></div>
+      
+        <details class="wow-say" data-key="categories">
+          <summary>Notes on categories</summary>
+          <div class="wow-say-body"><textarea id="say_categories" class="wow-say-box" data-say="categories" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -130,6 +201,11 @@
           <tbody id="chanBody"></tbody></table>
         </div></div>
         <div class="wow-note">This also covers the template's <b>TikTok → sales by attribution source</b> row. TikTok Shop is a tracked sales channel; TikTok <i>Ads</i> has never synced, which is a separate gap.</div>
+      
+        <details class="wow-say" data-key="channels">
+          <summary>Notes on channel mix</summary>
+          <div class="wow-say-body"><textarea id="say_channels" class="wow-say-box" data-say="channels" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -139,6 +215,11 @@
           <tbody id="paidBody"></tbody></table>
         </div></div>
         <div class="wow-note">Campaigns with no attributed revenue are awareness buys — <b>they have no ROAS by design</b> and shouldn't be read as failures. Thruplay cost and cost-per-lead aren't broken out in the feed; take those from Ads Manager.</div>
+      
+        <details class="wow-say" data-key="paid">
+          <summary>Notes on paid media</summary>
+          <div class="wow-say-body"><textarea id="say_paid" class="wow-say-box" data-say="paid" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -147,21 +228,46 @@
           <table class="wow-tbl"><thead><tr><th>Creative</th><th>Spend</th><th>ROAS</th><th>Clicks</th></tr></thead>
           <tbody id="creBody"></tbody></table>
         </div></div>
+      
+        <details class="wow-say" data-key="creatives">
+          <summary>Notes on creative</summary>
+          <div class="wow-say-body"><textarea id="say_creatives" class="wow-say-box" data-say="creatives" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Still manual</h2><span class="bcn-card-meta">not in SILO</span></div>
-        <div class="wow-manual">
-          These stay hand-written, and should — they're judgement or they have no source yet.
-          <ul>
-            <li><b>Competition</b> — weekly scan. Manual by nature.</li>
-            <li><b>Kimonix</b> — top products, collections. Not integrated.</li>
-            <li><b>Affiliate</b> — sales by code, seeding notes. Discount-code attribution isn't synced.</li>
-            <li><b>Redo email / SMS</b> — SILO holds Redo <i>returns</i>, not its messaging.</li>
-            <li><b>Sessions by landing page</b> — GA4 is synced at campaign level, no page paths.</li>
-            <li><b>Meta &amp; Instagram organic</b> — blocked on Meta permissions, not on us. The tables exist and are empty until the token gets <code>pages_read_engagement</code>, <code>instagram_basic</code> and <code>instagram_manage_insights</code> plus Page access.</li>
-            <li><b>Cohort retention</b> — not built, but buildable: order history carries customer ids back to 2024-11-24.</li>
-          </ul>
+        <div class="bcn-card-header"><h2>Manual sections</h2><span class="bcn-card-meta">no source in SILO — yours to write</span></div>
+        <div class="bcn-card-body" style="display:flex;flex-direction:column;gap:14px">
+          <div class="wow-say">
+            <label class="wow-say-label" for="man_competition">Competition</label>
+            <div class="wow-say-hint">High-level look at competitor actions & partnerships.</div>
+            <textarea id="man_competition" class="wow-say-box" data-manual="competition" rows="3"></textarea>
+          </div>
+          <div class="wow-say">
+            <label class="wow-say-label" for="man_kimonix">Kimonix</label>
+            <div class="wow-say-hint">Top products, collections. Not integrated with SILO.</div>
+            <textarea id="man_kimonix" class="wow-say-box" data-manual="kimonix" rows="3"></textarea>
+          </div>
+          <div class="wow-say">
+            <label class="wow-say-label" for="man_affiliate">Affiliate</label>
+            <div class="wow-say-hint">Sales by code, what was seeded, next week’s pushes.</div>
+            <textarea id="man_affiliate" class="wow-say-box" data-manual="affiliate" rows="3"></textarea>
+          </div>
+          <div class="wow-say">
+            <label class="wow-say-label" for="man_redo">Redo — email / SMS</label>
+            <div class="wow-say-hint">Campaigns and automations. SILO holds Redo returns, not its messaging.</div>
+            <textarea id="man_redo" class="wow-say-box" data-manual="redo" rows="3"></textarea>
+          </div>
+          <div class="wow-say">
+            <label class="wow-say-label" for="man_landing_pages">Sessions by landing page</label>
+            <div class="wow-say-hint">GA4 is synced at campaign level only — no page paths.</div>
+            <textarea id="man_landing_pages" class="wow-say-box" data-manual="landing_pages" rows="3"></textarea>
+          </div>
+          <div class="wow-say">
+            <label class="wow-say-label" for="man_organic">Meta & Instagram organic</label>
+            <div class="wow-say-hint">Blocked on Meta permissions, not on us — the tables exist and are empty until the token gets pages_read_engagement, instagram_basic and instagram_manage_insights plus Page access.</div>
+            <textarea id="man_organic" class="wow-say-box" data-manual="organic" rows="3"></textarea>
+          </div>
         </div>
       </div>
 
@@ -215,6 +321,78 @@
   }
 
   let DATA = null;
+  let ENTRY = { commentary:{}, manual:{} };
+  let dirty = false;
+  let _co = null;
+
+  const sayEls    = () => [...document.querySelectorAll('[data-say]')];
+  const manualEls = () => [...document.querySelectorAll('[data-manual]')];
+
+  function markDirty(){
+    dirty = true;
+    el('savedAt').textContent = 'unsaved changes';
+    el('savedAt').classList.add('dirty');
+  }
+  function markSaved(when){
+    dirty = false;
+    el('savedAt').textContent = when ? `saved ${when}` : '';
+    el('savedAt').classList.remove('dirty');
+  }
+
+  function fillWritten(){
+    sayEls().forEach(t => {
+      t.value = ENTRY.commentary?.[t.dataset.say] || '';
+      // Something already written should be visible, not hidden behind a click.
+      const d = t.closest('.wow-say');
+      if (d){ d.open = !!t.value; d.dataset.filled = t.value ? '1' : '0'; }
+    });
+    manualEls().forEach(t => { t.value = ENTRY.manual?.[t.dataset.manual] || ''; });
+  }
+
+  function collectWritten(){
+    const commentary = {}, manual = {};
+    sayEls().forEach(t => { const v = t.value.trim(); if (v) commentary[t.dataset.say] = v; });
+    manualEls().forEach(t => { const v = t.value.trim(); if (v) manual[t.dataset.manual] = v; });
+    return { commentary, manual };
+  }
+
+  // The written half only. Measured figures are never stored -- they re-query
+  // live, so reopening an old report shows what the data says today rather
+  // than a snapshot that quietly went stale.
+  async function loadEntry(){
+    ENTRY = { commentary:{}, manual:{} };
+    try {
+      let q = sb.from('wow_report_entries').select('sections,updated_at')
+                .eq('report_date', el('reportDate').value);
+      if (_co?.id) q = q.eq('company_entity_id', _co.id);
+      const { data, error } = await q.maybeSingle();
+      if (error) throw error;
+      if (data?.sections) ENTRY = { commentary:data.sections.commentary || {}, manual:data.sections.manual || {} };
+      fillWritten();
+      markSaved(data?.updated_at ? new Date(data.updated_at).toLocaleString() : '');
+    } catch(e){
+      console.warn('entry load failed', e);
+      fillWritten(); markSaved('');
+    }
+  }
+
+  async function saveEntry(){
+    try {
+      el('btnSave').disabled = true;
+      const row = { report_date: el('reportDate').value, sections: collectWritten() };
+      if (_co?.id) row.company_entity_id = _co.id;
+      const { error } = await sb.from('wow_report_entries')
+        .upsert(row, { onConflict: 'company_entity_id,report_date' });
+      if (error) throw error;
+      markSaved(new Date().toLocaleTimeString());
+      setStatus('Saved.', 'pos', 2000);
+    } catch(e){
+      console.error(e);
+      setStatus(`Save failed: ${e.message}`, 'neg');
+    } finally {
+      el('btnSave').disabled = false;
+    }
+  }
 
   async function load(){
     setStatus('Loading…');
@@ -224,6 +402,7 @@
       if (error) throw error;
       DATA = data;
       render();
+      await loadEntry();
       setStatus(`Loaded ${data.window.start} – ${data.window.end}`, 'pos', 2500);
     } catch(e){
       console.error(e);
@@ -241,7 +420,9 @@
       `<span>Same week last year <b>${esc(w.ly_start)} → ${esc(w.ly_end)}</b></span>` +
       `<span style="margin-left:auto">scope <b>online store</b></span>`;
 
-    el('kSales').textContent  = money(c.gross_sales);
+    el('kSales').textContent  = money(c.total_sales);
+    el('kNet').textContent    = money(c.net_sales);
+    el('kNetSub').textContent = `after ${money(c.refunds)} refunds`;
     el('kOrders').textContent = intFmt(c.orders);
     el('kAov').textContent    = money2(c.aov);
     el('kRet').textContent    = cu.returning_pct == null ? '—' : `${cu.returning_pct}%`;
@@ -292,7 +473,8 @@
     const push = (...r) => rows.push(r);
     push('Week over Week — online', `${DATA.window.start} to ${DATA.window.end}`);
     push(''); push('Metric','Value');
-    push('Online sales', DATA.core.gross_sales); push('Orders', DATA.core.orders);
+    push('Total sales', DATA.core.total_sales); push('Net sales', DATA.core.net_sales);
+    push('Refunds', DATA.core.refunds); push('Orders', DATA.core.orders);
     push('AOV', DATA.core.aov); push('Returning %', DATA.customers.returning_pct);
     push('Units on hand', DATA.inventory.units_on_hand);
     push(''); push('Product','Units','Net sales','On hand','Days of stock');
@@ -303,6 +485,11 @@
     (DATA.channels||[]).forEach(k => push(k.channel, k.sales, k.pct));
     push(''); push('Campaign','Spend','ROAS','Clicks','Cost per conv');
     (DATA.paid||[]).forEach(p => push(`${p.platform} — ${p.campaign}`, p.spend, p.roas ?? '', p.clicks, p.cost_per_conv ?? ''));
+    const written = collectWritten();
+    if (Object.keys(written.commentary).length){ push(''); push('Commentary',''); 
+      Object.entries(written.commentary).forEach(([k,v]) => push(k, v)); }
+    if (Object.keys(written.manual).length){ push(''); push('Manual sections',''); 
+      Object.entries(written.manual).forEach(([k,v]) => push(k, v)); }
     const cell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s; };
     const csv = rows.map(r => r.map(cell).join(',')).join('\n');
     const a = document.createElement('a');
@@ -325,10 +512,31 @@
         supabaseClient:sb,
       });
     }
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+
     el('reportDate').value = iso(new Date());
-    el('reportDate').addEventListener('change', load);
+    el('reportDate').addEventListener('change', async () => {
+      if (dirty && !confirm('You have unsaved notes on this week. Switch date anyway?')) return;
+      await load();
+    });
     el('btnRefresh').addEventListener('click', load);
     el('btnExport').addEventListener('click', exportCsv);
+    el('btnSave').addEventListener('click', saveEntry);
+
+    document.addEventListener('input', ev => {
+      if (!ev.target.matches('[data-say],[data-manual]')) return;
+      markDirty();
+      const d = ev.target.closest('.wow-say');
+      if (d) d.dataset.filled = ev.target.value.trim() ? '1' : '0';
+    });
+    window.addEventListener('beforeunload', ev => {
+      if (dirty){ ev.preventDefault(); ev.returnValue = ''; }
+    });
+    // Ctrl/Cmd-S saves, because people will try it.
+    document.addEventListener('keydown', ev => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 's'){ ev.preventDefault(); saveEntry(); }
+    });
+
     await load();
   }
   boot();

@@ -4,6 +4,16 @@
 -- figure typed in from Shopify, GA4 and Ads Manager by hand. Roughly
 -- two-thirds of those fields are already in SILO, so this returns them.
 --
+-- SALES COME FROM sales_by_day, NOT shopify_orders. Verified against
+-- Shopify's own online report for 2026-08-19..25: total 259,471 vs 259k,
+-- net 223,783 vs 223k. An earlier version summed shopify_orders.total_price
+-- where source_name='web' and was ~25% short, for two compounding reasons:
+-- 'web' excludes TikTok Shop, Shop App, Instagram/Facebook and AfterSell,
+-- which Shopify counts as online, and order totals do not net refunds
+-- (13,655 in that week). Order COUNT still comes from the order table --
+-- sales_by_day.total_orders is summed per SKU line, not distinct orders --
+-- scoped to every channel except POS, wholesale and draft.
+--
 -- ONLINE SCOPE. Orders are source_name = 'web' (the Shopify online store);
 -- sales and inventory are location_tag = 'online', which is what
 -- locations.store_type = 'online' covers -- exactly one location code. That
@@ -29,6 +39,8 @@
 -- funnel would be wrong rather than incomplete. Those stay manual from GA4.
 --
 -- SECURITY INVOKER: RLS scopes every read to the caller's active company.
+-- That is also why inventory comes from inventory_on_hand_current_v rather
+-- than the matview it wraps -- see the note on the inv CTE below.
 
 create or replace function public.wow_report(p_report_date date default current_date)
 returns jsonb
@@ -73,10 +85,17 @@ cur_cat as (select product_type, sum(total_net_sales) v from sbd cross join w
 prev_cat as (select product_type, sum(total_net_sales) v from sbd cross join w
              where day_date between w.ps and w.pe and product_type is not null group by 1),
 cat_total as (select sum(v) t from cur_cat),
+-- inventory_on_hand_current_v, NOT the matview underneath it. Matviews carry
+-- no RLS and authenticated holds no grant on one, so reading it directly
+-- fails at runtime with "permission denied for materialized view" -- invisible
+-- from a service-role connection, which sees zero rows instead of an error.
+-- The view is the definer-owned wrapper, and it also scopes to
+-- active_company_id(), which filtering the matview by location_tag alone
+-- did not.
 inv as (
   select distinct on (variant_sku)
          variant_sku, product_title, total_available_quantity
-  from public.inventory_on_hand_current_mv
+  from public.inventory_on_hand_current_v
   where lower(btrim(location_tag)) = 'online'
   order by variant_sku, snapshot_at desc, id desc
 ),
