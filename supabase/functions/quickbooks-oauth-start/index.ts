@@ -17,26 +17,20 @@ const CALLBACK_URL =
 // reason to move money through Intuit.
 const SCOPES = 'com.intuit.quickbooks.accounting';
 
-// Sandbox and production are DIFFERENT Intuit key pairs on the same app -- a
-// Development client id cannot mint a token for a production company, and vice
-// versa. Pick the pair from the environment rather than assuming one, and say
-// which pair is missing so a misconfiguration is self-diagnosing.
-function creds(env: string): { id: string; secret: string } {
-  return env === 'production'
-    ? {
-      id: Deno.env.get('QBO_CLIENT_ID_PROD') ?? '',
-      secret: Deno.env.get('QBO_CLIENT_SECRET_PROD') ?? '',
-    }
-    : {
-      id: Deno.env.get('QBO_CLIENT_ID') ?? '',
-      secret: Deno.env.get('QBO_CLIENT_SECRET') ?? '',
-    };
-}
+// ONE key pair. QBO_ENVIRONMENT declares which Intuit environment those keys
+// belong to -- sandbox or production -- because a client id does not say so
+// itself. Moving to production means overwriting the two secrets and flipping
+// this one word, rather than carrying a second pair.
+//
+// The declaration is not decoration: the connection's `environment` picks the
+// API host independently of the keys, so production keys aimed at the sandbox
+// host (or the reverse) fail as an opaque token error. Every entry point below
+// refuses that mismatch by name instead.
+const configuredEnv = () =>
+  Deno.env.get('QBO_ENVIRONMENT') === 'production' ? 'production' : 'sandbox';
 
-const credsMissing = (env: string) =>
-  env === 'production'
-    ? 'QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured'
-    : 'QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured';
+const CLIENT_ID = () => Deno.env.get('QBO_CLIENT_ID') ?? '';
+const CLIENT_SECRET = () => Deno.env.get('QBO_CLIENT_SECRET') ?? '';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -59,12 +53,16 @@ Deno.serve(async (req) => {
   );
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
-  const { company_entity_id, environment } = await req.json().catch(() => ({}));
+  const { company_entity_id } = await req.json().catch(() => ({}));
   if (!company_entity_id) return json({ error: 'company_entity_id required' }, 400);
 
-  const env = environment === 'production' ? 'production' : 'sandbox';
-  const { id: clientId } = creds(env);
-  if (!clientId) return json({ error: credsMissing(env) }, 500);
+  // Whatever the configured keys are for -- the browser does not get to
+  // choose, since only one key pair exists.
+  const env = configuredEnv();
+  const clientId = CLIENT_ID();
+  if (!clientId || !CLIENT_SECRET()) {
+    return json({ error: 'QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured' }, 500);
+  }
 
   // Verify the caller actually administers the company they named, rather
   // than trusting the id the browser sent. This function runs with the
@@ -112,5 +110,5 @@ Deno.serve(async (req) => {
     state: nonce,
   }).toString();
 
-  return json({ url: authorizeUrl });
+  return json({ url: authorizeUrl, environment: env });
 });

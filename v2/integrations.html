@@ -452,7 +452,7 @@
         </div>
 
         <p class="int-section-label" style="margin-top:28px;">QuickBooks Online</p>
-        <p class="int-onboarding-note">Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed. Sandbox and production use separate Intuit key pairs — connecting production needs its own credentials and its own redirect URI registered at Intuit.</p>
+        <p class="int-onboarding-note">Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed. Which environment you connect to is set by the Intuit keys configured for SILO, not chosen here — switching to production means swapping those keys and registering the redirect URI on Intuit's Production tab.</p>
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -471,8 +471,7 @@
               <tr class="int-add-row">
                 <td colspan="5">
                   <div class="form-row" style="padding:10px 0;gap:8px;">
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-qbo-sandbox">Connect sandbox company →</button>
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-qbo-production">Connect production company →</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-qbo">Connect QuickBooks →</button>
                   </div>
                 </td>
               </tr>
@@ -1863,17 +1862,14 @@
 
     function renderQboConnection(row) {
       const tbody = document.getElementById('qbo-connections-list');
-      const sandboxBtn = document.getElementById('btn-connect-qbo-sandbox');
-      const prodBtn = document.getElementById('btn-connect-qbo-production');
+      const connectBtn = document.getElementById('btn-connect-qbo');
 
       if (!row) {
         tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Connect QuickBooks below</div></td></tr>';
-        sandboxBtn.hidden = false;
-        prodBtn.hidden = false;
+        connectBtn.hidden = false;
         return;
       }
-      sandboxBtn.hidden = true;
-      prodBtn.hidden = true;
+      connectBtn.hidden = true;
 
       // Location tracking off in QBO is a setting, not a failure -- say so
       // rather than showing a bare 0 that reads like a broken pull.
@@ -1914,10 +1910,8 @@
       </tr>`;
     }
 
-    async function connectQbo(environment) {
+    async function connectQbo() {
       if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
-      if (environment === 'production'
-        && !confirm('Connect a PRODUCTION QuickBooks company? This reads your real chart of accounts. Nothing is written, but sandbox is the safer place to start.')) return;
 
       const { data: { session } } = await db.auth.getSession();
       const res = await fetch(`${FUNCTIONS_URL}/quickbooks-oauth-start`, {
@@ -1926,13 +1920,18 @@
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ company_entity_id: _co.id, environment }),
+        body: JSON.stringify({ company_entity_id: _co.id }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.url) {
         setStatus('Could not start QuickBooks connect: ' + (body.error || res.status), 'neg', 8000);
         return;
       }
+      // The server picks the environment from the keys it holds; confirm before
+      // sending someone at their real books.
+      if (body.environment === 'production'
+        && !confirm('SILO is configured with PRODUCTION QuickBooks keys. Connecting reads your real chart of accounts. Nothing is written. Continue?')) return;
+
       window.location.href = body.url;
     }
 
@@ -1975,10 +1974,8 @@
       loadQboConnection();
     }
 
-    document.getElementById('btn-connect-qbo-sandbox')
-      .addEventListener('click', () => connectQbo('sandbox'));
-    document.getElementById('btn-connect-qbo-production')
-      .addEventListener('click', () => connectQbo('production'));
+    document.getElementById('btn-connect-qbo')
+      .addEventListener('click', () => connectQbo());
   </script>
 </body>
 </html>
