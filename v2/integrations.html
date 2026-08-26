@@ -1845,13 +1845,20 @@
       renderQboConnection(_qboRow);
     }
 
+    let _qboLocationCount = null;
+
     async function refreshQboAccountCount() {
       if (!_co?.id) return;
-      const { count } = await db.from('quickbooks_accounts')
-        .select('id', { count: 'exact', head: true })
-        .eq('company_entity_id', _co.id)
-        .eq('is_active', true);
-      _qboAccountCount = count ?? null;
+      const [acct, loc] = await Promise.all([
+        db.from('quickbooks_accounts')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_entity_id', _co.id).eq('is_active', true),
+        db.from('quickbooks_locations')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_entity_id', _co.id).eq('is_active', true),
+      ]);
+      _qboAccountCount = acct.count ?? null;
+      _qboLocationCount = loc.count ?? null;
     }
 
     function renderQboConnection(row) {
@@ -1868,8 +1875,15 @@
       sandboxBtn.hidden = true;
       prodBtn.hidden = true;
 
+      // Location tracking off in QBO is a setting, not a failure -- say so
+      // rather than showing a bare 0 that reads like a broken pull.
+      const locationBit = row.location_tracking_enabled === false
+        ? '<span class="bcn-pill">location tracking off</span>'
+        : `${_qboLocationCount ?? '—'} locations`;
+
       const accounts = row.accounts_synced_at
-        ? `${_qboAccountCount ?? '—'} accounts · ${new Date(row.accounts_synced_at).toLocaleString()}`
+        ? `${_qboAccountCount ?? '—'} accounts · ${locationBit}<br />
+           <span style="opacity:.6;">${new Date(row.accounts_synced_at).toLocaleString()}</span>`
         : '<span class="bcn-pill">Not pulled yet</span>';
 
       // A dead refresh token cannot be recovered by retrying — it needs a
@@ -1940,7 +1954,12 @@
         await loadQboConnection();
         return;
       }
-      setStatus(`✓ Pulled ${body.accounts} accounts from QuickBooks.`, 'pos', 6000);
+      const locNote = body.location_tracking_enabled === false
+        ? ' Location tracking is off in QuickBooks, so no locations were pulled.'
+        : ` and ${body.locations} locations.`;
+      setStatus(`✓ Pulled ${body.accounts} accounts${locNote}`
+        + (body.location_error ? ` Locations failed: ${body.location_error}` : ''),
+        body.location_error ? 'info' : 'pos', 9000);
       await loadQboConnection();
     }
 
@@ -1951,6 +1970,7 @@
       if (error) { setStatus('Disconnect failed: ' + error.message, 'neg'); return; }
       _qboRow = null;
       _qboAccountCount = null;
+      _qboLocationCount = null;
       setStatus('QuickBooks disconnected.', 'info', 4000);
       loadQboConnection();
     }

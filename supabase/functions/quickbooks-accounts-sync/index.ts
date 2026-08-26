@@ -54,6 +54,68 @@ type Conn = {
   refresh_token_expires_at: string | null;
 };
 
+// QBO caps a query at 1000 rows and offers no cursor, only STARTPOSITION
+// (1-indexed). `Active in (true, false)` is required to see archived rows at
+// all -- the default query returns active ones only, and an archived row still
+// needs to be visible so a mapping pointing at it can be flagged rather than
+// silently blanking.
+async function qboQueryAll(
+  base: string,
+  realm: string,
+  token: string,
+  entity: string,
+): Promise<any[]> {
+  const PAGE = 1000;
+  const out: any[] = [];
+  let startPosition = 1;
+
+  for (;;) {
+    const query = `select * from ${entity} where Active in (true, false) ` +
+      `startposition ${startPosition} maxresults ${PAGE}`;
+    const res = await fetch(
+      `${base}/v3/company/${realm}/query?query=${encodeURIComponent(query)}&minorversion=75`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+    );
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`${entity.toLowerCase()}_query_failed_${res.status}: ${detail.slice(0, 180)}`);
+    }
+
+    const body = await res.json();
+    const page = body?.QueryResponse?.[entity] ?? [];
+    out.push(...page);
+    if (page.length < PAGE) break;
+    startPosition += PAGE;
+  }
+
+  return out;
+}
+
+// Location tracking is a QBO preference (and a Plus/Advanced feature). With it
+// off, Department returns nothing -- identical to "on but none created" unless
+// the preference itself is read. Recording it lets the mapping UI say WHY the
+// location list is empty instead of showing a blank dropdown.
+async function fetchLocationTracking(
+  base: string,
+  realm: string,
+  token: string,
+): Promise<boolean | null> {
+  try {
+    const res = await fetch(
+      `${base}/v3/company/${realm}/preferences?minorversion=75`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+    );
+    if (!res.ok) return null;
+    const body = await res.json();
+    const track = body?.Preferences?.AccountingInfoPrefs?.TrackDepartments;
+    return typeof track === 'boolean' ? track : null;
+  } catch {
+    // Preference read is advisory; never fail a sync over it.
+    return null;
+  }
+}
+
 // QBO access tokens last an hour and the refresh token ROTATES on every use,
 // so the new one has to be persisted immediately -- dropping it strands the
 // connection until a human reconnects. Refresh a minute early to avoid racing
@@ -186,38 +248,12 @@ Deno.serve(async (req) => {
     return json({ error: msg }, 502);
   }
 
-  // Paginate: QBO caps a query at 1000 rows and has no cursor, only
-  // STARTPOSITION (1-indexed). `Active in (true, false)` is required to see
-  // archived accounts at all -- the default query returns active ones only,
-  // and an archived account still needs to be visible so a mapping pointing
-  // at one can be flagged rather than silently blank.
-  const PAGE = 1000;
   const runStartedAt = new Date().toISOString();
-  const accounts: any[] = [];
-  let startPosition = 1;
+  const base = apiBase(conn.environment);
 
+  let accounts: any[];
   try {
-    for (;;) {
-      const query =
-        `select * from Account where Active in (true, false) startposition ${startPosition} maxresults ${PAGE}`;
-      const res = await fetch(
-        `${apiBase(conn.environment)}/v3/company/${conn.realm_id}/query?query=${
-          encodeURIComponent(query)
-        }&minorversion=75`,
-        { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } },
-      );
-
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`account_query_failed_${res.status}: ${detail.slice(0, 180)}`);
-      }
-
-      const body = await res.json();
-      const page = body?.QueryResponse?.Account ?? [];
-      accounts.push(...page);
-      if (page.length < PAGE) break;
-      startPosition += PAGE;
-    }
+    accounts = await qboQueryAll(base, conn.realm_id, accessToken, 'Account');
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await recordFailure(msg);
@@ -258,14 +294,62 @@ Deno.serve(async (req) => {
       .lt('synced_at', runStartedAt);
   }
 
+  // Locations (QBO API: Department). Secondary to accounts -- a failure here
+  // must not fail a run that already pulled the chart of accounts, since the
+  // account mapping is what the export depends on today. Reported instead as
+  // locationError so the UI can say what happened.
+  const trackLocations = await fetchLocationTracking(base, conn.realm_id, accessToken);
+  let locationCount = 0;
+  let locationError: string | null = null;
+
+  if (trackLocations !== false) {
+    try {
+      const locations = await qboQueryAll(base, conn.realm_id, accessToken, 'Department');
+      locationCount = locations.length;
+
+      if (locations.length) {
+        const rows = locations.map((d) => ({
+          connection_id: conn.id,
+          company_entity_id: conn.company_entity_id,
+          qbo_location_id: String(d.Id),
+          name: d.Name ?? String(d.Id),
+          fully_qualified_name: d.FullyQualifiedName ?? null,
+          is_active: d.Active !== false,
+          synced_at: runStartedAt,
+        }));
+
+        const { error: locErr } = await supabase
+          .from('quickbooks_locations')
+          .upsert(rows, { onConflict: 'connection_id,qbo_location_id' });
+
+        if (locErr) throw new Error(`location_upsert_failed: ${locErr.message}`);
+
+        await supabase
+          .from('quickbooks_locations')
+          .delete()
+          .eq('connection_id', conn.id)
+          .lt('synced_at', runStartedAt);
+      }
+    } catch (e) {
+      locationError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   await supabase.from('quickbooks_connections').update({
     accounts_synced_at: runStartedAt,
+    location_tracking_enabled: trackLocations,
     last_tested_at: runStartedAt,
     last_test_status: 'ok',
     last_test_success: true,
-    last_test_error: null,
+    last_test_error: locationError,
     updated_at: runStartedAt,
   }).eq('id', conn.id);
 
-  return json({ ok: true, accounts: accounts.length });
+  return json({
+    ok: true,
+    accounts: accounts.length,
+    locations: locationCount,
+    location_tracking_enabled: trackLocations,
+    location_error: locationError,
+  });
 });
