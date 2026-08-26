@@ -523,6 +523,7 @@
             <div class="ax-map-grid" id="locationMapGrid"></div>
             <div class="ax-map-actions">
               <button class="bcn-btn bcn-btn--primary" id="btnSaveLocationMap">Save locations</button>
+              <button class="bcn-btn" id="btnAutoMatchLocations">Auto-match by name</button>
             </div>
             <div class="ax-hint" id="locationHint"></div>
           </div>
@@ -603,6 +604,7 @@
     mapGrid: document.getElementById('mapGrid'),
     locationMapGrid: document.getElementById('locationMapGrid'),
     btnSaveLocationMap: document.getElementById('btnSaveLocationMap'),
+    btnAutoMatchLocations: document.getElementById('btnAutoMatchLocations'),
     locationHint: document.getElementById('locationHint'),
     btnSaveMap: document.getElementById('btnSaveMap'),
     btnRecommendedMap: document.getElementById('btnRecommendedMap'),
@@ -1166,6 +1168,61 @@
     el.locationHint.innerHTML = hint;
   }
 
+  // Fills unmapped rows where a QuickBooks location matches the sales location
+  // by name, ignoring case, spacing and punctuation. Populates the dropdowns
+  // only -- the user reviews and clicks Save, so nothing reaches the database
+  // without a person seeing it first.
+  //
+  // Deliberately refuses to guess when a name is AMBIGUOUS. Baseballism's QBO
+  // location list carries typo duplicates (Lake Point / Lakepoint / Lakepaint /
+  // Lakepoing all normalize identically), and silently picking one would send
+  // real revenue to whichever variant sorted first. Several candidates is a
+  // human decision, not a coin flip.
+  function autoMatchLocations() {
+    const norm = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Group QBO locations by normalized name so collisions are visible.
+    const byNorm = new Map();
+    for (const l of state.qboLocations) {
+      const k = norm(l.fully_qualified_name || l.name);
+      if (!byNorm.has(k)) byNorm.set(k, []);
+      byNorm.get(k).push(l);
+    }
+
+    const fields = [...el.locationMapGrid.querySelectorAll('[data-location-tag]')];
+    let matched = 0;
+    let ambiguous = 0;
+    let unmatched = 0;
+
+    for (const f of fields) {
+      if (f.value) continue;                       // never overwrite an existing mapping
+      const candidates = byNorm.get(norm(f.dataset.locationTag)) || [];
+      if (candidates.length === 1) {
+        f.value = candidates[0].qbo_location_id;
+        matched++;
+      } else if (candidates.length > 1) {
+        ambiguous++;
+      } else {
+        unmatched++;
+      }
+    }
+
+    if (!matched && !ambiguous && !unmatched) {
+      setStatus('Every location is already mapped.', 'info', 4000);
+      return;
+    }
+
+    const leftover = [
+      ambiguous ? `${ambiguous} ambiguous (more than one QuickBooks location with that name)` : '',
+      unmatched ? `${unmatched} with no name match` : '',
+    ].filter(Boolean).join(', ');
+
+    setStatus(
+      `Matched ${matched} by name${leftover ? ` — ${leftover} left to map by hand` : ''}. `
+      + 'Review, then click Save locations.',
+      matched ? 'pos' : 'info', 9000);
+  }
+
   async function saveLocationMap() {
     if (!_co?.id) {
       setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
@@ -1335,6 +1392,7 @@
   el.btnRun.addEventListener('click', run);
   el.btnSaveMap.addEventListener('click', saveCoaMap);
   el.btnSaveLocationMap.addEventListener('click', saveLocationMap);
+  el.btnAutoMatchLocations.addEventListener('click', autoMatchLocations);
   el.btnRecommendedMap.addEventListener('click', applyRecommendedMap);
   el.btnExportJournal.addEventListener('click', exportJournal);
   el.btnExportRegister.addEventListener('click', exportRegister);

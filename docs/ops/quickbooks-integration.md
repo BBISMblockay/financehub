@@ -131,6 +131,16 @@ persist ever fails it throws rather than continuing — presenting a retired
 refresh token on the next run would brick the connection until someone
 reconnects by hand.
 
+Endpoints are read from Intuit's discovery document
+(`/.well-known/openid_configuration`, or `openid_sandbox_configuration` for
+sandbox) rather than hardcoded, cached per isolate, with the currently published
+values as fallback. A discovery outage therefore degrades to the old hardcoded
+behaviour instead of breaking the integration.
+
+Every stored API error carries Intuit's `intuit_tid` response header where one
+is present. That trace id is what lets Intuit support locate the exact request
+— worth far more than a reproduction attempt when something fails at month end.
+
 When the refresh window does lapse, the Integrations row shows
 **"Authorization expired — reconnect"** rather than a generic error, because
 no amount of retrying fixes it.

@@ -8,8 +8,53 @@ const CALLBACK_URL =
 const SILO_APP_URL =
   Deno.env.get('SILO_APP_URL') ?? 'https://bbismblockay.github.io/financehub';
 
-// One token endpoint for both environments -- only the API host differs.
-const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
+// Intuit publishes its OAuth endpoints in a discovery document. Reading them
+// from there rather than hardcoding means an endpoint move is picked up instead
+// of failing silently. Cached per isolate; if discovery is unreachable we fall
+// back to the currently published values, so a discovery outage degrades to
+// today's behaviour rather than breaking the integration.
+const DISCOVERY_URL = (env: string) =>
+  env === 'production'
+    ? 'https://developer.api.intuit.com/.well-known/openid_configuration'
+    : 'https://developer.api.intuit.com/.well-known/openid_sandbox_configuration';
+
+const FALLBACK_ENDPOINTS = {
+  authorization_endpoint: 'https://appcenter.intuit.com/connect/oauth2',
+  token_endpoint: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
+};
+
+const _discovery = new Map<string, typeof FALLBACK_ENDPOINTS>();
+
+async function endpoints(env: string): Promise<typeof FALLBACK_ENDPOINTS> {
+  const cached = _discovery.get(env);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(DISCOVERY_URL(env), { headers: { Accept: 'application/json' } });
+    if (res.ok) {
+      const doc = await res.json();
+      const resolved = {
+        authorization_endpoint: doc.authorization_endpoint
+          ?? FALLBACK_ENDPOINTS.authorization_endpoint,
+        token_endpoint: doc.token_endpoint ?? FALLBACK_ENDPOINTS.token_endpoint,
+      };
+      _discovery.set(env, resolved);
+      return resolved;
+    }
+  } catch {
+    // Discovery is an optimisation, never a hard dependency.
+  }
+
+  return FALLBACK_ENDPOINTS;
+}
+
+// Intuit stamps a trace id on every response. Carrying it into the error we
+// store means their support can locate the exact request, instead of us trying
+// to reproduce a month-end failure after the fact.
+const tid = (res: Response) => {
+  const t = res.headers.get('intuit_tid');
+  return t ? ` [intuit_tid: ${t}]` : '';
+};
 
 // ONE key pair. QBO_ENVIRONMENT declares which Intuit environment those keys
 // belong to -- sandbox or production -- because a client id does not say so
@@ -78,7 +123,8 @@ Deno.serve(async (req) => {
     );
   }
 
-  const tokenRes = await fetch(TOKEN_URL, {
+  const { token_endpoint } = await endpoints(env);
+  const tokenRes = await fetch(token_endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
@@ -94,7 +140,7 @@ Deno.serve(async (req) => {
 
   if (!tokenRes.ok) {
     const detail = await tokenRes.text().catch(() => '');
-    return errorRedirect(`token_exchange_failed: ${detail.slice(0, 180)}`);
+    return errorRedirect(`token_exchange_failed: ${detail.slice(0, 180)}${tid(tokenRes)}`);
   }
 
   const tok = await tokenRes.json();

@@ -32,6 +32,46 @@ const configuredEnv = () =>
 const CLIENT_ID = () => Deno.env.get('QBO_CLIENT_ID') ?? '';
 const CLIENT_SECRET = () => Deno.env.get('QBO_CLIENT_SECRET') ?? '';
 
+// Intuit publishes its OAuth endpoints in a discovery document. Reading them
+// from there rather than hardcoding means an endpoint move is picked up instead
+// of failing silently. Cached per isolate; if discovery is unreachable we fall
+// back to the currently published values, so a discovery outage degrades to
+// today's behaviour rather than breaking the integration.
+const DISCOVERY_URL = (env: string) =>
+  env === 'production'
+    ? 'https://developer.api.intuit.com/.well-known/openid_configuration'
+    : 'https://developer.api.intuit.com/.well-known/openid_sandbox_configuration';
+
+const FALLBACK_ENDPOINTS = {
+  authorization_endpoint: 'https://appcenter.intuit.com/connect/oauth2',
+  token_endpoint: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
+};
+
+const _discovery = new Map<string, typeof FALLBACK_ENDPOINTS>();
+
+async function endpoints(env: string): Promise<typeof FALLBACK_ENDPOINTS> {
+  const cached = _discovery.get(env);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(DISCOVERY_URL(env), { headers: { Accept: 'application/json' } });
+    if (res.ok) {
+      const doc = await res.json();
+      const resolved = {
+        authorization_endpoint: doc.authorization_endpoint
+          ?? FALLBACK_ENDPOINTS.authorization_endpoint,
+        token_endpoint: doc.token_endpoint ?? FALLBACK_ENDPOINTS.token_endpoint,
+      };
+      _discovery.set(env, resolved);
+      return resolved;
+    }
+  } catch {
+    // Discovery is an optimisation, never a hard dependency.
+  }
+
+  return FALLBACK_ENDPOINTS;
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -102,7 +142,8 @@ Deno.serve(async (req) => {
   });
   if (stateErr) return json({ error: stateErr.message }, 500);
 
-  const authorizeUrl = 'https://appcenter.intuit.com/connect/oauth2?' + new URLSearchParams({
+  const { authorization_endpoint } = await endpoints(env);
+  const authorizeUrl = authorization_endpoint + '?' + new URLSearchParams({
     client_id: clientId,
     response_type: 'code',
     scope: SCOPES,

@@ -9,7 +9,53 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
+// Intuit publishes its OAuth endpoints in a discovery document. Reading them
+// from there rather than hardcoding means an endpoint move is picked up instead
+// of failing silently. Cached per isolate; if discovery is unreachable we fall
+// back to the currently published values, so a discovery outage degrades to
+// today's behaviour rather than breaking the integration.
+const DISCOVERY_URL = (env: string) =>
+  env === 'production'
+    ? 'https://developer.api.intuit.com/.well-known/openid_configuration'
+    : 'https://developer.api.intuit.com/.well-known/openid_sandbox_configuration';
+
+const FALLBACK_ENDPOINTS = {
+  authorization_endpoint: 'https://appcenter.intuit.com/connect/oauth2',
+  token_endpoint: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
+};
+
+const _discovery = new Map<string, typeof FALLBACK_ENDPOINTS>();
+
+async function endpoints(env: string): Promise<typeof FALLBACK_ENDPOINTS> {
+  const cached = _discovery.get(env);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(DISCOVERY_URL(env), { headers: { Accept: 'application/json' } });
+    if (res.ok) {
+      const doc = await res.json();
+      const resolved = {
+        authorization_endpoint: doc.authorization_endpoint
+          ?? FALLBACK_ENDPOINTS.authorization_endpoint,
+        token_endpoint: doc.token_endpoint ?? FALLBACK_ENDPOINTS.token_endpoint,
+      };
+      _discovery.set(env, resolved);
+      return resolved;
+    }
+  } catch {
+    // Discovery is an optimisation, never a hard dependency.
+  }
+
+  return FALLBACK_ENDPOINTS;
+}
+
+// Intuit stamps a trace id on every response. Carrying it into the error we
+// store means their support can locate the exact request, instead of us trying
+// to reproduce a month-end failure after the fact.
+const tid = (res: Response) => {
+  const t = res.headers.get('intuit_tid');
+  return t ? ` [intuit_tid: ${t}]` : '';
+};
 
 // ONE key pair. QBO_ENVIRONMENT declares which Intuit environment those keys
 // belong to -- sandbox or production -- because a client id does not say so
@@ -73,7 +119,9 @@ async function qboQueryAll(
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
-      throw new Error(`${entity.toLowerCase()}_query_failed_${res.status}: ${detail.slice(0, 180)}`);
+      throw new Error(
+        `${entity.toLowerCase()}_query_failed_${res.status}: ${detail.slice(0, 180)}${tid(res)}`,
+      );
     }
 
     const body = await res.json();
@@ -132,7 +180,8 @@ async function ensureAccessToken(supabase: any, conn: Conn): Promise<string> {
     throw new Error('refresh_token_expired_reconnect_required');
   }
 
-  const res = await fetch(TOKEN_URL, {
+  const { token_endpoint } = await endpoints(conn.environment);
+  const res = await fetch(token_endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
@@ -147,7 +196,7 @@ async function ensureAccessToken(supabase: any, conn: Conn): Promise<string> {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(`token_refresh_failed: ${detail.slice(0, 180)}`);
+    throw new Error(`token_refresh_failed: ${detail.slice(0, 180)}${tid(res)}`);
   }
 
   const tok = await res.json();
