@@ -299,6 +299,7 @@ supabase/
     20260825120000_product_concept_structured_workflow.sql
     20260826060000_marketing_explorer_views.sql
     20260826070000_launch_measurability.sql
+    20260826080000_launch_product_actuals.sql
     20260826070000_quickbooks_integration.sql
   seeds/
     launch_calendar_jun_jul_2026.sql

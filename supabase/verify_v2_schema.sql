@@ -1315,3 +1315,23 @@ select
       then 'MISSING — launch_measurability_v is not security_invoker'
     else 'ok'
   end as launch_measurability;
+
+-- ── Launch product actuals (20260826080000) ───────────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='launch_product_actuals_v')
+      then 'MISSING — run 20260826080000_launch_product_actuals.sql'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='launch_product_sales_v')
+      then 'MISSING — launch_product_sales_v not created'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_product_actuals_v'
+                       and column_name='resolution_note')
+      then 'MISSING — resolution_note not exposed (unmeasured launches would read as weak ones)'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_measurability_v'
+                       and column_name='products_resolved')
+      then 'MISSING — launch_measurability_v not updated for product-based measurement'
+    else 'ok'
+  end as launch_product_actuals;
