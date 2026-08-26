@@ -9,9 +9,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CLIENT_ID = Deno.env.get('QBO_CLIENT_ID') ?? '';
-const CLIENT_SECRET = Deno.env.get('QBO_CLIENT_SECRET') ?? '';
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
+
+// Sandbox and production are DIFFERENT Intuit key pairs on the same app -- a
+// Development client id cannot mint a token for a production company, and vice
+// versa. Pick the pair from the environment rather than assuming one, and say
+// which pair is missing so a misconfiguration is self-diagnosing.
+function creds(env: string): { id: string; secret: string } {
+  return env === 'production'
+    ? {
+      id: Deno.env.get('QBO_CLIENT_ID_PROD') ?? '',
+      secret: Deno.env.get('QBO_CLIENT_SECRET_PROD') ?? '',
+    }
+    : {
+      id: Deno.env.get('QBO_CLIENT_ID') ?? '',
+      secret: Deno.env.get('QBO_CLIENT_SECRET') ?? '',
+    };
+}
+
+const credsMissing = (env: string) =>
+  env === 'production'
+    ? 'QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured'
+    : 'QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured';
 
 const apiBase = (env: string) =>
   env === 'production'
@@ -43,6 +62,9 @@ async function ensureAccessToken(supabase: any, conn: Conn): Promise<string> {
   const expiresAt = conn.token_expires_at ? Date.parse(conn.token_expires_at) : 0;
   if (conn.access_token && expiresAt - Date.now() > 60_000) return conn.access_token;
 
+  const { id: clientId, secret: clientSecret } = creds(conn.environment);
+  if (!clientId || !clientSecret) throw new Error(credsMissing(conn.environment));
+
   if (!conn.refresh_token) throw new Error('no_refresh_token_reconnect_required');
   if (
     conn.refresh_token_expires_at
@@ -54,7 +76,7 @@ async function ensureAccessToken(supabase: any, conn: Conn): Promise<string> {
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`,
+      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
     },
@@ -98,7 +120,6 @@ async function ensureAccessToken(supabase: any, conn: Conn): Promise<string> {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
-  if (!CLIENT_ID || !CLIENT_SECRET) return json({ error: 'QBO client not configured' }, 500);
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,

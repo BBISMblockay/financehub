@@ -3,8 +3,6 @@
 // trip -- it carries the company and user we started with.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const CLIENT_ID = Deno.env.get('QBO_CLIENT_ID') ?? '';
-const CLIENT_SECRET = Deno.env.get('QBO_CLIENT_SECRET') ?? '';
 const CALLBACK_URL =
   'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/quickbooks-oauth-callback';
 const SILO_APP_URL =
@@ -12,6 +10,27 @@ const SILO_APP_URL =
 
 // One token endpoint for both environments -- only the API host differs.
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
+
+// Sandbox and production are DIFFERENT Intuit key pairs on the same app -- a
+// Development client id cannot mint a token for a production company, and vice
+// versa. Pick the pair from the environment rather than assuming one, and say
+// which pair is missing so a misconfiguration is self-diagnosing.
+function creds(env: string): { id: string; secret: string } {
+  return env === 'production'
+    ? {
+      id: Deno.env.get('QBO_CLIENT_ID_PROD') ?? '',
+      secret: Deno.env.get('QBO_CLIENT_SECRET_PROD') ?? '',
+    }
+    : {
+      id: Deno.env.get('QBO_CLIENT_ID') ?? '',
+      secret: Deno.env.get('QBO_CLIENT_SECRET') ?? '',
+    };
+}
+
+const credsMissing = (env: string) =>
+  env === 'production'
+    ? 'QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured'
+    : 'QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured';
 
 const apiBase = (env: string) =>
   env === 'production'
@@ -34,7 +53,6 @@ Deno.serve(async (req) => {
     return errorRedirect(url.searchParams.get('error') as string);
   }
   if (!code || !state || !realmId) return errorRedirect('missing_code_state_or_realm');
-  if (!CLIENT_ID || !CLIENT_SECRET) return errorRedirect('qbo_client_not_configured');
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -54,11 +72,13 @@ Deno.serve(async (req) => {
   await supabase.from('quickbooks_oauth_states').delete().eq('nonce', state);
 
   const env = stateRow.environment === 'production' ? 'production' : 'sandbox';
+  const { id: clientId, secret: clientSecret } = creds(env);
+  if (!clientId || !clientSecret) return errorRedirect(credsMissing(env));
 
   const tokenRes = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`,
+      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
     },

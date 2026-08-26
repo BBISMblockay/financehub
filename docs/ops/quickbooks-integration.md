@@ -21,24 +21,41 @@ not a temporary limitation.
 
 1. **Intuit app.** developer.intuit.com → workspace *Silo* → app *Silo*.
    Scope `com.intuit.quickbooks.accounting`. Redirect URI (Settings →
-   Redirect URIs, per environment):
+   Redirect URIs):
 
    ```
    https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/quickbooks-oauth-callback
    ```
 
+   That page has **separate Development and Production sections** — the same
+   URL must be added under each environment you intend to connect. Saving it
+   under Development only is why a production connect attempt fails with a
+   redirect-URI mismatch.
+
    The App URLs tab (host domain / launch / disconnect) is for a Marketplace
    listing and can be left blank.
 
-2. **Edge-function secrets** (Supabase → *Silo* → Edge Functions → Secrets):
+2. **Edge-function secrets** (Supabase → *Silo* → Edge Functions → Secrets).
+   Sandbox and production are **different key pairs on the same Intuit app**,
+   and a Development client id cannot mint a token for a production company.
+   Both pairs are stored, and the connection's `environment` picks which one
+   every call uses:
 
    | Secret | Value |
    |---|---|
-   | `QBO_CLIENT_ID` | Intuit app client id |
-   | `QBO_CLIENT_SECRET` | Intuit app client secret |
+   | `QBO_CLIENT_ID` | Intuit app **Development** client id |
+   | `QBO_CLIENT_SECRET` | Intuit app **Development** client secret |
+   | `QBO_CLIENT_ID_PROD` | Intuit app **Production** client id |
+   | `QBO_CLIENT_SECRET_PROD` | Intuit app **Production** client secret |
 
-   Development and production keys are different pairs. The per-connection
-   `environment` column picks the API host; the secrets must match it.
+   Only the pair you actually use has to exist — connecting sandbox with no
+   production keys set is fine. A missing pair reports itself by name
+   (`QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured`) rather than
+   failing as a generic token error.
+
+   Getting production keys from Intuit may require filling in basic app
+   details first (name, description, EULA and privacy-policy URLs). That is
+   Intuit's gate, not SILO's.
 
 3. **Deploy the edge functions** — merging a PR does *not* deploy them:
 

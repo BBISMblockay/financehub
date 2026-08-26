@@ -9,7 +9,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CLIENT_ID = Deno.env.get('QBO_CLIENT_ID') ?? '';
 const CALLBACK_URL =
   'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/quickbooks-oauth-callback';
 
@@ -17,6 +16,27 @@ const CALLBACK_URL =
 // com.intuit.quickbooks.payment is deliberately NOT requested -- SILO has no
 // reason to move money through Intuit.
 const SCOPES = 'com.intuit.quickbooks.accounting';
+
+// Sandbox and production are DIFFERENT Intuit key pairs on the same app -- a
+// Development client id cannot mint a token for a production company, and vice
+// versa. Pick the pair from the environment rather than assuming one, and say
+// which pair is missing so a misconfiguration is self-diagnosing.
+function creds(env: string): { id: string; secret: string } {
+  return env === 'production'
+    ? {
+      id: Deno.env.get('QBO_CLIENT_ID_PROD') ?? '',
+      secret: Deno.env.get('QBO_CLIENT_SECRET_PROD') ?? '',
+    }
+    : {
+      id: Deno.env.get('QBO_CLIENT_ID') ?? '',
+      secret: Deno.env.get('QBO_CLIENT_SECRET') ?? '',
+    };
+}
+
+const credsMissing = (env: string) =>
+  env === 'production'
+    ? 'QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured'
+    : 'QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -27,8 +47,6 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
-
-  if (!CLIENT_ID) return json({ error: 'QBO_CLIENT_ID not configured' }, 500);
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -45,6 +63,8 @@ Deno.serve(async (req) => {
   if (!company_entity_id) return json({ error: 'company_entity_id required' }, 400);
 
   const env = environment === 'production' ? 'production' : 'sandbox';
+  const { id: clientId } = creds(env);
+  if (!clientId) return json({ error: credsMissing(env) }, 500);
 
   // Verify the caller actually administers the company they named, rather
   // than trusting the id the browser sent. This function runs with the
@@ -85,7 +105,7 @@ Deno.serve(async (req) => {
   if (stateErr) return json({ error: stateErr.message }, 500);
 
   const authorizeUrl = 'https://appcenter.intuit.com/connect/oauth2?' + new URLSearchParams({
-    client_id: CLIENT_ID,
+    client_id: clientId,
     response_type: 'code',
     scope: SCOPES,
     redirect_uri: CALLBACK_URL,
