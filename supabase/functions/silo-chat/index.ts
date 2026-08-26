@@ -195,7 +195,7 @@ PHASE 2 -- full launch-plan brief (only once the user explicitly says to build i
    - for the weekly revenue shape, use a comparable product's own week-by-week sales from sales_by_day bounded to its launch window (its first sale date onward) -- launch_calendar carries no actual_revenue on any row, so do not query it for this. Ground suggested_weekly_revenue_projection in that observed shape (front-loaded, steady, etc.); if no comparable has week-level data, say so and give a labeled rough estimate instead
    - silo_chat_notes/brand context for voice -- ground suggested_marketing_copy in it directly, not generic copy
    - suggested_launch_time doesn't need its own query -- reason from whatever day-of-week pattern is visible in comparable launches, or state the assumption plainly if none is
-   Same efficiency rule as phase 1: fold this into as few run_sql calls as you can.
+   Same efficiency rule as phase 1: fold this into as few run_sql calls as you can. This is a TIME budget, not just a round budget -- the whole request is cut off at about 95 seconds of tool work, and one 30s query plus its round-trip is already a third of that. Aim for 2-3 run_sql calls for the entire phase 2, combining the size curve, the channel/location split and the weekly revenue shape into one CTE chain over the pre-computed views. If you find yourself on a fourth query, write the brief with what you have and record the rest in unknowns instead -- a delivered brief with two honest gaps beats a request that dies with nothing.
 6b. Fill the remaining structured fields in the same phase 2 call: economics (omitting any key you cannot ground), forecast (conservative/base/upside with the assumption separating them), creative_story, visual_direction, brand_fit, and provenance recording which tables/date ranges/metrics backed each significant claim. Update field_evidence and unknowns to cover the new values too.
 7. Call update_product_concept with the phase 2 fields once grounded, and show the user the expanded draft the same way as phase 1 -- plainly grounded vs. estimated.
 8. Only call approve_product_concept when the user explicitly says to approve it. If it fails for a permissions reason, tell them plainly (they need the same purchasing write access PO Builder requires) rather than retrying or working around it.
@@ -700,6 +700,30 @@ async function callAnthropic(
 // the user gets an answer either way.
 const MAX_TOOL_ROUNDS = 20;
 
+// Supabase's edge gateway kills a request at 150s and returns a bare 504 --
+// the function never finishes, so it never writes an audit row either. That
+// is invisible in silo_chat_health_v: the failure looks like nothing
+// happened at all. Observed live 2026-08-26 21:09 on a phase-2 "build the
+// full brief" request (150,162ms -> 504, no audit row).
+//
+// The round cap alone does NOT bound this. Rounds are not a proxy for time,
+// and they got slower on purpose: 20260826100000 raised the per-query
+// statement timeout 10s -> 30s, so a heavy query that used to die at 10s can
+// now legitimately spend 30. Three of those plus their Anthropic round-trips
+// clears 150s inside the 20-round budget. The old 10s cap was acting as an
+// accidental wall-clock governor; raising it removed the governor without
+// replacing it.
+//
+// So: stop STARTING rounds at 95s, leaving ~55s for the forced final answer
+// (one Anthropic call, occasionally a second for a max_tokens continuation).
+// A deadline stop is not an error -- it takes the same forced-answer path as
+// the round cap, so the user gets the analysis gathered so far instead of a
+// 504, and the audit row records which limit stopped it.
+const WALL_CLOCK_BUDGET_MS = 95_000;
+// Past this, skip the max_tokens continuation in the forced-answer path and
+// ship what we have -- a slightly short answer beats a 504 with nothing.
+const FINAL_CONTINUATION_CUTOFF_MS = 125_000;
+
 // One row per request: the question, the SQL actually run, the answer (or
 // error), and how many tool-rounds it took. Prerequisite for closing the
 // feedback loop and for a future eval set -- never lets a logging failure
@@ -737,6 +761,11 @@ async function logAudit(
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
+
+  // Measured from handler entry, not from the loop -- auth, the notes fetch
+  // and the schema slice all spend against the same 150s gateway budget.
+  const startedAt = Date.now();
+  const elapsedMs = () => Date.now() - startedAt;
 
   let callerClient: ReturnType<typeof createClient> | null = null;
   let question = '';
@@ -936,7 +965,12 @@ Deno.serve(async (req: Request) => {
     // unrelated later round.
     let forceNudgeTool = false;
 
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    // Rounds actually consumed, so the audit row reports the real number
+    // when a deadline stop cuts the loop short of MAX_TOOL_ROUNDS.
+    let roundsUsed = 0;
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS && elapsedMs() < WALL_CLOCK_BUDGET_MS; round++) {
+      roundsUsed = round + 1;
       const data = await callAnthropic(
         messages,
         systemPrompt,
@@ -1214,21 +1248,25 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Round budget exhausted while the model still wanted tools. Never turn
+    // Round budget OR wall-clock budget exhausted while the model still
+    // wanted tools. Never turn
     // that into a user-facing error while sitting on real query results --
     // the 2026-08-20 uncrustables incident ran 18 clean queries (the whole
     // analysis) and then showed the user "couldn't land on an answer"
     // because no round was left to write it. Force one final tool-less turn
     // that answers from the data already gathered; the error path below
     // survives only as a fallback for when even that fails.
+    const hitWallClock = elapsedMs() >= WALL_CLOCK_BUDGET_MS;
     try {
       messages.push({
         role: 'user',
-        content: 'Your tool budget is exhausted -- you cannot run any more queries or tools. Using ONLY the results already gathered above, give your best final answer to the original question now. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.',
+        content: hitWallClock
+          ? 'You are out of TIME on this request -- no more queries or tools, and the answer has to be written now or the request dies with nothing. Using ONLY the results already gathered above, give your best answer immediately, and keep it tight. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.'
+          : 'Your tool budget is exhausted -- you cannot run any more queries or tools. Using ONLY the results already gathered above, give your best final answer to the original question now. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.',
       });
       let finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
       let finalText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
-      if (finalText && finalData.stop_reason === 'max_tokens') {
+      if (finalText && finalData.stop_reason === 'max_tokens' && elapsedMs() < FINAL_CONTINUATION_CUTOFF_MS) {
         // Same truncation bug as the main loop, hitting this last-resort
         // forced-answer path instead -- give it exactly one bounded
         // continuation rather than shipping a cut-off answer with no
@@ -1249,11 +1287,16 @@ Deno.serve(async (req: Request) => {
           historySnapshot: history,
           answer: finalText,
           queriesRun,
-          toolRounds: MAX_TOOL_ROUNDS,
+          toolRounds: roundsUsed,
           status: 'ok',
-          // Not an error, but flagged so round-cap saturation stays visible
-          // when auditing (a cluster of these means the cap needs raising).
-          errorMessage: 'forced final answer at round cap',
+          // Not an error, but flagged so saturation stays visible when
+          // auditing. A cluster of round-cap rows means the cap needs
+          // raising; a cluster of wall-clock rows means the queries got
+          // slower (or the budget is now too tight) -- different fixes, so
+          // the two are recorded distinctly.
+          errorMessage: hitWallClock
+            ? `forced final answer at wall-clock budget (${Math.round(elapsedMs() / 1000)}s, ${roundsUsed} rounds)`
+            : 'forced final answer at round cap',
         });
         return reply({ answer: finalText, queries_run: queriesRun, ...conceptsPayload() });
       }
@@ -1268,7 +1311,9 @@ Deno.serve(async (req: Request) => {
     // questions failing identically on immediate retry -- so the message
     // must steer the user toward narrowing the question, never toward
     // "wait and retry".
-    const message = sawTimeout
+    const message = hitWallClock
+      ? "This one ran out of time before it could finish -- it was still working when the request had to be cut off. Ask for it in smaller pieces (e.g. build one section of the brief at a time, or narrow the date range) rather than retrying the same wording."
+      : sawTimeout
       ? "Some of the SQL this question needed timed out -- it was scanning too much data even after several attempts. Narrow the question (a shorter date range, or a specific SKU/product type) rather than retrying the same wording; if a narrower version still fails, flag it to an admin."
       : "Couldn't land on an answer after several attempts -- try rephrasing or narrowing the question (e.g. a shorter date range or a specific SKU/product type).";
     await logAudit(callerClient!, {
@@ -1276,7 +1321,7 @@ Deno.serve(async (req: Request) => {
       historySnapshot: history,
       answer: null,
       queriesRun,
-      toolRounds: MAX_TOOL_ROUNDS,
+      toolRounds: roundsUsed,
       status: 'error',
       errorMessage: message,
     });
