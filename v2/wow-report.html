@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Week over Week</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+    .wow-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    .wow-period {
+      display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+      font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3);
+      padding:8px 2px; border-bottom:1px solid var(--bcn-border);
+    }
+    .wow-period b { color:var(--bcn-ink); font-weight:600; }
+    .wow-date { font-family:var(--bcn-mono); font-size:11px; padding:4px 8px;
+      border:1px solid var(--bcn-border-strong); border-radius:6px;
+      background:var(--bcn-surface); color:var(--bcn-ink); }
+
+    .wow-tbl { width:100%; border-collapse:collapse; }
+    .wow-tbl thead th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.09em;
+      color:var(--bcn-ink-4); padding:8px 12px; border-bottom:1px solid var(--bcn-border);
+      text-align:right; white-space:nowrap; font-weight:600;
+    }
+    .wow-tbl thead th:first-child { text-align:left; }
+    .wow-tbl tbody td {
+      padding:9px 12px; border-bottom:1px solid var(--bcn-border); text-align:right; white-space:nowrap;
+      font-family:var(--bcn-mono); font-size:12px; font-variant-numeric:tabular-nums; color:var(--bcn-ink-2);
+    }
+    .wow-tbl tbody td:first-child {
+      text-align:left; white-space:normal; font-family:var(--bcn-font);
+      color:var(--bcn-ink); font-weight:600; font-size:13px;
+    }
+    .wow-tbl tbody tr:last-child td { border-bottom:none; }
+    .wow-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .pos { color:var(--bcn-pos); } .neg { color:var(--bcn-neg); }
+    .dim { color:var(--bcn-ink-4) !important; }
+
+    .wow-thumb { width:34px; height:34px; object-fit:cover; border-radius:5px;
+      border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; flex:none; }
+    .wow-ad { display:flex; align-items:center; gap:9px; }
+
+    .wow-note { padding:9px 14px; font-size:11px; color:var(--bcn-ink-3);
+      border-top:1px solid var(--bcn-border); line-height:1.5; }
+    .wow-note b { color:var(--bcn-ink-2); font-weight:600; }
+    .wow-manual { padding:12px 14px; font-size:12px; color:var(--bcn-ink-2); line-height:1.6; }
+    .wow-manual ul { margin:6px 0 0; padding-left:18px; }
+    .wow-manual li { margin:3px 0; }
+    .wow-empty { padding:26px; text-align:center; color:var(--bcn-ink-4);
+      font-family:var(--bcn-mono); font-size:11.5px; }
+    .wow-spin { display:inline-block; width:12px; height:12px; margin-right:7px; vertical-align:-2px;
+      border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
+      border-radius:50%; animation:wow-s .7s linear infinite; }
+    @keyframes wow-s { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Week over Week</h1>
+        <div class="bcn-header-sub">
+          Online store — 7 days ending the report date, against the week before and the same week last year.
+          Everything here is live; the manual sections are listed at the bottom.
+        </div>
+      </div>
+      <div class="bcn-header-actions">
+        <input type="date" id="reportDate" class="wow-date" />
+        <button id="btnExport" class="bcn-btn bcn-btn--ghost">Export CSV</button>
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Online Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Shopify online store</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Orders</div><div id="kOrders" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">excl. cancelled</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">online only</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Returning Rate</div><div id="kRet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kRetSub">&nbsp;</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Units On Hand</div><div id="kInv" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kInvSub">online warehouse</div></div>
+    </div>
+
+    <div class="wow-content">
+
+      <div class="wow-period" id="periodBar"></div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Traffic &amp; site revenue — year over year</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">GA4</span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Period</th><th>Sessions</th><th>Site revenue</th></tr></thead>
+          <tbody id="ga4Body"></tbody></table>
+        </div></div>
+        <div class="wow-note"><b>Add-to-cart, reach-checkout and complete-checkout are not here.</b> SILO only holds those counts for Meta ad traffic, not sitewide — a full funnel needs GA4 event-level data, which isn't synced. Take those three from GA4 directly.</div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Top products</h2><span class="bcn-card-meta" id="prodMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th>Days of stock</th></tr></thead>
+          <tbody id="prodBody"><tr><td class="wow-empty" colspan="5"><span class="wow-spin"></span>Loading…</td></tr></tbody></table>
+        </div></div>
+        <div class="wow-note"><b>Days of stock</b> is units on hand ÷ this week's daily rate, so it reads as "at this pace". On-hand is de-duplicated to one row per SKU — the inventory snapshot carries duplicates and a naive sum overstates online units by about 5%.</div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta">online · vs prior week</span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th>vs prior week</th></tr></thead>
+          <tbody id="catBody"></tbody></table>
+        </div></div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>All channels</h2><span class="bcn-card-meta">context — online is the report scope</span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Channel</th><th>Sales</th><th>% of total</th></tr></thead>
+          <tbody id="chanBody"></tbody></table>
+        </div></div>
+        <div class="wow-note">This also covers the template's <b>TikTok → sales by attribution source</b> row. TikTok Shop is a tracked sales channel; TikTok <i>Ads</i> has never synced, which is a separate gap.</div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Paid media</h2><span class="bcn-card-meta">Meta &amp; Google</span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Campaign</th><th>Spend</th><th>ROAS</th><th>Clicks</th><th>Cost / conv</th></tr></thead>
+          <tbody id="paidBody"></tbody></table>
+        </div></div>
+        <div class="wow-note">Campaigns with no attributed revenue are awareness buys — <b>they have no ROAS by design</b> and shouldn't be read as failures. Thruplay cost and cost-per-lead aren't broken out in the feed; take those from Ads Manager.</div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">Meta, ad level</span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Creative</th><th>Spend</th><th>ROAS</th><th>Clicks</th></tr></thead>
+          <tbody id="creBody"></tbody></table>
+        </div></div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Still manual</h2><span class="bcn-card-meta">not in SILO</span></div>
+        <div class="wow-manual">
+          These stay hand-written, and should — they're judgement or they have no source yet.
+          <ul>
+            <li><b>Competition</b> — weekly scan. Manual by nature.</li>
+            <li><b>Kimonix</b> — top products, collections. Not integrated.</li>
+            <li><b>Affiliate</b> — sales by code, seeding notes. Discount-code attribution isn't synced.</li>
+            <li><b>Redo email / SMS</b> — SILO holds Redo <i>returns</i>, not its messaging.</li>
+            <li><b>Sessions by landing page</b> — GA4 is synced at campaign level, no page paths.</li>
+            <li><b>Meta &amp; Instagram organic</b> — blocked on Meta permissions, not on us. The tables exist and are empty until the token gets <code>pages_read_engagement</code>, <code>instagram_basic</code> and <code>instagram_manage_insights</code> plus Page access.</li>
+            <li><b>Cohort retention</b> — not built, but buildable: order history carries customer ids back to 2024-11-24.</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(u,o={})=>fetch(u,{...o,cache:'no-store'}) },
+  });
+
+  const el = id => document.getElementById(id);
+  const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+  const money  = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v));
+  const money2 = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(v));
+  const intFmt = v => (v==null||!isFinite(v)) ? '—' : Math.round(Number(v)).toLocaleString();
+  const xFmt   = v => (v==null||!isFinite(v)) ? '—' : `${Number(v).toFixed(2)}x`;
+  const iso    = d => d.toISOString().slice(0,10);
+
+  function setStatus(msg, type='info', ms=0){
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+  }
+
+  // A percentage against a zero or missing base is not a change, it is no basis.
+  function deltaCell(cur, base){
+    if (base == null || !isFinite(base) || base === 0) return `<td class="dim">—</td>`;
+    const pct = (cur - base) / Math.abs(base);
+    const cls = pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'dim';
+    return `<td class="${cls}">${pct >= 0 ? '+' : ''}${(pct*100).toFixed(1)}%</td>`;
+  }
+  function pctCell(v){
+    if (v == null || !isFinite(v)) return `<td class="dim">—</td>`;
+    const cls = v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim';
+    return `<td class="${cls}">${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%</td>`;
+  }
+
+  let DATA = null;
+
+  async function load(){
+    setStatus('Loading…');
+    try {
+      await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+      const { data, error } = await sb.rpc('wow_report', { p_report_date: el('reportDate').value });
+      if (error) throw error;
+      DATA = data;
+      render();
+      setStatus(`Loaded ${data.window.start} – ${data.window.end}`, 'pos', 2500);
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`, 'neg');
+    }
+  }
+
+  function render(){
+    const d = DATA; if (!d) return;
+    const w = d.window, c = d.core, cu = d.customers, inv = d.inventory, g = d.ga4;
+
+    el('periodBar').innerHTML =
+      `<span>This week <b>${esc(w.start)} → ${esc(w.end)}</b></span>` +
+      `<span>Prior week <b>${esc(w.prev_start)} → ${esc(w.prev_end)}</b></span>` +
+      `<span>Same week last year <b>${esc(w.ly_start)} → ${esc(w.ly_end)}</b></span>` +
+      `<span style="margin-left:auto">scope <b>online store</b></span>`;
+
+    el('kSales').textContent  = money(c.gross_sales);
+    el('kOrders').textContent = intFmt(c.orders);
+    el('kAov').textContent    = money2(c.aov);
+    el('kRet').textContent    = cu.returning_pct == null ? '—' : `${cu.returning_pct}%`;
+    el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
+    el('kInv').textContent    = intFmt(inv.units_on_hand);
+    el('kInvSub').textContent = `${intFmt(inv.skus)} SKUs · deduped`;
+
+    el('ga4Body').innerHTML =
+      `<tr><td>Same week last year</td><td>${intFmt(g.sessions_ly)}</td><td>${money(g.revenue_ly)}</td></tr>` +
+      `<tr><td>This week</td><td>${intFmt(g.sessions_ty)}</td><td>${money(g.revenue_ty)}</td></tr>` +
+      `<tr><td>Change</td>${deltaCell(g.sessions_ty, g.sessions_ly)}${deltaCell(g.revenue_ty, g.revenue_ly)}</tr>`;
+
+    const prods = d.top_products || [];
+    el('prodMeta').textContent = `${prods.length} products · online`;
+    el('prodBody').innerHTML = prods.length ? prods.map(p => `<tr>
+      <td>${esc(p.product)}</td><td>${intFmt(p.units)}</td><td>${money(p.sales)}</td>
+      <td>${p.on_hand == null ? '<span class="dim">—</span>' : intFmt(p.on_hand)}</td>
+      <td>${p.days_of_stock == null ? '<span class="dim">—</span>' : intFmt(p.days_of_stock) + 'd'}</td>
+    </tr>`).join('') : `<tr><td class="wow-empty" colspan="5">No online sales in this window.</td></tr>`;
+
+    el('catBody').innerHTML = (d.categories||[]).map(k => `<tr>
+      <td>${esc(k.category)}</td><td>${money(k.sales)}</td><td>${k.pct == null ? '—' : k.pct + '%'}</td>${pctCell(k.wow)}
+    </tr>`).join('') || `<tr><td class="wow-empty" colspan="4">No data.</td></tr>`;
+
+    el('chanBody').innerHTML = (d.channels||[]).map(k => `<tr>
+      <td>${esc(k.channel)}</td><td>${money(k.sales)}</td><td>${k.pct == null ? '—' : k.pct + '%'}</td>
+    </tr>`).join('') || `<tr><td class="wow-empty" colspan="3">No data.</td></tr>`;
+
+    const PLAT = { meta_ads:'Meta', google_ads:'Google' };
+    el('paidBody').innerHTML = (d.paid||[]).map(p => `<tr>
+      <td>${esc(PLAT[p.platform] || p.platform)} — ${esc(p.campaign)}</td>
+      <td>${money(p.spend)}</td>
+      <td>${p.roas ? xFmt(p.roas) : '<span class="dim">awareness</span>'}</td>
+      <td>${intFmt(p.clicks)}</td>
+      <td>${p.cost_per_conv == null ? '<span class="dim">—</span>' : money2(p.cost_per_conv)}</td>
+    </tr>`).join('') || `<tr><td class="wow-empty" colspan="5">No paid spend in this window.</td></tr>`;
+
+    el('creBody').innerHTML = (d.creatives||[]).map(a => `<tr>
+      <td><div class="wow-ad">${a.thumb ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" />` : ''}<span>${esc(a.ad)}</span></div></td>
+      <td>${money(a.spend)}</td><td>${a.roas ? xFmt(a.roas) : '<span class="dim">—</span>'}</td><td>${intFmt(a.clicks)}</td>
+    </tr>`).join('') || `<tr><td class="wow-empty" colspan="4">No Meta ad-level rows in this window.</td></tr>`;
+  }
+
+  // Export mirrors what is on screen, as raw numbers rather than display strings.
+  function exportCsv(){
+    if (!DATA) return;
+    const rows = [];
+    const push = (...r) => rows.push(r);
+    push('Week over Week — online', `${DATA.window.start} to ${DATA.window.end}`);
+    push(''); push('Metric','Value');
+    push('Online sales', DATA.core.gross_sales); push('Orders', DATA.core.orders);
+    push('AOV', DATA.core.aov); push('Returning %', DATA.customers.returning_pct);
+    push('Units on hand', DATA.inventory.units_on_hand);
+    push(''); push('Product','Units','Net sales','On hand','Days of stock');
+    (DATA.top_products||[]).forEach(p => push(p.product, p.units, p.sales, p.on_hand ?? '', p.days_of_stock ?? ''));
+    push(''); push('Category','Net sales','% of total','vs prior week %');
+    (DATA.categories||[]).forEach(k => push(k.category, k.sales, k.pct, k.wow ?? ''));
+    push(''); push('Channel','Sales','% of total');
+    (DATA.channels||[]).forEach(k => push(k.channel, k.sales, k.pct));
+    push(''); push('Campaign','Spend','ROAS','Clicks','Cost per conv');
+    (DATA.paid||[]).forEach(p => push(`${p.platform} — ${p.campaign}`, p.spend, p.roas ?? '', p.clicks, p.cost_per_conv ?? ''));
+    const cell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s; };
+    const csv = rows.map(r => r.map(cell).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8' }));
+    a.download = `wow-report-${DATA.window.end}.csv`;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  }
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess.data.session){ location.href = '/pages/login.html'; return; }
+    const user = sess.data.session.user;
+    await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/wow-report',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Week over Week'],
+        supabaseClient:sb,
+      });
+    }
+    el('reportDate').value = iso(new Date());
+    el('reportDate').addEventListener('change', load);
+    el('btnRefresh').addEventListener('click', load);
+    el('btnExport').addEventListener('click', exportCsv);
+    await load();
+  }
+  boot();
+</script>
+</body>
+</html>

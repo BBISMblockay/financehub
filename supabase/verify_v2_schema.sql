@@ -1404,3 +1404,23 @@ select
       then 'MISSING — title_source dropped; unmatched SKUs would become indistinguishable from resolved ones'
     else 'ok'
   end as sales_by_product_title_daily_v;
+
+-- ── Week over Week report RPC (20260826130000) ────────────────────────
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_report')
+      then 'MISSING — run 20260826130000_wow_report_rpc.sql'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_report' and p.prosecdef)
+      then 'MISSING — wow_report became SECURITY DEFINER; it must stay INVOKER so RLS scopes it'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_report'
+                       and pg_get_functiondef(p.oid) like '%distinct on (variant_sku)%')
+      then 'MISSING — inventory de-duplication dropped; the matview has duplicate sku/location rows and a naive sum overstates online units by ~5%'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_report'
+                       and pg_get_functiondef(p.oid) like '%364%')
+      then 'MISSING — last-year window is not 364 days; 365 misaligns the weekdays'
+    else 'ok'
+  end as wow_report_rpc;
