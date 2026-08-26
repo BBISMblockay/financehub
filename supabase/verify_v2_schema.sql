@@ -158,6 +158,11 @@ select
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='quickbooks_connections' and column_name='location_tracking_enabled') then 'ok' else 'MISSING' end as location_tracking_flag,
   case when exists (select 1 from pg_indexes where schemaname='public' and indexname='uq_accounting_location_map_company_tag') then 'ok' else 'MISSING' end as location_map_unique_idx;
 
+-- 7d4. Per-location revenue/refund accounts (20260826110000_per_location_accounts.sql)
+select
+  case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='accounting_location_map' and column_name='qbo_revenue_account_id') then 'ok' else 'MISSING' end as location_revenue_account,
+  case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='accounting_location_map' and column_name='qbo_refunds_account_id') then 'ok' else 'MISSING' end as location_refunds_account;
+
 -- 7e. Redo return items + customer columns (20260812130000_redo_return_items.sql)
 select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_return_items') then 'ok' else 'MISSING' end as redo_return_items,

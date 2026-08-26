@@ -266,6 +266,35 @@
       white-space: nowrap;
     }
 
+    .ax-loc-scroll { overflow-x: auto; }
+
+    .ax-loc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .ax-loc-table th {
+      text-align: left;
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--bcn-ink-3);
+      padding: 0 8px 6px 0;
+      white-space: nowrap;
+    }
+
+    .ax-loc-table td {
+      padding: 3px 8px 3px 0;
+      vertical-align: middle;
+      border-top: 1px solid var(--bcn-border);
+    }
+
+    .ax-loc-table select { width: 100%; min-width: 190px; font-size: 11px; }
+
+    .ax-loc-name { font-weight: 600; white-space: nowrap; }
+
     .ax-map-note {
       font-family: var(--bcn-mono);
       font-size: 10px;
@@ -520,7 +549,7 @@
             </div>
           </div>
           <div class="ax-card-body ax-pad">
-            <div class="ax-map-grid" id="locationMapGrid"></div>
+            <div class="ax-loc-scroll"><table class="ax-loc-table" id="locationMapGrid"></table></div>
             <div class="ax-map-actions">
               <button class="bcn-btn bcn-btn--primary" id="btnSaveLocationMap">Save locations</button>
               <button class="bcn-btn" id="btnAutoMatchLocations">Auto-match by name</button>
@@ -683,6 +712,8 @@
     locationTracking: null,
     // location_tag -> qbo_location_id
     locationMap: {},
+    // location_tag -> { revenue_id, revenue_name, refunds_id, refunds_name }
+    locationAccounts: {},
     buckets: [],
     payouts: [],
     storeNames: new Map(),
@@ -1060,6 +1091,7 @@
       return;
     }
     state.qboAccounts = data || [];
+    _allAccountOptionsHtml = null;
   }
 
   // QBO locations, plus whether location tracking is even switched on in
@@ -1085,7 +1117,9 @@
   }
 
   async function loadLocationMap() {
-    let q = sb.from('accounting_location_map').select('location_tag, qbo_location_id');
+    let q = sb.from('accounting_location_map').select(
+      'location_tag, qbo_location_id, qbo_revenue_account_id, qbo_revenue_account_name,'
+      + ' qbo_refunds_account_id, qbo_refunds_account_name');
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
     if (error) {
@@ -1094,6 +1128,12 @@
     }
     for (const r of data || []) {
       if (r.qbo_location_id) state.locationMap[r.location_tag] = r.qbo_location_id;
+      state.locationAccounts[r.location_tag] = {
+        revenue_id: r.qbo_revenue_account_id,
+        revenue_name: r.qbo_revenue_account_name,
+        refunds_id: r.qbo_refunds_account_id,
+        refunds_name: r.qbo_refunds_account_name,
+      };
     }
   }
 
@@ -1112,45 +1152,142 @@
     return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }
 
+  const normName = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Option markup for the full account list, built ONCE and reused across every
+  // select. With 21 locations x 2 account selects x 450 accounts this is ~19k
+  // option elements per render; rebuilding the strings each time made the card
+  // visibly janky. Nothing here carries a `selected` attribute -- values are
+  // applied afterwards by setting select.value, which also keeps the cached
+  // string reusable.
+  let _allAccountOptionsHtml = null;
+
+  function allAccountOptionsHtml() {
+    if (_allAccountOptionsHtml === null) {
+      _allAccountOptionsHtml = state.qboAccounts.map(a => {
+        const label = a.fully_qualified_name || a.name;
+        const type = a.account_type ? ` · ${a.account_type}` : '';
+        return `<option value="${esc(a.qbo_account_id)}">${esc(label)}${esc(type)}</option>`;
+      }).join('');
+    }
+    return _allAccountOptionsHtml;
+  }
+
+  // Builds one account <select>, scoped to the accounts that actually mention
+  // this location, with the full list still reachable underneath.
+  //
+  // A flat list of 450 accounts is unusable, and a name TEMPLATE cannot work
+  // either -- the chart of accounts uses at least three conventions for store
+  // revenue ("In Store Retail Revenue - Shopify (X)", "In Store Retail Sales
+  // Revenue - Shopify (X)", and a parens-misplaced variant). So rather than
+  // guess a pattern, show what exists for that location and let a person choose.
+  function accountSelect(tag, locName, kind, selectedId, selectedName) {
+    const lnorm = normName(locName || tag);
+    const wantRefund = kind === 'refunds';
+
+    // Suggestions only: accounts naming this location, with refund accounts
+    // kept out of the revenue list and vice versa.
+    const suggested = lnorm
+      ? state.qboAccounts.filter(a => {
+        const label = normName(a.fully_qualified_name || a.name);
+        return label.includes(lnorm) && label.includes('refund') === wantRefund;
+      })
+      : [];
+
+    const suggestedHtml = suggested.map(a => {
+      const label = a.fully_qualified_name || a.name;
+      return `<option value="${esc(a.qbo_account_id)}">${esc(label)}</option>`;
+    }).join('');
+
+    // A stored id absent from the pulled list means the account was archived or
+    // deleted in QBO. Show it as broken rather than silently reverting.
+    const missing = selectedId
+      && !state.qboAccounts.some(a => a.qbo_account_id === selectedId);
+
+    return `<select class="bcn-field bcn-field--mono"
+              data-loc-account="${esc(kind)}" data-location-tag="${esc(tag)}"
+              data-selected="${esc(selectedId || '')}">
+        <option value="">— not mapped —</option>
+        ${missing ? `<option value="${esc(selectedId)}">⚠ ${esc(selectedName || selectedId)} — not in QuickBooks</option>` : ''}
+        ${suggestedHtml
+          ? `<optgroup label="Suggested for ${esc(locName || tag)}">${suggestedHtml}</optgroup>`
+          : ''}
+        <optgroup label="All accounts">${allAccountOptionsHtml()}</optgroup>
+      </select>`;
+  }
+
+  // Applies the stored selections after innerHTML, since the option markup
+  // above deliberately carries no `selected` attribute.
+  function applyStoredSelections() {
+    for (const f of el.locationMapGrid.querySelectorAll('[data-selected]')) {
+      if (f.dataset.selected) f.value = f.dataset.selected;
+    }
+  }
+
   function renderLocationMap() {
     const rows = locationRows();
     const hasLocations = state.qboLocations.length > 0;
+    const hasAccounts = state.qboAccounts.length > 0;
 
     if (!rows.length) {
       el.locationMapGrid.innerHTML =
-        '<div class="ax-map-key">No sales locations in this period.</div><div></div>';
-    } else if (!hasLocations) {
-      el.locationMapGrid.innerHTML = rows.map(([tag, name]) =>
-        `<div class="ax-map-key">${esc(name)}</div>
-         <div class="ax-map-note">${esc(tag)} — no QuickBooks locations available</div>`
-      ).join('');
+        '<tr><td class="ax-map-note">No sales locations in this period.</td></tr>';
     } else {
-      el.locationMapGrid.innerHTML = rows.map(([tag, name]) => {
+      const head = `<thead><tr>
+          <th>Sales location</th>
+          <th>QuickBooks location</th>
+          <th>Revenue account</th>
+          <th>Refunds account</th>
+        </tr></thead>`;
+
+      const body = rows.map(([tag, name]) => {
         const selected = state.locationMap[tag] || '';
-        const options = state.qboLocations.map(l => {
+        const acct = state.locationAccounts[tag] || {};
+        const locName = state.qboLocations
+          .find(l => l.qbo_location_id === selected)?.name || '';
+
+        const locOptions = state.qboLocations.map(l => {
           const label = l.fully_qualified_name || l.name;
           return `<option value="${esc(l.qbo_location_id)}"${
             l.qbo_location_id === selected ? ' selected' : ''
           }>${esc(label)}</option>`;
         }).join('');
 
-        // A stored id no longer in QBO means the location was archived or
-        // deleted; show it as broken rather than silently reverting to unmapped.
-        const missing = selected
+        const missingLoc = selected
           && !state.qboLocations.some(l => l.qbo_location_id === selected);
-        const missingOpt = missing
-          ? `<option value="${esc(selected)}" selected>⚠ ${esc(selected)} — not in QuickBooks</option>`
-          : '';
 
-        return `<div class="ax-map-key">${esc(name)}<div class="ax-map-note">${esc(tag)}</div></div>
-          <select class="bcn-field bcn-field--mono" data-location-tag="${esc(tag)}">
-            <option value=""${selected ? '' : ' selected'}>— not mapped —</option>
-            ${missingOpt}${options}
-          </select>`;
+        const locCell = hasLocations
+          ? `<select class="bcn-field bcn-field--mono" data-location-tag="${esc(tag)}">
+               <option value=""${selected ? '' : ' selected'}>— not mapped —</option>
+               ${missingLoc ? `<option value="${esc(selected)}" selected>⚠ not in QuickBooks</option>` : ''}
+               ${locOptions}
+             </select>`
+          : '<span class="ax-map-note">no QuickBooks locations</span>';
+
+        // Account suggestions key off the CHOSEN QuickBooks location name where
+        // there is one, since that is what the account names are built from.
+        const forSuggest = locName || name;
+
+        return `<tr>
+          <td class="ax-loc-name">${esc(name)}<div class="ax-map-note">${esc(tag)}</div></td>
+          <td>${locCell}</td>
+          <td>${hasAccounts
+            ? accountSelect(tag, forSuggest, 'revenue', acct.revenue_id || '', acct.revenue_name)
+            : '<span class="ax-map-note">no accounts pulled</span>'}</td>
+          <td>${hasAccounts
+            ? accountSelect(tag, forSuggest, 'refunds', acct.refunds_id || '', acct.refunds_name)
+            : '<span class="ax-map-note">no accounts pulled</span>'}</td>
+        </tr>`;
       }).join('');
+
+      el.locationMapGrid.innerHTML = head + `<tbody>${body}</tbody>`;
+      applyStoredSelections();
     }
 
-    const mapped = rows.filter(([tag]) => state.locationMap[tag]).length;
+    const mappedLoc = rows.filter(([t]) => state.locationMap[t]).length;
+    const mappedRev = rows.filter(([t]) => state.locationAccounts[t]?.revenue_id).length;
+    const mappedRef = rows.filter(([t]) => state.locationAccounts[t]?.refunds_id).length;
+
     let hint;
     if (state.locationTracking === false) {
       hint = '<b>Location tracking is off in QuickBooks.</b> Turn it on under '
@@ -1158,12 +1295,13 @@
         + 'feature), then re-run Pull accounts in Integrations.';
     } else if (!hasLocations) {
       hint = 'No QuickBooks locations found. Connect QuickBooks in '
-        + '<a href="/v2/integrations.html">Integrations</a> and click Pull accounts. '
-        + 'If location tracking is on but no locations exist yet, create them in QuickBooks first.';
+        + '<a href="/v2/integrations.html">Integrations</a> and click Pull accounts.';
     } else {
-      hint = `${mapped} of ${rows.length} locations mapped. A journal line carries its `
-        + 'location as a tag, so one revenue account serves every store instead of one '
-        + 'account per store. Unmapped locations would post with no location.';
+      hint = `${mappedLoc}/${rows.length} locations · ${mappedRev}/${rows.length} revenue accounts · `
+        + `${mappedRef}/${rows.length} refund accounts mapped. `
+        + 'Each location posts to its own revenue and refund account, chosen here rather than '
+        + 'derived from a name pattern — the chart of accounts uses several naming conventions, '
+        + 'so a pattern would miss real accounts. "Suggested" lists accounts naming that location.';
     }
     el.locationHint.innerHTML = hint;
   }
@@ -1189,7 +1327,9 @@
       byNorm.get(k).push(l);
     }
 
-    const fields = [...el.locationMapGrid.querySelectorAll('[data-location-tag]')];
+    // Location selects only -- the account selects share data-location-tag.
+    const fields = [...el.locationMapGrid.querySelectorAll(
+      '[data-location-tag]:not([data-loc-account])')];
     let matched = 0;
     let ambiguous = 0;
     let unmatched = 0;
@@ -1207,8 +1347,25 @@
       }
     }
 
-    if (!matched && !ambiguous && !unmatched) {
-      setStatus('Every location is already mapped.', 'info', 4000);
+    // Accounts too: an account select's "Suggested" optgroup already holds the
+    // accounts naming this location. Exactly one suggestion is unambiguous, so
+    // fill it; anything else stays for a person. Same rule as locations.
+    let acctMatched = 0;
+    let acctLeft = 0;
+    for (const f of el.locationMapGrid.querySelectorAll('[data-loc-account]')) {
+      if (f.value) continue;
+      const group = f.querySelector('optgroup[label^="Suggested"]');
+      const opts = group ? [...group.querySelectorAll('option')] : [];
+      if (opts.length === 1) {
+        f.value = opts[0].value;
+        acctMatched++;
+      } else {
+        acctLeft++;
+      }
+    }
+
+    if (!matched && !ambiguous && !unmatched && !acctMatched && !acctLeft) {
+      setStatus('Everything is already mapped.', 'info', 4000);
       return;
     }
 
@@ -1218,9 +1375,12 @@
     ].filter(Boolean).join(', ');
 
     setStatus(
-      `Matched ${matched} by name${leftover ? ` — ${leftover} left to map by hand` : ''}. `
-      + 'Review, then click Save locations.',
-      matched ? 'pos' : 'info', 9000);
+      `Matched ${matched} location${matched === 1 ? '' : 's'} and ${acctMatched} account`
+      + `${acctMatched === 1 ? '' : 's'} by name`
+      + `${leftover ? ` — ${leftover}` : ''}`
+      + `${acctLeft ? `, ${acctLeft} account field${acctLeft === 1 ? '' : 's'} need a choice` : ''}`
+      + '. Nothing is saved yet — review, then click Save locations.',
+      (matched || acctMatched) ? 'pos' : 'info', 12000);
   }
 
   async function saveLocationMap() {
@@ -1229,21 +1389,40 @@
       return;
     }
 
-    const fields = [...el.locationMapGrid.querySelectorAll('[data-location-tag]')];
-    if (!fields.length) return;
+    // Three selects share data-location-tag; the account ones are additionally
+    // marked data-loc-account, so the location select is the one WITHOUT it.
+    const locFields = [...el.locationMapGrid.querySelectorAll(
+      '[data-location-tag]:not([data-loc-account])')];
+    if (!locFields.length) return;
 
-    const rows = fields.map(f => ({
-      company_entity_id: _co.id,
-      location_tag: f.dataset.locationTag,
-      qbo_location_id: f.value || null,
-      qbo_location_name: f.value
-        ? (() => {
-          const l = state.qboLocations.find(x => x.qbo_location_id === f.value);
-          return l ? (l.fully_qualified_name || l.name) : null;
-        })()
-        : null,
-      updated_at: new Date().toISOString(),
-    }));
+    const acctValue = (tag, kind) => {
+      const f = el.locationMapGrid.querySelector(
+        `[data-loc-account="${kind}"][data-location-tag="${CSS.escape(tag)}"]`);
+      if (!f || !f.value) return { id: null, name: null };
+      const a = state.qboAccounts.find(x => x.qbo_account_id === f.value);
+      return { id: f.value, name: a ? (a.fully_qualified_name || a.name) : null };
+    };
+
+    const rows = locFields.map(f => {
+      const tag = f.dataset.locationTag;
+      const loc = f.value
+        ? state.qboLocations.find(x => x.qbo_location_id === f.value)
+        : null;
+      const rev = acctValue(tag, 'revenue');
+      const ref = acctValue(tag, 'refunds');
+
+      return {
+        company_entity_id: _co.id,
+        location_tag: tag,
+        qbo_location_id: f.value || null,
+        qbo_location_name: loc ? (loc.fully_qualified_name || loc.name) : null,
+        qbo_revenue_account_id: rev.id,
+        qbo_revenue_account_name: rev.name,
+        qbo_refunds_account_id: ref.id,
+        qbo_refunds_account_name: ref.name,
+        updated_at: new Date().toISOString(),
+      };
+    });
 
     const { error } = await sb
       .from('accounting_location_map')
@@ -1257,9 +1436,18 @@
     for (const r of rows) {
       if (r.qbo_location_id) state.locationMap[r.location_tag] = r.qbo_location_id;
       else delete state.locationMap[r.location_tag];
+      state.locationAccounts[r.location_tag] = {
+        revenue_id: r.qbo_revenue_account_id,
+        revenue_name: r.qbo_revenue_account_name,
+        refunds_id: r.qbo_refunds_account_id,
+        refunds_name: r.qbo_refunds_account_name,
+      };
     }
 
-    setStatus('Location mapping saved.', 'pos', 2500);
+    const complete = rows.filter(r =>
+      r.qbo_location_id && r.qbo_revenue_account_id && r.qbo_refunds_account_id).length;
+    setStatus(`Saved. ${complete} of ${rows.length} locations fully mapped `
+      + '(location, revenue and refunds).', 'pos', 5000);
     renderLocationMap();
   }
 

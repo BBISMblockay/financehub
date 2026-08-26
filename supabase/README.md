@@ -303,6 +303,7 @@ supabase/
     20260826100000_chat_query_timeout_30s.sql
     20260826070000_quickbooks_integration.sql
     20260826090000_quickbooks_locations.sql
+    20260826110000_per_location_accounts.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
