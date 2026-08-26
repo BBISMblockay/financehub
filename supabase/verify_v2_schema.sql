@@ -1342,3 +1342,27 @@ select
       then 'MISSING — launch_measurability_v not updated for product-based measurement'
     else 'ok'
   end as launch_product_actuals;
+
+-- ── Ask SILO query timeout (20260826090000) ───────────────────────────
+-- Phase-2 concept grounding was being recorded as "unknown" because these
+-- queries could not finish inside 10s. If this reverts, briefs go sparse
+-- again and the cause is invisible unless you read the unknowns array.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='chat_run_readonly_query')
+      then 'MISSING — chat_run_readonly_query does not exist'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='chat_run_readonly_query'
+                       and pg_get_functiondef(p.oid) like '%30s%')
+      then 'MISSING — run 20260826100000_chat_query_timeout_30s.sql (still on the old 10s budget)'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='chat_run_readonly_query'
+                   and p.prosecdef)
+      then 'MISSING — chat_run_readonly_query became SECURITY DEFINER; it must stay INVOKER so RLS scopes every read'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='chat_run_readonly_query'
+                       and pg_get_functiondef(p.oid) like '%limit 500%')
+      then 'MISSING — the 500-row cap was dropped'
+    else 'ok'
+  end as chat_query_timeout;
