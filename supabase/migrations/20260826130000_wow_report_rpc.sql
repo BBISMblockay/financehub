@@ -29,6 +29,8 @@
 -- funnel would be wrong rather than incomplete. Those stay manual from GA4.
 --
 -- SECURITY INVOKER: RLS scopes every read to the caller's active company.
+-- That is also why inventory comes from inventory_on_hand_current_v rather
+-- than the matview it wraps -- see the note on the inv CTE below.
 
 create or replace function public.wow_report(p_report_date date default current_date)
 returns jsonb
@@ -73,10 +75,17 @@ cur_cat as (select product_type, sum(total_net_sales) v from sbd cross join w
 prev_cat as (select product_type, sum(total_net_sales) v from sbd cross join w
              where day_date between w.ps and w.pe and product_type is not null group by 1),
 cat_total as (select sum(v) t from cur_cat),
+-- inventory_on_hand_current_v, NOT the matview underneath it. Matviews carry
+-- no RLS and authenticated holds no grant on one, so reading it directly
+-- fails at runtime with "permission denied for materialized view" -- invisible
+-- from a service-role connection, which sees zero rows instead of an error.
+-- The view is the definer-owned wrapper, and it also scopes to
+-- active_company_id(), which filtering the matview by location_tag alone
+-- did not.
 inv as (
   select distinct on (variant_sku)
          variant_sku, product_title, total_available_quantity
-  from public.inventory_on_hand_current_mv
+  from public.inventory_on_hand_current_v
   where lower(btrim(location_tag)) = 'online'
   order by variant_sku, snapshot_at desc, id desc
 ),
