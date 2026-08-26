@@ -4,6 +4,16 @@
 -- figure typed in from Shopify, GA4 and Ads Manager by hand. Roughly
 -- two-thirds of those fields are already in SILO, so this returns them.
 --
+-- SALES COME FROM sales_by_day, NOT shopify_orders. Verified against
+-- Shopify's own online report for 2026-08-19..25: total 259,471 vs 259k,
+-- net 223,783 vs 223k. An earlier version summed shopify_orders.total_price
+-- where source_name='web' and was ~25% short, for two compounding reasons:
+-- 'web' excludes TikTok Shop, Shop App, Instagram/Facebook and AfterSell,
+-- which Shopify counts as online, and order totals do not net refunds
+-- (13,655 in that week). Order COUNT still comes from the order table --
+-- sales_by_day.total_orders is summed per SKU line, not distinct orders --
+-- scoped to every channel except POS, wholesale and draft.
+--
 -- ONLINE SCOPE. Orders are source_name = 'web' (the Shopify online store);
 -- sales and inventory are location_tag = 'online', which is what
 -- locations.store_type = 'online' covers -- exactly one location code. That

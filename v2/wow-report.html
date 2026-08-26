@@ -134,9 +134,10 @@
     <div class="bcn-status" id="status" hidden></div>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Online Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Shopify online store</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">matches Shopify "total sales"</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Net Sales</div><div id="kNet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kNetSub">after refunds</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Orders</div><div id="kOrders" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">excl. cancelled</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">online only</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">total sales ÷ orders</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Returning Rate</div><div id="kRet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kRetSub">&nbsp;</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Units On Hand</div><div id="kInv" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kInvSub">online warehouse</div></div>
     </div>
@@ -144,6 +145,13 @@
     <div class="wow-content">
 
       <div class="wow-period" id="periodBar"></div>
+
+      <div class="wow-note" style="border-top:none;border-bottom:1px solid var(--bcn-border);padding-left:2px">
+        <b>Sales figures come from the same place Shopify's own online report does</b> — the daily sales
+        ledger for the online location, which nets refunds and includes every online channel
+        (Online Store, TikTok Shop, Shop App, Instagram/Facebook, AfterSell, Amazon). POS, wholesale
+        and draft orders are excluded. Verified against Shopify for 8/19–8/25: total $259,471, net $223,783.
+      </div>
 
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Traffic &amp; site revenue — year over year</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">GA4</span></div>
@@ -412,7 +420,9 @@
       `<span>Same week last year <b>${esc(w.ly_start)} → ${esc(w.ly_end)}</b></span>` +
       `<span style="margin-left:auto">scope <b>online store</b></span>`;
 
-    el('kSales').textContent  = money(c.gross_sales);
+    el('kSales').textContent  = money(c.total_sales);
+    el('kNet').textContent    = money(c.net_sales);
+    el('kNetSub').textContent = `after ${money(c.refunds)} refunds`;
     el('kOrders').textContent = intFmt(c.orders);
     el('kAov').textContent    = money2(c.aov);
     el('kRet').textContent    = cu.returning_pct == null ? '—' : `${cu.returning_pct}%`;
@@ -463,7 +473,8 @@
     const push = (...r) => rows.push(r);
     push('Week over Week — online', `${DATA.window.start} to ${DATA.window.end}`);
     push(''); push('Metric','Value');
-    push('Online sales', DATA.core.gross_sales); push('Orders', DATA.core.orders);
+    push('Total sales', DATA.core.total_sales); push('Net sales', DATA.core.net_sales);
+    push('Refunds', DATA.core.refunds); push('Orders', DATA.core.orders);
     push('AOV', DATA.core.aov); push('Returning %', DATA.customers.returning_pct);
     push('Units on hand', DATA.inventory.units_on_hand);
     push(''); push('Product','Units','Net sales','On hand','Days of stock');
