@@ -1294,3 +1294,44 @@ select
       then 'MISSING — a marketing explorer view is not security_invoker (RLS would not propagate)'
     else 'ok'
   end as marketing_explorer_views;
+
+-- ── Launch measurability (20260826070000) ─────────────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='launch_measurability_v')
+      then 'MISSING — run 20260826070000_launch_measurability.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_measurability_v'
+                       and column_name='overlapping_launches')
+      then 'MISSING — overlapping_launches not exposed (period estimates would look valid when they are not)'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_measurability_v'
+                       and column_name='measurability')
+      then 'MISSING — measurability not exposed'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='launch_measurability_v'
+                       and c.reloptions::text like '%security_invoker=true%')
+      then 'MISSING — launch_measurability_v is not security_invoker'
+    else 'ok'
+  end as launch_measurability;
+
+-- ── Launch product actuals (20260826080000) ───────────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='launch_product_actuals_v')
+      then 'MISSING — run 20260826080000_launch_product_actuals.sql'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='launch_product_sales_v')
+      then 'MISSING — launch_product_sales_v not created'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_product_actuals_v'
+                       and column_name='resolution_note')
+      then 'MISSING — resolution_note not exposed (unmeasured launches would read as weak ones)'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_measurability_v'
+                       and column_name='products_resolved')
+      then 'MISSING — launch_measurability_v not updated for product-based measurement'
+    else 'ok'
+  end as launch_product_actuals;

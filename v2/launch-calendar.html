@@ -869,7 +869,7 @@
             <div class="bcn-field-group"><label class="bcn-label">INVENTORY TAG</label><input class="bcn-field bcn-field--mono" id="inventoryTagInput" /></div>
           </div>
           <div class="lf-g3" style="margin-top:10px;">
-            <div class="bcn-field-group"><label class="bcn-label">PO NUMBER</label><input class="bcn-field bcn-field--mono" id="poNumberInput" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">PO NUMBER</label><input class="bcn-field bcn-field--mono" id="poNumberInput" /><input type="hidden" id="linkedPoIdInput" /><div id="poLinkStatus" style="font-family:var(--bcn-mono);font-size:10px;margin-top:4px;line-height:1.4"></div></div>
             <div class="bcn-field-group"><label class="bcn-label">VENDOR / FACTORY</label><input class="bcn-field" id="vendorInput" /></div>
             <div class="bcn-field-group"><label class="bcn-label">SAMPLE SKU</label><input class="bcn-field bcn-field--mono" id="skuInput" /></div>
           </div>
@@ -2029,6 +2029,7 @@ function populateTypeOptions(current){
 
 function openLaunchModal(x=null){
   $('launchForm').reset();
+  renderPoLinkStatus();   // form.reset() clears the hidden id; repaint the badge to match
   $('formMsg').textContent='';
   $('modalTitle').textContent=x?'Edit Launch Container':'New Launch Container';
   $('launchId').value=x?.id||'';
@@ -2048,6 +2049,8 @@ function openLaunchModal(x=null){
     $('productTypeInput').value=x.product_type||'';
     $('inventoryTagInput').value=x.inventory_tag||'';
     $('poNumberInput').value=x.po_number||'';
+    $('linkedPoIdInput').value=x.linked_po_id||'';
+    renderPoLinkStatus();
     $('vendorInput').value=x.vendor_name||'';
     $('skuInput').value=x.product_sku||'';
     $('expectedUnitsInput').value=x.expected_units||'';
@@ -2095,6 +2098,7 @@ async function saveLaunch(){
       product_type:$('productTypeInput').value.trim()||null,
       inventory_tag:$('inventoryTagInput').value.trim()||null,
       po_number:$('poNumberInput').value.trim()||null,
+      linked_po_id:$('linkedPoIdInput').value||null,
       vendor_name:$('vendorInput').value.trim()||null,
       expected_units:$('expectedUnitsInput').value?Number($('expectedUnitsInput').value):null,
       expected_retail_value:$('expectedRetailInput').value?Number($('expectedRetailInput').value):null,
@@ -2588,7 +2592,29 @@ function groupByTitle(rows){
   rows.forEach(r=>{ const k=String(r.product_title||r.variant_title||r.sku||'').trim(); if(!k)return; if(!map.has(k))map.set(k,{product_title:k,product_type:r.product_type||null,vendor_original:r.vendor_original||null,image_url:r.image_url||null,sample_sku:r.sku||null,variant_count:0}); const x=map.get(k); x.variant_count+=1; if(!x.sample_sku&&r.sku)x.sample_sku=r.sku; if(!x.image_url&&r.image_url)x.image_url=r.image_url; });
   return [...map.values()].sort((a,b)=>a.product_title.localeCompare(b.product_title));
 }
-function applyPOToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('poNumberInput').value=r.po_name||''; $('vendorInput').value=r.factory_name||''; $('expectedUnitsInput').value=r.total_units||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; $('lookupBox').style.display='none'; }
+function applyPOToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('poNumberInput').value=r.po_name||''; $('vendorInput').value=r.factory_name||''; $('expectedUnitsInput').value=r.total_units||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||'';
+  // The picker already knows exactly which PO this is. Keeping the id (not just
+  // the name) is what makes the launch measurable later: launch_actuals_v
+  // resolves a launch's real SKUs through linked_po_id -> po_lines.sku_snapshot.
+  // launch_calendar.product_sku cannot do that job -- it is product-level and
+  // matches none of sales_by_day's size-prefixed variant SKUs.
+  $('linkedPoIdInput').value=r.po_header_id||''; renderPoLinkStatus();
+  $('lookupBox').style.display='none'; }
+
+// Linked/not-linked is the difference between a launch that can be measured
+// and one that can only ever be estimated, so it is stated on the form rather
+// than left as an invisible property of the row.
+function renderPoLinkStatus(){
+  const el=$('poLinkStatus'); if(!el) return;
+  const linked=($('linkedPoIdInput').value||'').trim();
+  if(linked){
+    el.innerHTML=`<span style="color:var(--bcn-pos)">\u25CF linked to PO \u2014 sales measurable by SKU</span> <button type="button" id="btnClearPoLink" class="bcn-btn bcn-btn--ghost" style="padding:0 6px;font-size:9.5px;margin-left:4px">unlink</button>`;
+    const b=$('btnClearPoLink');
+    if(b) b.onclick=()=>{ $('linkedPoIdInput').value=''; renderPoLinkStatus(); };
+  } else {
+    el.innerHTML=`<span style="color:var(--bcn-ink-4)">not linked \u2014 use FIND PRODUCT \u2192 PO to link, or this launch can only be estimated</span>`;
+  }
+}
 function applyProductToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('vendorInput').value=r.vendor_original||''; $('skuInput').value=r.sample_sku||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; if(r.image_url&&!$('imageInput').value){$('imageInput').value=r.image_url;showImgPreview(r.image_url);} $('lookupBox').style.display='none'; }
 function applyPOToProductForm(r){ openProductForm(null); pendingProductSource={kind:'po',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units??''; $('prodLookupResults').innerHTML=''; }
 function applyProductToProductForm(r){ openProductForm(null); pendingProductSource={kind:'master',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
