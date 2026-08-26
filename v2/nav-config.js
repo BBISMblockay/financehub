@@ -105,6 +105,7 @@
 
     
     { id: 'reports/marketing-overview', section: 'Reports', label: 'Marketing Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/wow-report', section: 'Reports', label: 'Week over Week', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
     { id: 'reports/marketing-explorer', section: 'Reports', label: 'Marketing Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-overview', section: 'Reports', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
     { id: 'reports/daily-trend', section: 'Reports', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
