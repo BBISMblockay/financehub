@@ -11,7 +11,10 @@
   <script src="v2-shell.js" defer></script>
   <style>
     .bcn-kpi-band { flex-wrap:wrap; }
-    .wow-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    /* No overflow/flex:1 here on purpose. .silo-main already scrolls
+       (beacon.css); nesting a second scroll region traps every card in the
+       ~560px left under the header and forces the reader to zoom out. */
+    .wow-content { padding:12px 18px 24px; display:flex; flex-direction:column; gap:12px; }
 
     .wow-period {
       display:flex; align-items:center; gap:18px; flex-wrap:wrap;
@@ -59,7 +62,20 @@
       border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
       border-radius:50%; animation:wow-s .7s linear infinite; }
     @keyframes wow-s { to { transform:rotate(360deg); } }
-    .wow-say { padding:12px 14px; border-top:1px solid var(--bcn-border); }
+    .wow-say { border-top:1px solid var(--bcn-border); }
+    .wow-say > summary {
+      list-style:none; cursor:pointer; padding:8px 14px;
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase;
+      letter-spacing:.09em; color:var(--bcn-ink-4); font-weight:600;
+      display:flex; align-items:center; gap:7px;
+    }
+    .wow-say > summary::-webkit-details-marker { display:none; }
+    .wow-say > summary::before { content:'+'; font-size:12px; line-height:1; color:var(--bcn-ink-4); }
+    .wow-say[open] > summary::before { content:'–'; }
+    .wow-say > summary:hover { color:var(--bcn-ink-2); background:var(--bcn-sunken); }
+    .wow-say[data-filled="1"] > summary { color:var(--bcn-accent); }
+    .wow-say[data-filled="1"] > summary::after { content:'written'; margin-left:auto; font-size:9px; opacity:.75; }
+    .wow-say-body { padding:0 14px 12px; }
     .wow-say-label { display:block; font-family:var(--bcn-mono); font-size:9.5px;
       text-transform:uppercase; letter-spacing:.09em; color:var(--bcn-ink-4);
       font-weight:600; margin-bottom:5px; }
@@ -81,6 +97,10 @@
       .silo-sidebar, .bcn-header-actions, .bcn-status, #btnSave, #btnExport, #btnRefresh { display:none !important; }
       body, .silo-app, .silo-main, .wow-content { display:block !important; background:#fff !important; overflow:visible !important; }
       .bcn-card { break-inside:avoid; page-break-inside:avoid; border:1px solid #ccc !important; margin-bottom:10px; }
+      .wow-say[open], .wow-say { display:block !important; }
+      .wow-say > summary { list-style:none; color:var(--bcn-ink-3) !important; padding:8px 14px 2px; }
+      .wow-say > summary::before, .wow-say > summary::after { content:'' !important; }
+      .wow-say-body { display:block !important; padding:0 14px 10px; }
       .wow-say-box { border:none !important; padding:0 !important; resize:none; }
       .wow-say-box:placeholder-shown { display:none; }
       .wow-say:has(.wow-say-box:placeholder-shown) { display:none; }
@@ -99,8 +119,7 @@
         </div>
         <h1>Week over Week</h1>
         <div class="bcn-header-sub">
-          Online store — 7 days ending the report date, against the week before and the same week last year.
-          Everything here is live; the manual sections are listed at the bottom.
+          Online store · live · notes save per week
         </div>
       </div>
       <div class="bcn-header-actions">
@@ -134,10 +153,10 @@
         </div></div>
         <div class="wow-note"><b>Add-to-cart, reach-checkout and complete-checkout are not here.</b> SILO only holds those counts for Meta ad traffic, not sitewide — a full funnel needs GA4 event-level data, which isn't synced. Take those three from GA4 directly.</div>
       
-        <div class="wow-say">
-          <label class="wow-say-label" for="say_traffic">What the traffic is telling us</label>
-          <textarea id="say_traffic" class="wow-say-box" data-say="traffic" rows="2" placeholder="Your read — this is the part the numbers can't write."></textarea>
-        </div>
+        <details class="wow-say" data-key="traffic">
+          <summary>What the traffic is telling us</summary>
+          <div class="wow-say-body"><textarea id="say_traffic" class="wow-say-box" data-say="traffic" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -148,10 +167,10 @@
         </div></div>
         <div class="wow-note"><b>Days of stock</b> is units on hand ÷ this week's daily rate, so it reads as "at this pace". On-hand is de-duplicated to one row per SKU — the inventory snapshot carries duplicates and a naive sum overstates online units by about 5%.</div>
       
-        <div class="wow-say">
-          <label class="wow-say-label" for="say_products">Notes on products</label>
-          <textarea id="say_products" class="wow-say-box" data-say="products" rows="2" placeholder="Your read — this is the part the numbers can't write."></textarea>
-        </div>
+        <details class="wow-say" data-key="products">
+          <summary>Notes on products</summary>
+          <div class="wow-say-body"><textarea id="say_products" class="wow-say-box" data-say="products" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -161,10 +180,10 @@
           <tbody id="catBody"></tbody></table>
         </div></div>
       
-        <div class="wow-say">
-          <label class="wow-say-label" for="say_categories">Notes on categories</label>
-          <textarea id="say_categories" class="wow-say-box" data-say="categories" rows="2" placeholder="Your read — this is the part the numbers can't write."></textarea>
-        </div>
+        <details class="wow-say" data-key="categories">
+          <summary>Notes on categories</summary>
+          <div class="wow-say-body"><textarea id="say_categories" class="wow-say-box" data-say="categories" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -175,10 +194,10 @@
         </div></div>
         <div class="wow-note">This also covers the template's <b>TikTok → sales by attribution source</b> row. TikTok Shop is a tracked sales channel; TikTok <i>Ads</i> has never synced, which is a separate gap.</div>
       
-        <div class="wow-say">
-          <label class="wow-say-label" for="say_channels">Notes on channel mix</label>
-          <textarea id="say_channels" class="wow-say-box" data-say="channels" rows="2" placeholder="Your read — this is the part the numbers can't write."></textarea>
-        </div>
+        <details class="wow-say" data-key="channels">
+          <summary>Notes on channel mix</summary>
+          <div class="wow-say-body"><textarea id="say_channels" class="wow-say-box" data-say="channels" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -189,10 +208,10 @@
         </div></div>
         <div class="wow-note">Campaigns with no attributed revenue are awareness buys — <b>they have no ROAS by design</b> and shouldn't be read as failures. Thruplay cost and cost-per-lead aren't broken out in the feed; take those from Ads Manager.</div>
       
-        <div class="wow-say">
-          <label class="wow-say-label" for="say_paid">Notes on paid media</label>
-          <textarea id="say_paid" class="wow-say-box" data-say="paid" rows="2" placeholder="Your read — this is the part the numbers can't write."></textarea>
-        </div>
+        <details class="wow-say" data-key="paid">
+          <summary>Notes on paid media</summary>
+          <div class="wow-say-body"><textarea id="say_paid" class="wow-say-box" data-say="paid" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -202,10 +221,10 @@
           <tbody id="creBody"></tbody></table>
         </div></div>
       
-        <div class="wow-say">
-          <label class="wow-say-label" for="say_creatives">Notes on creative</label>
-          <textarea id="say_creatives" class="wow-say-box" data-say="creatives" rows="2" placeholder="Your read — this is the part the numbers can't write."></textarea>
-        </div>
+        <details class="wow-say" data-key="creatives">
+          <summary>Notes on creative</summary>
+          <div class="wow-say-body"><textarea id="say_creatives" class="wow-say-box" data-say="creatives" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
 
       <div class="bcn-card">
@@ -313,7 +332,12 @@
   }
 
   function fillWritten(){
-    sayEls().forEach(t => { t.value = ENTRY.commentary?.[t.dataset.say] || ''; });
+    sayEls().forEach(t => {
+      t.value = ENTRY.commentary?.[t.dataset.say] || '';
+      // Something already written should be visible, not hidden behind a click.
+      const d = t.closest('.wow-say');
+      if (d){ d.open = !!t.value; d.dataset.filled = t.value ? '1' : '0'; }
+    });
     manualEls().forEach(t => { t.value = ENTRY.manual?.[t.dataset.manual] || ''; });
   }
 
@@ -489,7 +513,10 @@
     el('btnSave').addEventListener('click', saveEntry);
 
     document.addEventListener('input', ev => {
-      if (ev.target.matches('[data-say],[data-manual]')) markDirty();
+      if (!ev.target.matches('[data-say],[data-manual]')) return;
+      markDirty();
+      const d = ev.target.closest('.wow-say');
+      if (d) d.dataset.filled = ev.target.value.trim() ? '1' : '0';
     });
     window.addEventListener('beforeunload', ev => {
       if (dirty){ ev.preventDefault(); ev.returnValue = ''; }
