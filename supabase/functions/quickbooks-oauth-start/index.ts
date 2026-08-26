@@ -72,14 +72,6 @@ async function endpoints(env: string): Promise<typeof FALLBACK_ENDPOINTS> {
   return FALLBACK_ENDPOINTS;
 }
 
-// Intuit stamps a trace id on every response. Carrying it into the error we
-// store means their support can locate the exact request, instead of us trying
-// to reproduce a month-end failure after the fact.
-const tid = (res: Response) => {
-  const t = res.headers.get('intuit_tid');
-  return t ? ` [intuit_tid: ${t}]` : '';
-};
-
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
