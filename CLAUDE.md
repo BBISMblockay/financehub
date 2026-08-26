@@ -492,6 +492,13 @@ Additionally: `ANTHROPIC_API_KEY` for the insights narrative (falls back to find
 5. Add the table to `supabase/verify_v2_schema.sql`
 6. Add the table to `supabase/apply_all_post_merge.sql`
 7. Update `supabase/README.md` migration list
+8. **If you applied it straight to prod (Supabase MCP/CLI), open the PR in the
+   same session.** Prod must never sit ahead of `main` with the repo record
+   parked on an unmerged branch — that is the same drift as an undeployed edge
+   function, just pointing the other way, and it is worse: rebuilding from
+   `apply_all_post_merge.sql` on `main` would produce a database missing an
+   object that exists in production. Applying directly is fine (a view or an
+   additive column is reversible); leaving it unPRed is not.
 
 ### JS logic
 - Shared logic used by more than one page → extract to a `.js` file in `v2/` or `pages/`
