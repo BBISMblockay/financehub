@@ -14119,3 +14119,34 @@ grant execute on function public.top_sellers_type_variance(int, text[]) to authe
 
 comment on function public.top_sellers_type_variance(int, text[]) is
   'Units by product type for three windows: the trailing p_days complete days ending yesterday, the p_days before that, and the same window 364 days back (52 weeks, so weekdays align -- not 365). Optional p_location_tags filters to a store group. SECURITY INVOKER, so RLS scopes it to the caller''s active company. Returns only types that sold something in the current window.';
+
+
+-- Product-title sales rollup (20260826230000) -- see the migration for the
+-- match-rate measurements and why unmatched SKUs are kept, not dropped.
+create or replace view public.sales_by_product_title_daily_v
+with (security_invoker = true) as
+select
+  s.company_entity_id,
+  coalesce(pm.product_title, s.product_name)             as product_title,
+  case when pm.sku is not null then 'products_master'
+       else 'sales_fallback' end                         as title_source,
+  coalesce(pm.product_type, s.product_type)              as product_type,
+  s.location_tag,
+  s.day_date,
+  count(distinct s.sku)                                  as variant_skus,
+  sum(s.total_quantity_sold)                             as units_sold,
+  sum(s.total_orders)                                    as orders,
+  sum(s.total_gross_sales)                               as gross_sales,
+  sum(s.total_discounts)                                 as discounts,
+  sum(s.total_refunds)                                   as refunds,
+  sum(s.total_net_sales)                                 as net_sales
+from public.sales_by_day s
+left join public.products_master pm
+  on pm.sku = s.sku
+ and pm.company_entity_id = s.company_entity_id
+group by 1, 2, 3, 4, 5, 6;
+
+comment on view public.sales_by_product_title_daily_v is
+  'Sales rolled up from SKU variants to product title, per location per day. The grain buying decisions are made at, and the one place the sales_by_day -> products_master title join is defined. title_source = ''sales_fallback'' means the SKU had no products_master row and the title came from sales_by_day.product_name (about 1% of rows) -- those are still counted, never dropped. SECURITY INVOKER, so RLS scopes it to the caller''s active company. Note ''x-redo'' (Package Protection) is the Redo checkout line item, not merchandise -- filter it when ranking real products.';
+
+grant select on public.sales_by_product_title_daily_v to authenticated;
