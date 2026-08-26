@@ -11,26 +11,20 @@ const corsHeaders = {
 
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 
-// Sandbox and production are DIFFERENT Intuit key pairs on the same app -- a
-// Development client id cannot mint a token for a production company, and vice
-// versa. Pick the pair from the environment rather than assuming one, and say
-// which pair is missing so a misconfiguration is self-diagnosing.
-function creds(env: string): { id: string; secret: string } {
-  return env === 'production'
-    ? {
-      id: Deno.env.get('QBO_CLIENT_ID_PROD') ?? '',
-      secret: Deno.env.get('QBO_CLIENT_SECRET_PROD') ?? '',
-    }
-    : {
-      id: Deno.env.get('QBO_CLIENT_ID') ?? '',
-      secret: Deno.env.get('QBO_CLIENT_SECRET') ?? '',
-    };
-}
+// ONE key pair. QBO_ENVIRONMENT declares which Intuit environment those keys
+// belong to -- sandbox or production -- because a client id does not say so
+// itself. Moving to production means overwriting the two secrets and flipping
+// this one word, rather than carrying a second pair.
+//
+// The declaration is not decoration: the connection's `environment` picks the
+// API host independently of the keys, so production keys aimed at the sandbox
+// host (or the reverse) fail as an opaque token error. Every entry point below
+// refuses that mismatch by name instead.
+const configuredEnv = () =>
+  Deno.env.get('QBO_ENVIRONMENT') === 'production' ? 'production' : 'sandbox';
 
-const credsMissing = (env: string) =>
-  env === 'production'
-    ? 'QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured'
-    : 'QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured';
+const CLIENT_ID = () => Deno.env.get('QBO_CLIENT_ID') ?? '';
+const CLIENT_SECRET = () => Deno.env.get('QBO_CLIENT_SECRET') ?? '';
 
 const apiBase = (env: string) =>
   env === 'production'
@@ -124,8 +118,11 @@ async function ensureAccessToken(supabase: any, conn: Conn): Promise<string> {
   const expiresAt = conn.token_expires_at ? Date.parse(conn.token_expires_at) : 0;
   if (conn.access_token && expiresAt - Date.now() > 60_000) return conn.access_token;
 
-  const { id: clientId, secret: clientSecret } = creds(conn.environment);
-  if (!clientId || !clientSecret) throw new Error(credsMissing(conn.environment));
+  const clientId = CLIENT_ID();
+  const clientSecret = CLIENT_SECRET();
+  if (!clientId || !clientSecret) {
+    throw new Error('QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured');
+  }
 
   if (!conn.refresh_token) throw new Error('no_refresh_token_reconnect_required');
   if (
@@ -228,6 +225,23 @@ Deno.serve(async (req) => {
       && ['owner', 'admin', 'executive'].includes(String(profile.role));
   }
   if (!allowed) return json({ error: 'Admin access required for this company' }, 403);
+
+  // Refuse a connection whose environment no longer matches the configured
+  // keys. Without this, flipping QBO_ENVIRONMENT leaves stale connections
+  // pointing at the wrong API host and failing as opaque token errors.
+  if (conn.environment !== configuredEnv()) {
+    const msg = `environment_mismatch: this connection is ${conn.environment}, `
+      + `but QBO_ENVIRONMENT is ${configuredEnv()}. Disconnect it and reconnect, `
+      + `or point the keys back at ${conn.environment}.`;
+    await supabase.from('quickbooks_connections').update({
+      last_tested_at: new Date().toISOString(),
+      last_test_status: 'error',
+      last_test_success: false,
+      last_test_error: msg,
+      updated_at: new Date().toISOString(),
+    }).eq('id', conn.id);
+    return json({ error: msg }, 409);
+  }
 
   const recordFailure = async (msg: string) => {
     await supabase.from('quickbooks_connections').update({

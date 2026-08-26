@@ -11,26 +11,20 @@ const SILO_APP_URL =
 // One token endpoint for both environments -- only the API host differs.
 const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 
-// Sandbox and production are DIFFERENT Intuit key pairs on the same app -- a
-// Development client id cannot mint a token for a production company, and vice
-// versa. Pick the pair from the environment rather than assuming one, and say
-// which pair is missing so a misconfiguration is self-diagnosing.
-function creds(env: string): { id: string; secret: string } {
-  return env === 'production'
-    ? {
-      id: Deno.env.get('QBO_CLIENT_ID_PROD') ?? '',
-      secret: Deno.env.get('QBO_CLIENT_SECRET_PROD') ?? '',
-    }
-    : {
-      id: Deno.env.get('QBO_CLIENT_ID') ?? '',
-      secret: Deno.env.get('QBO_CLIENT_SECRET') ?? '',
-    };
-}
+// ONE key pair. QBO_ENVIRONMENT declares which Intuit environment those keys
+// belong to -- sandbox or production -- because a client id does not say so
+// itself. Moving to production means overwriting the two secrets and flipping
+// this one word, rather than carrying a second pair.
+//
+// The declaration is not decoration: the connection's `environment` picks the
+// API host independently of the keys, so production keys aimed at the sandbox
+// host (or the reverse) fail as an opaque token error. Every entry point below
+// refuses that mismatch by name instead.
+const configuredEnv = () =>
+  Deno.env.get('QBO_ENVIRONMENT') === 'production' ? 'production' : 'sandbox';
 
-const credsMissing = (env: string) =>
-  env === 'production'
-    ? 'QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured'
-    : 'QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured';
+const CLIENT_ID = () => Deno.env.get('QBO_CLIENT_ID') ?? '';
+const CLIENT_SECRET = () => Deno.env.get('QBO_CLIENT_SECRET') ?? '';
 
 const apiBase = (env: string) =>
   env === 'production'
@@ -72,8 +66,17 @@ Deno.serve(async (req) => {
   await supabase.from('quickbooks_oauth_states').delete().eq('nonce', state);
 
   const env = stateRow.environment === 'production' ? 'production' : 'sandbox';
-  const { id: clientId, secret: clientSecret } = creds(env);
-  if (!clientId || !clientSecret) return errorRedirect(credsMissing(env));
+  const clientId = CLIENT_ID();
+  const clientSecret = CLIENT_SECRET();
+  if (!clientId || !clientSecret) {
+    return errorRedirect('QBO_CLIENT_ID / QBO_CLIENT_SECRET not configured');
+  }
+  // The keys could have been flipped to the other environment mid-handshake.
+  if (env !== configuredEnv()) {
+    return errorRedirect(
+      `environment_changed: this connect started for ${env} but QBO_ENVIRONMENT is now ${configuredEnv()}`,
+    );
+  }
 
   const tokenRes = await fetch(TOKEN_URL, {
     method: 'POST',

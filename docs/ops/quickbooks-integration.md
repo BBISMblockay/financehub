@@ -54,27 +54,42 @@ request without new information from Intuit.
    The App URLs tab (host domain / launch / disconnect) is for a Marketplace
    listing and can be left blank.
 
-2. **Edge-function secrets** (Supabase → *Silo* → Edge Functions → Secrets).
-   Sandbox and production are **different key pairs on the same Intuit app**,
-   and a Development client id cannot mint a token for a production company.
-   Both pairs are stored, and the connection's `environment` picks which one
-   every call uses:
+2. **Edge-function secrets** (Supabase → *Silo* project → Edge Functions →
+   Secrets). **One key pair**, plus one word saying which Intuit environment
+   that pair belongs to:
 
    | Secret | Value |
    |---|---|
-   | `QBO_CLIENT_ID` | Intuit app **Development** client id |
-   | `QBO_CLIENT_SECRET` | Intuit app **Development** client secret |
-   | `QBO_CLIENT_ID_PROD` | Intuit app **Production** client id |
-   | `QBO_CLIENT_SECRET_PROD` | Intuit app **Production** client secret |
+   | `QBO_CLIENT_ID` | Intuit app client id |
+   | `QBO_CLIENT_SECRET` | Intuit app client secret |
+   | `QBO_ENVIRONMENT` | `sandbox` or `production` (defaults to `sandbox` if unset) |
 
-   Only the pair you actually use has to exist — connecting sandbox with no
-   production keys set is fine. A missing pair reports itself by name
-   (`QBO_CLIENT_ID_PROD / QBO_CLIENT_SECRET_PROD not configured`) rather than
-   failing as a generic token error.
+   A client id does not say which environment it belongs to, which is why
+   `QBO_ENVIRONMENT` has to be declared. **Moving to production = overwrite the
+   two secrets, flip that one word.** There is deliberately no second key pair
+   to maintain.
 
-   Getting production keys from Intuit may require filling in basic app
-   details first (name, description, EULA and privacy-policy URLs). That is
-   Intuit's gate, not SILO's.
+   Getting production keys from Intuit may require filling in basic app details
+   first (name, description, EULA and privacy-policy URLs). That is Intuit's
+   gate, not SILO's.
+
+   ### Switching environments
+
+   The connection's `environment` column picks the API host independently of
+   the keys, so a stale connection from the other environment would send the
+   wrong keys at the wrong host and fail as an opaque token error. All three
+   functions refuse that mismatch by name instead:
+
+   - `quickbooks-oauth-start` only ever starts a handshake for the configured
+     environment — the browser does not choose, and there is one Connect button
+     rather than two.
+   - `quickbooks-oauth-callback` refuses if the keys were flipped mid-handshake.
+   - `quickbooks-accounts-sync` returns `409 environment_mismatch` naming both
+     sides, before making any API call.
+
+   So the switch is: **disconnect the old company, swap the secrets, flip
+   `QBO_ENVIRONMENT`, reconnect.** Forgetting the disconnect is not dangerous —
+   it just gets refused with an explanation.
 
 3. **Deploy the edge functions** — merging a PR does *not* deploy them:
 
