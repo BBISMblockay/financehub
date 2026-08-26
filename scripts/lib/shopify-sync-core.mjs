@@ -1868,3 +1868,172 @@ export async function runWindowedHistory(supabase, connection, {
     status: state.status,
   };
 }
+
+/* ------------------------------------------------------------------------
+   ShopifyQL: storefront funnel + customer mix
+   ------------------------------------------------------------------------
+   The first GraphQL call in this file -- everything above it is REST. It is
+   here because the storefront funnel (sessions -> added to cart -> reached
+   checkout -> completed) is not on the Admin REST API at all; it lives in
+   Shopify Analytics, which ShopifyQL fronts.
+
+   Volume is trivial: TIMESERIES day aggregates server-side and returns one
+   row per day, roughly 365 per shop per year.
+------------------------------------------------------------------------- */
+
+const SHOPIFYQL_MAX_DAYS = 365;
+
+/** Run one ShopifyQL statement. Returns rows as objects keyed by column name. */
+export async function shopifyql(connection, query) {
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const url = `https://${connection.shop_domain}/admin/api/${apiVersion}/graphql.json`;
+  const body = {
+    query: `query Ql($q: String!) {
+      shopifyqlQuery(query: $q) {
+        __typename
+        ... on TableResponse {
+          tableData { columns { name } rowData }
+        }
+        parseErrors { code message }
+      }
+    }`,
+    variables: { q: query },
+  };
+
+  const res = await fetchWithRetry(url, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': connection.access_token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+
+  // A ShopifyQL parse error comes back 200 with parseErrors populated, so
+  // it has to be checked explicitly or it looks like an empty result.
+  const gqlErrors = json?.errors;
+  if (gqlErrors?.length) {
+    throw new Error(`ShopifyQL transport error: ${gqlErrors.map((e) => e.message).join('; ')}`);
+  }
+  const payload = json?.data?.shopifyqlQuery;
+  if (payload?.parseErrors?.length) {
+    throw new Error(
+      `ShopifyQL rejected the query: ${payload.parseErrors.map((e) => `${e.code} ${e.message}`).join('; ')}`,
+    );
+  }
+  const table = payload?.tableData;
+  if (!table) return [];
+
+  const cols = (table.columns || []).map((c) => c.name);
+  return (table.rowData || []).map((row) => {
+    const o = {};
+    cols.forEach((c, i) => { o[c] = row[i]; });
+    return o;
+  });
+}
+
+const qlNum = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(String(v).replace(/[^0-9.\-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+// ShopifyQL returns the TIMESERIES bucket under whichever alias it picks;
+// take the first value that parses as a date rather than guessing the name.
+const qlDay = (row) => {
+  for (const v of Object.values(row)) {
+    const s = String(v ?? '');
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  }
+  return null;
+};
+
+/**
+ * Pull the storefront funnel and customer mix and upsert them.
+ *
+ * COUNTS ONLY. Shopify will hand back conversion_rate and
+ * returning_customer_rate directly, and they are deliberately not stored --
+ * a stored rate gets averaged when someone rolls days into a week, which
+ * does not give the week's rate. shopify_funnel_daily_v derives every ratio
+ * from summed components instead.
+ */
+export async function runSessionsSync(supabase, connection, { batchId, sinceDays = 90 } = {}) {
+  const granted = grantedScopes(connection);
+  const missing = scopesMissingForJob(granted, 'sessions_sync');
+  if (missing.length) return { skipped: true, missing };
+
+  const days = Math.min(Math.max(Number(sinceDays) || 90, 1), SHOPIFYQL_MAX_DAYS);
+  const until = new Date();
+  const since = new Date(until.getTime() - days * 86400000);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const range = `SINCE ${iso(since)} UNTIL ${iso(until)}`;
+
+  const [sessionRows, customerRows] = await Promise.all([
+    shopifyql(connection,
+      `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
+      `sessions_that_reached_checkout, sessions_that_completed_checkout ` +
+      `TIMESERIES day ${range}`),
+    shopifyql(connection,
+      `FROM sales SHOW customers, new_customers, returning_customers ` +
+      `TIMESERIES day ${range}`),
+  ]);
+
+  const now = new Date().toISOString();
+  const base = {
+    company_entity_id: connection.company_entity_id,
+    shop_domain: connection.shop_domain,
+    sync_batch_id: batchId || null,
+    synced_at: now,
+  };
+
+  const sessions = sessionRows
+    .map((r) => {
+      const day = qlDay(r);
+      if (!day) return null;
+      return {
+        ...base,
+        day_date: day,
+        sessions: qlNum(r.sessions),
+        sessions_with_cart_additions: qlNum(r.sessions_with_cart_additions),
+        sessions_that_reached_checkout: qlNum(r.sessions_that_reached_checkout),
+        sessions_that_completed_checkout: qlNum(r.sessions_that_completed_checkout),
+      };
+    })
+    .filter(Boolean);
+
+  const customers = customerRows
+    .map((r) => {
+      const day = qlDay(r);
+      if (!day) return null;
+      return {
+        ...base,
+        day_date: day,
+        customers: qlNum(r.customers),
+        new_customers: qlNum(r.new_customers),
+        returning_customers: qlNum(r.returning_customers),
+      };
+    })
+    .filter(Boolean);
+
+  const sessionsUpserted = sessions.length
+    ? await upsertInChunks(supabase, 'shopify_sessions_daily', sessions,
+        'company_entity_id,shop_domain,day_date')
+    : 0;
+  const customersUpserted = customers.length
+    ? await upsertInChunks(supabase, 'shopify_customer_metrics_daily', customers,
+        'company_entity_id,shop_domain,day_date')
+    : 0;
+
+  // How far back Shopify actually served is worth recording: analytics
+  // retention varies, and it decides when year-over-year becomes possible.
+  const first = sessions.length ? sessions.map((r) => r.day_date).sort()[0] : null;
+
+  return {
+    job_type: 'sessions_sync',
+    batch_id: batchId,
+    requested_since: iso(since),
+    earliest_day_returned: first,
+    sessions_rows_upserted: sessionsUpserted,
+    customer_rows_upserted: customersUpserted,
+  };
+}

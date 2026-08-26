@@ -8,6 +8,7 @@ export const JOB_SCOPES: Record<string, string[]> = {
   catalog_sync: ['read_products'],
   payouts_sync: ['read_shopify_payments_payouts'],
   draft_orders_sync: ['read_draft_orders'],
+  sessions_sync: ['read_reports'],
 };
 
 /** Union of scopes needed before any Phase 2 sync */

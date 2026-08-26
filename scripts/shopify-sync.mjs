@@ -12,6 +12,7 @@ import {
   runIncrementalSales,
   runInventorySnapshot,
   runPayoutsSync,
+  runSessionsSync,
   runWindowedHistory,
 } from './lib/shopify-sync-core.mjs';
 
@@ -35,6 +36,13 @@ const SKIP_INVENTORY = process.env.SHOPIFY_SKIP_INVENTORY === 'true';
 const SKIP_CATALOG = process.env.SHOPIFY_SKIP_CATALOG === 'true';
 const SKIP_PAYOUTS = process.env.SHOPIFY_SKIP_PAYOUTS === 'true';
 const SKIP_DRAFT_ORDERS = process.env.SHOPIFY_SKIP_DRAFT_ORDERS === 'true';
+const SKIP_SESSIONS = process.env.SHOPIFY_SKIP_SESSIONS === 'true';
+// 90 days keeps the nightly call small while re-stating recent history, since
+// Shopify revises analytics for a few days after the fact. Raise it once (or
+// run with SHOPIFY_SESSIONS_DAYS=365) to seed as much history as Shopify will
+// serve -- how far back that goes is recorded per run as
+// earliest_day_returned, and it decides when year-over-year becomes possible.
+const SESSIONS_DAYS = Number(process.env.SHOPIFY_SESSIONS_DAYS || 90);
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
 const BATCH_ID =
@@ -158,6 +166,34 @@ async function syncConnection(connection) {
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       throw err;
+    }
+  }
+
+  // Storefront funnel + customer mix from ShopifyQL. Cheap -- two aggregated
+  // queries returning one row per day -- and it is what the Week over Week
+  // conversion funnel and returning-customer rate read.
+  if (!SKIP_SESSIONS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+    const jobId = await startJob(connection, 'sessions_sync');
+    try {
+      const result = await runSessionsSync(supabase, connection, {
+        batchId: BATCH_ID,
+        sinceDays: SESSIONS_DAYS,
+      });
+      await finishJob(jobId, 'success', result);
+      results.jobs.push(result);
+      if (result.skipped) {
+        console.log(`[skip] ${connection.shop_domain} sessions_sync: ${result.missing?.join(',')}`);
+      } else {
+        console.log(
+          `[ok] ${connection.shop_domain} sessions_sync: ${result.sessions_rows_upserted} session days, ` +
+          `${result.customer_rows_upserted} customer days, earliest ${result.earliest_day_returned || 'n/a'}`,
+        );
+      }
+    } catch (err) {
+      // Analytics is a nice-to-have next to sales and inventory. A ShopifyQL
+      // failure should not take the whole nightly run down with it.
+      await finishJob(jobId, 'error', { error: err.message || String(err) });
+      console.warn(`[warn] ${connection.shop_domain} sessions_sync failed: ${err.message || err}`);
     }
   }
 

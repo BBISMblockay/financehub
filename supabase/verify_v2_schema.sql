@@ -1441,3 +1441,26 @@ select
       then 'MISSING — wow_report reads the matview directly; authenticated has no grant on it and it is not company-scoped. Use inventory_on_hand_current_v'
     else 'ok'
   end as wow_report_entries;
+
+-- ── Shopify sessions / funnel (20260826150000) ────────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_sessions_daily')
+      then 'MISSING — run 20260826150000_shopify_sessions_daily.sql'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_customer_metrics_daily')
+      then 'MISSING — shopify_customer_metrics_daily not created'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='shopify_funnel_daily_v')
+      then 'MISSING — shopify_funnel_daily_v not created'
+    when exists (select 1 from information_schema.columns
+                 where table_schema='public' and table_name='shopify_sessions_daily'
+                   and column_name in ('conversion_rate','cart_rate'))
+      then 'MISSING — a rate column was added to shopify_sessions_daily; store counts only, derive rates in shopify_funnel_daily_v or a weekly roll-up will average percentages'
+    when not exists (select 1 from pg_constraint
+                     where conname='sync_jobs_job_type_check'
+                       and pg_get_constraintdef(oid) like '%sessions_sync%')
+      then 'MISSING — sync_jobs job_type check does not allow sessions_sync; the nightly job will fail to log'
+    else 'ok'
+  end as shopify_sessions_sync;
