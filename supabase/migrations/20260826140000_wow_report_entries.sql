@@ -11,7 +11,11 @@
 --
 -- sections is jsonb rather than a column per field on purpose: the report's
 -- shape is still settling and adding "one more box" should not need a
--- migration. Shape is { commentary: {...}, manual: {...} }.
+-- migration. Shape is { commentary: {...}, manual: {...}, tables: {...} }
+-- where tables holds an array of row objects per manual table (affiliate
+-- codes, Redo campaigns, Kimonix, cohorts and so on) -- structured because
+-- that content is tabular, and a paragraph cannot be sorted, exported or
+-- compared week to week.
 --
 -- Measured figures are deliberately NOT stored. They re-query live from
 -- wow_report(), so nobody can save a stale number over a real one and
