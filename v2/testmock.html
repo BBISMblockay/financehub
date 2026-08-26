@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Week over Week Report</title>
+<link rel="stylesheet" href="beacon.css" />
+<style>
+  /* Page-specific layout only — everything visual comes from beacon.css tokens/components */
+  body { background: var(--bcn-bg); }
+  .wow-shell { max-width: 1180px; margin: 0 auto; padding: 0 0 60px; }
+
+  .bcn-header { position: sticky; top: 0; z-index: 5; }
+
+  .wow-period-bar {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: var(--bcn-sunken); border-bottom: 1px solid var(--bcn-border);
+    padding: 10px 18px; font-family: var(--bcn-mono); font-size: 11.5px; color: var(--bcn-ink-2);
+  }
+  .wow-period-bar .pb-item { display: flex; align-items: center; gap: 7px; }
+  .wow-period-bar .pb-k { color: var(--bcn-ink-3); }
+  .wow-period-bar .pb-v { color: var(--bcn-ink); font-weight: 600; }
+  .wow-period-bar input[type="date"] {
+    background: transparent; border: none; outline: none; color: var(--bcn-ink);
+    font-family: var(--bcn-mono); font-size: 11.5px; font-weight: 600;
+  }
+
+  .wow-nav {
+    display: flex; gap: 4px; flex-wrap: wrap; padding: 12px 18px 0;
+  }
+  .wow-nav a {
+    font-family: var(--bcn-font); font-size: 11.5px; font-weight: 600; color: var(--bcn-ink-2);
+    text-decoration: none; padding: 5px 9px; border-radius: var(--bcn-radius-sm);
+    border: 1px solid transparent;
+  }
+  .wow-nav a:hover { background: var(--bcn-sunken); border-color: var(--bcn-border); color: var(--bcn-ink); }
+
+  .wow-sections { padding: 16px 18px 0; display: flex; flex-direction: column; gap: 14px; }
+
+  .wow-section-title {
+    display: flex; align-items: center; gap: 10px; margin: 10px 0 2px;
+    scroll-margin-top: 96px;
+  }
+  .wow-section-title h2 {
+    font-size: 15px; font-weight: 700; color: var(--bcn-ink); margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .wow-section-title .rule { flex: 1; height: 1px; background: var(--bcn-border-strong); }
+
+  .field-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+  }
+  .field-grid--wide { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .bcn-field-group .bcn-hint {
+    font-size: 10.5px; color: var(--bcn-ink-3); margin-top: -2px;
+  }
+
+  .breakout {
+    border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+    overflow: hidden;
+  }
+  .breakout-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 10px; background: var(--bcn-sunken); border-bottom: 1px solid var(--bcn-border);
+  }
+  .breakout-head .bt-title { font-size: 12px; font-weight: 700; color: var(--bcn-ink); }
+  .breakout-head .bt-note { font-size: 10.5px; color: var(--bcn-ink-3); font-weight: 400; margin-left: 8px; }
+  .breakout table.bcn-table { table-layout: auto; }
+  .breakout .bcn-table th { position: static; text-align: left; }
+  .breakout .bcn-table td { background: var(--bcn-surface); }
+  .breakout .bcn-table input, .breakout .bcn-table textarea {
+    width: 100%; border: none; background: transparent; outline: none;
+    font: inherit; color: var(--bcn-ink); padding: 2px 0; font-variant-numeric: tabular-nums;
+  }
+  .breakout .bcn-table input:focus, .breakout .bcn-table textarea:focus { box-shadow: 0 0 0 1px var(--bcn-accent) inset; }
+  .breakout .row-del {
+    border: none; background: transparent; color: var(--bcn-ink-4); cursor: pointer; font-size: 13px;
+    padding: 0 4px; line-height: 1;
+  }
+  .breakout .row-del:hover { color: var(--bcn-neg); }
+  .breakout-foot { padding: 7px 10px; border-top: 1px solid var(--bcn-border); background: var(--bcn-sunken); }
+
+  .funnel-table th, .funnel-table td { text-align: right; }
+  .funnel-table th:first-child, .funnel-table td:first-child { text-align: left; }
+  .funnel-table tr.row-change td { background: var(--bcn-band); color: #fff; font-family: var(--bcn-mono); font-weight: 600; }
+  .funnel-table tr.row-change td:first-child { color: var(--bcn-band-ink-2); }
+  .funnel-table tr.row-change td.pos { color: var(--bcn-pos); }
+  .funnel-table tr.row-change td.neg { color: var(--bcn-neg); }
+
+  .export-bar {
+    position: sticky; bottom: 0; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 18px; background: var(--bcn-surface); border-top: 1px solid var(--bcn-border);
+    margin-top: 18px;
+  }
+  .export-bar .eb-status { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+
+<header class="bcn-header">
+  <div class="bcn-header-title">
+    <h1>Week over Week Report</h1>
+  </div>
+  <div class="bcn-header-sub">7-day snapshot &middot; fill the yellow-tinted fields, everything else updates itself</div>
+  <div class="bcn-header-actions">
+    <button class="bcn-btn bcn-btn--ghost" type="button" id="btnImport">Import JSON</button>
+    <input type="file" id="fileImport" accept="application/json" class="visually-hidden" />
+    <button class="bcn-btn bcn-btn--primary" type="button" id="btnExport">Export JSON</button>
+  </div>
+</header>
+
+<div class="wow-period-bar">
+  <div class="pb-item">
+    <span class="pb-k">Report Date</span>
+    <input type="date" id="reportDate" />
+  </div>
+  <div class="pb-item"><span class="pb-k">This Week</span><span class="pb-v" id="pbThisWeek">&mdash;</span></div>
+  <div class="pb-item"><span class="pb-k">Last Week</span><span class="pb-v" id="pbLastWeek">&mdash;</span></div>
+  <div class="pb-item"><span class="pb-k">Same Date, Last Year</span><span class="pb-v" id="pbYoy">&mdash;</span></div>
+</div>
+
+<nav class="wow-nav" aria-label="Jump to section">
+  <a href="#sec-website">Website</a>
+  <a href="#sec-kimonix">Kimonix</a>
+  <a href="#sec-meta">Meta</a>
+  <a href="#sec-google">Google</a>
+  <a href="#sec-tiktok">TikTok</a>
+  <a href="#sec-affiliate">Affiliate</a>
+  <a href="#sec-competition">Competition</a>
+  <a href="#sec-redo">Redo</a>
+</nav>
+
+<main class="wow-shell">
+<div class="wow-sections" id="formRoot">
+
+  <!-- ================= WEBSITE & SALES ================= -->
+  <section class="wow-section-title" id="sec-website"><h2>Website &amp; Sales</h2><div class="rule"></div></section>
+
+  <div class="bcn-card" data-section="website">
+    <div class="bcn-card-header"><h2>Sales &amp; core metrics</h2><span class="bcn-card-meta">YoY &middot; checked weekly</span></div>
+    <div class="bcn-card-body">
+      <div class="field-grid field-grid--wide">
+        <div class="bcn-field-group">
+          <label class="bcn-label">Total sales by sales channel</label>
+          <input class="bcn-field bcn-field--mono" data-field="sales_total" placeholder="$" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Returning customers rate</label>
+          <input class="bcn-field bcn-field--mono" data-field="returning_customer_rate" placeholder="%" />
+          <span class="bcn-hint">MOM metric, checked weekly</span>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Average order value</label>
+          <input class="bcn-field bcn-field--mono" data-field="aov" placeholder="$" />
+          <span class="bcn-hint">YoY comparison, looked at weekly</span>
+        </div>
+      </div>
+
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Conversion Rate &amp; Checkout Breakdown</span><span class="bt-note">(Checkout Process) — enter last year's and this year's raw counts, change calcs itself</span></div>
+        <table class="bcn-table funnel-table" data-funnel="website">
+          <thead><tr>
+            <th class="bcn-th-left">Year</th><th>Sessions</th><th>Add to Cart</th><th>Reach Checkout</th><th>Complete Checkout</th><th>Conversion Rate</th>
+          </tr></thead>
+          <tbody>
+            <tr data-funnel-row="prior">
+              <td><input data-field="year" placeholder="e.g. 2025 (last 7 days from 8/26)" /></td>
+              <td><input data-field="sessions" inputmode="decimal" /></td>
+              <td><input data-field="addToCart" inputmode="decimal" /></td>
+              <td><input data-field="reachCheckout" inputmode="decimal" /></td>
+              <td><input data-field="completeCheckout" inputmode="decimal" /></td>
+              <td><input data-field="conversionRate" placeholder="%" /></td>
+            </tr>
+            <tr data-funnel-row="current">
+              <td><input data-field="year" placeholder="e.g. 2026 (last 7 days from 8/26)" /></td>
+              <td><input data-field="sessions" inputmode="decimal" /></td>
+              <td><input data-field="addToCart" inputmode="decimal" /></td>
+              <td><input data-field="reachCheckout" inputmode="decimal" /></td>
+              <td><input data-field="completeCheckout" inputmode="decimal" /></td>
+              <td><input data-field="conversionRate" placeholder="%" /></td>
+            </tr>
+            <tr class="row-change">
+              <td>% Change (YoY)</td>
+              <td data-out="sessions">&mdash;</td>
+              <td data-out="addToCart">&mdash;</td>
+              <td data-out="reachCheckout">&mdash;</td>
+              <td data-out="completeCheckout">&mdash;</td>
+              <td data-out="conversionRate">&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="bcn-card" data-section="website">
+    <div class="bcn-card-body" style="gap:14px;">
+      <!-- Top Products Sold -->
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Top Products Sold</span><span class="bt-note">over this 7-day window</span></div>
+        <table class="bcn-table" data-table="top_products">
+          <thead><tr><th class="bcn-th-left" style="width:60px;">Rank</th><th class="bcn-th-left">Product</th><th class="bcn-th-left" style="width:120px;">Units Sold</th><th class="bcn-th-left" style="width:120px;">Sales $</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="top_products">+ Add row</button></div>
+      </div>
+
+      <!-- Cohort analysis -->
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Cohort Analysis</span><span class="bt-note">MOM metric, looked at weekly</span></div>
+        <table class="bcn-table" data-table="cohort_analysis">
+          <thead><tr><th class="bcn-th-left">Cohort Month</th><th class="bcn-th-left">Month 1 Retention</th><th class="bcn-th-left">Month 2</th><th class="bcn-th-left">Month 3</th><th class="bcn-th-left">Month 4+</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="cohort_analysis">+ Add row</button></div>
+      </div>
+
+      <!-- Best sellers with inventory -->
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Best Sellers with Ending Inventory</span><span class="bt-note">Benny's report — top sellers this week, then inventory</span></div>
+        <table class="bcn-table" data-table="best_sellers">
+          <thead><tr><th class="bcn-th-left" style="width:60px;">Rank</th><th class="bcn-th-left">Product</th><th class="bcn-th-left">Units Sold</th><th class="bcn-th-left">Ending Inventory</th><th class="bcn-th-left">Days of Stock</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="best_sellers">+ Add row</button></div>
+      </div>
+
+      <!-- Sessions by landing page -->
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Sessions by Landing Page + Conversion Rate</span><span class="bt-note">sort by sessions, then conversion rate coloring</span></div>
+        <table class="bcn-table" data-table="landing_pages">
+          <thead><tr><th class="bcn-th-left">Landing Page</th><th class="bcn-th-left">Sessions</th><th class="bcn-th-left">Conversion Rate</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="landing_pages">+ Add row</button></div>
+      </div>
+
+      <!-- Sales by category -->
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Sales by Product Category</span><span class="bt-note">SILO — product type, sales WoW, and inventory change</span></div>
+        <table class="bcn-table" data-table="sales_by_category">
+          <thead><tr><th class="bcn-th-left">Category</th><th class="bcn-th-left">Sales $</th><th class="bcn-th-left">% of Total</th><th class="bcn-th-left">Inventory Change</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="sales_by_category">+ Add row</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= KIMONIX ================= -->
+  <section class="wow-section-title" id="sec-kimonix"><h2>Kimonix</h2><div class="rule"></div></section>
+  <div class="bcn-card" data-section="kimonix">
+    <div class="bcn-card-body" style="gap:14px;">
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Top 10 Products</span></div>
+        <table class="bcn-table" data-table="top10_products">
+          <thead><tr><th class="bcn-th-left" style="width:50px;">Rank</th><th class="bcn-th-left">Product</th><th class="bcn-th-left">Image</th><th class="bcn-th-left">Page Views</th><th class="bcn-th-left">Sales $</th><th class="bcn-th-left">Conversion Rate</th><th class="bcn-th-left">Prior Week Outlook</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="top10_products">+ Add row</button></div>
+      </div>
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Collections</span></div>
+        <table class="bcn-table" data-table="collections">
+          <thead><tr><th class="bcn-th-left">Collection Name</th><th class="bcn-th-left">Page Views</th><th class="bcn-th-left">Sales $</th><th class="bcn-th-left">Conversion Rate</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="collections">+ Add row</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= META ================= -->
+  <section class="wow-section-title" id="sec-meta"><h2>Paid Media &mdash; Meta</h2><div class="rule"></div></section>
+  <div class="bcn-card" data-section="meta">
+    <div class="bcn-card-body" style="gap:14px;">
+      <div class="field-grid">
+        <div class="bcn-field-group"><label class="bcn-label">Purchase Camp. &mdash; Amount Spent</label><input class="bcn-field bcn-field--mono" data-field="purchase_camp_spend" placeholder="$" /></div>
+        <div class="bcn-field-group"><label class="bcn-label">Purchase Camp. &mdash; ROAS</label><input class="bcn-field bcn-field--mono" data-field="purchase_camp_roas" /></div>
+        <div class="bcn-field-group"><label class="bcn-label">Thruplays &mdash; Spend</label><input class="bcn-field bcn-field--mono" data-field="thruplays_spend" placeholder="$" /></div>
+        <div class="bcn-field-group"><label class="bcn-label">Thruplays &mdash; Cost per Thruplay</label><input class="bcn-field bcn-field--mono" data-field="thruplays_cost" placeholder="$" /></div>
+        <div class="bcn-field-group"><label class="bcn-label">Subscribers &mdash; Spend</label><input class="bcn-field bcn-field--mono" data-field="subscribers_spend" placeholder="$" /></div>
+        <div class="bcn-field-group"><label class="bcn-label">Subscribers &mdash; Cost per Lead</label><input class="bcn-field bcn-field--mono" data-field="subscribers_cost" placeholder="$" /></div>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label">Organic &mdash; screenshot of last 12 posts (views / insights)</label>
+        <textarea class="bcn-field" data-field="organic_notes" rows="2" placeholder="Paste link to screenshot or notes"></textarea>
+      </div>
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Top Creatives This Week — Purchase Campaign</span></div>
+        <table class="bcn-table" data-table="creatives">
+          <thead><tr><th class="bcn-th-left">Name</th><th class="bcn-th-left">Image / Screenshot</th><th class="bcn-th-left">Creative</th><th class="bcn-th-left">Link</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="creatives">+ Add row</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= GOOGLE ================= -->
+  <section class="wow-section-title" id="sec-google"><h2>Paid Media &mdash; Google</h2><div class="rule"></div></section>
+  <div class="bcn-card" data-section="google">
+    <div class="bcn-card-body" style="gap:14px;">
+      <div class="field-grid">
+        <div class="bcn-field-group"><label class="bcn-label">Campaigns &mdash; Spend</label><input class="bcn-field bcn-field--mono" data-field="campaigns_spend" placeholder="$" /></div>
+        <div class="bcn-field-group"><label class="bcn-label">Campaigns &mdash; ROAS</label><input class="bcn-field bcn-field--mono" data-field="campaigns_roas" /></div>
+      </div>
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Search Headlines / Descriptions</span><span class="bt-note">top-of-mind callouts</span></div>
+        <table class="bcn-table" data-table="search_callouts">
+          <thead><tr><th class="bcn-th-left">Headline / Description</th><th class="bcn-th-left">Notes</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="search_callouts">+ Add row</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TIKTOK ================= -->
+  <section class="wow-section-title" id="sec-tiktok"><h2>TikTok</h2><div class="rule"></div></section>
+  <div class="bcn-card" data-section="tiktok">
+    <div class="bcn-card-body">
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Sales by Attribution Source</span></div>
+        <table class="bcn-table" data-table="attribution">
+          <thead><tr><th class="bcn-th-left">Source</th><th class="bcn-th-left">Sales $</th><th class="bcn-th-left">% of Total</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="attribution">+ Add row</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= AFFILIATE ================= -->
+  <section class="wow-section-title" id="sec-affiliate"><h2>Affiliate</h2><div class="rule"></div></section>
+  <div class="bcn-card" data-section="affiliate">
+    <div class="bcn-card-body" style="gap:14px;">
+      <div class="field-grid field-grid--wide">
+        <div class="bcn-field-group">
+          <label class="bcn-label">How does the process work? Notable mentions?</label>
+          <textarea class="bcn-field" data-field="program_notes" rows="2"></textarea>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">What was seeded this week, what came back, next week's pushes?</label>
+          <textarea class="bcn-field" data-field="seeding_notes" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Sales by Affiliate Code</span><span class="bt-note">E-pulls</span></div>
+        <table class="bcn-table" data-table="codes">
+          <thead><tr><th class="bcn-th-left">Affiliate Code</th><th class="bcn-th-left">Sales $</th><th class="bcn-th-left">Orders</th><th style="width:30px;"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="codes">+ Add row</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= COMPETITION ================= -->
+  <section class="wow-section-title" id="sec-competition"><h2>Competition</h2><div class="rule"></div></section>
+  <div class="bcn-card" data-section="competition">
+    <div class="bcn-card-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label">Weekly Scan — high-level look at competitor actions &amp; partnerships</label>
+        <textarea class="bcn-field" data-field="weekly_scan" rows="3"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= REDO ================= -->
+  <section class="wow-section-title" id="sec-redo"><h2>Redo &mdash; Email / SMS</h2><div class="rule"></div></section>
+  <div class="bcn-card" data-section="redo">
+    <div class="bcn-card-body" style="gap:14px;">
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Campaigns</span></div>
+        <table class="bcn-table" data-table="campaigns">
+          <thead><tr>
+            <th class="bcn-th-left">Campaign</th><th class="bcn-th-left">Date</th><th class="bcn-th-left">Subject</th>
+            <th class="bcn-th-left">Delivered</th><th class="bcn-th-left">Open Rate</th><th class="bcn-th-left">Click Rate</th>
+            <th class="bcn-th-left">Conversion Rate</th><th class="bcn-th-left">Rev / Msg Sent</th><th class="bcn-th-left">Unsub Rate</th><th style="width:30px;"></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="campaigns">+ Add row</button></div>
+      </div>
+      <div class="breakout">
+        <div class="breakout-head"><span class="bt-title">Automations</span></div>
+        <table class="bcn-table" data-table="automations">
+          <thead><tr>
+            <th class="bcn-th-left">Date</th><th class="bcn-th-left">Spend</th><th class="bcn-th-left">Total Revenue</th>
+            <th class="bcn-th-left">Email Subscribers</th><th class="bcn-th-left">Email Net Subscribers</th>
+            <th class="bcn-th-left">SMS Subscribers</th><th class="bcn-th-left">SMS Net Subscribers</th><th class="bcn-th-left">Notes</th><th style="width:30px;"></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="breakout-foot"><button class="bcn-btn" type="button" data-add-row="automations">+ Add row</button></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</main>
+
+<div class="export-bar">
+  <span class="eb-status" id="ebStatus">Not exported yet</span>
+  <div style="display:flex; gap:8px;">
+    <button class="bcn-btn" type="button" id="btnClear">Clear all fields</button>
+    <button class="bcn-btn bcn-btn--dark" type="button" id="btnExport2">Export JSON</button>
+  </div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------
+   TABLE SCHEMA
+   Each key = data-table name used above. Each value = ordered list of
+   data-field names for that row, matching the <th> order exactly.
+   This is the "schema" you'd mirror in your database (one row per
+   array item, one table per key, scoped under its data-section).
+------------------------------------------------------------------- */
+const TABLE_SCHEMA = {
+  top_products:      ["rank", "product", "unitsSold", "sales"],
+  cohort_analysis:   ["cohortMonth", "month1", "month2", "month3", "month4plus"],
+  best_sellers:       ["rank", "product", "unitsSold", "endingInventory", "daysOfStock"],
+  landing_pages:      ["landingPage", "sessions", "conversionRate"],
+  sales_by_category:  ["category", "sales", "percentOfTotal", "inventoryChange"],
+  top10_products:     ["rank", "product", "image", "pageViews", "sales", "conversionRate", "priorWeekOutlook"],
+  collections:        ["collectionName", "pageViews", "sales", "conversionRate"],
+  creatives:          ["name", "image", "creative", "link"],
+  search_callouts:    ["headline", "notes"],
+  attribution:        ["source", "sales", "percentOfTotal"],
+  codes:              ["affiliateCode", "sales", "orders"],
+  campaigns:          ["campaign", "date", "subject", "delivered", "openRate", "clickRate", "conversionRate", "revPerMsg", "unsubRate"],
+  automations:        ["date", "spend", "totalRevenue", "emailSubs", "emailNetSubs", "smsSubs", "smsNetSubs", "notes"],
+};
+
+const STARTER_ROWS = { attribution: [["Lives", "", ""], ["Ads", "", ""], ["GMV Affiliate", "", ""], ["Direct", "", ""]] };
+const DEFAULT_STARTER_COUNT = 3;
+
+function makeRow(tableName, values) {
+  const fields = TABLE_SCHEMA[tableName];
+  const tr = document.createElement("tr");
+  fields.forEach((f, i) => {
+    const td = document.createElement("td");
+    const input = document.createElement("input");
+    input.setAttribute("data-field", f);
+    if (values && values[i] !== undefined) input.value = values[i];
+    td.appendChild(input);
+    tr.appendChild(td);
+  });
+  const delTd = document.createElement("td");
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "row-del";
+  delBtn.title = "Remove row";
+  delBtn.textContent = "\u2715";
+  delBtn.addEventListener("click", () => tr.remove());
+  delTd.appendChild(delBtn);
+  tr.appendChild(delTd);
+  return tr;
+}
+
+function addRow(tableName, values) {
+  const tbody = document.querySelector(`[data-table="${tableName}"] tbody`);
+  if (!tbody) return;
+  tbody.appendChild(makeRow(tableName, values));
+}
+
+function initTables() {
+  document.querySelectorAll("[data-table]").forEach((table) => {
+    const name = table.getAttribute("data-table");
+    const starters = STARTER_ROWS[name];
+    if (starters) {
+      starters.forEach((row) => addRow(name, row));
+    } else {
+      for (let i = 0; i < DEFAULT_STARTER_COUNT; i++) addRow(name);
+    }
+  });
+  document.querySelectorAll("[data-add-row]").forEach((btn) => {
+    btn.addEventListener("click", () => addRow(btn.getAttribute("data-add-row")));
+  });
+}
+
+/* ------------------------------------------------------------------
+   PERIOD BAR — mirrors the Control tab: one Report Date drives every
+   computed range shown in the strip under the header.
+------------------------------------------------------------------- */
+function fmt(d) { return `${d.getMonth() + 1}/${d.getDate()}`; }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+
+function refreshPeriodBar() {
+  const input = document.getElementById("reportDate");
+  if (!input.value) return;
+  const d = new Date(input.value + "T00:00:00");
+  document.getElementById("pbThisWeek").textContent = `${fmt(addDays(d, -6))} – ${fmt(d)}`;
+  document.getElementById("pbLastWeek").textContent = `${fmt(addDays(d, -13))} – ${fmt(addDays(d, -7))}`;
+  const yoy = new Date(d); yoy.setFullYear(yoy.getFullYear() - 1);
+  document.getElementById("pbYoy").textContent = yoy.toLocaleDateString();
+}
+document.getElementById("reportDate").addEventListener("change", refreshPeriodBar);
+(function setDefaultDate() {
+  const el = document.getElementById("reportDate");
+  const today = new Date();
+  el.value = today.toISOString().slice(0, 10);
+  refreshPeriodBar();
+})();
+
+/* ------------------------------------------------------------------
+   FUNNEL CALC — replicates the sheet's own formulas:
+     Sessions % change   = 1 − (current / prior)
+     Step % change        = (current-step / current-sessions) / (prior-step / prior-sessions) − 1
+------------------------------------------------------------------- */
+function num(v) { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isNaN(n) ? null : n; }
+function pct(n) { return n === null ? "\u2014" : (n * 100).toFixed(1) + "%"; }
+
+function recomputeFunnel(table) {
+  const priorRow = table.querySelector('[data-funnel-row="prior"]');
+  const curRow = table.querySelector('[data-funnel-row="current"]');
+  const changeRow = table.querySelector("tr.row-change");
+  const get = (row, f) => num(row.querySelector(`[data-field="${f}"]`).value);
+
+  const priorSessions = get(priorRow, "sessions");
+  const curSessions = get(curRow, "sessions");
+  const steps = ["sessions", "addToCart", "reachCheckout", "completeCheckout", "conversionRate"];
+
+  steps.forEach((step) => {
+    const out = changeRow.querySelector(`[data-out="${step}"]`);
+    let result = null;
+    if (step === "sessions") {
+      if (priorSessions && curSessions !== null) result = 1 - (curSessions / priorSessions);
+    } else {
+      const priorVal = get(priorRow, step);
+      const curVal = get(curRow, step);
+      if (priorSessions && curSessions && priorVal !== null && curVal !== null && priorVal !== 0) {
+        result = (curVal / curSessions) / (priorVal / priorSessions) - 1;
+      }
+    }
+    out.textContent = pct(result);
+    out.classList.remove("pos", "neg");
+    if (result !== null) out.classList.add(result >= 0 ? "pos" : "neg");
+  });
+}
+
+document.querySelectorAll("[data-funnel]").forEach((table) => {
+  table.addEventListener("input", () => recomputeFunnel(table));
+  recomputeFunnel(table);
+});
+
+/* ------------------------------------------------------------------
+   EXPORT / IMPORT — structured JSON, ready to POST to your database.
+   Shape: { reportDate, <section>: { <field>: value, <table>: [ {..}, ... ] } }
+   Swap the download in exportData() for a fetch() POST once you have
+   an endpoint, e.g.:
+     fetch('/api/wow-report', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) })
+------------------------------------------------------------------- */
+function collectData() {
+  const data = { reportDate: document.getElementById("reportDate").value };
+
+  document.querySelectorAll("[data-section]").forEach((card) => {
+    const section = card.getAttribute("data-section");
+    if (!data[section]) data[section] = {};
+
+    card.querySelectorAll(":scope [data-field]").forEach((el) => {
+      if (el.closest("[data-table]") || el.closest("[data-funnel]")) return;
+      data[section][el.getAttribute("data-field")] = el.value;
+    });
+
+    card.querySelectorAll("[data-table]").forEach((table) => {
+      const name = table.getAttribute("data-table");
+      const fields = TABLE_SCHEMA[name];
+      const rows = [];
+      table.querySelectorAll("tbody tr").forEach((tr) => {
+        const rowObj = {};
+        let hasValue = false;
+        fields.forEach((f) => {
+          const input = tr.querySelector(`[data-field="${f}"]`);
+          const v = input ? input.value : "";
+          if (v) hasValue = true;
+          rowObj[f] = v;
+        });
+        if (hasValue) rows.push(rowObj);
+      });
+      data[section][name] = rows;
+    });
+
+    card.querySelectorAll("[data-funnel]").forEach((table) => {
+      const rows = {};
+      ["prior", "current"].forEach((key) => {
+        const row = table.querySelector(`[data-funnel-row="${key}"]`);
+        const obj = {};
+        row.querySelectorAll("[data-field]").forEach((el) => { obj[el.getAttribute("data-field")] = el.value; });
+        rows[key] = obj;
+      });
+      data[section].conversion_funnel = rows;
+    });
+  });
+
+  return data;
+}
+
+function exportData() {
+  const data = collectData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `wow-report-${data.reportDate || "untitled"}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  document.getElementById("ebStatus").textContent = `Exported at ${new Date().toLocaleTimeString()}`;
+}
+
+function populateData(data) {
+  if (!data) return;
+  if (data.reportDate) { document.getElementById("reportDate").value = data.reportDate; refreshPeriodBar(); }
+
+  document.querySelectorAll("[data-section]").forEach((card) => {
+    const section = card.getAttribute("data-section");
+    const sd = data[section];
+    if (!sd) return;
+
+    card.querySelectorAll(":scope [data-field]").forEach((el) => {
+      if (el.closest("[data-table]") || el.closest("[data-funnel]")) return;
+      const f = el.getAttribute("data-field");
+      if (sd[f] !== undefined) el.value = sd[f];
+    });
+
+    card.querySelectorAll("[data-table]").forEach((table) => {
+      const name = table.getAttribute("data-table");
+      const rows = sd[name];
+      if (!rows) return;
+      table.querySelector("tbody").innerHTML = "";
+      const fields = TABLE_SCHEMA[name];
+      rows.forEach((rowObj) => addRow(name, fields.map((f) => rowObj[f] || "")));
+      if (rows.length === 0) for (let i = 0; i < DEFAULT_STARTER_COUNT; i++) addRow(name);
+    });
+
+    card.querySelectorAll("[data-funnel]").forEach((table) => {
+      const fd = sd.conversion_funnel;
+      if (!fd) return;
+      ["prior", "current"].forEach((key) => {
+        const row = table.querySelector(`[data-funnel-row="${key}"]`);
+        const obj = fd[key] || {};
+        row.querySelectorAll("[data-field]").forEach((el) => {
+          const f = el.getAttribute("data-field");
+          if (obj[f] !== undefined) el.value = obj[f];
+        });
+      });
+      recomputeFunnel(table);
+    });
+  });
+  document.getElementById("ebStatus").textContent = `Imported at ${new Date().toLocaleTimeString()}`;
+}
+
+document.getElementById("btnExport").addEventListener("click", exportData);
+document.getElementById("btnExport2").addEventListener("click", exportData);
+document.getElementById("btnImport").addEventListener("click", () => document.getElementById("fileImport").click());
+document.getElementById("fileImport").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { populateData(JSON.parse(reader.result)); }
+    catch (err) { alert("Couldn't read that file as JSON."); }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+document.getElementById("btnClear").addEventListener("click", () => {
+  if (!confirm("Clear every field on this page?")) return;
+  document.querySelectorAll('input[type="text"], input:not([type="date"]):not([type="file"]), textarea').forEach((el) => { if (el.type !== "date") el.value = ""; });
+  document.querySelectorAll("[data-table] tbody").forEach((tb) => (tb.innerHTML = ""));
+  initTables();
+  document.querySelectorAll("[data-funnel]").forEach(recomputeFunnel);
+  document.getElementById("ebStatus").textContent = "Cleared";
+});
+
+initTables();
+</script>
+
+</body>
+</html>
