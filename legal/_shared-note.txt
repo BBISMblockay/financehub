@@ -1,0 +1,9 @@
+These two pages are PUBLIC and must stay that way.
+
+Intuit requires a publicly reachable EULA and privacy policy URL before it will
+release production API credentials, and it re-checks them. They deliberately
+load no Supabase client, no config.js, and no auth -- anything that gated them
+would fail Intuit's check and block the QuickBooks connection.
+
+They live at the repo root rather than in v2/ for the same reason: v2/ pages are
+app pages that assume a session. Do not move them behind the app shell.

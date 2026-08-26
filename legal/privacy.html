@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SILO — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65; max-width: 760px; margin: 0 auto; padding: 48px 24px 96px;
+    color: #1a1a1a; background: #fff;
+  }
+  @media (prefers-color-scheme: dark) { body { color: #e8e8e8; background: #131313; } }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 17px; margin: 32px 0 8px; letter-spacing: -0.005em; }
+  .meta { font-size: 13px; opacity: .6; margin-bottom: 32px; }
+  p, li { font-size: 15px; }
+  ul { padding-left: 22px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(128,128,128,.25); vertical-align: top; }
+  th { font-weight: 600; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,.3); font-size: 13px; opacity: .7; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+  <h1>SILO — Privacy Policy</h1>
+  <p class="meta">Last updated 26 August 2026</p>
+
+  <p>SILO is an internal operations platform owned and operated by Baseballism
+  (&ldquo;we&rdquo;, &ldquo;us&rdquo;). It is used only by our own authorized personnel.
+  <strong>SILO has no public sign-up, no consumer users, and is not offered as a product to
+  anyone outside our company.</strong> This policy explains what data SILO holds, why, and how
+  it is protected.</p>
+
+  <h2>Who this policy covers</h2>
+  <p>People who use SILO are our employees, contractors, and agents. We do not collect data
+  from members of the public through SILO, and SILO does not display advertising, set
+  advertising cookies, or track users across other websites.</p>
+
+  <h2>What we collect</h2>
+  <table>
+    <tr><th>Category</th><th>Examples</th><th>Why</th></tr>
+    <tr>
+      <td>Account data</td>
+      <td>Name, work email address, role, department, profile photo</td>
+      <td>Authentication, permissions, and attribution of actions</td>
+    </tr>
+    <tr>
+      <td>Business operations data</td>
+      <td>Purchase orders, suppliers, inventory, product records, tasks, internal requests</td>
+      <td>Running the business</td>
+    </tr>
+    <tr>
+      <td>Personnel data</td>
+      <td>Performance review content, compensation requests</td>
+      <td>Internal HR processes, visible only to the specific managers and approvers involved</td>
+    </tr>
+    <tr>
+      <td>Connected-service data</td>
+      <td>Sales, inventory, payouts and orders from Shopify; accounting records from
+          QuickBooks Online; campaign metrics from advertising platforms</td>
+      <td>Reporting, reconciliation, and preparing accounting entries</td>
+    </tr>
+  </table>
+
+  <h2>Intuit and QuickBooks Online data</h2>
+  <p>Where a QuickBooks Online company is connected to SILO, we access it under OAuth using
+  the <code>com.intuit.quickbooks.accounting</code> scope, and only for the connected
+  company. Specifically:</p>
+  <ul>
+    <li>We read accounting records &mdash; chart of accounts, locations, reports, and
+        transactions &mdash; to display them inside SILO and to reconcile them against our
+        own operational data.</li>
+    <li>Where SILO writes to QuickBooks, it writes journal entries only, and only after a
+        person has reviewed and explicitly confirmed each entry. Nothing is posted
+        automatically.</li>
+    <li>OAuth access and refresh tokens are stored encrypted at rest, are never exposed to
+        the browser, and are readable only by our server-side functions and by
+        administrators of the connected company.</li>
+    <li><strong>We do not sell, rent, or share QuickBooks data with any third party</strong>,
+        and we do not use it for advertising, profiling, or any purpose other than the
+        internal accounting and reporting described here.</li>
+    <li>Disconnecting the integration in SILO deletes the stored tokens and the mirrored
+        QuickBooks reference data.</li>
+  </ul>
+
+  <h2>How data is stored and protected</h2>
+  <ul>
+    <li>Data is held in a managed PostgreSQL database (Supabase) hosted on Amazon Web
+        Services infrastructure in the United States, encrypted in transit and at rest.</li>
+    <li>Access is enforced at the database level by row-level security, scoped to the
+        company a user belongs to. Being signed in is not sufficient to read another
+        company&rsquo;s data.</li>
+    <li>Credentials for connected services are restricted to administrators and to
+        server-side functions.</li>
+    <li>Authentication is by email and password with sessions managed by our auth provider.
+        Access is granted by invitation and revoked when an engagement ends.</li>
+  </ul>
+
+  <h2>Sharing</h2>
+  <p>We do not sell personal information. We share data only with the infrastructure and
+  service providers required to operate SILO &mdash; our database and authentication host,
+  our transactional email provider, and the connected services listed above &mdash; and only
+  to the extent needed to provide those services. We may disclose data where required by
+  law.</p>
+
+  <h2>Retention</h2>
+  <p>Business records are retained for as long as needed for operational, accounting, and
+  legal purposes. Account records are retained while a person has access and for a period
+  afterwards for audit and attribution. Connected-service tokens are deleted when the
+  integration is disconnected.</p>
+
+  <h2>Your choices</h2>
+  <p>Because SILO is an internal tool, people who use it can ask us to review, correct, or
+  delete their account information, subject to our record-keeping and legal obligations.
+  Contact us using the address below.</p>
+
+  <h2>Children</h2>
+  <p>SILO is a workplace tool and is not directed to, or usable by, anyone under 16.</p>
+
+  <h2>Changes</h2>
+  <p>We may update this policy. The revision date at the top of this page always reflects
+  the current version.</p>
+
+  <h2>Contact</h2>
+  <p><a href="mailto:privacy@baseballism.com">privacy@baseballism.com</a></p>
+
+  <footer>
+    See also our <a href="/legal/eula.html">End-User License Agreement</a>.
+  </footer>
+</body>
+</html>
