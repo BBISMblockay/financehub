@@ -254,7 +254,7 @@
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-card-meta" id="funnelMeta">online store</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th title="Each step as a share of sessions, against last week. Change alone drops whenever traffic drops.">vs sessions</th><th>Same wk LY</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th title="Each step as a share of sessions, against last week. Change alone drops whenever traffic drops.">vs sessions</th><th>Same wk LY</th><th title="Against the same week last year. Counts show relative change, rates show percentage points — same meaning as the Change column.">YoY</th><th title="Each step as a share of sessions, against the same week last year. Strips out the traffic difference, so it reads the step's own performance rather than the year's.">YoY vs sess</th></tr></thead>
           <tbody id="funnelBody"></tbody></table>
         </div></div>
       
@@ -827,7 +827,7 @@
     const lyRaw = f.ly, lyComplete = !!(lyRaw && Number(lyRaw.days) >= 7);
     const l = lyComplete ? lyRaw : null;
     if (!t || !Number(t.sessions)) {
-      body.innerHTML = '<tr><td colspan="5" style="color:var(--bcn-ink-3)">No session data for this week yet — the Shopify sessions sync populates this nightly.</td></tr>';
+      body.innerHTML = '<tr><td colspan="8" style="color:var(--bcn-ink-3)">No session data for this week yet — the Shopify sessions sync populates this nightly.</td></tr>';
       el('funnelMeta').textContent = 'no session data yet';
       return;
     }
@@ -854,10 +854,26 @@
           normCell = `<td class="${pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'dim'}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</td>`;
         }
       }
+      // Same two treatments again, against last year instead of last week.
+      // Kept as a matching PAIR rather than one blended column: a single "YoY"
+      // that silently switched between raw and session-normalised depending on
+      // the row is exactly the ambiguity that made a hand-built version of this
+      // table read as a 27.8% collapse in one column and 17.8% in another.
+      let yoyNorm = '<td class="dim">—</td>';
+      if (key !== 'sessions' && lv != null && Number(t.sessions) > 0 && l && Number(l.sessions) > 0) {
+        const curShare = tv / Number(t.sessions);
+        const lyShare = lv / Number(l.sessions);
+        if (lyShare > 0) {
+          const pct = (curShare / lyShare - 1) * 100;
+          yoyNorm = `<td class="${pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'dim'}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</td>`;
+        }
+      }
       return `<tr><td style="${pad}">${label}${share}</td><td>${intFmt(tv)}</td>` +
              `<td>${pv==null?'—':intFmt(pv)}</td>${pv==null?'<td>—</td>':deltaCell(tv,pv)}` +
              normCell +
-             `<td>${lv==null?'—':intFmt(lv)}</td></tr>`;
+             `<td>${lv==null?'—':intFmt(lv)}</td>` +
+             `${lv==null?'<td class="dim">—</td>':deltaCell(tv,lv)}` +
+             yoyNorm + `</tr>`;
     };
     const rateRow = (label, key) => {
       const tv = t[key]==null?null:Number(t[key]);
@@ -865,11 +881,20 @@
       const lv = l&&l[key]!=null?Number(l[key]):null;
       const pt = (tv!=null&&pv!=null) ? tv-pv : null;
       const cls = pt==null?'dim':(pt>0?'pos':pt<0?'neg':'dim');
+      // Rates move in POINTS, not percent -- 5.36% to 4.63% is -0.73 pt, and
+      // calling it -13.6% is a different (also true) statement about a
+      // different quantity. The YoY cell uses points for the same reason the
+      // Change cell does. The relative version of this row is already carried
+      // by the normalised cell on the count row above it.
+      const lpt = (tv!=null&&lv!=null) ? tv-lv : null;
+      const lcls = lpt==null?'dim':(lpt>0?'pos':lpt<0?'neg':'dim');
       return `<tr class="wow-rate"><td>${label}</td><td>${tv==null?'—':tv.toFixed(2)+'%'}</td>` +
              `<td>${pv==null?'—':pv.toFixed(2)+'%'}</td>` +
              `<td class="${cls}">${pt==null?'—':(pt>=0?'+':'')+pt.toFixed(2)+' pt'}</td>` +
              `<td class="dim">—</td>` +
-             `<td>${lv==null?'—':lv.toFixed(2)+'%'}</td></tr>`;
+             `<td>${lv==null?'—':lv.toFixed(2)+'%'}</td>` +
+             `<td class="${lcls}">${lpt==null?'—':(lpt>=0?'+':'')+lpt.toFixed(2)+' pt'}</td>` +
+             `<td class="dim">—</td></tr>`;
     };
 
     body.innerHTML =
@@ -1213,17 +1238,30 @@
 
     // ---- website & sales ----
     section('WEBSITE — funnel');
-    push('Stage','This week','Prior week','Change %','vs sessions %','Same week LY');
-    const t = fn.this, pv = fn.prev, ly = fn.ly;
+    push('Stage','This week','Prior week','Change %','vs sessions %','Same week LY','YoY %','YoY vs sess %');
+    const t = fn.this, pv = fn.prev;
+    // Same completeness guard the table uses. Sessions history only reaches
+    // back to the first ShopifyQL backfill, so a year-ago window is often
+    // partial -- and a partial column in a CSV is worse than one on screen,
+    // because it outlives the caveat. Withhold it here exactly as the UI does.
+    const ly = (fn.ly && Number(fn.ly.days) >= 7) ? fn.ly : null;
     const pct = (a,b) => (a != null && b) ? Math.round(((a-b)/b)*1000)/10 : '';
-    const norm = (key) => (t && pv && t.sessions && pv.sessions && pv[key])
-      ? Math.round((((t[key]/t.sessions)/(pv[key]/pv.sessions))-1)*1000)/10 : '';
+    const pt  = (a,b) => (a != null && b != null) ? Math.round((a-b)*100)/100 : '';
+    const normVs = (key, base) => (t && base && t.sessions && base.sessions && base[key])
+      ? Math.round((((t[key]/t.sessions)/(base[key]/base.sessions))-1)*1000)/10 : '';
     [['Sessions','sessions'],['Added to cart','added_to_cart'],
      ['Reached checkout','reached_checkout'],['Completed checkout','completed_checkout']]
       .forEach(([label,key]) => push(label, t?.[key] ?? '', pv?.[key] ?? '',
-        pct(t?.[key], pv?.[key]), key === 'sessions' ? '' : norm(key), ly?.[key] ?? ''));
+        pct(t?.[key], pv?.[key]),
+        key === 'sessions' ? '' : normVs(key, pv),
+        ly?.[key] ?? '',
+        pct(t?.[key], ly?.[key]),
+        key === 'sessions' ? '' : normVs(key, ly)));
+    // Rates are POINT changes, not percent -- and they were exporting blank
+    // before, so the CSV silently dropped a column the screen was showing.
     [['Cart rate','cart_rate'],['Conversion rate','cvr'],['Checkout completion','checkout_completion']]
-      .forEach(([label,key]) => push(label, t?.[key] ?? '', pv?.[key] ?? '', '', '', ly?.[key] ?? ''));
+      .forEach(([label,key]) => push(label, t?.[key] ?? '', pv?.[key] ?? '',
+        pt(t?.[key], pv?.[key]), '', ly?.[key] ?? '', pt(t?.[key], ly?.[key]), ''));
 
     section('WEBSITE — top products');
     push('Product','Units','Net sales','On hand','Days of stock');
