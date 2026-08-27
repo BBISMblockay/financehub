@@ -40,6 +40,11 @@
 -- marketing_kpis_daily by platform must exclude it -- see the catalog note
 -- at the bottom of this migration, which is what stops Ask SILO doing it.
 --
+-- platforms_not_synced is derived from ad_platform_connections (via the
+-- ad_platforms_expected() helper below), never a hardcoded platform list:
+-- a platform nobody connected is not a failed sync, and a permanent false
+-- alarm is worse than no alarm at all.
+--
 -- Every scan is date-bounded so the planner uses sales_by_day_company_day_idx
 -- rather than seq-scanning the largest table in the database -- the lesson
 -- from 20260827170000, where an unbounded lookup blew the statement timeout
@@ -47,6 +52,34 @@
 --
 -- Ratios are null, never 0, when the denominator is empty: "nothing spent"
 -- and "spent and got nothing" must not render alike.
+
+-- Which ad platforms this company has actually configured. SECURITY DEFINER
+-- for the same reason is_employee_manager() is: ad_platform_connections is
+-- is_admin_user()-gated because its rows carry live OAuth tokens, and
+-- wow_paid_media_reality is not definer (it must read sales under the
+-- caller's own RLS). Without this a non-admin would read zero connection
+-- rows and the not-synced alarm would be permanently empty for them --
+-- silent exactly where it is supposed to speak up. A list of platform names
+-- is not sensitive; the tokens on those rows are, and stay unreadable.
+create or replace function public.ad_platforms_expected()
+returns setof text
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $fn$
+  select c.platform
+  from public.ad_platform_connections c
+  where c.company_entity_id = public.active_company_id()
+    and c.is_active
+    and c.sync_enabled
+    and c.platform <> 'ga4'   -- analytics, not an ad platform: no spend to miss
+$fn$;
+
+grant execute on function public.ad_platforms_expected() to authenticated;
+
+comment on function public.ad_platforms_expected() is
+  'Ad platform names the active company has configured and enabled for sync, excluding ga4. SECURITY DEFINER so a non-admin can learn WHICH platforms are expected without reading ad_platform_connections itself, whose rows carry OAuth tokens and are is_admin_user()-gated.';
 
 create or replace function public.wow_paid_media_reality(p_report_date date)
 returns jsonb
@@ -92,15 +125,17 @@ cust as (
     and c.shop_domain in (select shop_domain from public.wow_online_shop_domains())
 ),
 not_synced as (
-  -- An ad platform with no rows at all in the window. tiktok_ads has never
-  -- written a row despite tiktok_ads_kpis being a valid sync_jobs type, so
-  -- whatever it spends is in none of these numbers. Reporting the omission
-  -- beats silently averaging it away.
-  select coalesce(jsonb_agg(t.platform order by t.platform), '[]'::jsonb) as platforms
-  from unnest(array['meta_ads', 'google_ads', 'tiktok_ads']) as t(platform)
+  -- Platforms this company CONFIGURED that wrote nothing in the window.
+  -- Derived from the connection list, never a hardcoded array: a platform
+  -- nobody connected is not a failed sync, and naming one every single week
+  -- trains people to scroll past the row that will one day actually matter.
+  -- TikTok has no connection row as of Aug 2026, so it is correctly silent
+  -- here; the first cut hardcoded it and would have cried wolf forever.
+  select coalesce(jsonb_agg(p order by p), '[]'::jsonb) as platforms
+  from public.ad_platforms_expected() as p
   where not exists (
     select 1 from public.marketing_kpis_daily k cross join w
-    where k.platform = t.platform
+    where k.platform = p
       and k.company_entity_id = public.active_company_id()
       and k.day_date between w.s and w.e
   )
