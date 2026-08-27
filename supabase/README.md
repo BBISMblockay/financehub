@@ -307,6 +307,7 @@ supabase/
     20260827210000_quickbooks_reports.sql
     20260827220000_schedule_items.sql
     20260827230000_schedule_exclusions_and_files.sql
+    20260827240000_schedule_payment_request_link.sql
     20260826120000_top_sellers_type_variance.sql
     20260826230000_sales_by_product_title_daily.sql
     20260826130000_wow_report_rpc.sql
