@@ -1887,14 +1887,18 @@ const SHOPIFYQL_MAX_DAYS = 365;
 export async function shopifyql(connection, query) {
   const apiVersion = connection.api_version || DEFAULT_API_VERSION;
   const url = `https://${connection.shop_domain}/admin/api/${apiVersion}/graphql.json`;
+  // Shape corrected against what the API actually reported on 2026-08-27.
+  // The first attempt fragmented on a `TableResponse` type and sub-selected
+  // `parseErrors { code message }`; Shopify rejected both:
+  //   "No such type TableResponse, so it can't be a fragment condition"
+  //   "field 'parseErrors' returns String but has selections"
+  // So: no fragment, and parseErrors is a scalar list.
   const body = {
     query: `query Ql($q: String!) {
       shopifyqlQuery(query: $q) {
         __typename
-        ... on TableResponse {
-          tableData { columns { name } rowData }
-        }
-        parseErrors { code message }
+        parseErrors
+        tableData { columns { name } rowData }
       }
     }`,
     variables: { q: query },
@@ -1918,9 +1922,10 @@ export async function shopifyql(connection, query) {
   }
   const payload = json?.data?.shopifyqlQuery;
   if (payload?.parseErrors?.length) {
-    throw new Error(
-      `ShopifyQL rejected the query: ${payload.parseErrors.map((e) => `${e.code} ${e.message}`).join('; ')}`,
-    );
+    // Scalar strings, but tolerate objects in case a future version changes it.
+    const msgs = payload.parseErrors.map((e) =>
+      typeof e === 'string' ? e : `${e?.code ?? ''} ${e?.message ?? ''}`.trim());
+    throw new Error(`ShopifyQL rejected the query: ${msgs.join('; ')}`);
   }
   const table = payload?.tableData;
   if (!table) return [];
@@ -1931,6 +1936,46 @@ export async function shopifyql(connection, query) {
     cols.forEach((c, i) => { o[c] = row[i]; });
     return o;
   });
+}
+
+/**
+ * Ask the store's own GraphQL endpoint what shopifyqlQuery actually returns.
+ * Only runs when a query has already failed -- it turns "wrong shape, try
+ * again" into a single run that names the real fields.
+ */
+export async function describeShopifyqlSchema(connection) {
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const url = `https://${connection.shop_domain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': connection.access_token,
+    'Content-Type': 'application/json',
+  };
+  const ask = async (query) => {
+    const res = await fetchWithRetry(url, { method: 'POST', headers, body: JSON.stringify({ query }) });
+    return res.json();
+  };
+
+  const rootJson = await ask(`{ __schema { queryType { fields { name
+      type { kind name ofType { kind name } } } } } }`);
+  const fields = rootJson?.data?.__schema?.queryType?.fields || [];
+  const field = fields.find((f) => f.name === 'shopifyqlQuery');
+  if (!field) return { available: false, note: 'shopifyqlQuery is not on the query root for this API version' };
+
+  const typeName = field.type?.name || field.type?.ofType?.name;
+  if (!typeName) return { available: true, note: 'shopifyqlQuery present but its return type could not be unwrapped' };
+
+  const typeJson = await ask(`{ __type(name: "${typeName}") { kind name
+      fields { name type { kind name ofType { kind name ofType { kind name } } } }
+      possibleTypes { name } } }`);
+  const t = typeJson?.data?.__type;
+  const unwrap = (ty) => ty?.name || ty?.ofType?.name || ty?.ofType?.ofType?.name || ty?.kind || '?';
+  return {
+    available: true,
+    return_type: typeName,
+    kind: t?.kind,
+    fields: (t?.fields || []).map((f) => `${f.name}: ${unwrap(f.type)}`),
+    possible_types: (t?.possibleTypes || []).map((p) => p.name),
+  };
 }
 
 const qlNum = (v) => {
@@ -1968,7 +2013,26 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
   const iso = (d) => d.toISOString().slice(0, 10);
   const range = `SINCE ${iso(since)} UNTIL ${iso(until)}`;
 
-  const [sessionRows, customerRows] = await Promise.all([
+  let sessionRows, customerRows;
+  try {
+    [sessionRows, customerRows] = await fetchQlPair(connection, range);
+  } catch (err) {
+    // One guess at the schema already cost a run. Report the real shape so the
+    // next attempt is informed rather than another guess.
+    let schema = null;
+    try { schema = await describeShopifyqlSchema(connection); }
+    catch (e2) { schema = { introspection_failed: e2.message || String(e2) }; }
+    const detail = new Error(`${err.message || err} :: shopifyqlQuery schema = ${JSON.stringify(schema)}`);
+    detail.schema = schema;
+    throw detail;
+  }
+
+  const now = new Date().toISOString();
+  return await finishSessionsSync(supabase, connection, { batchId, iso, since, sessionRows, customerRows, now });
+}
+
+async function fetchQlPair(connection, range) {
+  return Promise.all([
     shopifyql(connection,
       `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
       `sessions_that_reached_checkout, sessions_that_completed_checkout ` +
@@ -1977,8 +2041,9 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
       `FROM sales SHOW customers, new_customers, returning_customers ` +
       `TIMESERIES day ${range}`),
   ]);
+}
 
-  const now = new Date().toISOString();
+async function finishSessionsSync(supabase, connection, { batchId, iso, since, sessionRows, customerRows, now }) {
   const base = {
     company_entity_id: connection.company_entity_id,
     shop_domain: connection.shop_domain,
