@@ -39,7 +39,7 @@ update public.silo_chat_schema_catalog
      'never-sold on a false -- exclude those rows and state how many you excluded. '
      'Confirmed 2026-08-27: products with thousands of units sold and real on-hand '
      'value read as 0 units here. last_sold_date is NULL on the same rows for the same '
-     'reason, so "never" there also means unknown.'))
+     'reason, so "never" there also means unknown. velocity_source says how a row got its numbers: title = exact as-sold title match; sku_fallback = matched on SKU+location because the title had drifted and that SKU has exactly one as-sold name (still trustworthy); none = no match, numbers are meaningless.'))
  where relname = 'inventory_workboard_v';
 
 select relname, left(description, 120) as description_head
