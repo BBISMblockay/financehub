@@ -49,6 +49,7 @@ const num = (v) => {
 function kpiRow(connection, platform, { accountId, accountName, day, campaignId, campaignName,
   impressions = 0, clicks = 0, spend = 0, conversions = 0, conversionValue = 0, sessions = null,
   viewContent = null, addToCart = null, initiateCheckout = null,
+  thruplays = null, leads = null,
 }, { syncedAt, batchId, source }) {
   return {
     company_entity_id: connection.company_entity_id,
@@ -69,6 +70,11 @@ function kpiRow(connection, platform, { accountId, accountName, day, campaignId,
     view_content: viewContent == null ? null : Math.round(num(viewContent)),
     add_to_cart: addToCart == null ? null : Math.round(num(addToCart)),
     initiate_checkout: initiateCheckout == null ? null : Math.round(num(initiateCheckout)),
+    // Preserve the null/0 distinction all the way to the column: null means
+    // the platform did not report the metric, 0 means it reported zero.
+    // Google rows never carry these and stay null.
+    thruplays: thruplays == null ? null : Math.round(num(thruplays)),
+    leads: leads == null ? null : Math.round(num(leads)),
     // Identity only — metrics stay out so restated numbers upsert in place.
     row_hash: hashRow([
       connection.company_entity_id, platform, platform,
@@ -216,6 +222,66 @@ function pickAction(actions, eventName) {
     ?? (actions ?? []).find((a) => a.action_type === eventName);
 }
 
+/** Sum an actions[] entry across several possible action_type spellings.
+ * Meta reports the same conceptual event under different names depending on
+ * how the campaign was built -- a lead is `lead` on some campaigns and
+ * `onsite_conversion.lead_grouped` on others -- and picking only one name
+ * silently returns 0 for the campaigns using the other. Takes the largest
+ * single match rather than summing, since the variants overlap and adding
+ * them would double count. */
+function pickActionAny(actions, names) {
+  let best = null;
+  for (const n of names) {
+    const hit = pickAction(actions, n);
+    const v = hit == null ? null : Number(hit.value);
+    if (v != null && Number.isFinite(v) && (best == null || v > best)) best = v;
+  }
+  return best;
+}
+
+const LEAD_ACTION_TYPES = [
+  'lead',
+  'onsite_conversion.lead_grouped',
+  'offsite_conversion.fb_pixel_lead',
+  'onsite_web_lead',
+  'leadgen_grouped',
+];
+
+/** Thruplays. Meta exposes these as their own top-level insights field
+ * (`video_thruplay_watched_actions`), shaped like actions[]. Some campaigns
+ * also surface a thruplay entry inside actions[], so fall back to that before
+ * giving up -- but return null, never 0, when neither is present: a campaign
+ * that does not report thruplays has not scored zero thruplays. */
+function pickThruplays(row) {
+  const field = row?.video_thruplay_watched_actions;
+  if (Array.isArray(field) && field.length) {
+    const total = field.reduce((n, a) => n + (Number(a.value) || 0), 0);
+    if (Number.isFinite(total)) return total;
+  }
+  return pickActionAny(row?.actions, ['video_thruplay_watched', 'thruplay']);
+}
+
+/** Meta rejects an ENTIRE insights request if any requested field name is
+ * invalid -- so adding a field is not a free action: get the name wrong and
+ * the nightly marketing sync stops returning anything at all, not just the
+ * new column. `video_thruplay_watched_actions` is documented, but it is not
+ * verifiable from here, so callers request it behind a flag that the fetch
+ * loop clears and retries without on a field-name rejection. Degrading to
+ * "no thruplays" beats taking down spend and ROAS with it. */
+function metaInsightFields(base, includeThruplays) {
+  return includeThruplays ? `${base},video_thruplay_watched_actions` : base;
+}
+
+/** Does this Meta error look like the API rejecting a field NAME, rather than
+ * a transient failure worth retrying as-is? Matching the message is ugly, but
+ * Meta returns the same generic code (100) for several unrelated problems, so
+ * the message is the only thing that distinguishes them. */
+function isMetaUnknownFieldError(err) {
+  const m = String(err?.message || err || '');
+  return /(\(#100\)|param.*fields|Unsupported get request|Tried accessing nonexisting field|Syntax error)/i.test(m)
+    && /field|fields/i.test(m);
+}
+
 /** Campaign-level daily Meta insights for the standard nightly sync. Chunked
  * into short windows internally for the same reason as fetchMetaAdLevelRows
  * below: a wide time_increment=1 window trips Meta's "reduce the amount of
@@ -229,20 +295,36 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
   const acct = String(connection.meta_ad_account_id);
   const rows = [];
   const endAll = new Date(`${window.endDate}T00:00:00Z`);
+  // Cleared for the rest of the run the first time Meta rejects the field.
+  let withThruplays = true;
 
   for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
     const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
-    let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
+    const buildUrl = () => `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
       level: 'campaign',
       time_increment: '1',
       time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
-      fields: 'account_id,account_name,campaign_id,campaign_name,impressions,clicks,spend,actions,action_values',
+      fields: metaInsightFields('account_id,account_name,campaign_id,campaign_name,impressions,clicks,spend,actions,action_values', withThruplays),
       limit: '500',
       access_token: token,
     }).toString();
+    let url = buildUrl();
 
     while (url) {
-      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta insights');
+      let data;
+      try {
+        data = await fetchMetaJsonOrThrow(url, {}, 'Meta insights');
+      } catch (err) {
+        // Drop the optional field and retry once. Losing thruplays costs a
+        // column; losing the request costs spend and ROAS with it.
+        if (withThruplays && isMetaUnknownFieldError(err)) {
+          console.warn('[warn] Meta rejected video_thruplay_watched_actions, retrying without it:', err.message);
+          withThruplays = false;
+          url = buildUrl();
+          continue;
+        }
+        throw err;
+      }
       for (const r of data.data ?? []) {
         // "Conversions" for a store = purchases — the bottom of the funnel;
         // view_content/add_to_cart/initiate_checkout are the stages above it.
@@ -262,6 +344,10 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
           viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
           addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
           initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
+          // null, not 0 -- a campaign that does not report the metric has not
+          // scored zero on it.
+          thruplays: pickThruplays(r),
+          leads: pickActionAny(r.actions, LEAD_ACTION_TYPES),
         });
       }
       url = data.paging?.next ?? null;
@@ -294,6 +380,10 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
       level: 'ad',
       time_increment: '1',
       time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
+      // Ad level deliberately does NOT request thruplays: meta_ad_performance_daily
+      // has no column for them, and the creative table is scoped to purchase
+      // campaigns, which are judged on ROAS. Requesting an unused field here
+      // would risk the whole ad-level request for nothing.
       fields: 'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
       limit: '500',
       access_token: token,
