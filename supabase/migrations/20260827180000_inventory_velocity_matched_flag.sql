@@ -53,11 +53,6 @@ as
     coalesce(v.avg_day_120,0) as avg_day_120,
     coalesce(v.avg_day_365,0) as avg_day_365,
     v.last_sold_date,
-    -- TRUE  = this row joined to sales history; its zeros are real zeros.
-    -- FALSE = no velocity row matched; every qty/avg column above is a
-    --         coalesce artefact and means "unknown", not "none". Never rank,
-    --         sort or flag a row as slow-moving on a FALSE.
-    (v.variant_sku is not null) as velocity_matched,
     case
       when coalesce(v.avg_day_30, 0) > 0
         then round(coalesce(i.total_available_quantity, 0)::numeric / v.avg_day_30, 1)
@@ -69,7 +64,19 @@ as
       when coalesce(v.avg_day_30, 0) > 0 then '30d'
       when coalesce(v.avg_day_7,  0) > 0 then '7d'
       else 'none'
-    end as velocity_basis
+    end as velocity_basis,
+    -- MUST STAY LAST. `create or replace view` can only APPEND columns -- it
+    -- cannot insert one mid-list, and trying to does not error usefully: it
+    -- reports "cannot change name of view column days_oos to
+    -- velocity_matched", because positionally that is what it sees. Any future
+    -- column goes after this one, or the statement has to become a drop +
+    -- recreate (which loses grants and breaks dependents).
+    --
+    -- TRUE  = this row joined to sales history; its zeros are real zeros.
+    -- FALSE = no velocity row matched; every qty/avg column above is a
+    --         coalesce artefact and means "unknown", not "none". Never rank,
+    --         sort or flag a row as slow-moving on a FALSE.
+    (v.variant_sku is not null) as velocity_matched
   from public.inventory_on_hand_current_v i
   left join public.sales_velocity_by_sku_location_v v
     on  lower(trim(i.location_tag)) = v.location_tag
