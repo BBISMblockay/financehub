@@ -1,0 +1,53 @@
+name: Sales freshness check
+
+# Independent alarm for "the nightly sync did not run".
+#
+# It is a SEPARATE workflow on purpose. A check bolted onto the end of
+# shopify-sync.yml cannot detect a dropped sync, because a dropped sync never
+# reaches the check. Two separate workflows have to both be dropped for this to
+# go unnoticed, which is far less likely than one.
+#
+# Times are offset from the sync's own crons (08:30 / 14:30 UTC) so each check
+# lands after a run has had time to finish -- a normal full sync takes ~75min.
+#   11:00 UTC = 4am PT, after the 08:30 nightly should have completed
+#   17:00 UTC = 10am PT, after the 14:30 catch-up should have completed
+#   23:00 UTC = 4pm PT, a last look before the US day ends
+#
+# Reporting is the exit code: a failed run emails the repo owner, with no extra
+# secret, key or webhook to configure or let rot.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_lag_days:
+        description: Max acceptable lag in days behind the last complete Pacific day (default 1)
+        required: false
+  schedule:
+    - cron: "0 11 * * *"
+    - cron: "0 17 * * *"
+    - cron: "0 23 * * *"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MAX_LAG_DAYS: ${{ github.event.inputs.max_lag_days || '1' }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check sales freshness
+        run: node scripts/check-sales-freshness.mjs
