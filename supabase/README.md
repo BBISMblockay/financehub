@@ -309,6 +309,7 @@ supabase/
     20260826130000_wow_report_rpc.sql
     20260826140000_wow_report_entries.sql
     20260826150000_shopify_sessions_daily.sql
+    20260827180000_paid_media_reality_check.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
