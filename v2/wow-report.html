@@ -1351,7 +1351,15 @@
     } catch (e) { console.warn('data_through unavailable:', e.message); }
     DATA_THROUGH = through;
     el('reportDate').value = through || iso(new Date());
-    el('reportDate').max = through || iso(new Date());
+    // Cap the picker at today, NOT at the last complete day. Capping at
+    // complete_through only greys the calendar popup -- a native date input
+    // still accepts a typed or arrow-keyed value past `max` -- so the same
+    // page let one person reach 8/26 by typing and told the next person it
+    // did not exist. Both paths now behave the same, and the partial-week
+    // banner below does the warning the cap was pretending to do. The
+    // default still lands on the last complete day, so nobody reads a
+    // partial week by accident.
+    el('reportDate').max = iso(new Date());
     el('reportDate').addEventListener('change', async () => {
       if (dirty && !confirm('You have unsaved notes on this week. Switch date anyway?')) return;
       await load();
