@@ -71,6 +71,14 @@
     .bcn-card.is-collapsed > .bcn-card-header::after { transform:rotate(-90deg); }
     .bcn-card.is-collapsed > *:not(.bcn-card-header) { display:none; }
 
+    .wow-mt-head { cursor:pointer; user-select:none; display:flex; align-items:center; }
+    .wow-mt-head::after {
+      content:'\25BE'; margin-left:auto; padding-left:10px; color:var(--bcn-ink-3);
+      font-size:10px; transition:transform .12s ease;
+    }
+    .wow-mt.is-collapsed > .wow-mt-head::after { transform:rotate(-90deg); }
+    .wow-mt.is-collapsed > *:not(.wow-mt-head) { display:none; }
+
     .wow-sec { scroll-margin-top:52px; }
     .wow-sec {
       display:flex; align-items:baseline; gap:10px; margin:18px 0 2px; padding:0 2px;
@@ -248,10 +256,6 @@
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th title="Each step as a share of sessions, against last week. Change alone drops whenever traffic drops.">vs sessions</th><th>Same wk LY</th></tr></thead>
           <tbody id="funnelBody"></tbody></table>
-        </div></div>
-        <div class="bcn-card-body" style="padding:0;border-top:1px solid var(--bcn-border)"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Period</th><th>Sessions (GA4)</th><th>Site revenue</th></tr></thead>
-          <tbody id="ga4Body"></tbody></table>
         </div></div>
       
         <details class="wow-say" data-key="traffic">
@@ -479,7 +483,7 @@
   ];
   const MANUAL_NOTES = [
     ['competition','competition','Competition — weekly scan','Competitor actions, partnerships, anything worth reacting to.'],
-    ['affiliate_notes','affiliate','Affiliate — programme notes','What was seeded, what came back, next week’s pushes.'],
+    ['affiliate_notes','affiliate','Affiliate — program notes','What was seeded, what came back, next week’s pushes.'],
   ];
 
   let MANUAL_BUILT = false;
@@ -893,6 +897,33 @@
   }
   function initCollapse(){
     const closed = readCollapsed();
+
+    // Manual tables are their own blocks inside a headerless card, so they
+    // need binding separately -- the card loop below keys off .bcn-card-header
+    // and would skip every one of them.
+    document.querySelectorAll('.wow-mt').forEach(mt => {
+      const head = mt.querySelector('.wow-mt-head');
+      if (!head || head.dataset.collapseBound) return;
+      head.dataset.collapseBound = '1';
+      head.setAttribute('role', 'button');
+      head.setAttribute('tabindex', '0');
+      const key = 'mt:' + head.textContent.trim();
+      if (closed.has(key)) mt.classList.add('is-collapsed');
+      const toggle = () => {
+        mt.classList.toggle('is-collapsed');
+        const set = readCollapsed();
+        mt.classList.contains('is-collapsed') ? set.add(key) : set.delete(key);
+        writeCollapsed(set);
+      };
+      head.addEventListener('click', ev => {
+        if (ev.target.closest('button, a, input, select, textarea')) return;
+        toggle();
+      });
+      head.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
+      });
+    });
+
     document.querySelectorAll('.silo-main .bcn-card').forEach(card => {
       const head = card.querySelector('.bcn-card-header');
       if (!head || head.dataset.collapseBound) return;
@@ -919,12 +950,18 @@
     if (btn && !btn.dataset.bound) {
       btn.dataset.bound = '1';
       btn.addEventListener('click', () => {
-        const cards = [...document.querySelectorAll('.silo-main .bcn-card')];
-        const anyOpen = cards.some(c => !c.classList.contains('is-collapsed'));
+        const cards = [...document.querySelectorAll('.silo-main .bcn-card')].filter(c => c.querySelector('.bcn-card-header'));
+        const mts = [...document.querySelectorAll('.wow-mt')];
+        const anyOpen = [...cards, ...mts].some(c => !c.classList.contains('is-collapsed'));
         const set = new Set();
         cards.forEach(c => {
           c.classList.toggle('is-collapsed', anyOpen);
           if (anyOpen) set.add(cardKey(c));
+        });
+        mts.forEach(mt => {
+          mt.classList.toggle('is-collapsed', anyOpen);
+          const h = mt.querySelector('.wow-mt-head');
+          if (anyOpen && h) set.add('mt:' + h.textContent.trim());
         });
         writeCollapsed(set);
         btn.textContent = anyOpen ? 'Expand all' : 'Collapse all';
@@ -1024,10 +1061,6 @@
     renderCodes();
     renderCohorts();
 
-    el('ga4Body').innerHTML =
-      `<tr><td>Same week last year</td><td>${intFmt(g.sessions_ly)}</td><td>${money(g.revenue_ly)}</td></tr>` +
-      `<tr><td>This week</td><td>${intFmt(g.sessions_ty)}</td><td>${money(g.revenue_ty)}</td></tr>` +
-      `<tr><td>Change</td>${deltaCell(g.sessions_ty, g.sessions_ly)}${deltaCell(g.revenue_ty, g.revenue_ly)}</tr>`;
 
     const prods = d.top_products || [];
     el('prodMeta').textContent = `${prods.length} products · online`;
