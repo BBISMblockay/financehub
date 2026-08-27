@@ -13,6 +13,16 @@
 -- coverage. 2025-11 had 10 of 30 days, 2025-12 five of 31. A naive query over
 -- that returned 0.0% month-1 retention on a 7,347-customer cohort.
 --
+-- SCOPE: online only. The report states "POS, wholesale and draft orders are
+-- excluded", and cohorts must measure the same population as everything else
+-- on the page. The first version of this cohorted all 14 shops including
+-- 55,645 POS orders across 12 retail stores, which understated online
+-- retention by ~44% (June 2026 read 7.7% month-1 against a true 11.1%)
+-- because retail-first customers rarely repeat online and diluted the rate.
+-- It would also have broken under a backfill scoped to the online connection:
+-- history online-only, recent months all-channel, so a retail-first customer
+-- reads as brand new when they later buy online.
+--
 -- So every cell is gated on coverage of BOTH months involved -- the cohort's
 -- own month and the month being measured. Anything not fully covered returns
 -- null with the reason, never a number. As shopify-orders-backfill.yml fills
@@ -26,6 +36,14 @@ with bounds as (
   select date_trunc('month', current_date)::date as this_month,
          (date_trunc('month', current_date) - make_interval(months => greatest(coalesce(p_months,12),1)))::date as from_month
 ),
+-- One definition of "online", used by coverage and cohorts alike so they can
+-- never drift apart.
+o_all as (
+  select o.customer_id, o.shopify_created_at
+  from public.shopify_orders o
+  where o.company_entity_id = public.active_company_id()
+    and coalesce(o.source_name,'') not in ('pos', 'faire', 'shopify_draft_order')
+),
 months as (
   select generate_series((select from_month from bounds), (select this_month from bounds), interval '1 month')::date as mon
 ),
@@ -37,9 +55,7 @@ cov as (
               then extract(day from current_date)::int
               else extract(day from (m.mon + interval '1 month - 1 day'))::int end as days_expected
   from months m
-  left join public.shopify_orders o
-    on o.company_entity_id = public.active_company_id()
-   and date_trunc('month', o.shopify_created_at)::date = m.mon
+  left join o_all o on date_trunc('month', o.shopify_created_at)::date = m.mon
   group by m.mon
 ),
 covered as (
@@ -50,20 +66,15 @@ covered as (
   from cov
 ),
 firsts as (
-  select o.customer_id, date_trunc('month', min(o.shopify_created_at))::date as cohort
-  from public.shopify_orders o
-  where o.company_entity_id = public.active_company_id()
-    and o.customer_id is not null
-  group by 1
+  select customer_id, date_trunc('month', min(shopify_created_at))::date as cohort
+  from o_all where customer_id is not null group by 1
 ),
 acts as (
   select f.cohort, o.customer_id,
          ((extract(year from age(date_trunc('month', o.shopify_created_at), f.cohort)) * 12)
           + extract(month from age(date_trunc('month', o.shopify_created_at), f.cohort)))::int as m_off
-  from public.shopify_orders o
-  join firsts f on f.customer_id = o.customer_id
-  where o.company_entity_id = public.active_company_id()
-    and o.customer_id is not null
+  from o_all o join firsts f on f.customer_id = o.customer_id
+  where o.customer_id is not null
 ),
 sized as (
   select a.cohort, count(distinct a.customer_id) filter (where a.m_off = 0) as size,
@@ -94,6 +105,7 @@ rate as (
   where s.cohort >= (select from_month from bounds)
 )
 select jsonb_build_object(
+  'scope', 'online',
   'months_requested', greatest(coalesce(p_months,12),1),
   'months_complete', (select count(*) from covered where ok),
   'months_total', (select count(*) from covered),
