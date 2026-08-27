@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Balance Sheet Schedules</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-panel); border-bottom: 1px solid var(--bcn-border); }
+    .sc-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+
+    .sc-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+      background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+    .sc-field { display: flex; flex-direction: column; gap: 4px; }
+    .sc-field label { font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .sc-field select, .sc-field input { font-size: 12px; min-width: 150px; }
+    .sc-field--wide select { min-width: 300px; }
+
+    /* The tie-out is the point of the page, so it reads as a verdict rather
+       than another number in a table. */
+    .sc-tie { display: flex; gap: 22px; flex-wrap: wrap; align-items: center;
+      border: 1px solid var(--bcn-border); border-radius: 12px;
+      padding: 12px 16px; margin-bottom: 14px; background: var(--bcn-panel); }
+    .sc-tie--ok  { border-color: var(--bcn-pos-border); background: var(--bcn-pos-soft); }
+    .sc-tie--off { border-color: var(--bcn-neg-border); background: var(--bcn-neg-soft); }
+    .sc-tie-item { display: flex; flex-direction: column; gap: 2px; }
+    .sc-tie-label { font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .sc-tie-value { font-family: var(--bcn-mono); font-size: 17px; font-weight: 650; }
+    .sc-tie-note { font-size: 12px; }
+
+    .sc-card { background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+    .sc-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .sc-title { font-weight: 650; font-size: 14px; }
+    .sc-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+
+    .sc-scroll { overflow: auto; max-height: 46vh; }
+    .sc-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 12px; }
+    .sc-table th { position: sticky; top: 0; z-index: 2; background: var(--bcn-sunken);
+      text-align: left; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
+    .sc-table td { padding: 6px 10px; border-bottom: 1px solid var(--bcn-border);
+      vertical-align: top; line-height: 1.45; }
+    .sc-table tbody tr:nth-child(even) td { background: rgba(15,23,42,.015); }
+    .sc-num { text-align: right; font-family: var(--bcn-mono);
+      white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .sc-memo { max-width: 340px; overflow-wrap: anywhere;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .sc-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    .sc-stamped { opacity: .55; }
+
+    dialog { border: 1px solid var(--bcn-border); border-radius: 14px;
+      padding: 0; max-width: 520px; width: 92vw; }
+    .sc-dlg-head { padding: 14px 16px; border-bottom: 1px solid var(--bcn-border); font-weight: 650; }
+    .sc-dlg-body { padding: 16px; display: grid; gap: 12px; }
+    .sc-dlg-foot { padding: 12px 16px; border-top: 1px solid var(--bcn-border);
+      display: flex; justify-content: flex-end; gap: 8px; }
+    .sc-preview { font-family: var(--bcn-mono); font-size: 11px;
+      background: var(--bcn-sunken); border-radius: 8px; padding: 10px; line-height: 1.6; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Balance Sheet Schedules</div>
+          <div class="bcn-header-sub">Prepaids and other amortised items. Nothing here posts to QuickBooks.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn" id="btnFetch">Fetch transactions</button>
+          <button class="bcn-btn" id="btnExclude" disabled>Exclude selected…</button>
+          <button class="bcn-btn bcn-btn--primary" id="btnStamp" disabled>Stamp selected…</button>
+        </div>
+      </header>
+
+      <div class="sc-page">
+        <div class="bcn-status" id="status" hidden></div>
+
+        <div class="sc-bar">
+          <div class="sc-field sc-field--wide">
+            <label for="account">Balance sheet account</label>
+            <select class="bcn-field bcn-field--mono" id="account"></select>
+          </div>
+          <div class="sc-field">
+            <label for="from">From</label>
+            <input class="bcn-field" id="from" type="date" />
+          </div>
+          <div class="sc-field">
+            <label for="to">To</label>
+            <input class="bcn-field" id="to" type="date" />
+          </div>
+        </div>
+
+        <div class="sc-tie" id="tie">
+          <div class="sc-tie-item">
+            <div class="sc-tie-label">QuickBooks balance</div>
+            <div class="sc-tie-value" id="tieLedger">—</div>
+          </div>
+          <div class="sc-tie-item">
+            <div class="sc-tie-label">Stamped</div>
+            <div class="sc-tie-value" id="tieStamped">—</div>
+          </div>
+          <div class="sc-tie-item">
+            <div class="sc-tie-label">Excluded</div>
+            <div class="sc-tie-value" id="tieExcluded">—</div>
+          </div>
+          <div class="sc-tie-item">
+            <div class="sc-tie-label">Unreviewed</div>
+            <div class="sc-tie-value" id="tieUnreviewed">—</div>
+          </div>
+          <div class="sc-tie-item">
+            <div class="sc-tie-label">Opening</div>
+            <div class="sc-tie-value" id="tieOpening">—</div>
+          </div>
+          <div class="sc-tie-note" id="tieNote">Pick an account and fetch its transactions.</div>
+        </div>
+
+        <div class="sc-tie" id="catchup" hidden>
+          <div class="sc-tie-item">
+            <div class="sc-tie-label">Should be recognised by now</div>
+            <div class="sc-tie-value" id="cuRecognized">—</div>
+          </div>
+          <div class="sc-tie-item">
+            <div class="sc-tie-label">Balance after catch-up</div>
+            <div class="sc-tie-value" id="cuRemaining">—</div>
+          </div>
+          <div class="sc-tie-note" id="cuNote"></div>
+        </div>
+
+        <div class="sc-card">
+          <div class="sc-card-head">
+            <div>
+              <div class="sc-title">Schedule</div>
+              <div class="sc-sub">What has been stamped, and what is left to recognise</div>
+            </div>
+            <div class="sc-sub" id="itemCount"></div>
+          </div>
+          <div class="sc-scroll">
+            <table class="sc-table" id="tblItems">
+              <tbody><tr><td class="sc-empty">Nothing stamped for this account yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="sc-card">
+          <div class="sc-card-head">
+            <div>
+              <div class="sc-title">Ledger transactions</div>
+              <div class="sc-sub">From the general ledger. Tick the ones belonging to one agreement, then stamp.</div>
+            </div>
+            <div class="sc-sub" id="txnCount"></div>
+          </div>
+          <div class="sc-scroll">
+            <table class="sc-table" id="tblTxns">
+              <tbody><tr><td class="sc-empty">Click Fetch transactions.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="dlg">
+    <form method="dialog">
+      <div class="sc-dlg-head">Stamp as a schedule item</div>
+      <div class="sc-dlg-body">
+        <div class="sc-preview" id="dlgPreview"></div>
+        <div class="sc-field">
+          <label for="dlgLabel">Label</label>
+          <input class="bcn-field" id="dlgLabel" placeholder="MLB licensing guarantee 2026-27" />
+        </div>
+        <div class="sc-field">
+          <label for="dlgVendor">Vendor (optional)</label>
+          <input class="bcn-field" id="dlgVendor" />
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="sc-field" style="flex:1">
+            <label for="dlgStart">Service starts</label>
+            <input class="bcn-field" id="dlgStart" type="date" />
+          </div>
+          <div class="sc-field" style="flex:1">
+            <label for="dlgEnd">Service ends</label>
+            <input class="bcn-field" id="dlgEnd" type="date" />
+          </div>
+        </div>
+        <div class="sc-field">
+          <label for="dlgType">Type</label>
+          <select class="bcn-field" id="dlgType">
+            <option value="prepaid" selected>Prepaid</option>
+            <option value="deferred_revenue">Deferred revenue</option>
+            <option value="deferred_cost">Deferred cost</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="sc-preview" id="dlgSpread">Enter a period to see the monthly spread.</div>
+      </div>
+      <div class="sc-dlg-foot">
+        <button class="bcn-btn" value="cancel">Cancel</button>
+        <button class="bcn-btn bcn-btn--primary" id="dlgSave" value="save">Create item</button>
+      </div>
+    </form>
+  </dialog>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const FUNCTIONS_URL = SUPABASE_URL.replace('/rest/v1', '') + '/functions/v1';
+
+  let _co = null;
+  let txns = [];          // ledger rows for the chosen account
+  let stampedIds = new Set();
+  let excludedIds = new Set();
+  let ledgerBalance = null;
+  let openingBalance = 0;
+
+  const el = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (n) => (n < 0 ? '-' : '') + '$'
+    + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  async function loadAccounts() {
+    let q = sb.from('quickbooks_accounts')
+      .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type')
+      .eq('is_active', true)
+      .order('fully_qualified_name');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data } = await q;
+    const sel = el('account');
+    // Balance sheet accounts only: an amortisation schedule against a P&L
+    // account would have nothing to tie to.
+    const bs = (data || []).filter((a) =>
+      /Asset|Liability|Equity|Receivable|Payable|Bank|Credit Card/i.test(a.account_type || ''));
+    for (const a of bs) {
+      const o = document.createElement('option');
+      o.value = a.qbo_account_id;
+      o.dataset.name = a.fully_qualified_name || a.name;
+      o.textContent = `${a.fully_qualified_name || a.name} · ${a.account_type}`;
+      sel.appendChild(o);
+    }
+    // Prepaid is the starting point, so land there when it exists.
+    const pre = bs.find((a) => /^prepaid$/i.test(a.name));
+    if (pre) sel.value = pre.qbo_account_id;
+  }
+
+  // Pull the newest stored General Ledger run for this account rather than
+  // re-fetching: report runs are stored precisely so re-rendering is free.
+  async function loadStoredLedger(accountId) {
+    let q = sb.from('quickbooks_report_runs')
+      .select('raw_response, fetched_at, params')
+      .eq('report_name', 'GeneralLedger')
+      .eq('status', 'ok')
+      .order('fetched_at', { ascending: false })
+      .limit(20);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data } = await q;
+    const run = (data || []).find((r) => String(r.params?.account) === String(accountId));
+    return run || null;
+  }
+
+  // QBO nests GL rows one section deep per account. Flatten to data rows and
+  // keep the transaction id, which is the only stable identity a memo cannot
+  // give us.
+  function parseLedger(payload) {
+    const out = [];
+    let balance = null;
+    let opening = 0;
+    const walk = (node) => {
+      const rows = node?.Rows?.Row ?? node?.Row ?? null;
+      if (!Array.isArray(rows)) return;
+      for (const r of rows) {
+        if (r.ColData) {
+          const c = r.ColData;
+          const label = c[0]?.value || '';
+          const txnId = c[1]?.id || '';
+          // The running balance column carries the account total on the final
+          // row; the beginning-balance row has no transaction id.
+          const amt = Number(String(c[6]?.value ?? '').replace(/[^0-9.-]/g, ''));
+          const bal = Number(String(c[7]?.value ?? '').replace(/[^0-9.-]/g, ''));
+          if (Number.isFinite(bal)) balance = bal;
+          // "Beginning Balance" carries a balance but no transaction. It is
+          // part of the ending balance with nothing to stamp against, so it has
+          // to be a reconciling line of its own or the account can never tie.
+          if (!txnId && /beginning balance/i.test(label) && Number.isFinite(bal)) {
+            opening = bal;
+          }
+          if (txnId) {
+            out.push({
+              qbo_txn_id: txnId,
+              date: label,
+              type: c[1]?.value || '',
+              name: c[3]?.value || '',
+              memo: c[4]?.value || '',
+              amount: Number.isFinite(amt) ? amt : 0,
+            });
+          }
+        }
+        if (r.Rows) walk(r);
+      }
+    };
+    walk(payload);
+    return { rows: out, balance, opening };
+  }
+
+  async function loadStamped() {
+    let q = sb.from('schedule_item_transactions').select('qbo_txn_id');
+    let e = sb.from('schedule_excluded_transactions').select('qbo_txn_id, amount');
+    if (_co?.id) { q = q.eq('company_entity_id', _co.id); e = e.eq('company_entity_id', _co.id); }
+    const [st, ex] = await Promise.all([q, e]);
+    stampedIds = new Set((st.data || []).map((r) => r.qbo_txn_id));
+    excludedIds = new Set((ex.data || []).map((r) => r.qbo_txn_id));
+  }
+
+  async function loadItems(accountId) {
+    let q = sb.from('schedule_item_balances_v')
+      .select('schedule_item_id, label, schedule_type, total_amount, recognized_to_date, remaining_balance, service_start, service_end, months, periods_elapsed')
+      .eq('qbo_account_id', accountId);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Schedule load failed: ' + error.message, 'neg', 8000); return []; }
+    return data || [];
+  }
+
+  function renderItems(items) {
+    const t = el('tblItems');
+    if (!items.length) {
+      t.innerHTML = '<tbody><tr><td class="sc-empty">Nothing stamped for this account yet.</td></tr></tbody>';
+      el('itemCount').textContent = '';
+      return 0;
+    }
+    t.innerHTML = `<thead><tr>
+        <th>Item</th><th>Period</th><th class="sc-num">Total</th>
+        <th class="sc-num">Recognised</th><th class="sc-num">Remaining</th><th>Progress</th>
+      </tr></thead><tbody>` + items.map((i) => `<tr>
+        <td>${esc(i.label)}<div class="sc-sub">${esc(i.schedule_type)}</div></td>
+        <td class="sc-sub">${esc(i.service_start)} → ${esc(i.service_end)}</td>
+        <td class="sc-num">${money(i.total_amount)}</td>
+        <td class="sc-num">${money(i.recognized_to_date)}</td>
+        <td class="sc-num">${money(i.remaining_balance)}</td>
+        <td class="sc-sub">${i.periods_elapsed}/${i.months} months</td>
+      </tr>`).join('') + '</tbody>';
+    el('itemCount').textContent = `${items.length} items`;
+    return items.reduce((s, i) => s + Number(i.remaining_balance || 0), 0);
+  }
+
+  function renderTxns() {
+    const t = el('tblTxns');
+    if (!txns.length) {
+      t.innerHTML = '<tbody><tr><td class="sc-empty">No transactions loaded.</td></tr></tbody>';
+      el('txnCount').textContent = '';
+      return;
+    }
+    t.innerHTML = `<thead><tr>
+        <th style="width:32px"></th><th>Date</th><th>Type</th><th>Name / memo</th>
+        <th class="sc-num">Amount</th><th>Status</th>
+      </tr></thead><tbody>` + txns.map((x, idx) => {
+      const done = stampedIds.has(x.qbo_txn_id);
+      const skipped = excludedIds.has(x.qbo_txn_id);
+      const settled = done || skipped;
+      return `<tr class="${settled ? 'sc-stamped' : ''}">
+        <td>${settled ? '' : `<input type="checkbox" data-txn="${idx}" />`}</td>
+        <td class="sc-sub">${esc(x.date)}</td>
+        <td class="sc-sub">${esc(x.type)}</td>
+        <td>${esc(x.name || '')}<div class="sc-memo sc-sub" title="${esc(x.memo)}">${esc(x.memo)}</div></td>
+        <td class="sc-num">${money(x.amount)}</td>
+        <td class="sc-sub">${done ? 'stamped' : skipped ? 'excluded' : '—'}</td>
+      </tr>`;
+    }).join('') + '</tbody>';
+
+    const open = txns.filter((x) =>
+      !stampedIds.has(x.qbo_txn_id) && !excludedIds.has(x.qbo_txn_id)).length;
+    el('txnCount').textContent = `${txns.length} transactions · ${open} unreviewed`;
+
+    t.querySelectorAll('[data-txn]').forEach((cb) =>
+      cb.addEventListener('change', () => {
+        const any = !!t.querySelector('[data-txn]:checked');
+        el('btnStamp').disabled = !any;
+        el('btnExclude').disabled = !any;
+      }));
+  }
+
+  // Two separate questions, deliberately not merged into one "difference".
+  //
+  // COVERAGE: has every dollar in this account been accounted for? Opening
+  // balance + stamped + excluded + unreviewed must equal the ledger balance.
+  // This uses GROSS stamped amounts, not remaining.
+  //
+  // CATCH-UP: how much of what is stamped should already have been recognised?
+  // Because no amortisation has ever been posted, the ledger currently holds
+  // gross. The difference is not a break -- it is the entry that was never made.
+  // Reporting it as a "difference" would read as an error when it is the finding.
+  function renderTie(items) {
+    const tie = el('tie');
+
+    const stampedGross = txns
+      .filter((x) => stampedIds.has(x.qbo_txn_id))
+      .reduce((n, x) => n + Number(x.amount || 0), 0);
+    const excludedTotal = txns
+      .filter((x) => excludedIds.has(x.qbo_txn_id))
+      .reduce((n, x) => n + Number(x.amount || 0), 0);
+    const unreviewed = txns
+      .filter((x) => !stampedIds.has(x.qbo_txn_id) && !excludedIds.has(x.qbo_txn_id))
+      .reduce((n, x) => n + Number(x.amount || 0), 0);
+
+    el('tieLedger').textContent = ledgerBalance == null ? '—' : money(ledgerBalance);
+    el('tieStamped').textContent = money(stampedGross);
+    el('tieExcluded').textContent = money(excludedTotal);
+    el('tieUnreviewed').textContent = money(unreviewed);
+    el('tieOpening').textContent = money(openingBalance);
+
+    if (ledgerBalance == null) {
+      el('tieNote').textContent = 'Fetch transactions to read the ledger balance.';
+      tie.className = 'sc-tie';
+      el('catchup').hidden = true;
+      return;
+    }
+
+    const covered = openingBalance + stampedGross + excludedTotal + unreviewed;
+    const gap = covered - Number(ledgerBalance);
+    const balances = Math.abs(gap) < 0.005;
+
+    tie.className = 'sc-tie ' + (balances && unreviewed === 0 ? 'sc-tie--ok'
+      : balances ? '' : 'sc-tie--off');
+
+    if (!balances) {
+      el('tieNote').textContent =
+        `Components are ${money(gap)} away from the ledger balance — the fetched date `
+        + 'range probably does not cover every transaction in this account.';
+    } else if (unreviewed !== 0) {
+      el('tieNote').textContent =
+        'Every dollar is accounted for, but some transactions are still unreviewed.';
+    } else {
+      el('tieNote').textContent = 'Every transaction in this account is stamped or excluded.';
+    }
+
+    // Catch-up only means anything once something is stamped.
+    const recognized = items.reduce((n, i) => n + Number(i.recognized_to_date || 0), 0);
+    const remaining = items.reduce((n, i) => n + Number(i.remaining_balance || 0), 0);
+    const cu = el('catchup');
+    if (!items.length) { cu.hidden = true; return; }
+    cu.hidden = false;
+    cu.className = 'sc-tie' + (recognized > 0.005 ? ' sc-tie--off' : ' sc-tie--ok');
+    el('cuRecognized').textContent = money(recognized);
+    el('cuRemaining').textContent = money(remaining);
+    el('cuNote').textContent = recognized > 0.005
+      ? 'No amortisation has been posted, so the ledger still holds the gross amount. '
+        + 'This is the expense not yet recognised on the stamped items.'
+      : 'Nothing is due for recognition yet on the stamped items.';
+  }
+
+  async function refresh() {
+    const acct = el('account').value;
+    if (!acct) return;
+    const run = await loadStoredLedger(acct);
+    if (run) {
+      const parsed = parseLedger(run.raw_response);
+      txns = parsed.rows;
+      ledgerBalance = parsed.balance;
+      openingBalance = parsed.opening || 0;
+    } else {
+      txns = []; ledgerBalance = null; openingBalance = 0;
+    }
+    await loadStamped();
+    const items = await loadItems(acct);
+    renderItems(items);
+    renderTxns();
+    renderTie(items);
+    el('btnStamp').disabled = true;
+    el('btnExclude').disabled = true;
+  }
+
+  async function fetchLedger() {
+    const acct = el('account').value;
+    if (!acct) { setStatus('Pick an account first.', 'info', 3000); return; }
+    el('btnFetch').disabled = true;
+    setStatus('Fetching general ledger from QuickBooks…', 'info');
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/quickbooks-report`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report_name: 'GeneralLedger',
+          params: { start_date: el('from').value, end_date: el('to').value, account: acct },
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setStatus('Fetch failed: ' + (body.error || res.status), 'neg', 10000); return; }
+      setStatus(`Loaded ${body.row_count} ledger rows.`, 'pos', 4000);
+      await refresh();
+    } finally {
+      el('btnFetch').disabled = false;
+    }
+  }
+
+  function selectedTxns() {
+    return [...document.querySelectorAll('[data-txn]:checked')]
+      .map((cb) => txns[Number(cb.dataset.txn)]);
+  }
+
+  function monthsBetween(a, b) {
+    if (!a || !b) return 0;
+    const s = new Date(a + 'T00:00:00Z'), e = new Date(b + 'T00:00:00Z');
+    if (e < s) return 0;
+    return (e.getUTCFullYear() - s.getUTCFullYear()) * 12
+      + (e.getUTCMonth() - s.getUTCMonth()) + 1;
+  }
+
+  function updateSpread() {
+    const sel = selectedTxns();
+    const total = sel.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const m = monthsBetween(el('dlgStart').value, el('dlgEnd').value);
+    el('dlgSpread').textContent = m > 0
+      ? `${money(total)} over ${m} month${m === 1 ? '' : 's'} = ${money(total / m)} per month`
+      : 'Enter a service period to see the monthly spread.';
+  }
+
+  function openStamp() {
+    const sel = selectedTxns();
+    if (!sel.length) return;
+    const total = sel.reduce((s, x) => s + Number(x.amount || 0), 0);
+    el('dlgPreview').innerHTML = sel.map((x) =>
+      `${esc(x.date)} · ${money(x.amount)} · ${esc((x.name || x.memo || '').slice(0, 60))}`).join('<br />')
+      + `<br /><b>Total ${money(total)}</b>`;
+    el('dlgLabel').value = sel[0].name || '';
+    el('dlgVendor').value = sel[0].name || '';
+    el('dlgStart').value = sel[0].date || '';
+    el('dlgEnd').value = '';
+    updateSpread();
+    el('dlg').showModal();
+  }
+
+  async function saveStamp() {
+    const sel = selectedTxns();
+    const label = el('dlgLabel').value.trim();
+    const start = el('dlgStart').value;
+    const end = el('dlgEnd').value;
+    if (!label || !start || !end) { setStatus('Label and both dates are required.', 'neg', 5000); return; }
+    if (new Date(end) < new Date(start)) { setStatus('End date is before start date.', 'neg', 5000); return; }
+    if (!_co?.id) { setStatus('No active company resolved.', 'neg', 5000); return; }
+
+    const acctSel = el('account');
+    const { data: item, error: itemErr } = await sb.from('schedule_items').insert({
+      company_entity_id: _co.id,
+      schedule_type: el('dlgType').value,
+      label,
+      vendor_name: el('dlgVendor').value.trim() || null,
+      qbo_account_id: acctSel.value,
+      qbo_account_name: acctSel.selectedOptions[0]?.dataset.name || null,
+      service_start: start,
+      service_end: end,
+    }).select('id').single();
+
+    if (itemErr) { setStatus('Could not create item: ' + itemErr.message, 'neg', 8000); return; }
+
+    const { error: txnErr } = await sb.from('schedule_item_transactions').insert(
+      sel.map((x) => ({
+        company_entity_id: _co.id,
+        schedule_item_id: item.id,
+        qbo_txn_id: x.qbo_txn_id,
+        qbo_txn_type: x.type,
+        txn_date: x.date,
+        amount: x.amount,
+        memo: x.memo,
+      })));
+
+    if (txnErr) {
+      // The unique index on qbo_txn_id is what stops a payment being counted
+      // twice; say so plainly rather than showing a constraint name.
+      const dupe = /duplicate key|unique/i.test(txnErr.message);
+      setStatus(dupe
+        ? 'One of those transactions is already stamped to another item.'
+        : 'Could not stamp transactions: ' + txnErr.message, 'neg', 9000);
+      await sb.from('schedule_items').delete().eq('id', item.id);
+      return;
+    }
+
+    setStatus(`Stamped ${sel.length} transaction${sel.length === 1 ? '' : 's'} to “${label}”.`, 'pos', 5000);
+    await refresh();
+  }
+
+  async function excludeSelected() {
+    const sel = selectedTxns();
+    if (!sel.length || !_co?.id) return;
+
+    const reason = window.prompt(
+      'Why is this not on the schedule?\n\n'
+      + '  needs_reclass     — it is in the wrong account and should be moved in QuickBooks\n'
+      + '  not_amortizable   — belongs here but is not spread over time\n'
+      + '  immaterial\n'
+      + '  duplicate\n'
+      + '  other',
+      'needs_reclass');
+    if (reason === null) return;
+
+    const allowed = ['needs_reclass', 'not_amortizable', 'immaterial', 'duplicate', 'other'];
+    if (!allowed.includes(reason)) {
+      setStatus(`"${reason}" is not one of: ${allowed.join(', ')}`, 'neg', 7000);
+      return;
+    }
+    const note = window.prompt('Note (optional) — what should happen to it?', '') || null;
+
+    const { error } = await sb.from('schedule_excluded_transactions').insert(
+      sel.map((x) => ({
+        company_entity_id: _co.id,
+        qbo_txn_id: x.qbo_txn_id,
+        qbo_account_id: el('account').value,
+        txn_date: x.date,
+        amount: x.amount,
+        memo: x.memo,
+        reason,
+        note,
+      })));
+
+    if (error) {
+      const dupe = /duplicate key|unique/i.test(error.message);
+      setStatus(dupe
+        ? 'One of those is already excluded.'
+        : 'Could not exclude: ' + error.message, 'neg', 8000);
+      return;
+    }
+    setStatus(`Excluded ${sel.length} transaction${sel.length === 1 ? '' : 's'} as ${reason}.`,
+      'pos', 5000);
+    await refresh();
+  }
+
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app', active: 'finance/schedules',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Accounting', 'Schedules'], supabaseClient: sb,
+      });
+    }
+
+    const now = new Date();
+    el('from').value = `${now.getUTCFullYear()}-01-01`;
+    el('to').value = now.toISOString().slice(0, 10);
+
+    await loadAccounts();
+    await refresh();
+
+    el('account').addEventListener('change', refresh);
+    el('btnFetch').addEventListener('click', fetchLedger);
+    el('btnStamp').addEventListener('click', openStamp);
+    el('btnExclude').addEventListener('click', excludeSelected);
+    el('dlgStart').addEventListener('change', updateSpread);
+    el('dlgEnd').addEventListener('change', updateSpread);
+    el('dlg').addEventListener('close', () => {
+      if (el('dlg').returnValue === 'save') saveStamp();
+    });
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>
