@@ -526,8 +526,10 @@
         <div class="tp-pv-label">${esc(q.label || '(untitled question)')}${q.required ? ' *' : ''}</div>
         ${q.help_text ? `<div class="tp-pv-help">${esc(q.help_text)}</div>` : ''}
         ${isScale(q.kind) ? `
-          <div class="tp-pv-scale">${Array.from({length:SCALE_MAX[q.kind]},(_,n)=>`<span>${n+1}</span>`).join('')}</div>
-          <div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;margin-top:8px;color:var(--bcn-ink-4)">Manager explains the rating here…</div>` : ''}
+          <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-top:8px">
+            <div class="tp-pv-scale" style="flex:0 1 auto;margin:0">${Array.from({length:SCALE_MAX[q.kind]},(_,n)=>`<span>${n+1}</span>`).join('')}</div>
+            <div class="tp-pv-opt" style="flex:1 1 200px;min-width:180px;border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;margin:0;color:var(--bcn-ink-4)">Manager explains the rating here…</div>
+          </div>` : ''}
         ${CHOICE_KINDS.includes(q.kind) ? q.options.map(o => `<div class="tp-pv-opt">${q.kind==='single_choice'?'◯':'☐'} ${esc(o)}</div>`).join('') : ''}
         ${q.kind === 'free_text' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Manager writes here…</div>` : ''}
         ${q.kind === 'goals' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Previous goals (status updates) + new goals for next period</div>` : ''}

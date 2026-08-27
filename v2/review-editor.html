@@ -48,9 +48,17 @@
     .re-choice label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--bcn-ink-2); cursor:pointer; }
 
     /* A rating is never delivered as a bare number: the score buttons and the
-       justification box are one answer, stored together in review_answers.value. */
-    .re-scale-why { display:block; margin-top:12px; }
-    .re-q textarea.re-scale-comment { min-height:66px; margin-top:4px; }
+       justification box are one answer, stored together in review_answers.value,
+       so they sit side by side rather than stacked. They wrap to two rows on a
+       narrow screen -- and a legacy 10-button scale wraps internally (flex:0 1)
+       instead of squeezing the box off the row. */
+    .re-rating { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+    .re-rating-scale { flex:0 1 auto; max-width:100%; }
+    .re-rating-why { flex:1 1 240px; min-width:200px; }
+    .re-rating .bcn-label { display:block; margin-bottom:6px; }
+    .re-q .re-rating-why textarea.bcn-field { min-height:52px; margin:0; }
+    .re-q.re-q--gap { background:var(--bcn-sunken); }
+    .re-q.re-q--gap .re-rating-why textarea.bcn-field { border-color:var(--bcn-neg); }
 
     .re-goal-row { display:flex; gap:10px; align-items:flex-end; padding:10px 0; border-bottom:1px dashed var(--bcn-border); flex-wrap:wrap; }
     .re-goal-row:last-child { border-bottom:none; }
@@ -243,11 +251,18 @@
     if (q.kind === 'free_text')
       return `<textarea class="bcn-field" data-input ${dis}>${esc(v.text || '')}</textarea>`;
     if (isScale(q.kind))
-      return `<div class="re-scale">${Array.from({length:SCALE_MAX[q.kind]},(_,i)=>
-        `<button type="button" data-score="${i+1}" class="${v.score === i+1 ? 'sel' : ''}" ${dis}>${i+1}</button>`).join('')}</div>
-        <label class="bcn-label re-scale-why" for="why_${esc(q.id)}">Why this rating?</label>
-        <textarea class="bcn-field re-scale-comment" id="why_${esc(q.id)}" data-comment
-          placeholder="Back up the score — what did you actually see?" ${dis}>${esc(v.comment || '')}</textarea>`;
+      return `<div class="re-rating">
+        <div class="re-rating-scale">
+          <span class="bcn-label">Rating</span>
+          <div class="re-scale">${Array.from({length:SCALE_MAX[q.kind]},(_,i)=>
+            `<button type="button" data-score="${i+1}" class="${v.score === i+1 ? 'sel' : ''}" ${dis}>${i+1}</button>`).join('')}</div>
+        </div>
+        <div class="re-rating-why">
+          <label class="bcn-label" for="why_${esc(q.id)}">Why this rating? <span class="re-req">*</span></label>
+          <textarea class="bcn-field" id="why_${esc(q.id)}" data-comment
+            placeholder="Back up the score — what did you actually see?" ${dis}>${esc(v.comment || '')}</textarea>
+        </div>
+      </div>`;
     if (q.kind === 'single_choice')
       return `<div class="re-choice">${(q.options||[]).map(o =>
         `<label><input type="radio" name="q_${q.id}" value="${esc(o)}" ${v.choice === o ? 'checked' : ''} ${dis}/> ${esc(o)}</label>`).join('')}</div>`;
@@ -400,6 +415,32 @@
     await loadNotes();
   });
 
+  // ---- send validation --------------------------------------------------------
+  // The justification is NOT optional: a score with nothing behind it is the
+  // exact thing this field exists to prevent, and once a review is sent it
+  // locks, so this is the last point at which the gap can be caught. Enforced
+  // on Send only -- Save draft stays unconditional so a manager can always park
+  // half-finished work. A resend is exempt: the answers are already locked, and
+  // a review sent before this rule existed must stay resendable.
+  function ratingGaps(){
+    const gaps = [];
+    QUESTIONS.filter(q => isScale(q.kind)).forEach(q => {
+      const v = ANSWERS[q.id]?.value || {};
+      const scored = Number.isFinite(Number(v.score)) && Number(v.score) > 0;
+      const why = String(v.comment || '').trim();
+      if (scored && !why) gaps.push({ q, msg: `“${q.label}” is rated ${v.score} with nothing written to back it up` });
+      else if (q.required && !scored) gaps.push({ q, msg: `“${q.label}” has no rating yet` });
+    });
+    return gaps;
+  }
+
+  function flagGaps(gaps){
+    document.querySelectorAll('.re-q--gap').forEach(el => el.classList.remove('re-q--gap'));
+    gaps.forEach(g => document.querySelector(`[data-qid="${g.q.id}"]`)?.classList.add('re-q--gap'));
+    if (gaps.length) document.querySelector(`[data-qid="${gaps[0].q.id}"]`)
+      ?.scrollIntoView({ behavior:'smooth', block:'center' });
+  }
+
   // ---- save -----------------------------------------------------------------
   async function saveDraft(silent = false){
     if (!EDITABLE) return true;
@@ -460,6 +501,17 @@
   document.getElementById('btnSend').addEventListener('click', async () => {
     const btn = document.getElementById('btnSend');
     const first = REVIEW.status === 'draft';
+    if (first){
+      const gaps = ratingGaps();
+      if (gaps.length){
+        flagGaps(gaps);
+        setStatus(gaps.length === 1
+          ? `Not sent — ${gaps[0].msg}.`
+          : `Not sent — ${gaps.length} ratings need attention: ${gaps.map(g => g.msg).join('; ')}.`, 'neg');
+        return;
+      }
+      flagGaps([]);
+    }
     if (!confirm(first
       ? 'Send this review to the employee? It locks for editing once sent.'
       : 'Resend the review link? The previous link stops working.')) return;
