@@ -4924,7 +4924,7 @@ create table if not exists public.review_template_questions (
   template_id uuid not null references public.review_templates(id) on delete cascade,
   company_entity_id uuid,
   position integer not null default 0,
-  kind text not null check (kind in ('free_text', 'scale_1_10', 'single_choice', 'multi_choice', 'goals')),
+  kind text not null check (kind in ('free_text', 'scale_1_4', 'scale_1_10', 'single_choice', 'multi_choice', 'goals', 'rating_scale')),
   label text not null,
   help_text text,
   options jsonb not null default '[]'::jsonb,

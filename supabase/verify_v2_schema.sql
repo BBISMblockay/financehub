@@ -1500,3 +1500,31 @@ select
       then 'MISSING — marketing_kpis_daily catalog note absent; Ask SILO will read conversion_value as revenue and sum it across platforms'
     else 'ok'
   end as paid_media_reality;
+
+select
+  case
+    when not exists (
+        select 1 from pg_constraint
+         where conrelid = 'public.review_template_questions'::regclass
+           and conname = 'review_template_questions_kind_check'
+           and pg_get_constraintdef(oid) like '%scale_1_4%')
+      then 'MISSING — review_template_questions.kind rejects scale_1_4; the template builder can no longer save a 1-4 rating question'
+    when not exists (
+        select 1 from pg_constraint
+         where conrelid = 'public.review_template_questions'::regclass
+           and conname = 'review_template_questions_kind_check'
+           and pg_get_constraintdef(oid) like '%scale_1_10%')
+      then 'MISSING — scale_1_10 was dropped from the kind check; historical 1-10 questions must keep their kind or every past score reprints out of 4'
+    when exists (
+        select 1 from public.review_template_questions q
+         where q.kind = 'scale_1_10'
+           and not exists (select 1 from public.review_answers a
+                            where a.question_id = q.id
+                              and coalesce((a.value ->> 'score')::numeric, 0) > 4))
+      then 'MISSING — a scale_1_10 question with no out-of-range answers was not converted; re-run 20260827200000_review_scale_1_4_and_goal_dates.sql'
+    when not exists (
+        select 1 from pg_indexes
+         where schemaname = 'public' and indexname = 'employee_goals_target_date_idx')
+      then 'MISSING — employee_goals_target_date_idx absent; run 20260827200000_review_scale_1_4_and_goal_dates.sql'
+    else 'ok'
+  end as review_scale_1_4_and_goal_dates;
