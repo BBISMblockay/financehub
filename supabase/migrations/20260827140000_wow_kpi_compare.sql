@@ -62,14 +62,15 @@ select jsonb_build_object(
      'cur', o.ord_cur, 'prev', o.ord_prev, 'ly', o.ord_ly,
      'wow', case when o.ord_prev > 0 then round(100.0*(o.ord_cur - o.ord_prev)::numeric/o.ord_prev,1) end,
      'yoy', case when o.ord_ly   > 0 then round(100.0*(o.ord_cur - o.ord_ly)::numeric/o.ord_ly,1) end),
+  -- Net, not total: Shopify's average_order_value excludes shipping and tax.
   'aov', jsonb_build_object(
-     'cur',  case when o.ord_cur  > 0 then round((s.tot_cur/o.ord_cur)::numeric,2) end,
-     'prev', case when o.ord_prev > 0 then round((s.tot_prev/o.ord_prev)::numeric,2) end,
-     'ly',   case when o.ord_ly   > 0 then round((s.tot_ly/o.ord_ly)::numeric,2) end,
-     'wow',  case when o.ord_cur > 0 and o.ord_prev > 0 and s.tot_prev > 0
-                  then round(100.0*((s.tot_cur/o.ord_cur) - (s.tot_prev/o.ord_prev))/(s.tot_prev/o.ord_prev),1) end,
-     'yoy',  case when o.ord_cur > 0 and o.ord_ly > 0 and s.tot_ly > 0
-                  then round(100.0*((s.tot_cur/o.ord_cur) - (s.tot_ly/o.ord_ly))/(s.tot_ly/o.ord_ly),1) end)
+     'cur',  case when o.ord_cur  > 0 then round((s.net_cur/o.ord_cur)::numeric,2) end,
+     'prev', case when o.ord_prev > 0 then round((s.net_prev/o.ord_prev)::numeric,2) end,
+     'ly',   case when o.ord_ly   > 0 then round((s.net_ly/o.ord_ly)::numeric,2) end,
+     'wow',  case when o.ord_cur > 0 and o.ord_prev > 0 and s.net_prev > 0
+                  then round(100.0*((s.net_cur/o.ord_cur) - (s.net_prev/o.ord_prev))/(s.net_prev/o.ord_prev),1) end,
+     'yoy',  case when o.ord_cur > 0 and o.ord_ly > 0 and s.net_ly > 0
+                  then round(100.0*((s.net_cur/o.ord_cur) - (s.net_ly/o.ord_ly))/(s.net_ly/o.ord_ly),1) end)
 )
 from sales s cross join ordc o;
 $$;
