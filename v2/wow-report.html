@@ -250,7 +250,7 @@
 
     
 
-      <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website &amp; Sales</span><span class="wow-sec-sub">Shopify · sessions, products, channels, cohorts</span></div>
+      <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website &amp; Sales</span><span class="wow-sec-sub">Shopify · sessions, products, landing pages, cohorts</span></div>
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-card-meta" id="funnelMeta">online store</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
@@ -358,7 +358,7 @@
       </div>
       <div id="man_google"></div>
 
-      <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">live from Shopify order sources</span></div>
+      <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">Shopify total live · attribution typed</span></div>
 
       <div class="bcn-card" id="tiktokCard">
         <div class="bcn-card-header"><h2>TikTok</h2><span class="bcn-card-meta" id="tiktokMeta"></span></div>
@@ -373,7 +373,7 @@
       </div>
       <div id="man_tiktok"></div>
 
-      <div class="wow-sec" id="sec_affiliate"><span class="wow-sec-n">Affiliate</span><span class="wow-sec-sub">no connector — manual for now</span></div>
+      <div class="wow-sec" id="sec_affiliate"><span class="wow-sec-n">Affiliate</span><span class="wow-sec-sub">sales by code live · notes typed</span></div>
 
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Sales by affiliate code</h2><span class="bcn-card-meta" id="dcMeta"></span></div>
@@ -682,6 +682,7 @@
   let COHORTS = null;
   let KPI = null;
   let DATA_THROUGH = null;
+  const FAILED = new Set();
 
   // The Shopify side of TikTok IS live -- TikTok Shop arrives as an order
   // source -- but it is a single total, not the Lives / Ads / GMV Affiliate /
@@ -777,7 +778,9 @@
           <td>${c.pct_of_total == null ? '<span class="dim">—</span>' : c.pct_of_total + '%'}</td>
           ${c.sales_wow == null ? '<td class="dim">—</td>' : pctCell(c.sales_wow)}
         </tr>`).join('')
-      : `<tr><td class="wow-empty" colspan="6">No coded orders in this window — syncs nightly from Shopify.</td></tr>`;
+      : `<tr><td class="wow-empty" colspan="6">${FAILED.has('codes')
+            ? 'Could not load affiliate codes — try Refresh.'
+            : 'No coded orders in this window.'}</td></tr>`;
     const coded = Number(d.coded_sales || 0), tot = Number(d.total_sales || 0);
     el('dcMeta').textContent = codes.length ? `${codes.length} codes · ${money(coded)}` : 'no codes';
   }
@@ -794,7 +797,9 @@
           <td>${p.conversion_rate == null ? '<span class="dim">—</span>' : p.conversion_rate + '%'}</td>
           <td>${intFmt(p.orders)}</td>
         </tr>`).join('')
-      : `<tr><td class="wow-empty" colspan="6">No landing-page data for this window yet — it syncs nightly from Shopify.</td></tr>`;
+      : `<tr><td class="wow-empty" colspan="6">${FAILED.has('landing')
+            ? 'Could not load landing pages — try Refresh.'
+            : 'No landing-page data for this window yet.'}</td></tr>`;
     const partial = d.days_covered != null && d.days_covered < 7;
     el('lpMeta').textContent = pages.length
       ? `top ${pages.length}` + (partial ? ` · ${d.days_covered} of 7 days` : '')
@@ -987,16 +992,22 @@
       // The funnel is additive -- a failure here must not take down the sales
       // figures the rest of the report is built on.
       FUNNEL = funnel.error ? null : (funnel.data || null);
+      if (funnel.error) FAILED.add('funnel');
       if (funnel.error) console.warn('funnel unavailable:', funnel.error.message);
       PAID = paid.error ? null : (paid.data || null);
+      if (paid.error) FAILED.add('paid');
       if (paid.error) console.warn('paid media unavailable:', paid.error.message);
       LANDING = landing.error ? null : (landing.data || null);
+      if (landing.error) FAILED.add('landing');
       if (landing.error) console.warn('landing pages unavailable:', landing.error.message);
       CODES = codes.error ? null : (codes.data || null);
+      if (codes.error) FAILED.add('codes');
       if (codes.error) console.warn('discount codes unavailable:', codes.error.message);
       COHORTS = cohorts.error ? null : (cohorts.data || null);
+      if (cohorts.error) FAILED.add('cohorts');
       if (cohorts.error) console.warn('cohorts unavailable:', cohorts.error.message);
       KPI = kpi.error ? null : (kpi.data || null);
+      if (kpi.error) FAILED.add('kpi');
       if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
       render();
       buildManual();
@@ -1107,7 +1118,9 @@
     // --- Meta, one section per objective ---
     const groups = pm.meta || [];
     el('metaRoot').innerHTML = !groups.length
-      ? '<div class="wow-empty" style="padding:14px">No Meta spend in this window.</div>'
+      ? `<div class="wow-empty" style="padding:14px">${FAILED.has('paid')
+            ? 'Could not load paid media — try Refresh.'
+            : 'No Meta spend in this window.'}</div>`
       : groups.map(g => {
           const cols = PAID_COLS[g.judged_on] || PAID_COLS.spend;
           const wowSpend = (g.prev_spend != null && Number(g.prev_spend) > 0)
@@ -1170,61 +1183,145 @@
   }
 
   // Export mirrors what is on screen, as raw numbers rather than display strings.
+  // Exports EVERYTHING the page holds, section by section, in the order the
+  // report reads. She fills the manual gaps elsewhere, so a partial export is
+  // worse than none -- a missing block looks like a section with no data
+  // rather than a section this file forgot.
   function exportCsv(){
     if (!DATA) return;
     const rows = [];
     const push = (...r) => rows.push(r);
-    push('Week over Week — online', `${DATA.window.start} to ${DATA.window.end}`);
-    push(''); push('Metric','Value');
-    push('Total sales', DATA.core.total_sales); push('Net sales', DATA.core.net_sales);
-    push('Refunds', DATA.core.refunds); push('Orders', DATA.core.orders);
-    push('AOV', DATA.core.aov); push('Returning %', DATA.customers.returning_pct);
+    const blank = () => push('');
+    const section = (name) => { blank(); push(`== ${name} ==`); };
+    const k = KPI || {}, pm = PAID || {}, fn = FUNNEL || {},
+          lp = LANDING || {}, dc = CODES || {}, ch = COHORTS || {};
+
+    push('Week over Week — online store', `${DATA.window.start} to ${DATA.window.end}`);
+    push('Prior week', `${DATA.window.prev_start} to ${DATA.window.prev_end}`);
+    if (DATA_THROUGH) push('Sales complete through', DATA_THROUGH);
+
+    // ---- headline ----
+    section('KPIs');
+    push('Metric','Value','WoW %','YoY %');
+    push('Total sales', DATA.core.total_sales, k.total_sales?.wow ?? '', k.total_sales?.yoy ?? '');
+    push('Net sales',   DATA.core.net_sales,   k.net_sales?.wow ?? '',   k.net_sales?.yoy ?? '');
+    push('Orders',      DATA.core.orders,      k.orders?.wow ?? '',      k.orders?.yoy ?? '');
+    push('AOV',         DATA.core.aov,         k.aov?.wow ?? '',         k.aov?.yoy ?? '');
+    push('Refunds',     DATA.core.refunds);
+    push('Returning %', DATA.customers.returning_pct);
     push('Units on hand', DATA.inventory.units_on_hand);
-    push(''); push('Product','Units','Net sales','On hand','Days of stock');
+
+    // ---- website & sales ----
+    section('WEBSITE — funnel');
+    push('Stage','This week','Prior week','Change %','vs sessions %','Same week LY');
+    const t = fn.this, pv = fn.prev, ly = fn.ly;
+    const pct = (a,b) => (a != null && b) ? Math.round(((a-b)/b)*1000)/10 : '';
+    const norm = (key) => (t && pv && t.sessions && pv.sessions && pv[key])
+      ? Math.round((((t[key]/t.sessions)/(pv[key]/pv.sessions))-1)*1000)/10 : '';
+    [['Sessions','sessions'],['Added to cart','added_to_cart'],
+     ['Reached checkout','reached_checkout'],['Completed checkout','completed_checkout']]
+      .forEach(([label,key]) => push(label, t?.[key] ?? '', pv?.[key] ?? '',
+        pct(t?.[key], pv?.[key]), key === 'sessions' ? '' : norm(key), ly?.[key] ?? ''));
+    [['Cart rate','cart_rate'],['Conversion rate','cvr'],['Checkout completion','checkout_completion']]
+      .forEach(([label,key]) => push(label, t?.[key] ?? '', pv?.[key] ?? '', '', '', ly?.[key] ?? ''));
+
+    section('WEBSITE — top products');
+    push('Product','Units','Net sales','On hand','Days of stock');
     (DATA.top_products||[]).forEach(p => push(p.product, p.units, p.sales, p.on_hand ?? '', p.days_of_stock ?? ''));
-    push(''); push('Category','Net sales','% of total','vs prior week %');
-    (DATA.categories||[]).forEach(k => push(k.category, k.sales, k.pct, k.wow ?? ''));
-    push(''); push('Channel','Sales','% of total');
-    (DATA.channels||[]).forEach(k => push(k.channel, k.sales, k.pct));
-    const pm = PAID || {};
+
+    section('WEBSITE — sales by category');
+    push('Category','Net sales','% of total','vs prior week %');
+    (DATA.categories||[]).forEach(c => push(c.category, c.sales, c.pct, c.wow ?? ''));
+
+    section('WEBSITE — all channels');
+    push('Channel','Sales','% of total');
+    (DATA.channels||[]).forEach(c => push(c.channel, c.sales, c.pct));
+
+    section('WEBSITE — sessions by landing page');
+    push('Landing page','Sessions','vs prior wk %','Cart rate %','Conv rate %','Orders');
+    (lp.pages||[]).forEach(p => push(p.path, p.sessions, p.sessions_wow ?? '',
+      p.cart_rate ?? '', p.conversion_rate ?? '', p.orders));
+
+    section('WEBSITE — cohort retention');
+    push('Cohort month','Customers','Month 1 %','Month 2 %','Month 3 %','Month 4+ %','Source');
+    (ch.rows||[]).forEach(r => push(r.cohort_month, r.size, r.m1 ?? '', r.m2 ?? '',
+      r.m3 ?? '', r.m4plus ?? '', 'computed'));
+    if ((ch.incomplete_months||[]).length)
+      push('Months without full order history', ch.incomplete_months.join(' '));
+
+    // ---- paid ----
     (pm.meta || []).forEach(g => {
-      push('');
-      push(`Meta — ${g.label}`, 'Spend', 'ROAS', 'Conversions', 'Cost per conv', 'Clicks', 'Revenue');
-      (g.campaigns || []).forEach(c => push(c.campaign, c.spend, c.roas ?? '', c.conversions ?? '',
-        c.cost_per_conv ?? '', c.clicks ?? '', c.revenue ?? ''));
-      push('Total', g.spend, g.roas ?? '', g.conversions ?? '', g.cost_per_conv ?? '', g.clicks ?? '', g.revenue ?? '');
+      section(`META — ${g.label}`);
+      push('Campaign','Spend','ROAS','Conversions','Cost / conv','Clicks','Impressions','Thruplays','Cost / thruplay','Leads','Cost / lead','Revenue');
+      const row = (o, name) => push(name, o.spend ?? '', o.roas ?? '', o.conversions ?? '',
+        o.cost_per_conv ?? '', o.clicks ?? '', o.impressions ?? '', o.thruplays ?? '',
+        o.cost_per_thruplay ?? '', o.leads ?? '', o.cost_per_lead ?? '', o.revenue ?? '');
+      (g.campaigns || []).forEach(c => row(c, c.campaign));
+      row(g, 'Total');
     });
+
+    section('META — top creatives');
+    push('Creative','Ad copy','Spend','ROAS','Conversions','Clicks');
+    (pm.creatives || []).forEach(a => push(a.ad, a.copy ?? '', a.spend, a.roas ?? '',
+      a.conversions ?? '', a.clicks ?? ''));
+
     if (pm.google) {
-      push(''); push('Google — campaign','Spend','ROAS','Conversions','Cost per conv','Clicks');
-      (pm.google.campaigns || []).forEach(c => push(c.campaign, c.spend, c.roas ?? '', c.conversions ?? '',
-        c.cost_per_conv ?? '', c.clicks ?? ''));
+      section('GOOGLE — campaigns');
+      push('Campaign','Spend','ROAS','Conversions','Cost / conv','Clicks');
+      (pm.google.campaigns || []).forEach(c => push(c.campaign, c.spend, c.roas ?? '',
+        c.conversions ?? '', c.cost_per_conv ?? '', c.clicks ?? ''));
       push('Total', pm.google.spend, pm.google.roas ?? '', pm.google.conversions ?? '',
         pm.google.cost_per_conv ?? '', pm.google.clicks ?? '');
     }
-    if ((pm.creatives || []).length) {
-      push(''); push('Creative (Meta purchase)','Ad copy','Spend','ROAS','Conversions','Clicks');
-      pm.creatives.forEach(a => push(a.ad, a.copy ?? '', a.spend, a.roas ?? '', a.conversions ?? '', a.clicks ?? ''));
+
+    section('TIKTOK — Shopify total');
+    push('Source','Sales','% of total');
+    (DATA.channels||[]).filter(c => /tiktok/i.test(c.channel||'')).forEach(c => push(c.channel, c.sales, c.pct));
+
+    section('AFFILIATE — sales by code');
+    push('Code','Sales','Orders','AOV','% of total','vs prior wk %');
+    (dc.codes||[]).forEach(c => push(c.code, c.sales, c.orders, c.aov ?? '',
+      c.pct_of_total ?? '', c.sales_wow ?? ''));
+    if (dc.total_sales) push('Coded / total', dc.coded_sales, dc.total_sales);
+
+    // ---- typed sections, exported with their headers even when empty so the
+    //      shape is obvious wherever this lands ----
+    const written = collectWritten();
+    MANUAL_TABLES.forEach(mt => {
+      section(`MANUAL — ${mt.title}`);
+      push(...mt.cols.map(c => c[1]));
+      (written.tables?.[mt.key] || []).forEach(r => push(...mt.cols.map(c => r[c[0]] ?? '')));
+    });
+    if ((written.tables?.cohorts_manual || []).length) {
+      section('MANUAL — cohort cells typed in');
+      push('Cohort month','Customers','Month 1','Month 2','Month 3','Month 4+');
+      written.tables.cohorts_manual.forEach(r =>
+        push(r.cohortMonth, r.size ?? '', r.m1 ?? '', r.m2 ?? '', r.m3 ?? '', r.m4plus ?? ''));
+    }
+    if (Object.keys(written.commentary).length) {
+      section('NOTES');
+      Object.entries(written.commentary).forEach(([key,v]) => push(key, v));
+    }
+    if (Object.keys(written.manual).length) {
+      section('FREE TEXT');
+      Object.entries(written.manual).forEach(([key,v]) => push(key, v));
     }
     if ((pm.not_synced || []).length) {
-      push(''); push('Not synced into SILO', pm.not_synced.join(' / '), 'pull from Ads Manager');
+      section('NOT SYNCED');
+      push(pm.not_synced.join(' / '), 'pull from Ads Manager');
     }
-    const written = collectWritten();
-    if (Object.keys(written.commentary).length){ push(''); push('Commentary',''); 
-      Object.entries(written.commentary).forEach(([k,v]) => push(k, v)); }
-    if (Object.keys(written.manual).length){ push(''); push('Manual sections',''); 
-      Object.entries(written.manual).forEach(([k,v]) => push(k, v)); }
-    Object.entries(written.tables || {}).forEach(([key, rows]) => {
-      const t = MANUAL_TABLES.find(x => x.key === key); if (!t || !rows.length) return;
-      push(''); push(t.title); push(...t.cols.map(c => c[1]));
-      rows.forEach(r => push(...t.cols.map(c => r[c[0]] ?? '')));
-    });
-    const cell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s; };
-    const csv = rows.map(r => r.map(cell).join(',')).join('\n');
+
+    const csv = rows.map(r => r.map(v => {
+      const str = v == null ? '' : String(v);
+      return /[",\n]/.test(str) ? `"${str.replace(/"/g,'""')}"` : str;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8' }));
-    a.download = `wow-report-${DATA.window.end}.csv`;
-    document.body.appendChild(a); a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    a.href = URL.createObjectURL(blob);
+    a.download = `wow-${DATA.window.start}-to-${DATA.window.end}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    setStatus('Exported', 'pos', 2000);
   }
 
   async function boot(){
