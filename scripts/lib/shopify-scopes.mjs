@@ -8,6 +8,10 @@ export const JOB_SCOPES = {
   catalog_sync: ['read_products'],
   payouts_sync: ['read_shopify_payments_payouts'],
   draft_orders_sync: ['read_draft_orders'],
+  // ShopifyQL analytics. read_reports is the gate; every Baseballism
+  // connection already has it (72 scopes granted, none missing), so this
+  // needs no re-authorisation -- unlike the Meta organic blocker.
+  sessions_sync: ['read_reports'],
 };
 
 export const REQUIRED_FOR_SYNC = [

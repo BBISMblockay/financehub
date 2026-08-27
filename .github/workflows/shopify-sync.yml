@@ -21,6 +21,13 @@ on:
         description: Set true to skip sales import
         required: false
         default: 'false'
+      skip_sessions:
+        description: Set true to skip the ShopifyQL sessions/funnel sync
+        required: false
+        default: 'false'
+      sessions_days:
+        description: Days of session history to pull (default 90; use 365 once to seed as far back as Shopify serves)
+        required: false
       skip_catalog:
         description: Set true to skip products_master catalog sync
         required: false
@@ -65,6 +72,8 @@ jobs:
       SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || 'false' }}
       SHOPIFY_SKIP_SALES: ${{ github.event.inputs.skip_sales || 'false' }}
       SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || 'false' }}
+      SHOPIFY_SKIP_SESSIONS: ${{ github.event.inputs.skip_sessions || 'false' }}
+      SHOPIFY_SESSIONS_DAYS: ${{ github.event.inputs.sessions_days || '' }}
       SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
       SHOPIFY_HISTORY_CHUNK_DAYS: ${{ github.event.inputs.history_chunk_days || '30' }}
