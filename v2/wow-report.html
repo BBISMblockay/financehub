@@ -607,7 +607,7 @@
       render();
       buildManual();
       await loadEntry();
-      setStatus(`Loaded ${data.window.start} – ${data.window.end}`, 'pos', 2500);
+      setStatus(`Loaded ${DATA.window.start} – ${DATA.window.end}`, 'pos', 2500);
     } catch(e){
       console.error(e);
       setStatus(`Load failed: ${e.message}`, 'neg');
