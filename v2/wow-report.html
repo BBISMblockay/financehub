@@ -670,6 +670,7 @@
       : 'awaiting order history';
     const gaps = d.incomplete_months || [];
     el('chNote').innerHTML =
+      '<b>Online store only</b> — POS, wholesale and draft orders are excluded, matching the rest of this report. Retail-first customers rarely repeat online, so including them understates online retention. ' +
       '<b>Only months with complete daily order coverage are shown.</b> A repeat purchase falling in an unsynced month is indistinguishable from a customer who never came back, so a partial month would understate retention rather than merely blur it — those cells read \u201c\u2014\u201d, not 0%.' +
       (gaps.length
         ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still incomplete</b> (${esc(gaps.slice(0,6).join(', '))}${gaps.length > 6 ? '\u2026' : ''}) — running <code>shopify-orders-backfill.yml</code> over those dates fills them in here automatically.`
