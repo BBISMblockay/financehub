@@ -44,6 +44,10 @@
     .wow-tbl tbody tr:last-child td { border-bottom:none; }
     .wow-tbl tbody tr.wow-rate td { background:var(--bcn-sunken); font-size:11.5px; }
     .wow-grp + .wow-grp { border-top:1px solid var(--bcn-border); }
+    .wow-grp-foot {
+      padding:7px 12px 10px; font-size:11px; color:var(--bcn-ink-3);
+      border-top:1px dashed var(--bcn-border);
+    }
     .wow-grp-head {
       display:flex; align-items:center; justify-content:space-between; gap:10px;
       padding:9px 12px 7px; font-family:var(--bcn-mono); font-size:10px;
@@ -683,11 +687,24 @@
           const rows = (g.campaigns||[]).map(c =>
             `<tr><td>${esc(c.campaign)}</td>${cols.map(([k,,kind]) => `<td>${fmtBy(c[k], kind)}</td>`).join('')}</tr>`).join('');
           const total = `<tr class="wow-rate"><td><b>Total</b></td>${cols.map(([k,,kind]) => `<td><b>${fmtBy(g[k], kind)}</b></td>`).join('')}</tr>`;
+
+          // A group can hold campaigns that structurally cannot produce its
+          // headline metric -- a followers buy reports `follow`, never `lead`.
+          // Their spend is excluded from the rate's numerator so it is not
+          // charged against the other campaigns' results; say so, because
+          // silently excluded spend is how a rate starts lying.
+          const excludedKey = g.judged_on === 'cost_per_lead' ? 'spend_without_leads'
+                            : g.judged_on === 'cost_per_thruplay' ? 'spend_without_thruplays' : null;
+          const excluded = excludedKey ? Number(g[excludedKey] || 0) : 0;
+          const metric = g.judged_on === 'cost_per_lead' ? 'leads' : 'thruplays';
+          const foot = excluded > 0
+            ? `<div class="wow-grp-foot">${money(excluded)} of this group's spend reported no ${metric} and is excluded from the rate — otherwise it would be charged against the campaigns that did.</div>`
+            : '';
           return `<div class="wow-grp">
               <div class="wow-grp-head"><span>${esc(g.label)}</span>${wowSpend}</div>
               <div class="bcn-matrix-scroll"><table class="wow-tbl">
                 <thead><tr><th>Campaign</th>${cols.map(([,lbl]) => `<th>${lbl}</th>`).join('')}</tr></thead>
-                <tbody>${rows}${total}</tbody></table></div>
+                <tbody>${rows}${total}</tbody></table></div>${foot}
             </div>`;
         }).join('');
 
