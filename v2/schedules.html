@@ -209,6 +209,13 @@
             <option value="other">Other</option>
           </select>
         </div>
+        <div class="sc-field">
+          <label for="dlgRequest">Matching payment request</label>
+          <select class="bcn-field" id="dlgRequest">
+            <option value="">— none / not in Request Manager —</option>
+          </select>
+          <div class="sc-sub" id="dlgRequestNote"></div>
+        </div>
         <div class="sc-preview" id="dlgSpread">Enter a period to see the monthly spread.</div>
       </div>
       <div class="sc-dlg-foot">
@@ -548,7 +555,101 @@
       : 'Enter a service period to see the monthly spread.';
   }
 
-  function openStamp() {
+  // Matching a ledger transaction to a payment request on AMOUNT ALONE is
+  // wrong, and demonstrably so: a $20,000 Universal Studios licensing payment
+  // in the ledger matches a $20,000 employee reimbursement to a colleague for
+  // postage. Same number, unrelated transactions.
+  //
+  // So amount is the necessary condition, and vendor and date decide whether it
+  // is actually the same thing. The result is ranked and PROPOSED -- never
+  // auto-applied -- because a wrong link would attach the wrong invoice as
+  // support for a schedule, which is worse than no invoice at all.
+  const normVendor = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\b(llc|inc|ltd|lp|l p|co|corp|company|the)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+
+  function vendorScore(ledgerName, memo, vendorName) {
+    const v = normVendor(vendorName);
+    if (!v) return 0;
+    // The ledger's Name column is often blank, in which case the memo carries
+    // the counterparty inside a bank wire string.
+    const hay = normVendor(`${ledgerName || ''} ${memo || ''}`);
+    if (!hay) return 0;
+    if (hay.includes(v) || v.includes(hay)) return 1;
+    const vt = new Set(v.split(' ').filter((w) => w.length > 2));
+    const ht = new Set(hay.split(' ').filter((w) => w.length > 2));
+    if (!vt.size) return 0;
+    let hit = 0;
+    for (const w of vt) if (ht.has(w)) hit++;
+    return hit / vt.size;
+  }
+
+  function dayGap(a, b) {
+    if (!a || !b) return 9999;
+    return Math.abs((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 86400000);
+  }
+
+  async function findRequestMatches(sel) {
+    const total = sel.reduce((n, x) => n + Number(x.amount || 0), 0);
+    const first = sel[0] || {};
+    let q = sb.from('payment_requests')
+      .select('id, vendor_name, amount_due, invoice_number, due_date, workflow_status, file_name, file_url, notes_comments')
+      .gte('amount_due', total - 0.01)
+      .lte('amount_due', total + 0.01)
+      .limit(25);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error || !data?.length) return [];
+
+    return data.map((r) => {
+      const vs = vendorScore(first.name, first.memo, r.vendor_name);
+      const gap = Math.min(dayGap(first.date, r.due_date), 9999);
+      // A payment can settle well after the invoice date, so the window is
+      // generous; it only has to separate "same transaction" from "same number".
+      const ds = gap <= 120 ? 1 - (gap / 240) : 0;
+      return { ...r, score: vs * 0.75 + ds * 0.25, vendor_match: vs, day_gap: gap };
+    }).sort((a, b) => b.score - a.score);
+  }
+
+  async function fillRequestOptions(sel) {
+    const box = el('dlgRequest');
+    box.innerHTML = '<option value="">— none / not in Request Manager —</option>';
+    const note = el('dlgRequestNote');
+    const matches = await findRequestMatches(sel);
+
+    if (!matches.length) {
+      note.textContent = 'No payment request with this amount — likely paid via Bill.com or direct wire.';
+      return;
+    }
+
+    for (const m of matches) {
+      const o = document.createElement('option');
+      o.value = m.id;
+      const strength = m.vendor_match >= 0.6 ? 'likely'
+        : m.vendor_match > 0 ? 'weak' : 'amount only';
+      o.textContent = `${m.vendor_name || '(no vendor)'} · ${m.invoice_number || 'no invoice #'}`
+        + ` · ${strength}`;
+      o.dataset.invoice = m.invoice_number || '';
+      o.dataset.vendor = m.vendor_name || '';
+      o.dataset.file = m.file_name || '';
+      o.dataset.notes = m.notes_comments || '';
+      box.appendChild(o);
+    }
+
+    const best = matches[0];
+    if (best.vendor_match >= 0.6) {
+      box.value = best.id;
+      note.textContent = `Vendor and amount both match${best.file_name ? ` · ${best.file_name}` : ''}.`;
+      if (best.vendor_name) el('dlgVendor').value = best.vendor_name;
+      if (best.notes_comments) el('dlgLabel').value = best.notes_comments.slice(0, 80);
+    } else {
+      note.textContent =
+        'Amount matches but the vendor does not — check before linking. Amounts repeat across '
+        + 'unrelated requests.';
+    }
+  }
+
+  async function openStamp() {
     const sel = selectedTxns();
     if (!sel.length) return;
     const total = sel.reduce((s, x) => s + Number(x.amount || 0), 0);
@@ -561,6 +662,7 @@
     el('dlgEnd').value = '';
     updateSpread();
     el('dlg').showModal();
+    await fillRequestOptions(sel);
   }
 
   async function saveStamp() {
@@ -582,6 +684,7 @@
       qbo_account_name: acctSel.selectedOptions[0]?.dataset.name || null,
       service_start: start,
       service_end: end,
+      payment_request_id: el('dlgRequest').value || null,
     }).select('id').single();
 
     if (itemErr) { setStatus('Could not create item: ' + itemErr.message, 'neg', 8000); return; }
@@ -686,6 +789,14 @@
     el('btnFetch').addEventListener('click', fetchLedger);
     el('btnStamp').addEventListener('click', openStamp);
     el('btnExclude').addEventListener('click', excludeSelected);
+    el('dlgRequest').addEventListener('change', (e) => {
+      const o = e.target.selectedOptions[0];
+      el('dlgRequestNote').textContent = o && o.value
+        ? `Linked to ${o.dataset.vendor || 'request'}`
+          + (o.dataset.file ? ` · ${o.dataset.file}` : '')
+        : 'No request linked.';
+      if (o && o.value && o.dataset.vendor) el('dlgVendor').value = o.dataset.vendor;
+    });
     el('dlgStart').addEventListener('change', updateSpread);
     el('dlgEnd').addEventListener('change', updateSpread);
     el('dlg').addEventListener('close', () => {
