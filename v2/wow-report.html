@@ -43,6 +43,13 @@
     }
     .wow-tbl tbody tr:last-child td { border-bottom:none; }
     .wow-tbl tbody tr.wow-rate td { background:var(--bcn-sunken); font-size:11.5px; }
+    .wow-grp + .wow-grp { border-top:1px solid var(--bcn-border); }
+    .wow-grp-head {
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding:9px 12px 7px; font-family:var(--bcn-mono); font-size:10px;
+      letter-spacing:.08em; text-transform:uppercase; color:var(--bcn-ink-3);
+      background:var(--bcn-sunken);
+    }
     .wow-tbl tbody tr.wow-rate td:first-child { color:var(--bcn-ink-2); font-style:normal; }
     .wow-tbl tbody tr:hover td { background:var(--bcn-sunken); }
     .pos { color:var(--bcn-pos); } .neg { color:var(--bcn-neg); }
@@ -235,12 +242,9 @@
       </div>
 
       <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Paid media</h2><span class="bcn-card-meta">Meta &amp; Google</span></div>
-        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Campaign</th><th>Spend</th><th>ROAS</th><th>Clicks</th><th>Cost / conv</th></tr></thead>
-          <tbody id="paidBody"></tbody></table>
-        </div></div>
-        <div class="wow-note">Campaigns with no attributed revenue are awareness buys — <b>they have no ROAS by design</b> and shouldn't be read as failures. Thruplay cost and cost-per-lead aren't broken out in the feed; take those from Ads Manager.</div>
+        <div class="bcn-card-header"><h2>Paid media — Meta</h2><span class="bcn-card-meta">by campaign objective</span></div>
+        <div class="bcn-card-body" style="padding:0" id="metaRoot"></div>
+        <div class="wow-note" id="metaNote"></div>
       
         <details class="wow-say" data-key="paid">
           <summary>Notes on paid media</summary>
@@ -249,9 +253,21 @@
       </div>
 
       <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">Meta, ad level</span></div>
+        <div class="bcn-card-header"><h2>Paid media — Google</h2><span class="bcn-card-meta" id="googMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Creative</th><th>Spend</th><th>ROAS</th><th>Clicks</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Campaign</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Cost / conv</th><th>Clicks</th></tr></thead>
+          <tbody id="googBody"></tbody></table>
+        </div></div>
+        <details class="wow-say" data-key="google">
+          <summary>Notes on Google</summary>
+          <div class="wow-say-body"><textarea id="say_google" class="wow-say-box" data-say="google" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">Meta purchase campaigns, top 10 by spend</span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Creative</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Clicks</th></tr></thead>
           <tbody id="creBody"></tbody></table>
         </div></div>
       
@@ -489,6 +505,7 @@
   }
 
   let FUNNEL = null;
+  let PAID = null;
 
   function renderFunnel(){
     const body = el('funnelBody'), note = el('funnelNote');
@@ -561,9 +578,10 @@
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const [main, funnel] = await Promise.all([
+      const [main, funnel, paid] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
+        sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -571,6 +589,8 @@
       // figures the rest of the report is built on.
       FUNNEL = funnel.error ? null : (funnel.data || null);
       if (funnel.error) console.warn('funnel unavailable:', funnel.error.message);
+      PAID = paid.error ? null : (paid.data || null);
+      if (paid.error) console.warn('paid media unavailable:', paid.error.message);
       render();
       buildManual();
       await loadEntry();
@@ -624,19 +644,82 @@
       <td>${esc(k.channel)}</td><td>${money(k.sales)}</td><td>${k.pct == null ? '—' : k.pct + '%'}</td>
     </tr>`).join('') || `<tr><td class="wow-empty" colspan="3">No data.</td></tr>`;
 
-    const PLAT = { meta_ads:'Meta', google_ads:'Google' };
-    el('paidBody').innerHTML = (d.paid||[]).map(p => `<tr>
-      <td>${esc(PLAT[p.platform] || p.platform)} — ${esc(p.campaign)}</td>
-      <td>${money(p.spend)}</td>
-      <td>${p.roas ? xFmt(p.roas) : '<span class="dim">awareness</span>'}</td>
-      <td>${intFmt(p.clicks)}</td>
-      <td>${p.cost_per_conv == null ? '<span class="dim">—</span>' : money2(p.cost_per_conv)}</td>
-    </tr>`).join('') || `<tr><td class="wow-empty" colspan="5">No paid spend in this window.</td></tr>`;
+    renderPaid();
+  }
 
-    el('creBody').innerHTML = (d.creatives||[]).map(a => `<tr>
+  // Each Meta objective gets its own table with its own columns. A thruplay
+  // buy has no attributed revenue by design, so putting it in a shared table
+  // under a ROAS column makes a working awareness campaign read as a 0.00x
+  // failure. That misread is the whole reason this is split.
+  const PAID_COLS = {
+    roas:              [['spend','Spend','money'],['roas','ROAS','x'],['conversions','Conversions','int'],['cost_per_conv','Cost / conv','money2'],['revenue','Revenue','money']],
+    cost_per_thruplay: [['spend','Spend','money'],['impressions','Impressions','int'],['clicks','Clicks','int'],['cost_per_click','Cost / click','money2']],
+    cost_per_lead:     [['spend','Spend','money'],['clicks','Clicks','int'],['cost_per_click','Cost / click','money2']],
+    cost_per_click:    [['spend','Spend','money'],['clicks','Clicks','int'],['cost_per_click','Cost / click','money2'],['conversions','Conversions','int']],
+    spend:             [['spend','Spend','money'],['clicks','Clicks','int'],['roas','ROAS','x']],
+  };
+  const fmtBy = (v, kind) => {
+    if (v == null) return '<span class="dim">—</span>';
+    if (kind === 'money')  return money(v);
+    if (kind === 'money2') return money2(v);
+    if (kind === 'x')      return xFmt(v);
+    return intFmt(v);
+  };
+
+  function renderPaid(){
+    const pm = PAID || {};
+
+    // --- Meta, one section per objective ---
+    const groups = pm.meta || [];
+    el('metaRoot').innerHTML = !groups.length
+      ? '<div class="wow-empty" style="padding:14px">No Meta spend in this window.</div>'
+      : groups.map(g => {
+          const cols = PAID_COLS[g.judged_on] || PAID_COLS.spend;
+          const wowSpend = (g.prev_spend != null && Number(g.prev_spend) > 0)
+            ? (() => { const pct = (Number(g.spend)-Number(g.prev_spend))/Number(g.prev_spend)*100;
+                       return `<span class="${pct>=0?'pos':'neg'}" style="font-size:10.5px">${pct>=0?'+':''}${pct.toFixed(0)}% vs prior wk</span>`; })()
+            : '';
+          const rows = (g.campaigns||[]).map(c =>
+            `<tr><td>${esc(c.campaign)}</td>${cols.map(([k,,kind]) => `<td>${fmtBy(c[k], kind)}</td>`).join('')}</tr>`).join('');
+          const total = `<tr class="wow-rate"><td><b>Total</b></td>${cols.map(([k,,kind]) => `<td><b>${fmtBy(g[k], kind)}</b></td>`).join('')}</tr>`;
+          return `<div class="wow-grp">
+              <div class="wow-grp-head"><span>${esc(g.label)}</span>${wowSpend}</div>
+              <div class="bcn-matrix-scroll"><table class="wow-tbl">
+                <thead><tr><th>Campaign</th>${cols.map(([,lbl]) => `<th>${lbl}</th>`).join('')}</tr></thead>
+                <tbody>${rows}${total}</tbody></table></div>
+            </div>`;
+        }).join('');
+
+    // Name what is genuinely absent instead of leaving an empty column that
+    // reads as a zero.
+    const missing = pm.not_synced || [];
+    el('metaNote').innerHTML =
+      `<b>Each objective is judged on its own denominator.</b> Purchase campaigns on ROAS; thruplay and subscriber buys have no attributed revenue by design and must not be read as 0.00x failures.` +
+      (missing.length ? ` <b>${missing.join(' and ')} are not synced into SILO</b> — cost per thruplay and cost per lead still come from Ads Manager. Spend and clicks here are live.` : '');
+
+    // --- Google ---
+    const gg = pm.google || null;
+    el('googMeta').textContent = gg
+      ? `${money(gg.spend)} spend · ${gg.roas ? xFmt(gg.roas) : '—'} ROAS`
+      : 'no spend in window';
+    el('googBody').innerHTML = (gg && (gg.campaigns||[]).length)
+      ? (gg.campaigns.map(c => `<tr>
+            <td>${esc(c.campaign)}</td><td>${money(c.spend)}</td>
+            <td>${c.roas ? xFmt(c.roas) : '<span class="dim">—</span>'}</td>
+            <td>${intFmt(c.conversions)}</td>
+            <td>${fmtBy(c.cost_per_conv,'money2')}</td><td>${intFmt(c.clicks)}</td>
+          </tr>`).join('') +
+         `<tr class="wow-rate"><td><b>Total</b></td><td><b>${money(gg.spend)}</b></td>
+            <td><b>${gg.roas ? xFmt(gg.roas) : '—'}</b></td><td><b>${intFmt(gg.conversions)}</b></td>
+            <td><b>${fmtBy(gg.cost_per_conv,'money2')}</b></td><td><b>${intFmt(gg.clicks)}</b></td></tr>`)
+      : `<tr><td class="wow-empty" colspan="6">No Google spend in this window.</td></tr>`;
+
+    // --- Creatives, purchase campaigns only ---
+    el('creBody').innerHTML = (pm.creatives||[]).map(a => `<tr>
       <td><div class="wow-ad">${a.thumb ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" />` : ''}<span>${esc(a.ad)}</span></div></td>
-      <td>${money(a.spend)}</td><td>${a.roas ? xFmt(a.roas) : '<span class="dim">—</span>'}</td><td>${intFmt(a.clicks)}</td>
-    </tr>`).join('') || `<tr><td class="wow-empty" colspan="4">No Meta ad-level rows in this window.</td></tr>`;
+      <td>${money(a.spend)}</td><td>${a.roas ? xFmt(a.roas) : '<span class="dim">—</span>'}</td>
+      <td>${intFmt(a.conversions)}</td><td>${intFmt(a.clicks)}</td>
+    </tr>`).join('') || `<tr><td class="wow-empty" colspan="5">No Meta purchase-campaign ads in this window.</td></tr>`;
   }
 
   // Export mirrors what is on screen, as raw numbers rather than display strings.
@@ -656,8 +739,28 @@
     (DATA.categories||[]).forEach(k => push(k.category, k.sales, k.pct, k.wow ?? ''));
     push(''); push('Channel','Sales','% of total');
     (DATA.channels||[]).forEach(k => push(k.channel, k.sales, k.pct));
-    push(''); push('Campaign','Spend','ROAS','Clicks','Cost per conv');
-    (DATA.paid||[]).forEach(p => push(`${p.platform} — ${p.campaign}`, p.spend, p.roas ?? '', p.clicks, p.cost_per_conv ?? ''));
+    const pm = PAID || {};
+    (pm.meta || []).forEach(g => {
+      push('');
+      push(`Meta — ${g.label}`, 'Spend', 'ROAS', 'Conversions', 'Cost per conv', 'Clicks', 'Revenue');
+      (g.campaigns || []).forEach(c => push(c.campaign, c.spend, c.roas ?? '', c.conversions ?? '',
+        c.cost_per_conv ?? '', c.clicks ?? '', c.revenue ?? ''));
+      push('Total', g.spend, g.roas ?? '', g.conversions ?? '', g.cost_per_conv ?? '', g.clicks ?? '', g.revenue ?? '');
+    });
+    if (pm.google) {
+      push(''); push('Google — campaign','Spend','ROAS','Conversions','Cost per conv','Clicks');
+      (pm.google.campaigns || []).forEach(c => push(c.campaign, c.spend, c.roas ?? '', c.conversions ?? '',
+        c.cost_per_conv ?? '', c.clicks ?? ''));
+      push('Total', pm.google.spend, pm.google.roas ?? '', pm.google.conversions ?? '',
+        pm.google.cost_per_conv ?? '', pm.google.clicks ?? '');
+    }
+    if ((pm.creatives || []).length) {
+      push(''); push('Creative (Meta purchase)','Spend','ROAS','Conversions','Clicks');
+      pm.creatives.forEach(a => push(a.ad, a.spend, a.roas ?? '', a.conversions ?? '', a.clicks ?? ''));
+    }
+    if ((pm.not_synced || []).length) {
+      push(''); push('Not synced into SILO', pm.not_synced.join(' / '), 'pull from Ads Manager');
+    }
     const written = collectWritten();
     if (Object.keys(written.commentary).length){ push(''); push('Commentary',''); 
       Object.entries(written.commentary).forEach(([k,v]) => push(k, v)); }
