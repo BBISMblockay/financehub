@@ -1898,7 +1898,7 @@ export async function shopifyql(connection, query) {
       shopifyqlQuery(query: $q) {
         __typename
         parseErrors
-        tableData { columns { name } rowData }
+        tableData { __typename }
       }
     }`,
     variables: { q: query },
@@ -1929,6 +1929,16 @@ export async function shopifyql(connection, query) {
   }
   const table = payload?.tableData;
   if (!table) return [];
+
+  // PROBE MODE. The row field on ShopifyqlTableData is not confirmed yet --
+  // 'rowData' was rejected by the API. Until describeShopifyqlSchema names
+  // it, this deliberately fails rather than returning [] and reporting a
+  // successful sync of nothing.
+  if (!table.columns && !table.rowData) {
+    throw new Error(
+      'ShopifyQL probe: tableData reached, row/column field names not yet confirmed for this API version',
+    );
+  }
 
   const cols = (table.columns || []).map((c) => c.name);
   return (table.rowData || []).map((row) => {
@@ -1964,17 +1974,60 @@ export async function describeShopifyqlSchema(connection) {
   const typeName = field.type?.name || field.type?.ofType?.name;
   if (!typeName) return { available: true, note: 'shopifyqlQuery present but its return type could not be unwrapped' };
 
-  const typeJson = await ask(`{ __type(name: "${typeName}") { kind name
-      fields { name type { kind name ofType { kind name ofType { kind name } } } }
-      possibleTypes { name } } }`);
-  const t = typeJson?.data?.__type;
-  const unwrap = (ty) => ty?.name || ty?.ofType?.name || ty?.ofType?.ofType?.name || ty?.kind || '?';
+  // Unwrap NON_NULL / LIST wrappers to the underlying named type. The first
+  // version of this only reported the top level, which named
+  // ShopifyqlTableData without saying what is inside it -- and the field I
+  // needed (the rows) was one level further down.
+  const unwrap = (ty) => {
+    let t = ty;
+    for (let i = 0; i < 6 && t; i += 1) {
+      if (t.name) return t.name;
+      t = t.ofType;
+    }
+    return ty?.kind || '?';
+  };
+
+  const describeType = async (name) => {
+    const j = await ask(`{ __type(name: "${name}") { kind name
+        fields { name type { kind name
+          ofType { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } }
+        possibleTypes { name } } }`);
+    const t = j?.data?.__type;
+    if (!t) return null;
+    return {
+      kind: t.kind,
+      fields: (t.fields || []).map((f) => ({ name: f.name, type: unwrap(f.type) })),
+      possible_types: (t.possibleTypes || []).map((p) => p.name),
+    };
+  };
+
+  const top = await describeType(typeName);
+  if (!top) return { available: true, return_type: typeName, note: 'type not introspectable' };
+
+  // Follow every object-typed field one level down, so a single failed run
+  // reports the whole shape instead of the outermost layer.
+  const nested = {};
+  const BUILTIN = new Set(['String', 'Int', 'Float', 'Boolean', 'ID']);
+  for (const f of top.fields) {
+    if (BUILTIN.has(f.type) || nested[f.type] || f.type === typeName) continue;
+    const child = await describeType(f.type);
+    if (child) {
+      nested[f.type] = child.fields.map((cf) => `${cf.name}: ${cf.type}`);
+      for (const cf of child.fields) {
+        if (BUILTIN.has(cf.type) || nested[cf.type] || cf.type === typeName) continue;
+        const grand = await describeType(cf.type);
+        if (grand) nested[cf.type] = grand.fields.map((gf) => `${gf.name}: ${gf.type}`);
+      }
+    }
+  }
+
   return {
     available: true,
     return_type: typeName,
-    kind: t?.kind,
-    fields: (t?.fields || []).map((f) => `${f.name}: ${unwrap(f.type)}`),
-    possible_types: (t?.possibleTypes || []).map((p) => p.name),
+    kind: top.kind,
+    fields: top.fields.map((f) => `${f.name}: ${f.type}`),
+    nested,
+    possible_types: top.possible_types,
   };
 }
 
