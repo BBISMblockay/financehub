@@ -42,6 +42,8 @@
       color:var(--bcn-ink); font-weight:600; font-size:13px;
     }
     .wow-tbl tbody tr:last-child td { border-bottom:none; }
+    .wow-tbl tbody tr.wow-rate td { background:var(--bcn-sunken); font-size:11.5px; }
+    .wow-tbl tbody tr.wow-rate td:first-child { color:var(--bcn-ink-2); font-style:normal; }
     .wow-tbl tbody tr:hover td { background:var(--bcn-sunken); }
     .pos { color:var(--bcn-pos); } .neg { color:var(--bcn-neg); }
     .dim { color:var(--bcn-ink-4) !important; }
@@ -174,12 +176,16 @@
       </div>
 
       <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Traffic &amp; site revenue — year over year</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">GA4</span></div>
+        <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">SHOPIFY + GA4</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Period</th><th>Sessions</th><th>Site revenue</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th>Same wk LY</th></tr></thead>
+          <tbody id="funnelBody"></tbody></table>
+        </div></div>
+        <div class="bcn-card-body" style="padding:0;border-top:1px solid var(--bcn-border)"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Period</th><th>Sessions (GA4)</th><th>Site revenue</th></tr></thead>
           <tbody id="ga4Body"></tbody></table>
         </div></div>
-        <div class="wow-note"><b>Add-to-cart, reach-checkout and complete-checkout are not here.</b> SILO only holds those counts for Meta ad traffic, not sitewide — a full funnel needs GA4 event-level data, which isn't synced. Take those three from GA4 directly.</div>
+        <div class="wow-note" id="funnelNote"></div>
       
         <details class="wow-say" data-key="traffic">
           <summary>What the traffic is telling us</summary>
@@ -482,13 +488,89 @@
     }
   }
 
+  let FUNNEL = null;
+
+  function renderFunnel(){
+    const body = el('funnelBody'), note = el('funnelNote');
+    const f = FUNNEL || {};
+    const t = f.this, p = f.prev;
+    // Sessions history only goes back as far as the first ShopifyQL backfill,
+    // so the year-ago window is often partial. A partial column looks like a
+    // real comparison and reads catastrophically wrong -- 2 days against 7
+    // makes flat traffic look like it tripled. Show it only when complete.
+    const lyRaw = f.ly, lyComplete = !!(lyRaw && Number(lyRaw.days) >= 7);
+    const l = lyComplete ? lyRaw : null;
+    if (!t || !Number(t.sessions)) {
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--bcn-ink-3)">No session data for this week yet — the Shopify sessions sync populates this nightly.</td></tr>';
+      note.innerHTML = '<b>Funnel not available for this window.</b> Sessions are synced from Shopify Analytics; if this persists, check the <code>sessions_sync</code> job in <code>sync_jobs</code>.';
+      return;
+    }
+
+    // Counts first, then the rates derived from them. Rates come from the RPC
+    // as sum(num)/sum(den) over the window -- never an average of daily rates,
+    // which would weight a quiet Sunday the same as a launch day.
+    const countRow = (label, key, indent) => {
+      const tv = Number(t[key] ?? 0), pv = p ? Number(p[key] ?? 0) : null, lv = l ? Number(l[key] ?? 0) : null;
+      const pad = indent ? 'padding-left:22px' : '';
+      const share = key === 'sessions' ? '' :
+        ` <span style="color:var(--bcn-ink-3);font-size:10px">${(100*tv/Number(t.sessions||1)).toFixed(1)}% of sessions</span>`;
+      return `<tr><td style="${pad}">${label}${share}</td><td>${intFmt(tv)}</td>` +
+             `<td>${pv==null?'—':intFmt(pv)}</td>${pv==null?'<td>—</td>':deltaCell(tv,pv)}` +
+             `<td>${lv==null?'—':intFmt(lv)}</td></tr>`;
+    };
+    const rateRow = (label, key) => {
+      const tv = t[key]==null?null:Number(t[key]);
+      const pv = p&&p[key]!=null?Number(p[key]):null;
+      const lv = l&&l[key]!=null?Number(l[key]):null;
+      const pt = (tv!=null&&pv!=null) ? tv-pv : null;
+      const cls = pt==null?'dim':(pt>0?'pos':pt<0?'neg':'dim');
+      return `<tr class="wow-rate"><td>${label}</td><td>${tv==null?'—':tv.toFixed(2)+'%'}</td>` +
+             `<td>${pv==null?'—':pv.toFixed(2)+'%'}</td>` +
+             `<td class="${cls}">${pt==null?'—':(pt>=0?'+':'')+pt.toFixed(2)+' pt'}</td>` +
+             `<td>${lv==null?'—':lv.toFixed(2)+'%'}</td></tr>`;
+    };
+
+    body.innerHTML =
+      countRow('Sessions','sessions',false) +
+      countRow('Added to cart','added_to_cart',true) +
+      countRow('Reached checkout','reached_checkout',true) +
+      countRow('Completed checkout','completed_checkout',true) +
+      rateRow('Cart rate','cart_rate') +
+      rateRow('Conversion rate','cvr') +
+      rateRow('Checkout completion','checkout_completion');
+
+    // Say plainly where each half comes from, and whether they agree. Two
+    // independent session counts landing within a few percent is the evidence
+    // that neither pipeline is silently broken.
+    const g = (DATA && DATA.ga4) || {};
+    const shopTY = Number(t.sessions||0), ga4TY = Number(g.sessions_ty||0);
+    let agree = '';
+    if (shopTY && ga4TY) {
+      const gap = Math.abs(shopTY-ga4TY)/Math.max(shopTY,ga4TY)*100;
+      agree = ` GA4 counted ${intFmt(ga4TY)} sessions against Shopify's ${intFmt(shopTY)} — ${gap.toFixed(1)}% apart` +
+              (gap<=8 ? ', which is normal tracking variance between the two.' :
+                        '. That gap is wider than usual; treat both as approximate until it is chased down.');
+    }
+    note.innerHTML = `<b>Funnel counts are Shopify Analytics (sitewide, all online channels); the revenue row is GA4.</b>` +
+      ` Rates are recomputed over the whole week, not averaged across days.${agree}` +
+      (t.days && t.days < 7 ? ` <b>Only ${t.days} of 7 days have landed</b> — this week's counts are partial.` : '') +
+      (!lyComplete ? ` <b>Year-ago column is blank on purpose</b> — session history only covers ${lyRaw ? lyRaw.days : 0} of those 7 days, and a partial week shown against a full one reads as growth that did not happen.` : '');
+  }
+
   async function load(){
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const { data, error } = await sb.rpc('wow_report', { p_report_date: el('reportDate').value });
-      if (error) throw error;
-      DATA = data;
+      const [main, funnel] = await Promise.all([
+        sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
+        sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
+      ]);
+      if (main.error) throw main.error;
+      DATA = main.data;
+      // The funnel is additive -- a failure here must not take down the sales
+      // figures the rest of the report is built on.
+      FUNNEL = funnel.error ? null : (funnel.data || null);
+      if (funnel.error) console.warn('funnel unavailable:', funnel.error.message);
       render();
       buildManual();
       await loadEntry();
@@ -518,6 +600,8 @@
     el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
     el('kInv').textContent    = intFmt(inv.units_on_hand);
     el('kInvSub').textContent = `${intFmt(inv.skus)} SKUs · deduped`;
+
+    renderFunnel();
 
     el('ga4Body').innerHTML =
       `<tr><td>Same week last year</td><td>${intFmt(g.sessions_ly)}</td><td>${money(g.revenue_ly)}</td></tr>` +
