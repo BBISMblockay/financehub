@@ -67,6 +67,7 @@
 
     { departments: FINANCE_DEPTS, id: 'finance/accounting-export', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting Export', href: '/v2/accounting-export.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'finance/qbo-reports', section: 'Accounting', sectionStandard: 'Operations', label: 'QuickBooks Reports', href: '/v2/qbo-reports.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/schedules', section: 'Accounting', sectionStandard: 'Operations', label: 'Schedules', href: '/v2/schedules.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
     // WPV Receivables removed 2026-08-16 — stale Google Sheets flow, page retired.
     { id: 'finance/payment-request', section: 'Accounting', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },

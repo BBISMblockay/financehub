@@ -170,6 +170,15 @@ select
   -- The database-level double-post guard. Without it a UI disable is the only thing stopping a duplicate period.
   case when exists (select 1 from pg_indexes where schemaname='public' and indexname='uq_quickbooks_postings_source_ref_posted') then 'ok' else 'MISSING' end as posting_double_post_guard;
 
+-- 7d6. Balance sheet schedules (20260827220000_schedule_items.sql)
+select
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='schedule_items') then 'ok' else 'MISSING' end as schedule_items,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='schedule_item_transactions') then 'ok' else 'MISSING' end as schedule_item_transactions,
+  -- Stops one payment being stamped to two items, which would double-count the balance and break the tie-out.
+  case when exists (select 1 from pg_indexes where schemaname='public' and indexname='uq_schedule_item_txn_once') then 'ok' else 'MISSING' end as one_stamp_per_txn,
+  case when exists (select 1 from information_schema.views where table_schema='public' and table_name='schedule_item_amortization_v') then 'ok' else 'MISSING' end as amortization_view,
+  case when exists (select 1 from information_schema.views where table_schema='public' and table_name='schedule_item_balances_v') then 'ok' else 'MISSING' end as balances_view;
+
 -- 7e. Redo return items + customer columns (20260812130000_redo_return_items.sql)
 select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_return_items') then 'ok' else 'MISSING' end as redo_return_items,
