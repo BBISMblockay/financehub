@@ -178,10 +178,10 @@
     <div class="bcn-status" id="status" hidden></div>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">matches Shopify "total sales"</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kSalesSub">matches Shopify "total sales"</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Net Sales</div><div id="kNet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kNetSub">after refunds</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Orders</div><div id="kOrders" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">excl. cancelled</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">total sales ÷ orders</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Orders</div><div id="kOrders" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kOrdersSub">excl. cancelled</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label" title="Net sales ÷ orders — matches Shopify's average_order_value; excludes shipping and tax">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kAovSub">net sales ÷ orders</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Returning Rate</div><div id="kRet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kRetSub">&nbsp;</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Units On Hand</div><div id="kInv" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kInvSub">online warehouse</div></div>
     </div>
@@ -219,7 +219,7 @@
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">SHOPIFY + GA4</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th>Same wk LY</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th>vs sessions</th><th>Same wk LY</th></tr></thead>
           <tbody id="funnelBody"></tbody></table>
         </div></div>
         <div class="bcn-card-body" style="padding:0;border-top:1px solid var(--bcn-border)"><div class="bcn-matrix-scroll">
@@ -571,6 +571,15 @@
 
   function collectTables(){
     const out = {};
+    // Typed cohort cells live in the live card, not a MANUAL_TABLES entry.
+    const cohortRows = new Map();
+    document.querySelectorAll('#chBody [data-cohort]').forEach(i => {
+      const v = i.value.trim(); if (!v) return;
+      const mon = i.dataset.cohort;
+      if (!cohortRows.has(mon)) cohortRows.set(mon, { cohortMonth: mon });
+      cohortRows.get(mon)[i.dataset.col] = v;
+    });
+    if (cohortRows.size) out.cohorts_manual = [...cohortRows.values()];
     MANUAL_TABLES.forEach(t => {
       const rows = [];
       document.querySelectorAll(`[data-table="${t.key}"] tbody tr`).forEach(tr => {
@@ -648,6 +657,7 @@
   let LANDING = null;
   let CODES = null;
   let COHORTS = null;
+  let KPI = null;
   let DATA_THROUGH = null;
 
   // The Shopify side of TikTok IS live -- TikTok Shop arrives as an order
@@ -664,28 +674,78 @@
   // direction, because a repeat purchase in an unsynced month looks identical
   // to a customer who never returned. Every cell the RPC could not stand
   // behind comes back null, and null renders as "not yet", never as 0%.
+  // Week-over-week and year-over-year under each headline number. Without a
+  // comparison the band is just six figures -- a reader cannot tell a good
+  // week from a bad one without scrolling to the funnel.
+  function renderKpiDeltas(){
+    const k = KPI || {};
+    const arrow = (v) => v == null ? '' : (v > 0 ? '▲' : v < 0 ? '▼' : '');
+    const cls   = (v) => v == null ? 'dim' : (v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim');
+    const part  = (label, v) => v == null
+      ? `<span class="dim">${label} —</span>`
+      : `<span class="${cls(v)}">${arrow(v)} ${Math.abs(v).toFixed(1)}% ${label}</span>`;
+    const line = (m, tail) => {
+      if (!m) return tail;
+      return `${part('WoW', m.wow)} &nbsp; ${part('YoY', m.yoy)}`;
+    };
+    const set = (id, m, tail) => { const n = el(id); if (n) n.innerHTML = line(m, tail); };
+    set('kSalesSub',  k.total_sales, 'matches Shopify "total sales"');
+    set('kNetSub',    k.net_sales,   'after refunds');
+    set('kOrdersSub', k.orders,      'excl. cancelled');
+    set('kAovSub',    k.aov,         'total sales ÷ orders');
+  }
+
+  // Computed where the data supports it, typeable where it does not.
+  //
+  // Making this card live removed the manual cohort table it replaced, which
+  // left no way to fill the months the backfill has not reached -- a
+  // regression, since a demo needs a complete table more than a pure one.
+  // Every month in range now gets a row: computed cells render as values,
+  // uncovered cells render as inputs that save with the rest of the notes.
+  // A cell cannot be both, so a typed number can never overwrite or be
+  // confused with a measured one.
   function renderCohorts(){
     const d = COHORTS || {};
-    const rows = d.rows || [];
-    const cell = (v) => v == null
-      ? '<span class="dim" title="Not enough order history synced for this month yet">—</span>'
-      : v + '%';
-    el('chBody').innerHTML = rows.length
-      ? rows.map(r => `<tr>
-          <td style="text-align:left"><span class="bcn-mono" style="font-size:11px">${esc(r.cohort_month)}</span></td>
-          <td>${intFmt(r.size)}</td><td>${cell(r.m1)}</td><td>${cell(r.m2)}</td>
-          <td>${cell(r.m3)}</td><td>${cell(r.m4plus)}</td>
-        </tr>`).join('')
-      : `<tr><td class="wow-empty" colspan="6">No month has complete order coverage yet — run the Shopify Orders Backfill.</td></tr>`;
-    el('chMeta').textContent = rows.length
-      ? `${rows.length} cohort${rows.length === 1 ? '' : 's'} with complete data`
-      : 'awaiting order history';
+    const computed = new Map((d.rows || []).map(r => [r.cohort_month, r]));
+    const saved = (ENTRY.tables && ENTRY.tables.cohorts_manual) || [];
+    const savedBy = new Map(saved.map(r => [r.cohortMonth, r]));
+
+    // Twelve months back from the report date, newest first.
+    const end = new Date((el('reportDate').value || iso(new Date())) + 'T00:00:00');
+    const months = [];
+    for (let i = 0; i < 12; i += 1) {
+      const dt = new Date(Date.UTC(end.getFullYear(), end.getMonth() - i, 1));
+      months.push(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+
+    const inputCell = (mon, key) => {
+      const v = (savedBy.get(mon) || {})[key] || '';
+      return `<td><input class="wow-mt-in" data-cohort="${mon}" data-col="${key}" value="${esc(v)}" ` +
+             `placeholder="—" style="width:100%;text-align:right" /></td>`;
+    };
+    const valueCell = (v) => `<td>${v}%</td>`;
+
+    el('chBody').innerHTML = months.map(mon => {
+      const c = computed.get(mon);
+      const sizeCell = c ? `<td>${intFmt(c.size)}</td>` : inputCell(mon, 'size');
+      const cells = ['m1','m2','m3','m4plus'].map(k => {
+        const v = c ? c[k] : null;
+        return v == null ? inputCell(mon, k) : valueCell(v);
+      }).join('');
+      const badge = c
+        ? '<span class="bcn-pill bcn-pill--pos" style="font-size:9px;padding:0 5px;margin-left:6px">live</span>'
+        : '';
+      return `<tr><td style="text-align:left"><span class="bcn-mono" style="font-size:11px">${esc(mon)}</span>${badge}</td>${sizeCell}${cells}</tr>`;
+    }).join('');
+
+    const liveCount = months.filter(m => computed.has(m)).length;
+    el('chMeta').textContent = `${liveCount} of ${months.length} months computed · rest typed`;
     const gaps = d.incomplete_months || [];
     el('chNote').innerHTML =
       '<b>Online store only</b> — POS, wholesale and draft orders are excluded, matching the rest of this report. Retail-first customers rarely repeat online, so including them understates online retention. ' +
       '<b>Only months with complete daily order coverage are shown.</b> A repeat purchase falling in an unsynced month is indistinguishable from a customer who never came back, so a partial month would understate retention rather than merely blur it — those cells read \u201c\u2014\u201d, not 0%.' +
       (gaps.length
-        ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still incomplete</b> (${esc(gaps.slice(0,6).join(', '))}${gaps.length > 6 ? '\u2026' : ''}) — running <code>shopify-orders-backfill.yml</code> over those dates fills them in here automatically.`
+        ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still incomplete</b> — those rows are <b>typeable</b> so the table can be completed by hand, and each one flips to a computed <span class="bcn-pill bcn-pill--pos" style="font-size:9px;padding:0 5px">live</span> value as <code>shopify-orders-backfill.yml</code> fills its months. Typed values are never overwritten by a computed one; a cell is one or the other.`
         : ' All months in range are fully covered.');
   }
 
@@ -771,8 +831,23 @@
       const pad = indent ? 'padding-left:22px' : '';
       const share = key === 'sessions' ? '' :
         ` <span style="color:var(--bcn-ink-3);font-size:10px">${(100*tv/Number(t.sessions||1)).toFixed(1)}% of sessions</span>`;
+
+      // Each step as a share of sessions, versus the same share last week.
+      // Raw change alone is misleading when traffic moves: every step falls
+      // when sessions fall, which reads as a broken funnel rather than a
+      // quieter week. This isolates the step's own performance.
+      let normCell = '<td class="dim">—</td>';
+      if (key !== 'sessions' && pv != null && Number(t.sessions) > 0 && p && Number(p.sessions) > 0) {
+        const curShare = tv / Number(t.sessions);
+        const prevShare = pv / Number(p.sessions);
+        if (prevShare > 0) {
+          const pct = (curShare / prevShare - 1) * 100;
+          normCell = `<td class="${pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'dim'}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</td>`;
+        }
+      }
       return `<tr><td style="${pad}">${label}${share}</td><td>${intFmt(tv)}</td>` +
              `<td>${pv==null?'—':intFmt(pv)}</td>${pv==null?'<td>—</td>':deltaCell(tv,pv)}` +
+             normCell +
              `<td>${lv==null?'—':intFmt(lv)}</td></tr>`;
     };
     const rateRow = (label, key) => {
@@ -784,6 +859,7 @@
       return `<tr class="wow-rate"><td>${label}</td><td>${tv==null?'—':tv.toFixed(2)+'%'}</td>` +
              `<td>${pv==null?'—':pv.toFixed(2)+'%'}</td>` +
              `<td class="${cls}">${pt==null?'—':(pt>=0?'+':'')+pt.toFixed(2)+' pt'}</td>` +
+             `<td class="dim">—</td>` +
              `<td>${lv==null?'—':lv.toFixed(2)+'%'}</td></tr>`;
     };
 
@@ -818,13 +894,14 @@
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const [main, funnel, paid, landing, codes, cohorts] = await Promise.all([
+      const [main, funnel, paid, landing, codes, cohorts, kpi] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_landing_pages', { p_report_date: el('reportDate').value, p_limit: 15 }),
         sb.rpc('wow_discount_codes', { p_report_date: el('reportDate').value, p_limit: 20 }),
         sb.rpc('wow_cohorts', { p_months: 12 }),
+        sb.rpc('wow_kpi_compare', { p_report_date: el('reportDate').value }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -840,9 +917,14 @@
       if (codes.error) console.warn('discount codes unavailable:', codes.error.message);
       COHORTS = cohorts.error ? null : (cohorts.data || null);
       if (cohorts.error) console.warn('cohorts unavailable:', cohorts.error.message);
+      KPI = kpi.error ? null : (kpi.data || null);
+      if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
       render();
       buildManual();
       await loadEntry();
+      // ENTRY is only populated by loadEntry, and the cohort card reads typed
+      // cells from it -- repaint so saved values appear on reload.
+      renderCohorts();
       const end = DATA.window.end;
       if (DATA_THROUGH && end > DATA_THROUGH) {
         // Not an error -- but the totals below are genuinely incomplete, and a
@@ -874,10 +956,25 @@
     el('kNetSub').textContent = `after ${money(c.refunds)} refunds`;
     el('kOrders').textContent = intFmt(c.orders);
     el('kAov').textContent    = money2(c.aov);
-    el('kRet').textContent    = cu.returning_pct == null ? '—' : `${cu.returning_pct}%`;
-    el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
+    // Returning rate is derived from each customer's FIRST order date in
+    // shopify_orders. While that history has gaps, a customer whose first
+    // order sits in an unsynced month reads as new, so the rate is
+    // understated -- measured 36.0% against Shopify's 54.6% for 2026-08-19..25,
+    // 653 customers misclassified. Same root cause as the cohort gating: say
+    // it rather than print a confident wrong number.
+    const gapMonths = (COHORTS?.incomplete_months || []).length;
+    el('kRet').textContent = cu.returning_pct == null ? '—' : `${cu.returning_pct}%`;
+    if (gapMonths) {
+      el('kRet').innerHTML = `${cu.returning_pct == null ? '—' : cu.returning_pct + '%'}` +
+        `<span class="neg" style="font-size:11px;margin-left:6px" title="Order history has ${gapMonths} incomplete month(s), so customers whose first order falls in a gap count as new. Shopify's own figure is higher.">low</span>`;
+      el('kRetSub').innerHTML =
+        `<span class="neg">understated — ${gapMonths} month(s) of order history still syncing</span>`;
+    } else {
+      el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
+    }
     el('kInv').textContent    = intFmt(inv.units_on_hand);
     el('kInvSub').textContent = `${intFmt(inv.skus)} SKUs · deduped`;
+    renderKpiDeltas();
 
     renderFunnel();
     if (DATA_THROUGH) {
@@ -1104,7 +1201,7 @@
     el('btnSave').addEventListener('click', saveEntry);
 
     document.addEventListener('input', ev => {
-      if (ev.target.matches('[data-col]')) { markDirty(); return; }
+      if (ev.target.matches('[data-col]') || ev.target.matches('[data-cohort]')) { markDirty(); return; }
       if (!ev.target.matches('[data-say],[data-manual]')) return;
       markDirty();
       const d = ev.target.closest('.wow-say');
