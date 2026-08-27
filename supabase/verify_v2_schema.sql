@@ -163,6 +163,13 @@ select
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='accounting_location_map' and column_name='qbo_revenue_account_id') then 'ok' else 'MISSING' end as location_revenue_account,
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='accounting_location_map' and column_name='qbo_refunds_account_id') then 'ok' else 'MISSING' end as location_refunds_account;
 
+-- 7d5. QuickBooks reports + posting log (20260827210000_quickbooks_reports.sql)
+select
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_report_runs') then 'ok' else 'MISSING' end as quickbooks_report_runs,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_journal_postings') then 'ok' else 'MISSING' end as quickbooks_journal_postings,
+  -- The database-level double-post guard. Without it a UI disable is the only thing stopping a duplicate period.
+  case when exists (select 1 from pg_indexes where schemaname='public' and indexname='uq_quickbooks_postings_source_ref_posted') then 'ok' else 'MISSING' end as posting_double_post_guard;
+
 -- 7e. Redo return items + customer columns (20260812130000_redo_return_items.sql)
 select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='redo_return_items') then 'ok' else 'MISSING' end as redo_return_items,
