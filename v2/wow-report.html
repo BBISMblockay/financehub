@@ -190,7 +190,6 @@
 
       <div class="wow-period" id="periodBar"></div>
 
-      <div class="wow-note" style="border-top:none;border-bottom:1px solid var(--bcn-border);padding-left:2px">Online only — all online channels, refunds netted. POS, wholesale and draft orders excluded.</div>
 
       
 
@@ -212,17 +211,15 @@
 
       <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website &amp; Sales</span><span class="wow-sec-sub">Shopify · sessions, products, channels, cohorts</span></div>
 <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">SHOPIFY + GA4</span></div>
+        <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-card-meta" id="funnelMeta">online store</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th>vs sessions</th><th>Same wk LY</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th title="Each step as a share of sessions, against last week. Change alone drops whenever traffic drops.">vs sessions</th><th>Same wk LY</th></tr></thead>
           <tbody id="funnelBody"></tbody></table>
         </div></div>
         <div class="bcn-card-body" style="padding:0;border-top:1px solid var(--bcn-border)"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Period</th><th>Sessions (GA4)</th><th>Site revenue</th></tr></thead>
           <tbody id="ga4Body"></tbody></table>
         </div></div>
-        <div class="wow-note" id="funnelNote"></div>
-        <div class="wow-note" id="throughNote" hidden></div>
       
         <details class="wow-say" data-key="traffic">
           <summary>What the traffic is telling us</summary>
@@ -231,17 +228,16 @@
       </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>Top products</h2><span class="bcn-card-meta" id="prodMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th>Days of stock</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th title="On hand ÷ this week&#39;s daily rate. Each SKU counted once.">Days of stock</th></tr></thead>
           <tbody id="prodBody"><tr><td class="wow-empty" colspan="5"><span class="wow-spin"></span>Loading…</td></tr></tbody></table>
         </div></div>
-        <div class="wow-note">Days of stock = on hand ÷ this week's daily rate. Each SKU counted once.</div>
       
         <details class="wow-say" data-key="products">
           <summary>Notes on products</summary>
           <div class="wow-say-body"><textarea id="say_products" class="wow-say-box" data-say="products" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div><div class="bcn-card">
-        <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta">online · vs prior week</span></div>
+        <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta">vs prior week</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th>vs prior week</th></tr></thead>
           <tbody id="catBody"></tbody></table>
@@ -252,7 +248,7 @@
           <div class="wow-say-body"><textarea id="say_categories" class="wow-say-box" data-say="categories" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div><div class="bcn-card">
-        <div class="bcn-card-header"><h2>All channels</h2><span class="bcn-card-meta">context — online is the report scope</span></div>
+        <div class="bcn-card-header"><h2>All channels</h2><span class="bcn-card-meta">context only</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Channel</th><th>Sales</th><th>% of total</th></tr></thead>
           <tbody id="chanBody"></tbody></table>
@@ -267,10 +263,9 @@
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Sessions by landing page</h2><span class="bcn-card-meta" id="lpMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Landing page</th><th>Sessions</th><th>vs prior wk</th><th>Cart rate</th><th>Conv. rate</th><th>Orders</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th title="Top 250 pages per day — a slice, not every page.">Landing page</th><th>Sessions</th><th>vs prior wk</th><th>Cart rate</th><th>Conv. rate</th><th>Orders</th></tr></thead>
           <tbody id="lpBody"></tbody></table>
         </div></div>
-        <div class="wow-note" id="lpNote"></div>
         <details class="wow-say" data-key="landing">
           <summary>What the landing pages are telling us</summary>
           <div class="wow-say-body"><textarea id="say_landing" class="wow-say-box" data-say="landing" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
@@ -279,10 +274,9 @@
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Cohort retention</h2><span class="bcn-card-meta" id="chMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Cohort month</th><th>Customers</th><th>Month 1</th><th>Month 2</th><th>Month 3</th><th>Month 4+</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th title="Online store only. Blank cells are typeable and fill in as order history syncs.">Cohort month</th><th>Customers</th><th>Month 1</th><th>Month 2</th><th>Month 3</th><th>Month 4+</th></tr></thead>
           <tbody id="chBody"></tbody></table>
         </div></div>
-        <div class="wow-note" id="chNote"></div>
       </div>
       <div id="man_website"></div>
 
@@ -292,16 +286,15 @@
 
       <div class="wow-sec" id="sec_meta"><span class="wow-sec-n">Paid Media — Meta</span><span class="wow-sec-sub">by objective · creative · organic</span></div>
 <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Paid media — Meta</h2><span class="bcn-card-meta">by campaign objective</span></div>
+        <div class="bcn-card-header"><h2>Paid media — Meta</h2><span class="bcn-card-meta" id="metaMeta">by campaign objective</span></div>
         <div class="bcn-card-body" style="padding:0" id="metaRoot"></div>
-        <div class="wow-note" id="metaNote"></div>
       
         <details class="wow-say" data-key="paid">
           <summary>Notes on paid media</summary>
           <div class="wow-say-body"><textarea id="say_paid" class="wow-say-box" data-say="paid" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div><div class="bcn-card">
-        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">Meta purchase campaigns, top 10 by spend</span></div>
+        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">purchase campaigns, top 10 by spend</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Creative</th><th>Ad copy</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Clicks</th></tr></thead>
           <tbody id="creBody"></tbody></table>
@@ -331,12 +324,11 @@
       <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">live from Shopify order sources</span></div>
 
       <div class="bcn-card" id="tiktokCard">
-        <div class="bcn-card-header"><h2>TikTok — Shopify total (cross-check)</h2><span class="bcn-card-meta" id="tiktokMeta"></span></div>
+        <div class="bcn-card-header"><h2>TikTok</h2><span class="bcn-card-meta" id="tiktokMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Source</th><th>Sales $</th><th>% of total</th></tr></thead>
           <tbody id="tiktokBody"></tbody></table>
         </div></div>
-        <div class="wow-note" id="tiktokNote"></div>
         <details class="wow-say" data-key="tiktok">
           <summary>Notes on TikTok</summary>
           <div class="wow-say-body"><textarea id="say_tiktok" class="wow-say-box" data-say="tiktok" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
@@ -352,7 +344,6 @@
           <table class="wow-tbl"><thead><tr><th>Code</th><th>Sales $</th><th>Orders</th><th>AOV</th><th>% of total</th><th>vs prior wk</th></tr></thead>
           <tbody id="dcBody"></tbody></table>
         </div></div>
-        <div class="wow-note" id="dcNote"></div>
       </div>
       <div id="man_affiliate"></div>
 
@@ -736,9 +727,6 @@
     const liveCount = months.filter(m => computed.has(m)).length;
     el('chMeta').textContent = `${liveCount} of ${months.length} months computed · rest typed`;
     const gaps = d.incomplete_months || [];
-    el('chNote').innerHTML =
-      'Online store only. Months without full order history are blank \u2014 type those in; each fills itself once the data lands.' +
-      (gaps.length ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still syncing.</b>` : '');
   }
 
   function renderCodes(){
@@ -755,9 +743,6 @@
       : `<tr><td class="wow-empty" colspan="6">No coded orders in this window — syncs nightly from Shopify.</td></tr>`;
     const coded = Number(d.coded_sales || 0), tot = Number(d.total_sales || 0);
     el('dcMeta').textContent = codes.length ? `${codes.length} codes · ${money(coded)}` : 'no codes';
-    el('dcNote').innerHTML = tot > 0
-      ? `${money(coded)} of ${money(tot)} sales used a code (${(100*coded/tot).toFixed(1)}%). Percentages are of all sales.`
-      : 'Affiliate codes come from Shopify discount codes.';
   }
 
   function renderLanding(){
@@ -773,13 +758,10 @@
           <td>${intFmt(p.orders)}</td>
         </tr>`).join('')
       : `<tr><td class="wow-empty" colspan="6">No landing-page data for this window yet — it syncs nightly from Shopify.</td></tr>`;
-    el('lpMeta').textContent = pages.length ? `top ${pages.length} by sessions` : 'no data';
-    // The stored list is top-N per day, not the full tail. Say so, otherwise
-    // someone sums this column and calls it total sessions.
     const partial = d.days_covered != null && d.days_covered < 7;
-    el('lpNote').innerHTML =
-      'Top 250 pages a day \u2014 a slice, not every page, so don\u2019t total this column.' +
-      (partial ? ` <b>Only ${d.days_covered} of 7 days synced.</b>` : '');
+    el('lpMeta').textContent = pages.length
+      ? `top ${pages.length}` + (partial ? ` · ${d.days_covered} of 7 days` : '')
+      : 'no data';
   }
 
   function renderTikTok(){
@@ -790,12 +772,10 @@
           <td>${c.pct == null ? '<span class="dim">—</span>' : c.pct + '%'}</td></tr>`).join('')
       : `<tr><td class="wow-empty" colspan="3">No TikTok orders in this window.</td></tr>`;
     el('tiktokMeta').textContent = rows.length ? `${money(total)} · share of all channels` : 'no orders';
-    el('tiktokNote').innerHTML =
-      'TikTok Shop total from Shopify. The rows above are typed \u2014 they should add up to this.';
   }
 
   function renderFunnel(){
-    const body = el('funnelBody'), note = el('funnelNote');
+    const body = el('funnelBody');
     const f = FUNNEL || {};
     const t = f.this, p = f.prev;
     // Sessions history only goes back as far as the first ShopifyQL backfill,
@@ -806,7 +786,7 @@
     const l = lyComplete ? lyRaw : null;
     if (!t || !Number(t.sessions)) {
       body.innerHTML = '<tr><td colspan="5" style="color:var(--bcn-ink-3)">No session data for this week yet — the Shopify sessions sync populates this nightly.</td></tr>';
-      note.innerHTML = 'No session data for this week yet.';
+      el('funnelMeta').textContent = 'no session data yet';
       return;
     }
 
@@ -859,20 +839,9 @@
       rateRow('Conversion rate','cvr') +
       rateRow('Checkout completion','checkout_completion');
 
-    // Say plainly where each half comes from, and whether they agree. Two
-    // independent session counts landing within a few percent is the evidence
-    // that neither pipeline is silently broken.
-    const g = (DATA && DATA.ga4) || {};
-    const shopTY = Number(t.sessions||0), ga4TY = Number(g.sessions_ty||0);
-    let agree = '';
-    if (shopTY && ga4TY) {
-      const gap = Math.abs(shopTY-ga4TY)/Math.max(shopTY,ga4TY)*100;
-      agree = gap <= 8 ? '' : ` GA4 differs by ${gap.toFixed(0)}% — treat both as approximate.`;
-    }
-    note.innerHTML =
-      `<b>vs sessions</b> = each step as a share of sessions, against last week. Change alone drops whenever traffic drops.${agree}` +
-      (t.days && t.days < 7 ? ` <b>Only ${t.days} of 7 days synced.</b>` : '') +
-      (!lyComplete ? ' Last-year column blank — not enough history yet.' : '');
+    el('funnelMeta').textContent =
+      (t.days && t.days < 7 ? `${t.days} of 7 days synced` : 'online store') +
+      (!lyComplete ? ' · no year-ago' : '');
   }
 
   async function load(){
@@ -952,8 +921,7 @@
     if (gapMonths) {
       el('kRet').innerHTML = `${cu.returning_pct == null ? '—' : cu.returning_pct + '%'}` +
         `<span class="neg" style="font-size:11px;margin-left:6px" title="Order history has ${gapMonths} incomplete month(s), so customers whose first order falls in a gap count as new. Shopify's own figure is higher.">low</span>`;
-      el('kRetSub').innerHTML =
-        `<span class="neg">understated — ${gapMonths} month(s) of order history still syncing</span>`;
+      el('kRetSub').innerHTML = `<span class="neg">${gapMonths} months still syncing</span>`;
     } else {
       el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
     }
@@ -962,11 +930,6 @@
     renderKpiDeltas();
 
     renderFunnel();
-    if (DATA_THROUGH) {
-      const n = el('throughNote');
-      n.hidden = false;
-      n.innerHTML = `Sales complete through <b>${esc(DATA_THROUGH)}</b>. Today is always partial, so the report opens on the last full day.`;
-    }
     renderTikTok();
     renderLanding();
     renderCodes();
@@ -1053,12 +1016,9 @@
             </div>`;
         }).join('');
 
-    // Name what is genuinely absent instead of leaving an empty column that
-    // reads as a zero.
     const missing = pm.not_synced || [];
-    el('metaNote').innerHTML =
-      `Each objective has its own metric. Thruplay and subscriber campaigns have no revenue by design — a blank ROAS is not a bad result.` +
-      (missing.length ? ` <b>${missing.join(' and ')} not synced for this week</b> — pull from Ads Manager.` : '');
+    el('metaMeta').textContent = 'by campaign objective' +
+      (missing.length ? ` · ${missing.join(' & ')} not synced` : '');
 
     // --- Google ---
     const gg = pm.google || null;
