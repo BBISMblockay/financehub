@@ -227,6 +227,7 @@
           <tbody id="ga4Body"></tbody></table>
         </div></div>
         <div class="wow-note" id="funnelNote"></div>
+        <div class="wow-note" id="throughNote" hidden></div>
       
         <details class="wow-say" data-key="traffic">
           <summary>What the traffic is telling us</summary>
@@ -638,6 +639,7 @@
   let LANDING = null;
   let CODES = null;
   let COHORTS = null;
+  let DATA_THROUGH = null;
 
   // TikTok is live, not typed: its rows are already in the channel breakdown
   // the report loads, so this is a filtered view rather than a second query.
@@ -831,7 +833,16 @@
       render();
       buildManual();
       await loadEntry();
-      setStatus(`Loaded ${DATA.window.start} – ${DATA.window.end}`, 'pos', 2500);
+      const end = DATA.window.end;
+      if (DATA_THROUGH && end > DATA_THROUGH) {
+        // Not an error -- but the totals below are genuinely incomplete, and a
+        // partial week looks like a bad week rather than a partial one.
+        setStatus(
+          `Showing ${DATA.window.start} – ${end}, but sales are only complete through ${DATA_THROUGH}. ` +
+          `Totals for the days after that are partial.`, 'warn');
+      } else {
+        setStatus(`Loaded ${DATA.window.start} – ${end}`, 'pos', 2500);
+      }
     } catch(e){
       console.error(e);
       setStatus(`Load failed: ${e.message}`, 'neg');
@@ -859,6 +870,13 @@
     el('kInvSub').textContent = `${intFmt(inv.skus)} SKUs · deduped`;
 
     renderFunnel();
+    if (DATA_THROUGH) {
+      const n = el('throughNote');
+      n.hidden = false;
+      n.innerHTML = `<b>Sales data complete through ${esc(DATA_THROUGH)}.</b> ` +
+        `The Shopify sync runs each morning and covers up to its own run time, so the current day is always partial — ` +
+        `the report defaults to the last full day rather than today.`;
+    }
     renderTikTok();
     renderLanding();
     renderCodes();
@@ -1054,7 +1072,19 @@
     }
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
 
-    el('reportDate').value = iso(new Date());
+    // Default to the last COMPLETE sales day, not today. The Shopify sync runs
+    // at 08:30 UTC and covers only up to its own run time, so today -- and
+    // usually yesterday -- are partial. Defaulting to today silently
+    // understated the week by roughly two days, which is exactly the
+    // "I show 259, the report shows 193k" confusion.
+    let through = null;
+    try {
+      const { data } = await sb.rpc('wow_data_through');
+      through = data?.complete_through || null;
+    } catch (e) { console.warn('data_through unavailable:', e.message); }
+    DATA_THROUGH = through;
+    el('reportDate').value = through || iso(new Date());
+    el('reportDate').max = through || iso(new Date());
     el('reportDate').addEventListener('change', async () => {
       if (dirty && !confirm('You have unsaved notes on this week. Switch date anyway?')) return;
       await load();
