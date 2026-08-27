@@ -81,13 +81,16 @@ on:
     # block below, which keys off github.event.schedule).
     - cron: "30 14 * * *"
 
-# Two scheduled triggers plus manual dispatch means two runs could otherwise
-# overlap and race each other's per-connection watermarks. Queue instead of
-# cancelling -- a long history re-import must never be killed mid-window by
-# a routine catch-up.
-concurrency:
-  group: shopify-sync
-  cancel-in-progress: false
+# NO concurrency group here, deliberately. One was added 2026-08-27 to stop
+# the two crons racing each other's watermarks, and it was removed the same
+# day: with cancel-in-progress:false a newly-arrived run QUEUES, and a queued
+# run is cancelled as soon as another enters the group -- so the group can
+# silently kill a scheduled nightly, which is the exact failure this file is
+# trying to defend against. It also killed a manual run mid-sales that day.
+# The two crons are 6h apart and a normal run takes ~75min, so they cannot
+# collide on their own; overlapping only happens when someone dispatches by
+# hand, and an extra concurrent run is far cheaper than a dropped one --
+# every write in the sync is an idempotent upsert.
 
 jobs:
   shopify-sync:
