@@ -44,6 +44,17 @@
     .wow-tbl tbody tr:last-child td { border-bottom:none; }
     .wow-tbl tbody tr.wow-rate td { background:var(--bcn-sunken); font-size:11.5px; }
     .wow-grp + .wow-grp { border-top:1px solid var(--bcn-border); }
+    .wow-sec {
+      display:flex; align-items:baseline; gap:10px; margin:18px 0 2px; padding:0 2px;
+    }
+    .wow-sec-n {
+      font-family:var(--bcn-mono); font-size:12px; font-weight:700;
+      letter-spacing:.10em; text-transform:uppercase; color:var(--bcn-ink);
+    }
+    .wow-sec-sub { font-size:11px; color:var(--bcn-ink-3); }
+    .wow-sec::after {
+      content:''; flex:1; height:1px; background:var(--bcn-border); margin-left:4px;
+    }
     .wow-grp-foot {
       padding:7px 12px 10px; font-size:11px; color:var(--bcn-ink-3);
       border-top:1px dashed var(--bcn-border);
@@ -186,7 +197,26 @@
         and draft orders are excluded. Verified against Shopify for 8/19–8/25: total $259,471, net $223,783.
       </div>
 
-      <div class="bcn-card">
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+    
+
+      <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website</span><span class="wow-sec-sub">Shopify · sessions, products, channels</span></div>
+<div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">SHOPIFY + GA4</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th>Same wk LY</th></tr></thead>
@@ -202,9 +232,7 @@
           <summary>What the traffic is telling us</summary>
           <div class="wow-say-body"><textarea id="say_traffic" class="wow-say-box" data-say="traffic" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
-      </div>
-
-      <div class="bcn-card">
+      </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>Top products</h2><span class="bcn-card-meta" id="prodMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th>Days of stock</th></tr></thead>
@@ -216,9 +244,7 @@
           <summary>Notes on products</summary>
           <div class="wow-say-body"><textarea id="say_products" class="wow-say-box" data-say="products" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
-      </div>
-
-      <div class="bcn-card">
+      </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta">online · vs prior week</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th>vs prior week</th></tr></thead>
@@ -229,9 +255,7 @@
           <summary>Notes on categories</summary>
           <div class="wow-say-body"><textarea id="say_categories" class="wow-say-box" data-say="categories" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
-      </div>
-
-      <div class="bcn-card">
+      </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>All channels</h2><span class="bcn-card-meta">context — online is the report scope</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Channel</th><th>Sales</th><th>% of total</th></tr></thead>
@@ -244,8 +268,14 @@
           <div class="wow-say-body"><textarea id="say_channels" class="wow-say-box" data-say="channels" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div>
+      <div id="man_website"></div>
 
-      <div class="bcn-card">
+      <div class="wow-sec" id="sec_kimonix"><span class="wow-sec-n">Kimonix</span><span class="wow-sec-sub">no connector — manual for now</span></div>
+
+      <div id="man_kimonix"></div>
+
+      <div class="wow-sec" id="sec_meta"><span class="wow-sec-n">Meta</span><span class="wow-sec-sub">paid by objective · creative · organic</span></div>
+<div class="bcn-card">
         <div class="bcn-card-header"><h2>Paid media — Meta</h2><span class="bcn-card-meta">by campaign objective</span></div>
         <div class="bcn-card-body" style="padding:0" id="metaRoot"></div>
         <div class="wow-note" id="metaNote"></div>
@@ -254,21 +284,7 @@
           <summary>Notes on paid media</summary>
           <div class="wow-say-body"><textarea id="say_paid" class="wow-say-box" data-say="paid" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
-      </div>
-
-      <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Paid media — Google</h2><span class="bcn-card-meta" id="googMeta"></span></div>
-        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Campaign</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Cost / conv</th><th>Clicks</th></tr></thead>
-          <tbody id="googBody"></tbody></table>
-        </div></div>
-        <details class="wow-say" data-key="google">
-          <summary>Notes on Google</summary>
-          <div class="wow-say-body"><textarea id="say_google" class="wow-say-box" data-say="google" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
-        </details>
-      </div>
-
-      <div class="bcn-card">
+      </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">Meta purchase campaigns, top 10 by spend</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Creative</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Clicks</th></tr></thead>
@@ -280,13 +296,45 @@
           <div class="wow-say-body"><textarea id="say_creatives" class="wow-say-box" data-say="creatives" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div>
+      <div id="man_meta"></div>
 
-      <div class="bcn-card">
-        <div class="bcn-card-header"><h2>Manual sections</h2><span class="bcn-card-meta">no source in SILO — yours to fill</span></div>
-        <div class="bcn-card-body" style="display:flex;flex-direction:column;gap:16px" id="manualRoot"></div>
+      <div class="wow-sec" id="sec_google"><span class="wow-sec-n">Google</span><span class="wow-sec-sub">paid search & shopping</span></div>
+<div class="bcn-card">
+        <div class="bcn-card-header"><h2>Paid media — Google</h2><span class="bcn-card-meta" id="googMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Campaign</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Cost / conv</th><th>Clicks</th></tr></thead>
+          <tbody id="googBody"></tbody></table>
+        </div></div>
+        <details class="wow-say" data-key="google">
+          <summary>Notes on Google</summary>
+          <div class="wow-say-body"><textarea id="say_google" class="wow-say-box" data-say="google" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
       </div>
+      <div id="man_google"></div>
 
+      <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">TikTok Shop sales sit in All channels · ads not connected</span></div>
+
+      <div id="man_tiktok"></div>
+
+      <div class="wow-sec" id="sec_affiliate"><span class="wow-sec-n">Affiliate</span><span class="wow-sec-sub">no connector — manual for now</span></div>
+
+      <div id="man_affiliate"></div>
+
+      <div class="wow-sec" id="sec_competition"><span class="wow-sec-n">Competition</span><span class="wow-sec-sub">weekly scan</span></div>
+
+      <div id="man_competition"></div>
+
+      <div class="wow-sec" id="sec_redo"><span class="wow-sec-n">Redo</span><span class="wow-sec-sub">email & SMS — no connector yet</span></div>
+
+      <div id="man_redo"></div>
+
+      <div class="wow-sec" id="sec_retention"><span class="wow-sec-n">Retention</span><span class="wow-sec-sub">cohorts</span></div>
+
+      <div id="man_retention"></div>
+
+      <div id="man_other"></div>
     </div>
+
   </main>
 </div>
 
@@ -343,42 +391,46 @@
   // Tabular where the data is tabular. A paragraph cannot be sorted,
   // exported or compared week to week; a table can.
   const MANUAL_TABLES = [
-    { key:'kimonix_products', title:'Kimonix — top products',
+    { key:'kimonix_products', section:'kimonix', title:'Kimonix — top products',
       cols:[['rank','Rank',60],['product','Product',0],['pageViews','Page views',110],
             ['sales','Sales $',110],['conversionRate','Conv. rate',100],['outlook','Prior week outlook',150]] },
-    { key:'kimonix_collections', title:'Kimonix — collections',
+    { key:'kimonix_collections', section:'kimonix', title:'Kimonix — collections',
       cols:[['collectionName','Collection',0],['pageViews','Page views',110],
             ['sales','Sales $',110],['conversionRate','Conv. rate',100]] },
-    { key:'affiliate_codes', title:'Affiliate — sales by code',
+    { key:'affiliate_codes', section:'affiliate', title:'Affiliate — sales by code',
       cols:[['affiliateCode','Affiliate code',0],['sales','Sales $',120],['orders','Orders',100]] },
-    { key:'redo_campaigns', title:'Redo — campaigns',
+    { key:'redo_campaigns', section:'redo', title:'Redo — campaigns',
       cols:[['campaign','Campaign',0],['date','Date',100],['subject','Subject',0],
             ['delivered','Delivered',100],['openRate','Open %',90],['clickRate','Click %',90],
             ['conversionRate','Conv. %',90],['revPerMsg','Rev / msg',100],['unsubRate','Unsub %',90]] },
-    { key:'redo_automations', title:'Redo — automations',
+    { key:'redo_automations', section:'redo', title:'Redo — automations',
       cols:[['date','Date',100],['spend','Spend',100],['totalRevenue','Revenue',110],
             ['emailSubs','Email subs',110],['smsSubs','SMS subs',110],['notes','Notes',0]] },
-    { key:'landing_pages', title:'Sessions by landing page',
+    { key:'landing_pages', section:'website', title:'Sessions by landing page',
       cols:[['landingPage','Landing page',0],['sessions','Sessions',110],['conversionRate','Conv. rate',110]] },
-    { key:'organic_posts', title:'Meta & Instagram organic — last 12 posts',
+    { key:'organic_posts', section:'meta', title:'Meta & Instagram organic — last 12 posts',
       seedRows:12,
       hint:'Type these in for now. Columns match what instagram_media_insights will sync once the Meta token gets pages_read_engagement, instagram_basic and instagram_manage_insights plus Page access — so this table stops being manual without changing shape.',
       cols:[['post','Post',0],['type','Type',90],['date','Date',100],
             ['views','Views',100],['reach','Reach',100],['likes','Likes',90],
             ['comments','Comments',100],['saves','Saves',90],['link','Link',150]] },
-    { key:'cohorts', title:'Cohort retention',
+    { key:'tiktok_ads', section:'tiktok', title:'TikTok Ads — by campaign',
+      hint:'Typed for now: tiktok_ads has no rows in marketing_kpis_daily, so no connector is feeding this. Columns are that table\u2019s own shape, so a TikTok connector fills this in without changing the layout. TikTok Shop SALES are already live in All channels above.',
+      cols:[['campaign','Campaign',0],['spend','Spend',110],['impressions','Impressions',110],
+            ['clicks','Clicks',100],['conversions','Conversions',110],
+            ['conversionValue','Revenue',110],['roas','ROAS',90]] },
+    { key:'cohorts', section:'retention', title:'Cohort retention',
       cols:[['cohortMonth','Cohort month',0],['month1','Month 1',100],['month2','Month 2',100],
             ['month3','Month 3',100],['month4plus','Month 4+',100]] },
   ];
   const MANUAL_NOTES = [
-    ['competition','Competition — weekly scan','Competitor actions, partnerships, anything worth reacting to.'],
-    ['affiliate_notes','Affiliate — programme notes','What was seeded, what came back, next week’s pushes.'],
+    ['competition','competition','Competition — weekly scan','Competitor actions, partnerships, anything worth reacting to.'],
+    ['affiliate_notes','affiliate','Affiliate — programme notes','What was seeded, what came back, next week’s pushes.'],
   ];
 
-  function buildManual(){
-    const root = el('manualRoot'); if (!root || root.dataset.built) return;
-    root.dataset.built = '1';
-    root.innerHTML = MANUAL_TABLES.map(t => `
+  let MANUAL_BUILT = false;
+
+  const tableHtml = (t) => `
       <div class="wow-mt" data-table="${t.key}">
         <div class="wow-mt-head">${esc(t.title)}</div>
         ${t.hint ? `<div class="wow-say-hint" style="padding:0 12px 8px">${esc(t.hint)}</div>` : ''}
@@ -387,16 +439,50 @@
           <tbody></tbody>
         </table></div>
         <div class="wow-mt-foot"><button type="button" class="bcn-btn bcn-btn--ghost" data-addrow="${t.key}">+ Add row</button></div>
-      </div>`).join('') +
-      MANUAL_NOTES.map(([k,t,h]) => `
+      </div>`;
+
+  const noteHtml = ([k, , title, hint]) => `
       <div class="wow-mt">
-        <div class="wow-mt-head">${esc(t)}</div>
+        <div class="wow-mt-head">${esc(title)}</div>
         <div style="padding:10px 12px">
-          <div class="wow-say-hint">${esc(h)}</div>
+          <div class="wow-say-hint">${esc(hint)}</div>
           <textarea id="man_${k}" class="wow-say-box" data-manual="${k}" rows="3"></textarea>
         </div>
-      </div>`).join('');
+      </div>`;
 
+  // Each manual block renders into its channel's slot, so a section reads as
+  // one story -- live data and the parts still typed in sitting together --
+  // rather than every manual table pooled at the bottom away from its context.
+  function buildManual(){
+    const slots = {};
+    const slotFor = (name) => {
+      const id = `man_${name || 'other'}`;
+      if (!(id in slots)) slots[id] = el(id) || el('man_other');
+      return slots[id];
+    };
+    if (MANUAL_BUILT) return;
+    MANUAL_BUILT = true;
+
+    const html = {};
+    MANUAL_TABLES.forEach(t => {
+      const slot = slotFor(t.section); if (!slot) return;
+      (html[slot.id] = html[slot.id] || []).push(tableHtml(t));
+    });
+    MANUAL_NOTES.forEach(n => {
+      const slot = slotFor(n[1]); if (!slot) return;
+      (html[slot.id] = html[slot.id] || []).push(noteHtml(n));
+    });
+
+    Object.entries(html).forEach(([id, parts]) => {
+      const node = el(id); if (!node) return;
+      node.className = 'bcn-card';
+      node.innerHTML = `<div class="bcn-card-body" style="display:flex;flex-direction:column;gap:16px">${parts.join('')}</div>`;
+    });
+    // Empty slots would otherwise render as a bare card outline.
+    ['website','kimonix','meta','google','tiktok','affiliate','competition','redo','retention','other']
+      .forEach(k => { const n = el(`man_${k}`); if (n && !n.innerHTML.trim()) n.remove(); });
+
+    const root = el('silo-app') || document.body;
     root.addEventListener('click', ev => {
       const add = ev.target.closest('[data-addrow]');
       if (add){ addManualRow(add.dataset.addrow); markDirty(); return; }
