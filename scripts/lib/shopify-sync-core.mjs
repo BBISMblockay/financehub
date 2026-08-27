@@ -2160,6 +2160,83 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
   return res;
 }
 
+/** Landing-page sessions, one day per query.
+ *
+ * Deliberately NOT one wide window: landing paths have a long tail, and
+ * ShopifyQL truncates silently at 1000 rows, so a multi-day ungrouped query
+ * would clip without saying so. One day at a time with an explicit LIMIT
+ * keeps every result well clear of the ceiling and makes the top-N explicit
+ * rather than accidental.
+ */
+const LANDING_TOP_N = 250;
+
+export async function runLandingPagesSync(supabase, connection, { sinceDays = 30, batchId = null } = {}) {
+  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), 120);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const today = new Date();
+
+  const rows = [];
+  let truncatedDays = 0;
+  for (let i = 1; i <= days; i += 1) {
+    const d = new Date(today.getTime() - i * 86400000);
+    const day = iso(d);
+    const out = await shopifyql(connection,
+      `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
+      `sessions_that_reached_checkout, sessions_that_completed_checkout ` +
+      `GROUP BY landing_page_path SINCE ${day} UNTIL ${day} ` +
+      `ORDER BY sessions DESC LIMIT ${LANDING_TOP_N}`);
+
+    // Landing on the LIMIT means there was more tail than we kept. That is
+    // expected and fine -- but it must be recorded, not inferred.
+    const clipped = out.length >= LANDING_TOP_N;
+    if (clipped) truncatedDays += 1;
+
+    out.forEach((r, idx) => {
+      const path = r.landing_page_path;
+      if (!path) return;
+      rows.push({
+        company_entity_id: connection.company_entity_id,
+        shop_domain: connection.shop_domain,
+        day_date: day,
+        landing_page_path: String(path),
+        rank_in_day: idx + 1,
+        sessions: numOrNull(r.sessions),
+        sessions_with_cart_additions: numOrNull(r.sessions_with_cart_additions),
+        sessions_that_reached_checkout: numOrNull(r.sessions_that_reached_checkout),
+        sessions_that_completed_checkout: numOrNull(r.sessions_that_completed_checkout),
+        is_truncated: clipped,
+        synced_at: new Date().toISOString(),
+        sync_batch_id: batchId,
+      });
+    });
+  }
+
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase
+      .from('shopify_landing_pages_daily')
+      .upsert(rows.slice(i, i + 500), {
+        onConflict: 'company_entity_id,shop_domain,day_date,landing_page_path',
+      });
+    if (error) throw new Error(`landing_pages upsert failed: ${error.message}`);
+  }
+
+  return {
+    job_type: 'landing_pages_sync',
+    batch_id: batchId,
+    days_requested: days,
+    rows_upserted: rows.length,
+    distinct_paths: new Set(rows.map((r) => r.landing_page_path)).size,
+    days_hitting_top_n: truncatedDays || undefined,
+    top_n: LANDING_TOP_N,
+  };
+}
+
+const numOrNull = (v) => {
+  if (v == null || v === '') return null;
+  const n = Number(String(v).replace(/[,$\s]/g, ''));
+  return Number.isFinite(n) ? Math.round(n) : null;
+};
+
 async function fetchQlPair(connection, range) {
   return Promise.all([
     shopifyql(connection,

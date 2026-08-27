@@ -25,6 +25,12 @@ on:
         description: Set true to skip the ShopifyQL sessions/funnel sync
         required: false
         default: 'false'
+      skip_landing_pages:
+        description: Skip the landing-page sync (true/false)
+        required: false
+      landing_pages_days:
+        description: Landing-page days back (default 30; one query per day, so keep it modest)
+        required: false
       sessions_days:
         description: Days of session history to pull (default 90; use 365 once to seed as far back as Shopify serves)
         required: false
@@ -74,6 +80,8 @@ jobs:
       SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || 'false' }}
       SHOPIFY_SKIP_SESSIONS: ${{ github.event.inputs.skip_sessions || 'false' }}
       SHOPIFY_SESSIONS_DAYS: ${{ github.event.inputs.sessions_days || '' }}
+      SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || 'false' }}
+      SHOPIFY_LANDING_PAGES_DAYS: ${{ github.event.inputs.landing_pages_days || '' }}
       SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
       SHOPIFY_HISTORY_CHUNK_DAYS: ${{ github.event.inputs.history_chunk_days || '30' }}

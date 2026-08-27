@@ -13,6 +13,7 @@ import {
   runInventorySnapshot,
   runPayoutsSync,
   runSessionsSync,
+  runLandingPagesSync,
   runWindowedHistory,
 } from './lib/shopify-sync-core.mjs';
 
@@ -43,6 +44,11 @@ const SKIP_SESSIONS = process.env.SHOPIFY_SKIP_SESSIONS === 'true';
 // serve -- how far back that goes is recorded per run as
 // earliest_day_returned, and it decides when year-over-year becomes possible.
 const SESSIONS_DAYS = Number(process.env.SHOPIFY_SESSIONS_DAYS || 90);
+// Landing pages cost one ShopifyQL query PER DAY (see runLandingPagesSync for
+// why it cannot be one wide window), so the default window is much shorter
+// than sessions'. The weekly report needs two weeks; 30 gives margin.
+const SKIP_LANDING_PAGES = process.env.SHOPIFY_SKIP_LANDING_PAGES === 'true';
+const LANDING_PAGES_DAYS = Number(process.env.SHOPIFY_LANDING_PAGES_DAYS || 30);
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
 const BATCH_ID =
@@ -194,6 +200,27 @@ async function syncConnection(connection) {
       // failure should not take the whole nightly run down with it.
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       console.warn(`[warn] ${connection.shop_domain} sessions_sync failed: ${err.message || err}`);
+    }
+  }
+
+  if (!SKIP_LANDING_PAGES && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+    const jobId = await startJob(connection, 'landing_pages_sync');
+    try {
+      const result = await runLandingPagesSync(supabase, connection, {
+        batchId: BATCH_ID,
+        sinceDays: LANDING_PAGES_DAYS,
+      });
+      await finishJob(jobId, 'success', result);
+      results.jobs.push(result);
+      console.log(
+        `[ok] ${connection.shop_domain} landing_pages_sync: ${result.rows_upserted} rows, ` +
+        `${result.distinct_paths} paths` +
+        (result.days_hitting_top_n ? `, ${result.days_hitting_top_n} day(s) hit the top-${result.top_n} cap` : ''),
+      );
+    } catch (err) {
+      // Same stance as sessions: analytics must not take down sales sync.
+      await finishJob(jobId, 'error', { error: err.message || String(err) });
+      console.warn(`[warn] ${connection.shop_domain} landing_pages_sync failed: ${err.message || err}`);
     }
   }
 
