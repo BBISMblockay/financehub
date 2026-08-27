@@ -44,6 +44,34 @@
     .wow-tbl tbody tr:last-child td { border-bottom:none; }
     .wow-tbl tbody tr.wow-rate td { background:var(--bcn-sunken); font-size:11.5px; }
     .wow-grp + .wow-grp { border-top:1px solid var(--bcn-border); }
+    .wow-jump {
+      position:sticky; top:0; z-index:6; display:flex; flex-wrap:wrap; align-items:center; gap:2px;
+      padding:8px 2px; margin-bottom:4px;
+      background:var(--bcn-bg); border-bottom:1px solid var(--bcn-border);
+    }
+    .wow-jump a {
+      font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
+      color:var(--bcn-ink-3); text-decoration:none; padding:4px 8px; border-radius:3px;
+    }
+    .wow-jump a:hover, .wow-jump a:focus-visible { background:var(--bcn-sunken); color:var(--bcn-ink); outline:none; }
+    .wow-jump-all {
+      margin-left:auto; font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em;
+      text-transform:uppercase; color:var(--bcn-ink-3); background:none; border:1px solid var(--bcn-border);
+      border-radius:3px; padding:4px 9px; cursor:pointer;
+    }
+    .wow-jump-all:hover { color:var(--bcn-ink); border-color:var(--bcn-ink-3); }
+
+    /* Collapsing keeps the header — the caption on it carries the state, so a
+       closed card still reports what it holds. */
+    .bcn-card-header { cursor:pointer; user-select:none; }
+    .bcn-card-header::after {
+      content:'\25BE'; margin-left:auto; padding-left:10px; color:var(--bcn-ink-3);
+      font-size:10px; transition:transform .12s ease;
+    }
+    .bcn-card.is-collapsed > .bcn-card-header::after { transform:rotate(-90deg); }
+    .bcn-card.is-collapsed > *:not(.bcn-card-header) { display:none; }
+
+    .wow-sec { scroll-margin-top:52px; }
     .wow-sec {
       display:flex; align-items:baseline; gap:10px; margin:18px 0 2px; padding:0 2px;
     }
@@ -189,6 +217,11 @@
     <div class="wow-content">
 
       <div class="wow-period" id="periodBar"></div>
+      <nav class="wow-jump" aria-label="Jump to section">
+        <a href="#sec_website">Website</a><a href="#sec_kimonix">Kimonix</a><a href="#sec_meta">Meta</a><a href="#sec_google">Google</a><a href="#sec_tiktok">TikTok</a><a href="#sec_affiliate">Affiliate</a><a href="#sec_competition">Competition</a><a href="#sec_redo">Redo</a>
+        <button type="button" class="wow-jump-all" id="btnCollapseAll">Collapse all</button>
+      </nav>
+
 
 
       
@@ -844,6 +877,61 @@
       (!lyComplete ? ' · no year-ago' : '');
   }
 
+  // Collapse state is per card title and per browser, so her walkthrough keeps
+  // whatever she set last time without touching the saved report.
+  const COLLAPSE_KEY = 'wow.collapsed.v1';
+  function cardKey(card){
+    const h = card.querySelector('.bcn-card-header h2');
+    return h ? h.textContent.trim() : '';
+  }
+  function readCollapsed(){
+    try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')); }
+    catch { return new Set(); }
+  }
+  function writeCollapsed(set){
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set])); } catch {}
+  }
+  function initCollapse(){
+    const closed = readCollapsed();
+    document.querySelectorAll('.silo-main .bcn-card').forEach(card => {
+      const head = card.querySelector('.bcn-card-header');
+      if (!head || head.dataset.collapseBound) return;
+      head.dataset.collapseBound = '1';
+      head.setAttribute('role', 'button');
+      head.setAttribute('tabindex', '0');
+      if (closed.has(cardKey(card))) card.classList.add('is-collapsed');
+      const toggle = () => {
+        card.classList.toggle('is-collapsed');
+        const set = readCollapsed();
+        card.classList.contains('is-collapsed') ? set.add(cardKey(card)) : set.delete(cardKey(card));
+        writeCollapsed(set);
+      };
+      head.addEventListener('click', ev => {
+        // Controls inside the header keep working.
+        if (ev.target.closest('button, a, input, select, textarea')) return;
+        toggle();
+      });
+      head.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
+      });
+    });
+    const btn = el('btnCollapseAll');
+    if (btn && !btn.dataset.bound) {
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', () => {
+        const cards = [...document.querySelectorAll('.silo-main .bcn-card')];
+        const anyOpen = cards.some(c => !c.classList.contains('is-collapsed'));
+        const set = new Set();
+        cards.forEach(c => {
+          c.classList.toggle('is-collapsed', anyOpen);
+          if (anyOpen) set.add(cardKey(c));
+        });
+        writeCollapsed(set);
+        btn.textContent = anyOpen ? 'Expand all' : 'Collapse all';
+      });
+    }
+  }
+
   async function load(){
     setStatus('Loading…');
     try {
@@ -879,6 +967,7 @@
       // ENTRY is only populated by loadEntry, and the cohort card reads typed
       // cells from it -- repaint so saved values appear on reload.
       renderCohorts();
+      initCollapse();
       const end = DATA.window.end;
       if (DATA_THROUGH && end > DATA_THROUGH) {
         // Not an error -- but the totals below are genuinely incomplete, and a
