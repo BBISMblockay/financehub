@@ -336,7 +336,7 @@
       <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">live from Shopify order sources</span></div>
 
       <div class="bcn-card" id="tiktokCard">
-        <div class="bcn-card-header"><h2>TikTok — sales by source</h2><span class="bcn-card-meta" id="tiktokMeta"></span></div>
+        <div class="bcn-card-header"><h2>TikTok — Shopify total (cross-check)</h2><span class="bcn-card-meta" id="tiktokMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
           <table class="wow-tbl"><thead><tr><th>Source</th><th>Sales $</th><th>% of total</th></tr></thead>
           <tbody id="tiktokBody"></tbody></table>
@@ -450,6 +450,10 @@
       cols:[['post','Post',0],['type','Type',90],['date','Date',100],
             ['views','Views',100],['reach','Reach',100],['likes','Likes',90],
             ['comments','Comments',100],['saves','Saves',90],['link','Link',150]] },
+    { key:'tiktok_sources', section:'tiktok', title:'TikTok — sales by attribution source',
+      seedValues:[{source:'Lives'},{source:'Ads'},{source:'GMV Affiliate'},{source:'Direct'}],
+      hint:'Typed for now. TikTok Ads is not connected (no tiktok_ads rows in marketing_kpis_daily) and the Live schedule board has no finalised sessions, so neither the ads split nor Lives can be sourced yet. The Shopify TikTok Shop total below is live — use it to check your rows add up.',
+      cols:[['source','Source',0],['sales','Sales $',130],['percentOfTotal','% of total',120]] },
     { key:'google_copy', section:'google', title:'Google — headlines & descriptions',
       hint:'Ad copy is not in marketing_kpis_daily (it holds spend and performance, not creative text). Typed for now.',
       cols:[['headline','Headline / description',0],['notes','Notes',0]] },
@@ -554,8 +558,13 @@
       const rows = ENTRY.tables?.[t.key] || [];
       rows.forEach(r => addManualRow(t.key, r));
       if (!rows.length) {
-        const n = t.seedRows || 1;
-        for (let i = 0; i < n; i += 1) addManualRow(t.key);
+        if (t.seedValues) {
+          // Pre-labelled rows: the reader fills numbers, not row names.
+          t.seedValues.forEach((v) => addManualRow(t.key, v));
+        } else {
+          const n = t.seedRows || 1;
+          for (let i = 0; i < n; i += 1) addManualRow(t.key);
+        }
       }
     });
   }
@@ -641,10 +650,11 @@
   let COHORTS = null;
   let DATA_THROUGH = null;
 
-  // TikTok is live, not typed: its rows are already in the channel breakdown
-  // the report loads, so this is a filtered view rather than a second query.
-  // Sales only -- there are no tiktok_ads rows in marketing_kpis_daily, so
-  // spend and ROAS for TikTok genuinely do not exist yet.
+  // The Shopify side of TikTok IS live -- TikTok Shop arrives as an order
+  // source -- but it is a single total, not the Lives / Ads / GMV Affiliate /
+  // Direct split the report wants. That split lives in TikTok Shop, which is
+  // not connected, so it is typed above and this total is the cross-check:
+  // the manual rows should add up to roughly this number.
   // Affiliate codes are Shopify discount codes, so this is live rather than
   // typed. Orders with no code are excluded from the list but kept in the
   // denominator -- otherwise every share would be a share of coded sales
@@ -732,9 +742,9 @@
       : `<tr><td class="wow-empty" colspan="3">No TikTok orders in this window.</td></tr>`;
     el('tiktokMeta').textContent = rows.length ? `${money(total)} · share of all channels` : 'no orders';
     el('tiktokNote').innerHTML =
-      '<b>Sales only.</b> TikTok ad spend is not synced — <code>marketing_kpis_daily</code> holds no ' +
-      '<code>tiktok_ads</code> rows, so there is no spend or ROAS to show here until that connector is set up. ' +
-      'These figures come from Shopify order sources, the same place the All channels table above does.';
+      '<b>This is the Shopify-side total, and it is live</b> — TikTok Shop arrives as an order source, the same place the All channels table reads from. ' +
+      'It is a single figure, not the Lives / Ads / GMV Affiliate / Direct split, because that attribution lives in TikTok Shop and TikTok Ads, neither of which is connected. ' +
+      '<b>Use it to check the typed rows above add up.</b>';
   }
 
   function renderFunnel(){
