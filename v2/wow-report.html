@@ -215,7 +215,7 @@
 
     
 
-      <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website</span><span class="wow-sec-sub">Shopify · sessions, products, channels</span></div>
+      <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website &amp; Sales</span><span class="wow-sec-sub">Shopify · sessions, products, channels, cohorts</span></div>
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">SHOPIFY + GA4</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
@@ -274,7 +274,7 @@
 
       <div id="man_kimonix"></div>
 
-      <div class="wow-sec" id="sec_meta"><span class="wow-sec-n">Meta</span><span class="wow-sec-sub">paid by objective · creative · organic</span></div>
+      <div class="wow-sec" id="sec_meta"><span class="wow-sec-n">Paid Media — Meta</span><span class="wow-sec-sub">by objective · creative · organic</span></div>
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Paid media — Meta</h2><span class="bcn-card-meta">by campaign objective</span></div>
         <div class="bcn-card-body" style="padding:0" id="metaRoot"></div>
@@ -287,7 +287,7 @@
       </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">Meta purchase campaigns, top 10 by spend</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Creative</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Clicks</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Creative</th><th>Ad copy</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Clicks</th></tr></thead>
           <tbody id="creBody"></tbody></table>
         </div></div>
       
@@ -298,7 +298,7 @@
       </div>
       <div id="man_meta"></div>
 
-      <div class="wow-sec" id="sec_google"><span class="wow-sec-n">Google</span><span class="wow-sec-sub">paid search & shopping</span></div>
+      <div class="wow-sec" id="sec_google"><span class="wow-sec-n">Paid Media — Google</span><span class="wow-sec-sub">paid search &amp; shopping</span></div>
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Paid media — Google</h2><span class="bcn-card-meta" id="googMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
@@ -312,8 +312,20 @@
       </div>
       <div id="man_google"></div>
 
-      <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">TikTok Shop sales sit in All channels · ads not connected</span></div>
+      <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">live from Shopify order sources</span></div>
 
+      <div class="bcn-card" id="tiktokCard">
+        <div class="bcn-card-header"><h2>TikTok — sales by source</h2><span class="bcn-card-meta" id="tiktokMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Source</th><th>Sales $</th><th>% of total</th></tr></thead>
+          <tbody id="tiktokBody"></tbody></table>
+        </div></div>
+        <div class="wow-note" id="tiktokNote"></div>
+        <details class="wow-say" data-key="tiktok">
+          <summary>Notes on TikTok</summary>
+          <div class="wow-say-body"><textarea id="say_tiktok" class="wow-say-box" data-say="tiktok" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
+      </div>
       <div id="man_tiktok"></div>
 
       <div class="wow-sec" id="sec_affiliate"><span class="wow-sec-n">Affiliate</span><span class="wow-sec-sub">no connector — manual for now</span></div>
@@ -324,13 +336,11 @@
 
       <div id="man_competition"></div>
 
-      <div class="wow-sec" id="sec_redo"><span class="wow-sec-n">Redo</span><span class="wow-sec-sub">email & SMS — no connector yet</span></div>
+      <div class="wow-sec" id="sec_redo"><span class="wow-sec-n">Redo — Email / SMS</span><span class="wow-sec-sub">no connector yet</span></div>
 
       <div id="man_redo"></div>
 
-      <div class="wow-sec" id="sec_retention"><span class="wow-sec-n">Retention</span><span class="wow-sec-sub">cohorts</span></div>
 
-      <div id="man_retention"></div>
 
       <div id="man_other"></div>
     </div>
@@ -392,7 +402,7 @@
   // exported or compared week to week; a table can.
   const MANUAL_TABLES = [
     { key:'kimonix_products', section:'kimonix', title:'Kimonix — top products',
-      cols:[['rank','Rank',60],['product','Product',0],['pageViews','Page views',110],
+      cols:[['rank','Rank',60],['product','Product',0],['image','Image',90],['pageViews','Page views',110],
             ['sales','Sales $',110],['conversionRate','Conv. rate',100],['outlook','Prior week outlook',150]] },
     { key:'kimonix_collections', section:'kimonix', title:'Kimonix — collections',
       cols:[['collectionName','Collection',0],['pageViews','Page views',110],
@@ -405,7 +415,8 @@
             ['conversionRate','Conv. %',90],['revPerMsg','Rev / msg',100],['unsubRate','Unsub %',90]] },
     { key:'redo_automations', section:'redo', title:'Redo — automations',
       cols:[['date','Date',100],['spend','Spend',100],['totalRevenue','Revenue',110],
-            ['emailSubs','Email subs',110],['smsSubs','SMS subs',110],['notes','Notes',0]] },
+            ['emailSubs','Email subs',110],['emailNetSubs','Email net subs',120],
+            ['smsSubs','SMS subs',110],['smsNetSubs','SMS net subs',115],['notes','Notes',0]] },
     { key:'landing_pages', section:'website', title:'Sessions by landing page',
       cols:[['landingPage','Landing page',0],['sessions','Sessions',110],['conversionRate','Conv. rate',110]] },
     { key:'organic_posts', section:'meta', title:'Meta & Instagram organic — last 12 posts',
@@ -414,12 +425,10 @@
       cols:[['post','Post',0],['type','Type',90],['date','Date',100],
             ['views','Views',100],['reach','Reach',100],['likes','Likes',90],
             ['comments','Comments',100],['saves','Saves',90],['link','Link',150]] },
-    { key:'tiktok_ads', section:'tiktok', title:'TikTok Ads — by campaign',
-      hint:'Typed for now: tiktok_ads has no rows in marketing_kpis_daily, so no connector is feeding this. Columns are that table\u2019s own shape, so a TikTok connector fills this in without changing the layout. TikTok Shop SALES are already live in All channels above.',
-      cols:[['campaign','Campaign',0],['spend','Spend',110],['impressions','Impressions',110],
-            ['clicks','Clicks',100],['conversions','Conversions',110],
-            ['conversionValue','Revenue',110],['roas','ROAS',90]] },
-    { key:'cohorts', section:'retention', title:'Cohort retention',
+    { key:'google_copy', section:'google', title:'Google — headlines & descriptions',
+      hint:'Ad copy is not in marketing_kpis_daily (it holds spend and performance, not creative text). Typed for now.',
+      cols:[['headline','Headline / description',0],['notes','Notes',0]] },
+    { key:'cohorts', section:'website', title:'Cohort retention',
       cols:[['cohortMonth','Cohort month',0],['month1','Month 1',100],['month2','Month 2',100],
             ['month3','Month 3',100],['month4plus','Month 4+',100]] },
   ];
@@ -479,7 +488,7 @@
       node.innerHTML = `<div class="bcn-card-body" style="display:flex;flex-direction:column;gap:16px">${parts.join('')}</div>`;
     });
     // Empty slots would otherwise render as a bare card outline.
-    ['website','kimonix','meta','google','tiktok','affiliate','competition','redo','retention','other']
+    ['website','kimonix','meta','google','tiktok','affiliate','competition','redo','other']
       .forEach(k => { const n = el(`man_${k}`); if (n && !n.innerHTML.trim()) n.remove(); });
 
     const root = el('silo-app') || document.body;
@@ -606,6 +615,24 @@
   let FUNNEL = null;
   let PAID = null;
 
+  // TikTok is live, not typed: its rows are already in the channel breakdown
+  // the report loads, so this is a filtered view rather than a second query.
+  // Sales only -- there are no tiktok_ads rows in marketing_kpis_daily, so
+  // spend and ROAS for TikTok genuinely do not exist yet.
+  function renderTikTok(){
+    const rows = (DATA?.channels || []).filter(c => /tiktok/i.test(c.channel || ''));
+    const total = rows.reduce((n, c) => n + Number(c.sales || 0), 0);
+    el('tiktokBody').innerHTML = rows.length
+      ? rows.map(c => `<tr><td>${esc(c.channel)}</td><td>${money(c.sales)}</td>
+          <td>${c.pct == null ? '<span class="dim">—</span>' : c.pct + '%'}</td></tr>`).join('')
+      : `<tr><td class="wow-empty" colspan="3">No TikTok orders in this window.</td></tr>`;
+    el('tiktokMeta').textContent = rows.length ? `${money(total)} · share of all channels` : 'no orders';
+    el('tiktokNote').innerHTML =
+      '<b>Sales only.</b> TikTok ad spend is not synced — <code>marketing_kpis_daily</code> holds no ' +
+      '<code>tiktok_ads</code> rows, so there is no spend or ROAS to show here until that connector is set up. ' +
+      'These figures come from Shopify order sources, the same place the All channels table above does.';
+  }
+
   function renderFunnel(){
     const body = el('funnelBody'), note = el('funnelNote');
     const f = FUNNEL || {};
@@ -721,6 +748,7 @@
     el('kInvSub').textContent = `${intFmt(inv.skus)} SKUs · deduped`;
 
     renderFunnel();
+    renderTikTok();
 
     el('ga4Body').innerHTML =
       `<tr><td>Same week last year</td><td>${intFmt(g.sessions_ly)}</td><td>${money(g.revenue_ly)}</td></tr>` +
@@ -832,9 +860,11 @@
     // --- Creatives, purchase campaigns only ---
     el('creBody').innerHTML = (pm.creatives||[]).map(a => `<tr>
       <td><div class="wow-ad">${a.thumb ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" />` : ''}<span>${esc(a.ad)}</span></div></td>
+      <td style="text-align:left;white-space:normal;max-width:320px;font-size:11px;color:var(--bcn-ink-2)">${
+        a.copy ? esc(String(a.copy).slice(0, 180)) + (String(a.copy).length > 180 ? '…' : '') : '<span class="dim">—</span>'}</td>
       <td>${money(a.spend)}</td><td>${a.roas ? xFmt(a.roas) : '<span class="dim">—</span>'}</td>
       <td>${intFmt(a.conversions)}</td><td>${intFmt(a.clicks)}</td>
-    </tr>`).join('') || `<tr><td class="wow-empty" colspan="5">No Meta purchase-campaign ads in this window.</td></tr>`;
+    </tr>`).join('') || `<tr><td class="wow-empty" colspan="6">No Meta purchase-campaign ads in this window.</td></tr>`;
   }
 
   // Export mirrors what is on screen, as raw numbers rather than display strings.
@@ -870,8 +900,8 @@
         pm.google.cost_per_conv ?? '', pm.google.clicks ?? '');
     }
     if ((pm.creatives || []).length) {
-      push(''); push('Creative (Meta purchase)','Spend','ROAS','Conversions','Clicks');
-      pm.creatives.forEach(a => push(a.ad, a.spend, a.roas ?? '', a.conversions ?? '', a.clicks ?? ''));
+      push(''); push('Creative (Meta purchase)','Ad copy','Spend','ROAS','Conversions','Clicks');
+      pm.creatives.forEach(a => push(a.ad, a.copy ?? '', a.spend, a.roas ?? '', a.conversions ?? '', a.clicks ?? ''));
     }
     if ((pm.not_synced || []).length) {
       push(''); push('Not synced into SILO', pm.not_synced.join(' / '), 'pull from Ads Manager');
