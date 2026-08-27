@@ -250,7 +250,7 @@
 
     
 
-      <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website &amp; Sales</span><span class="wow-sec-sub">Shopify · sessions, products, channels, cohorts</span></div>
+      <div class="wow-sec" id="sec_website"><span class="wow-sec-n">Website &amp; Sales</span><span class="wow-sec-sub">Shopify · sessions, products, landing pages, cohorts</span></div>
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-card-meta" id="funnelMeta">online store</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
@@ -358,7 +358,7 @@
       </div>
       <div id="man_google"></div>
 
-      <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">live from Shopify order sources</span></div>
+      <div class="wow-sec" id="sec_tiktok"><span class="wow-sec-n">TikTok</span><span class="wow-sec-sub">Shopify total live · attribution typed</span></div>
 
       <div class="bcn-card" id="tiktokCard">
         <div class="bcn-card-header"><h2>TikTok</h2><span class="bcn-card-meta" id="tiktokMeta"></span></div>
@@ -373,7 +373,7 @@
       </div>
       <div id="man_tiktok"></div>
 
-      <div class="wow-sec" id="sec_affiliate"><span class="wow-sec-n">Affiliate</span><span class="wow-sec-sub">no connector — manual for now</span></div>
+      <div class="wow-sec" id="sec_affiliate"><span class="wow-sec-n">Affiliate</span><span class="wow-sec-sub">sales by code live · notes typed</span></div>
 
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Sales by affiliate code</h2><span class="bcn-card-meta" id="dcMeta"></span></div>
@@ -682,6 +682,7 @@
   let COHORTS = null;
   let KPI = null;
   let DATA_THROUGH = null;
+  const FAILED = new Set();
 
   // The Shopify side of TikTok IS live -- TikTok Shop arrives as an order
   // source -- but it is a single total, not the Lives / Ads / GMV Affiliate /
@@ -777,7 +778,9 @@
           <td>${c.pct_of_total == null ? '<span class="dim">—</span>' : c.pct_of_total + '%'}</td>
           ${c.sales_wow == null ? '<td class="dim">—</td>' : pctCell(c.sales_wow)}
         </tr>`).join('')
-      : `<tr><td class="wow-empty" colspan="6">No coded orders in this window — syncs nightly from Shopify.</td></tr>`;
+      : `<tr><td class="wow-empty" colspan="6">${FAILED.has('codes')
+            ? 'Could not load affiliate codes — try Refresh.'
+            : 'No coded orders in this window.'}</td></tr>`;
     const coded = Number(d.coded_sales || 0), tot = Number(d.total_sales || 0);
     el('dcMeta').textContent = codes.length ? `${codes.length} codes · ${money(coded)}` : 'no codes';
   }
@@ -794,7 +797,9 @@
           <td>${p.conversion_rate == null ? '<span class="dim">—</span>' : p.conversion_rate + '%'}</td>
           <td>${intFmt(p.orders)}</td>
         </tr>`).join('')
-      : `<tr><td class="wow-empty" colspan="6">No landing-page data for this window yet — it syncs nightly from Shopify.</td></tr>`;
+      : `<tr><td class="wow-empty" colspan="6">${FAILED.has('landing')
+            ? 'Could not load landing pages — try Refresh.'
+            : 'No landing-page data for this window yet.'}</td></tr>`;
     const partial = d.days_covered != null && d.days_covered < 7;
     el('lpMeta').textContent = pages.length
       ? `top ${pages.length}` + (partial ? ` · ${d.days_covered} of 7 days` : '')
@@ -987,16 +992,22 @@
       // The funnel is additive -- a failure here must not take down the sales
       // figures the rest of the report is built on.
       FUNNEL = funnel.error ? null : (funnel.data || null);
+      if (funnel.error) FAILED.add('funnel');
       if (funnel.error) console.warn('funnel unavailable:', funnel.error.message);
       PAID = paid.error ? null : (paid.data || null);
+      if (paid.error) FAILED.add('paid');
       if (paid.error) console.warn('paid media unavailable:', paid.error.message);
       LANDING = landing.error ? null : (landing.data || null);
+      if (landing.error) FAILED.add('landing');
       if (landing.error) console.warn('landing pages unavailable:', landing.error.message);
       CODES = codes.error ? null : (codes.data || null);
+      if (codes.error) FAILED.add('codes');
       if (codes.error) console.warn('discount codes unavailable:', codes.error.message);
       COHORTS = cohorts.error ? null : (cohorts.data || null);
+      if (cohorts.error) FAILED.add('cohorts');
       if (cohorts.error) console.warn('cohorts unavailable:', cohorts.error.message);
       KPI = kpi.error ? null : (kpi.data || null);
+      if (kpi.error) FAILED.add('kpi');
       if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
       render();
       buildManual();
@@ -1107,7 +1118,9 @@
     // --- Meta, one section per objective ---
     const groups = pm.meta || [];
     el('metaRoot').innerHTML = !groups.length
-      ? '<div class="wow-empty" style="padding:14px">No Meta spend in this window.</div>'
+      ? `<div class="wow-empty" style="padding:14px">${FAILED.has('paid')
+            ? 'Could not load paid media — try Refresh.'
+            : 'No Meta spend in this window.'}</div>`
       : groups.map(g => {
           const cols = PAID_COLS[g.judged_on] || PAID_COLS.spend;
           const wowSpend = (g.prev_spend != null && Number(g.prev_spend) > 0)
