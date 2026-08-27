@@ -1887,18 +1887,24 @@ const SHOPIFYQL_MAX_DAYS = 365;
 export async function shopifyql(connection, query) {
   const apiVersion = connection.api_version || DEFAULT_API_VERSION;
   const url = `https://${connection.shop_domain}/admin/api/${apiVersion}/graphql.json`;
-  // Shape corrected against what the API actually reported on 2026-08-27.
-  // The first attempt fragmented on a `TableResponse` type and sub-selected
-  // `parseErrors { code message }`; Shopify rejected both:
-  //   "No such type TableResponse, so it can't be a fragment condition"
-  //   "field 'parseErrors' returns String but has selections"
-  // So: no fragment, and parseErrors is a scalar list.
+  // Shape read off the live schema via introspection on 2026-08-27, after
+  // two wrong guesses. The truth for this API version:
+  //
+  //   shopifyqlQuery -> ShopifyqlQueryResponse
+  //     parseErrors : NON_NULL list of String   (scalar -- no sub-selection)
+  //     tableData   : ShopifyqlTableData
+  //       columns : ShopifyqlTableDataColumn { name displayName dataType subType }
+  //       rows    : JSON                       (scalar -- no sub-selection)
+  //
+  // Note `rows`, not `rowData`, and it is a JSON scalar that arrives already
+  // parsed as an array of arrays. There is no TableResponse type to fragment
+  // on, which is what the first attempt assumed.
   const body = {
     query: `query Ql($q: String!) {
       shopifyqlQuery(query: $q) {
         __typename
         parseErrors
-        tableData { __typename }
+        tableData { columns { name } rows }
       }
     }`,
     variables: { q: query },
@@ -1930,18 +1936,10 @@ export async function shopifyql(connection, query) {
   const table = payload?.tableData;
   if (!table) return [];
 
-  // PROBE MODE. The row field on ShopifyqlTableData is not confirmed yet --
-  // 'rowData' was rejected by the API. Until describeShopifyqlSchema names
-  // it, this deliberately fails rather than returning [] and reporting a
-  // successful sync of nothing.
-  if (!table.columns && !table.rowData) {
-    throw new Error(
-      'ShopifyQL probe: tableData reached, row/column field names not yet confirmed for this API version',
-    );
-  }
-
   const cols = (table.columns || []).map((c) => c.name);
-  return (table.rowData || []).map((row) => {
+  // `rows` is a JSON scalar: already an array of arrays, no parsing needed.
+  const rows = Array.isArray(table.rows) ? table.rows : [];
+  return rows.map((row) => {
     const o = {};
     cols.forEach((c, i) => { o[c] = row[i]; });
     return o;
