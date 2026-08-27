@@ -276,10 +276,168 @@
     `;
   }
 
+  /* ---- Command palette (the sidebar's "Jump to…" / ⌘K) -------------------
+     Fed by the SAME navSectionsForCompany() call renderNavSections() uses, so
+     profile / department / role / grantTable filtering applies unchanged — a
+     page deliberately kept out of nav-config.js (parked, or still in testing)
+     is not reachable here either. This is a faster route to the menu, never a
+     route around it, and it is still UX only: RLS remains the boundary. */
+  let paletteEl = null;
+  let paletteRole = null;
+  let paletteItems = [];
+  let paletteCursor = 0;
+
+  function paletteSource() {
+    const sections = navSectionsForCompany(
+      getActiveCompany(), getCachedDepartment(), paletteRole, getCachedGrantIds()
+    );
+    const out = [];
+    for (const sec of sections) {
+      for (const item of sec.items) out.push({ ...item, section: sec.section });
+    }
+    return out;
+  }
+
+  // Lower score sorts first; ties keep nav order. Label-prefix beats
+  // label-substring beats a section-name hit, and a subsequence match
+  // ("pobld" → "PO Builder") is the last resort. -1 means no match.
+  function paletteScore(item, q) {
+    if (!q) return 0;
+    const label = item.label.toLowerCase();
+    const at = label.indexOf(q);
+    if (at === 0) return 0;
+    if (at > 0) return 1;
+    if ((label + ' ' + item.section.toLowerCase()).includes(q)) return 2;
+    let i = 0;
+    for (const ch of label) if (ch === q[i]) i++;
+    return i === q.length ? 3 : -1;
+  }
+
+  function paletteFilter(q) {
+    const scored = [];
+    paletteSource().forEach((item, idx) => {
+      const score = paletteScore(item, q);
+      if (score >= 0) scored.push({ item, score, idx });
+    });
+    scored.sort((a, b) => a.score - b.score || a.idx - b.idx);
+    return scored.map((s) => s.item);
+  }
+
+  function paletteHighlight(label, q) {
+    const at = q ? label.toLowerCase().indexOf(q) : -1;
+    if (at < 0) return escHtml(label);
+    return escHtml(label.slice(0, at))
+      + '<mark>' + escHtml(label.slice(at, at + q.length)) + '</mark>'
+      + escHtml(label.slice(at + q.length));
+  }
+
+  function paletteRenderList() {
+    const listEl = paletteEl.querySelector('.silo-palette-list');
+    const q = paletteEl.querySelector('.silo-palette-input').value.trim().toLowerCase();
+    paletteItems = paletteFilter(q);
+    if (paletteCursor >= paletteItems.length) paletteCursor = 0;
+    if (!paletteItems.length) {
+      listEl.innerHTML = '<div class="silo-palette-empty">No menu item matches that.</div>';
+      return;
+    }
+    listEl.innerHTML = paletteItems.map((item, i) => {
+      const on = i === paletteCursor;
+      const ext = item.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+      return `<a class="silo-palette-item${on ? ' silo-palette-item--on' : ''}" href="${escHtml(item.href)}" data-palette-idx="${i}" role="option" aria-selected="${on}"${ext}>
+          <span class="silo-palette-item-label">${paletteHighlight(item.label, q)}</span>
+          <span class="silo-palette-item-section">${escHtml(item.section)}</span>
+        </a>`;
+    }).join('');
+    const onEl = listEl.querySelector('.silo-palette-item--on');
+    if (onEl && onEl.scrollIntoView) onEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  function paletteMove(delta) {
+    if (!paletteItems.length) return;
+    paletteCursor = (paletteCursor + delta + paletteItems.length) % paletteItems.length;
+    paletteRenderList();
+  }
+
+  function paletteGo(item) {
+    closePalette();
+    if (item.external) window.open(item.href, '_blank', 'noopener');
+    else window.location.href = item.href;
+  }
+
+  function ensurePalette() {
+    if (paletteEl) return paletteEl;
+    paletteEl = el(`
+      <div class="silo-palette" hidden>
+        <div class="silo-palette-box" role="dialog" aria-modal="true" aria-label="Jump to page">
+          <div class="silo-palette-field">
+            <span class="silo-palette-icon" aria-hidden="true">${ICONS.search}</span>
+            <input class="silo-palette-input" type="text" placeholder="Jump to…" autocomplete="off" spellcheck="false"
+                   role="combobox" aria-expanded="true" aria-controls="siloPaletteList" aria-autocomplete="list" />
+            <span class="silo-palette-esc">ESC</span>
+          </div>
+          <div class="silo-palette-list" id="siloPaletteList" role="listbox" aria-label="Menu items"></div>
+        </div>
+      </div>
+    `);
+    document.body.appendChild(paletteEl);
+
+    const input = paletteEl.querySelector('.silo-palette-input');
+    input.addEventListener('input', () => { paletteCursor = 0; paletteRenderList(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); paletteMove(1); }
+      else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); paletteMove(-1); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const item = paletteItems[paletteCursor];
+        if (item) paletteGo(item);
+      } else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+    });
+
+    paletteEl.addEventListener('click', (e) => {
+      // A click on a row lets the anchor navigate on its own; closing here
+      // just keeps the overlay from flashing during the page swap.
+      if (e.target.closest('.silo-palette-item')) { closePalette(); return; }
+      if (!e.target.closest('.silo-palette-box')) closePalette();
+    });
+
+    paletteEl.addEventListener('mousemove', (e) => {
+      const row = e.target.closest('.silo-palette-item');
+      if (!row) return;
+      const idx = Number(row.getAttribute('data-palette-idx'));
+      if (idx === paletteCursor) return;
+      paletteCursor = idx;
+      paletteEl.querySelectorAll('.silo-palette-item').forEach((n, i) => {
+        n.classList.toggle('silo-palette-item--on', i === idx);
+        n.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+      });
+    });
+
+    return paletteEl;
+  }
+
+  function isPaletteOpen() { return !!paletteEl && !paletteEl.hidden; }
+
+  function openPalette() {
+    ensurePalette();
+    paletteEl.hidden = false;
+    const input = paletteEl.querySelector('.silo-palette-input');
+    input.value = '';
+    paletteCursor = 0;
+    paletteRenderList();
+    input.focus();
+  }
+
+  function closePalette() {
+    if (paletteEl) paletteEl.hidden = true;
+  }
+
   function mount(opts) {
     opts = opts || {};
     const appEl = typeof opts.appEl === 'string' ? document.querySelector(opts.appEl) : opts.appEl;
     if (!appEl) { console.error('SiloChrome.mount: appEl not found'); return; }
+
+    // The palette filters by the same role the sidebar renders with.
+    paletteRole = (opts.user && opts.user.role) || null;
 
     // restore collapsed state
     const collapsed = localStorage.getItem(LS_COLLAPSED) === '1';
@@ -352,6 +510,12 @@
         toggleCollapse(appEl);
         return;
       }
+      if (e.target.closest('[data-silo-action="search"]')) {
+        e.preventDefault();
+        setNavOpen(false);   // mobile: the box lives inside the drawer
+        openPalette();
+        return;
+      }
       // Clicking anywhere on the collapsed rail expands it
       if (appEl.getAttribute('data-collapsed') === 'true') {
         toggleCollapse(appEl);
@@ -381,6 +545,14 @@
       }
     });
 
+    sidebar.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (!e.target.closest('[data-silo-action="search"]')) return;
+      e.preventDefault();
+      setNavOpen(false);
+      openPalette();
+    });
+
     backdrop.addEventListener('click', () => setNavOpen(false));
 
     if (mainEl) {
@@ -396,14 +568,24 @@
     }
 
     document.addEventListener('keydown', (e) => {
+      // A page that handles ⌘K itself wins, and a second mount on the same
+      // document can't undo the first one's work (both listeners see the
+      // same event, so without this the second would close what the first
+      // just opened).
+      if (e.defaultPrevented) return;
+      if (e.key === 'Escape' && isPaletteOpen()) {
+        closePalette();
+        return;
+      }
       if (e.key === 'Escape' && appEl.classList.contains('silo-nav-open')) {
         setNavOpen(false);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
-        const searchEl = sidebar.querySelector('[data-silo-action="search"]');
-        searchEl && searchEl.focus && searchEl.focus();
+        if (isPaletteOpen()) { closePalette(); return; }
+        setNavOpen(false);
+        openPalette();
       }
     });
 
