@@ -2237,6 +2237,83 @@ const numOrNull = (v) => {
   return Number.isFinite(n) ? Math.round(n) : null;
 };
 
+/** Sales by discount code, one day per query.
+ *
+ * Baseballism's affiliate codes ARE Shopify discount codes, so this replaces
+ * the manual affiliate table. Same day-at-a-time shape as landing pages and
+ * for the same reason: ShopifyQL clips at 1000 rows without saying so.
+ *
+ * Orders with no code arrive under an empty discount_code. That row is KEPT
+ * and flagged rather than dropped -- it is the denominator for "what share of
+ * sales ran through a code", and silently discarding it would make every
+ * percentage wrong.
+ */
+const DISCOUNT_TOP_N = 200;
+
+export async function runDiscountCodesSync(supabase, connection, { sinceDays = 30, batchId = null } = {}) {
+  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), 120);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const today = new Date();
+
+  const rows = [];
+  let clippedDays = 0;
+  for (let i = 1; i <= days; i += 1) {
+    const day = iso(new Date(today.getTime() - i * 86400000));
+    const out = await shopifyql(connection,
+      `FROM sales SHOW gross_sales, orders GROUP BY discount_code ` +
+      `SINCE ${day} UNTIL ${day} ORDER BY gross_sales DESC LIMIT ${DISCOUNT_TOP_N}`);
+    if (out.length >= DISCOUNT_TOP_N) clippedDays += 1;
+
+    out.forEach((r) => {
+      const raw = r.discount_code;
+      const code = (raw == null ? '' : String(raw)).trim();
+      rows.push({
+        company_entity_id: connection.company_entity_id,
+        shop_domain: connection.shop_domain,
+        day_date: day,
+        // Empty string is not a valid key for the unique index, so the
+        // no-code bucket gets an explicit sentinel AND a boolean, rather than
+        // being represented by an absence anyone could misread.
+        discount_code: code === '' ? '(no code)' : code,
+        is_no_code: code === '',
+        gross_sales: moneyOrNull(r.gross_sales),
+        orders: intOrNull(r.orders),
+        synced_at: new Date().toISOString(),
+        sync_batch_id: batchId,
+      });
+    });
+  }
+
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase
+      .from('shopify_discount_codes_daily')
+      .upsert(rows.slice(i, i + 500), {
+        onConflict: 'company_entity_id,shop_domain,day_date,discount_code',
+      });
+    if (error) throw new Error(`discount_codes upsert failed: ${error.message}`);
+  }
+
+  return {
+    job_type: 'discount_codes_sync',
+    batch_id: batchId,
+    days_requested: days,
+    rows_upserted: rows.length,
+    distinct_codes: new Set(rows.filter((r) => !r.is_no_code).map((r) => r.discount_code)).size,
+    days_hitting_top_n: clippedDays || undefined,
+    top_n: DISCOUNT_TOP_N,
+  };
+}
+
+const moneyOrNull = (v) => {
+  if (v == null || v === '') return null;
+  const n = Number(String(v).replace(/[,$\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+const intOrNull = (v) => {
+  const n = moneyOrNull(v);
+  return n == null ? null : Math.round(n);
+};
+
 async function fetchQlPair(connection, range) {
   return Promise.all([
     shopifyql(connection,

@@ -342,6 +342,14 @@
 
       <div class="wow-sec" id="sec_affiliate"><span class="wow-sec-n">Affiliate</span><span class="wow-sec-sub">no connector — manual for now</span></div>
 
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Sales by affiliate code</h2><span class="bcn-card-meta" id="dcMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Code</th><th>Sales $</th><th>Orders</th><th>AOV</th><th>% of total</th><th>vs prior wk</th></tr></thead>
+          <tbody id="dcBody"></tbody></table>
+        </div></div>
+        <div class="wow-note" id="dcNote"></div>
+      </div>
       <div id="man_affiliate"></div>
 
       <div class="wow-sec" id="sec_competition"><span class="wow-sec-n">Competition</span><span class="wow-sec-sub">weekly scan</span></div>
@@ -419,8 +427,6 @@
     { key:'kimonix_collections', section:'kimonix', title:'Kimonix — collections',
       cols:[['collectionName','Collection',0],['pageViews','Page views',110],
             ['sales','Sales $',110],['conversionRate','Conv. rate',100]] },
-    { key:'affiliate_codes', section:'affiliate', title:'Affiliate — sales by code',
-      cols:[['affiliateCode','Affiliate code',0],['sales','Sales $',120],['orders','Orders',100]] },
     { key:'redo_campaigns', section:'redo', title:'Redo — campaigns',
       cols:[['campaign','Campaign',0],['date','Date',100],['subject','Subject',0],
             ['delivered','Delivered',100],['openRate','Open %',90],['clickRate','Click %',90],
@@ -625,11 +631,37 @@
   let FUNNEL = null;
   let PAID = null;
   let LANDING = null;
+  let CODES = null;
 
   // TikTok is live, not typed: its rows are already in the channel breakdown
   // the report loads, so this is a filtered view rather than a second query.
   // Sales only -- there are no tiktok_ads rows in marketing_kpis_daily, so
   // spend and ROAS for TikTok genuinely do not exist yet.
+  // Affiliate codes are Shopify discount codes, so this is live rather than
+  // typed. Orders with no code are excluded from the list but kept in the
+  // denominator -- otherwise every share would be a share of coded sales
+  // only, which reads far higher than reality.
+  function renderCodes(){
+    const d = CODES || {};
+    const codes = d.codes || [];
+    el('dcBody').innerHTML = codes.length
+      ? codes.map(c => `<tr>
+          <td style="text-align:left"><span class="bcn-mono" style="font-size:11px">${esc(c.code)}</span></td>
+          <td>${money(c.sales)}</td><td>${intFmt(c.orders)}</td>
+          <td>${c.aov == null ? '<span class="dim">—</span>' : money2(c.aov)}</td>
+          <td>${c.pct_of_total == null ? '<span class="dim">—</span>' : c.pct_of_total + '%'}</td>
+          ${c.sales_wow == null ? '<td class="dim">—</td>' : pctCell(c.sales_wow)}
+        </tr>`).join('')
+      : `<tr><td class="wow-empty" colspan="6">No coded orders in this window — syncs nightly from Shopify.</td></tr>`;
+    const coded = Number(d.coded_sales || 0), tot = Number(d.total_sales || 0);
+    el('dcMeta').textContent = codes.length ? `${codes.length} codes · ${money(coded)}` : 'no codes';
+    el('dcNote').innerHTML = tot > 0
+      ? `<b>Affiliate codes are Shopify discount codes</b>, so this is live. ${money(coded)} of ${money(tot)} ` +
+        `(${(100*coded/tot).toFixed(1)}%) of gross sales this week ran through a code. ` +
+        `Percentages are of ALL sales, not just coded ones.`
+      : '<b>Affiliate codes are Shopify discount codes</b>, synced nightly.';
+  }
+
   function renderLanding(){
     const d = LANDING || {};
     const pages = d.pages || [];
@@ -738,11 +770,12 @@
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const [main, funnel, paid, landing] = await Promise.all([
+      const [main, funnel, paid, landing, codes] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_landing_pages', { p_report_date: el('reportDate').value, p_limit: 15 }),
+        sb.rpc('wow_discount_codes', { p_report_date: el('reportDate').value, p_limit: 20 }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -754,6 +787,8 @@
       if (paid.error) console.warn('paid media unavailable:', paid.error.message);
       LANDING = landing.error ? null : (landing.data || null);
       if (landing.error) console.warn('landing pages unavailable:', landing.error.message);
+      CODES = codes.error ? null : (codes.data || null);
+      if (codes.error) console.warn('discount codes unavailable:', codes.error.message);
       render();
       buildManual();
       await loadEntry();
@@ -787,6 +822,7 @@
     renderFunnel();
     renderTikTok();
     renderLanding();
+    renderCodes();
 
     el('ga4Body').innerHTML =
       `<tr><td>Same week last year</td><td>${intFmt(g.sessions_ly)}</td><td>${money(g.revenue_ly)}</td></tr>` +

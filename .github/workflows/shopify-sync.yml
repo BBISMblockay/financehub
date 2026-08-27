@@ -25,6 +25,12 @@ on:
         description: Set true to skip the ShopifyQL sessions/funnel sync
         required: false
         default: 'false'
+      skip_discount_codes:
+        description: Skip the discount-code (affiliate) sync (true/false)
+        required: false
+      discount_codes_days:
+        description: Discount-code days back (default 30; one query per day)
+        required: false
       skip_landing_pages:
         description: Skip the landing-page sync (true/false)
         required: false
@@ -82,6 +88,8 @@ jobs:
       SHOPIFY_SESSIONS_DAYS: ${{ github.event.inputs.sessions_days || '' }}
       SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || 'false' }}
       SHOPIFY_LANDING_PAGES_DAYS: ${{ github.event.inputs.landing_pages_days || '' }}
+      SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || 'false' }}
+      SHOPIFY_DISCOUNT_CODES_DAYS: ${{ github.event.inputs.discount_codes_days || '' }}
       SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
       SHOPIFY_HISTORY_CHUNK_DAYS: ${{ github.event.inputs.history_chunk_days || '30' }}

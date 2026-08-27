@@ -14,6 +14,7 @@ import {
   runPayoutsSync,
   runSessionsSync,
   runLandingPagesSync,
+  runDiscountCodesSync,
   runWindowedHistory,
 } from './lib/shopify-sync-core.mjs';
 
@@ -49,6 +50,8 @@ const SESSIONS_DAYS = Number(process.env.SHOPIFY_SESSIONS_DAYS || 90);
 // than sessions'. The weekly report needs two weeks; 30 gives margin.
 const SKIP_LANDING_PAGES = process.env.SHOPIFY_SKIP_LANDING_PAGES === 'true';
 const LANDING_PAGES_DAYS = Number(process.env.SHOPIFY_LANDING_PAGES_DAYS || 30);
+const SKIP_DISCOUNT_CODES = process.env.SHOPIFY_SKIP_DISCOUNT_CODES === 'true';
+const DISCOUNT_CODES_DAYS = Number(process.env.SHOPIFY_DISCOUNT_CODES_DAYS || 30);
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
 const BATCH_ID =
@@ -221,6 +224,25 @@ async function syncConnection(connection) {
       // Same stance as sessions: analytics must not take down sales sync.
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       console.warn(`[warn] ${connection.shop_domain} landing_pages_sync failed: ${err.message || err}`);
+    }
+  }
+
+  if (!SKIP_DISCOUNT_CODES && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+    const jobId = await startJob(connection, 'discount_codes_sync');
+    try {
+      const result = await runDiscountCodesSync(supabase, connection, {
+        batchId: BATCH_ID,
+        sinceDays: DISCOUNT_CODES_DAYS,
+      });
+      await finishJob(jobId, 'success', result);
+      results.jobs.push(result);
+      console.log(
+        `[ok] ${connection.shop_domain} discount_codes_sync: ${result.rows_upserted} rows, ` +
+        `${result.distinct_codes} codes`,
+      );
+    } catch (err) {
+      await finishJob(jobId, 'error', { error: err.message || String(err) });
+      console.warn(`[warn] ${connection.shop_domain} discount_codes_sync failed: ${err.message || err}`);
     }
   }
 
