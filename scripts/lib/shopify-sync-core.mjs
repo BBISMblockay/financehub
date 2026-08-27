@@ -1881,7 +1881,17 @@ export async function runWindowedHistory(supabase, connection, {
    row per day, roughly 365 per shop per year.
 ------------------------------------------------------------------------- */
 
-const SHOPIFYQL_MAX_DAYS = 365;
+// ShopifyQL truncates a result set at 1000 rows with no error and no flag.
+// Verified against the live Admin API on 2026-08-27: a day-grain query over
+// 1100 days returned exactly rowCount 1000, ending 2026-05-17 -- three months
+// short of today. Rows come back oldest-first, so the ones silently dropped
+// are the MOST RECENT. Requesting more than 1000 days at day grain therefore
+// loses current data, which is the worst possible way for this to fail.
+const SHOPIFYQL_ROW_LIMIT = 1000;
+// 730 gives a complete year-over-year comparison with headroom under the
+// ceiling. History reaches back to at least 2023-05 if more is ever wanted,
+// but it has to be fetched in chunks, not one wide window.
+const SHOPIFYQL_MAX_DAYS = 730;
 
 /** Run one ShopifyQL statement. Returns rows as objects keyed by column name. */
 export async function shopifyql(connection, query) {
@@ -1934,7 +1944,14 @@ export async function shopifyql(connection, query) {
     throw new Error(`ShopifyQL rejected the query: ${msgs.join('; ')}`);
   }
   const table = payload?.tableData;
-  if (!table) return [];
+  if (!table) {
+    const empty = [];
+    Object.defineProperty(empty, 'raw', {
+      value: { columns: [], row_count: 0, table_data_was_null: true, typename: payload?.__typename ?? null },
+      enumerable: false,
+    });
+    return empty;
+  }
 
   const cols = (table.columns || []).map((c) => c.name);
   // `rows` is a JSON scalar. It arrives already parsed, but the shape is not
@@ -1951,10 +1968,28 @@ export async function shopifyql(connection, query) {
     return null;
   }).filter(Boolean);
 
+  // The live API returns objects keyed by column name. An array-of-arrays
+  // parser silently produced all-undefined rows that were then dropped,
+  // reporting a clean sync of nothing -- record the shape so a change is
+  // visible in sync_jobs instead of needing another investigation.
+  const shape = rawRows.length === 0 ? 'empty'
+    : Array.isArray(rawRows[0]) ? 'array_of_arrays' : 'array_of_objects';
+
+  // Landing exactly on the ceiling means the result was almost certainly cut.
+  // Fail loudly: a truncated window silently missing its newest days would
+  // read as a normal sync and quietly corrupt every week-over-week number
+  // built on top of it.
+  if (rawRows.length >= SHOPIFYQL_ROW_LIMIT) {
+    throw new Error(
+      `ShopifyQL returned exactly ${rawRows.length} rows, the row ceiling -- the result is truncated ` +
+      'and silently missing its most recent days. Narrow the window or page it. Query: ' + query,
+    );
+  }
+
   // Carry the raw payload so a caller that parses nothing can say what it
   // actually received instead of reporting an empty success.
   Object.defineProperty(out, 'raw', {
-    value: { columns: cols, row_count: rawRows.length, sample: rawRows.slice(0, 2) },
+    value: { columns: cols, row_count: rawRows.length, row_shape: shape, sample: rawRows.slice(0, 1) },
     enumerable: false,
   });
   return out;
@@ -2080,26 +2115,15 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
   const until = new Date();
   const since = new Date(until.getTime() - days * 86400000);
   const iso = (d) => d.toISOString().slice(0, 10);
-  // Shopify's own ShopifyQL examples universally use the RELATIVE range form
-  // (`SINCE -30d UNTIL today`), never literal dates. Literal dates parse
-  // without error but came back with zero rows on every shop. Try the
-  // documented form first and fall back to literal, recording which one
-  // actually produced data instead of guessing again next run.
-  const rangeForms = [
-    { form: 'relative', range: `SINCE -${days}d UNTIL today` },
-    { form: 'literal', range: `SINCE ${iso(since)} UNTIL ${iso(until)}` },
-  ];
+  // Both the relative (`SINCE -7d UNTIL today`) and literal-date range forms
+  // were verified against the live Admin API on 2026-08-27 and return
+  // identical data. Literal dates are used because they pin the window to the
+  // dates actually written to shopify_sessions_daily.
+  const range = `SINCE ${iso(since)} UNTIL ${iso(until)}`;
 
-  let sessionRows, customerRows, rangeFormUsed = null;
-  const rangeAttempts = [];
+  let sessionRows, customerRows;
   try {
-    for (const cand of rangeForms) {
-      const [sr, cr] = await fetchQlPair(connection, cand.range);
-      const got = (sr.raw?.row_count || 0) + (cr.raw?.row_count || 0);
-      rangeAttempts.push({ form: cand.form, rows_returned: got });
-      sessionRows = sr; customerRows = cr; rangeFormUsed = cand.form;
-      if (got > 0) break;
-    }
+    [sessionRows, customerRows] = await fetchQlPair(connection, range);
   } catch (err) {
     // One guess at the schema already cost a run. Report the real shape so the
     // next attempt is informed rather than another guess.
@@ -2133,8 +2157,6 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
     res.warning = 'ShopifyQL returned no rows for this window (both range forms tried)';
     res.raw_sessions = rawSess;
   }
-  res.range_form_used = rangeFormUsed;
-  res.range_attempts = rangeAttempts;
   return res;
 }
 
