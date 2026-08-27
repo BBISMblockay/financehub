@@ -57,6 +57,8 @@
     .re-rating-why { flex:1 1 240px; min-width:200px; }
     .re-rating .bcn-label { display:block; margin-bottom:6px; }
     .re-q .re-rating-why textarea.bcn-field { min-height:52px; margin:0; }
+    .re-q.re-q--gap { background:var(--bcn-sunken); }
+    .re-q.re-q--gap .re-rating-why textarea.bcn-field { border-color:var(--bcn-neg); }
 
     .re-goal-row { display:flex; gap:10px; align-items:flex-end; padding:10px 0; border-bottom:1px dashed var(--bcn-border); flex-wrap:wrap; }
     .re-goal-row:last-child { border-bottom:none; }
@@ -256,7 +258,7 @@
             `<button type="button" data-score="${i+1}" class="${v.score === i+1 ? 'sel' : ''}" ${dis}>${i+1}</button>`).join('')}</div>
         </div>
         <div class="re-rating-why">
-          <label class="bcn-label" for="why_${esc(q.id)}">Why this rating?</label>
+          <label class="bcn-label" for="why_${esc(q.id)}">Why this rating? <span class="re-req">*</span></label>
           <textarea class="bcn-field" id="why_${esc(q.id)}" data-comment
             placeholder="Back up the score — what did you actually see?" ${dis}>${esc(v.comment || '')}</textarea>
         </div>
@@ -413,6 +415,32 @@
     await loadNotes();
   });
 
+  // ---- send validation --------------------------------------------------------
+  // The justification is NOT optional: a score with nothing behind it is the
+  // exact thing this field exists to prevent, and once a review is sent it
+  // locks, so this is the last point at which the gap can be caught. Enforced
+  // on Send only -- Save draft stays unconditional so a manager can always park
+  // half-finished work. A resend is exempt: the answers are already locked, and
+  // a review sent before this rule existed must stay resendable.
+  function ratingGaps(){
+    const gaps = [];
+    QUESTIONS.filter(q => isScale(q.kind)).forEach(q => {
+      const v = ANSWERS[q.id]?.value || {};
+      const scored = Number.isFinite(Number(v.score)) && Number(v.score) > 0;
+      const why = String(v.comment || '').trim();
+      if (scored && !why) gaps.push({ q, msg: `“${q.label}” is rated ${v.score} with nothing written to back it up` });
+      else if (q.required && !scored) gaps.push({ q, msg: `“${q.label}” has no rating yet` });
+    });
+    return gaps;
+  }
+
+  function flagGaps(gaps){
+    document.querySelectorAll('.re-q--gap').forEach(el => el.classList.remove('re-q--gap'));
+    gaps.forEach(g => document.querySelector(`[data-qid="${g.q.id}"]`)?.classList.add('re-q--gap'));
+    if (gaps.length) document.querySelector(`[data-qid="${gaps[0].q.id}"]`)
+      ?.scrollIntoView({ behavior:'smooth', block:'center' });
+  }
+
   // ---- save -----------------------------------------------------------------
   async function saveDraft(silent = false){
     if (!EDITABLE) return true;
@@ -473,6 +501,17 @@
   document.getElementById('btnSend').addEventListener('click', async () => {
     const btn = document.getElementById('btnSend');
     const first = REVIEW.status === 'draft';
+    if (first){
+      const gaps = ratingGaps();
+      if (gaps.length){
+        flagGaps(gaps);
+        setStatus(gaps.length === 1
+          ? `Not sent — ${gaps[0].msg}.`
+          : `Not sent — ${gaps.length} ratings need attention: ${gaps.map(g => g.msg).join('; ')}.`, 'neg');
+        return;
+      }
+      flagGaps([]);
+    }
     if (!confirm(first
       ? 'Send this review to the employee? It locks for editing once sent.'
       : 'Resend the review link? The previous link stops working.')) return;
