@@ -190,12 +190,7 @@
 
       <div class="wow-period" id="periodBar"></div>
 
-      <div class="wow-note" style="border-top:none;border-bottom:1px solid var(--bcn-border);padding-left:2px">
-        <b>Sales figures come from the same place Shopify's own online report does</b> — the daily sales
-        ledger for the online location, which nets refunds and includes every online channel
-        (Online Store, TikTok Shop, Shop App, Instagram/Facebook, AfterSell, Amazon). POS, wholesale
-        and draft orders are excluded. Verified against Shopify for 8/19–8/25: total $259,471, net $223,783.
-      </div>
+      <div class="wow-note" style="border-top:none;border-bottom:1px solid var(--bcn-border);padding-left:2px">Online only — all online channels, refunds netted. POS, wholesale and draft orders excluded.</div>
 
       
 
@@ -239,7 +234,7 @@
           <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th>Days of stock</th></tr></thead>
           <tbody id="prodBody"><tr><td class="wow-empty" colspan="5"><span class="wow-spin"></span>Loading…</td></tr></tbody></table>
         </div></div>
-        <div class="wow-note"><b>Days of stock</b> is units on hand ÷ this week's daily rate, so it reads as "at this pace". On-hand is de-duplicated to one row per SKU — the inventory snapshot carries duplicates and a naive sum overstates online units by about 5%.</div>
+        <div class="wow-note">Days of stock = on hand ÷ this week's daily rate. Each SKU counted once.</div>
       
         <details class="wow-say" data-key="products">
           <summary>Notes on products</summary>
@@ -262,7 +257,7 @@
           <table class="wow-tbl"><thead><tr><th>Channel</th><th>Sales</th><th>% of total</th></tr></thead>
           <tbody id="chanBody"></tbody></table>
         </div></div>
-        <div class="wow-note">This also covers the template's <b>TikTok → sales by attribution source</b> row. TikTok Shop is a tracked sales channel; TikTok <i>Ads</i> has never synced, which is a separate gap.</div>
+        
       
         <details class="wow-say" data-key="channels">
           <summary>Notes on channel mix</summary>
@@ -446,16 +441,16 @@
             ['smsSubs','SMS subs',110],['smsNetSubs','SMS net subs',115],['notes','Notes',0]] },
     { key:'organic_posts', section:'meta', title:'Meta & Instagram organic — last 12 posts',
       seedRows:12,
-      hint:'Type these in for now. Columns match what instagram_media_insights will sync once the Meta token gets pages_read_engagement, instagram_basic and instagram_manage_insights plus Page access — so this table stops being manual without changing shape.',
+      hint:'Type these in. Fills in automatically once Meta access is granted.',
       cols:[['post','Post',0],['type','Type',90],['date','Date',100],
             ['views','Views',100],['reach','Reach',100],['likes','Likes',90],
             ['comments','Comments',100],['saves','Saves',90],['link','Link',150]] },
     { key:'tiktok_sources', section:'tiktok', title:'TikTok — sales by attribution source',
       seedValues:[{source:'Lives'},{source:'Ads'},{source:'GMV Affiliate'},{source:'Direct'}],
-      hint:'Typed for now. TikTok Ads is not connected (no tiktok_ads rows in marketing_kpis_daily) and the Live schedule board has no finalised sessions, so neither the ads split nor Lives can be sourced yet. The Shopify TikTok Shop total below is live — use it to check your rows add up.',
+      hint:'Type these in. TikTok Ads and TikTok Shop are not connected.',
       cols:[['source','Source',0],['sales','Sales $',130],['percentOfTotal','% of total',120]] },
     { key:'google_copy', section:'google', title:'Google — headlines & descriptions',
-      hint:'Ad copy is not in marketing_kpis_daily (it holds spend and performance, not creative text). Typed for now.',
+      hint:'Type these in. Ad text is not in the Google data we pull.',
       cols:[['headline','Headline / description',0],['notes','Notes',0]] },
   ];
   const MANUAL_NOTES = [
@@ -742,11 +737,8 @@
     el('chMeta').textContent = `${liveCount} of ${months.length} months computed · rest typed`;
     const gaps = d.incomplete_months || [];
     el('chNote').innerHTML =
-      '<b>Online store only</b> — POS, wholesale and draft orders are excluded, matching the rest of this report. Retail-first customers rarely repeat online, so including them understates online retention. ' +
-      '<b>Only months with complete daily order coverage are shown.</b> A repeat purchase falling in an unsynced month is indistinguishable from a customer who never came back, so a partial month would understate retention rather than merely blur it — those cells read \u201c\u2014\u201d, not 0%.' +
-      (gaps.length
-        ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still incomplete</b> — those rows are <b>typeable</b> so the table can be completed by hand, and each one flips to a computed <span class="bcn-pill bcn-pill--pos" style="font-size:9px;padding:0 5px">live</span> value as <code>shopify-orders-backfill.yml</code> fills its months. Typed values are never overwritten by a computed one; a cell is one or the other.`
-        : ' All months in range are fully covered.');
+      'Online store only. Months without full order history are blank \u2014 type those in; each fills itself once the data lands.' +
+      (gaps.length ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still syncing.</b>` : '');
   }
 
   function renderCodes(){
@@ -764,10 +756,8 @@
     const coded = Number(d.coded_sales || 0), tot = Number(d.total_sales || 0);
     el('dcMeta').textContent = codes.length ? `${codes.length} codes · ${money(coded)}` : 'no codes';
     el('dcNote').innerHTML = tot > 0
-      ? `<b>Affiliate codes are Shopify discount codes</b>, so this is live. ${money(coded)} of ${money(tot)} ` +
-        `(${(100*coded/tot).toFixed(1)}%) of gross sales this week ran through a code. ` +
-        `Percentages are of ALL sales, not just coded ones.`
-      : '<b>Affiliate codes are Shopify discount codes</b>, synced nightly.';
+      ? `${money(coded)} of ${money(tot)} sales used a code (${(100*coded/tot).toFixed(1)}%). Percentages are of all sales.`
+      : 'Affiliate codes come from Shopify discount codes.';
   }
 
   function renderLanding(){
@@ -788,9 +778,8 @@
     // someone sums this column and calls it total sessions.
     const partial = d.days_covered != null && d.days_covered < 7;
     el('lpNote').innerHTML =
-      '<b>Top landing pages by session, from Shopify Analytics.</b> Conversion rate is each page\u2019s own orders over its own sessions across the week, not an average of daily rates.' +
-      (d.truncated_days ? ` Long-tail pages beyond the daily top-250 are not stored, so this is a top slice — do not sum it as total sessions.` : '') +
-      (partial ? ` <b>Only ${d.days_covered} of 7 days have synced</b> — these counts are partial.` : '');
+      'Top 250 pages a day \u2014 a slice, not every page, so don\u2019t total this column.' +
+      (partial ? ` <b>Only ${d.days_covered} of 7 days synced.</b>` : '');
   }
 
   function renderTikTok(){
@@ -802,9 +791,7 @@
       : `<tr><td class="wow-empty" colspan="3">No TikTok orders in this window.</td></tr>`;
     el('tiktokMeta').textContent = rows.length ? `${money(total)} · share of all channels` : 'no orders';
     el('tiktokNote').innerHTML =
-      '<b>This is the Shopify-side total, and it is live</b> — TikTok Shop arrives as an order source, the same place the All channels table reads from. ' +
-      'It is a single figure, not the Lives / Ads / GMV Affiliate / Direct split, because that attribution lives in TikTok Shop and TikTok Ads, neither of which is connected. ' +
-      '<b>Use it to check the typed rows above add up.</b>';
+      'TikTok Shop total from Shopify. The rows above are typed \u2014 they should add up to this.';
   }
 
   function renderFunnel(){
@@ -819,7 +806,7 @@
     const l = lyComplete ? lyRaw : null;
     if (!t || !Number(t.sessions)) {
       body.innerHTML = '<tr><td colspan="5" style="color:var(--bcn-ink-3)">No session data for this week yet — the Shopify sessions sync populates this nightly.</td></tr>';
-      note.innerHTML = '<b>Funnel not available for this window.</b> Sessions are synced from Shopify Analytics; if this persists, check the <code>sessions_sync</code> job in <code>sync_jobs</code>.';
+      note.innerHTML = 'No session data for this week yet.';
       return;
     }
 
@@ -880,14 +867,12 @@
     let agree = '';
     if (shopTY && ga4TY) {
       const gap = Math.abs(shopTY-ga4TY)/Math.max(shopTY,ga4TY)*100;
-      agree = ` GA4 counted ${intFmt(ga4TY)} sessions against Shopify's ${intFmt(shopTY)} — ${gap.toFixed(1)}% apart` +
-              (gap<=8 ? ', which is normal tracking variance between the two.' :
-                        '. That gap is wider than usual; treat both as approximate until it is chased down.');
+      agree = gap <= 8 ? '' : ` GA4 differs by ${gap.toFixed(0)}% — treat both as approximate.`;
     }
-    note.innerHTML = `<b>Funnel counts are Shopify Analytics (sitewide, all online channels); the revenue row is GA4.</b>` +
-      ` Rates are recomputed over the whole week, not averaged across days.${agree}` +
-      (t.days && t.days < 7 ? ` <b>Only ${t.days} of 7 days have landed</b> — this week's counts are partial.` : '') +
-      (!lyComplete ? ` <b>Year-ago column is blank on purpose</b> — session history only covers ${lyRaw ? lyRaw.days : 0} of those 7 days, and a partial week shown against a full one reads as growth that did not happen.` : '');
+    note.innerHTML =
+      `<b>vs sessions</b> = each step as a share of sessions, against last week. Change alone drops whenever traffic drops.${agree}` +
+      (t.days && t.days < 7 ? ` <b>Only ${t.days} of 7 days synced.</b>` : '') +
+      (!lyComplete ? ' Last-year column blank — not enough history yet.' : '');
   }
 
   async function load(){
@@ -980,9 +965,7 @@
     if (DATA_THROUGH) {
       const n = el('throughNote');
       n.hidden = false;
-      n.innerHTML = `<b>Sales data complete through ${esc(DATA_THROUGH)}.</b> ` +
-        `The Shopify sync runs each morning and covers up to its own run time, so the current day is always partial — ` +
-        `the report defaults to the last full day rather than today.`;
+      n.innerHTML = `Sales complete through <b>${esc(DATA_THROUGH)}</b>. Today is always partial, so the report opens on the last full day.`;
     }
     renderTikTok();
     renderLanding();
@@ -1060,7 +1043,7 @@
           const excluded = excludedKey ? Number(g[excludedKey] || 0) : 0;
           const metric = g.judged_on === 'cost_per_lead' ? 'leads' : 'thruplays';
           const foot = excluded > 0
-            ? `<div class="wow-grp-foot">${money(excluded)} of this group's spend reported no ${metric} and is excluded from the rate — otherwise it would be charged against the campaigns that did.</div>`
+            ? `<div class="wow-grp-foot">${money(excluded)} of this spend reported no ${metric}, so it is left out of the rate.</div>`
             : '';
           return `<div class="wow-grp">
               <div class="wow-grp-head"><span>${esc(g.label)}</span>${wowSpend}</div>
@@ -1074,10 +1057,8 @@
     // reads as a zero.
     const missing = pm.not_synced || [];
     el('metaNote').innerHTML =
-      `<b>Each objective is judged on its own denominator.</b> Purchase campaigns on ROAS; thruplay and subscriber buys have no attributed revenue by design and must not be read as 0.00x failures.` +
-      (missing.length
-        ? ` <b>${missing.join(' and ')} have not landed for this window yet</b> — pull those from Ads Manager until the next Meta sync fills them in.`
-        : ` Thruplays and leads are synced from Meta, so cost per thruplay and cost per lead are live here — nothing to copy from Ads Manager.`);
+      `Each objective has its own metric. Thruplay and subscriber campaigns have no revenue by design — a blank ROAS is not a bad result.` +
+      (missing.length ? ` <b>${missing.join(' and ')} not synced for this week</b> — pull from Ads Manager.` : '');
 
     // --- Google ---
     const gg = pm.google || null;
