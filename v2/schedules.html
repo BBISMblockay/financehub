@@ -56,6 +56,31 @@
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .sc-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
     .sc-stamped { opacity: .55; }
+    /* needs_reclass is an open action, not a finished row -- it should not read
+       as greyed-out-and-done alongside stamped items. */
+    .sc-action { color: var(--bcn-neg); font-weight: 600; font-size: 11px; }
+    .sc-link {
+      background: none; border: 0; padding: 0 0 0 8px; cursor: pointer;
+      color: var(--bcn-accent); font-size: 11px; text-decoration: underline;
+    }
+    .sc-link:hover { opacity: .75; }
+
+    .sc-note-row td { background: var(--bcn-sunken); padding: 0 10px 10px 44px; }
+    .sc-note details { font-size: 11px; }
+    .sc-note summary {
+      cursor: pointer; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 6px 0;
+    }
+    .sc-note summary:hover { color: var(--bcn-ink); }
+    /* Notes carry deliberate line breaks (statement figures, evidence, actions),
+       so preserve them rather than collapsing to one paragraph. */
+    .sc-note-body {
+      white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55;
+      color: var(--bcn-ink-2); border-left: 2px solid var(--bcn-border);
+      padding: 4px 0 4px 10px; margin: 2px 0 4px;
+      max-height: 260px; overflow: auto;
+    }
 
     dialog { border: 1px solid var(--bcn-border); border-radius: 14px;
       padding: 0; max-width: 520px; width: 92vw; }
@@ -243,6 +268,7 @@
   let txns = [];          // ledger rows for the chosen account
   let stampedIds = new Set();
   let excludedIds = new Set();
+  let excludedInfo = new Map();  // qbo_txn_id -> { reason, note }
   let ledgerBalance = null;
   let openingBalance = 0;
 
@@ -344,11 +370,12 @@
 
   async function loadStamped() {
     let q = sb.from('schedule_item_transactions').select('qbo_txn_id');
-    let e = sb.from('schedule_excluded_transactions').select('qbo_txn_id, amount');
+    let e = sb.from('schedule_excluded_transactions').select('qbo_txn_id, amount, reason, note');
     if (_co?.id) { q = q.eq('company_entity_id', _co.id); e = e.eq('company_entity_id', _co.id); }
     const [st, ex] = await Promise.all([q, e]);
     stampedIds = new Set((st.data || []).map((r) => r.qbo_txn_id));
     excludedIds = new Set((ex.data || []).map((r) => r.qbo_txn_id));
+    excludedInfo = new Map((ex.data || []).map((r) => [r.qbo_txn_id, r]));
   }
 
   async function loadItems(accountId) {
@@ -397,19 +424,52 @@
       const done = stampedIds.has(x.qbo_txn_id);
       const skipped = excludedIds.has(x.qbo_txn_id);
       const settled = done || skipped;
-      return `<tr class="${settled ? 'sc-stamped' : ''}">
+      const info = excludedInfo.get(x.qbo_txn_id);
+
+      // Stamped and excluded both mean "dealt with", but only one of them is
+      // finished. An exclusion of reason needs_reclass is an ACTION for whoever
+      // fixes QuickBooks, so it is not greyed out like a completed row, and it
+      // says what the reason was rather than just "excluded".
+      const needsAction = info && info.reason === 'needs_reclass';
+      let status;
+      if (done) {
+        status = '<span class="sc-sub">stamped</span>';
+      } else if (skipped) {
+        status = `<span class="${needsAction ? 'sc-action' : 'sc-sub'}"
+            title="${esc(info?.note || '')}">${esc(info.reason.replace(/_/g, ' '))}</span>
+          <button class="sc-link" data-include="${esc(x.qbo_txn_id)}">include</button>`;
+      } else {
+        status = '<span class="sc-sub">—</span>';
+      }
+
+      const main = `<tr class="${done ? 'sc-stamped' : ''}">
         <td>${settled ? '' : `<input type="checkbox" data-txn="${idx}" />`}</td>
         <td class="sc-sub">${esc(x.date)}</td>
         <td class="sc-sub">${esc(x.type)}</td>
         <td>${esc(x.name || '')}<div class="sc-memo sc-sub" title="${esc(x.memo)}">${esc(x.memo)}</div></td>
         <td class="sc-num">${money(x.amount)}</td>
-        <td class="sc-sub">${done ? 'stamped' : skipped ? 'excluded' : '—'}</td>
+        <td>${status}</td>
       </tr>`;
+
+      // The note IS the finding -- statement figures, fee splits, what still has
+      // to happen. Shown as its own row rather than a tooltip, collapsed by
+      // default so a long one does not bury the table.
+      if (!info?.note) return main;
+      const firstLine = info.note.split('\n').find((l) => l.trim()) || '';
+      return main + `<tr class="sc-note-row"><td colspan="6" class="sc-note">
+          <details>
+            <summary>why — ${esc(firstLine.slice(0, 110))}${firstLine.length > 110 ? '…' : ''}</summary>
+            <div class="sc-note-body">${esc(info.note)}</div>
+          </details>
+        </td></tr>`;
     }).join('') + '</tbody>';
 
     const open = txns.filter((x) =>
       !stampedIds.has(x.qbo_txn_id) && !excludedIds.has(x.qbo_txn_id)).length;
     el('txnCount').textContent = `${txns.length} transactions · ${open} unreviewed`;
+
+    t.querySelectorAll('[data-include]').forEach((b) =>
+      b.addEventListener('click', () => includeTransaction(b.dataset.include)));
 
     t.querySelectorAll('[data-txn]').forEach((cb) =>
       cb.addEventListener('change', () => {
@@ -757,6 +817,22 @@
     }
     setStatus(`Excluded ${sel.length} transaction${sel.length === 1 ? '' : 's'} as ${reason}.`,
       'pos', 5000);
+    await refresh();
+  }
+
+  async function includeTransaction(txnId) {
+    const info = excludedInfo.get(txnId);
+    const why = info?.reason ? info.reason.replace(/_/g, ' ') : 'excluded';
+    if (!window.confirm(
+      `Put this transaction back in the pool?\n\n`
+      + `It is currently excluded as "${why}". Including it clears that decision `
+      + `and the note recorded with it, and the transaction returns to unreviewed `
+      + `so it can be stamped or excluded again.`)) return;
+
+    const { error } = await sb.from('schedule_excluded_transactions')
+      .delete().eq('qbo_txn_id', txnId);
+    if (error) { setStatus('Could not include: ' + error.message, 'neg', 8000); return; }
+    setStatus('Transaction returned to unreviewed.', 'pos', 4000);
     await refresh();
   }
 
