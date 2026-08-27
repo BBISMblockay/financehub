@@ -360,6 +360,12 @@
             ['emailSubs','Email subs',110],['smsSubs','SMS subs',110],['notes','Notes',0]] },
     { key:'landing_pages', title:'Sessions by landing page',
       cols:[['landingPage','Landing page',0],['sessions','Sessions',110],['conversionRate','Conv. rate',110]] },
+    { key:'organic_posts', title:'Meta & Instagram organic — last 12 posts',
+      seedRows:12,
+      hint:'Type these in for now. Columns match what instagram_media_insights will sync once the Meta token gets pages_read_engagement, instagram_basic and instagram_manage_insights plus Page access — so this table stops being manual without changing shape.',
+      cols:[['post','Post',0],['type','Type',90],['date','Date',100],
+            ['views','Views',100],['reach','Reach',100],['likes','Likes',90],
+            ['comments','Comments',100],['saves','Saves',90],['link','Link',150]] },
     { key:'cohorts', title:'Cohort retention',
       cols:[['cohortMonth','Cohort month',0],['month1','Month 1',100],['month2','Month 2',100],
             ['month3','Month 3',100],['month4plus','Month 4+',100]] },
@@ -367,7 +373,6 @@
   const MANUAL_NOTES = [
     ['competition','Competition — weekly scan','Competitor actions, partnerships, anything worth reacting to.'],
     ['affiliate_notes','Affiliate — programme notes','What was seeded, what came back, next week’s pushes.'],
-    ['organic','Meta & Instagram organic','Blocked on Meta permissions, the tables exist and stay empty until the token gets pages_read_engagement, instagram_basic and instagram_manage_insights plus Page access.'],
   ];
 
   function buildManual(){
@@ -376,6 +381,7 @@
     root.innerHTML = MANUAL_TABLES.map(t => `
       <div class="wow-mt" data-table="${t.key}">
         <div class="wow-mt-head">${esc(t.title)}</div>
+        ${t.hint ? `<div class="wow-say-hint" style="padding:0 12px 8px">${esc(t.hint)}</div>` : ''}
         <div class="bcn-matrix-scroll"><table class="wow-tbl wow-mt-tbl">
           <thead><tr>${t.cols.map(c=>`<th${c[2]?` style="width:${c[2]}px"`:''}>${esc(c[1])}</th>`).join('')}<th style="width:34px"></th></tr></thead>
           <tbody></tbody>
@@ -430,7 +436,10 @@
       tb.innerHTML = '';
       const rows = ENTRY.tables?.[t.key] || [];
       rows.forEach(r => addManualRow(t.key, r));
-      if (!rows.length) addManualRow(t.key);   // one empty row to type into
+      if (!rows.length) {
+        const n = t.seedRows || 1;
+        for (let i = 0; i < n; i += 1) addManualRow(t.key);
+      }
     });
   }
 
