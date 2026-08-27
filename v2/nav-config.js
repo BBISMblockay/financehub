@@ -103,16 +103,31 @@
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
 
-    
-    { id: 'reports/marketing-overview', section: 'Reports', label: 'Marketing Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
-    { id: 'reports/wow-report', section: 'Reports', label: 'Week over Week', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
-    { id: 'reports/marketing-explorer', section: 'Reports', label: 'Marketing Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
-    { id: 'reports/sales-overview', section: 'Reports', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
-    { id: 'reports/daily-trend', section: 'Reports', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
-    { id: 'reports/top-sellers', section: 'Reports', label: 'Top Sellers', href: '/v2/bi-top-sellers.html', profiles: ['grandfathered'] },
-    { id: 'reports/product-types', section: 'Reports', label: 'Product Type Performance', href: '/v2/bi-product-types.html', profiles: ['grandfathered'] },
-    { id: 'reports/product-search', section: 'Reports', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
-    { id: 'reports/sales-report', section: 'Reports', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
+    // 'Reports' was one flat drawer of 10 links and was the section every new
+    // BI page landed in. Split into Sales and Marketing so each stays
+    // readable in the accordion; the `id` prefixes stay `reports/` because
+    // they are the `active` keys every page passes to SiloChrome.mount() and
+    // renaming them would silently un-highlight the sidebar on all 9 pages.
+    { id: 'reports/sales-overview', section: 'Sales', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/daily-trend', section: 'Sales', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
+    { id: 'reports/top-sellers', section: 'Sales', label: 'Top Sellers', href: '/v2/bi-top-sellers.html', profiles: ['grandfathered'] },
+    { id: 'reports/product-types', section: 'Sales', label: 'Product Type Performance', href: '/v2/bi-product-types.html', profiles: ['grandfathered'] },
+    { id: 'reports/product-search', section: 'Sales', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
+    { id: 'reports/sales-report', section: 'Sales', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
+
+    // Week over Week sits under Marketing: its KPI band is sales-shaped, but
+    // it is a marketing report, read by and built for marketing.
+    { id: 'reports/wow-report', section: 'Marketing', label: 'Week over Week', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Marketing Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Marketing Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
+
+    // Deliberately left in its own 'Reports' section by the Sales/Marketing
+    // split above, not moved and not promoted, because it is still in soft
+    // launch. Section matters here beyond labelling: 'Reports' is absent
+    // from STANDARD_SECTION_ORDER, so a standard-profile company drops this
+    // link entirely regardless of role -- moving it to a listed section
+    // would surface it to standard-profile execs. Give it a top-level row
+    // when the launch opens up, not before.
     // Soft launch: exec-only for now. Everyone can already use the page and
     // read taught notes if they have the URL (nothing behind it needs
     // restricting) -- this just controls who sees it in the sidebar first.
@@ -122,7 +137,7 @@
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
     // and there's no historical backfill yet). Page itself still works at
     // /v2/returns-overview.html; re-add this row once that's sorted out.
-    // { id: 'reports/returns-overview', section: 'Reports', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
+    // { id: 'reports/returns-overview', section: 'Sales', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
 
 
     // Admin-only: this page displays connection secrets (webhook/API keys,
@@ -132,7 +147,12 @@
     { roles: ADMIN_ROLES, id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
   ];
 
-  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Settings'];
+  // Standard-profile section order. A section missing from this list is
+  // DROPPED for standard-profile companies (the grandfathered branch below
+  // appends leftovers; this one does not) -- 'Sales' and 'Marketing' are
+  // listed here purely so a future standard-profile report doesn't vanish
+  // silently. No standard-profile item uses either section today.
+  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Marketing', 'Settings'];
 
   /**
    * @param {'grandfathered' | 'standard'} profile
