@@ -571,6 +571,15 @@
 
   function collectTables(){
     const out = {};
+    // Typed cohort cells live in the live card, not a MANUAL_TABLES entry.
+    const cohortRows = new Map();
+    document.querySelectorAll('#chBody [data-cohort]').forEach(i => {
+      const v = i.value.trim(); if (!v) return;
+      const mon = i.dataset.cohort;
+      if (!cohortRows.has(mon)) cohortRows.set(mon, { cohortMonth: mon });
+      cohortRows.get(mon)[i.dataset.col] = v;
+    });
+    if (cohortRows.size) out.cohorts_manual = [...cohortRows.values()];
     MANUAL_TABLES.forEach(t => {
       const rows = [];
       document.querySelectorAll(`[data-table="${t.key}"] tbody tr`).forEach(tr => {
@@ -686,28 +695,57 @@
     set('kAovSub',    k.aov,         'total sales ÷ orders');
   }
 
+  // Computed where the data supports it, typeable where it does not.
+  //
+  // Making this card live removed the manual cohort table it replaced, which
+  // left no way to fill the months the backfill has not reached -- a
+  // regression, since a demo needs a complete table more than a pure one.
+  // Every month in range now gets a row: computed cells render as values,
+  // uncovered cells render as inputs that save with the rest of the notes.
+  // A cell cannot be both, so a typed number can never overwrite or be
+  // confused with a measured one.
   function renderCohorts(){
     const d = COHORTS || {};
-    const rows = d.rows || [];
-    const cell = (v) => v == null
-      ? '<span class="dim" title="Not enough order history synced for this month yet">—</span>'
-      : v + '%';
-    el('chBody').innerHTML = rows.length
-      ? rows.map(r => `<tr>
-          <td style="text-align:left"><span class="bcn-mono" style="font-size:11px">${esc(r.cohort_month)}</span></td>
-          <td>${intFmt(r.size)}</td><td>${cell(r.m1)}</td><td>${cell(r.m2)}</td>
-          <td>${cell(r.m3)}</td><td>${cell(r.m4plus)}</td>
-        </tr>`).join('')
-      : `<tr><td class="wow-empty" colspan="6">No month has complete order coverage yet — run the Shopify Orders Backfill.</td></tr>`;
-    el('chMeta').textContent = rows.length
-      ? `${rows.length} cohort${rows.length === 1 ? '' : 's'} with complete data`
-      : 'awaiting order history';
+    const computed = new Map((d.rows || []).map(r => [r.cohort_month, r]));
+    const saved = (ENTRY.tables && ENTRY.tables.cohorts_manual) || [];
+    const savedBy = new Map(saved.map(r => [r.cohortMonth, r]));
+
+    // Twelve months back from the report date, newest first.
+    const end = new Date((el('reportDate').value || iso(new Date())) + 'T00:00:00');
+    const months = [];
+    for (let i = 0; i < 12; i += 1) {
+      const dt = new Date(Date.UTC(end.getFullYear(), end.getMonth() - i, 1));
+      months.push(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`);
+    }
+
+    const inputCell = (mon, key) => {
+      const v = (savedBy.get(mon) || {})[key] || '';
+      return `<td><input class="wow-mt-in" data-cohort="${mon}" data-col="${key}" value="${esc(v)}" ` +
+             `placeholder="—" style="width:100%;text-align:right" /></td>`;
+    };
+    const valueCell = (v) => `<td>${v}%</td>`;
+
+    el('chBody').innerHTML = months.map(mon => {
+      const c = computed.get(mon);
+      const sizeCell = c ? `<td>${intFmt(c.size)}</td>` : inputCell(mon, 'size');
+      const cells = ['m1','m2','m3','m4plus'].map(k => {
+        const v = c ? c[k] : null;
+        return v == null ? inputCell(mon, k) : valueCell(v);
+      }).join('');
+      const badge = c
+        ? '<span class="bcn-pill bcn-pill--pos" style="font-size:9px;padding:0 5px;margin-left:6px">live</span>'
+        : '';
+      return `<tr><td style="text-align:left"><span class="bcn-mono" style="font-size:11px">${esc(mon)}</span>${badge}</td>${sizeCell}${cells}</tr>`;
+    }).join('');
+
+    const liveCount = months.filter(m => computed.has(m)).length;
+    el('chMeta').textContent = `${liveCount} of ${months.length} months computed · rest typed`;
     const gaps = d.incomplete_months || [];
     el('chNote').innerHTML =
       '<b>Online store only</b> — POS, wholesale and draft orders are excluded, matching the rest of this report. Retail-first customers rarely repeat online, so including them understates online retention. ' +
       '<b>Only months with complete daily order coverage are shown.</b> A repeat purchase falling in an unsynced month is indistinguishable from a customer who never came back, so a partial month would understate retention rather than merely blur it — those cells read \u201c\u2014\u201d, not 0%.' +
       (gaps.length
-        ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still incomplete</b> (${esc(gaps.slice(0,6).join(', '))}${gaps.length > 6 ? '\u2026' : ''}) — running <code>shopify-orders-backfill.yml</code> over those dates fills them in here automatically.`
+        ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still incomplete</b> — those rows are <b>typeable</b> so the table can be completed by hand, and each one flips to a computed <span class="bcn-pill bcn-pill--pos" style="font-size:9px;padding:0 5px">live</span> value as <code>shopify-orders-backfill.yml</code> fills its months. Typed values are never overwritten by a computed one; a cell is one or the other.`
         : ' All months in range are fully covered.');
   }
 
@@ -884,6 +922,9 @@
       render();
       buildManual();
       await loadEntry();
+      // ENTRY is only populated by loadEntry, and the cohort card reads typed
+      // cells from it -- repaint so saved values appear on reload.
+      renderCohorts();
       const end = DATA.window.end;
       if (DATA_THROUGH && end > DATA_THROUGH) {
         // Not an error -- but the totals below are genuinely incomplete, and a
@@ -1160,7 +1201,7 @@
     el('btnSave').addEventListener('click', saveEntry);
 
     document.addEventListener('input', ev => {
-      if (ev.target.matches('[data-col]')) { markDirty(); return; }
+      if (ev.target.matches('[data-col]') || ev.target.matches('[data-cohort]')) { markDirty(); return; }
       if (!ev.target.matches('[data-say],[data-manual]')) return;
       markDirty();
       const d = ev.target.closest('.wow-say');
