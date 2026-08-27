@@ -1937,13 +1937,27 @@ export async function shopifyql(connection, query) {
   if (!table) return [];
 
   const cols = (table.columns || []).map((c) => c.name);
-  // `rows` is a JSON scalar: already an array of arrays, no parsing needed.
-  const rows = Array.isArray(table.rows) ? table.rows : [];
-  return rows.map((row) => {
-    const o = {};
-    cols.forEach((c, i) => { o[c] = row[i]; });
-    return o;
+  // `rows` is a JSON scalar. It arrives already parsed, but the shape is not
+  // guaranteed to be an array of arrays -- a JSON scalar can just as easily
+  // hand back an array of objects keyed by column name. Handle both.
+  const rawRows = Array.isArray(table.rows) ? table.rows : [];
+  const out = rawRows.map((row) => {
+    if (Array.isArray(row)) {
+      const o = {};
+      cols.forEach((c, i) => { o[c] = row[i]; });
+      return o;
+    }
+    if (row && typeof row === 'object') return row;   // already keyed
+    return null;
+  }).filter(Boolean);
+
+  // Carry the raw payload so a caller that parses nothing can say what it
+  // actually received instead of reporting an empty success.
+  Object.defineProperty(out, 'raw', {
+    value: { columns: cols, row_count: rawRows.length, sample: rawRows.slice(0, 2) },
+    enumerable: false,
   });
+  return out;
 }
 
 /**
@@ -2039,7 +2053,11 @@ const qlNum = (v) => {
 const qlDay = (row) => {
   for (const v of Object.values(row)) {
     const s = String(v ?? '');
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    // ISO date, ISO timestamp, or a slash format -- whatever TIMESERIES emits.
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^(\d{4})\/(\d{2})\/(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   }
   return null;
 };
@@ -2062,11 +2080,26 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
   const until = new Date();
   const since = new Date(until.getTime() - days * 86400000);
   const iso = (d) => d.toISOString().slice(0, 10);
-  const range = `SINCE ${iso(since)} UNTIL ${iso(until)}`;
+  // Shopify's own ShopifyQL examples universally use the RELATIVE range form
+  // (`SINCE -30d UNTIL today`), never literal dates. Literal dates parse
+  // without error but came back with zero rows on every shop. Try the
+  // documented form first and fall back to literal, recording which one
+  // actually produced data instead of guessing again next run.
+  const rangeForms = [
+    { form: 'relative', range: `SINCE -${days}d UNTIL today` },
+    { form: 'literal', range: `SINCE ${iso(since)} UNTIL ${iso(until)}` },
+  ];
 
-  let sessionRows, customerRows;
+  let sessionRows, customerRows, rangeFormUsed = null;
+  const rangeAttempts = [];
   try {
-    [sessionRows, customerRows] = await fetchQlPair(connection, range);
+    for (const cand of rangeForms) {
+      const [sr, cr] = await fetchQlPair(connection, cand.range);
+      const got = (sr.raw?.row_count || 0) + (cr.raw?.row_count || 0);
+      rangeAttempts.push({ form: cand.form, rows_returned: got });
+      sessionRows = sr; customerRows = cr; rangeFormUsed = cand.form;
+      if (got > 0) break;
+    }
   } catch (err) {
     // One guess at the schema already cost a run. Report the real shape so the
     // next attempt is informed rather than another guess.
@@ -2078,8 +2111,31 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
     throw detail;
   }
 
+  const rawSess = sessionRows.raw || { row_count: 0 };
+  const rawCust = customerRows.raw || { row_count: 0 };
+
+  const droppedEverything =
+    (rawSess.row_count > 0 && sessionRows.length === 0) ||
+    (rawCust.row_count > 0 && customerRows.length === 0);
+  if (droppedEverything) {
+    throw new Error(
+      'ShopifyQL returned rows but none parsed -- row shape is not what the mapper expects. ' +
+      `sessions raw=${JSON.stringify(rawSess).slice(0, 400)} customers raw=${JSON.stringify(rawCust).slice(0, 400)}`,
+    );
+  }
+
   const now = new Date().toISOString();
-  return await finishSessionsSync(supabase, connection, { batchId, iso, since, sessionRows, customerRows, now });
+  const res = await finishSessionsSync(supabase, connection, { batchId, iso, since, sessionRows, customerRows, now });
+
+  // Shopify genuinely returned nothing. Legitimate for a quiet shop, wrong
+  // for a busy one -- either way it must not read as a normal sync.
+  if (rawSess.row_count === 0 && rawCust.row_count === 0) {
+    res.warning = 'ShopifyQL returned no rows for this window (both range forms tried)';
+    res.raw_sessions = rawSess;
+  }
+  res.range_form_used = rangeFormUsed;
+  res.range_attempts = rangeAttempts;
+  return res;
 }
 
 async function fetchQlPair(connection, range) {
@@ -2102,10 +2158,11 @@ async function finishSessionsSync(supabase, connection, { batchId, iso, since, s
     synced_at: now,
   };
 
+  let undated = 0;
   const sessions = sessionRows
     .map((r) => {
       const day = qlDay(r);
-      if (!day) return null;
+      if (!day) { undated += 1; return null; }
       return {
         ...base,
         day_date: day,
@@ -2147,6 +2204,7 @@ async function finishSessionsSync(supabase, connection, { batchId, iso, since, s
   return {
     job_type: 'sessions_sync',
     batch_id: batchId,
+    rows_without_a_recognisable_day: undated || undefined,
     requested_since: iso(since),
     earliest_day_returned: first,
     sessions_rows_upserted: sessionsUpserted,
