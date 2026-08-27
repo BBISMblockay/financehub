@@ -18,9 +18,14 @@
  * no extra credentials, no Resend key, no webhook to rot. The exit code is the
  * notification.
  *
- * Scope: only companies that actually have an enabled Shopify connection --
- * a company with no sync pipeline is not "stale", it just has no data, and
- * alarming on it would train everyone to ignore this.
+ * Scope: only companies that actually have an enabled connection for the feed
+ * being checked -- a company with no sync pipeline is not "stale", it just has
+ * no data, and alarming on it would train everyone to ignore this.
+ *
+ * Covers BOTH nightly feeds, because on 2026-08-27 GitHub dropped both of them
+ * on the same morning: shopify-sync (sales_by_day) and ad-platforms-sync
+ * (marketing_kpis_daily). Checking only sales would have caught half of it and
+ * left the Meta numbers quietly ~4.5 hours short on the most recent day.
  */
 import { createClient } from '@supabase/supabase-js';
 
@@ -53,59 +58,86 @@ function daysBetween(isoA, isoB) {
   return Math.round((a - b) / 86400000);
 }
 
-async function main() {
-  const { data: conns, error: connErr } = await db
-    .from('shopify_connections')
-    .select('company_entity_id, shop_domain')
-    .eq('is_active', true)
-    .eq('sync_enabled', true)
-    .not('access_token', 'is', null);
-  if (connErr) throw new Error(`shopify_connections load failed: ${connErr.message}`);
+// Each feed names the table it lands in and the connection table that decides
+// whether a company is even expected to have it.
+const FEEDS = [
+  {
+    label: 'sales',
+    table: 'sales_by_day',
+    connTable: 'shopify_connections',
+    workflow: 'shopify-sync.yml',
+  },
+  {
+    label: 'marketing',
+    table: 'marketing_kpis_daily',
+    connTable: 'ad_platform_connections',
+    workflow: 'ad-platforms-sync.yml',
+  },
+];
 
-  const companyIds = [...new Set((conns || []).map((c) => c.company_entity_id).filter(Boolean))];
-  if (!companyIds.length) {
-    console.log('[freshness] no companies with an enabled Shopify connection — nothing to check');
-    return;
+async function companiesFor(connTable) {
+  let q = db.from(connTable).select('company_entity_id').eq('is_active', true);
+  // shopify_connections gates on sync_enabled + a token; ad_platform_connections
+  // is keyed differently, so only apply what each table actually has.
+  if (connTable === 'shopify_connections') {
+    q = q.eq('sync_enabled', true).not('access_token', 'is', null);
   }
+  const { data, error } = await q;
+  if (error) throw new Error(`${connTable} load failed: ${error.message}`);
+  return [...new Set((data || []).map((c) => c.company_entity_id).filter(Boolean))];
+}
 
+async function main() {
   const today = pacificToday();
   const stale = [];
+  let checked = 0;
 
-  for (const companyId of companyIds) {
-    // Newest day_date for this company. One indexed descending read, no scan.
-    const { data, error } = await db
-      .from('sales_by_day')
-      .select('day_date')
-      .eq('company_entity_id', companyId)
-      .order('day_date', { ascending: false })
-      .limit(1);
-    if (error) throw new Error(`sales_by_day probe failed for ${companyId}: ${error.message}`);
+  for (const feed of FEEDS) {
+    const companyIds = await companiesFor(feed.connTable);
+    if (!companyIds.length) {
+      console.log(`[freshness] ${feed.label}: no companies with an enabled connection — skipping`);
+      continue;
+    }
 
-    const maxDay = data?.[0]?.day_date || null;
-    const lag = maxDay ? daysBetween(today, maxDay) : null;
-    const ok = lag !== null && lag <= MAX_LAG_DAYS;
+    for (const companyId of companyIds) {
+      // Newest day_date for this company. One indexed descending read, no scan.
+      const { data, error } = await db
+        .from(feed.table)
+        .select('day_date')
+        .eq('company_entity_id', companyId)
+        .order('day_date', { ascending: false })
+        .limit(1);
+      if (error) throw new Error(`${feed.table} probe failed for ${companyId}: ${error.message}`);
 
-    console.log(
-      `[freshness] ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}  ${ok ? 'ok' : 'STALE'}`,
-    );
-    if (!ok) stale.push({ companyId, maxDay, lag });
+      const maxDay = data?.[0]?.day_date || null;
+      const lag = maxDay ? daysBetween(today, maxDay) : null;
+      const ok = lag !== null && lag <= MAX_LAG_DAYS;
+      checked++;
+
+      console.log(
+        `[freshness] ${feed.label.padEnd(9)} ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}  ${ok ? 'ok' : 'STALE'}`,
+      );
+      if (!ok) stale.push({ feed, companyId, maxDay, lag });
+    }
   }
 
   if (stale.length) {
     console.error('');
     console.error(`[freshness] STALE — Pacific today is ${today}, max allowed lag is ${MAX_LAG_DAYS}d`);
     for (const s of stale) {
-      console.error(`  ${s.companyId}: latest sales day ${s.maxDay || 'NONE'} (${s.lag === null ? 'no rows' : `${s.lag}d behind`})`);
+      console.error(`  [${s.feed.label}] ${s.companyId}: latest ${s.maxDay || 'NONE'} (${s.lag === null ? 'no rows' : `${s.lag}d behind`})`);
     }
     console.error('');
-    console.error('The nightly Shopify sync has probably not run. Check:');
-    console.error('  https://github.com/BBISMblockay/financehub/actions/workflows/shopify-sync.yml');
-    console.error('If the scheduled run is simply absent from that list, GitHub dropped it —');
-    console.error('dispatch the workflow by hand with the default inputs.');
+    console.error('The nightly sync behind that feed has probably not run. Check:');
+    for (const wf of [...new Set(stale.map((s) => s.feed.workflow))]) {
+      console.error(`  https://github.com/BBISMblockay/financehub/actions/workflows/${wf}`);
+    }
+    console.error('If the scheduled run is simply ABSENT from that list rather than red,');
+    console.error('GitHub dropped it — dispatch the workflow by hand with the default inputs.');
     process.exit(1);
   }
 
-  console.log(`[freshness] all ${companyIds.length} company(ies) within ${MAX_LAG_DAYS}d of Pacific ${today}`);
+  console.log(`[freshness] all ${checked} feed/company pair(s) within ${MAX_LAG_DAYS}d of Pacific ${today}`);
 }
 
 main().catch((err) => {

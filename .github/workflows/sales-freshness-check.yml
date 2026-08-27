@@ -1,6 +1,9 @@
-name: Sales freshness check
+name: Data freshness check
 
-# Independent alarm for "the nightly sync did not run".
+# Independent alarm for "a nightly sync did not run" -- covers BOTH sales
+# (sales_by_day / shopify-sync) and marketing (marketing_kpis_daily /
+# ad-platforms-sync). On 2026-08-27 GitHub dropped both on the same morning,
+# so checking only one would have caught half the damage.
 #
 # It is a SEPARATE workflow on purpose. A check bolted onto the end of
 # shopify-sync.yml cannot detect a dropped sync, because a dropped sync never
@@ -49,5 +52,5 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Check sales freshness
+      - name: Check data freshness
         run: node scripts/check-sales-freshness.mjs
