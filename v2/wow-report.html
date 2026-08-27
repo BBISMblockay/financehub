@@ -280,6 +280,14 @@
           <div class="wow-say-body"><textarea id="say_landing" class="wow-say-box" data-say="landing" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div>
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Cohort retention</h2><span class="bcn-card-meta" id="chMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Cohort month</th><th>Customers</th><th>Month 1</th><th>Month 2</th><th>Month 3</th><th>Month 4+</th></tr></thead>
+          <tbody id="chBody"></tbody></table>
+        </div></div>
+        <div class="wow-note" id="chNote"></div>
+      </div>
       <div id="man_website"></div>
 
       <div class="wow-sec" id="sec_kimonix"><span class="wow-sec-n">Kimonix</span><span class="wow-sec-sub">no connector — manual for now</span></div>
@@ -444,9 +452,6 @@
     { key:'google_copy', section:'google', title:'Google — headlines & descriptions',
       hint:'Ad copy is not in marketing_kpis_daily (it holds spend and performance, not creative text). Typed for now.',
       cols:[['headline','Headline / description',0],['notes','Notes',0]] },
-    { key:'cohorts', section:'website', title:'Cohort retention',
-      cols:[['cohortMonth','Cohort month',0],['month1','Month 1',100],['month2','Month 2',100],
-            ['month3','Month 3',100],['month4plus','Month 4+',100]] },
   ];
   const MANUAL_NOTES = [
     ['competition','competition','Competition — weekly scan','Competitor actions, partnerships, anything worth reacting to.'],
@@ -632,6 +637,7 @@
   let PAID = null;
   let LANDING = null;
   let CODES = null;
+  let COHORTS = null;
 
   // TikTok is live, not typed: its rows are already in the channel breakdown
   // the report loads, so this is a filtered view rather than a second query.
@@ -641,6 +647,35 @@
   // typed. Orders with no code are excluded from the list but kept in the
   // denominator -- otherwise every share would be a share of coded sales
   // only, which reads far higher than reality.
+  // Cohorts are computed from shopify_orders first-order dates. Partial order
+  // history does not make cohorts slightly wrong -- it makes them wrong in one
+  // direction, because a repeat purchase in an unsynced month looks identical
+  // to a customer who never returned. Every cell the RPC could not stand
+  // behind comes back null, and null renders as "not yet", never as 0%.
+  function renderCohorts(){
+    const d = COHORTS || {};
+    const rows = d.rows || [];
+    const cell = (v) => v == null
+      ? '<span class="dim" title="Not enough order history synced for this month yet">—</span>'
+      : v + '%';
+    el('chBody').innerHTML = rows.length
+      ? rows.map(r => `<tr>
+          <td style="text-align:left"><span class="bcn-mono" style="font-size:11px">${esc(r.cohort_month)}</span></td>
+          <td>${intFmt(r.size)}</td><td>${cell(r.m1)}</td><td>${cell(r.m2)}</td>
+          <td>${cell(r.m3)}</td><td>${cell(r.m4plus)}</td>
+        </tr>`).join('')
+      : `<tr><td class="wow-empty" colspan="6">No month has complete order coverage yet — run the Shopify Orders Backfill.</td></tr>`;
+    el('chMeta').textContent = rows.length
+      ? `${rows.length} cohort${rows.length === 1 ? '' : 's'} with complete data`
+      : 'awaiting order history';
+    const gaps = d.incomplete_months || [];
+    el('chNote').innerHTML =
+      '<b>Only months with complete daily order coverage are shown.</b> A repeat purchase falling in an unsynced month is indistinguishable from a customer who never came back, so a partial month would understate retention rather than merely blur it — those cells read \u201c\u2014\u201d, not 0%.' +
+      (gaps.length
+        ? ` <b>${gaps.length} month${gaps.length === 1 ? '' : 's'} still incomplete</b> (${esc(gaps.slice(0,6).join(', '))}${gaps.length > 6 ? '\u2026' : ''}) — running <code>shopify-orders-backfill.yml</code> over those dates fills them in here automatically.`
+        : ' All months in range are fully covered.');
+  }
+
   function renderCodes(){
     const d = CODES || {};
     const codes = d.codes || [];
@@ -770,12 +805,13 @@
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const [main, funnel, paid, landing, codes] = await Promise.all([
+      const [main, funnel, paid, landing, codes, cohorts] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_landing_pages', { p_report_date: el('reportDate').value, p_limit: 15 }),
         sb.rpc('wow_discount_codes', { p_report_date: el('reportDate').value, p_limit: 20 }),
+        sb.rpc('wow_cohorts', { p_months: 12 }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -789,6 +825,8 @@
       if (landing.error) console.warn('landing pages unavailable:', landing.error.message);
       CODES = codes.error ? null : (codes.data || null);
       if (codes.error) console.warn('discount codes unavailable:', codes.error.message);
+      COHORTS = cohorts.error ? null : (cohorts.data || null);
+      if (cohorts.error) console.warn('cohorts unavailable:', cohorts.error.message);
       render();
       buildManual();
       await loadEntry();
@@ -823,6 +861,7 @@
     renderTikTok();
     renderLanding();
     renderCodes();
+    renderCohorts();
 
     el('ga4Body').innerHTML =
       `<tr><td>Same week last year</td><td>${intFmt(g.sessions_ly)}</td><td>${money(g.revenue_ly)}</td></tr>` +
