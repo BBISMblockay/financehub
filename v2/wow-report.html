@@ -268,6 +268,18 @@
           <div class="wow-say-body"><textarea id="say_channels" class="wow-say-box" data-say="channels" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div>
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Sessions by landing page</h2><span class="bcn-card-meta" id="lpMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
+          <table class="wow-tbl"><thead><tr><th>Landing page</th><th>Sessions</th><th>vs prior wk</th><th>Cart rate</th><th>Conv. rate</th><th>Orders</th></tr></thead>
+          <tbody id="lpBody"></tbody></table>
+        </div></div>
+        <div class="wow-note" id="lpNote"></div>
+        <details class="wow-say" data-key="landing">
+          <summary>What the landing pages are telling us</summary>
+          <div class="wow-say-body"><textarea id="say_landing" class="wow-say-box" data-say="landing" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
+      </div>
       <div id="man_website"></div>
 
       <div class="wow-sec" id="sec_kimonix"><span class="wow-sec-n">Kimonix</span><span class="wow-sec-sub">no connector — manual for now</span></div>
@@ -417,8 +429,6 @@
       cols:[['date','Date',100],['spend','Spend',100],['totalRevenue','Revenue',110],
             ['emailSubs','Email subs',110],['emailNetSubs','Email net subs',120],
             ['smsSubs','SMS subs',110],['smsNetSubs','SMS net subs',115],['notes','Notes',0]] },
-    { key:'landing_pages', section:'website', title:'Sessions by landing page',
-      cols:[['landingPage','Landing page',0],['sessions','Sessions',110],['conversionRate','Conv. rate',110]] },
     { key:'organic_posts', section:'meta', title:'Meta & Instagram organic — last 12 posts',
       seedRows:12,
       hint:'Type these in for now. Columns match what instagram_media_insights will sync once the Meta token gets pages_read_engagement, instagram_basic and instagram_manage_insights plus Page access — so this table stops being manual without changing shape.',
@@ -614,11 +624,35 @@
 
   let FUNNEL = null;
   let PAID = null;
+  let LANDING = null;
 
   // TikTok is live, not typed: its rows are already in the channel breakdown
   // the report loads, so this is a filtered view rather than a second query.
   // Sales only -- there are no tiktok_ads rows in marketing_kpis_daily, so
   // spend and ROAS for TikTok genuinely do not exist yet.
+  function renderLanding(){
+    const d = LANDING || {};
+    const pages = d.pages || [];
+    el('lpBody').innerHTML = pages.length
+      ? pages.map(p => `<tr>
+          <td style="text-align:left"><span class="bcn-mono" style="font-size:11px">${esc(p.path)}</span></td>
+          <td>${intFmt(p.sessions)}</td>
+          ${p.sessions_wow == null ? '<td class="dim">—</td>' : pctCell(p.sessions_wow)}
+          <td>${p.cart_rate == null ? '<span class="dim">—</span>' : p.cart_rate + '%'}</td>
+          <td>${p.conversion_rate == null ? '<span class="dim">—</span>' : p.conversion_rate + '%'}</td>
+          <td>${intFmt(p.orders)}</td>
+        </tr>`).join('')
+      : `<tr><td class="wow-empty" colspan="6">No landing-page data for this window yet — it syncs nightly from Shopify.</td></tr>`;
+    el('lpMeta').textContent = pages.length ? `top ${pages.length} by sessions` : 'no data';
+    // The stored list is top-N per day, not the full tail. Say so, otherwise
+    // someone sums this column and calls it total sessions.
+    const partial = d.days_covered != null && d.days_covered < 7;
+    el('lpNote').innerHTML =
+      '<b>Top landing pages by session, from Shopify Analytics.</b> Conversion rate is each page\u2019s own orders over its own sessions across the week, not an average of daily rates.' +
+      (d.truncated_days ? ` Long-tail pages beyond the daily top-250 are not stored, so this is a top slice — do not sum it as total sessions.` : '') +
+      (partial ? ` <b>Only ${d.days_covered} of 7 days have synced</b> — these counts are partial.` : '');
+  }
+
   function renderTikTok(){
     const rows = (DATA?.channels || []).filter(c => /tiktok/i.test(c.channel || ''));
     const total = rows.reduce((n, c) => n + Number(c.sales || 0), 0);
@@ -704,10 +738,11 @@
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const [main, funnel, paid] = await Promise.all([
+      const [main, funnel, paid, landing] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
+        sb.rpc('wow_landing_pages', { p_report_date: el('reportDate').value, p_limit: 15 }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -717,6 +752,8 @@
       if (funnel.error) console.warn('funnel unavailable:', funnel.error.message);
       PAID = paid.error ? null : (paid.data || null);
       if (paid.error) console.warn('paid media unavailable:', paid.error.message);
+      LANDING = landing.error ? null : (landing.data || null);
+      if (landing.error) console.warn('landing pages unavailable:', landing.error.message);
       render();
       buildManual();
       await loadEntry();
@@ -749,6 +786,7 @@
 
     renderFunnel();
     renderTikTok();
+    renderLanding();
 
     el('ga4Body').innerHTML =
       `<tr><td>Same week last year</td><td>${intFmt(g.sessions_ly)}</td><td>${money(g.revenue_ly)}</td></tr>` +
