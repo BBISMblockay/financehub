@@ -1,0 +1,98 @@
+name: Data freshness check
+
+# Independent alarm AND self-heal for "a nightly sync did not run" -- covers
+# both sales (sales_by_day / shopify-sync) and marketing (marketing_kpis_daily
+# / ad-platforms-sync). On 2026-08-27 GitHub dropped BOTH nightlies on the same
+# morning, so checking only one would have caught half the damage.
+#
+# Why this is a SEPARATE workflow: a check bolted onto the end of a sync cannot
+# detect a dropped sync, because a dropped sync never reaches the check.
+#
+# Why it RE-SYNCS rather than just alerting: an alarm only moves the
+# firefighting earlier. The point is that nobody has to run a fix on the
+# morning of the meeting. If a feed is stale, this runs that feed's sync
+# inline, then re-checks and only then fails if it is still behind.
+#
+# Why inline rather than dispatching the other workflow: GitHub deliberately
+# blocks workflows triggered by the built-in GITHUB_TOKEN from starting new
+# workflow runs, to prevent recursion. Dispatching would need a PAT -- a new
+# long-lived credential to store and rotate. Running the same script in this
+# job needs nothing beyond the Supabase secrets this workflow already has.
+#
+# Times are offset from the sync crons (08:30/14:30 and 10:30/16:30 UTC) so
+# each check lands after a run has had time to finish.
+#   11:00 UTC = 4am PT -- the important one. If it heals, data is fresh by
+#               ~12:15 UTC (5:15am PT), before anyone opens a report.
+#   17:00 UTC = 10am PT, after the catch-up crons
+#   23:00 UTC = 4pm PT, a last look before the US day ends
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_lag_days:
+        description: Max acceptable lag in days behind the last complete Pacific day (default 1)
+        required: false
+      heal:
+        description: Set false to report only, without re-syncing a stale feed
+        required: false
+        default: 'true'
+  schedule:
+    - cron: "0 11 * * *"
+    - cron: "0 17 * * *"
+    - cron: "0 23 * * *"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # Long enough for the heal path: a full Shopify sync is ~75min.
+    timeout-minutes: 150
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MAX_LAG_DAYS: ${{ github.event.inputs.max_lag_days || '1' }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      # First pass DECIDES. It must not fail the job here, or the heal below
+      # never gets to run.
+      - name: Check data freshness
+        id: check
+        env:
+          FAIL_ON_STALE: 'false'
+        run: node scripts/check-sales-freshness.mjs
+
+      - name: Re-sync sales (stale)
+        if: ${{ steps.check.outputs.sales_stale == 'true' && github.event.inputs.heal != 'false' }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          SHOPIFY_SYNC_MODE: incremental
+          # Sales and inventory only. The heal exists to close a freshness gap,
+          # not to redo catalog paging and the per-day ShopifyQL loops.
+          SHOPIFY_SKIP_CATALOG: 'true'
+          SHOPIFY_SKIP_SESSIONS: 'true'
+          SHOPIFY_SKIP_LANDING_PAGES: 'true'
+          SHOPIFY_SKIP_DISCOUNT_CODES: 'true'
+          SHOPIFY_DAYS_BACK: '3'
+        run: node scripts/shopify-sync.mjs
+
+      - name: Re-sync marketing (stale)
+        if: ${{ steps.check.outputs.marketing_stale == 'true' && github.event.inputs.heal != 'false' }}
+        run: node scripts/ad-platforms-sync.mjs
+
+      # Second pass VERIFIES, and fails for real. If the heal worked this is a
+      # no-op; if it did not, this is the alarm, and the log above shows what
+      # the re-sync actually did.
+      - name: Verify freshness after heal
+        if: ${{ always() && steps.check.outcome == 'success' }}
+        run: node scripts/check-sales-freshness.mjs
