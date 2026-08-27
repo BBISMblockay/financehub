@@ -653,8 +653,8 @@
   // failure. That misread is the whole reason this is split.
   const PAID_COLS = {
     roas:              [['spend','Spend','money'],['roas','ROAS','x'],['conversions','Conversions','int'],['cost_per_conv','Cost / conv','money2'],['revenue','Revenue','money']],
-    cost_per_thruplay: [['spend','Spend','money'],['impressions','Impressions','int'],['clicks','Clicks','int'],['cost_per_click','Cost / click','money2']],
-    cost_per_lead:     [['spend','Spend','money'],['clicks','Clicks','int'],['cost_per_click','Cost / click','money2']],
+    cost_per_thruplay: [['spend','Spend','money'],['thruplays','Thruplays','int'],['cost_per_thruplay','Cost / thruplay','money4'],['impressions','Impressions','int'],['clicks','Clicks','int']],
+    cost_per_lead:     [['spend','Spend','money'],['leads','Leads','int'],['cost_per_lead','Cost / lead','money2'],['clicks','Clicks','int'],['cost_per_click','Cost / click','money2']],
     cost_per_click:    [['spend','Spend','money'],['clicks','Clicks','int'],['cost_per_click','Cost / click','money2'],['conversions','Conversions','int']],
     spend:             [['spend','Spend','money'],['clicks','Clicks','int'],['roas','ROAS','x']],
   };
@@ -662,6 +662,7 @@
     if (v == null) return '<span class="dim">—</span>';
     if (kind === 'money')  return money(v);
     if (kind === 'money2') return money2(v);
+    if (kind === 'money4') return `$${Number(v).toFixed(4)}`;
     if (kind === 'x')      return xFmt(v);
     return intFmt(v);
   };
@@ -695,7 +696,9 @@
     const missing = pm.not_synced || [];
     el('metaNote').innerHTML =
       `<b>Each objective is judged on its own denominator.</b> Purchase campaigns on ROAS; thruplay and subscriber buys have no attributed revenue by design and must not be read as 0.00x failures.` +
-      (missing.length ? ` <b>${missing.join(' and ')} are not synced into SILO</b> — cost per thruplay and cost per lead still come from Ads Manager. Spend and clicks here are live.` : '');
+      (missing.length
+        ? ` <b>${missing.join(' and ')} have not landed for this window yet</b> — pull those from Ads Manager until the next Meta sync fills them in.`
+        : ` Thruplays and leads are synced from Meta, so cost per thruplay and cost per lead are live here — nothing to copy from Ads Manager.`);
 
     // --- Google ---
     const gg = pm.google || null;
