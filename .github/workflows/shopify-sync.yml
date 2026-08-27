@@ -67,6 +67,27 @@ on:
     # 08:00 UTC: in PST (winter) that's before Pacific midnight and the
     # summary would anchor to a day that hasn't ended yet.
     - cron: "30 8 * * *"
+    # 14:30 UTC catch-up. GitHub's scheduled triggers are best-effort and
+    # get DROPPED silently under load -- on 2026-08-27 the 08:30 run never
+    # fired at all, and because the only manual run that day was dispatched
+    # with skip_sales, sales_by_day sat two days stale with nothing in the
+    # Actions list to show anything had gone wrong. One cron is a single
+    # point of failure for the freshness of every sales number in SILO.
+    # This second entry is an independent trigger at an unrelated hour, so
+    # both have to be dropped for the day to go unsynced. It is cheap: the
+    # sync is watermark-driven and upsert-only, so if the morning run
+    # succeeded this one re-fetches ~2 days of orders and finishes fast,
+    # and the expensive optional stages are skipped for it (see the env
+    # block below, which keys off github.event.schedule).
+    - cron: "30 14 * * *"
+
+# Two scheduled triggers plus manual dispatch means two runs could otherwise
+# overlap and race each other's per-connection watermarks. Queue instead of
+# cancelling -- a long history re-import must never be killed mid-window by
+# a routine catch-up.
+concurrency:
+  group: shopify-sync
+  cancel-in-progress: false
 
 jobs:
   shopify-sync:
@@ -83,12 +104,16 @@ jobs:
       SHOPIFY_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
       SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || 'false' }}
       SHOPIFY_SKIP_SALES: ${{ github.event.inputs.skip_sales || 'false' }}
-      SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || 'false' }}
-      SHOPIFY_SKIP_SESSIONS: ${{ github.event.inputs.skip_sessions || 'false' }}
+      # Skipped on the 14:30 catch-up: this run exists to keep SALES fresh,
+      # and these stages are the slow ones (catalog paging, one ShopifyQL
+      # query PER DAY for landing pages and discount codes). The 08:30 run
+      # still does them in full.
+      SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || (github.event.schedule == '30 14 * * *' && 'true') || 'false' }}
+      SHOPIFY_SKIP_SESSIONS: ${{ github.event.inputs.skip_sessions || (github.event.schedule == '30 14 * * *' && 'true') || 'false' }}
       SHOPIFY_SESSIONS_DAYS: ${{ github.event.inputs.sessions_days || '' }}
-      SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || 'false' }}
+      SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || (github.event.schedule == '30 14 * * *' && 'true') || 'false' }}
       SHOPIFY_LANDING_PAGES_DAYS: ${{ github.event.inputs.landing_pages_days || '' }}
-      SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || 'false' }}
+      SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || (github.event.schedule == '30 14 * * *' && 'true') || 'false' }}
       SHOPIFY_DISCOUNT_CODES_DAYS: ${{ github.event.inputs.discount_codes_days || '' }}
       SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
