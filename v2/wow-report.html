@@ -178,10 +178,10 @@
     <div class="bcn-status" id="status" hidden></div>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">matches Shopify "total sales"</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kSalesSub">matches Shopify "total sales"</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Net Sales</div><div id="kNet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kNetSub">after refunds</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Orders</div><div id="kOrders" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">excl. cancelled</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">total sales ÷ orders</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Orders</div><div id="kOrders" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kOrdersSub">excl. cancelled</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Order Value</div><div id="kAov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kAovSub">total sales ÷ orders</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Returning Rate</div><div id="kRet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kRetSub">&nbsp;</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Units On Hand</div><div id="kInv" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kInvSub">online warehouse</div></div>
     </div>
@@ -648,6 +648,7 @@
   let LANDING = null;
   let CODES = null;
   let COHORTS = null;
+  let KPI = null;
   let DATA_THROUGH = null;
 
   // The Shopify side of TikTok IS live -- TikTok Shop arrives as an order
@@ -664,6 +665,27 @@
   // direction, because a repeat purchase in an unsynced month looks identical
   // to a customer who never returned. Every cell the RPC could not stand
   // behind comes back null, and null renders as "not yet", never as 0%.
+  // Week-over-week and year-over-year under each headline number. Without a
+  // comparison the band is just six figures -- a reader cannot tell a good
+  // week from a bad one without scrolling to the funnel.
+  function renderKpiDeltas(){
+    const k = KPI || {};
+    const arrow = (v) => v == null ? '' : (v > 0 ? '▲' : v < 0 ? '▼' : '');
+    const cls   = (v) => v == null ? 'dim' : (v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim');
+    const part  = (label, v) => v == null
+      ? `<span class="dim">${label} —</span>`
+      : `<span class="${cls(v)}">${arrow(v)} ${Math.abs(v).toFixed(1)}% ${label}</span>`;
+    const line = (m, tail) => {
+      if (!m) return tail;
+      return `${part('WoW', m.wow)} &nbsp; ${part('YoY', m.yoy)}`;
+    };
+    const set = (id, m, tail) => { const n = el(id); if (n) n.innerHTML = line(m, tail); };
+    set('kSalesSub',  k.total_sales, 'matches Shopify "total sales"');
+    set('kNetSub',    k.net_sales,   'after refunds');
+    set('kOrdersSub', k.orders,      'excl. cancelled');
+    set('kAovSub',    k.aov,         'total sales ÷ orders');
+  }
+
   function renderCohorts(){
     const d = COHORTS || {};
     const rows = d.rows || [];
@@ -834,13 +856,14 @@
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const [main, funnel, paid, landing, codes, cohorts] = await Promise.all([
+      const [main, funnel, paid, landing, codes, cohorts, kpi] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
         sb.rpc('wow_landing_pages', { p_report_date: el('reportDate').value, p_limit: 15 }),
         sb.rpc('wow_discount_codes', { p_report_date: el('reportDate').value, p_limit: 20 }),
         sb.rpc('wow_cohorts', { p_months: 12 }),
+        sb.rpc('wow_kpi_compare', { p_report_date: el('reportDate').value }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -856,6 +879,8 @@
       if (codes.error) console.warn('discount codes unavailable:', codes.error.message);
       COHORTS = cohorts.error ? null : (cohorts.data || null);
       if (cohorts.error) console.warn('cohorts unavailable:', cohorts.error.message);
+      KPI = kpi.error ? null : (kpi.data || null);
+      if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
       render();
       buildManual();
       await loadEntry();
@@ -894,6 +919,7 @@
     el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
     el('kInv').textContent    = intFmt(inv.units_on_hand);
     el('kInvSub').textContent = `${intFmt(inv.skus)} SKUs · deduped`;
+    renderKpiDeltas();
 
     renderFunnel();
     if (DATA_THROUGH) {
