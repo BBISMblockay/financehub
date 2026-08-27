@@ -53,7 +53,11 @@
 
     .goal { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px dashed var(--border); font-size:13px; }
     .goal:last-child { border-bottom:none; }
-    .goal-date { color:var(--ink3); font-size:11.5px; }
+    .goal-date { color:var(--ink3); font-size:11.5px; font-family:var(--mono); }
+    .goal-date.over { color:var(--neg); font-weight:600; }
+    /* The manager's written justification for a rating, under the score. */
+    .q-why { margin-top:6px; font-size:13.5px; color:var(--ink2); line-height:1.7;
+             white-space:pre-wrap; border-left:2px solid var(--border); padding-left:10px; }
     .pill { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:3px 8px; border-radius:99px; border:1px solid var(--border); color:var(--ink3); white-space:nowrap; align-self:center; }
     .pill.pos { background:#eaf7ee; border-color:#bfe5cb; color:var(--pos); }
     .subhead { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink3); margin:14px 0 4px; }
@@ -131,12 +135,39 @@
     return res.json();
   }
 
+  // scale_1_4 is the scale reviews use now; scale_1_10 survives only on older
+  // templates and keeps its own denominator so a stored 7 never reprints as 7/4.
+  const SCALE_MAX = { scale_1_4: 4, scale_1_10: 10 };
+  const isScale = (kind) => kind in SCALE_MAX;
+
+  // 'YYYY-MM-DD' parsed with new Date() is UTC midnight, which prints the day
+  // before for anyone west of London -- build the date from its parts instead.
+  function fmtDate(d){
+    if (!d) return '';
+    const [y, m, day] = String(d).split('-').map(Number);
+    if (!y || !m || !day) return String(d);
+    return new Date(y, m - 1, day).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  }
+  const todayStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+  function dueHtml(g){
+    if (!g.target_date) return '';
+    const over = g.target_date < todayStr() && ['open','carried'].includes(g.status);
+    return ` <span class="goal-date${over ? ' over' : ''}">due ${esc(fmtDate(g.target_date))}${over ? ' · overdue' : ''}</span>`;
+  }
+
   function answerHtml(q, ansMap){
     const v = ansMap[q.id] || {};
     if (q.kind === 'free_text')
       return v.text ? `<div class="q-answer">${esc(v.text)}</div>` : `<div class="q-answer q-empty">No answer</div>`;
-    if (q.kind === 'scale_1_10')
-      return v.score ? `<div class="q-answer q-score">${v.score}<small> / 10</small></div>` : `<div class="q-answer q-empty">Not rated</div>`;
+    if (isScale(q.kind)){
+      const why = v.comment ? `<div class="q-why">${esc(v.comment)}</div>` : '';
+      return v.score
+        ? `<div class="q-answer q-score">${v.score}<small> / ${SCALE_MAX[q.kind]}</small></div>${why}`
+        : `<div class="q-answer q-empty">Not rated</div>${why}`;
+    }
     if (q.kind === 'single_choice')
       return v.choice ? `<div class="q-answer">${esc(v.choice)}</div>` : `<div class="q-answer q-empty">No selection</div>`;
     if (q.kind === 'multi_choice')
@@ -144,10 +175,16 @@
     return '';
   }
 
+  // review-portal returns goals unordered. Sort here so the employee reads
+  // them the way the review editor shows them: soonest due first, undated last.
+  const byDue = (a, b) =>
+    (a.target_date ? 0 : 1) - (b.target_date ? 0 : 1) ||
+    String(a.target_date || '').localeCompare(String(b.target_date || ''));
+
   function goalsHtml(goals, reviewId){
-    const fresh = goals.filter(g => g.review_id === reviewId);
-    const prior = goals.filter(g => g.review_id !== reviewId);
-    const row = (g) => `<div class="goal"><div>${esc(g.title)}${g.target_date ? ` <span class="goal-date">target ${esc(g.target_date)}</span>` : ''}</div><span class="pill ${g.status==='achieved'?'pos':''}">${esc(g.status)}</span></div>`;
+    const fresh = goals.filter(g => g.review_id === reviewId).sort(byDue);
+    const prior = goals.filter(g => g.review_id !== reviewId).sort(byDue);
+    const row = (g) => `<div class="goal"><div>${esc(g.title)}${dueHtml(g)}</div><span class="pill ${g.status==='achieved'?'pos':''}">${esc(g.status)}</span></div>`;
     let html = '';
     if (prior.length) html += `<div class="subhead">Goals from prior periods</div>` + prior.map(row).join('');
     if (fresh.length) html += `<div class="subhead">Goals for the next period</div>` + fresh.map(row).join('');

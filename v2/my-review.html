@@ -35,6 +35,12 @@
     .mr-answer { margin-top:8px; font-size:13.5px; color:var(--bcn-ink-2); line-height:1.7; white-space:pre-wrap; }
     .mr-score { font-family:var(--bcn-mono); font-size:19px; font-weight:600; color:var(--bcn-ink); }
     .mr-score small { font-size:11px; color:var(--bcn-ink-3); font-weight:400; }
+    /* The manager's written justification for a rating -- shown right under the
+       score so a number never arrives on its own. */
+    .mr-why { margin-top:6px; font-size:13px; color:var(--bcn-ink-2); line-height:1.7; white-space:pre-wrap;
+              border-left:2px solid var(--bcn-border-strong); padding-left:10px; }
+    .mr-due { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); }
+    .mr-due--over { color:var(--bcn-neg); font-weight:600; }
     .mr-muted { color:var(--bcn-ink-3); font-style:italic; }
     ul.mr-list { margin:8px 0 0; padding-left:20px; }
     ul.mr-list li { margin:2px 0; color:var(--bcn-ink-2); font-size:13px; }
@@ -176,11 +182,37 @@
     el.querySelectorAll('.mr-row').forEach(row => row.addEventListener('click', () => openDetail(row.dataset.id)));
   }
 
+  // scale_1_4 is the scale reviews use now; scale_1_10 survives only on older
+  // templates and keeps its own denominator so a stored 7 never reprints as 7/4.
+  const SCALE_MAX = { scale_1_4: 4, scale_1_10: 10 };
+  const isScale = (kind) => kind in SCALE_MAX;
+
+  // A date column comes back as plain 'YYYY-MM-DD'. new Date() would read that
+  // as UTC midnight and print the day before for anyone west of London.
+  function fmtDate(d){
+    if (!d) return '';
+    const [y, m, day] = String(d).split('-').map(Number);
+    if (!y || !m || !day) return String(d);
+    return new Date(y, m - 1, day).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  }
+  const todayStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+  function dueHtml(g){
+    if (!g.target_date) return '';
+    const over = g.target_date < todayStr() && ['open','carried'].includes(g.status);
+    return ` <span class="mr-due${over ? ' mr-due--over' : ''}">due ${esc(fmtDate(g.target_date))}${over ? ' · overdue' : ''}</span>`;
+  }
+  const goalRowHtml = (g) =>
+    `<div class="mr-goal"><div>${esc(g.title)}${dueHtml(g)}</div>` +
+    `<span class="bcn-pill ${g.status==='achieved'?'bcn-pill--pos':''}">${esc(g.status)}</span></div>`;
+
   function renderGoalsCard(){
     const body = document.getElementById('goalsListBody');
     const open = GOALS.filter(g => ['open','carried'].includes(g.status));
     const done = GOALS.filter(g => g.status === 'achieved');
-    const row = (g) => `<div class="mr-goal"><div>${esc(g.title)}${g.target_date ? ` <span class="mr-row-sub">target ${esc(g.target_date)}</span>` : ''}</div><span class="bcn-pill ${g.status==='achieved'?'bcn-pill--pos':''}">${esc(g.status)}</span></div>`;
+    const row = goalRowHtml;
     let html = '';
     if (open.length) html += `<div class="mr-subhead">Current goals</div>` + open.map(row).join('');
     if (done.length) html += `<div class="mr-subhead">Achieved</div>` + done.map(row).join('');
@@ -192,8 +224,12 @@
     const v = ansMap[q.id] || {};
     if (q.kind === 'free_text')
       return v.text ? `<div class="mr-answer">${esc(v.text)}</div>` : `<div class="mr-answer mr-muted">No answer</div>`;
-    if (q.kind === 'scale_1_10')
-      return v.score ? `<div class="mr-answer mr-score">${v.score}<small> / 10</small></div>` : `<div class="mr-answer mr-muted">Not rated</div>`;
+    if (isScale(q.kind)){
+      const why = v.comment ? `<div class="mr-why">${esc(v.comment)}</div>` : '';
+      return v.score
+        ? `<div class="mr-answer mr-score">${v.score}<small> / ${SCALE_MAX[q.kind]}</small></div>${why}`
+        : `<div class="mr-answer mr-muted">Not rated</div>${why}`;
+    }
     if (q.kind === 'single_choice')
       return v.choice ? `<div class="mr-answer">${esc(v.choice)}</div>` : `<div class="mr-answer mr-muted">No selection</div>`;
     if (q.kind === 'multi_choice')
@@ -235,7 +271,7 @@
 
     const inReview = GOALS.filter(g => g.review_id === r.id);
     const others = GOALS.filter(g => g.review_id !== r.id && ['open','carried','achieved','dropped'].includes(g.status));
-    const goalRow = (g) => `<div class="mr-goal"><div>${esc(g.title)}${g.target_date ? ` <span class="mr-row-sub">target ${esc(g.target_date)}</span>` : ''}</div><span class="bcn-pill ${g.status==='achieved'?'bcn-pill--pos':''}">${esc(g.status)}</span></div>`;
+    const goalRow = goalRowHtml;
     let goalsHtml = '';
     if (others.length) goalsHtml += `<div class="mr-subhead">Goals from prior periods</div>` + others.map(goalRow).join('');
     if (inReview.length) goalsHtml += `<div class="mr-subhead">Goals set in this review</div>` + inReview.map(goalRow).join('');
@@ -323,7 +359,8 @@
       sb.from('reviews').select('*, review_templates(title, description)')
         .in('employee_id', MY_EMPLOYEE_IDS).neq('status', 'draft')
         .order('sent_at', { ascending: false }),
-      sb.from('employee_goals').select('*').in('employee_id', MY_EMPLOYEE_IDS).order('created_at'),
+      sb.from('employee_goals').select('*').in('employee_id', MY_EMPLOYEE_IDS)
+        .order('target_date', { ascending: true, nullsFirst: false }).order('created_at'),
     ]);
     // RLS also hands managers the reviews they run — keep only reviews where
     // the signed-in user is the EMPLOYEE.

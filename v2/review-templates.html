@@ -118,7 +118,7 @@
             <div class="bcn-field-group">
               <label class="bcn-label" for="tplDesc">Intro &amp; grading scale</label>
               <textarea class="bcn-field" id="tplDesc" rows="6" style="resize:vertical;line-height:1.5"
-                placeholder="e.g. 1 = Does not meet · 5 = Meets · 10 = Exceeds"></textarea>
+                placeholder="e.g. 1 = Does not meet · 2 = Needs improvement · 3 = Meets · 4 = Exceeds"></textarea>
               <div style="font-size:11.5px;color:var(--bcn-ink-3);margin-top:4px">
                 Shown at the top of every review — the manager filling it out and the employee reading it both see this.
                 Line breaks are preserved. <strong>Leave it blank and no scale appears on the review.</strong>
@@ -136,7 +136,7 @@
 
           <div class="tp-addbar" id="addBar">
             <button class="bcn-btn bcn-btn--ghost" data-kind="free_text">+ Free text</button>
-            <button class="bcn-btn bcn-btn--ghost" data-kind="scale_1_10">+ 1–10 rating</button>
+            <button class="bcn-btn bcn-btn--ghost" data-kind="scale_1_4">+ 1–4 rating</button>
             <button class="bcn-btn bcn-btn--ghost" data-kind="single_choice">+ Single choice</button>
             <button class="bcn-btn bcn-btn--ghost" data-kind="multi_choice">+ Multiple choice</button>
             <button class="bcn-btn bcn-btn--ghost" data-kind="goals">+ Goals section</button>
@@ -189,12 +189,20 @@
 
   const KIND_LABEL = {
     free_text: 'Free text',
-    scale_1_10: '1–10 rating',
+    scale_1_4: '1–4 rating',
+    // Legacy. Nothing creates one any more, but a template built before the
+    // scale moved to 1-4 keeps its kind so its stored scores stay readable
+    // out of 10 -- see 20260827200000_review_scale_1_4_and_goal_dates.sql.
+    scale_1_10: '1–10 rating (legacy)',
     single_choice: 'Single choice',
     multi_choice: 'Multiple choice',
     goals: 'Goals',
   };
   const CHOICE_KINDS = ['single_choice', 'multi_choice'];
+  // Every rating question carries a written justification alongside the score,
+  // so the number never lands on a review with nothing backing it up.
+  const SCALE_MAX = { scale_1_4: 4, scale_1_10: 10 };
+  const isScale = (kind) => kind in SCALE_MAX;
 
   let ME = null;
   let TEMPLATES = [];
@@ -517,7 +525,9 @@
       <div class="tp-pv-q">
         <div class="tp-pv-label">${esc(q.label || '(untitled question)')}${q.required ? ' *' : ''}</div>
         ${q.help_text ? `<div class="tp-pv-help">${esc(q.help_text)}</div>` : ''}
-        ${q.kind === 'scale_1_10' ? `<div class="tp-pv-scale">${Array.from({length:10},(_,n)=>`<span>${n+1}</span>`).join('')}</div>` : ''}
+        ${isScale(q.kind) ? `
+          <div class="tp-pv-scale">${Array.from({length:SCALE_MAX[q.kind]},(_,n)=>`<span>${n+1}</span>`).join('')}</div>
+          <div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;margin-top:8px;color:var(--bcn-ink-4)">Manager explains the rating here…</div>` : ''}
         ${CHOICE_KINDS.includes(q.kind) ? q.options.map(o => `<div class="tp-pv-opt">${q.kind==='single_choice'?'◯':'☐'} ${esc(o)}</div>`).join('') : ''}
         ${q.kind === 'free_text' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Manager writes here…</div>` : ''}
         ${q.kind === 'goals' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Previous goals (status updates) + new goals for next period</div>` : ''}
