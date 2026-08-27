@@ -1486,6 +1486,14 @@ select
                      where n.nspname='public' and p.proname='wow_paid_media_reality'
                        and pg_get_functiondef(p.oid) like '%tiktok_ads%')
       then 'MISSING — wow_paid_media_reality no longer allowlists platforms; it must name the ad platforms explicitly so ga4 (analytics, not an ad platform) stays out of spend and claimed-revenue rollups'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='ad_platforms_expected'
+                       and p.prosecdef)
+      then 'MISSING — ad_platforms_expected() absent or no longer SECURITY DEFINER; without it a non-admin reads zero ad_platform_connections rows and platforms_not_synced is permanently empty for them'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_paid_media_reality'
+                   and pg_get_functiondef(p.oid) like '%unnest(array[%')
+      then 'MISSING — wow_paid_media_reality hardcodes the platform list again; derive it from ad_platforms_expected() so an unconnected platform is not reported as a failed sync forever'
     when not exists (select 1 from public.silo_chat_schema_catalog
                      where relname='marketing_kpis_daily'
                        and description like '%CLAIMED, NOT ACTUAL%')
