@@ -1464,3 +1464,31 @@ select
       then 'MISSING — sync_jobs job_type check does not allow sessions_sync; the nightly job will fail to log'
     else 'ok'
   end as shopify_sessions_sync;
+
+-- ── Paid-media reality check (20260827180000) ─────────────────────────
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_paid_media_reality')
+      then 'MISSING — run 20260827180000_paid_media_reality_check.sql'
+    -- Matches an actual FROM clause, not the word in the function's own
+    -- comment warning against it -- the first cut of this check matched the
+    -- comment and reported MISSING on a correct function.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_paid_media_reality'
+                   and pg_get_functiondef(p.oid) ~* 'from\s+public\.shopify_orders')
+      then 'MISSING — wow_paid_media_reality reads shopify_orders for new customers; that table is partial backfills (Aug-Oct 2025, Jan/Mar 2026 absent) and would count a returning customer as new. Use shopify_customer_metrics_daily'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_paid_media_reality'
+                       and pg_get_functiondef(p.oid) like '%shopify_customer_metrics_daily%')
+      then 'MISSING — wow_paid_media_reality no longer reads shopify_customer_metrics_daily; new-customer counts must come from ShopifyQL, not reconstructed'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_paid_media_reality'
+                       and pg_get_functiondef(p.oid) like '%tiktok_ads%')
+      then 'MISSING — wow_paid_media_reality no longer allowlists platforms; it must name the ad platforms explicitly so ga4 (analytics, not an ad platform) stays out of spend and claimed-revenue rollups'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='marketing_kpis_daily'
+                       and description like '%CLAIMED, NOT ACTUAL%')
+      then 'MISSING — marketing_kpis_daily catalog note absent; Ask SILO will read conversion_value as revenue and sum it across platforms'
+    else 'ok'
+  end as paid_media_reality;
