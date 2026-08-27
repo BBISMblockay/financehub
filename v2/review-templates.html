@@ -66,6 +66,28 @@
     .tp-pv-opt { font-size:12.5px; color:var(--bcn-ink-2); padding:3px 0; }
     .tp-pv-scale { display:flex; gap:4px; }
     .tp-pv-scale span { width:26px; height:26px; display:flex; align-items:center; justify-content:center; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius-sm); font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); }
+    /* Every question kind previews the SHAPE it renders on a real review --
+       static stand-ins, never live controls. Goals used to be the one exception,
+       described in a sentence instead of shown, so the due-date fields a manager
+       is about to hand their reports were invisible until the review existed. */
+    .tp-pv-box { border:1px dashed var(--bcn-border); border-radius:4px; padding:10px;
+                 font-size:12.5px; color:var(--bcn-ink-4); }
+    .tp-pv-rating { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; margin-top:8px; }
+    .tp-pv-rating .tp-pv-scale { flex:0 1 auto; }
+    .tp-pv-rating .tp-pv-box { flex:1 1 200px; min-width:180px; }
+    .tp-pv-sub { font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase;
+                 letter-spacing:.08em; color:var(--bcn-ink-3); margin:12px 0 2px; }
+    .tp-pv-goal { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;
+                  padding:8px 0; border-bottom:1px dashed var(--bcn-border); }
+    .tp-pv-goal:last-of-type { border-bottom:none; }
+    .tp-pv-goal-title { flex:2; min-width:150px; }
+    .tp-pv-field { display:flex; flex-direction:column; gap:3px; }
+    .tp-pv-cap { font-family:var(--bcn-mono); font-size:9.5px; letter-spacing:.08em;
+                 text-transform:uppercase; color:var(--bcn-ink-3); }
+    .tp-pv-input { border:1px solid var(--bcn-border); border-radius:var(--bcn-radius-sm);
+                   background:var(--bcn-surface); padding:6px 8px; font-size:12px;
+                   color:var(--bcn-ink-4); min-width:118px; }
+    .tp-pv-note { font-size:11.5px; color:var(--bcn-ink-3); margin-top:8px; }
   </style>
 </head>
 <body class="silo-brand">
@@ -502,6 +524,40 @@
   });
 
   // ---- preview ------------------------------------------------------------
+  // Goals are the one section whose content does not come from the template --
+  // they live on the EMPLOYEE and carry across cycles -- so the preview shows
+  // the fields a manager will fill rather than sample goals we would have to
+  // invent. The due date is the part that most needs to be visible here: it is
+  // the field an exec is deciding to hand every manager.
+  function goalsPreview(){
+    const dueField = `
+      <div class="tp-pv-field">
+        <span class="tp-pv-cap">Due</span>
+        <div class="tp-pv-input">mm/dd/yyyy</div>
+      </div>`;
+    return `
+      <div class="tp-pv-sub">Previous goals — update status and due date</div>
+      <div class="tp-pv-goal">
+        <div class="tp-pv-goal-title" style="font-size:12.5px;color:var(--bcn-ink-2)">Each goal still open from an earlier review</div>
+        ${dueField}
+        <div class="tp-pv-field">
+          <span class="tp-pv-cap">Status</span>
+          <div class="tp-pv-input">open · achieved · dropped · carried</div>
+        </div>
+      </div>
+      <div class="tp-pv-sub">New goals for next period</div>
+      <div class="tp-pv-goal">
+        <div class="tp-pv-field tp-pv-goal-title">
+          <span class="tp-pv-cap">Goal</span>
+          <div class="tp-pv-input">What should they achieve?</div>
+        </div>
+        ${dueField}
+      </div>
+      <div class="tp-pv-box" style="margin-top:8px;display:inline-block">+ Add goal</div>
+      <div class="tp-pv-note">Goals follow the employee across review cycles — they are not stored on this template. A goal past its due date and still open is flagged overdue.</div>`;
+  }
+
+  // ---- preview dialog -------------------------------------------------------
   document.getElementById('btnPreview').addEventListener('click', () => {
     const title = document.getElementById('tplTitle').value.trim() || 'Untitled template';
     document.getElementById('pvTitle').textContent = title;
@@ -526,13 +582,13 @@
         <div class="tp-pv-label">${esc(q.label || '(untitled question)')}${q.required ? ' *' : ''}</div>
         ${q.help_text ? `<div class="tp-pv-help">${esc(q.help_text)}</div>` : ''}
         ${isScale(q.kind) ? `
-          <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-top:8px">
-            <div class="tp-pv-scale" style="flex:0 1 auto;margin:0">${Array.from({length:SCALE_MAX[q.kind]},(_,n)=>`<span>${n+1}</span>`).join('')}</div>
-            <div class="tp-pv-opt" style="flex:1 1 200px;min-width:180px;border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;margin:0;color:var(--bcn-ink-4)">Manager explains the rating here…</div>
+          <div class="tp-pv-rating">
+            <div class="tp-pv-scale">${Array.from({length:SCALE_MAX[q.kind]},(_,n)=>`<span>${n+1}</span>`).join('')}</div>
+            <div class="tp-pv-box">Manager explains the rating here — required before the review can be sent…</div>
           </div>` : ''}
         ${CHOICE_KINDS.includes(q.kind) ? q.options.map(o => `<div class="tp-pv-opt">${q.kind==='single_choice'?'◯':'☐'} ${esc(o)}</div>`).join('') : ''}
-        ${q.kind === 'free_text' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Manager writes here…</div>` : ''}
-        ${q.kind === 'goals' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Previous goals (status updates) + new goals for next period</div>` : ''}
+        ${q.kind === 'free_text' ? `<div class="tp-pv-box" style="margin-top:8px">Manager writes here…</div>` : ''}
+        ${q.kind === 'goals' ? goalsPreview() : ''}
       </div>`).join('') : '<div class="tp-empty">No questions yet.</div>');
     document.getElementById('dlgPreview').showModal();
   });
