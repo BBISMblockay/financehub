@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · QuickBooks Reports</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-panel); border-bottom: 1px solid var(--bcn-border); }
+    .qr-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+
+    .qr-filters {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+      background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+    }
+    .qr-field { display: flex; flex-direction: column; gap: 4px; }
+    .qr-field label {
+      font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3);
+    }
+    .qr-field select, .qr-field input { font-size: 12px; min-width: 150px; }
+    .qr-field--wide select { min-width: 280px; }
+
+    .qr-card {
+      background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden;
+    }
+    .qr-card-head {
+      padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    }
+    .qr-title { font-weight: 650; font-size: 14px; }
+    .qr-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+
+    .qr-scroll { overflow: auto; max-height: 68vh; }
+    .qr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .qr-table th {
+      position: sticky; top: 0; background: var(--bcn-sunken); text-align: left;
+      font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap;
+    }
+    .qr-table td { padding: 5px 10px; border-bottom: 1px solid var(--bcn-border); vertical-align: top; }
+    .qr-table tr:hover td { background: var(--bcn-sunken); }
+    .qr-num { text-align: right; font-family: var(--bcn-mono); white-space: nowrap; }
+    .qr-neg { color: var(--bcn-neg); }
+    /* Section and total rows carry QBO's own hierarchy; indentation is the only
+       thing that makes a nested balance sheet readable. */
+    .qr-depth-0 > td:first-child { font-weight: 650; }
+    .qr-summary td { font-weight: 650; background: var(--bcn-sunken); }
+    .qr-empty { padding: 28px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>QuickBooks Reports</div>
+          <div class="bcn-header-sub" id="subTitle">Read-only. Nothing here writes to QuickBooks.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
+          <button class="bcn-btn" id="btnCsv">CSV</button>
+        </div>
+      </header>
+
+      <div class="qr-page">
+        <div class="bcn-status" id="status" hidden></div>
+
+        <div class="qr-filters">
+          <div class="qr-field">
+            <label for="report">Report</label>
+            <select class="bcn-field" id="report">
+              <option value="BalanceSheet">Balance Sheet</option>
+              <option value="GeneralLedger" selected>General Ledger (transaction detail)</option>
+              <option value="TransactionList">Transaction List</option>
+              <option value="ProfitAndLoss">Profit &amp; Loss</option>
+              <option value="ProfitAndLossDetail">P&amp;L Detail</option>
+              <option value="TrialBalance">Trial Balance</option>
+            </select>
+          </div>
+
+          <div class="qr-field qr-field--wide">
+            <label for="account">Account filter</label>
+            <select class="bcn-field bcn-field--mono" id="account">
+              <option value="">— all accounts —</option>
+            </select>
+          </div>
+
+          <div class="qr-field">
+            <label for="from">From</label>
+            <input class="bcn-field" id="from" type="date" />
+          </div>
+          <div class="qr-field">
+            <label for="to">To</label>
+            <input class="bcn-field" id="to" type="date" />
+          </div>
+
+          <div class="qr-field">
+            <label for="method">Method</label>
+            <select class="bcn-field" id="method">
+              <option value="Accrual" selected>Accrual</option>
+              <option value="Cash">Cash</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="qr-card">
+          <div class="qr-card-head">
+            <div>
+              <div class="qr-title" id="cardTitle">No report run yet</div>
+              <div class="qr-sub" id="cardSub">Pick a report and click Run report</div>
+            </div>
+            <div class="qr-sub" id="rowCount"></div>
+          </div>
+          <div class="qr-scroll">
+            <table class="qr-table" id="tbl">
+              <tbody><tr><td class="qr-empty">Nothing loaded.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const FUNCTIONS_URL = SUPABASE_URL.replace('/rest/v1', '') + '/functions/v1';
+
+  let _co = null;
+  let lastRows = [];
+
+  const el = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  // QBO returns reports as arbitrarily nested Rows, mixing detail rows,
+  // section headers and summaries. Flatten to a list while keeping depth, so
+  // the hierarchy that makes a balance sheet legible survives.
+  function flatten(node, depth = 0, out = []) {
+    const rows = node?.Rows?.Row ?? node?.Row ?? null;
+    if (Array.isArray(rows)) {
+      for (const r of rows) {
+        if (r.Header?.ColData) {
+          out.push({ depth, cells: r.Header.ColData, kind: 'header' });
+        }
+        if (r.ColData) {
+          out.push({ depth, cells: r.ColData, kind: r.type === 'Section' ? 'header' : 'data' });
+        }
+        if (r.Rows) flatten(r, depth + 1, out);
+        if (r.Summary?.ColData) {
+          out.push({ depth, cells: r.Summary.ColData, kind: 'summary' });
+        }
+      }
+    }
+    return out;
+  }
+
+  function render(payload) {
+    const cols = payload?.Columns?.Column ?? [];
+    const headers = cols.map((c) => c.ColTitle || c.ColType || '');
+    lastRows = flatten(payload);
+
+    const tbl = el('tbl');
+    if (!lastRows.length) {
+      tbl.innerHTML = '<tbody><tr><td class="qr-empty">'
+        + 'Report returned no rows for that filter.</td></tr></tbody>';
+      return;
+    }
+
+    const thead = `<thead><tr>${headers.map((h, i) =>
+      `<th${i > 0 ? ' class="qr-num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>`;
+
+    const body = lastRows.map((r) => {
+      const cls = r.kind === 'summary' ? 'qr-summary' : `qr-depth-${r.depth}`;
+      const tds = headers.map((_, i) => {
+        const cell = r.cells[i];
+        const v = cell?.value ?? '';
+        if (i === 0) {
+          return `<td style="padding-left:${10 + r.depth * 14}px">${esc(v)}</td>`;
+        }
+        const num = Number(String(v).replace(/[^0-9.-]/g, ''));
+        const isNum = v !== '' && Number.isFinite(num);
+        return `<td class="qr-num${isNum && num < 0 ? ' qr-neg' : ''}">${esc(v)}</td>`;
+      }).join('');
+      return `<tr class="${cls}">${tds}</tr>`;
+    }).join('');
+
+    tbl.innerHTML = thead + `<tbody>${body}</tbody>`;
+    el('rowCount').textContent = `${lastRows.length} rows`;
+  }
+
+  async function loadAccounts() {
+    let q = sb.from('quickbooks_accounts')
+      .select('qbo_account_id, name, fully_qualified_name, account_type')
+      .eq('is_active', true)
+      .order('fully_qualified_name');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { console.warn('accounts load failed', error); return; }
+    const sel = el('account');
+    for (const a of data || []) {
+      const o = document.createElement('option');
+      o.value = a.qbo_account_id;
+      o.textContent = (a.fully_qualified_name || a.name)
+        + (a.account_type ? ` · ${a.account_type}` : '');
+      sel.appendChild(o);
+    }
+  }
+
+  async function run() {
+    const report = el('report').value;
+    const params = {
+      start_date: el('from').value || undefined,
+      end_date: el('to').value || undefined,
+      accounting_method: el('method').value,
+    };
+    // Only the transaction-level reports accept an account filter; sending it
+    // to a Balance Sheet is silently ignored by QBO, which reads as the filter
+    // not working rather than not applying.
+    const acct = el('account').value;
+    if (acct && ['GeneralLedger', 'TransactionList', 'ProfitAndLossDetail'].includes(report)) {
+      params.account = acct;
+    } else if (acct) {
+      setStatus(`${report} does not support an account filter — running unfiltered.`, 'info', 6000);
+    }
+
+    el('btnRun').disabled = true;
+    setStatus('Fetching from QuickBooks…', 'info');
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/quickbooks-report`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ report_name: report, params }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus(`Report failed: ${body.error || res.status}`, 'neg', 12000);
+        return;
+      }
+      el('cardTitle').textContent = report;
+      el('cardSub').textContent =
+        `${params.start_date || 'start'} → ${params.end_date || 'today'} · ${params.accounting_method}`
+        + ` · fetched ${new Date(body.fetched_at).toLocaleString()}`;
+      render(body.report);
+      setStatus(`Loaded ${body.row_count} rows. Saved as run ${body.run_id.slice(0, 8)}.`, 'pos', 6000);
+    } finally {
+      el('btnRun').disabled = false;
+    }
+  }
+
+  function csv() {
+    if (!lastRows.length) { setStatus('Run a report first.', 'info', 3000); return; }
+    const lines = lastRows.map((r) =>
+      r.cells.map((c) => {
+        const v = String(c?.value ?? '');
+        return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+      }).join(','));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `qbo-${el('report').value}-${el('from').value || 'all'}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'finance/qbo-reports',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Accounting', 'QuickBooks Reports'],
+        supabaseClient: sb,
+      });
+    }
+
+    // Default to the current year to date — the window most balance-sheet
+    // questions start from.
+    const now = new Date();
+    el('from').value = `${now.getUTCFullYear()}-01-01`;
+    el('to').value = now.toISOString().slice(0, 10);
+
+    await loadAccounts();
+
+    el('btnRun').addEventListener('click', run);
+    el('btnCsv').addEventListener('click', csv);
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>
