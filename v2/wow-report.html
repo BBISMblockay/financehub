@@ -219,7 +219,7 @@
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:9.5px;padding:1px 7px">SHOPIFY + GA4</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th>Same wk LY</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th>vs sessions</th><th>Same wk LY</th></tr></thead>
           <tbody id="funnelBody"></tbody></table>
         </div></div>
         <div class="bcn-card-body" style="padding:0;border-top:1px solid var(--bcn-border)"><div class="bcn-matrix-scroll">
@@ -771,8 +771,23 @@
       const pad = indent ? 'padding-left:22px' : '';
       const share = key === 'sessions' ? '' :
         ` <span style="color:var(--bcn-ink-3);font-size:10px">${(100*tv/Number(t.sessions||1)).toFixed(1)}% of sessions</span>`;
+
+      // Each step as a share of sessions, versus the same share last week.
+      // Raw change alone is misleading when traffic moves: every step falls
+      // when sessions fall, which reads as a broken funnel rather than a
+      // quieter week. This isolates the step's own performance.
+      let normCell = '<td class="dim">—</td>';
+      if (key !== 'sessions' && pv != null && Number(t.sessions) > 0 && p && Number(p.sessions) > 0) {
+        const curShare = tv / Number(t.sessions);
+        const prevShare = pv / Number(p.sessions);
+        if (prevShare > 0) {
+          const pct = (curShare / prevShare - 1) * 100;
+          normCell = `<td class="${pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'dim'}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</td>`;
+        }
+      }
       return `<tr><td style="${pad}">${label}${share}</td><td>${intFmt(tv)}</td>` +
              `<td>${pv==null?'—':intFmt(pv)}</td>${pv==null?'<td>—</td>':deltaCell(tv,pv)}` +
+             normCell +
              `<td>${lv==null?'—':intFmt(lv)}</td></tr>`;
     };
     const rateRow = (label, key) => {
@@ -784,6 +799,7 @@
       return `<tr class="wow-rate"><td>${label}</td><td>${tv==null?'—':tv.toFixed(2)+'%'}</td>` +
              `<td>${pv==null?'—':pv.toFixed(2)+'%'}</td>` +
              `<td class="${cls}">${pt==null?'—':(pt>=0?'+':'')+pt.toFixed(2)+' pt'}</td>` +
+             `<td class="dim">—</td>` +
              `<td>${lv==null?'—':lv.toFixed(2)+'%'}</td></tr>`;
     };
 
