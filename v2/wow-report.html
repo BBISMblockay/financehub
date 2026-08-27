@@ -915,8 +915,22 @@
     el('kNetSub').textContent = `after ${money(c.refunds)} refunds`;
     el('kOrders').textContent = intFmt(c.orders);
     el('kAov').textContent    = money2(c.aov);
-    el('kRet').textContent    = cu.returning_pct == null ? '—' : `${cu.returning_pct}%`;
-    el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
+    // Returning rate is derived from each customer's FIRST order date in
+    // shopify_orders. While that history has gaps, a customer whose first
+    // order sits in an unsynced month reads as new, so the rate is
+    // understated -- measured 36.0% against Shopify's 54.6% for 2026-08-19..25,
+    // 653 customers misclassified. Same root cause as the cohort gating: say
+    // it rather than print a confident wrong number.
+    const gapMonths = (COHORTS?.incomplete_months || []).length;
+    el('kRet').textContent = cu.returning_pct == null ? '—' : `${cu.returning_pct}%`;
+    if (gapMonths) {
+      el('kRet').innerHTML = `${cu.returning_pct == null ? '—' : cu.returning_pct + '%'}` +
+        `<span class="neg" style="font-size:11px;margin-left:6px" title="Order history has ${gapMonths} incomplete month(s), so customers whose first order falls in a gap count as new. Shopify's own figure is higher.">low</span>`;
+      el('kRetSub').innerHTML =
+        `<span class="neg">understated — ${gapMonths} month(s) of order history still syncing</span>`;
+    } else {
+      el('kRetSub').textContent = `${intFmt(cu.returning)} of ${intFmt(cu.total)} · history from ${cu.history_starts}`;
+    }
     el('kInv').textContent    = intFmt(inv.units_on_hand);
     el('kInvSub').textContent = `${intFmt(inv.skus)} SKUs · deduped`;
     renderKpiDeltas();
