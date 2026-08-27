@@ -16,9 +16,22 @@ on:
         description: Override trailing-window days (default from connection row, 30)
         required: false
   schedule:
-    # 10:30 UTC — ad platforms have finalized the prior day by then;
-    # runs before the 11:00 Shopify sync so both land before US morning.
+    # 10:30 UTC — ad platforms have finalized the prior day by then.
+    # (The old note here said "runs before the 11:00 Shopify sync"; that sync
+    # moved to 08:30 in 2026-08, so the ordering claim was stale.)
     - cron: "30 10 * * *"
+    # 16:30 UTC catch-up, same reasoning as shopify-sync.yml's second cron.
+    # GitHub's scheduled triggers are best-effort and get DROPPED silently.
+    # On 2026-08-27 BOTH this workflow's 10:30 and shopify-sync's 08:30 were
+    # dropped on the same morning, and neither leaves a trace in the Actions
+    # list -- a dropped run simply never appears. The visible symptom was a
+    # marketer reporting that Meta looked "slightly off" hours before a
+    # meeting: the only run that day had been a manual one at 02:27 UTC, i.e.
+    # 7:27pm PT, which caught 8/26 with ~4.5 hours of that Pacific day still
+    # to go. Two independent triggers have to both be dropped for a day to go
+    # unsynced. The sync is an idempotent upsert on a trailing window, so a
+    # second run when the first succeeded is close to free.
+    - cron: "30 16 * * *"
 
 jobs:
   ad-platforms-sync:

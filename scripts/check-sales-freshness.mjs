@@ -28,12 +28,17 @@
  * left the Meta numbers quietly ~4.5 hours short on the most recent day.
  */
 import { createClient } from '@supabase/supabase-js';
+import { appendFileSync } from 'node:fs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Sales are only ever complete through the last finished Pacific day, so a lag
 // of 1 is healthy, not stale. 2 means we missed a nightly.
 const MAX_LAG_DAYS = Number(process.env.MAX_LAG_DAYS || 1);
+// The workflow runs this twice: once to DECIDE whether to self-heal (where a
+// stale result must not fail the job before the heal gets a chance to run),
+// and once afterwards to VERIFY (where stale is a genuine failure).
+const FAIL_ON_STALE = process.env.FAIL_ON_STALE !== 'false';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
@@ -121,6 +126,10 @@ async function main() {
     }
   }
 
+  // Tell the workflow which feeds to re-sync. Written even on success so the
+  // conditional steps always have a defined value to test.
+  emitOutputs(stale);
+
   if (stale.length) {
     console.error('');
     console.error(`[freshness] STALE — Pacific today is ${today}, max allowed lag is ${MAX_LAG_DAYS}d`);
@@ -134,10 +143,21 @@ async function main() {
     }
     console.error('If the scheduled run is simply ABSENT from that list rather than red,');
     console.error('GitHub dropped it — dispatch the workflow by hand with the default inputs.');
-    process.exit(1);
+    if (FAIL_ON_STALE) process.exit(1);
+    console.error('(FAIL_ON_STALE=false — reporting only, the workflow will try to self-heal.)');
+    return;
   }
 
   console.log(`[freshness] all ${checked} feed/company pair(s) within ${MAX_LAG_DAYS}d of Pacific ${today}`);
+}
+
+function emitOutputs(stale) {
+  const out = process.env.GITHUB_OUTPUT;
+  if (!out) return;
+  const labels = new Set(stale.map((s) => s.feed.label));
+  const lines = FEEDS.map((f) => `${f.label}_stale=${labels.has(f.label) ? 'true' : 'false'}`);
+  lines.push(`any_stale=${stale.length ? 'true' : 'false'}`);
+  appendFileSync(out, `${lines.join('\n')}\n`);
 }
 
 main().catch((err) => {
