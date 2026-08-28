@@ -543,7 +543,16 @@ export async function runMetaAdLevelSync(supabase, connection, {
  * counters, not a daily series). `views` unifies what used to be separate
  * impressions/video_views metrics — Meta deprecated per-type impressions on
  * IG media insights in 2024. */
-export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {}) {
+/** `max` is the TOTAL number of posts to walk back through; `pageSize` is how
+ * many the media list returns per request. These were one number before, which
+ * silently made the nightly cap (50) double as the page size -- so asking for a
+ * year of history would also have asked Meta for a single page of that size,
+ * which it caps anyway. Instagram history is NOT bounded by days_back: media
+ * insights are lifetime cumulative counters with no date window, so reaching
+ * further back means walking more posts, not widening a date range. Each post
+ * costs one extra insights request, so the nightly default stays at 50 and a
+ * deeper walk is opt-in via ADS_IG_POST_LIMIT. */
+export async function fetchInstagramMediaInsights(connection, { max = 50, pageSize = 50 } = {}) {
   const token = connection.access_token;
   const igId = connection.instagram_business_account_id;
   if (!token || !igId) return [];
@@ -551,13 +560,17 @@ export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {
   const out = [];
   let url = `https://graph.facebook.com/${META_API_VERSION}/${igId}/media?` + new URLSearchParams({
     fields: 'id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count',
-    limit: String(limit),
+    limit: String(Math.min(pageSize, 100)),
     access_token: token,
   }).toString();
 
-  while (url && out.length < limit) {
+  while (url && out.length < max) {
     const data = await fetchJsonOrThrow(url, {}, 'Instagram media list');
     for (const m of data.data ?? []) {
+      // Stop mid-page rather than finishing it: every post costs its own
+      // insights request, so overshooting the cap by up to a page is real
+      // wasted API budget against a rate limit this account already trips.
+      if (out.length >= max) break;
       let insights = {};
       try {
         const insData = await fetchJsonOrThrow(
@@ -589,7 +602,7 @@ export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {
         saved: insights.saved ?? null,
       });
     }
-    url = out.length < limit ? (data.paging?.next ?? null) : null;
+    url = out.length < max ? (data.paging?.next ?? null) : null;
   }
   return out;
 }
@@ -636,6 +649,32 @@ function pageInsightsUrl(pageId, token, metrics, window) {
   }).toString();
 }
 
+/** One metric-set request, chunked and paged.
+ *
+ * Both halves matter for a backfill and neither did anything at 30 days, which
+ * is why their absence went unnoticed: a single un-paged request returns only
+ * the first page, so a long window would have come back QUIETLY TRUNCATED --
+ * fewer days than asked for, with no error to notice. Chunking keeps each
+ * request inside the range Meta will serve; following paging.next collects the
+ * whole of each chunk. */
+async function fetchPageInsightSeries(pageId, token, metrics, window, chunkDays) {
+  const series = [];
+  const endAll = new Date(`${window.endDate}T00:00:00Z`);
+  for (let start = new Date(`${window.startDate}T00:00:00Z`); start <= endAll;) {
+    const end = new Date(Math.min(start.getTime() + chunkDays * 86400000, endAll.getTime()));
+    let url = pageInsightsUrl(pageId, token, metrics,
+      { startDate: isoDateOnly(start), endDate: isoDateOnly(end) });
+    while (url) {
+      const data = await fetchJsonOrThrow(url, {}, `Facebook Page insights (${metrics.join(',')})`);
+      series.push(...(data.data ?? []));
+      url = data.paging?.next ?? null;
+    }
+    if (end >= endAll) break;
+    start = new Date(end.getTime() + 86400000);
+  }
+  return series;
+}
+
 /** Page Insights will not accept the System User token the ads pull uses:
  * it answers "(#190) This method must be called with a Page Access Token".
  * A Page token is derived from the user token by reading it off the Page node
@@ -665,7 +704,7 @@ export async function fetchFacebookPageAccessToken(connection) {
 /** Page-level daily rollup — a genuine time series, unlike media insights.
  * Returns { days, droppedMetrics } so the caller can record which metrics
  * this Graph version no longer serves instead of silently reporting nulls. */
-export async function fetchFacebookPageInsights(connection, window) {
+export async function fetchFacebookPageInsights(connection, window, { chunkDays = 90 } = {}) {
   const pageId = connection.facebook_page_id;
   if (!connection.access_token || !pageId) return { days: [], droppedMetrics: [] };
 
@@ -677,20 +716,14 @@ export async function fetchFacebookPageInsights(connection, window) {
   const droppedMetrics = [];
 
   try {
-    const data = await fetchJsonOrThrow(
-      pageInsightsUrl(pageId, token, PAGE_INSIGHT_METRICS.map((m) => m.metric), window), {},
-      'Facebook Page insights',
-    );
-    series.push(...(data.data ?? []));
+    series.push(...await fetchPageInsightSeries(
+      pageId, token, PAGE_INSIGHT_METRICS.map((m) => m.metric), window, chunkDays));
   } catch (err) {
     if (!isMetaInvalidMetricError(err)) throw err;
     console.warn('[warn] Facebook Page insights rejected the metric set — probing each metric individually');
     for (const { metric } of PAGE_INSIGHT_METRICS) {
       try {
-        const data = await fetchJsonOrThrow(
-          pageInsightsUrl(pageId, token, [metric], window), {}, `Facebook Page insights (${metric})`,
-        );
-        series.push(...(data.data ?? []));
+        series.push(...await fetchPageInsightSeries(pageId, token, [metric], window, chunkDays));
       } catch (metricErr) {
         if (!isMetaInvalidMetricError(metricErr)) {
           // Carry what the probe already established out with the error —
@@ -769,11 +802,13 @@ export async function fetchFacebookPageFanCount(connection) {
 export async function runMetaOrganicSync(supabase, connection, {
   now = new Date(),
   daysBackOverride = null,
+  igPostLimit = null,
 } = {}) {
   const window = computeWindow(now, daysBackOverride ?? connection.days_back ?? 30);
   const syncedAt = new Date().toISOString();
 
-  const media = await fetchInstagramMediaInsights(connection);
+  const media = await fetchInstagramMediaInsights(connection,
+    igPostLimit ? { max: Number(igPostLimit) } : {});
   const mediaRows = media.map((m) => ({
     company_entity_id: connection.company_entity_id,
     media_id: String(m.mediaId),
@@ -857,6 +892,7 @@ export async function runMetaOrganicSync(supabase, connection, {
 
   return {
     configured: Boolean(connection.instagram_business_account_id || connection.facebook_page_id),
+    media_fetched: media.length,
     media_upserted: mediaUpserted,
     page_days_upserted: pageUpserted,
     // Present only when there is something to say, so a clean run's summary
