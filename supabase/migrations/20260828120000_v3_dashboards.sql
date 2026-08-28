@@ -185,7 +185,16 @@ grant select, insert, update, delete on public.dashboards to authenticated;
 grant select, insert, update, delete on public.dashboard_widgets to authenticated;
 
 -- ── views ─────────────────────────────────────────────────────────────
-create or replace view public.dashboards_v
+-- `drop view` + `create view`, not `create or replace view`: Postgres can
+-- only APPEND columns to an existing view, so replacing one whose column
+-- list changed shape fails with "cannot change name of view column". These
+-- three v3 migrations each reshape the same views, and
+-- apply_all_post_merge.sql runs all of them in sequence -- so a plain
+-- replace breaks a fresh rebuild at the second migration, and breaks a
+-- re-run of apply_all at the first. Nothing depends on these views, so the
+-- drop is safe and no cascade is needed.
+drop view if exists public.dashboards_v;
+create view public.dashboards_v
 with (security_invoker = true) as
 select
   d.id,
@@ -209,7 +218,8 @@ grant select on public.dashboards_v to authenticated;
 -- source report is someone else's PRIVATE saved report comes back with a
 -- null query_sql for everyone but its owner -- the tile then renders a
 -- "source report not visible to you" state instead of silently blank.
-create or replace view public.dashboard_widgets_v
+drop view if exists public.dashboard_widgets_v;
+create view public.dashboard_widgets_v
 with (security_invoker = true) as
 select
   w.id,

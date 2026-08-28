@@ -317,6 +317,7 @@ supabase/
     20260827200000_review_scale_1_4_and_goal_dates.sql
     20260828120000_v3_dashboards.sql
     20260828130000_saved_report_source.sql
+    20260828140000_saved_report_column_semantics.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

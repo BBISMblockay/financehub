@@ -1618,3 +1618,16 @@ select
       then 'MISSING — dashboard_widgets_v.report_source'
     else 'ok'
   end as saved_report_source;
+
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='columns_metadata')
+      then 'MISSING — run 20260828140000_saved_report_column_semantics.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='report_columns_metadata')
+      then 'MISSING — dashboard_widgets_v.report_columns_metadata; dashboards fall back to guessing currency vs count from column names'
+    else 'ok'
+  end as saved_report_column_semantics;

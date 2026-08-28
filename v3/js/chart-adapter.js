@@ -10,10 +10,16 @@
    are measures. Everything downstream -- the recommendation, the inspector's
    field pickers, the axis formatting -- is built on that profile.
 
+   What a column MEANS lives in field-semantics.js, not here. This file asks
+   "how do I print a currency value"; that one answers "is this column
+   currency at all", grounded in the report's saved metadata and the
+   database's own column types rather than in a regex over the name.
+
    Deliberately not here: anything that rewrites SQL. A widget's dataset is
-   whatever its saved report's query returned. Sort/limit/top-N are applied
-   to those returned rows, client side, which is honest about the fact that
-   the query runner caps every result at 500 rows.
+   whatever its saved report's query returned. Sort/limit/top-N and
+   aggregation are applied to those returned rows, client side, which is
+   honest about the fact that the query runner caps every result at 500
+   rows.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -127,20 +133,20 @@
   }
 
   // ── Value formatting ─────────────────────────────────────────────────
-  const CURRENCY_RE = /(sales|revenue|amount|cost|price|spend|total|value|payout|margin|gross|net|aov|profit)/i;
-  const PERCENT_RE = /(pct|percent|rate|share|ratio)/i;
-  // Checked BEFORE currency, and it has to be: half these words routinely
-  // appear alongside one of the currency words in this data set
-  // ("total_units", "net_units_sold", "order_count"), and formatting a unit
-  // count as dollars is a wrong number on a dashboard, not a cosmetic slip.
-  const COUNT_RE = /(units?|qty|quantity|orders?|count|sessions?|clicks?|impressions?|items?|visits?|users?|skus?|days?)\b/i;
+  // Driven by SEMANTIC, not by name. The name-based guessing that used to
+  // live here is now the last of four layers in field-semantics.js.
+  function semanticOf(name, semantics, profile) {
+    const s = semantics && semantics[name];
+    if (s) return typeof s === 'string' ? s : s.semantic;
+    const col = (profile || []).find((c) => c.name === name);
+    return global.SiloFieldSemantics.resolve(name, col ? col.type : 'number', {}).semantic;
+  }
 
+  // Kept for callers that only have a name (and for the inspector's "auto"
+  // label). Ungrounded on purpose -- it is the fallback, not the answer.
   function inferFormat(fieldName) {
     if (!fieldName) return 'number';
-    if (PERCENT_RE.test(fieldName)) return 'percent';
-    if (COUNT_RE.test(fieldName)) return 'number';
-    if (CURRENCY_RE.test(fieldName)) return 'currency';
-    return 'number';
+    return global.SiloFieldSemantics.resolve(fieldName, 'number', {}).semantic;
   }
 
   function toNumber(v) {
@@ -149,16 +155,16 @@
     return Number.isFinite(n) ? n : null;
   }
 
-  function formatValue(v, format) {
+  function formatValue(v, semantic) {
     const n = toNumber(v);
     if (n === null) return v === null || v === undefined ? '' : String(v);
-    if (format === 'currency') {
+    if (semantic === 'currency') {
       return n.toLocaleString(undefined, {
         style: 'currency', currency: 'USD',
         maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2,
       });
     }
-    if (format === 'percent') {
+    if (semantic === 'percent') {
       // Values arrive either as 0-1 fractions or as already-scaled 0-100
       // percentages depending on the query. Guessing wrong by 100x is the
       // kind of error nobody catches on a dashboard, so only treat a value
@@ -166,28 +172,60 @@
       const scaled = Math.abs(n) <= 1 ? n * 100 : n;
       return `${scaled.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
     }
+    // A count is a whole thing. Printing 19,362.5 units is not a rounding
+    // preference, it is a category error -- so counts never get decimals
+    // even when an average produces one.
+    if (semantic === 'count') return Math.round(n).toLocaleString();
     return n.toLocaleString(undefined, { maximumFractionDigits: Math.abs(n) >= 100 ? 0 : 2 });
   }
 
   // Compact axis labels -- a y-axis reading "1,250,000" three times over
   // eats the plot area a small tile does not have.
-  function compact(v, format) {
+  function compact(v, semantic) {
     const n = toNumber(v);
     if (n === null) return '';
     const abs = Math.abs(n);
     const unit = abs >= 1e9 ? ['e9', 1e9] : abs >= 1e6 ? ['M', 1e6] : abs >= 1e3 ? ['k', 1e3] : ['', 1];
     const short = `${(n / unit[1]).toLocaleString(undefined, { maximumFractionDigits: unit[1] === 1 ? 0 : 1 })}${unit[0] === 'e9' ? 'B' : unit[0]}`;
-    return format === 'currency' ? `$${short}` : format === 'percent' ? formatValue(n, 'percent') : short;
+    return semantic === 'currency' ? `$${short}` : semantic === 'percent' ? formatValue(n, 'percent') : short;
   }
 
   // ── Shaping ──────────────────────────────────────────────────────────
+  const AGGREGATES = ['sum', 'avg', 'min', 'max', 'count', 'none'];
+
   /**
-   * Apply the widget's dimension/measure/sort/limit to the raw rows.
-   * Returns null when the config does not name usable fields -- callers
-   * render a "pick a dimension and a measure" prompt rather than an empty
-   * chart, so a half-configured widget says so.
+   * Sum is right for currency and counts and wrong for rates: averaging
+   * three days of 40%/50%/60% gives 50%, summing gives 150%. Percent
+   * therefore defaults to avg. 'none' stays available for a query that has
+   * already aggregated and must not be touched.
    */
-  function shape(rows, config) {
+  function defaultAggregate(semantic) {
+    return semantic === 'percent' ? 'avg' : 'sum';
+  }
+
+  function aggregateValues(nums, agg) {
+    if (!nums.length) return null;
+    switch (agg) {
+      case 'avg': return nums.reduce((a, b) => a + b, 0) / nums.length;
+      case 'min': return Math.min(...nums);
+      case 'max': return Math.max(...nums);
+      case 'count': return nums.length;
+      default: return nums.reduce((a, b) => a + b, 0);
+    }
+  }
+
+  /**
+   * Apply the widget's dimension/measure/aggregate/sort/limit to the raw
+   * rows. Returns null when the config does not name usable fields --
+   * callers render a "pick a dimension and a measure" prompt rather than an
+   * empty chart, so a half-configured widget says so.
+   *
+   * Grouping happens BEFORE sort and limit, which is the only order that
+   * gives the right answer: taking the top 10 rows and then summing them
+   * per product answers a different question than summing per product and
+   * then taking the top 10.
+   */
+  function shape(rows, config, semantics) {
     const cfg = config || {};
     if (!Array.isArray(rows) || !rows.length) return null;
     const prof = profileColumns(rows);
@@ -197,23 +235,57 @@
     const yField = has(cfg.y_field) ? cfg.y_field : (measuresOf(prof)[0] || {}).name;
     if (!xField || !yField) return null;
 
-    let out = rows.map((r) => ({ label: r[xField], value: toNumber(r[yField]), row: r }));
+    const semantic = cfg.value_format && cfg.value_format !== 'auto'
+      ? cfg.value_format
+      : semanticOf(yField, semantics, prof);
+    const agg = AGGREGATES.includes(cfg.aggregate) ? cfg.aggregate : defaultAggregate(semantic);
+
+    let points;
+    let aggregatedFrom = 0;
+    if (agg === 'none') {
+      points = rows.map((r) => ({ label: r[xField], value: toNumber(r[yField]), row: r }));
+    } else {
+      // Map keyed on the STRING label, but the first row's original label is
+      // kept for display -- two rows whose dimension is null and '' must not
+      // silently merge into one bar under a key of ''.
+      const groups = new Map();
+      for (const r of rows) {
+        const key = r[xField] === null || r[xField] === undefined ? '\u0000null' : String(r[xField]);
+        if (!groups.has(key)) groups.set(key, { label: r[xField], nums: [], rows: [] });
+        const g = groups.get(key);
+        const n = toNumber(r[yField]);
+        if (n !== null) g.nums.push(n);
+        g.rows.push(r);
+      }
+      aggregatedFrom = rows.length;
+      points = Array.from(groups.values()).map((g) => ({
+        label: g.label, value: aggregateValues(g.nums, agg), row: g.rows[0], rowCount: g.rows.length,
+      }));
+    }
 
     const sort = cfg.sort || 'desc';
-    if (sort === 'desc') out.sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity));
-    else if (sort === 'asc') out.sort((a, b) => (a.value ?? Infinity) - (b.value ?? Infinity));
-    else if (sort === 'x_asc') out.sort((a, b) => String(a.label).localeCompare(String(b.label)));
-    else if (sort === 'x_desc') out.sort((a, b) => String(b.label).localeCompare(String(a.label)));
+    if (sort === 'desc') points.sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity));
+    else if (sort === 'asc') points.sort((a, b) => (a.value ?? Infinity) - (b.value ?? Infinity));
+    else if (sort === 'x_asc') points.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+    else if (sort === 'x_desc') points.sort((a, b) => String(b.label).localeCompare(String(a.label)));
     // sort === 'none' keeps the query's own ORDER BY, which is often the
     // point of the query.
 
+    const totalRows = points.length;
     const limit = Number(cfg.limit) || 0;
-    const truncated = limit > 0 && out.length > limit;
-    if (truncated) out = out.slice(0, limit);
+    const truncated = limit > 0 && points.length > limit;
+    if (truncated) points = points.slice(0, limit);
 
     return {
-      xField, yField, points: out, truncated, totalRows: rows.length,
-      format: cfg.value_format || inferFormat(yField),
+      xField, yField, points, truncated, totalRows,
+      aggregate: agg,
+      // Non-zero only when grouping actually collapsed rows -- the foot uses
+      // this to say "10 of 46 products (from 1,204 rows)" instead of
+      // implying the chart shows every row it was given.
+      aggregatedFrom: aggregatedFrom > totalRows ? aggregatedFrom : 0,
+      semantic,
+      // Legacy alias: the option builders and older call sites read .format.
+      format: semantic,
     };
   }
 

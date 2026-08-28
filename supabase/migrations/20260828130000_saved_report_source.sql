@@ -165,7 +165,16 @@ create policy silo_chat_saved_reports_delete on public.silo_chat_saved_reports
   );
 
 -- ── Views ─────────────────────────────────────────────────────────────
-create or replace view public.silo_chat_saved_reports_v
+-- `drop view` + `create view`, not `create or replace view`: Postgres can
+-- only APPEND columns to an existing view, so replacing one whose column
+-- list changed shape fails with "cannot change name of view column". These
+-- three v3 migrations each reshape the same views, and
+-- apply_all_post_merge.sql runs all of them in sequence -- so a plain
+-- replace breaks a fresh rebuild at the second migration, and breaks a
+-- re-run of apply_all at the first. Nothing depends on these views, so the
+-- drop is safe and no cascade is needed.
+drop view if exists public.silo_chat_saved_reports_v;
+create view public.silo_chat_saved_reports_v
 with (security_invoker = true) as
 select
   r.id,
@@ -191,7 +200,8 @@ grant select on public.silo_chat_saved_reports_v to authenticated;
 -- its data came from without a second query. The widget table itself is
 -- untouched by this migration -- that is the whole point: whatever a
 -- future report source turns out to be, no widget row migrates.
-create or replace view public.dashboard_widgets_v
+drop view if exists public.dashboard_widgets_v;
+create view public.dashboard_widgets_v
 with (security_invoker = true) as
 select
   w.id,
