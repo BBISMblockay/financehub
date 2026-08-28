@@ -662,12 +662,23 @@ async function fetchPageInsightSeries(pageId, token, metrics, window, chunkDays)
   const endAll = new Date(`${window.endDate}T00:00:00Z`);
   for (let start = new Date(`${window.startDate}T00:00:00Z`); start <= endAll;) {
     const end = new Date(Math.min(start.getTime() + chunkDays * 86400000, endAll.getTime()));
+    const chunkUntil = isoDateOnly(end);
     let url = pageInsightsUrl(pageId, token, metrics,
-      { startDate: isoDateOnly(start), endDate: isoDateOnly(end) });
+      { startDate: isoDateOnly(start), endDate: chunkUntil });
     while (url) {
       const data = await fetchJsonOrThrow(url, {}, `Facebook Page insights (${metrics.join(',')})`);
-      series.push(...(data.data ?? []));
-      url = data.paging?.next ?? null;
+      const page = data.data ?? [];
+      series.push(...page);
+      // paging.next on Page Insights walks the time window FORWARD rather than
+      // ending at the `until` that was asked for, so following it blindly keeps
+      // marching past the window into buckets that have not happened yet. On
+      // 2026-08-28 that wrote 90 future-dated rows (08-29..11-26) full of
+      // ZEROES -- which is worse than missing data, because a zero reads as a
+      // measured value and would have dragged every average down. Stop as soon
+      // as a page reaches past the end of this chunk.
+      const overshot = page.some((sv) => (sv.values ?? []).some(
+        (pt) => String(pt.end_time || '').slice(0, 10) > chunkUntil));
+      url = overshot ? null : (data.paging?.next ?? null);
     }
     if (end >= endAll) break;
     start = new Date(end.getTime() + 86400000);
@@ -759,6 +770,14 @@ export async function fetchFacebookPageInsights(connection, window, { chunkDays 
       if (!/^\d{4}-\d{2}-\d{2}$/.test(endDay)) continue;
       const day = isoDateOnly(addDays(new Date(`${endDay}T00:00:00Z`), -1));
       if (!day) continue;
+      // Belt to the paging guard's braces: keep only days the caller actually
+      // asked for. The upper bound is EXCLUSIVE of endDate because endDate is
+      // today and today is still in progress -- a bucket stamped endDate would
+      // shift to endDate-1, so [startDate, endDate) is exactly the set of
+      // COMPLETE days in the window. Guarding here as well as at the paging
+      // loop means a stray datapoint can never become a row again, whatever
+      // Meta returns.
+      if (day < window.startDate || day >= window.endDate) continue;
       if (!byDay.has(day)) byDay.set(day, { day });
       byDay.get(day)[s.name] = point.value;
     }

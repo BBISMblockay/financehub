@@ -124,6 +124,17 @@ roughly two years). The window is chunked at 90 days per request and each chunk 
 at 30 days: a single un-paged request returns just the first page, so a year-long window
 would have come back QUIETLY TRUNCATED, with fewer days than asked for and no error.
 
+Page Insights `paging.next` walks the time window **forward** rather than ending at the
+`until` that was asked for, so following it blindly marches past the window into buckets
+that have not happened yet. Doing exactly that on 2026-08-28 wrote 90 future-dated rows
+(08-29..11-26) full of ZEROES — worse than missing data, because a zero reads as a measured
+value and would have dragged every average down while the UI's null-check happily rendered
+it. The fetcher now stops paging as soon as a page reaches past the chunk end, and
+separately keeps only days inside `[startDate, endDate)`. The upper bound is exclusive
+because `endDate` is today and today is still in progress, so that range is exactly the set
+of COMPLETE days. Both guards are deliberate: the clamp filters by DATE and never by value,
+so a genuine zero-engagement day inside the window is still kept.
+
 *Instagram* history is **not** date-windowed at all — media insights are lifetime cumulative
 counters with no date range, so reaching further back means walking through more POSTS.
 `days_back` has no effect on Instagram whatsoever. Use the `ig_post_limit` workflow input
