@@ -602,11 +602,23 @@ export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {
  * error and wrote 0 rows while Instagram in the same run wrote 50. So probe
  * individually on that specific error, keep whatever this version still
  * serves, and report what was dropped rather than failing the half. */
+// Meta's own deprecation table maps the retired names to replacements, so
+// these are the documented successors rather than guesses:
+//   page_impressions        (retired 2025-11-15) → page_media_view
+//   page_impressions_unique (retired 2025-06-15) → page_total_media_view_unique
+//   page_engaged_users      (retired 2024-03-14) → NOTHING. No replacement is
+//     listed, so page_engaged_users is simply not requested any more and its
+//     column stays null; it is omitted from the row payload rather than
+//     written as 0, because "Meta stopped measuring this" is not zero.
+// A media view is not the same measurement as an impression, and a unique
+// media view is not the same as reach -- these start a NEW series rather than
+// continuing the old one. Nothing here has old values to be confused with
+// (the table was empty until 2026-08-28), but do not splice them onto
+// historical impression/reach numbers from any other source.
 const PAGE_INSIGHT_METRICS = [
-  'page_impressions',
-  'page_impressions_unique',
-  'page_engaged_users',
-  'page_post_engagements',
+  { metric: 'page_media_view', field: 'impressions' },
+  { metric: 'page_total_media_view_unique', field: 'reach' },
+  { metric: 'page_post_engagements', field: 'postEngagements' },
 ];
 
 function isMetaInvalidMetricError(err) {
@@ -666,13 +678,14 @@ export async function fetchFacebookPageInsights(connection, window) {
 
   try {
     const data = await fetchJsonOrThrow(
-      pageInsightsUrl(pageId, token, PAGE_INSIGHT_METRICS, window), {}, 'Facebook Page insights',
+      pageInsightsUrl(pageId, token, PAGE_INSIGHT_METRICS.map((m) => m.metric), window), {},
+      'Facebook Page insights',
     );
     series.push(...(data.data ?? []));
   } catch (err) {
     if (!isMetaInvalidMetricError(err)) throw err;
     console.warn('[warn] Facebook Page insights rejected the metric set — probing each metric individually');
-    for (const metric of PAGE_INSIGHT_METRICS) {
+    for (const { metric } of PAGE_INSIGHT_METRICS) {
       try {
         const data = await fetchJsonOrThrow(
           pageInsightsUrl(pageId, token, [metric], window), {}, `Facebook Page insights (${metric})`,
@@ -704,13 +717,11 @@ export async function fetchFacebookPageInsights(connection, window) {
       byDay.get(day)[s.name] = point.value;
     }
   }
-  const days = [...byDay.values()].map((d) => ({
-    day: d.day,
-    impressions: d.page_impressions ?? null,
-    reach: d.page_impressions_unique ?? null,
-    engagedUsers: d.page_engaged_users ?? null,
-    postEngagements: d.page_post_engagements ?? null,
-  }));
+  const days = [...byDay.values()].map((d) => {
+    const out = { day: d.day };
+    for (const { metric, field } of PAGE_INSIGHT_METRICS) out[field] = d[metric] ?? null;
+    return out;
+  });
   return { days, droppedMetrics };
 }
 
@@ -795,7 +806,6 @@ export async function runMetaOrganicSync(supabase, connection, {
       day_date: d.day,
       page_impressions: d.impressions == null ? null : Math.round(num(d.impressions)),
       page_reach: d.reach == null ? null : Math.round(num(d.reach)),
-      page_engaged_users: d.engagedUsers == null ? null : Math.round(num(d.engagedUsers)),
       page_post_engagements: d.postEngagements == null ? null : Math.round(num(d.postEngagements)),
       row_hash: hashRow([connection.company_entity_id, 'facebook_page', d.day]),
       synced_at: syncedAt,

@@ -254,8 +254,8 @@
             </div>
             <div style="overflow:auto;max-height:340px">
               <table class="mo-tbl">
-                <thead><tr><th>Day</th><th>Post engagements</th><th>Impressions</th><th>Reach</th><th>Engaged users</th></tr></thead>
-                <tbody id="fbBody"><tr><td class="mo-empty" colspan="5">No Facebook Page data yet — set the Page ID on the Meta connection in Integrations.</td></tr></tbody>
+                <thead><tr id="fbHead"><th>Day</th><th>Post engagements</th></tr></thead>
+                <tbody id="fbBody"><tr><td class="mo-empty" colspan="4">No Facebook Page data yet — set the Page ID on the Meta connection in Integrations.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -378,7 +378,7 @@
     try {
       return await loadPaged(() => scopeQ(
         sb.from('facebook_page_insights_daily')
-          .select('day_date,page_impressions,page_reach,page_engaged_users,page_post_engagements,page_fan_count')
+          .select('day_date,page_impressions,page_reach,page_post_engagements,page_fan_count')
           .gte('day_date', sinceIso())
           .order('day_date', { ascending:false })));
     } catch(e){ console.warn('facebook_page_insights_daily unavailable', e); return []; }
@@ -762,13 +762,24 @@
     }).join('');
   }
 
-  // ── Facebook Page ──────────────────────────────────────────────
-  // Meta has retired page_impressions, page_impressions_unique and
-  // page_engaged_users (Nov 2025 + June 2026 rounds); the sync records them in
-  // sync_jobs.result.organic.page_metrics_dropped and stores null. null here
-  // means NOT REPORTED, never zero -- so these render as "not reported"
-  // rather than through numFmt, which would turn null into a confident 0.
+  // null means NOT REPORTED, never zero: numFmt would turn null into a
+  // confident 0, which for a metric Meta has stopped serving is a false claim.
   const numOrNa = v => v == null ? '<span class="mo-na">not reported</span>' : numFmt(v);
+
+  // ── Facebook Page ──────────────────────────────────────────────
+  // Meta retired the old impression/reach metrics and named replacements:
+  //   page_impressions        (2025-11-15) → page_media_view
+  //   page_impressions_unique (2025-06-15) → page_total_media_view_unique
+  //   page_engaged_users      (2024-03-14) → no replacement at all
+  // The columns keep their original names in the DB, but the LABELS here say
+  // "media views", because a media view is not an impression and a unique
+  // media view is not reach. Calling them Impressions/Reach would hide a
+  // measurement change behind a familiar word.
+  const FB_COLS = [
+    { key: 'page_post_engagements', label: 'Post engagements' },
+    { key: 'page_impressions', label: 'Media views' },
+    { key: 'page_reach', label: 'Unique media views' },
+  ];
 
   function renderPageInsights(rows){
     if (!rows.length) return; // leaves the empty state in place
@@ -788,28 +799,30 @@
     el('fbEngAvg').textContent = engDays.length ? numFmt(engTotal / engDays.length) : '—';
     el('fbEngAvgSub').textContent = engDays.length ? 'per day with data' : '\u00a0';
 
+    // Hide a column that is null for the whole window rather than printing a
+    // stack of "not reported". A retired metric that Meta starts serving again
+    // brings its column back on its own -- nothing here is hardcoded to the
+    // metrics that happen to be dead today.
+    const live = FB_COLS.filter(c => days.some(d => d[c.key] != null));
+    const dead = FB_COLS.filter(c => !live.includes(c));
+
+    el('fbHead').innerHTML = '<th>Day</th>' + live.map(c => `<th>${esc(c.label)}</th>`).join('');
     el('fbBody').innerHTML = days.map(d => `<tr>
       <td class="bcn-mono">${esc(d.day_date)}</td>
-      <td>${numOrNa(d.page_post_engagements)}</td>
-      <td>${numOrNa(d.page_impressions)}</td>
-      <td>${numOrNa(d.page_reach)}</td>
-      <td>${numOrNa(d.page_engaged_users)}</td>
+      ${live.map(c => `<td>${numOrNa(d[c.key])}</td>`).join('')}
     </tr>`).join('');
 
-    // Name the retired columns explicitly instead of leaving a wall of
-    // "not reported" for the reader to interpret.
-    const RETIRED = [
-      ['page_impressions',    'Impressions'],
-      ['page_reach',          'Reach'],
-      ['page_engaged_users',  'Engaged users'],
-    ].filter(([k]) => days.every(d => d[k] == null)).map(([,label]) => label);
-
-    el('fbNote').innerHTML = RETIRED.length
-      ? `Page-level daily engagement. ${esc(RETIRED.join(', '))} ${RETIRED.length===1?'is':'are'} `
-        + 'no longer served by Meta\u2019s Page Insights API (retired in the Nov 2025 and June 2026 rounds) \u2014 '
-        + 'shown as <span class="mo-na">not reported</span>, which means unknown, not zero. '
-        + 'Followers come from the Page profile, and only the newest day of each sync is stamped, so history stays blank.'
-      : 'Page-level daily engagement. Followers come from the Page profile and only the newest day of each sync is stamped.';
+    const notes = ['Page-level daily engagement.'];
+    if (live.some(c => c.key !== 'page_post_engagements')) {
+      notes.push('Media views replaced impressions and reach in Meta\u2019s 2025 deprecations \u2014 '
+        + 'a related but different measurement, so treat this as a new series rather than a continuation.');
+    }
+    if (dead.length) {
+      notes.push(`${esc(dead.map(c => c.label).join(', '))} ${dead.length===1?'is':'are'} not being returned for this window `
+        + '\u2014 column hidden rather than shown as zero, since no data means unknown.');
+    }
+    notes.push('Followers come from the Page profile, and only the newest day of each sync is stamped, so history stays blank.');
+    el('fbNote').innerHTML = notes.join(' ');
   }
 
   // ── Load orchestration ─────────────────────────────────────────
