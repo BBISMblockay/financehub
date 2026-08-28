@@ -59,6 +59,34 @@ The System User token above only grants `ads_read` — organic reach/engagement 
 
 Note: Meta unified impression-style metrics on Instagram media insights into a single `views` metric in 2024 — if comparing against an older report that says "impressions," that's the same thing under the new name.
 
+**Page metrics are on a moving deprecation schedule, Instagram's are not.** Meta has been
+retiring Page Insights metrics — the Nov 2025 round took `impressions`/`page fans`, the
+June 15 2026 round took the unique reach/impressions family — and these retirements are
+GLOBAL, not per-version, so pinning `META_API_VERSION` does not hold them still. The API
+rejects a retired name with `(#100) The value must be a valid insights metric` and does
+**not** say which name it objected to, so one dead metric in a combined request kills every
+Page metric in it. That is what happened on 2026-08-28, the first run after
+`facebook_page_id` was set: Page insights wrote 0 rows while Instagram, in the same run,
+wrote 50.
+
+`fetchFacebookPageInsights` therefore falls back to requesting each metric on its own when
+it sees that specific error, keeps whatever still works, and reports the rest as
+`page_metrics_dropped` in the `sync_jobs` result. **Read that field rather than assuming a
+metric is populated** — the sync no longer fails when Meta retires one, which means a
+column can quietly go all-null. When it names a metric, pick the current replacement from
+Meta's deprecation page and swap it in `PAGE_INSIGHT_METRICS`.
+
+The Instagram and Facebook halves are also independently error-trapped: a Page failure
+records `page_error` and leaves `media_upserted` intact, instead of replacing the whole
+organic summary with an error string (which is what hid those 50 Instagram rows).
+
+`page_fan_count` comes from the Page node (`?fields=fan_count`), not the insights edge —
+which is why the column sat unwritten from the table's creation until 2026-08-28. It is a
+current snapshot, so only the newest day is stamped, by a targeted update after the main
+upsert; the trailing-window upsert deliberately omits the column so it cannot blank out
+days an earlier run already stamped. Older days stay null — a follower count cannot be
+honestly backfilled.
+
 ## TikTok Ads
 
 1. **business-api.tiktok.com** (TikTok for Business developer portal) → Become a developer → Create app.

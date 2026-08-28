@@ -594,40 +594,112 @@ export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {
   return out;
 }
 
-/** Page-level daily rollup — a genuine time series, unlike media insights. */
+/** Meta retires Page Insights metrics between Graph versions, and the error
+ * it returns — "(#100) The value must be a valid insights metric" — does NOT
+ * name the offending metric. Requesting all four in one call therefore means
+ * one retired name costs every Page metric: that is exactly what happened on
+ * 2026-08-28, the first run after facebook_page_id was set, which logged this
+ * error and wrote 0 rows while Instagram in the same run wrote 50. So probe
+ * individually on that specific error, keep whatever this version still
+ * serves, and report what was dropped rather than failing the half. */
+const PAGE_INSIGHT_METRICS = [
+  'page_impressions',
+  'page_impressions_unique',
+  'page_engaged_users',
+  'page_post_engagements',
+];
+
+function isMetaInvalidMetricError(err) {
+  const msg = String(err?.message || '');
+  return msg.includes('(#100)') && /valid insights metric/i.test(msg);
+}
+
+function pageInsightsUrl(pageId, token, metrics, window) {
+  return `https://graph.facebook.com/${META_API_VERSION}/${pageId}/insights?` + new URLSearchParams({
+    metric: metrics.join(','),
+    period: 'day',
+    since: window.startDate,
+    until: window.endDate,
+    access_token: token,
+  }).toString();
+}
+
+/** Page-level daily rollup — a genuine time series, unlike media insights.
+ * Returns { days, droppedMetrics } so the caller can record which metrics
+ * this Graph version no longer serves instead of silently reporting nulls. */
 export async function fetchFacebookPageInsights(connection, window) {
   const token = connection.access_token;
   const pageId = connection.facebook_page_id;
-  if (!token || !pageId) return [];
+  if (!token || !pageId) return { days: [], droppedMetrics: [] };
 
-  const metrics = ['page_impressions', 'page_impressions_unique', 'page_engaged_users', 'page_post_engagements'];
-  const data = await fetchJsonOrThrow(
-    `https://graph.facebook.com/${META_API_VERSION}/${pageId}/insights?` + new URLSearchParams({
-      metric: metrics.join(','),
-      period: 'day',
-      since: window.startDate,
-      until: window.endDate,
-      access_token: token,
-    }).toString(),
-    {}, 'Facebook Page insights',
-  );
+  const series = [];
+  const droppedMetrics = [];
+
+  try {
+    const data = await fetchJsonOrThrow(
+      pageInsightsUrl(pageId, token, PAGE_INSIGHT_METRICS, window), {}, 'Facebook Page insights',
+    );
+    series.push(...(data.data ?? []));
+  } catch (err) {
+    if (!isMetaInvalidMetricError(err)) throw err;
+    console.warn('[warn] Facebook Page insights rejected the metric set — probing each metric individually');
+    for (const metric of PAGE_INSIGHT_METRICS) {
+      try {
+        const data = await fetchJsonOrThrow(
+          pageInsightsUrl(pageId, token, [metric], window), {}, `Facebook Page insights (${metric})`,
+        );
+        series.push(...(data.data ?? []));
+      } catch (metricErr) {
+        if (!isMetaInvalidMetricError(metricErr)) throw metricErr;
+        droppedMetrics.push(metric);
+      }
+    }
+    if (droppedMetrics.length) {
+      console.warn(`[warn] Facebook Page insights: Graph ${META_API_VERSION} no longer serves ${droppedMetrics.join(', ')} — skipped`);
+    }
+  }
 
   const byDay = new Map();
-  for (const series of data.data ?? []) {
-    for (const point of series.values ?? []) {
+  for (const s of series) {
+    for (const point of s.values ?? []) {
       const day = String(point.end_time || '').slice(0, 10);
       if (!day) continue;
       if (!byDay.has(day)) byDay.set(day, { day });
-      byDay.get(day)[series.name] = point.value;
+      byDay.get(day)[s.name] = point.value;
     }
   }
-  return [...byDay.values()].map((d) => ({
+  const days = [...byDay.values()].map((d) => ({
     day: d.day,
     impressions: d.page_impressions ?? null,
     reach: d.page_impressions_unique ?? null,
     engagedUsers: d.page_engaged_users ?? null,
     postEngagements: d.page_post_engagements ?? null,
   }));
+  return { days, droppedMetrics };
+}
+
+/** Follower count lives on the Page node, not the insights edge — which is
+ * why facebook_page_insights_daily.page_fan_count existed since the table was
+ * created and was never written by anything. It is a CURRENT snapshot, not a
+ * series, so the caller stamps it on the newest day only; older days keep a
+ * null we cannot honestly backfill, and each nightly run adds one more day. */
+export async function fetchFacebookPageFanCount(connection) {
+  const token = connection.access_token;
+  const pageId = connection.facebook_page_id;
+  if (!token || !pageId) return null;
+  try {
+    const data = await fetchJsonOrThrow(
+      `https://graph.facebook.com/${META_API_VERSION}/${pageId}?` + new URLSearchParams({
+        fields: 'fan_count', access_token: token,
+      }).toString(), {}, 'Facebook Page fan_count',
+    );
+    return data?.fan_count == null ? null : Math.round(num(data.fan_count));
+  } catch (err) {
+    // A follower count is the least important thing here — never let it cost
+    // the daily series that did come back.
+    console.warn('[warn] Facebook Page fan_count unavailable:', err.message);
+    return null;
+  }
 }
 
 /** Sync organic Instagram + Facebook data for one meta_ads connection.
@@ -662,25 +734,62 @@ export async function runMetaOrganicSync(supabase, connection, {
     ? await upsertInChunks(supabase, 'instagram_media_insights', mediaRows, 'company_entity_id,media_id')
     : 0;
 
-  const pageDays = await fetchFacebookPageInsights(connection, window);
-  const pageRows = pageDays.map((d) => ({
-    company_entity_id: connection.company_entity_id,
-    day_date: d.day,
-    page_impressions: d.impressions == null ? null : Math.round(num(d.impressions)),
-    page_reach: d.reach == null ? null : Math.round(num(d.reach)),
-    page_engaged_users: d.engagedUsers == null ? null : Math.round(num(d.engagedUsers)),
-    page_post_engagements: d.postEngagements == null ? null : Math.round(num(d.postEngagements)),
-    row_hash: hashRow([connection.company_entity_id, 'facebook_page', d.day]),
-    synced_at: syncedAt,
-  }));
-  const pageUpserted = pageRows.length
-    ? await upsertInChunks(supabase, 'facebook_page_insights_daily', pageRows, 'row_hash')
-    : 0;
+  // The Facebook half gets its own try/catch so its failure cannot erase the
+  // Instagram result: on 2026-08-28 a Page-metric error propagated out of
+  // here and the whole organic summary became {error: ...}, hiding the 50
+  // Instagram rows that had already been written two statements above.
+  let pageUpserted = 0;
+  let pageError = null;
+  let droppedMetrics = [];
+  let fanCount = null;
+  try {
+    const { days: pageDays, droppedMetrics: dropped } = await fetchFacebookPageInsights(connection, window);
+    droppedMetrics = dropped;
+
+    // page_fan_count is deliberately NOT a column on these rows. It is a
+    // current snapshot, not a series, so it only belongs on the newest day —
+    // and since each night re-upserts a trailing window, carrying the column
+    // here at all would rewrite every previously-stamped day back to null and
+    // the series could never accumulate. Omitting the key entirely leaves
+    // whatever an earlier run stored intact (PostgREST only updates the
+    // columns actually present in the payload); the newest day is then
+    // stamped by the targeted update below.
+    const pageRows = pageDays.map((d) => ({
+      company_entity_id: connection.company_entity_id,
+      day_date: d.day,
+      page_impressions: d.impressions == null ? null : Math.round(num(d.impressions)),
+      page_reach: d.reach == null ? null : Math.round(num(d.reach)),
+      page_engaged_users: d.engagedUsers == null ? null : Math.round(num(d.engagedUsers)),
+      page_post_engagements: d.postEngagements == null ? null : Math.round(num(d.postEngagements)),
+      row_hash: hashRow([connection.company_entity_id, 'facebook_page', d.day]),
+      synced_at: syncedAt,
+    }));
+    pageUpserted = pageRows.length
+      ? await upsertInChunks(supabase, 'facebook_page_insights_daily', pageRows, 'row_hash')
+      : 0;
+
+    fanCount = await fetchFacebookPageFanCount(connection);
+    const latestDay = pageDays.reduce((mx, d) => (d.day > mx ? d.day : mx), '');
+    if (fanCount != null && latestDay) {
+      const { error } = await supabase
+        .from('facebook_page_insights_daily')
+        .update({ page_fan_count: fanCount })
+        .eq('row_hash', hashRow([connection.company_entity_id, 'facebook_page', latestDay]));
+      if (error) console.warn('[warn] Facebook Page fan_count not stamped:', error.message);
+    }
+  } catch (err) {
+    pageError = String(err?.message || err);
+  }
 
   return {
     configured: Boolean(connection.instagram_business_account_id || connection.facebook_page_id),
     media_upserted: mediaUpserted,
     page_days_upserted: pageUpserted,
+    // Present only when there is something to say, so a clean run's summary
+    // stays as small as it was before.
+    ...(pageError ? { page_error: pageError } : {}),
+    ...(droppedMetrics.length ? { page_metrics_dropped: droppedMetrics } : {}),
+    ...(fanCount == null ? {} : { page_fan_count: fanCount }),
     synced_at: syncedAt,
   };
 }
