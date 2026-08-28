@@ -48,6 +48,24 @@ No OAuth flow — Meta's recommended server-to-server credential is a **System U
 3. Generate token: pick your app (create a Business-type app at developers.facebook.com if you have none), scopes `ads_read` + `business_management`, expiry **never**.
 4. **Connect in SILO**: `/v2/integrations.html` → *Add Meta Ads token…* → paste the token (ad account ID optional — Test lists the accounts the token can see, e.g. `act_1234567890`). Test, set the account, enable sync.
 
+**Replacing a regenerated token — do NOT use *Add Meta Ads token…* for this.** That button
+only ever INSERTs, so pasting a refreshed token there creates a SECOND connection for the
+same ad account. Use **Replace token** on the existing row instead: it swaps the credential
+in place and clears the row's previous test result, since the old "OK" pill was earned by
+the old token. The add form now refuses an account that is already connected (comparing
+`act_51281951` and `51281951` as the same account) and points here.
+
+For the record, a duplicate connection would NOT have doubled spend: every Meta table
+upserts on an identity hash that deliberately excludes `connection_id` — `marketing_kpis_daily`
+on company+platform+account+campaign+day, `meta_ad_performance_daily` on
+company+account+ad+day, `meta_ad_creatives` and `instagram_media_insights` on their natural
+keys — and the account id in those hashes comes from Meta's API response, not from the
+field you typed. Two connections on one account would land on the same rows and overwrite.
+What it WOULD cost is a doubled nightly pull against an account that already hits
+"Application request limit reached", a `connection_id` that flips between rows, and a
+stale-token row failing the whole workflow. Genuine double-counting needs two connections
+pointing at two DIFFERENT account ids.
+
 ### Optional: organic Instagram + Facebook Page insights (posts/reels — separate from the ads pull above)
 
 The System User token above only grants `ads_read` — organic reach/engagement needs two additional things, not just a permission checkbox:
@@ -58,6 +76,34 @@ The System User token above only grants `ads_read` — organic reach/engagement 
 4. Send Blake the **Facebook Page ID** and **Instagram Business Account ID** (Graph API Explorer: `GET /me/accounts` for the Page ID, then `GET /{page-id}?fields=instagram_business_account` for the IG account ID) — set on the existing Meta connection row (`facebook_page_id`, `instagram_business_account_id`), no new connection needed.
 
 Note: Meta unified impression-style metrics on Instagram media insights into a single `views` metric in 2024 — if comparing against an older report that says "impressions," that's the same thing under the new name.
+
+**Page metrics are on a moving deprecation schedule, Instagram's are not.** Meta has been
+retiring Page Insights metrics — the Nov 2025 round took `impressions`/`page fans`, the
+June 15 2026 round took the unique reach/impressions family — and these retirements are
+GLOBAL, not per-version, so pinning `META_API_VERSION` does not hold them still. The API
+rejects a retired name with `(#100) The value must be a valid insights metric` and does
+**not** say which name it objected to, so one dead metric in a combined request kills every
+Page metric in it. That is what happened on 2026-08-28, the first run after
+`facebook_page_id` was set: Page insights wrote 0 rows while Instagram, in the same run,
+wrote 50.
+
+`fetchFacebookPageInsights` therefore falls back to requesting each metric on its own when
+it sees that specific error, keeps whatever still works, and reports the rest as
+`page_metrics_dropped` in the `sync_jobs` result. **Read that field rather than assuming a
+metric is populated** — the sync no longer fails when Meta retires one, which means a
+column can quietly go all-null. When it names a metric, pick the current replacement from
+Meta's deprecation page and swap it in `PAGE_INSIGHT_METRICS`.
+
+The Instagram and Facebook halves are also independently error-trapped: a Page failure
+records `page_error` and leaves `media_upserted` intact, instead of replacing the whole
+organic summary with an error string (which is what hid those 50 Instagram rows).
+
+`page_fan_count` comes from the Page node (`?fields=fan_count`), not the insights edge —
+which is why the column sat unwritten from the table's creation until 2026-08-28. It is a
+current snapshot, so only the newest day is stamped, by a targeted update after the main
+upsert; the trailing-window upsert deliberately omits the column so it cannot blank out
+days an earlier run already stamped. Older days stay null — a follower count cannot be
+honestly backfilled.
 
 ## TikTok Ads
 
@@ -87,5 +133,5 @@ Note: Meta unified impression-style metrics on Instagram media insights into a s
 | Platform | Credential | Lifetime | On failure |
 |----------|-----------|----------|------------|
 | Google Ads / GA4 | OAuth refresh token | Indefinite (revoked if unused ~6 months or password/permission change) | Sync errors `invalid_grant` → reconnect via Integrations |
-| Meta Ads | System User token | Never expires | Only dies if the system user/app loses asset access → regenerate + re-paste |
+| Meta Ads | System User token | Never expires | Only dies if the system user/app loses asset access → regenerate, then **Replace token** on the existing row (see below) |
 | TikTok Ads | OAuth access token | Long-lived (v1.3 returns no expiry) | 401 from API → reconnect via Integrations |
