@@ -59,6 +59,13 @@
     .mo-ad-sub { font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-top:2px; }
     .mo-bar { display:inline-block; height:8px; border-radius:2px; background:var(--bcn-accent); opacity:.35; vertical-align:middle; margin-right:6px; }
     .mo-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
+    .mo-stats { display:flex; flex-wrap:wrap; gap:28px; padding:14px 16px; }
+    .mo-stat-label { font-family:var(--bcn-mono); font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--bcn-ink-3); }
+    .mo-stat-value { font-family:var(--bcn-mono); font-size:22px; font-weight:600; color:var(--bcn-ink); font-variant-numeric:tabular-nums; margin-top:3px; }
+    .mo-stat-sub { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); margin-top:2px; }
+    /* Retired metrics must never render as 0 -- a zero is a claim, and this
+       one would be false. See the mo-note under the Facebook card. */
+    .mo-na { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-4); font-style:italic; }
     .mo-filter-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
 
     .mo-funnel { display:flex; flex-direction:column; gap:2px; }
@@ -238,6 +245,24 @@
       <!-- ── Organic ──────────────────────────────────────────────── -->
       <div data-panel="organic" hidden>
         <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Facebook Page</h2></div>
+          <div class="bcn-card-body" style="padding:0">
+            <div class="mo-stats" id="fbStats">
+              <div><div class="mo-stat-label">Page followers</div><div class="mo-stat-value" id="fbFans">—</div><div class="mo-stat-sub" id="fbFansSub">&nbsp;</div></div>
+              <div><div class="mo-stat-label">Post engagements</div><div class="mo-stat-value" id="fbEng">—</div><div class="mo-stat-sub" id="fbEngSub">&nbsp;</div></div>
+              <div><div class="mo-stat-label">Avg / day</div><div class="mo-stat-value" id="fbEngAvg">—</div><div class="mo-stat-sub" id="fbEngAvgSub">&nbsp;</div></div>
+            </div>
+            <div style="overflow:auto;max-height:340px">
+              <table class="mo-tbl">
+                <thead><tr><th>Day</th><th>Post engagements</th><th>Impressions</th><th>Reach</th><th>Engaged users</th></tr></thead>
+                <tbody id="fbBody"><tr><td class="mo-empty" colspan="5">No Facebook Page data yet — set the Page ID on the Meta connection in Integrations.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="mo-note" id="fbNote">Page-level daily engagement.</div>
+        </div>
+
+        <div class="bcn-card">
           <div class="bcn-card-header"><h2>Instagram — top posts &amp; reels</h2></div>
           <div class="bcn-card-body" style="padding:0;overflow:auto">
             <table class="mo-tbl">
@@ -347,6 +372,16 @@
           .select('media_id,media_type,caption,permalink,thumbnail_url,posted_at,views,reach,likes,comments,shares,saved')
           .order('posted_at', { ascending:false })));
     } catch(e){ console.warn('instagram_media_insights unavailable', e); return []; }
+  }
+
+  async function loadPageInsights(){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('facebook_page_insights_daily')
+          .select('day_date,page_impressions,page_reach,page_engaged_users,page_post_engagements,page_fan_count')
+          .gte('day_date', sinceIso())
+          .order('day_date', { ascending:false })));
+    } catch(e){ console.warn('facebook_page_insights_daily unavailable', e); return []; }
   }
 
   // ── KPI band (ratios only over days both inputs cover) ─────────
@@ -727,13 +762,63 @@
     }).join('');
   }
 
+  // ── Facebook Page ──────────────────────────────────────────────
+  // Meta has retired page_impressions, page_impressions_unique and
+  // page_engaged_users (Nov 2025 + June 2026 rounds); the sync records them in
+  // sync_jobs.result.organic.page_metrics_dropped and stores null. null here
+  // means NOT REPORTED, never zero -- so these render as "not reported"
+  // rather than through numFmt, which would turn null into a confident 0.
+  const numOrNa = v => v == null ? '<span class="mo-na">not reported</span>' : numFmt(v);
+
+  function renderPageInsights(rows){
+    if (!rows.length) return; // leaves the empty state in place
+
+    const days = rows.slice().sort((a,b) => a.day_date < b.day_date ? 1 : -1);
+    const engDays = days.filter(d => d.page_post_engagements != null);
+    const engTotal = engDays.reduce((t,d) => t + Number(d.page_post_engagements||0), 0);
+
+    // Latest day that actually carries a follower count: only the newest day of
+    // each sync is stamped, so the top row is not guaranteed to have one.
+    const fanRow = days.find(d => d.page_fan_count != null);
+    el('fbFans').textContent = fanRow ? numFmt(fanRow.page_fan_count) : '—';
+    el('fbFansSub').textContent = fanRow ? `as of ${fanRow.day_date}` : 'not recorded yet';
+
+    el('fbEng').textContent = engDays.length ? numFmt(engTotal) : '—';
+    el('fbEngSub').textContent = `${engDays.length} day${engDays.length===1?'':'s'} in window`;
+    el('fbEngAvg').textContent = engDays.length ? numFmt(engTotal / engDays.length) : '—';
+    el('fbEngAvgSub').textContent = engDays.length ? 'per day with data' : '\u00a0';
+
+    el('fbBody').innerHTML = days.map(d => `<tr>
+      <td class="bcn-mono">${esc(d.day_date)}</td>
+      <td>${numOrNa(d.page_post_engagements)}</td>
+      <td>${numOrNa(d.page_impressions)}</td>
+      <td>${numOrNa(d.page_reach)}</td>
+      <td>${numOrNa(d.page_engaged_users)}</td>
+    </tr>`).join('');
+
+    // Name the retired columns explicitly instead of leaving a wall of
+    // "not reported" for the reader to interpret.
+    const RETIRED = [
+      ['page_impressions',    'Impressions'],
+      ['page_reach',          'Reach'],
+      ['page_engaged_users',  'Engaged users'],
+    ].filter(([k]) => days.every(d => d[k] == null)).map(([,label]) => label);
+
+    el('fbNote').innerHTML = RETIRED.length
+      ? `Page-level daily engagement. ${esc(RETIRED.join(', '))} ${RETIRED.length===1?'is':'are'} `
+        + 'no longer served by Meta\u2019s Page Insights API (retired in the Nov 2025 and June 2026 rounds) \u2014 '
+        + 'shown as <span class="mo-na">not reported</span>, which means unknown, not zero. '
+        + 'Followers come from the Page profile, and only the newest day of each sync is stamped, so history stays blank.'
+      : 'Page-level daily engagement. Followers come from the Page profile and only the newest day of each sync is stamped.';
+  }
+
   // ── Load orchestration ─────────────────────────────────────────
   async function runLoad(){
     setStatus('Loading…');
     el('btnRefresh').disabled = true;
     try {
-      const [rows, merRows, adPerf, creatives, organic] = await Promise.all([
-        loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(),
+      const [rows, merRows, adPerf, creatives, organic, pageDays] = await Promise.all([
+        loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(), loadPageInsights(),
       ]);
       _adPerf = adPerf; _creatives = creatives;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
@@ -747,6 +832,7 @@
       renderFunnel(rows);
       renderChannels(rows, merRows);
       renderOrganic(organic);
+      renderPageInsights(pageDays);
       setStatus(`${rows.length + adPerf.length} rows loaded.`);
     } catch(e){
       console.error(e);
