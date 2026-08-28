@@ -596,9 +596,40 @@
       onWidgetsChange();
     }
 
+    /**
+     * Arrived from Ask SILO's "Save & open dashboard". The report already
+     * exists; this adds it, recommends a visual from what the query actually
+     * returns, and SAVES immediately -- the user came from another page and
+     * has no reason to expect a Save button is still waiting on them.
+     *
+     * Deliberately defaults to query 0 on a multi-query report rather than
+     * interrupting the hand-off with a picker: the inspector can switch it,
+     * and the status message says so.
+     */
+    async function addReportById(reportId) {
+      const { data: report, error } = await sb.from('silo_chat_saved_reports_v')
+        .select('id, title, description, question, queries_run, visibility, source, company_entity_id')
+        .eq('id', reportId).maybeSingle();
+      if (error || !report) {
+        setStatus('That report could not be found — it may have been deleted, or it is private to someone else.', 'neg', 6000);
+        return false;
+      }
+      if (!(report.queries_run || []).length) {
+        setStatus(`"${report.title}" has no stored SQL, so there is nothing for a widget to run.`, 'neg', 6000);
+        return false;
+      }
+      await addWidgetFromReport(report, 0);
+      const saved = await save();
+      if (saved && (report.queries_run || []).length > 1) {
+        setStatus(`Added "${report.title}" and saved. It ran ${report.queries_run.length} queries — `
+          + `the first is showing; switch with the Query dropdown in the panel.`, 'info', 9000);
+      }
+      return saved;
+    }
+
     bind();
     return {
-      save, isDirty, openAddWidget, closeInspector,
+      save, isDirty, openAddWidget, closeInspector, addReportById,
       /** GridStack moved or resized something -- geometry is read at save
           time from grid.save(), so this only has to flip the dirty flag. */
       markLayoutDirty: () => markDirty(),

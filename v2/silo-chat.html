@@ -466,6 +466,21 @@
           </label>
         </div>
       </div>
+      <!-- Add to a dashboard in the same step. Saving a report and then
+           having to go find the dashboard builder is the gap that made
+           people never build a dashboard at all; this closes it without
+           v2 taking a dependency on /v3/ code -- the redirect below hands
+           off to the dashboard page, which owns the visual recommendation. -->
+      <div class="bcn-field-group" id="saveDialogDashWrap" hidden>
+        <label class="bcn-label" for="saveDialogDashboard">Add to a dashboard</label>
+        <select class="bcn-field" id="saveDialogDashboard">
+          <option value="">Just save it — don't add to a dashboard</option>
+        </select>
+      </div>
+      <div class="bcn-field-group" id="saveDialogNewDashWrap" hidden>
+        <label class="bcn-label" for="saveDialogNewDashName">New dashboard name</label>
+        <input class="bcn-field" id="saveDialogNewDashName" type="text" autocomplete="off" placeholder="e.g. Monday sales review" />
+      </div>
       <div class="ac-save-dialog-actions">
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCancelSave">Cancel</button>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnConfirmSave">Save</button>
@@ -1171,9 +1186,33 @@
     const defaultTitle = ctx.question.length > 70 ? ctx.question.slice(0, 67) + '…' : ctx.question;
     el('saveDialogName').value = defaultTitle;
     document.querySelector('input[name="saveVisibility"][value="company"]').checked = true;
+    el('saveDialogDashboard').value = '';
+    el('saveDialogNewDashWrap').hidden = true;
+    el('btnConfirmSave').textContent = 'Save';
     el('saveDialogBackdrop').classList.add('open');
     el('saveDialogName').focus();
     el('saveDialogName').select();
+    loadDashboardTargets();
+  }
+
+  // Only dashboards this user could actually add a widget to -- the RLS
+  // update policy is creator-or-exec, so offering someone else's dashboard
+  // would just fail on arrival. Failures here are silent: the dropdown
+  // stays hidden and saving still works, because adding to a dashboard is
+  // a bonus step, not part of saving a report.
+  async function loadDashboardTargets() {
+    const wrap = el('saveDialogDashWrap');
+    const sel = el('saveDialogDashboard');
+    try {
+      const { data, error } = await sb.from('dashboards_v')
+        .select('id, name, created_by').order('updated_at', { ascending: false });
+      if (error) { wrap.hidden = true; return; }
+      const mine = (data || []).filter(d => isExecOrOwner || d.created_by === session?.user?.id);
+      sel.innerHTML = `<option value="">Just save it — don't add to a dashboard</option>`
+        + mine.map(d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')
+        + `<option value="__new__">＋ New dashboard…</option>`;
+      wrap.hidden = false;
+    } catch { wrap.hidden = true; }
   }
 
   function closeSaveDialog() {
@@ -1189,7 +1228,7 @@
       ? 'private' : 'company';
     const { ctx, btn } = pendingSave;
     el('btnConfirmSave').disabled = true;
-    const { error } = await sb.from('silo_chat_saved_reports').insert({
+    const { data: saved, error } = await sb.from('silo_chat_saved_reports').insert({
       title,
       question: ctx.question,
       answer: ctx.answer,
@@ -1199,17 +1238,59 @@
       // provenance is the point now that the table serves several
       // authoring surfaces.
       source: 'ask_silo',
-    });
-    el('btnConfirmSave').disabled = false;
+    }).select('id').single();
     if (error) {
-      setStatus('Could not save report: ' + error.message, 'error', 4000);
+      el('btnConfirmSave').disabled = false;
+      setStatus('Could not save report: ' + error.message, 'neg', 4000);
       return;
     }
+
+    // ── Optional second step: put it on a dashboard ────────────────────
+    // The report is already saved at this point, so nothing below can lose
+    // the user's work -- a failure here degrades to "saved, not added".
+    const target = el('saveDialogDashboard').value;
+    let dashboardId = target && target !== '__new__' ? target : null;
+
+    if (target === '__new__') {
+      const name = (el('saveDialogNewDashName').value || '').trim() || title;
+      const { data: dash, error: dErr } = await sb.from('dashboards')
+        .insert({ name, description: null, visibility }).select('id').single();
+      if (dErr) {
+        el('btnConfirmSave').disabled = false;
+        setStatus(`Report saved, but the dashboard could not be created: ${dErr.message}`, 'neg', 6000);
+        closeSaveDialog();
+        return;
+      }
+      dashboardId = dash.id;
+    }
+
+    el('btnConfirmSave').disabled = false;
     btn.disabled = true;
     btn.textContent = 'Saved ✓';
     closeSaveDialog();
+
+    if (dashboardId) {
+      // Hand off rather than build the widget here. The dashboard page owns
+      // profiling the returned columns and recommending a visual, and it
+      // should stay the only place that does -- duplicating it would mean
+      // a v2 page importing /v3/ code and two recommendation paths to keep
+      // in step.
+      setStatus('Saved. Opening the dashboard…', 'pos', 4000);
+      window.location.href = `/v3/dashboard.html?id=${encodeURIComponent(dashboardId)}`
+        + `&edit=1&add_report=${encodeURIComponent(saved.id)}`;
+      return;
+    }
     setStatus(visibility === 'private' ? 'Saved to My reports.' : 'Saved to Company reports.', 'pos', 3500);
   }
+
+  el('saveDialogDashboard').addEventListener('change', (e) => {
+    const isNew = e.target.value === '__new__';
+    el('saveDialogNewDashWrap').hidden = !isNew;
+    if (isNew) { el('saveDialogNewDashName').value = el('saveDialogName').value; el('saveDialogNewDashName').focus(); }
+    // Say what the button will do. A redirect the user did not expect reads
+    // as the page losing their chat.
+    el('btnConfirmSave').textContent = e.target.value ? 'Save & open dashboard' : 'Save';
+  });
 
   el('btnConfirmSave').addEventListener('click', confirmSave);
   el('btnCancelSave').addEventListener('click', closeSaveDialog);

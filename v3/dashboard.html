@@ -228,7 +228,26 @@
     await runtime.setWidgets(widgets || []);
     syncBlankState();
 
-    if (canEdit && new URLSearchParams(location.search).get('edit') === '1') setMode(true);
+    const params = new URLSearchParams(location.search);
+    if (canEdit && params.get('edit') === '1') setMode(true);
+
+    // Hand-off from Ask SILO's save dialog. Strip the parameter BEFORE
+    // acting on it: a refresh or a back-navigation would otherwise add the
+    // same report again, and the user has no way to tell two identical
+    // tiles apart.
+    const addReport = params.get('add_report');
+    if (addReport) {
+      const url = new URL(location.href);
+      url.searchParams.delete('add_report');
+      history.replaceState(null, '', url);
+      if (!canEdit) {
+        setStatus('This report was saved, but you do not have edit access to this dashboard.', 'neg', 6000);
+      } else {
+        setMode(true);
+        await builder.addReportById(addReport);
+        syncBlankState();
+      }
+    }
   }
 
   // ── Header actions ────────────────────────────────────────────────────

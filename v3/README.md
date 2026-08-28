@@ -149,6 +149,9 @@ inherited from the parent dashboard via an `EXISTS`.
   default, so a tile at `h=2` with `gs-min-h=2` came back with no `h` at all
   and reloaded at the default height — quietly breaking reload-identically
   for every KPI.
+- **Below 700px the grid collapses to one column**, and `layout()` refuses to
+  serialise a collapsed grid — saving from a phone would otherwise overwrite
+  the real 12-column layout with the phone's, for everyone.
 - **Sort / limit are applied to returned rows, not pushed into SQL.** The widget
   does not rewrite its report's query, and the UI says so. A tile whose query
   hit the 500-row cap says that too — a silently truncated chart is a quiet lie.
@@ -167,6 +170,26 @@ inherited from the parent dashboard via an `EXISTS`.
   author-stylesheet class of equal specificity. `beacon.css` documents the same
   trap for `.bcn-btn`; `.v3-blank` and `.v3-meta-bar` both hit it during build.
 
+## Getting a report onto a dashboard
+
+Two doors, both landing in the same place:
+
+1. **From Ask SILO** — the save dialog offers "Add to a dashboard" (existing
+   ones you can edit, or a new one). Saving hands off to
+   `/v3/dashboard.html?id=…&edit=1&add_report=…`, and the dashboard page adds
+   the widget, recommends a visual and saves. The report is written *before*
+   the hand-off, so a failure past that point degrades to "saved, not added"
+   and never loses work.
+2. **From the dashboard** — "+ Add widget" opens the picker over every saved
+   report, whatever its source.
+
+The hand-off is a redirect rather than v2 building the widget itself, on
+purpose: the dashboard page owns profiling and recommendation, and it should
+stay the only place that does. A v2 page importing `/v3/` code would invert
+the dependency and leave two recommendation paths to keep in step.
+`add_report` is stripped from the URL on arrival, so a refresh cannot add the
+same report twice.
+
 ## Deliberately not built yet
 
 Named here so nobody reads their absence as an oversight:
@@ -175,9 +198,6 @@ Named here so nobody reads their absence as an oversight:
   down into the report's SQL to be honest, and the SQL is opaque text a widget
   does not own. Filtering the 500 returned rows client-side would look like a
   filter and behave like a sample.
-- **An "Add to dashboard" button inside Ask SILO.** The hop exists in the other
-  direction (the picker reads saved reports); adding the outbound button means
-  editing `v2/silo-chat.html`, which is its own change.
 - **Cross-widget interactions** (click a bar to filter the rest), scheduled
   email/export, and dashboard duplication.
 - **AI-authored widget config.** The natural next step — Ask SILO already

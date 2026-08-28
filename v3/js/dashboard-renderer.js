@@ -99,6 +99,10 @@
         disableDrag: !editable,
         disableResize: !editable,
         handle: '.dw-head',
+        // Below 700px a 6-of-12 tile is half a phone screen: axis labels
+        // overlap the plot and a KPI clips mid-number. Collapse to a single
+        // column so every tile gets full width and stacks.
+        columnOpts: { breakpoints: [{ w: 700, c: 1 }] },
       }, gridEl);
 
       grid.on('change', () => { if (editable) onLayoutChange(); });
@@ -339,6 +343,15 @@
     function layout() {
       const out = new Map();
       if (!grid) return out;
+      // Never serialise a COLLAPSED grid. Below the breakpoint every tile is
+      // 1 column wide; saving that would overwrite the real 12-column
+      // layout with the phone's, for everyone. Hand back what the widgets
+      // already carry instead, so a save from a narrow screen is a no-op
+      // for geometry rather than a silent reflow.
+      if (grid.getColumn() !== 12) {
+        for (const w of widgets) if (w.layout) out.set(String(w.id), w.layout);
+        return out;
+      }
       const num = (node, key, attr, dflt) => {
         if (node && node[key] != null) return node[key];
         const v = Number(attr);
