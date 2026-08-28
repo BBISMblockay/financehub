@@ -624,13 +624,42 @@ function pageInsightsUrl(pageId, token, metrics, window) {
   }).toString();
 }
 
+/** Page Insights will not accept the System User token the ads pull uses:
+ * it answers "(#190) This method must be called with a Page Access Token".
+ * A Page token is derived from the user token by reading it off the Page node
+ * itself, and is only issued when the System User actually has the Page
+ * assigned as an asset (Business settings → System Users → Assign Assets) —
+ * so a null here means the asset assignment is missing, not that the metric
+ * or the token is wrong. Instagram is unaffected: media insights authenticate
+ * as the IG business account and work with the user token directly, which is
+ * why Instagram was landing 50 rows while Page insights returned nothing. */
+export async function fetchFacebookPageAccessToken(connection) {
+  const token = connection.access_token;
+  const pageId = connection.facebook_page_id;
+  if (!token || !pageId) return null;
+  try {
+    const data = await fetchJsonOrThrow(
+      `https://graph.facebook.com/${META_API_VERSION}/${pageId}?` + new URLSearchParams({
+        fields: 'access_token', access_token: token,
+      }).toString(), {}, 'Facebook Page access token',
+    );
+    return data?.access_token || null;
+  } catch (err) {
+    console.warn('[warn] Could not derive a Page access token — is the System User assigned to the Page?', err.message);
+    return null;
+  }
+}
+
 /** Page-level daily rollup — a genuine time series, unlike media insights.
  * Returns { days, droppedMetrics } so the caller can record which metrics
  * this Graph version no longer serves instead of silently reporting nulls. */
 export async function fetchFacebookPageInsights(connection, window) {
-  const token = connection.access_token;
   const pageId = connection.facebook_page_id;
-  if (!token || !pageId) return { days: [], droppedMetrics: [] };
+  if (!connection.access_token || !pageId) return { days: [], droppedMetrics: [] };
+
+  // Fall back to the user token rather than bailing: if Meta ever stops
+  // requiring the exchange, the pull keeps working unchanged.
+  const token = (await fetchFacebookPageAccessToken(connection)) || connection.access_token;
 
   const series = [];
   const droppedMetrics = [];
@@ -650,7 +679,14 @@ export async function fetchFacebookPageInsights(connection, window) {
         );
         series.push(...(data.data ?? []));
       } catch (metricErr) {
-        if (!isMetaInvalidMetricError(metricErr)) throw metricErr;
+        if (!isMetaInvalidMetricError(metricErr)) {
+          // Carry what the probe already established out with the error —
+          // otherwise a later metric failing for an unrelated reason (a token
+          // problem, say) discards the record of which earlier metrics are
+          // genuinely retired, and the next run has to rediscover it.
+          metricErr.droppedMetrics = [...droppedMetrics];
+          throw metricErr;
+        }
         droppedMetrics.push(metric);
       }
     }
@@ -779,6 +815,7 @@ export async function runMetaOrganicSync(supabase, connection, {
     }
   } catch (err) {
     pageError = String(err?.message || err);
+    if (Array.isArray(err?.droppedMetrics)) droppedMetrics = err.droppedMetrics;
   }
 
   return {

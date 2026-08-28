@@ -77,6 +77,16 @@ The System User token above only grants `ads_read` — organic reach/engagement 
 
 Note: Meta unified impression-style metrics on Instagram media insights into a single `views` metric in 2024 — if comparing against an older report that says "impressions," that's the same thing under the new name.
 
+**Page Insights needs a PAGE access token, not the System User token.** The ads pull and
+Instagram both authenticate fine with the System User token, but `/{page-id}/insights`
+answers `(#190) This method must be called with a Page Access Token`. The sync now derives
+one automatically by reading `access_token` off the Page node before each Page pull, so
+there is nothing extra to paste — but that exchange only succeeds while the System User has
+the Page **assigned as an asset** (step 2 above). If the log says "Could not derive a Page
+access token", that assignment is what is missing; it is not a token or metric problem.
+This is also why Instagram was writing 50 rows in the very same run where Page insights
+wrote none — different auth path, not a different failure.
+
 **Page metrics are on a moving deprecation schedule, Instagram's are not.** Meta has been
 retiring Page Insights metrics — the Nov 2025 round took `impressions`/`page fans`, the
 June 15 2026 round took the unique reach/impressions family — and these retirements are
