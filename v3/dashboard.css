@@ -66,6 +66,17 @@
   letter-spacing: .06em; color: var(--bcn-ink-3);
   border: 1px solid var(--bcn-border); border-radius: 999px; padding: 1px 7px;
 }
+.dw-type-badge--btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer; font-family: var(--bcn-mono); font-size: 9.5px;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--bcn-ink-2); background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border); border-radius: 999px; padding: 2px 8px;
+}
+.dw-type-badge--btn:hover { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); color: var(--bcn-accent); }
+.dw-type-badge--btn:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 1px; }
+.dw-caret { font-size: 8px; opacity: .6; }
+
 .dw-icon-btn {
   width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
   border: 1px solid transparent; border-radius: var(--bcn-radius-sm);

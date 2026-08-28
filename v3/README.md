@@ -56,6 +56,34 @@ scoped by the viewer's own RLS. **A dashboard can never show someone data they
 could not already query themselves.** It also caps results at 500 rows and
 statements at 30s — both surface in the UI rather than being silently absorbed.
 
+## What a column means
+
+The renderer has to know whether `19362` is dollars, units, or a percentage.
+The first build guessed from the column name and got `total_units` wrong
+(currency — "total" is a money word). Decoupling the dataset from the visual
+is what makes that class of bug possible at all: once one report can be drawn
+five ways, nothing in the drawing code knows what the values mean.
+
+`field-semantics.js` resolves it from four sources, most authoritative first:
+
+| Layer | Source | Notes |
+|---|---|---|
+| 1 | `visual_config.field_semantics` | Per-widget override |
+| 2 | `silo_chat_saved_reports.columns_metadata` | **Belongs to the report**, so one correction fixes every widget on it |
+| 3 | `silo_chat_schema_catalog` | Grounded, not guessed: Postgres already knows `units` is `integer` and `net_sales` is `numeric` |
+| 4 | Value profiling + name heuristics | The old behaviour, now last |
+
+Layer 3 does the real work today and fixes `total_units` at the root — an
+integer column is a count, whatever its name says. Layer 2 is how it gets
+reliable: v3 seeds it from 1+3+4 the first time a widget is built on a report,
+a human corrects it in the inspector, and Ask SILO can write it at save time
+later. Only *grounded* answers are seeded — writing a name guess into
+`columns_metadata` would launder a guess into an authoritative record.
+
+Semantics decide two things: how a value is printed, and which aggregation
+makes sense. Sum is right for currency and counts and wrong for rates
+(40%/50%/60% averages to 50%, sums to 150%), so `percent` defaults to `avg`.
+
 ## Files
 
 | File | Role |
@@ -63,7 +91,8 @@ statements at 30s — both surface in the UI rather than being silently absorbed
 | `dashboards.html` | List / create dashboards |
 | `dashboard.html` | The canvas. `?id=<uuid>` to view, `&edit=1` to edit |
 | `dashboard.css` | Tile chrome, inspector, picker. Beacon tokens only — no new CSS variables |
-| `js/chart-adapter.js` | The only file that talks to ECharts. Profiles rows, recommends a visual, shapes data, builds options, renders table/KPI HTML |
+| `js/field-semantics.js` | What a column *means* (currency / count / percent / date / category), resolved from four layers. No ECharts, no DOM |
+| `js/chart-adapter.js` | The only file that talks to ECharts. Profiles rows, recommends a visual, groups/sorts/limits, builds options, renders table/KPI HTML |
 | `js/dashboard-renderer.js` | Owns the GridStack instance and draws widgets from config. Used unchanged in view **and** edit mode |
 | `js/dashboard-builder.js` | Edit mode only: report picker, inspector, buffered save |
 
@@ -86,6 +115,16 @@ inherited from the parent dashboard via an `EXISTS`.
   state; one Save writes the set. Widget ids are minted client-side so that set
   goes back as a single idempotent upsert — re-saving after a failure does not
   duplicate tiles.
+- **Grouping happens before sort and limit**, which is the only order that
+  answers the question asked: taking the top 10 rows and then summing per
+  product is a different (wrong) answer from summing per product and then
+  taking the top 10. The tile's footer says when a roll-up happened, because
+  grouping is otherwise invisible.
+- **Geometry is read from each item's live `gridstackNode`, never from
+  `grid.save()`.** `save()` omits a property matching the item's min or
+  default, so a tile at `h=2` with `gs-min-h=2` came back with no `h` at all
+  and reloaded at the default height — quietly breaking reload-identically
+  for every KPI.
 - **Sort / limit are applied to returned rows, not pushed into SQL.** The widget
   does not rewrite its report's query, and the UI says so. A tile whose query
   hit the 500-row cap says that too — a silently truncated chart is a quiet lie.

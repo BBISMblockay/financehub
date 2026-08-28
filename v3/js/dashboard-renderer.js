@@ -31,14 +31,20 @@
 
   // ── Reusable inner markup ────────────────────────────────────────────
   function headActionsHtml(widget, editable) {
-    return `
-      <span class="dw-type-badge">${esc(widget.visual_type)}</span>
-      ${editable ? `
-        <button type="button" class="dw-icon-btn" data-act="configure" title="Configure widget" aria-label="Configure widget">⚙</button>
-        <button type="button" class="dw-icon-btn" data-act="remove" title="Remove widget" aria-label="Remove widget">✕</button>
-      ` : `
-        <button type="button" class="dw-icon-btn" data-act="reload" title="Refresh this widget" aria-label="Refresh this widget">↻</button>
-      `}`;
+    // In edit mode the visual type is the primary control, not a status
+    // pill: it is a button that opens the inspector, with a caret so it
+    // reads as "this changes". A plain pill next to a gear icon taught
+    // people the type was informational and the gear was for "settings".
+    return editable
+      ? `
+        <button type="button" class="dw-type-badge dw-type-badge--btn" data-act="configure"
+                title="Change visualization" aria-label="Change visualization, currently ${esc(widget.visual_type)}">
+          ${esc(widget.visual_type)}<span class="dw-caret" aria-hidden="true">▾</span>
+        </button>
+        <button type="button" class="dw-icon-btn" data-act="remove" title="Remove widget" aria-label="Remove widget">✕</button>`
+      : `
+        <span class="dw-type-badge">${esc(widget.visual_type)}</span>
+        <button type="button" class="dw-icon-btn" data-act="reload" title="Refresh this widget" aria-label="Refresh this widget">↻</button>`;
   }
 
   function tileShell(widget, editable) {
@@ -76,6 +82,12 @@
     /** widget id -> echarts instance */
     const charts = new Map();
     let resizeObserver = null;
+    // The grounded layer of field semantics, fetched once per tab. Started
+    // here rather than awaited at call time so it overlaps the widget
+    // queries instead of serialising behind them.
+    const catalogIndexPromise = window.SiloFieldSemantics.loadCatalogIndex(sb);
+    let catalogIndex = new Map();
+    catalogIndexPromise.then((idx) => { catalogIndex = idx; });
 
     function initGrid() {
       grid = GridStack.init({
@@ -126,6 +138,23 @@
       return entry;
     }
 
+    /**
+     * What this widget's columns MEAN. Four layers, most authoritative
+     * first: the widget's own override, the source report's saved
+     * columns_metadata, the database's column types, then profiling +
+     * name heuristics. The renderer resolves it once per draw and hands
+     * the adapter a flat map -- the adapter never asks where a semantic
+     * came from.
+     */
+    function semanticsFor(widget, rows) {
+      const cfg = widget.visual_config || {};
+      return window.SiloFieldSemantics.semanticMap(window.SiloChart.profileColumns(rows), {
+        overrides: cfg.field_semantics,
+        reportMetadata: widget.report_columns_metadata,
+        catalogIndex,
+      });
+    }
+
     // ── Rendering one tile ─────────────────────────────────────────────
     function renderBody(widget, state) {
       const el = tileEl(widget.id);
@@ -157,12 +186,14 @@
 
       if (!rows.length) { body.innerHTML = '<div class="dw-empty">Query returned 0 rows.</div>'; return; }
 
+      const semantics = semanticsFor(widget, rows);
+
       if (widget.visual_type === 'table') {
-        body.innerHTML = window.SiloChart.tableHtml(rows, cfg);
+        body.innerHTML = window.SiloChart.tableHtml(rows, cfg, semantics);
       } else if (widget.visual_type === 'kpi') {
-        body.innerHTML = window.SiloChart.kpiHtml(rows, cfg);
+        body.innerHTML = window.SiloChart.kpiHtml(rows, cfg, semantics);
       } else {
-        const shaped = window.SiloChart.shape(rows, cfg);
+        const shaped = window.SiloChart.shape(rows, cfg, semantics);
         if (!shaped) {
           body.innerHTML = `<div class="dw-empty">This visual needs a dimension and a measure. ${editable ? 'Open ⚙ to pick them.' : ''}</div>`;
           return;
@@ -172,9 +203,15 @@
         const chart = echarts.init(host, null, { renderer: 'canvas' });
         chart.setOption(window.SiloChart.optionFor(widget.visual_type, shaped), true);
         charts.set(widget.id, chart);
-        if (shaped.truncated) {
-          foot.textContent = `Top ${shaped.points.length} of ${shaped.totalRows} rows`;
+        // Say what the chart is actually showing. Grouping is invisible
+        // otherwise: "top 10 of 46" reads very differently once you know
+        // those 46 were rolled up from 1,204 rows.
+        const parts = [];
+        if (shaped.truncated) parts.push(`Top ${shaped.points.length} of ${shaped.totalRows}`);
+        if (shaped.aggregatedFrom) {
+          parts.push(`${shaped.aggregate} of ${shaped.yField} over ${shaped.aggregatedFrom.toLocaleString()} rows`);
         }
+        foot.textContent = parts.join(' · ');
       }
 
       // 500 is the query runner's hard cap. A tile silently drawing
@@ -204,7 +241,7 @@
         return;
       }
       renderBody(widget, { loading: true });
-      const entry = await fetchQuery(widget.query_sql);
+      const [entry] = await Promise.all([fetchQuery(widget.query_sql), catalogIndexPromise]);
       renderBody(widget, entry);
     }
 
@@ -266,7 +303,10 @@
       const el = tileEl(id);
       if (el) {
         el.querySelector('.dw-title').textContent = w.title || w.report_title || 'Untitled';
-        el.querySelector('.dw-type-badge').textContent = w.visual_type;
+        const badge = el.querySelector('.dw-type-badge');
+        if (badge) badge.innerHTML = editable
+          ? `${esc(w.visual_type)}<span class="dw-caret" aria-hidden="true">▾</span>`
+          : esc(w.visual_type);
       }
       return loadWidget(w);
     }
@@ -285,12 +325,35 @@
       return Promise.all(widgets.map(loadWidget));
     }
 
-    /** Current grid geometry, keyed by widget id. */
+    /**
+     * Current grid geometry, keyed by widget id.
+     *
+     * Read from each item's live gridstackNode rather than grid.save():
+     * save() OMITS a property that matches the item's min/default, so a
+     * tile at h=2 with gs-min-h=2 comes back as {x,y,w} with no h at all.
+     * That silently broke reload-identically -- the missing h fell through
+     * to the renderer's `lay.h ?? 4` default, so every KPI shrunk to 3x2
+     * came back 3x4 on the next load. The gs-* attributes are the
+     * fallback, and they were correct throughout.
+     */
     function layout() {
       const out = new Map();
       if (!grid) return out;
-      for (const node of grid.save(false)) {
-        if (node.id) out.set(String(node.id), { x: node.x, y: node.y, w: node.w, h: node.h });
+      const num = (node, key, attr, dflt) => {
+        if (node && node[key] != null) return node[key];
+        const v = Number(attr);
+        return Number.isFinite(v) ? v : dflt;
+      };
+      for (const el of gridEl.querySelectorAll('.grid-stack-item')) {
+        const id = el.getAttribute('gs-id');
+        if (!id) continue;
+        const n = el.gridstackNode;
+        out.set(String(id), {
+          x: num(n, 'x', el.getAttribute('gs-x'), 0),
+          y: num(n, 'y', el.getAttribute('gs-y'), 0),
+          w: num(n, 'w', el.getAttribute('gs-w'), 6),
+          h: num(n, 'h', el.getAttribute('gs-h'), 4),
+        });
       }
       return out;
     }
@@ -344,7 +407,7 @@
 
     return {
       setWidgets, addWidget, removeWidget, rerenderWidget, refresh, refreshWidget,
-      layout, getWidgets, updateWidget, retheme, rowsFor, setEditable,
+      layout, getWidgets, updateWidget, retheme, rowsFor, setEditable, semanticsFor,
       get grid() { return grid; },
     };
   }

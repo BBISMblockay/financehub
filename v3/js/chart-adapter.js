@@ -98,16 +98,23 @@
    * never WRONG -- it just isn't the most expressive choice. A chart that
    * picks the wrong dimension is worse than a table.
    */
-  function recommend(rows) {
+  function recommend(rows, semantics) {
     const prof = profileColumns(rows);
     const dims = dimensionsOf(prof);
-    const meas = measuresOf(prof);
+    // A column that profiles as a number is not necessarily something worth
+    // plotting -- an id, a year, a rank all profile as numbers. Semantics
+    // let the recommendation prefer a column that actually MEANS a
+    // quantity, and fall back to raw profiling when nothing is known.
+    const allMeas = measuresOf(prof);
+    const ranked = allMeas.slice().sort((a, b) =>
+      measureRank(semanticOf(b.name, semantics, prof)) - measureRank(semanticOf(a.name, semantics, prof)));
+    const meas = ranked.length ? ranked : allMeas;
 
     if (!rows || !rows.length || !prof.length) return { visual_type: 'table', visual_config: {} };
 
     // One row, one number: that is a KPI, whatever it is called.
     if (rows.length === 1 && meas.length >= 1) {
-      return { visual_type: 'kpi', visual_config: { y_field: meas[0].name } };
+      return { visual_type: 'kpi', visual_config: { y_field: meas[0].name, aggregate: 'first' } };
     }
     if (!meas.length || !dims.length) return { visual_type: 'table', visual_config: {} };
 
@@ -116,7 +123,7 @@
     // A date axis is a time series; drawing it as a bar chart sorted by
     // value would scramble the one ordering that carries meaning.
     if (dateDim) {
-      return { visual_type: 'line', visual_config: { x_field: dateDim.name, y_field: measure, sort: 'x_asc', limit: 0 } };
+      return { visual_type: 'line', visual_config: { x_field: dateDim.name, y_field: measure, sort: 'x_asc', limit: 0, aggregate: defaultAggregate(semanticOf(measure, semantics, prof)) } };
     }
     const dim = dims[0];
     // Donut only when the dimension really is a composition. "Few rows" is
@@ -127,9 +134,9 @@
     // too -- and bar stays the fallback, since bar is never actively
     // misleading, only sometimes less expressive.
     if (COMPOSITION_RE.test(dim.name) && dim.distinct <= 6 && rows.length <= 8) {
-      return { visual_type: 'donut', visual_config: { x_field: dim.name, y_field: measure, sort: 'desc', limit: 8 } };
+      return { visual_type: 'donut', visual_config: { x_field: dim.name, y_field: measure, sort: 'desc', limit: 8, aggregate: defaultAggregate(semanticOf(measure, semantics, prof)) } };
     }
-    return { visual_type: 'bar', visual_config: { x_field: dim.name, y_field: measure, sort: 'desc', limit: 10 } };
+    return { visual_type: 'bar', visual_config: { x_field: dim.name, y_field: measure, sort: 'desc', limit: 10, aggregate: defaultAggregate(semanticOf(measure, semantics, prof)) } };
   }
 
   // ── Value formatting ─────────────────────────────────────────────────
@@ -141,6 +148,12 @@
     const col = (profile || []).find((c) => c.name === name);
     return global.SiloFieldSemantics.resolve(name, col ? col.type : 'number', {}).semantic;
   }
+
+  // Which numeric column is most likely the thing someone wants plotted.
+  // Money first, then counts, then plain numbers; a rate last, because a
+  // rate is usually a supporting column rather than the subject.
+  const MEASURE_RANK = { currency: 4, count: 3, number: 2, percent: 1 };
+  const measureRank = (semantic) => MEASURE_RANK[semantic] || 0;
 
   // Kept for callers that only have a name (and for the inspector's "auto"
   // label). Ungrounded on purpose -- it is the fallback, not the answer.
@@ -235,9 +248,7 @@
     const yField = has(cfg.y_field) ? cfg.y_field : (measuresOf(prof)[0] || {}).name;
     if (!xField || !yField) return null;
 
-    const semantic = cfg.value_format && cfg.value_format !== 'auto'
-      ? cfg.value_format
-      : semanticOf(yField, semantics, prof);
+    const semantic = semanticOf(yField, semantics, prof);
     const agg = AGGREGATES.includes(cfg.aggregate) ? cfg.aggregate : defaultAggregate(semantic);
 
     let points;
@@ -401,7 +412,7 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 
-  function tableHtml(rows, config) {
+  function tableHtml(rows, config, semantics) {
     if (!Array.isArray(rows) || !rows.length) return '<div class="dw-empty">0 rows</div>';
     const prof = profileColumns(rows);
     const cfg = config || {};
@@ -419,7 +430,9 @@
     const head = prof.map((c) => `<th class="${c.type === 'number' ? 'dw-num' : ''}">${esc(c.name)}</th>`).join('');
     const body = shown.map((r) => `<tr>${prof.map((c) => {
       const raw = r[c.name];
-      const cell = c.type === 'number' ? formatValue(raw, inferFormat(c.name)) : (raw === null || raw === undefined ? '' : String(raw));
+      const cell = c.type === 'number'
+        ? formatValue(raw, semanticOf(c.name, semantics, prof))
+        : (raw === null || raw === undefined ? '' : String(raw));
       return `<td class="${c.type === 'number' ? 'dw-num' : ''}">${esc(cell)}</td>`;
     }).join('')}</tr>`).join('');
 
@@ -428,7 +441,7 @@
       <thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${note}`;
   }
 
-  function kpiHtml(rows, config) {
+  function kpiHtml(rows, config, semantics) {
     const cfg = config || {};
     const prof = profileColumns(rows || []);
     const meas = measuresOf(prof);
@@ -450,10 +463,10 @@
       : agg === 'count' ? nums.length
       : nums.reduce((a, b) => a + b, 0);
 
-    const format = cfg.value_format || inferFormat(field);
+    const semantic = semanticOf(field, semantics, prof);
     const aggLabel = nums.length === 1 ? field : `${agg} of ${field} · ${nums.length} rows`;
     return `<div class="dw-kpi">
-      <div class="dw-kpi-value">${esc(formatValue(value, agg === 'count' ? 'number' : format))}</div>
+      <div class="dw-kpi-value">${esc(formatValue(value, agg === 'count' ? 'count' : semantic))}</div>
       <div class="dw-kpi-label">${esc(aggLabel)}</div>
     </div>`;
   }
@@ -463,6 +476,7 @@
     profileColumns, dimensionsOf, measuresOf,
     recommend, shape, optionFor,
     tableHtml, kpiHtml,
+    AGGREGATES, defaultAggregate, semanticOf,
     formatValue, inferFormat, theme, isDark, esc,
   };
 })(window);

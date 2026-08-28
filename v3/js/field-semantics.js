@@ -152,7 +152,48 @@
 
   const isMeasure = (semantic) => MEASURES.has(semantic);
 
+  // ── Loading the catalog ──────────────────────────────────────────────
+  // silo_chat_schema_catalog is one row per public table/view with its
+  // column names and pg types, auto-generated from pg_catalog. It is the
+  // grounded layer, so it is worth one query per tab -- cached in
+  // sessionStorage because it changes only when a migration runs, and
+  // re-fetched silently if the cache is unreadable (private windows throw
+  // on sessionStorage access).
+  const CACHE_KEY = 'silo.v3.schemaCatalog.v1';
+  let catalogPromise = null;
+
+  function loadCatalogIndex(sb) {
+    if (catalogPromise) return catalogPromise;
+    catalogPromise = (async () => {
+      try {
+        const cached = sessionStorage.getItem(CACHE_KEY);
+        if (cached) return buildCatalogIndex(JSON.parse(cached));
+      } catch { /* unreadable cache is not an error, just a miss */ }
+      try {
+        const { data, error } = await sb
+          .from('silo_chat_schema_catalog').select('relname, columns');
+        if (error || !data) return new Map();
+        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch { /* quota */ }
+        return buildCatalogIndex(data);
+      } catch {
+        // A missing catalog degrades to name heuristics rather than
+        // breaking the dashboard -- it is one of four layers, not a
+        // dependency.
+        return new Map();
+      }
+    })();
+    return catalogPromise;
+  }
+
+  /** Flatten resolve() output to plain name -> semantic, for the adapter. */
+  function semanticMap(profile, sources) {
+    const out = {};
+    for (const [name, r] of Object.entries(resolveAll(profile, sources))) out[name] = r.semantic;
+    return out;
+  }
+
   global.SiloFieldSemantics = {
+    loadCatalogIndex, semanticMap,
     SEMANTICS, resolve, resolveAll, buildCatalogIndex, seedableMetadata, isMeasure, pgKind,
   };
 })(window);

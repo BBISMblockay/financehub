@@ -215,15 +215,76 @@
       // -- the columns are right there.
       const rows = runtime.rowsFor(widget.id);
       if (rows && rows.length) {
-        const rec = window.SiloChart.recommend(rows);
+        const semantics = runtime.semanticsFor(widget, rows);
+        const rec = window.SiloChart.recommend(rows, semantics);
         runtime.updateWidget(widget.id, { visual_type: rec.visual_type, visual_config: rec.visual_config });
         if (rec.visual_type === 'kpi') runtime.updateWidget(widget.id, { layout: { ...widget.layout, w: 3, h: 2 } });
         await runtime.rerenderWidget(widget.id);
-        setStatus(`Added "${report.title}" as a ${rec.visual_type}. Use ⚙ to change the visual.`, 'info', 5000);
+        seedReportSemantics(widget, rows);
+        setStatus(`Added "${report.title}" as a ${rec.visual_type}. Click the type badge to change it.`, 'info', 5000);
       } else {
         setStatus(`Added "${report.title}".`, 'info', 4000);
       }
       openInspector(widget.id);
+    }
+
+    // ── Column semantics ─────────────────────────────────────────────────
+    /**
+     * First time a widget is built on a report, write the grounded column
+     * semantics back onto the REPORT so every future widget on it starts
+     * from the same answer -- and so a human correcting one column fixes
+     * them all.
+     *
+     * Only grounded answers are seeded (see seedableMetadata): writing a
+     * pure name guess into columns_metadata would launder a guess into an
+     * authoritative record, and the next reader could no longer tell the
+     * difference between "we know" and "we guessed".
+     *
+     * Skipped for system reports -- those are service-role-owned by design
+     * (20260828130000) and the write would just be denied. Failure is
+     * ignored either way: this is an optimisation, not a requirement, and
+     * the four-layer fallback means nothing breaks without it.
+     */
+    async function seedReportSemantics(widget, rows) {
+      if (!widget.report_id || widget.report_source === 'system') return;
+      if (widget.report_columns_metadata) return;
+      const resolved = window.SiloFieldSemantics.resolveAll(
+        window.SiloChart.profileColumns(rows),
+        { reportMetadata: null, catalogIndex: undefined, overrides: (widget.visual_config || {}).field_semantics },
+      );
+      const seed = window.SiloFieldSemantics.seedableMetadata(resolved);
+      if (!Object.keys(seed).length) return;
+      const { error } = await sb.from('silo_chat_saved_reports')
+        .update({ columns_metadata: seed }).eq('id', widget.report_id);
+      if (!error) runtime.updateWidget(widget.id, { report_columns_metadata: seed });
+    }
+
+    /**
+     * A human correcting a column's meaning. This writes to the REPORT, not
+     * the widget, and says so in the UI -- the whole point of moving
+     * semantics off the widget is that `net_sales` means the same thing
+     * everywhere that report is used.
+     */
+    async function setFieldSemantic(widget, field, semantic) {
+      const next = { ...(widget.report_columns_metadata || {}) };
+      next[field] = { semantic, source: 'human' };
+      const { error } = await sb.from('silo_chat_saved_reports')
+        .update({ columns_metadata: next }).eq('id', widget.report_id);
+      if (error) {
+        // A system report (service-role-owned) or someone else's report.
+        // Fall back to a widget-local override so the correction still
+        // takes effect here rather than silently doing nothing.
+        const cfg = { ...(widget.visual_config || {}) };
+        cfg.field_semantics = { ...(cfg.field_semantics || {}), [field]: semantic };
+        runtime.updateWidget(widget.id, { visual_config: cfg });
+        markDirty();
+        setStatus(`Applied to this widget only — this report's column types are not yours to edit.`, 'info', 5000);
+      } else {
+        runtime.updateWidget(widget.id, { report_columns_metadata: next });
+        setStatus(`"${field}" is now ${semantic} everywhere this report is used.`, 'pos', 4000);
+      }
+      await runtime.rerenderWidget(widget.id);
+      renderInspector();
     }
 
     // ── Inspector ────────────────────────────────────────────────────────
@@ -261,6 +322,16 @@
       const activeX = shaped ? shaped.xField : cfg.x_field;
       const activeY = shaped ? shaped.yField : cfg.y_field;
 
+      const SEMANTIC_LABEL = {
+        currency: 'Currency ($)', count: 'Whole count', number: 'Number',
+        percent: 'Percentage (%)', date: 'Date', category: 'Category', boolean: 'True/false',
+      };
+      const semantics = rows ? runtime.semanticsFor(w, rows) : {};
+      const measureSemantic = activeY ? semantics[activeY] : null;
+      const aggNow = window.SiloChart.AGGREGATES.includes(cfg.aggregate)
+        ? cfg.aggregate
+        : window.SiloChart.defaultAggregate(measureSemantic);
+
       const fieldsBlock = !rows
         ? `<div class="v3-insp-note">No data loaded for this widget, so there are no fields to configure yet.</div>`
         : `
@@ -277,14 +348,26 @@
             ${options(meas.length ? meas : prof, activeY)}
           </select>
         </div>` : ''}
-        ${w.visual_type === 'kpi' ? `
+        ${(isChart || w.visual_type === 'kpi') ? `
         <div class="bcn-field-group">
-          <label class="bcn-label" for="inspAgg">Aggregate</label>
+          <label class="bcn-label" for="inspAgg">Aggregation</label>
           <select class="bcn-field" id="inspAgg">
-            ${['sum', 'avg', 'max', 'min', 'first', 'count'].map((a) =>
-              `<option value="${a}"${(cfg.aggregate || (rows.length === 1 ? 'first' : 'sum')) === a ? ' selected' : ''}>${a}</option>`).join('')}
+            ${window.SiloChart.AGGREGATES.map((a) =>
+              `<option value="${a}"${aggNow === a ? ' selected' : ''}>${a === 'none' ? "none (plot every row)" : a}</option>`).join('')}
           </select>
-          <span class="v3-insp-hint">${rows.length} row${rows.length === 1 ? '' : 's'} in this dataset.</span>
+          <span class="v3-insp-hint">${isChart
+            ? 'Rows sharing a dimension value are rolled up before sorting and limiting. Leave on sum unless the query already aggregated.'
+            : `${rows.length} row${rows.length === 1 ? '' : 's'} in this dataset.`}</span>
+        </div>` : ''}
+        ${activeY ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspSemantic">"${esc(activeY)}" means</label>
+          <select class="bcn-field" id="inspSemantic">
+            ${window.SiloFieldSemantics.SEMANTICS.map((sem) =>
+              `<option value="${sem}"${measureSemantic === sem ? ' selected' : ''}>${SEMANTIC_LABEL[sem] || sem}</option>`).join('')}
+          </select>
+          <span class="v3-insp-hint">Decides how the value is printed and which aggregation makes sense.
+            Saved on the <strong>report</strong>, so it applies everywhere that report is used — not just here.</span>
         </div>` : ''}
         ${w.visual_type !== 'kpi' ? `
         <div class="bcn-field-group">
@@ -297,16 +380,7 @@
           <label class="bcn-label" for="inspLimit">Limit</label>
           <input class="bcn-field bcn-field--mono" id="inspLimit" type="number" min="0" step="1" value="${Number(cfg.limit) || 0}" />
           <span class="v3-insp-hint">0 shows everything the query returned. Sorting and limiting happen on the returned rows, not in SQL — the source query is still capped at 500 rows.</span>
-        </div>` : ''}
-        <div class="bcn-field-group">
-          <label class="bcn-label" for="inspFormat">Number format</label>
-          <select class="bcn-field" id="inspFormat">
-            ${['auto', 'number', 'currency', 'percent'].map((f) => {
-              const cur = cfg.value_format || 'auto';
-              return `<option value="${f}"${cur === f ? ' selected' : ''}>${f}${f === 'auto' && activeY ? ` (${window.SiloChart.inferFormat(activeY)})` : ''}</option>`;
-            }).join('')}
-          </select>
-        </div>`;
+        </div>` : ''}`;
 
       el('inspectorBody').innerHTML = `
         <div class="bcn-field-group">
@@ -335,6 +409,12 @@
         <div class="v3-insp-actions">
           <button type="button" class="bcn-btn bcn-btn--danger" id="inspRemove">Remove widget</button>
         </div>`;
+    }
+
+    function resizeTile(id, w, h) {
+      const grid = runtime.grid;
+      const el = grid && grid.el.querySelector(`.grid-stack-item[gs-id="${CSS.escape(id)}"]`);
+      if (grid && el) grid.update(el, { w, h });
     }
 
     function patchConfig(patch) {
@@ -447,19 +527,34 @@
           // the new visual needs -- the whole point of config-not-code is
           // that Table -> Bar keeps the same dataset and the same columns.
           const rows = runtime.rowsFor(w.id);
-          const rec = rows ? window.SiloChart.recommend(rows) : { visual_config: {} };
+          const rec = rows ? window.SiloChart.recommend(rows, runtime.semanticsFor(w, rows)) : { visual_config: {} };
           const merged = { ...rec.visual_config, ...(w.visual_config || {}) };
           runtime.updateWidget(w.id, { visual_type: t.value, visual_config: merged });
+          // A KPI is one number; leaving it in a full chart's footprint
+          // wastes the canvas and reads as a broken chart. Only shrink a
+          // tile that is still chart-sized, so a deliberately large KPI
+          // stays large.
+          if (t.value === 'kpi') {
+            const geo = runtime.layout().get(w.id) || w.layout || {};
+            if ((geo.w || 6) > 4 || (geo.h || 4) > 3) resizeTile(w.id, 3, 2);
+          }
           markDirty();
           runtime.rerenderWidget(w.id).then(renderInspector);
           return;
         }
         if (t.id === 'inspX') patchConfig({ x_field: t.value });
-        else if (t.id === 'inspY') patchConfig({ y_field: t.value || undefined });
+        // Changing the measure can change what aggregation makes sense
+        // (sum for dollars, avg for a rate), so re-render the inspector too.
+        else if (t.id === 'inspY') { patchConfig({ y_field: t.value || undefined }); renderInspector(); }
         else if (t.id === 'inspAgg') patchConfig({ aggregate: t.value });
         else if (t.id === 'inspSort') patchConfig({ sort: t.value });
         else if (t.id === 'inspLimit') patchConfig({ limit: Math.max(0, Number(t.value) || 0) });
-        else if (t.id === 'inspFormat') patchConfig({ value_format: t.value === 'auto' ? undefined : t.value });
+        else if (t.id === 'inspSemantic') {
+          const rows = runtime.rowsFor(w.id);
+          const field = (window.SiloChart.shape(rows, w.visual_config || {}, runtime.semanticsFor(w, rows)) || {}).yField
+            || (w.visual_config || {}).y_field;
+          if (field) setFieldSemantic(w, field, t.value);
+        }
         else if (t.id === 'inspQueryIndex') changeQueryIndex(w, Number(t.value));
       });
 
