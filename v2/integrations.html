@@ -1577,6 +1577,7 @@
           <td>${test}</td>
           <td style="white-space:nowrap;">
             <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
+            ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
             <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
           </td>
         </tr>`;
@@ -1589,6 +1590,15 @@
         const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>
           <td></td>
           <td colspan="5" style="padding-top:0;">
+            <div id="meta-token-${row.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;" hidden>
+              <span style="font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);">New System User token:</span>
+              <input class="bcn-field bcn-field--mono" style="min-width:260px;font-size:11px;" type="password"
+                placeholder="EAAB…" autocomplete="off" spellcheck="false"
+                onkeydown="if (event.key === 'Enter') saveMetaToken('${row.id}')" />
+              <button class="int-btn int-btn--primary" onclick="saveMetaToken('${row.id}')">Save token</button>
+              <button class="int-btn int-btn--ghost" onclick="toggleMetaTokenForm('${row.id}')">Cancel</button>
+              <span style="font-size:10.5px;color:var(--bcn-ink-3);">— replaces the token on THIS connection; never add a second one for the same account</span>
+            </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--bcn-ink-3);">
               <span style="font-family:var(--bcn-mono);">Organic (optional):</span>
               <input class="bcn-field bcn-field--mono" style="min-width:160px;font-size:11px;"
@@ -1603,6 +1613,45 @@
         </tr>`;
         return mainRow + organicRow;
       }).join('');
+    }
+
+    // Regenerating a Meta System User token used to have no home in this UI:
+    // the only Meta control was "Add Meta Ads token…", which INSERTs. Pasting
+    // a refreshed token there creates a SECOND connection for the same ad
+    // account, which double-pulls it every night and doubles the Meta API
+    // pressure on an account that already hits "Application request limit
+    // reached". (Spend itself would not double -- every Meta table upserts on
+    // an identity hash that excludes connection_id -- but nothing about that
+    // is obvious from here.) Replacing in place is the intended path.
+    function toggleMetaTokenForm(id) {
+      const el = document.getElementById(`meta-token-${id}`);
+      if (!el) return;
+      el.hidden = !el.hidden;
+      if (!el.hidden) el.querySelector('input').focus();
+    }
+
+    async function saveMetaToken(id) {
+      const el = document.getElementById(`meta-token-${id}`);
+      const input = el?.querySelector('input');
+      const token = (input?.value || '').trim();
+      if (!token) { setStatus('Paste the new token first', 'neg', 5000); return; }
+      const { error } = await db.from('ad_platform_connections')
+        .update({
+          access_token: token,
+          // Clear the previous test result too: the "OK" pill on this row was
+          // earned by the OLD token, and leaving it would vouch for a
+          // credential nothing has verified yet.
+          last_tested_at: null,
+          last_test_status: null,
+          last_test_success: null,
+          last_test_error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+      input.value = '';
+      if (error) { setStatus('Token update failed: ' + error.message, 'neg', 8000); return; }
+      setStatus('✓ Token replaced on the existing connection — run Test to verify it.', 'pos', 9000);
+      loadAdConnections();
     }
 
     async function updateAdConnection(id, patch) {
@@ -1705,6 +1754,27 @@
       const token = document.getElementById('meta-token').value.trim();
       const acct = document.getElementById('meta-account-id').value.trim();
       if (!token) { setStatus('Paste the System User access token first', 'neg', 5000); return; }
+
+      // A refreshed token for an account that is already connected belongs on
+      // the EXISTING row (Replace token), not in a new one. Compare account
+      // ids normalized, since "act_51281951" and "51281951" are the same
+      // account typed two ways. A blank account id is treated as a clash too:
+      // the overwhelmingly common reason to leave it blank is that this is the
+      // same single account being re-pasted.
+      const { data: existingMeta, error: existErr } = await db.from('ad_platform_connections')
+        .select('id, display_name, meta_ad_account_id')
+        .eq('company_entity_id', _co.id)
+        .eq('platform', 'meta_ads');
+      if (existErr) { setStatus('Could not check existing connections: ' + existErr.message, 'neg', 8000); return; }
+      const normAcct = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^act/, '');
+      const clash = (existingMeta || []).find((r) => !acct || normAcct(r.meta_ad_account_id) === normAcct(acct));
+      if (clash) {
+        setStatus(`Meta account ${clash.meta_ad_account_id || '(no account set)'} is already connected as "${clash.display_name}". `
+          + 'Use "Replace token" on that row instead — a second connection for the same account double-pulls it nightly.',
+          'neg', 15000);
+        return;
+      }
+
       const { error } = await db.from('ad_platform_connections').insert({
         company_entity_id: _co.id,
         platform: 'meta_ads',

@@ -48,6 +48,24 @@ No OAuth flow — Meta's recommended server-to-server credential is a **System U
 3. Generate token: pick your app (create a Business-type app at developers.facebook.com if you have none), scopes `ads_read` + `business_management`, expiry **never**.
 4. **Connect in SILO**: `/v2/integrations.html` → *Add Meta Ads token…* → paste the token (ad account ID optional — Test lists the accounts the token can see, e.g. `act_1234567890`). Test, set the account, enable sync.
 
+**Replacing a regenerated token — do NOT use *Add Meta Ads token…* for this.** That button
+only ever INSERTs, so pasting a refreshed token there creates a SECOND connection for the
+same ad account. Use **Replace token** on the existing row instead: it swaps the credential
+in place and clears the row's previous test result, since the old "OK" pill was earned by
+the old token. The add form now refuses an account that is already connected (comparing
+`act_51281951` and `51281951` as the same account) and points here.
+
+For the record, a duplicate connection would NOT have doubled spend: every Meta table
+upserts on an identity hash that deliberately excludes `connection_id` — `marketing_kpis_daily`
+on company+platform+account+campaign+day, `meta_ad_performance_daily` on
+company+account+ad+day, `meta_ad_creatives` and `instagram_media_insights` on their natural
+keys — and the account id in those hashes comes from Meta's API response, not from the
+field you typed. Two connections on one account would land on the same rows and overwrite.
+What it WOULD cost is a doubled nightly pull against an account that already hits
+"Application request limit reached", a `connection_id` that flips between rows, and a
+stale-token row failing the whole workflow. Genuine double-counting needs two connections
+pointing at two DIFFERENT account ids.
+
 ### Optional: organic Instagram + Facebook Page insights (posts/reels — separate from the ads pull above)
 
 The System User token above only grants `ads_read` — organic reach/engagement needs two additional things, not just a permission checkbox:
@@ -115,5 +133,5 @@ honestly backfilled.
 | Platform | Credential | Lifetime | On failure |
 |----------|-----------|----------|------------|
 | Google Ads / GA4 | OAuth refresh token | Indefinite (revoked if unused ~6 months or password/permission change) | Sync errors `invalid_grant` → reconnect via Integrations |
-| Meta Ads | System User token | Never expires | Only dies if the system user/app loses asset access → regenerate + re-paste |
+| Meta Ads | System User token | Never expires | Only dies if the system user/app loses asset access → regenerate, then **Replace token** on the existing row (see below) |
 | TikTok Ads | OAuth access token | Long-lived (v1.3 returns no expiry) | 401 from API → reconnect via Integrations |
