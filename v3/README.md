@@ -84,6 +84,30 @@ Semantics decide two things: how a value is printed, and which aggregation
 makes sense. Sum is right for currency and counts and wrong for rates
 (40%/50%/60% averages to 50%, sums to 150%), so `percent` defaults to `avg`.
 
+## Seeded system reports
+
+`20260828150000_seed_system_reports.sql` ships four `source = 'system'`
+definitions — Daily Sales, Top Products (30d), Sales by Location (30d), Open
+Purchase Orders — so a dashboard has something to build on before anyone has
+saved an Ask SILO report, and so the four visuals each have a natural example.
+They carry their own `columns_metadata`, so they format correctly on first
+render without waiting on the schema catalog.
+
+**The rule to keep when adding more:** every definition reads a
+`security_invoker` view or an RLS-enabled base table, **never a materialized
+view**. Postgres does not enforce RLS on matviews — `sales_velocity_by_sku_location_mv`,
+`inventory_on_hand_current_mv` and `sales_monthly_product_type_rollup_mv` all
+carry `company_entity_id` but none can filter on it by policy, so a *global*
+definition querying one would return every tenant's rows to every tenant. If a
+future one genuinely needs a matview for speed, it must carry an explicit
+`where company_entity_id = active_company_id()`. `inventory_workboard_v` is
+avoided too, for a duller reason: it already exceeds the 30s statement timeout.
+
+Idempotent via fixed UUIDs and `on conflict (id) do nothing` — deliberately not
+`do update`, since `apply_all_post_merge.sql` is re-run for rebuilds and a
+do-update would discard anyone's correction. Changing a shipped definition is
+its own migration.
+
 ## Files
 
 | File | Role |

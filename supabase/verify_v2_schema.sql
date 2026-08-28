@@ -1631,3 +1631,21 @@ select
       then 'MISSING — dashboard_widgets_v.report_columns_metadata; dashboards fall back to guessing currency vs count from column names'
     else 'ok'
   end as saved_report_column_semantics;
+
+select
+  case
+    when (select count(*) from public.silo_chat_saved_reports
+           where source = 'system'
+             and id in ('5110de50-0000-4000-a000-000000000001',
+                        '5110de50-0000-4000-a000-000000000002',
+                        '5110de50-0000-4000-a000-000000000003',
+                        '5110de50-0000-4000-a000-000000000004')) < 4
+      then 'MISSING — run 20260828150000_seed_system_reports.sql; dashboards have nothing to build on unless someone has saved an Ask SILO report'
+    when exists (select 1 from public.silo_chat_saved_reports
+                  where source = 'system' and company_entity_id is not null)
+      then 'MISSING — a system report is scoped to one company; system definitions are meant to be global (company_entity_id IS NULL) and reused by every tenant'
+    when exists (select 1 from public.silo_chat_saved_reports
+                  where source = 'system' and coalesce(array_length(queries_run, 1), 0) = 0)
+      then 'MISSING — a system report has no SQL to run'
+    else 'ok'
+  end as seed_system_reports;
