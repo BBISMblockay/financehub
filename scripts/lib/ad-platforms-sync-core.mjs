@@ -711,7 +711,20 @@ export async function fetchFacebookPageInsights(connection, window) {
   const byDay = new Map();
   for (const s of series) {
     for (const point of s.values ?? []) {
-      const day = String(point.end_time || '').slice(0, 10);
+      // Meta's day-period end_time is the END of the bucket -- midnight at the
+      // START of the next day in the Page's timezone -- so each value
+      // describes the day BEFORE its end_time. Labelling rows with end_time's
+      // own date shifts the entire series one day late.
+      //
+      // Confirmed structurally on 2026-08-28: a request for since=2026-07-29
+      // until=2026-08-28 came back with 30 buckets stamped 07-30..08-28. The
+      // first is 07-30, not the 07-29 that was asked for, which only happens
+      // if the stamp marks the end of each bucket. It also explains why the
+      // newest row held the highest media views of the window rather than the
+      // fraction of a day it would hold if it really were today.
+      const endDay = String(point.end_time || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(endDay)) continue;
+      const day = isoDateOnly(addDays(new Date(`${endDay}T00:00:00Z`), -1));
       if (!day) continue;
       if (!byDay.has(day)) byDay.set(day, { day });
       byDay.get(day)[s.name] = point.value;
@@ -815,12 +828,26 @@ export async function runMetaOrganicSync(supabase, connection, {
       : 0;
 
     fanCount = await fetchFacebookPageFanCount(connection);
-    const latestDay = pageDays.reduce((mx, d) => (d.day > mx ? d.day : mx), '');
-    if (fanCount != null && latestDay) {
-      const { error } = await supabase
-        .from('facebook_page_insights_daily')
-        .update({ page_fan_count: fanCount })
-        .eq('row_hash', hashRow([connection.company_entity_id, 'facebook_page', latestDay]));
+    if (fanCount != null) {
+      // Followers are a snapshot read just now, so they belong on the day
+      // currently IN PROGRESS -- one past the last complete day Meta reports --
+      // not on the newest finished day, which would date today's count to
+      // yesterday. Tomorrow's run fills that same row's engagement columns, so
+      // the row converges rather than staying a followers-only orphan.
+      const latestDay = pageDays.reduce((mx, d) => (d.day > mx ? d.day : mx), '');
+      const fanDay = latestDay
+        ? isoDateOnly(addDays(new Date(`${latestDay}T00:00:00Z`), 1))
+        : isoDateOnly(new Date());
+      // Upsert rather than update: on the first run of a day that row does not
+      // exist yet, and an update would silently match nothing. Neither payload
+      // carries the other's columns, so the two writes cannot blank each other.
+      const { error } = await supabase.from('facebook_page_insights_daily').upsert({
+        company_entity_id: connection.company_entity_id,
+        day_date: fanDay,
+        page_fan_count: fanCount,
+        row_hash: hashRow([connection.company_entity_id, 'facebook_page', fanDay]),
+        synced_at: syncedAt,
+      }, { onConflict: 'row_hash' });
       if (error) console.warn('[warn] Facebook Page fan_count not stamped:', error.message);
     }
   } catch (err) {
