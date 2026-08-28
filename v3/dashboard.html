@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Dashboard</title>
+
+  <!-- v3 pages reuse the v2 Beacon shell wholesale rather than forking it.
+       nav-config.js must load before silo-chrome.js or the sidebar bails. -->
+  <link rel="stylesheet" href="../v2/beacon.css" />
+  <link rel="stylesheet" href="../v2/silo-brand.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+  <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="../v2/v2-mobile.css" />
+  <script src="../v2/v2-shell.js" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div class="bcn-header-title">
+        <h1 id="headerName">Dashboard</h1>
+        <span class="bcn-header-sub" id="headerSub"></span>
+      </div>
+      <div class="bcn-header-actions">
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh">Refresh data</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Add widget</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnEdit" hidden>Edit</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnSave" hidden>Save</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <!-- Dashboard-level settings, edit mode only. -->
+    <section class="bcn-filter-bar v3-meta-bar" id="metaBar" hidden>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="dashName">Name</label>
+        <input class="bcn-field" id="dashName" type="text" autocomplete="off" />
+      </div>
+      <div class="bcn-field-group bcn-field-group--wide">
+        <label class="bcn-label" for="dashDescription">Description</label>
+        <input class="bcn-field" id="dashDescription" type="text" autocomplete="off" placeholder="What this dashboard answers" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="dashVisibility">Visibility</label>
+        <select class="bcn-field" id="dashVisibility">
+          <option value="company">Company — everyone can view</option>
+          <option value="private">Only me</option>
+        </select>
+      </div>
+    </section>
+
+    <div class="v3-canvas" id="canvas">
+      <div class="grid-stack" id="grid"></div>
+      <div class="v3-blank" id="blank" hidden>
+        <h3>Nothing on this dashboard yet</h3>
+        <p>
+          Widgets are built from saved Ask SILO reports. Ask a question in
+          <a href="/v2/silo-chat.html">Ask SILO</a>, hit <strong>Save report</strong> under the answer,
+          then add it here — SILO reads the columns that came back and suggests a visual.
+        </p>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnBlankAdd" hidden>+ Add widget</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Widget inspector: the whole point of storing config instead of HTML is
+     that everything in here is a field update and a re-render. -->
+<aside class="v3-inspector" id="inspector" aria-label="Widget settings">
+  <div class="v3-inspector-head">
+    <h3>Widget</h3>
+    <button type="button" class="v3-close" id="btnCloseInspector" aria-label="Close">✕</button>
+  </div>
+  <div class="v3-inspector-body" id="inspectorBody"></div>
+</aside>
+
+<!-- Saved-report picker -->
+<div class="v3-backdrop" id="addBackdrop">
+  <div class="v3-modal" role="dialog" aria-modal="true" aria-labelledby="addTitle">
+    <div class="v3-modal-head">
+      <h3 id="addTitle">Add a widget</h3>
+      <button type="button" class="v3-close" id="btnCloseAdd" aria-label="Close">✕</button>
+    </div>
+    <div class="v3-modal-body" id="addBody"></div>
+  </div>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
+<script src="../v2/nav-config.js"></script>
+<script src="../v2/avatar.js"></script>
+<script src="../v2/silo-chrome.js"></script>
+<script src="js/chart-adapter.js"></script>
+<script src="js/dashboard-renderer.js"></script>
+<script src="js/dashboard-builder.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  const el = (id) => document.getElementById(id);
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    setStatus('Missing Supabase config — pages/config.js did not load.', 'neg');
+    return;
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let runtime = null;
+  let builder = null;
+  let dashboard = null;
+  let editing = false;
+  let canEdit = false;
+
+  function setMode(next) {
+    editing = !!next && canEdit;
+    runtime.setEditable(editing);
+    el('metaBar').hidden = !editing;
+    el('btnAddWidget').hidden = !editing;
+    el('btnBlankAdd').hidden = !editing;
+    el('btnSave').hidden = !editing;
+    el('btnEdit').textContent = editing ? 'Done' : 'Edit';
+    if (!editing && builder) builder.closeInspector();
+    // Keep the mode in the URL so a reload, or a link someone pastes to a
+    // colleague, lands in the same mode rather than silently in view mode.
+    const url = new URL(location.href);
+    if (editing) url.searchParams.set('edit', '1'); else url.searchParams.delete('edit');
+    history.replaceState(null, '', url);
+  }
+
+  function syncBlankState() {
+    const empty = !runtime.getWidgets().length;
+    el('blank').hidden = !empty;
+    el('grid').hidden = empty;
+  }
+
+  async function boot() {
+    const sessRes = await sb.auth.getSession();
+    if (!sessRes?.data?.session) { window.location.href = '/pages/login.html'; return; }
+    const user = sessRes.data.session.user;
+
+    // ensureActiveCompany, not the sync getActiveCompany(): a dashboard link
+    // pasted into Slack opens in a fresh tab with an empty sessionStorage,
+    // and every insert here needs the company stamped.
+    await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+
+    const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', user.id).single();
+    const isExecOrOwner = ['owner', 'executive'].includes(String(profile?.role || '').toLowerCase());
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'reports/dashboards',
+        user: { email: profile?.email || user.email, role: profile?.role },
+        crumbs: ['Reports', 'Dashboards'],
+        supabaseClient: sb,
+      });
+    }
+
+    const id = new URLSearchParams(location.search).get('id');
+    if (!id) { window.location.replace('/v3/dashboards.html'); return; }
+
+    const { data: dash, error } = await sb.from('dashboards_v').select('*').eq('id', id).maybeSingle();
+    if (error) { setStatus('Could not load this dashboard: ' + error.message, 'neg'); return; }
+    if (!dash) {
+      setStatus('That dashboard does not exist, or it is private to someone else.', 'neg');
+      el('blank').hidden = true;
+      return;
+    }
+    dashboard = dash;
+
+    document.title = `SILO · ${dash.name}`;
+    el('headerName').textContent = dash.name;
+    el('headerSub').textContent = [
+      dash.description,
+      `${dash.visibility === 'private' ? 'Only you' : 'Company'} · ${dash.created_by_name || 'Unknown'}`,
+    ].filter(Boolean).join(' · ');
+    el('dashName').value = dash.name;
+    el('dashDescription').value = dash.description || '';
+    el('dashVisibility').value = dash.visibility;
+
+    // Mirrors the RLS update policy. Nav/UI gating is UX only -- a user who
+    // forces edit mode still cannot write, the policy rejects it.
+    canEdit = isExecOrOwner || dash.created_by === user.id;
+    el('btnEdit').hidden = !canEdit;
+
+    const { data: widgets, error: wErr } = await sb
+      .from('dashboard_widgets_v').select('*').eq('dashboard_id', id).order('sort_order');
+    if (wErr) { setStatus('Could not load widgets: ' + wErr.message, 'neg'); return; }
+
+    runtime = window.SiloDashboardRenderer.createRuntime({
+      sb,
+      gridEl: el('grid'),
+      editable: false,
+      onLayoutChange: () => { if (builder) builder.markLayoutDirty(); },
+    });
+
+    if (canEdit) {
+      builder = window.SiloDashboardBuilder.create({
+        sb, runtime, dashboard, setStatus,
+        onDirtyChange: (d) => { el('btnSave').textContent = d ? 'Save •' : 'Save'; },
+        onWidgetsChange: syncBlankState,
+      });
+    }
+
+    // Debug handle. Config-driven rendering is only debuggable if you can
+    // read the config the page is actually holding -- this is how you check
+    // a widget's live visual_config from the console, and what the browser
+    // test drives.
+    window.__siloDashboard = { runtime, builder, dashboard };
+
+    await runtime.setWidgets(widgets || []);
+    syncBlankState();
+
+    if (canEdit && new URLSearchParams(location.search).get('edit') === '1') setMode(true);
+  }
+
+  // ── Header actions ────────────────────────────────────────────────────
+  el('btnRefresh').addEventListener('click', async (e) => {
+    if (!runtime) return;
+    e.target.disabled = true;
+    setStatus('Re-running every widget query against live data…', 'info');
+    await runtime.refresh();
+    setStatus(`Refreshed ${new Date().toLocaleTimeString()}.`, 'pos', 3000);
+    e.target.disabled = false;
+  });
+
+  el('btnEdit').addEventListener('click', async () => {
+    if (!runtime) return;
+    if (editing && builder && builder.isDirty()) {
+      if (!confirm('You have unsaved changes. Leave edit mode and discard them?')) return;
+      window.location.reload();
+      return;
+    }
+    setMode(!editing);
+  });
+
+  el('btnSave').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    const ok = await builder.save();
+    e.target.disabled = false;
+    if (ok) {
+      el('headerName').textContent = dashboard.name;
+      syncBlankState();
+    }
+  });
+
+  el('btnBlankAdd').addEventListener('click', () => builder && builder.openAddWidget());
+
+  // View-mode per-widget refresh.
+  el('grid').addEventListener('click', (e) => {
+    if (!runtime || !e.target.closest('[data-act="reload"]')) return;
+    const tile = e.target.closest('.dw');
+    if (tile) runtime.refreshWidget(tile.dataset.widgetId);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && builder) builder.closeInspector();
+  });
+
+  // Buffered editing means a stray tab close loses work; the browser's own
+  // prompt is the only reliable guard against that.
+  window.addEventListener('beforeunload', (e) => {
+    if (builder && builder.isDirty()) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  // Charts bake theme colours in at draw time, so a system theme flip has
+  // to redraw them. Data is cached, so this is a re-render, not a refetch.
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)')
+      .addEventListener('change', () => runtime && runtime.retheme());
+  }
+
+  boot().catch((err) => setStatus('Something went wrong loading this dashboard: ' + err.message, 'neg'));
+})();
+</script>
+</body>
+</html>

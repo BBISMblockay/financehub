@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Dashboards</title>
+  <link rel="stylesheet" href="../v2/beacon.css" />
+  <link rel="stylesheet" href="../v2/silo-brand.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+  <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="../v2/v2-mobile.css" />
+  <script src="../v2/v2-shell.js" defer></script>
+  <style>
+    .v3-list-content { padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 14px; }
+  </style>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div class="bcn-header-title">
+        <h1>Dashboards</h1>
+        <span class="bcn-header-sub">Saved Ask SILO reports, arranged on a canvas</span>
+      </div>
+      <div class="bcn-header-actions">
+        <a class="bcn-btn bcn-btn--ghost" href="/v2/silo-chat.html">Ask SILO</a>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnNew">+ New dashboard</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="v3-list-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header"><span>Your company's dashboards</span></div>
+        <div class="bcn-card-body" id="listBody">
+          <div class="v3-empty">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- New dashboard -->
+<div class="v3-backdrop" id="newBackdrop">
+  <div class="v3-modal" role="dialog" aria-modal="true" aria-labelledby="newTitle" style="width:min(460px,100%)">
+    <div class="v3-modal-head">
+      <h3 id="newTitle">New dashboard</h3>
+      <button type="button" class="v3-close" id="btnCloseNew" aria-label="Close">✕</button>
+    </div>
+    <div class="v3-modal-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="newName">Name</label>
+        <input class="bcn-field" id="newName" type="text" autocomplete="off" placeholder="e.g. Monday sales review" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="newDescription">Description</label>
+        <input class="bcn-field" id="newDescription" type="text" autocomplete="off" placeholder="What this dashboard answers" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="newVisibility">Visibility</label>
+        <select class="bcn-field" id="newVisibility">
+          <option value="company">Company — everyone can view</option>
+          <option value="private">Only me</option>
+        </select>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCancelNew">Cancel</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnCreate">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../v2/nav-config.js"></script>
+<script src="../v2/avatar.js"></script>
+<script src="../v2/silo-chrome.js"></script>
+<script src="js/chart-adapter.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => window.SiloChart.esc(s);
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    setStatus('Missing Supabase config — pages/config.js did not load.', 'neg');
+    return;
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let userId = null;
+
+  async function loadList() {
+    const { data, error } = await sb.from('dashboards_v').select('*').order('updated_at', { ascending: false });
+    if (error) { el('listBody').innerHTML = `<div class="v3-empty">Couldn't load dashboards: ${esc(error.message)}</div>`; return; }
+    const rows = data || [];
+    if (!rows.length) {
+      el('listBody').innerHTML = `<div class="v3-empty">
+        No dashboards yet. Save a report in <a href="/v2/silo-chat.html">Ask SILO</a>, then create a dashboard and drop it on the canvas.
+      </div>`;
+      return;
+    }
+    el('listBody').innerHTML = `<div class="v3-dash-grid">${rows.map((d) => `
+      <a class="v3-dash-card" href="/v3/dashboard.html?id=${encodeURIComponent(d.id)}">
+        <span class="v3-dash-name">${esc(d.name)}</span>
+        <span class="v3-dash-desc">${esc(d.description || '')}</span>
+        <span class="v3-dash-foot">
+          <span class="bcn-pill${d.visibility === 'private' ? '' : ' bcn-pill--accent'}">${d.visibility === 'private' ? 'Only you' : 'Company'}</span>
+          <span class="bcn-pill">${d.widget_count} widget${Number(d.widget_count) === 1 ? '' : 's'}</span>
+          <span class="v3-dash-meta">${esc(d.created_by_name || 'Unknown')} · ${new Date(d.updated_at).toLocaleDateString()}</span>
+        </span>
+      </a>`).join('')}</div>`;
+  }
+
+  async function createDashboard() {
+    const name = (el('newName').value || '').trim();
+    if (!name) { setStatus('Give the dashboard a name.', 'neg', 4000); el('newName').focus(); return; }
+    el('btnCreate').disabled = true;
+    // company_entity_id is stamped by the BEFORE INSERT trigger, and
+    // created_by by stamp_created_by -- neither is passed from the client.
+    const { data, error } = await sb.from('dashboards').insert({
+      name,
+      description: (el('newDescription').value || '').trim() || null,
+      visibility: el('newVisibility').value,
+    }).select('id').single();
+    el('btnCreate').disabled = false;
+    if (error) { setStatus('Could not create the dashboard: ' + error.message, 'neg', 6000); return; }
+    // Straight into edit mode -- a brand-new dashboard is empty and the
+    // only useful next action is adding a widget.
+    window.location.href = `/v3/dashboard.html?id=${encodeURIComponent(data.id)}&edit=1`;
+  }
+
+  el('btnNew').addEventListener('click', () => {
+    el('newName').value = '';
+    el('newDescription').value = '';
+    el('newVisibility').value = 'company';
+    el('newBackdrop').classList.add('open');
+    el('newName').focus();
+  });
+  const closeNew = () => el('newBackdrop').classList.remove('open');
+  el('btnCloseNew').addEventListener('click', closeNew);
+  el('btnCancelNew').addEventListener('click', closeNew);
+  el('newBackdrop').addEventListener('click', (e) => { if (e.target.id === 'newBackdrop') closeNew(); });
+  el('btnCreate').addEventListener('click', createDashboard);
+  el('newName').addEventListener('keydown', (e) => { if (e.key === 'Enter') createDashboard(); });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNew(); });
+
+  async function boot() {
+    const sessRes = await sb.auth.getSession();
+    if (!sessRes?.data?.session) { window.location.href = '/pages/login.html'; return; }
+    userId = sessRes.data.session.user.id;
+    await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+
+    const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', userId).single();
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'reports/dashboards',
+        user: { email: profile?.email || sessRes.data.session.user.email, role: profile?.role },
+        crumbs: ['Reports', 'Dashboards'],
+        supabaseClient: sb,
+      });
+    }
+    await loadList();
+  }
+
+  boot().catch((err) => setStatus('Something went wrong: ' + err.message, 'neg'));
+})();
+</script>
+</body>
+</html>

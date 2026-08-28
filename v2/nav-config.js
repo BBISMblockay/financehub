@@ -135,6 +135,14 @@
     // restricting) -- this just controls who sees it in the sidebar first.
     // Widen `roles` (or drop it) once ready for the whole team.
     { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    // v3 dashboard runtime -- saved Ask SILO reports arranged on a canvas.
+    // Deliberately in 'Reports' next to Ask SILO and gated the same way: it
+    // is only useful to someone who already has saved reports, and 'Reports'
+    // is absent from STANDARD_SECTION_ORDER so a standard-profile company
+    // does not see it at all. Widen `roles` once the shape settles. Note
+    // this is the first /v3/ page in the nav -- v3 reuses the v2 Beacon
+    // shell, it is not a separate app.
+    { roles: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', label: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
     // and there's no historical backfill yet). Page itself still works at

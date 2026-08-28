@@ -1546,3 +1546,34 @@ select
       then 'MISSING — employee_goals_target_date_idx absent; run 20260827200000_review_scale_1_4_and_goal_dates.sql'
     else 'ok'
   end as review_scale_1_4_and_goal_dates;
+
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='dashboards')
+      then 'MISSING — run 20260828120000_v3_dashboards.sql'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='dashboard_widgets')
+      then 'MISSING — dashboard_widgets table'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='dashboards'
+                       and policyname='dashboards_select')
+      then 'MISSING — dashboards RLS policies'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='dashboard_widgets'
+                       and policyname='dashboard_widgets_select')
+      then 'MISSING — dashboard_widgets RLS policies'
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.dashboard_widgets'::regclass
+                       and tgname='stamp_company_entity_id')
+      then 'MISSING — stamp_company_entity_id trigger on dashboard_widgets; re-run attach_stamp_company_entity_id_triggers()'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='query_sql')
+      then 'MISSING — dashboard_widgets_v.query_sql; every widget renders "source report not visible" without it'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='dashboard_widgets_v'
+                       and c.reloptions::text like '%security_invoker%')
+      then 'MISSING — dashboard_widgets_v is not security_invoker; it would hand a private report''s SQL to every viewer'
+    else 'ok'
+  end as v3_dashboards;

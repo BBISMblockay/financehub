@@ -1,0 +1,346 @@
+/* ==========================================================================
+   SILO v3 — dashboard renderer
+   --------------------------------------------------------------------------
+   Reads saved configuration and draws it. This file is the "runtime" half of
+   the v3 idea: a dashboard is rows in `dashboards` / `dashboard_widgets`,
+   never stored HTML, so changing a tile from a table to a bar chart is a
+   config change that re-renders here rather than a new page someone has to
+   write.
+
+   It is used unchanged in both view and edit mode -- the builder layers
+   interaction on top of this, it does not fork the drawing path. That is
+   deliberate: the milestone is "save a dashboard, reload it identically",
+   and two render paths is the usual way that stops being true.
+
+   Data comes from chat_run_readonly_query, the same RLS-scoped read-only
+   RPC Ask SILO's "Refresh data" button uses. Zero LLM involvement, and a
+   viewer can never see through a dashboard anything their own RLS would
+   not already show them.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+
+  const esc = (s) => window.SiloChart.esc(s);
+
+  // ── Reusable inner markup ────────────────────────────────────────────
+  function headActionsHtml(widget, editable) {
+    return `
+      <span class="dw-type-badge">${esc(widget.visual_type)}</span>
+      ${editable ? `
+        <button type="button" class="dw-icon-btn" data-act="configure" title="Configure widget" aria-label="Configure widget">⚙</button>
+        <button type="button" class="dw-icon-btn" data-act="remove" title="Remove widget" aria-label="Remove widget">✕</button>
+      ` : `
+        <button type="button" class="dw-icon-btn" data-act="reload" title="Refresh this widget" aria-label="Refresh this widget">↻</button>
+      `}`;
+  }
+
+  function tileShell(widget, editable) {
+    const title = widget.title || widget.report_title || 'Untitled';
+    const sub = widget.report_title && widget.title && widget.title !== widget.report_title
+      ? widget.report_title : '';
+    return `
+      <div class="dw" data-widget-id="${esc(widget.id)}">
+        <header class="dw-head">
+          <div class="dw-head-text">
+            <span class="dw-title">${esc(title)}</span>
+            ${sub ? `<span class="dw-sub">${esc(sub)}</span>` : ''}
+          </div>
+          <div class="dw-head-actions">${headActionsHtml(widget, editable)}</div>
+        </header>
+        <div class="dw-body" data-role="body"><div class="dw-loading">Loading…</div></div>
+        <footer class="dw-foot" data-role="foot"></footer>
+      </div>`;
+  }
+
+  function createRuntime(options) {
+    const sb = options.sb;
+    const gridEl = options.gridEl;
+    // Mutable, not fixed at construction: toggling Edit must not tear down
+    // and rebuild the runtime, or every tile would refetch its query just
+    // to gain a drag handle.
+    let editable = !!options.editable;
+    const onLayoutChange = options.onLayoutChange || function () {};
+
+    let grid = null;
+    let widgets = [];
+    /** query_sql -> { rows } | { error } — one fetch per distinct SQL per
+        refresh, so two tiles reading the same report cost one query. */
+    let dataCache = new Map();
+    /** widget id -> echarts instance */
+    const charts = new Map();
+    let resizeObserver = null;
+
+    function initGrid() {
+      grid = GridStack.init({
+        column: 12,
+        cellHeight: 78,
+        margin: 8,
+        float: false,
+        animate: true,
+        disableDrag: !editable,
+        disableResize: !editable,
+        handle: '.dw-head',
+      }, gridEl);
+
+      grid.on('change', () => { if (editable) onLayoutChange(); });
+      // Charts do not reflow on their own. A ResizeObserver on each body
+      // catches every cause -- grid resize, sidebar drawer, window, the
+      // browser zoom -- where listening to gridstack's resizestop alone
+      // would miss most of them.
+      resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const id = entry.target.closest('.dw')?.dataset.widgetId;
+          const chart = id && charts.get(id);
+          if (chart) chart.resize();
+        }
+      });
+    }
+
+    function disposeChart(id) {
+      const c = charts.get(id);
+      if (c) { c.dispose(); charts.delete(id); }
+    }
+
+    function tileEl(id) {
+      return gridEl.querySelector(`.grid-stack-item[gs-id="${CSS.escape(id)}"]`);
+    }
+
+    // ── Data ───────────────────────────────────────────────────────────
+    async function fetchQuery(sql) {
+      if (dataCache.has(sql)) return dataCache.get(sql);
+      let entry;
+      try {
+        const { data, error } = await sb.rpc('chat_run_readonly_query', { query: sql });
+        entry = error ? { error: error.message } : { rows: Array.isArray(data) ? data : [] };
+      } catch (err) {
+        entry = { error: err.message || String(err) };
+      }
+      dataCache.set(sql, entry);
+      return entry;
+    }
+
+    // ── Rendering one tile ─────────────────────────────────────────────
+    function renderBody(widget, state) {
+      const el = tileEl(widget.id);
+      if (!el) return;
+      const body = el.querySelector('[data-role="body"]');
+      const foot = el.querySelector('[data-role="foot"]');
+      disposeChart(widget.id);
+      foot.textContent = '';
+
+      if (state.loading) { body.innerHTML = '<div class="dw-loading">Loading…</div>'; return; }
+
+      if (state.notice) {
+        body.innerHTML = `<div class="dw-empty dw-empty--warn">${esc(state.notice)}</div>`;
+        return;
+      }
+      if (state.error) {
+        // Naming the likely cause matters: a saved report's SQL can stop
+        // working because the schema moved under it, and "column does not
+        // exist" on its own reads like a bug in the dashboard.
+        body.innerHTML = `<div class="dw-empty dw-empty--error">
+            <strong>Query failed.</strong> ${esc(state.error)}
+            <span class="dw-empty-hint">The saved report's SQL may no longer match the schema. Open it in Ask SILO to re-run and re-save.</span>
+          </div>`;
+        return;
+      }
+
+      const rows = state.rows || [];
+      const cfg = widget.visual_config || {};
+
+      if (!rows.length) { body.innerHTML = '<div class="dw-empty">Query returned 0 rows.</div>'; return; }
+
+      if (widget.visual_type === 'table') {
+        body.innerHTML = window.SiloChart.tableHtml(rows, cfg);
+      } else if (widget.visual_type === 'kpi') {
+        body.innerHTML = window.SiloChart.kpiHtml(rows, cfg);
+      } else {
+        const shaped = window.SiloChart.shape(rows, cfg);
+        if (!shaped) {
+          body.innerHTML = `<div class="dw-empty">This visual needs a dimension and a measure. ${editable ? 'Open ⚙ to pick them.' : ''}</div>`;
+          return;
+        }
+        body.innerHTML = '<div class="dw-chart" data-role="chart"></div>';
+        const host = body.querySelector('[data-role="chart"]');
+        const chart = echarts.init(host, null, { renderer: 'canvas' });
+        chart.setOption(window.SiloChart.optionFor(widget.visual_type, shaped), true);
+        charts.set(widget.id, chart);
+        if (shaped.truncated) {
+          foot.textContent = `Top ${shaped.points.length} of ${shaped.totalRows} rows`;
+        }
+      }
+
+      // 500 is chat_run_readonly_query's hard cap. A tile silently drawing
+      // the first 500 of a larger result would be a quiet lie, so say it.
+      if (rows.length >= 500) {
+        foot.textContent = (foot.textContent ? foot.textContent + ' · ' : '')
+          + 'Source query hit the 500-row cap — aggregate in the report itself for a complete picture.';
+      }
+      if (resizeObserver) resizeObserver.observe(body);
+    }
+
+    async function loadWidget(widget) {
+      if (!widget.report_id) {
+        renderBody(widget, { notice: 'No saved report attached to this widget.' });
+        return;
+      }
+      if (!widget.query_sql) {
+        // dashboard_widgets_v is security_invoker, so a private report
+        // belonging to someone else comes back with a null query_sql
+        // rather than leaking its SQL. Both causes look identical from
+        // here, so the message names both instead of guessing.
+        renderBody(widget, {
+          notice: widget.report_query_count === 0 && widget.report_title
+            ? `"${widget.report_title}" has no stored SQL to run.`
+            : 'The source report was deleted, or it is private to someone else.',
+        });
+        return;
+      }
+      renderBody(widget, { loading: true });
+      const entry = await fetchQuery(widget.query_sql);
+      renderBody(widget, entry);
+    }
+
+    // ── Public surface ─────────────────────────────────────────────────
+    function setWidgets(next) {
+      if (!grid) initGrid();
+      for (const id of Array.from(charts.keys())) disposeChart(id);
+      if (resizeObserver) resizeObserver.disconnect();
+      grid.removeAll();
+      widgets = (next || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+      for (const w of widgets) {
+        const lay = w.layout || {};
+        const el = document.createElement('div');
+        el.className = 'grid-stack-item';
+        el.setAttribute('gs-id', w.id);
+        el.setAttribute('gs-x', String(lay.x ?? 0));
+        el.setAttribute('gs-y', String(lay.y ?? 0));
+        el.setAttribute('gs-w', String(lay.w ?? 6));
+        el.setAttribute('gs-h', String(lay.h ?? 4));
+        el.setAttribute('gs-min-w', '2');
+        el.setAttribute('gs-min-h', '2');
+        el.innerHTML = `<div class="grid-stack-item-content">${tileShell(w, editable)}</div>`;
+        gridEl.appendChild(el);
+        grid.makeWidget(el);
+      }
+      return Promise.all(widgets.map(loadWidget));
+    }
+
+    function addWidget(w) {
+      widgets.push(w);
+      const lay = w.layout || {};
+      const el = document.createElement('div');
+      el.className = 'grid-stack-item';
+      el.setAttribute('gs-id', w.id);
+      el.setAttribute('gs-w', String(lay.w ?? 6));
+      el.setAttribute('gs-h', String(lay.h ?? 4));
+      el.setAttribute('gs-min-w', '2');
+      el.setAttribute('gs-min-h', '2');
+      if (lay.x !== undefined) el.setAttribute('gs-x', String(lay.x));
+      if (lay.y !== undefined) el.setAttribute('gs-y', String(lay.y));
+      el.innerHTML = `<div class="grid-stack-item-content">${tileShell(w, editable)}</div>`;
+      gridEl.appendChild(el);
+      grid.makeWidget(el);
+      return loadWidget(w);
+    }
+
+    function removeWidget(id) {
+      disposeChart(id);
+      const el = tileEl(id);
+      if (el) grid.removeWidget(el, true);
+      widgets = widgets.filter((w) => w.id !== id);
+    }
+
+    /** Re-draw one widget from cache after its visual_config changed. */
+    function rerenderWidget(id) {
+      const w = widgets.find((x) => x.id === id);
+      if (!w) return Promise.resolve();
+      const el = tileEl(id);
+      if (el) {
+        el.querySelector('.dw-title').textContent = w.title || w.report_title || 'Untitled';
+        el.querySelector('.dw-type-badge').textContent = w.visual_type;
+      }
+      return loadWidget(w);
+    }
+
+    /** Re-run one widget's query against live data, bypassing the cache. */
+    function refreshWidget(id) {
+      const w = widgets.find((x) => x.id === id);
+      if (!w) return Promise.resolve();
+      if (w.query_sql) dataCache.delete(w.query_sql);
+      return loadWidget(w);
+    }
+
+    /** Re-run every distinct query against live data. */
+    function refresh() {
+      dataCache = new Map();
+      return Promise.all(widgets.map(loadWidget));
+    }
+
+    /** Current grid geometry, keyed by widget id. */
+    function layout() {
+      const out = new Map();
+      if (!grid) return out;
+      for (const node of grid.save(false)) {
+        if (node.id) out.set(String(node.id), { x: node.x, y: node.y, w: node.w, h: node.h });
+      }
+      return out;
+    }
+
+    function getWidgets() { return widgets; }
+
+    /**
+     * Swap between view and edit chrome in place. Only the head actions and
+     * GridStack's drag/resize flags change -- the bodies (and their live
+     * chart instances and cached rows) are left exactly as they are.
+     */
+    function setEditable(next) {
+      if (!!next === editable) return;
+      editable = !!next;
+      if (grid) { grid.enableMove(editable); grid.enableResize(editable); }
+      gridEl.classList.toggle('is-editing', editable);
+      for (const w of widgets) {
+        const tile = tileEl(w.id);
+        if (!tile) continue;
+        const actions = tile.querySelector('.dw-head-actions');
+        if (actions) actions.innerHTML = headActionsHtml(w, editable);
+      }
+    }
+
+    /**
+     * The rows currently cached for a widget's query, or null if it has not
+     * loaded (or failed). The builder's inspector needs these to offer real
+     * column names in its dimension/measure pickers -- it profiles the data
+     * that actually came back rather than guessing from the SQL text.
+     */
+    function rowsFor(id) {
+      const w = widgets.find((x) => x.id === id);
+      if (!w || !w.query_sql) return null;
+      const entry = dataCache.get(w.query_sql);
+      return entry && entry.rows ? entry.rows : null;
+    }
+
+    function updateWidget(id, patch) {
+      const w = widgets.find((x) => x.id === id);
+      if (w) Object.assign(w, patch);
+      return w;
+    }
+
+    // Charts read theme colours at draw time, so a theme flip has to
+    // redraw them. Cheap: the data is already cached.
+    function retheme() {
+      for (const w of widgets) {
+        if (charts.has(w.id)) loadWidget(w);
+      }
+    }
+
+    return {
+      setWidgets, addWidget, removeWidget, rerenderWidget, refresh, refreshWidget,
+      layout, getWidgets, updateWidget, retheme, rowsFor, setEditable,
+      get grid() { return grid; },
+    };
+  }
+
+  global.SiloDashboardRenderer = { createRuntime };
+})(window);
