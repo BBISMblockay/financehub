@@ -1195,6 +1195,10 @@
       answer: ctx.answer,
       queries_run: ctx.queries,
       visibility,
+      // Explicit rather than leaning on the column default: this row's
+      // provenance is the point now that the table serves several
+      // authoring surfaces.
+      source: 'ask_silo',
     });
     el('btnConfirmSave').disabled = false;
     if (error) {
@@ -1383,9 +1387,18 @@
     savedFilter = '';
     el('savedBackdrop').classList.add('open');
     el('savedBody').innerHTML = `<div class="ac-notes-empty">Loading…</div>`;
+    // source='ask_silo' only. The saved-report table became the generic
+    // report layer in 20260828130000 -- it now also holds central 'system'
+    // definitions (global, company_entity_id null) and hand-defined
+    // 'manual' ones. This modal is "answers you pinned from chat", so it
+    // must keep showing exactly that; without the filter a system report
+    // would appear here as something the user had saved, which it is not.
+    // Dashboards (/v3/) deliberately do NOT filter -- there, every source
+    // is a legitimate widget input.
     const { data, error } = await sb
       .from('silo_chat_saved_reports_v')
-      .select('id, title, question, answer, queries_run, created_by, created_by_name, created_at, visibility')
+      .select('id, title, question, answer, queries_run, created_by, created_by_name, created_at, visibility, source')
+      .eq('source', 'ask_silo')
       .order('created_at', { ascending: false });
     if (error) {
       el('savedBody').innerHTML = `<div class="ac-notes-empty">Couldn't load reports: ${esc(error.message)}</div>`;

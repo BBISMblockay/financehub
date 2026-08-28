@@ -18,6 +18,30 @@ silo_chat_saved_reports    dashboard_widgets.query_index    .visual_type/.visual
 Switching a tile from a table to a bar chart is a one-field update and a
 re-render. It is not a new page, not an LLM call, and not a deploy.
 
+## Where a report comes from
+
+The renderer does not know and must not care. A widget points at a row in
+`silo_chat_saved_reports` — **the generic saved-report layer, despite the
+name** — and that row's `source` says which authoring surface produced it:
+
+| `source` | What it is | Scope |
+|---|---|---|
+| `ask_silo` | An answer pinned from chat | Company |
+| `manual` | Hand-defined by a person | Company |
+| `system` | A central SILO definition (Daily Sales, Open POs…) | **Global** — `company_entity_id IS NULL`, one row reused by every tenant |
+
+A global definition is safe because its SQL runs through
+`chat_run_readonly_query` under the *caller's* RLS: one definition scopes
+itself per tenant. NULL company is therefore privileged, and clients are
+locked out of it three independent ways — a table CHECK, an INSERT policy
+requiring a non-null company and `source in ('ask_silo','manual')`, and an
+UPDATE policy whose USING is false for global rows. System definitions are
+writable only by service role / migrations.
+
+The picker lists every source. Ask SILO's own saved-reports modal filters to
+`source = 'ask_silo'`, because that modal means "answers you pinned", not
+"every report that exists".
+
 ## Why there is no new `saved_reports` table
 
 SILO already has one. `silo_chat_saved_reports` (migration `20260818050000`)

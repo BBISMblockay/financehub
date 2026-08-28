@@ -12,10 +12,17 @@
    deliberate: the milestone is "save a dashboard, reload it identically",
    and two render paths is the usual way that stops being true.
 
-   Data comes from chat_run_readonly_query, the same RLS-scoped read-only
-   RPC Ask SILO's "Refresh data" button uses. Zero LLM involvement, and a
-   viewer can never see through a dashboard anything their own RLS would
-   not already show them.
+   Data comes from chat_run_readonly_query which, despite the name, is a
+   generic read-only SQL runner (SECURITY INVOKER, single SELECT/WITH,
+   500-row cap, 30s timeout) -- the same engine Ask SILO's "Refresh data"
+   button uses. Zero LLM involvement, and a viewer can never see through a
+   dashboard anything their own RLS would not already show them.
+
+   This file has no idea where a widget's report was authored. It reads
+   `query_sql` and draws the result, so an Ask SILO save, a central SILO
+   report definition and a hand-defined report all render identically.
+   Keep it that way: source-specific behaviour belongs in the builder's
+   picker, not here.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -140,7 +147,7 @@
         // exist" on its own reads like a bug in the dashboard.
         body.innerHTML = `<div class="dw-empty dw-empty--error">
             <strong>Query failed.</strong> ${esc(state.error)}
-            <span class="dw-empty-hint">The saved report's SQL may no longer match the schema. Open it in Ask SILO to re-run and re-save.</span>
+            <span class="dw-empty-hint">The saved report's SQL may no longer match the schema.</span>
           </div>`;
         return;
       }
@@ -170,7 +177,7 @@
         }
       }
 
-      // 500 is chat_run_readonly_query's hard cap. A tile silently drawing
+      // 500 is the query runner's hard cap. A tile silently drawing
       // the first 500 of a larger result would be a quiet lie, so say it.
       if (rows.length >= 500) {
         foot.textContent = (foot.textContent ? foot.textContent + ' · ' : '')

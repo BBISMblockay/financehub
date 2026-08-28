@@ -4,7 +4,7 @@
    The one place that knows how to turn (rows, visual_config) into a drawn
    visual. Nothing else in v3 talks to ECharts.
 
-   Rows arrive as plain objects straight from chat_run_readonly_query, so the
+   Rows arrive as plain objects straight from the read-only query runner, so the
    adapter starts by PROFILING them: it has no schema to consult and must
    decide from the values themselves which columns are dimensions and which
    are measures. Everything downstream -- the recommendation, the inspector's
@@ -13,7 +13,7 @@
    Deliberately not here: anything that rewrites SQL. A widget's dataset is
    whatever its saved report's query returned. Sort/limit/top-N are applied
    to those returned rows, client side, which is honest about the fact that
-   chat_run_readonly_query caps every result at 500 rows.
+   the query runner caps every result at 500 rows.
    ========================================================================== */
 (function (global) {
   'use strict';

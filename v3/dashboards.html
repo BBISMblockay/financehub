@@ -20,7 +20,7 @@
     <header class="bcn-header">
       <div class="bcn-header-title">
         <h1>Dashboards</h1>
-        <span class="bcn-header-sub">Saved Ask SILO reports, arranged on a canvas</span>
+        <span class="bcn-header-sub">Saved reports, arranged on a canvas</span>
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost" href="/v2/silo-chat.html">Ask SILO</a>
@@ -109,7 +109,8 @@
     const rows = data || [];
     if (!rows.length) {
       el('listBody').innerHTML = `<div class="v3-empty">
-        No dashboards yet. Save a report in <a href="/v2/silo-chat.html">Ask SILO</a>, then create a dashboard and drop it on the canvas.
+        No dashboards yet. Create one, then drop any saved report onto the canvas — an answer pinned from
+        <a href="/v2/silo-chat.html">Ask SILO</a>, or a central SILO report definition.
       </div>`;
       return;
     }

@@ -1577,3 +1577,44 @@ select
       then 'MISSING — dashboard_widgets_v is not security_invoker; it would hand a private report''s SQL to every viewer'
     else 'ok'
   end as v3_dashboards;
+
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='source')
+      then 'MISSING — run 20260828130000_saved_report_source.sql'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.silo_chat_saved_reports'::regclass
+                       and conname='silo_chat_saved_reports_global_is_system_check')
+      then 'MISSING — the global-is-system CHECK; without it a null-company row need not be source=system, and the SELECT policy would show one user''s report to every company'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_insert'
+                       and with_check like '%company_entity_id IS NOT NULL%')
+      then 'MISSING — insert policy lost its explicit company_entity_id IS NOT NULL guard. Not immediately exploitable (NULL = active_company_id() is NULL, which RLS already treats as failure) but the protection is then emergent from three-valued logic rather than stated, and any NULL-tolerant rewrite of that comparison silently removes it'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_insert'
+                       and with_check like '%ask_silo%')
+      then 'MISSING — insert policy no longer restricts source; a client could create a system report'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_update'
+                       and with_check like '%ask_silo%')
+      then 'MISSING — update policy no longer restricts source; a user could promote their own report to a global system definition'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_select'
+                       and qual like '%source = ''system''%')
+      then 'MISSING — select policy lost the global system branch; central SILO report definitions are invisible to everyone'
+    when exists (select 1 from information_schema.columns
+                 where table_schema='public' and table_name='silo_chat_saved_reports'
+                   and column_name in ('question','answer') and is_nullable='NO')
+      then 'MISSING — question/answer are still NOT NULL; a system report was never a conversation and cannot be seeded'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='report_source')
+      then 'MISSING — dashboard_widgets_v.report_source'
+    else 'ok'
+  end as saved_report_source;

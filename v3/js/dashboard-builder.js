@@ -17,6 +17,23 @@
   const esc = (s) => window.SiloChart.esc(s);
   const el = (id) => document.getElementById(id);
 
+  // How each authoring surface is named in the picker. The renderer never
+  // branches on these -- they are labels, not behaviour.
+  const SOURCE_LABEL = { ask_silo: 'Ask SILO', system: 'SILO report', manual: 'Manual' };
+
+  // A system/manual report has a description; an Ask SILO save has the
+  // question that produced it. Same slot, different provenance.
+  const reportSubtitle = (r) => r.description || r.question || '';
+
+  // A system definition is global (company_entity_id null) and reusable
+  // across tenants, so "Company"/"Only you" would be a lie for it.
+  function scopePill(r) {
+    if (r.source === 'system' || r.company_entity_id == null) {
+      return '<span class="bcn-pill bcn-pill--accent">Global</span>';
+    }
+    return `<span class="bcn-pill${r.visibility === 'private' ? '' : ' bcn-pill--accent'}">${r.visibility === 'private' ? 'Only you' : 'Company'}</span>`;
+  }
+
   const VISUALS = [
     { id: 'table', label: 'Table', hint: 'Every column, as returned' },
     { id: 'kpi',   label: 'KPI',   hint: 'One number, big' },
@@ -67,9 +84,14 @@
       pickedReport = null;
       el('addBackdrop').classList.add('open');
       el('addBody').innerHTML = '<div class="v3-empty">Loading saved reports…</div>';
+      // Deliberately NOT filtered by source. A dashboard widget does not
+      // care where its dataset was authored -- an Ask SILO save, a central
+      // system definition and a hand-defined report are all just "a report
+      // with SQL and column metadata" to the renderer. Ask SILO's own modal
+      // filters to source='ask_silo'; this one must not.
       const { data, error } = await sb
         .from('silo_chat_saved_reports_v')
-        .select('id, title, question, queries_run, visibility, created_by_name, created_at')
+        .select('id, title, description, question, queries_run, visibility, source, company_entity_id, created_by_name, created_at')
         .order('created_at', { ascending: false });
       if (error) {
         el('addBody').innerHTML = `<div class="v3-empty">Couldn't load reports: ${esc(error.message)}</div>`;
@@ -99,8 +121,9 @@
 
       if (!usable.length) {
         el('addBody').innerHTML = toolbar + `<div class="v3-empty">
-          No saved report has stored SQL yet. In <a href="/v2/silo-chat.html">Ask SILO</a>, ask a question and hit
-          <strong>Save report</strong> under the answer — that stores the SQL a widget runs.
+          No saved report has stored SQL yet. A widget can be built on any saved report —
+          an answer pinned from <a href="/v2/silo-chat.html">Ask SILO</a> (ask a question, then
+          <strong>Save report</strong> under the answer) or a central SILO report definition.
         </div>`;
         return;
       }
@@ -109,11 +132,12 @@
         const n = (r.queries_run || []).length;
         return `<button type="button" class="v3-report-card" data-report="${esc(r.id)}">
           <span class="v3-report-title">${esc(r.title)}</span>
-          <span class="v3-report-question">${esc(r.question)}</span>
+          <span class="v3-report-question">${esc(reportSubtitle(r))}</span>
           <span class="v3-report-foot">
-            <span class="bcn-pill${r.visibility === 'private' ? '' : ' bcn-pill--accent'}">${r.visibility === 'private' ? 'Only you' : 'Company'}</span>
+            <span class="bcn-pill bcn-pill--dark">${esc(SOURCE_LABEL[r.source] || r.source || 'Report')}</span>
+            ${scopePill(r)}
             <span class="bcn-pill">${n} quer${n === 1 ? 'y' : 'ies'}</span>
-            <span class="v3-report-meta">${esc(r.created_by_name || 'Unknown')}</span>
+            ${r.created_by_name ? `<span class="v3-report-meta">${esc(r.created_by_name)}</span>` : ''}
           </span>
         </button>`;
       }).join('');
@@ -123,7 +147,8 @@
       // the point of choosing rather than letting someone discover it from
       // a colleague's screenshot.
       const liveVisibility = el('dashVisibility') ? el('dashVisibility').value : dashboard.visibility;
-      const privacyNote = liveVisibility === 'company' && visible.some((r) => r.visibility === 'private')
+      const privacyNote = liveVisibility === 'company'
+        && visible.some((r) => r.visibility === 'private' && r.source !== 'system')
         ? `<div class="v3-picker-note">A report marked <strong>Only you</strong> stays private: on this company dashboard its tile will be blank for everyone else.</div>`
         : '';
 
@@ -154,7 +179,7 @@
         <button type="button" class="v3-back" data-act="back">← All reports</button>
         <div class="v3-picker-head">
           <div class="v3-report-title">${esc(report.title)}</div>
-          <div class="v3-report-question">${esc(report.question)}</div>
+          <div class="v3-report-question">${esc(reportSubtitle(report))}</div>
         </div>
         <div class="v3-picker-note">This report ran ${queries.length} queries. Pick the dataset this widget should draw.</div>
         <div class="v3-query-list">${items}</div>`;
