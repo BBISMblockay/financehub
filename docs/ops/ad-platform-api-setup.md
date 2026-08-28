@@ -116,6 +116,34 @@ or an old report. `page_engaged_users` has no successor at all: its column stays
 is omitted from the row payload rather than written as 0, because "Meta stopped measuring
 this" is not zero.
 
+**Backfilling history — the two halves work differently, and `days_back` only drives one.**
+
+*Facebook Page* history is date-windowed, so `days_back` reaches further back (Meta retains
+roughly two years). The window is chunked at 90 days per request and each chunk follows
+`paging.next`. Both matter only for long windows, which is why their absence went unnoticed
+at 30 days: a single un-paged request returns just the first page, so a year-long window
+would have come back QUIETLY TRUNCATED, with fewer days than asked for and no error.
+
+*Instagram* history is **not** date-windowed at all — media insights are lifetime cumulative
+counters with no date range, so reaching further back means walking through more POSTS.
+`days_back` has no effect on Instagram whatsoever. Use the `ig_post_limit` workflow input
+(`ADS_IG_POST_LIMIT`) instead; it defaults to 50, which is the nightly's deliberate cost
+ceiling, since every post costs its own extra insights request against a rate limit this
+account already trips. The walk stops mid-page once the cap is reached rather than finishing
+the page, and the run logs a note when it stops exactly on the cap so a truncated walk is
+not mistaken for complete history.
+
+One-off backfill, via **Actions → Ad Platforms KPI Sync → Run workflow**:
+
+    platform:      meta_ads
+    connection_id: <the meta_ads connection id>
+    days_back:     365      # Facebook Page days
+    ig_post_limit: 500      # Instagram posts
+
+Every write is an idempotent upsert on identity, so a backfill can be re-run safely and the
+nightly 30-day window afterwards refreshes recent rows without disturbing the older ones it
+no longer covers.
+
 `page_fan_count` is unaffected by all of this -- it comes from the Page node
 (`?fields=fan_count`), not the insights edge. (The `page_fans` INSIGHTS metric was retired
 2025-11-15 with `page_follows` as its alternative; we do not use it.)
