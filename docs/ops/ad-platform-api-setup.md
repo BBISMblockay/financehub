@@ -87,22 +87,44 @@ access token", that assignment is what is missing; it is not a token or metric p
 This is also why Instagram was writing 50 rows in the very same run where Page insights
 wrote none — different auth path, not a different failure.
 
-**Page metrics are on a moving deprecation schedule, Instagram's are not.** Meta has been
-retiring Page Insights metrics — the Nov 2025 round took `impressions`/`page fans`, the
-June 15 2026 round took the unique reach/impressions family — and these retirements are
-GLOBAL, not per-version, so pinning `META_API_VERSION` does not hold them still. The API
-rejects a retired name with `(#100) The value must be a valid insights metric` and does
-**not** say which name it objected to, so one dead metric in a combined request kills every
-Page metric in it. That is what happened on 2026-08-28, the first run after
-`facebook_page_id` was set: Page insights wrote 0 rows while Instagram, in the same run,
-wrote 50.
+**Page metrics are on a moving deprecation schedule, Instagram's are not.** Meta retires
+Page Insights metrics globally -- for ALL API versions at once, retroactively -- so pinning
+`META_API_VERSION` does not hold them still, and there is no permission, token or access
+tier that brings a retired metric back. It is deleted, not withheld. Do not confuse this
+with `(#190) must be called with a Page Access Token`, which IS an access problem and is
+handled above; both errors were hit on 2026-08-28 and only one of them was fixable.
 
-`fetchFacebookPageInsights` therefore falls back to requesting each metric on its own when
-it sees that specific error, keeps whatever still works, and reports the rest as
-`page_metrics_dropped` in the `sync_jobs` result. **Read that field rather than assuming a
-metric is populated** — the sync no longer fails when Meta retires one, which means a
-column can quietly go all-null. When it names a metric, pick the current replacement from
-Meta's deprecation page and swap it in `PAGE_INSIGHT_METRICS`.
+The API rejects a retired name with `(#100) The value must be a valid insights metric` and
+does **not** say which name it objected to, so one dead metric in a combined request kills
+every metric in it. `fetchFacebookPageInsights` therefore falls back to requesting each
+metric on its own when it sees that error, keeps whatever still works, and reports the rest
+as `page_metrics_dropped` in the `sync_jobs` result.
+
+What we request now, and why, from Meta's own deprecation table:
+
+| Metric | Status | What we use |
+|--------|--------|-------------|
+| `page_impressions` | retired 2025-11-15 | `page_media_view` |
+| `page_impressions_unique` | retired 2025-06-15 | `page_total_media_view_unique` |
+| `page_engaged_users` | retired 2024-03-14 | **nothing** -- no replacement exists |
+| `page_post_engagements` | still served | unchanged |
+
+**A media view is not an impression, and a unique media view is not reach.** These are
+related but different measurements, so they begin a NEW series rather than continuing the
+old one -- never splice them onto historical impression/reach numbers from Business Suite
+or an old report. `page_engaged_users` has no successor at all: its column stays null and
+is omitted from the row payload rather than written as 0, because "Meta stopped measuring
+this" is not zero.
+
+`page_fan_count` is unaffected by all of this -- it comes from the Page node
+(`?fields=fan_count`), not the insights edge. (The `page_fans` INSIGHTS metric was retired
+2025-11-15 with `page_follows` as its alternative; we do not use it.)
+
+When a future round retires something else, `page_metrics_dropped` names it. Look it up in
+Meta's deprecation table and swap the alternative into `PAGE_INSIGHT_METRICS`, which maps
+metric name to output field in one place. The Marketing Organic tab hides a column that is
+null across the whole window and names it in the note, so a newly-retired metric degrades
+to a hidden column rather than a wall of zeroes.
 
 The Instagram and Facebook halves are also independently error-trapped: a Page failure
 records `page_error` and leaves `media_upserted` intact, instead of replacing the whole
