@@ -398,13 +398,59 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Customers and vendors. Needed because QuickBooks refuses a JournalEntry
+  // line on an Accounts Receivable or Accounts Payable account unless the line
+  // names an Entity -- and Baseballism codes card spend to ~26 intercompany
+  // receivables, every one of which is an AR account. Secondary like locations:
+  // a failure here must not fail a run that already pulled the chart.
+  let customerCount = 0;
+  let vendorCount = 0;
+  let entityError: string | null = null;
+
+  for (const [entity, table, idCol, counter] of [
+    ['Customer', 'quickbooks_customers', 'qbo_customer_id', 'customer'],
+    ['Vendor', 'quickbooks_vendors', 'qbo_vendor_id', 'vendor'],
+  ] as const) {
+    try {
+      const records = await qboQueryAll(base, conn.realm_id, accessToken, entity);
+      if (counter === 'customer') customerCount = records.length;
+      else vendorCount = records.length;
+
+      if (records.length) {
+        const rows = records.map((r) => ({
+          connection_id: conn.id,
+          company_entity_id: conn.company_entity_id,
+          [idCol]: String(r.Id),
+          display_name: r.DisplayName ?? r.CompanyName ?? String(r.Id),
+          company_name: r.CompanyName ?? null,
+          email: r.PrimaryEmailAddr?.Address ?? null,
+          is_active: r.Active !== false,
+          raw: r,
+          synced_at: runStartedAt,
+        }));
+
+        for (let i = 0; i < rows.length; i += 500) {
+          const { error } = await supabase.from(table)
+            .upsert(rows.slice(i, i + 500), { onConflict: `company_entity_id,${idCol}` });
+          if (error) throw new Error(`${counter}_upsert_failed: ${error.message}`);
+        }
+
+        await supabase.from(table).delete()
+          .eq('connection_id', conn.id).lt('synced_at', runStartedAt);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      entityError = entityError ? `${entityError}; ${msg}` : msg;
+    }
+  }
+
   await supabase.from('quickbooks_connections').update({
     accounts_synced_at: runStartedAt,
     location_tracking_enabled: trackLocations,
     last_tested_at: runStartedAt,
     last_test_status: 'ok',
     last_test_success: true,
-    last_test_error: locationError,
+    last_test_error: [locationError, entityError].filter(Boolean).join('; ') || null,
     updated_at: runStartedAt,
   }).eq('id', conn.id);
 
@@ -412,7 +458,10 @@ Deno.serve(async (req) => {
     ok: true,
     accounts: accounts.length,
     locations: locationCount,
+    customers: customerCount,
+    vendors: vendorCount,
     location_tracking_enabled: trackLocations,
     location_error: locationError,
+    entity_error: entityError,
   });
 });
