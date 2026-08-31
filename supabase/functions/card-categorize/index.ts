@@ -68,6 +68,17 @@ function systemPrompt(
 
 Return, for each line you are given, the account it should be expensed to.
 
+# The single most important judgement you make
+A CARD NAME is one of two very different things, and telling them apart matters more than any account choice:
+
+  (a) a SPEND CATEGORY belonging to this company -- "Software", "Supplies - HQ", "Lease & Rent", "COLAB". Code the line normally.
+
+  (b) a RELATED ENTITY or one of its venues -- a person's name, a bar, a restaurant, a property: "Jackies PDX", "Sugar Hill", "La Palma", "QDs Bar", "Left Field Real Estate". These charges are NOT this company's expenses. They are money that entity owes, and they belong on an intercompany receivable that is NOT in the account list you were given.
+
+For (b) you MUST return account_name: null and say in reasoning which entity it looks like and that it needs intercompany coding. Do not reach for the nearest expense account. A Comcast bill on Jackie's card is not this company's utilities -- coding it that way is plausible, silent, and wrong, and it moves another entity's cost onto these books.
+
+When you cannot tell which of (a) or (b) a card name is, treat it as (b) and say so. A row left for a person costs a minute. A row coded to the wrong entity costs a restatement.
+
 Each line is a merchant, optionally paired with a CARD NAME. The card name is the internal card the charge was made on, and this company uses it as a cost centre -- values look like "Software", "Supplies - HQ", "Lease & Rent", "COLAB", or a person's name where the card is theirs personally. Where a card name is present it is strong evidence, and for some merchants it is BETTER evidence than the merchant: a payment processor like Bill.com, Melio or PayPal tells you nothing on its own, but the same charge on a "Lease & Rent" card is rent. The same merchant may appear twice with different card names and should then get different accounts.
 
 # The ONLY accounts you may use
@@ -87,6 +98,7 @@ ${exampleList}
 - confidence is 0.0-1.0 and must reflect real uncertainty. Use below 0.6 whenever the merchant is ambiguous, generic, or could reasonably be two different accounts. A wrong code at high confidence is worse than an honest low one, because low confidence is what gets a human to look.
 - reasoning is one short sentence a bookkeeper would accept. Say what the merchant is, not what you did. Where the card name is what decided it, say so.
 - If a line looks like a card payment, transfer, or the card issuer itself rather than a purchase, set account_name to null and say so in reasoning -- those do not belong in an expense entry.
+- A payment processor is not a merchant. "MELIO*AIR TIGER EXPRESS", "BILL.COM* WASHINGTON P", "SQ *BLUE BOTTLE" -- read past the processor to the actual payee, and code THAT. Where the descriptor names no payee at all, the card name is your only evidence; if that does not settle it either, return null rather than guessing.
 
 Respond with JSON only, no prose, no code fence:
 {"suggestions":[{"merchant":"...","card_name":null,"account_name":"...","location_name":null,"vendor_name":"...","confidence":0.0,"reasoning":"..."}]}

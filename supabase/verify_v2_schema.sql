@@ -1674,3 +1674,20 @@ select
         || 'sent to Intuit must not be rewritable from a browser'
     else 'ok'
   end as void_card_posting;
+
+-- ---------------------------------------------------------------------------
+-- Rule hits and card-vs-merchant conflicts (20260831230000)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='coding_conflict')
+      then 'MISSING — card_transactions.coding_conflict absent; a row whose card and merchant '
+        || 'disagree would be auto-coded from the merchant instead of held back'
+    when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+           where n.nspname='public' and p.proname='apply_card_coding') not like '%hit_count%'
+      then 'MISSING — apply_card_coding() no longer bumps hit_count; the Used column on the '
+        || 'Rules tab reverts to always reading 0'
+    else 'ok'
+  end as rule_hits_and_conflicts;
