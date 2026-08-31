@@ -248,14 +248,20 @@ Deno.serve(async (req) => {
     .map((c: any) => String(c.credit_qbo_account_name || '').toLowerCase().trim())
     .filter(Boolean));
 
+  // Only accounts that actually follow the intercompany naming convention --
+  // "<entity> Receivable" or "Due From/To <entity>". Taking every AR/AP account
+  // sweeps up 'Accrued', 'Accounts Payable (A/P)', 'American Express - LOC' and
+  // 'Amazon Unavailable Balance'; that last one is the dangerous one, since a
+  // list containing the word Amazon invites the model to decline Amazon rows.
+  const INTERCO_NAME = /\sreceivable\s*$|^due\s+(from|to)\s+/i;
+
   const relatedEntities = [...new Set((intercoRows || [])
     .filter((a: any) => !cardAccountNames.has(String(a.name || '').toLowerCase().trim()))
+    .filter((a: any) => INTERCO_NAME.test(String(a.name || '')))
     .map((a: any) => String(a.name || '')
-      .replace(/\s*(receivable|payable)s?\s*$/i, '')
+      .replace(/\s*receivable\s*$/i, '')
       .replace(/^due\s+(from|to)\s+/i, '')
       .trim())
-    // 'Accounts Receivable' and 'Accounts Payable' reduce to 'Accounts', which
-    // is not an entity and would make the model decline half the file.
     .filter((n: string) => n && !/^accounts?$/i.test(n) && n.length > 2))]
     .sort();
 
