@@ -86,6 +86,24 @@
       text-transform: uppercase; letter-spacing: .05em; color: var(--bcn-ink-3); }
     .cc-kpi-value { font-family: var(--bcn-mono); font-size: 17px; font-weight: 700; }
 
+    .cc-bulk { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding: 8px 12px; border-bottom: 1px solid var(--bcn-border);
+      background: rgba(37,99,235,.06); }
+    .cc-bulk[hidden] { display: none; }
+    .cc-bulk-count { font-family: var(--bcn-mono); font-size: 11px; font-weight: 700; }
+
+    /* Account and location render as text and become a <select> only when
+       clicked. Rendering 420 rows x 188 options took 5s to open the batch and
+       500ms on every edit; one editor at a time costs neither. */
+    .cc-cell { width: 100%; text-align: left; font: inherit; font-size: 12px;
+      background: none; border: 1px solid transparent; border-radius: 6px;
+      padding: 3px 6px; cursor: pointer; color: var(--bcn-ink); }
+    .cc-cell:hover { border-color: var(--bcn-border-strong); background: var(--bcn-panel); }
+    .cc-cell--empty { color: var(--bcn-ink-3); font-style: italic; }
+    .cc-check { width: 14px; height: 14px; cursor: pointer; }
+
+    .cc-merch { cursor: pointer; text-decoration: underline dotted; }
+
     .cc-empty { padding: 22px 12px; text-align: center; color: var(--bcn-ink-3);
       font-size: 12px; }
     .cc-drop { border: 1.5px dashed var(--bcn-border-strong); border-radius: 10px;
@@ -173,7 +191,11 @@
           <div class="cc-card cc-card--grow">
             <div class="cc-card-head">
               <div><div class="cc-title">Batches</div></div>
-              <div class="cc-sub" id="batchCount"></div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input class="bcn-field bcn-field--mono" id="batchSearch" type="search"
+                       placeholder="Search card, period, file…" style="width:260px" />
+                <span class="cc-sub" id="batchCount"></span>
+              </div>
             </div>
             <div class="cc-body">
               <table class="cc-tbl" id="tblBatches"></table>
@@ -190,7 +212,10 @@
                 <div class="cc-title" id="codeTitle">No batch open</div>
                 <div class="cc-sub" id="codeSub">Open a batch from the Import tab</div>
               </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
+                       placeholder="Search merchant, account, location, cardholder, card…"
+                       style="width:340px" />
                 <select class="bcn-field bcn-field--mono" id="codeFilter" style="width:auto">
                   <option value="all">All rows</option>
                   <option value="uncoded">Needs coding</option>
@@ -199,6 +224,14 @@
                   <option value="excluded">Excluded</option>
                 </select>
               </div>
+            </div>
+            <div class="cc-bulk" id="codeBulk" hidden>
+              <span class="cc-bulk-count" id="bulkCount"></span>
+              <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
+              <select class="bcn-field bcn-field--mono" id="bulkLocation" style="width:200px"></select>
+              <button class="bcn-btn" id="btnBulkExclude">Exclude</button>
+              <button class="bcn-btn" id="btnBulkInclude">Include</button>
+              <button class="bcn-btn" id="btnBulkClear">Clear selection</button>
             </div>
             <div class="cc-body">
               <table class="cc-tbl" id="tblCoding"></table>
@@ -328,6 +361,7 @@
     txns: [],
     parsed: null,      // { headers, rows, file }
     dirty: new Set(),
+    selected: new Set(),
   };
 
   // ---------------------------------------------------------------- CSV
@@ -727,8 +761,14 @@
       await loadBatches();
       renderBatches();
       await openBatch(batch.id);
-      await applyRules(true);
       showPane('coding');
+
+      // Rules first (free, deterministic), then the model on whatever is left.
+      // Running it here rather than waiting for a button press is the point of
+      // the tool: the feed should already be coded when you first look at it.
+      await applyRules(true);
+      const left = state.txns.filter((t) => t.status === 'uncoded' && !t.qbo_account_id).length;
+      if (left) await aiCategorise();
     } catch (e) {
       setStatus(`Import failed — ${e.message}`, 'neg', 8000);
     } finally {
@@ -759,18 +799,25 @@
   el('btnImport').addEventListener('click', doImport);
 
   function renderBatches() {
-    if (!state.batches.length) {
-      el('tblBatches').innerHTML =
-        '<tr><td class="cc-empty">No imports yet.</td></tr>';
+    const q = el('batchSearch').value.trim().toLowerCase();
+    const shown = state.batches.filter((b) => !q || [
+      b.source_name, b.label, b.file_name, b.status, b.qbo_doc_number,
+    ].some((v) => String(v ?? '').toLowerCase().includes(q)));
+
+    if (!shown.length) {
+      el('tblBatches').innerHTML = `<tr><td class="cc-empty">${
+        state.batches.length ? 'No batches match that search.' : 'No imports yet.'}</td></tr>`;
       el('batchCount').textContent = '';
       return;
     }
-    el('batchCount').textContent = `${state.batches.length} shown`;
+    el('batchCount').textContent = q
+      ? `${shown.length} of ${state.batches.length}`
+      : `${state.batches.length} shown`;
     el('tblBatches').innerHTML = `<thead><tr>
         <th>Card</th><th>Period</th><th class="num">Rows</th><th class="num">Uncoded</th>
         <th class="num">Total</th><th>Status</th><th>Entry</th><th></th>
       </tr></thead><tbody>` +
-      state.batches.map((b) => `<tr>
+      shown.map((b) => `<tr>
         <td>${esc(b.source_name)}</td>
         <td class="cc-note">${esc(b.label || '—')}</td>
         <td class="num">${b.txn_count}</td>
@@ -781,6 +828,8 @@
         <td><button class="bcn-btn" data-open-batch="${esc(b.id)}">Open</button></td>
       </tr>`).join('') + '</tbody>';
   }
+
+  el('batchSearch').addEventListener('input', renderBatches);
 
   el('tblBatches').addEventListener('click', (e) => {
     const b = e.target.closest('[data-open-batch]');
@@ -794,6 +843,8 @@
       state.batch = state.batches.find((b) => b.id === id) || null;
     }
     await loadTxns(id);
+    state.selected.clear();
+    el('codeSearch').value = '';
     renderCoding();
     renderEntry();
     renderMeta();
@@ -864,7 +915,9 @@
 
   function codingRows() {
     const f = el('codeFilter').value;
+    const q = codeSearchTerm();
     return state.txns.filter((t) => {
+      if (!matchesSearch(t, q)) return false;
       if (f === 'uncoded') return t.status === 'uncoded';
       if (f === 'excluded') return t.status === 'excluded';
       if (f === 'low') return t.status !== 'excluded' && (t.confidence ?? 1) < 0.6;
@@ -877,6 +930,7 @@
     if (!state.batch) {
       el('tblCoding').innerHTML = '<tr><td class="cc-empty">Open a batch from the Import tab.</td></tr>';
       el('codeKpis').innerHTML = '';
+      el('codeBulk').hidden = true;
       return;
     }
 
@@ -896,35 +950,78 @@
         <div class="cc-kpi-label">${l}</div><div class="cc-kpi-value">${v}</div></div>`).join('');
 
     const rows = codingRows();
+
+    // Selecting rows that a filter has since hidden would apply a bulk change
+    // to things nobody can see, so the selection is trimmed to what is shown.
+    const visible = new Set(rows.map((r) => r.id));
+    for (const id of [...state.selected]) if (!visible.has(id)) state.selected.delete(id);
+    renderBulkBar();
+
     if (!rows.length) {
-      el('tblCoding').innerHTML = '<tr><td class="cc-empty">Nothing matches this filter.</td></tr>';
+      el('tblCoding').innerHTML =
+        '<tr><td class="cc-empty">Nothing matches this filter.</td></tr>';
       return;
     }
 
+    const allChecked = rows.every((r) => state.selected.has(r.id));
+
     el('tblCoding').innerHTML = `<thead><tr>
+        <th style="width:26px"><input type="checkbox" class="cc-check" id="codeAll"
+              ${allChecked ? 'checked' : ''} title="Select everything shown" /></th>
         <th>Date</th><th>Description</th><th class="num">Amount</th>
-        <th>Account</th><th>Location</th><th>Why</th><th></th>
+        <th style="min-width:220px">Account</th><th style="min-width:150px">Location</th>
+        <th>Why</th><th></th>
       </tr></thead><tbody>` + rows.map((t) => `
       <tr class="${t.status === 'excluded' ? 'cc-row--excluded' : ''}" data-txn="${esc(t.id)}">
+        <td><input type="checkbox" class="cc-check" data-pick
+              ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="cc-note">${esc(t.txn_date || '—')}</td>
         <td>
           <div class="cc-desc" title="${esc(t.description)}">${esc(t.description)}</div>
-          <div class="cc-note">${esc(normalizeMerchant(t.description))}${t.cardholder ? ' · ' + esc(t.cardholder) : ''}</div>
+          <div class="cc-note"><span class="cc-merch" data-merch
+            title="Search for this merchant">${esc(normalizeMerchant(t.description))}</span>${
+            t.cardholder ? ' · ' + esc(t.cardholder) : ''}</div>
         </td>
         <td class="num">${money(t.amount)}</td>
-        <td><select class="bcn-field bcn-field--mono" data-field="account"
-              data-selected="${esc(t.qbo_account_id || '')}"
-              data-selected-label="${esc(t.qbo_account_name || '')}">
-              <option value="">— none —</option>${_acctOptions}</select></td>
-        <td><select class="bcn-field bcn-field--mono" data-field="location"
-              data-selected="${esc(t.qbo_location_id || '')}"
-              data-selected-label="${esc(t.qbo_location_name || '')}">
-              <option value="">— card default —</option>${_locOptions}</select></td>
+        <td data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
+        <td data-cell="location">${cellButton(t.qbo_location_name, 'location')}</td>
         <td>${confidenceChip(t)}</td>
         <td><button class="bcn-btn" data-toggle-exclude>${t.status === 'excluded' ? 'Include' : 'Exclude'}</button></td>
       </tr>`).join('') + '</tbody>';
 
-    applySelections(el('tblCoding'));
+    el('codeSearch').placeholder =
+      `Search ${state.txns.length} rows — merchant, account, location, cardholder, card…`;
+  }
+
+  function cellButton(name, field) {
+    return name
+      ? `<button class="cc-cell" data-edit="${field}">${esc(name)}</button>`
+      : `<button class="cc-cell cc-cell--empty" data-edit="${field}">${
+          field === 'account' ? 'set account' : 'card default'}</button>`;
+  }
+
+  // One <select> exists at a time, built on click from the cached option HTML.
+  function openEditor(td, txn, field) {
+    const isAcct = field === 'account';
+    const selected = isAcct ? (txn.qbo_account_id || '') : (txn.qbo_location_id || '');
+    const label = isAcct ? (txn.qbo_account_name || '') : (txn.qbo_location_name || '');
+    td.innerHTML = `<select class="bcn-field bcn-field--mono" data-field="${field}">
+        <option value="">${isAcct ? '— none —' : '— card default —'}</option>
+        ${isAcct ? _acctOptions : _locOptions}
+      </select>`;
+    const sel = td.querySelector('select');
+    sel.value = selected;
+    // A stored id no longer in QuickBooks would silently reset to blank.
+    if (selected && sel.value !== selected) {
+      sel.insertAdjacentHTML('afterbegin',
+        `<option value="${esc(selected)}">⚠ ${esc(label || selected)} — not in QuickBooks</option>`);
+      sel.value = selected;
+    }
+    sel.focus();
+    sel.addEventListener('blur', () => {
+      // Re-render only this cell; a full re-render on every blur is wasted work.
+      td.innerHTML = cellButton(isAcct ? txn.qbo_account_name : txn.qbo_location_name, field);
+    });
   }
 
   function confidenceChip(t) {
@@ -944,7 +1041,108 @@
     return '<span class="cc-chip">—</span>';
   }
 
+  // -------------------------------------------------------- search + bulk
+
+  function codeSearchTerm() {
+    return el('codeSearch').value.trim().toLowerCase();
+  }
+
+  // Card name is included so typing "amex" matches wherever you are, even
+  // though every row in one batch shares a card.
+  function matchesSearch(t, q) {
+    if (!q) return true;
+    return [
+      t.description, normalizeMerchant(t.description), t.qbo_account_name,
+      t.qbo_location_name, t.cardholder, t.vendor_name, t.memo, t.exclude_reason,
+      state.batch?.source_name, String(t.amount), t.txn_date,
+    ].some((v) => String(v ?? '').toLowerCase().includes(q));
+  }
+
+  let _searchTimer = null;
+  el('codeSearch').addEventListener('input', () => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(renderCoding, 120);
+  });
   el('codeFilter').addEventListener('change', renderCoding);
+
+  function renderBulkBar() {
+    const n = state.selected.size;
+    el('codeBulk').hidden = n === 0;
+    if (!n) return;
+    el('bulkCount').textContent = `${n} selected`;
+    if (!el('bulkAccount').options.length) {
+      el('bulkAccount').innerHTML = `<option value="">Set account…</option>${_acctOptions}`;
+      el('bulkLocation').innerHTML = `<option value="">Set location…</option>${_locOptions}`;
+    }
+  }
+
+  function selectedTxns() {
+    return state.txns.filter((t) => state.selected.has(t.id));
+  }
+
+  el('bulkAccount').addEventListener('change', (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    for (const t of selectedTxns()) {
+      t.qbo_account_id = id;
+      t.qbo_account_name = acctName(id);
+      t.coding_source = 'manual';
+      t.confidence = 1;
+      t.ai_reasoning = null;
+      if (t.status !== 'excluded') t.status = 'coded';
+      if (!t.qbo_location_id) {
+        t.qbo_location_id = defaultLocationId();
+        t.qbo_location_name = locName(t.qbo_location_id);
+      }
+      state.dirty.add(t.id);
+    }
+    e.target.value = '';
+    setStatus(`Set ${state.selected.size} rows to ${acctName(id)}.`, 'pos', 4000);
+    renderCoding();
+    renderEntry();
+  });
+
+  el('bulkLocation').addEventListener('change', (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    for (const t of selectedTxns()) {
+      t.qbo_location_id = id;
+      t.qbo_location_name = locName(id);
+      state.dirty.add(t.id);
+    }
+    e.target.value = '';
+    renderCoding();
+    renderEntry();
+  });
+
+  el('btnBulkExclude').addEventListener('click', () => {
+    const rows = selectedTxns();
+    if (!rows.length) return;
+    const why = prompt(`Why are these ${rows.length} rows not part of the entry?`, '');
+    if (why === null) return;
+    for (const t of rows) {
+      t.status = 'excluded';
+      t.exclude_reason = why || 'excluded';
+      state.dirty.add(t.id);
+    }
+    renderCoding();
+    renderEntry();
+  });
+
+  el('btnBulkInclude').addEventListener('click', () => {
+    for (const t of selectedTxns()) {
+      t.status = t.qbo_account_id ? 'coded' : 'uncoded';
+      t.exclude_reason = null;
+      state.dirty.add(t.id);
+    }
+    renderCoding();
+    renderEntry();
+  });
+
+  el('btnBulkClear').addEventListener('click', () => {
+    state.selected.clear();
+    renderCoding();
+  });
 
   el('tblCoding').addEventListener('change', (e) => {
     const tr = e.target.closest('[data-txn]');
@@ -969,6 +1167,40 @@
   });
 
   el('tblCoding').addEventListener('click', (e) => {
+    if (e.target.id === 'codeAll') {
+      const rows = codingRows();
+      if (e.target.checked) for (const r of rows) state.selected.add(r.id);
+      else for (const r of rows) state.selected.delete(r.id);
+      renderCoding();
+      return;
+    }
+
+    const tr0 = e.target.closest('[data-txn]');
+    if (!tr0) return;
+    const t0 = state.txns.find((x) => x.id === tr0.dataset.txn);
+    if (!t0) return;
+
+    if (e.target.matches('[data-pick]')) {
+      if (e.target.checked) state.selected.add(t0.id);
+      else state.selected.delete(t0.id);
+      renderBulkBar();
+      return;
+    }
+
+    // Clicking the normalised merchant searches for it -- the fastest route to
+    // "select every Amazon row and code them all at once".
+    if (e.target.matches('[data-merch]')) {
+      el('codeSearch').value = e.target.textContent.trim();
+      renderCoding();
+      return;
+    }
+
+    const edit = e.target.closest('[data-edit]');
+    if (edit) {
+      openEditor(edit.closest('td'), t0, edit.dataset.edit);
+      return;
+    }
+
     if (!e.target.closest('[data-toggle-exclude]')) return;
     const tr = e.target.closest('[data-txn]');
     const t = state.txns.find((x) => x.id === tr.dataset.txn);
