@@ -166,8 +166,34 @@ Deno.serve(async (req) => {
   if (uncoded) return json({ error: `${uncoded} row(s) are still uncoded` }, 400);
 
   // ---- build the entry from the database, not from the browser ----
+  // Which accounts require an Entity on their line. Read from the synced
+  // chart rather than assumed: a row coded to an intercompany receivable
+  // ('Sugar Hill Receivable', 'Two Wrongs Receivable') is an AR line, and
+  // QuickBooks refuses the WHOLE entry if any such line lacks an Entity.
+  const { data: acctRows } = await supabase
+    .from('quickbooks_accounts')
+    .select('qbo_account_id, name, account_type')
+    .eq('company_entity_id', companyId);
+  const acctType = new Map((acctRows || []).map((a: any) => [String(a.qbo_account_id), a.account_type]));
+  const acctLabel = new Map((acctRows || []).map((a: any) => [String(a.qbo_account_id), a.name]));
+  const needsEntity = (id: unknown) =>
+    ['Accounts Receivable', 'Accounts Payable'].includes(acctType.get(String(id)) || '');
+
   const lines: any[] = [];
   let net = 0;
+
+  // Checked before anything is staged: failing here costs nothing, whereas
+  // failing at Intuit costs a claimed posting row and an opaque error.
+  const missingEntity = coded.filter((t: any) => needsEntity(t.qbo_account_id) && !t.entity_qbo_id);
+  if (missingEntity.length) {
+    const names = [...new Set(missingEntity
+      .map((t: any) => acctLabel.get(String(t.qbo_account_id)) || t.qbo_account_name))].slice(0, 4);
+    return json({
+      error: `${missingEntity.length} line(s) post to a receivable or payable account `
+        + `(${names.join(', ')}) with no entity. QuickBooks requires a customer or vendor `
+        + 'on those lines.',
+    }, 400);
+  }
 
   for (const t of coded) {
     const amount = round2(Number(t.amount));
@@ -181,6 +207,14 @@ Deno.serve(async (req) => {
       JournalEntryLineDetail: {
         PostingType: amount >= 0 ? 'Debit' : 'Credit',
         AccountRef: { value: String(t.qbo_account_id) },
+        ...(t.entity_qbo_id
+          ? {
+            Entity: {
+              Type: t.entity_type === 'Vendor' ? 'Vendor' : 'Customer',
+              EntityRef: { value: String(t.entity_qbo_id) },
+            },
+          }
+          : {}),
         ...(locId ? { DepartmentRef: { value: String(locId) } } : {}),
       },
     });

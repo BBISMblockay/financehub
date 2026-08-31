@@ -1613,3 +1613,29 @@ select
       then 'MISSING — card_transactions_v no longer keys merchant_norm off clean_merchant'
     else 'ok'
   end as card_name_and_holder;
+
+-- ---------------------------------------------------------------------------
+-- QBO entities / per-line entity (20260831200000_qbo_entities_and_line_entity.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='quickbooks_customers')
+      then 'MISSING — quickbooks_customers absent; intercompany receivable lines have no entity to name'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='quickbooks_vendors')
+      then 'MISSING — quickbooks_vendors absent'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='entity_qbo_id')
+      then 'MISSING — card_transactions.entity_qbo_id absent'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_coding_rules'
+                        and column_name='entity_qbo_id')
+      then 'MISSING — card_coding_rules.entity_qbo_id absent; a learned rule loses its entity'
+    when public.qbo_account_needs_entity('Accounts Receivable') is not true
+      then 'MISSING — qbo_account_needs_entity() no longer flags AR; QuickBooks would reject the entry'
+    when public.qbo_account_needs_entity('Expense') is not false
+      then 'MISSING — qbo_account_needs_entity() flags plain expenses; every row would demand an entity'
+    else 'ok'
+  end as qbo_entities_and_line_entity;

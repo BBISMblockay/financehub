@@ -100,6 +100,8 @@
       padding: 3px 6px; cursor: pointer; color: var(--bcn-ink); }
     .cc-cell:hover { border-color: var(--bcn-border-strong); background: var(--bcn-panel); }
     .cc-cell--empty { color: var(--bcn-ink-3); font-style: italic; }
+    .cc-cell--req { color: var(--bcn-neg); font-weight: 600;
+      border-color: rgba(220,38,38,.35); background: rgba(220,38,38,.06); }
     .cc-check { width: 14px; height: 14px; cursor: pointer; }
 
     .cc-merch { cursor: pointer; text-decoration: underline dotted; }
@@ -236,6 +238,7 @@
               <span class="cc-bulk-count" id="bulkCount"></span>
               <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
               <select class="bcn-field bcn-field--mono" id="bulkLocation" style="width:200px"></select>
+              <select class="bcn-field bcn-field--mono" id="bulkEntity" style="width:220px"></select>
               <button class="bcn-btn" id="btnBulkExclude">Exclude</button>
               <button class="bcn-btn" id="btnBulkInclude">Include</button>
               <button class="bcn-btn" id="btnBulkClear">Clear selection</button>
@@ -362,6 +365,7 @@
     accounts: [],      // codeable QBO accounts
     allAccounts: [],   // every active QBO account (for the credit leg)
     locations: [],
+    entities: [],
     batches: [],
     rules: [],
     batch: null,       // open batch
@@ -468,7 +472,7 @@
   // ---------------------------------------------------------------- loads
 
   async function loadReference() {
-    const [srcRes, acctRes, locRes] = await Promise.all([
+    const [srcRes, acctRes, locRes, custRes, vendRes] = await Promise.all([
       sb.from('card_sources').select('*').order('display_name'),
       sb.from('quickbooks_accounts')
         .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type, is_active')
@@ -476,6 +480,10 @@
       sb.from('quickbooks_locations')
         .select('qbo_location_id, name, fully_qualified_name')
         .eq('is_active', true).order('name'),
+      sb.from('quickbooks_customers')
+        .select('qbo_customer_id, display_name').eq('is_active', true).order('display_name'),
+      sb.from('quickbooks_vendors')
+        .select('qbo_vendor_id, display_name').eq('is_active', true).order('display_name'),
     ]);
 
     state.sources = srcRes.data || [];
@@ -484,9 +492,21 @@
       name: a.fully_qualified_name || a.name,
       type: a.account_type,
     }));
-    state.accounts = state.allAccounts.filter((a) => [
-      'Expense', 'Other Expense', 'Cost of Goods Sold', 'Fixed Asset', 'Other Current Asset',
-    ].includes(a.type));
+    // A person may code to ANY account. The narrow expense-ish list is what the
+    // MODEL is offered, never what a bookkeeper may choose: card spend on
+    // behalf of a related entity is coded to an intercompany receivable, and
+    // Baseballism has ~26 of those -- Sugar Hill Receivable, La Palma
+    // Receivable, Two Wrongs Receivable, COLAB Receivable, Due From LFRE/RFRE.
+    // None is an expense account, so the narrow picker made the thing this
+    // tool exists for impossible to enter.
+    state.accounts = state.allAccounts;
+
+    state.entities = [
+      ...(custRes.data || []).map((c) => ({
+        id: c.qbo_customer_id, name: c.display_name, type: 'Customer' })),
+      ...(vendRes.data || []).map((v) => ({
+        id: v.qbo_vendor_id, name: v.display_name, type: 'Vendor' })),
+    ];
     state.locations = (locRes.data || []).map((l) => ({
       id: l.qbo_location_id, name: l.fully_qualified_name || l.name,
     }));
@@ -517,10 +537,13 @@
 
   // 124 accounts x 400 rows is 50,000 option elements if built per row. The
   // markup is built once and the selection applied afterwards.
-  let _acctOptions = '', _locOptions = '', _allAcctOptions = '';
+  let _acctOptions = '', _locOptions = '', _allAcctOptions = '', _entityOptions = '';
   function buildOptionCache() {
     _acctOptions = state.accounts
-      .map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
+      .map((a) => `<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.type)}</option>`).join('');
+    _entityOptions = state.entities
+      .map((e) => `<option value="${esc(e.type)}:${esc(e.id)}">${esc(e.name)} · ${esc(e.type)}</option>`)
+      .join('');
     _allAcctOptions = state.allAccounts
       .map((a) => `<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.type)}</option>`).join('');
     _locOptions = state.locations
@@ -539,6 +562,13 @@
       f.removeAttribute('data-selected');
     }
   }
+
+  // Mirrors public.qbo_account_needs_entity. QuickBooks rejects a journal entry
+  // line on an AR or AP account unless the line names an Entity, so this has to
+  // be known while coding, not discovered at post time.
+  const NEEDS_ENTITY = new Set(['Accounts Receivable', 'Accounts Payable']);
+  const acctType = (id) => state.allAccounts.find((a) => a.id === id)?.type || null;
+  const needsEntity = (t) => NEEDS_ENTITY.has(acctType(t.qbo_account_id) || '');
 
   const acctName = (id) => state.accounts.find((a) => a.id === id)?.name
     || state.allAccounts.find((a) => a.id === id)?.name || null;
@@ -953,6 +983,9 @@
       t.qbo_account_name = rule.qbo_account_name;
       t.qbo_location_id = rule.qbo_location_id || defaultLocationId();
       t.qbo_location_name = locName(t.qbo_location_id);
+      t.entity_qbo_id = rule.entity_qbo_id || null;
+      t.entity_name = rule.entity_name || null;
+      t.entity_type = rule.entity_type || null;
       t.vendor_name = rule.vendor_name || t.vendor_name;
       t.coding_source = 'rule';
       t.confidence = 1;
@@ -1030,7 +1063,7 @@
               ${allChecked ? 'checked' : ''} title="Select everything shown" /></th>
         <th>Date</th><th>Description</th><th class="num">Amount</th>
         <th style="min-width:220px">Account</th><th style="min-width:150px">Location</th>
-        <th>Why</th><th></th>
+        <th style="min-width:150px">Entity</th><th>Why</th><th></th>
       </tr></thead><tbody>` + rows.map((t) => `
       <tr class="${t.status === 'excluded' ? 'cc-row--excluded' : ''}" data-txn="${esc(t.id)}">
         <td><input type="checkbox" class="cc-check" data-pick
@@ -1046,12 +1079,24 @@
         <td class="num">${money(t.amount)}</td>
         <td data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
         <td data-cell="location">${cellButton(t.qbo_location_name, 'location')}</td>
+        <td data-cell="entity">${entityCell(t)}</td>
         <td>${confidenceChip(t)}</td>
         <td><button class="bcn-btn" data-toggle-exclude>${t.status === 'excluded' ? 'Include' : 'Exclude'}</button></td>
       </tr>`).join('') + '</tbody>';
 
     el('codeSearch').placeholder =
       `Search ${state.txns.length} rows — merchant, account, location, cardholder, card…`;
+  }
+
+  // An entity is required on AR/AP lines and meaningless elsewhere, so the cell
+  // says which of those it is rather than showing an empty dropdown on every
+  // row. Required-and-missing is red: it blocks the post.
+  function entityCell(t) {
+    if (!t.qbo_account_id) return '<span class="cc-note">—</span>';
+    if (t.entity_name) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
+    return needsEntity(t)
+      ? '<button class="cc-cell cc-cell--req" data-edit="entity">needs entity</button>'
+      : '<span class="cc-note">not needed</span>';
   }
 
   function cellButton(name, field) {
@@ -1064,11 +1109,15 @@
   // One <select> exists at a time, built on click from the cached option HTML.
   function openEditor(td, txn, field) {
     const isAcct = field === 'account';
-    const selected = isAcct ? (txn.qbo_account_id || '') : (txn.qbo_location_id || '');
-    const label = isAcct ? (txn.qbo_account_name || '') : (txn.qbo_location_name || '');
+    const isEntity = field === 'entity';
+    const selected = isEntity
+      ? (txn.entity_qbo_id ? `${txn.entity_type}:${txn.entity_qbo_id}` : '')
+      : isAcct ? (txn.qbo_account_id || '') : (txn.qbo_location_id || '');
+    const label = isEntity ? (txn.entity_name || '')
+      : isAcct ? (txn.qbo_account_name || '') : (txn.qbo_location_name || '');
     td.innerHTML = `<select class="bcn-field bcn-field--mono" data-field="${field}">
-        <option value="">${isAcct ? '— none —' : '— card default —'}</option>
-        ${isAcct ? _acctOptions : _locOptions}
+        <option value="">${isAcct || isEntity ? '— none —' : '— card default —'}</option>
+        ${isEntity ? _entityOptions : isAcct ? _acctOptions : _locOptions}
       </select>`;
     const sel = td.querySelector('select');
     sel.value = selected;
@@ -1081,7 +1130,8 @@
     sel.focus();
     sel.addEventListener('blur', () => {
       // Re-render only this cell; a full re-render on every blur is wasted work.
-      td.innerHTML = cellButton(isAcct ? txn.qbo_account_name : txn.qbo_location_name, field);
+      td.innerHTML = isEntity ? entityCell(txn)
+        : cellButton(isAcct ? txn.qbo_account_name : txn.qbo_location_name, field);
     });
   }
 
@@ -1114,7 +1164,7 @@
     if (!q) return true;
     return [
       t.description, t.clean_merchant, merchantKey(t), t.qbo_account_name,
-      t.qbo_location_name, t.card_name, t.cardholder, t.cardholder_email,
+      t.qbo_location_name, t.entity_name, t.card_name, t.cardholder, t.cardholder_email,
       t.vendor_name, t.memo, t.exclude_reason,
       state.batch?.source_name, String(t.amount), t.txn_date,
     ].some((v) => String(v ?? '').toLowerCase().includes(q));
@@ -1135,6 +1185,7 @@
     if (!el('bulkAccount').options.length) {
       el('bulkAccount').innerHTML = `<option value="">Set account…</option>${_acctOptions}`;
       el('bulkLocation').innerHTML = `<option value="">Set location…</option>${_locOptions}`;
+      el('bulkEntity').innerHTML = `<option value="">Set entity…</option>${_entityOptions}`;
     }
   }
 
@@ -1156,6 +1207,7 @@
         t.qbo_location_id = defaultLocationId();
         t.qbo_location_name = locName(t.qbo_location_id);
       }
+      if (!needsEntity(t)) { t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null; }
       state.dirty.add(t.id);
     }
     e.target.value = '';
@@ -1173,6 +1225,20 @@
       state.dirty.add(t.id);
     }
     e.target.value = '';
+    renderCoding();
+    renderEntry();
+  });
+
+  el('bulkEntity').addEventListener('change', (e) => {
+    const [type, id] = (e.target.value || '').split(':');
+    if (!id) return;
+    const name = state.entities.find((x) => x.id === id && x.type === type)?.name || null;
+    for (const t of selectedTxns()) {
+      t.entity_type = type; t.entity_qbo_id = id; t.entity_name = name;
+      state.dirty.add(t.id);
+    }
+    e.target.value = '';
+    setStatus(`Set ${state.selected.size} rows to ${name}.`, 'pos', 4000);
     renderCoding();
     renderEntry();
   });
@@ -1219,9 +1285,18 @@
       t.confidence = 1;
       t.ai_reasoning = null;
       t.status = t.qbo_account_id ? 'coded' : 'uncoded';
+      // Moving a row off an AR/AP account leaves a stale entity that would ride
+      // onto a line QuickBooks does not want one on.
+      if (!needsEntity(t)) { t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null; }
     } else if (field === 'location') {
       t.qbo_location_id = e.target.value || null;
       t.qbo_location_name = locName(t.qbo_location_id);
+    } else if (field === 'entity') {
+      const [type, id] = (e.target.value || '').split(':');
+      t.entity_type = id ? type : null;
+      t.entity_qbo_id = id || null;
+      t.entity_name = id
+        ? (state.entities.find((x) => x.id === id && x.type === type)?.name || null) : null;
     }
     state.dirty.add(t.id);
     renderCoding();
@@ -1291,6 +1366,9 @@
         qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id,
         qbo_location_name: t.qbo_location_name,
+        entity_qbo_id: t.entity_qbo_id,
+        entity_name: t.entity_name,
+        entity_type: t.entity_type,
         vendor_name: t.vendor_name,
         memo: t.memo,
         coding_source: t.coding_source,
@@ -1424,6 +1502,7 @@
         match_field: 'merchant', priority: 100, pattern: key,
         qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
+        entity_qbo_id: t.entity_qbo_id, entity_name: t.entity_name, entity_type: t.entity_type,
         vendor_name: t.vendor_name,
       });
     }
@@ -1436,13 +1515,18 @@
       const key = String(t.card_name || '').trim();
       if (!key) continue;
       const cur = byCard.get(key);
-      if (cur) { if (cur.qbo_account_id !== t.qbo_account_id) cur.conflict = true; continue; }
+      if (cur) {
+        if (cur.qbo_account_id !== t.qbo_account_id
+            || (cur.entity_qbo_id || null) !== (t.entity_qbo_id || null)) cur.conflict = true;
+        continue;
+      }
       byCard.set(key, {
         match_field: 'card_name',
         // Below merchant rules: knowing the vendor beats knowing the card.
         priority: 50, pattern: key,
         qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
+        entity_qbo_id: t.entity_qbo_id, entity_name: t.entity_name, entity_type: t.entity_type,
         vendor_name: t.vendor_name,
       });
     }
@@ -1466,6 +1550,9 @@
       qbo_account_name: r.qbo_account_name,
       qbo_location_id: r.qbo_location_id,
       qbo_location_name: r.qbo_location_name,
+      entity_qbo_id: r.entity_qbo_id,
+      entity_name: r.entity_name,
+      entity_type: r.entity_type,
       vendor_name: r.vendor_name,
       note: `Learned from ${state.batch.source_name} ${state.batch.label || ''}`.trim(),
     }));
@@ -1497,6 +1584,10 @@
     let lines = included.map((t) => ({
       account_id: t.qbo_account_id,
       account_name: t.qbo_account_name,
+      entity_id: t.entity_qbo_id,
+      entity_name: t.entity_name,
+      entity_type: t.entity_type,
+      needs_entity: NEEDS_ENTITY.has(acctType(t.qbo_account_id) || ''),
       location_id: t.qbo_location_id || src?.default_qbo_location_id || null,
       location_name: t.qbo_location_name || src?.default_qbo_location_name || null,
       // A charge debits the expense; a refund credits it.
@@ -1508,7 +1599,9 @@
     if (el('entryGroup').checked) {
       const g = new Map();
       for (const l of lines) {
-        const k = `${l.account_id}|${l.location_id}`;
+        // Entity is part of the key: two rows on the same receivable for
+        // different entities are not one line.
+        const k = `${l.account_id}|${l.location_id}|${l.entity_id || ''}`;
         const cur = g.get(k) || { ...l, debit: 0, credit: 0, description: `${state.batch.label || ''} ${l.account_name}`.trim(), n: 0 };
         cur.debit += l.debit; cur.credit += l.credit; cur.n++;
         g.set(k, cur);
@@ -1571,7 +1664,10 @@
         <th class="num">Debit</th><th class="num">Credit</th>
       </tr></thead><tbody>` + all.map((l) => `<tr${l.is_credit_leg ? ' style="font-weight:700"' : ''}>
         <td>${l.account_name ? esc(l.account_name) : '<span class="cc-chip cc-chip--none">card account not set</span>'}</td>
-        <td class="cc-note">${esc(l.location_name || '—')}</td>
+        <td class="cc-note">${l.needs_entity
+          ? (l.entity_name ? esc(l.entity_name)
+             : '<span class="cc-chip cc-chip--none">needs entity</span>')
+          : esc(l.location_name || '—')}</td>
         <td class="cc-desc" title="${esc(l.description)}">${esc(l.description)}</td>
         <td class="num">${l.debit ? money(l.debit) : ''}</td>
         <td class="num">${l.credit ? money(l.credit) : ''}</td>
@@ -1586,6 +1682,14 @@
       blockers.push('the balancing account is Accounts Payable, which QuickBooks requires a vendor on');
     }
     if (uncoded) blockers.push(`${uncoded} row${uncoded === 1 ? ' is' : 's are'} still uncoded`);
+    // QuickBooks refuses the WHOLE entry over one AR/AP line with no entity, so
+    // it is caught here rather than after a person has approved it.
+    const noEntity = state.txns.filter((t) =>
+      t.status === 'coded' && needsEntity(t) && !t.entity_qbo_id).length;
+    if (noEntity) {
+      blockers.push(`${noEntity} row${noEntity === 1 ? '' : 's'} on a receivable or payable `
+        + `account ${noEntity === 1 ? 'has' : 'have'} no entity — QuickBooks requires one`);
+    }
     if (!balanced) blockers.push('the entry does not balance');
     if (!state.batch.entry_date) blockers.push('no entry date is set');
     if (state.dirty.size) blockers.push('there are unsaved coding changes');
@@ -1618,7 +1722,7 @@
     for (const l of [...e.lines, e.creditLine]) {
       rows.push(['', date, memo, l.account_name || '',
         (l.debit ? l.debit : -l.credit).toFixed(2),
-        l.description, l.vendor_name || '', l.location_name || '']);
+        l.description, l.entity_name || l.vendor_name || '', l.location_name || '']);
     }
     const csv = rows.map((r) => r.map((v) => {
       const s = String(v ?? '');
