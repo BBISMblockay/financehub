@@ -49,7 +49,7 @@ type Suggestion = {
 };
 
 function systemPrompt(
-  accounts: { name: string; type: string; sub: string | null }[],
+  accounts: { name: string; type: string; sub: string | null; used: number | null }[],
   locations: string[],
   examples: { merchant: string; account: string; location: string | null }[],
   sourceName: string,
@@ -57,9 +57,23 @@ function systemPrompt(
   companyName: string,
   cardNames: string[],
 ) {
-  const acctList = accounts
-    .map((a) => `- ${a.name} [${a.type}${a.sub ? ` / ${a.sub}` : ''}]`)
+  // Sorted by what the company actually posts to, and annotated with it. A
+  // flat alphabetical list is why "Shipping" got picked over "COGS - Shipping"
+  // when the two are identical in type AND sub-type and only one of them
+  // carries $2.8m of activity -- nothing in the name could have told it apart.
+  const money = (n: number) => n >= 1_000_000
+    ? `$${(n / 1_000_000).toFixed(1)}m`
+    : n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${Math.round(n)}`;
+
+  const acctList = [...accounts]
+    .sort((a, b) => (b.used ?? -1) - (a.used ?? -1) || a.name.localeCompare(b.name))
+    .map((a) => `- ${a.name} [${a.type}${a.sub ? ` / ${a.sub}` : ''}]`
+      + (a.used === null ? ''
+        : a.used > 0 ? ` -- ${money(a.used)} posted in the last full year`
+        : ' -- NO activity in the last full year'))
     .join('\n');
+
+  const anyUsage = accounts.some((a) => a.used !== null);
 
   // Past human decisions are the strongest signal available -- stronger than
   // the model's priors about what "OFFICE DEPOT" usually is, because they
@@ -94,6 +108,9 @@ Every card name NOT in the related-entity list above is this company's own -- a 
 The card name is the internal card the charge was made on, and companies commonly use it as a cost centre. Where one is present it is strong evidence, and for some merchants it is BETTER evidence than the merchant: a payment processor like Bill.com, Melio or PayPal tells you nothing on its own, but the same charge on a card named for rent is rent. The same merchant may appear twice with different card names and should then get different accounts.
 
 # The ONLY accounts you may use
+Listed most-used first.${anyUsage ? ` Charts accumulate near-duplicates -- two accounts with the same name in different words, or the same words in a different order, sometimes identical in type AND sub-type. Where several accounts could fit, PREFER the one this company actually posts to. An account showing no activity beside a near-twin carrying real money is almost always the dead one, and coding to it fragments their reporting across accounts that should be a single line.
+
+Treat this as strong evidence, not a rule: a genuinely new account is legitimately empty, so if a merchant clearly belongs somewhere unused, say so in reasoning and lower your confidence.` : ''}
 ${acctList}
 
 # The ONLY locations you may use
@@ -119,7 +136,7 @@ Every line you were given must appear exactly once.`;
 
 async function askModel(
   merchants: Merchant[],
-  accounts: { name: string; type: string; sub: string | null }[],
+  accounts: { name: string; type: string; sub: string | null; used: number | null }[],
   locations: string[],
   examples: { merchant: string; account: string; location: string | null }[],
   sourceName: string,
@@ -179,6 +196,35 @@ async function askModel(
 // a string that will not parse at all, discarding forty good suggestions over
 // one half-written line. That is what "Some merchants failed: Expected ',' or
 // ']' after array element" was.
+// QBO reports nest arbitrarily deep -- sections inside sections, each with a
+// Summary row. Every line that names an account carries ColData[0].id, so the
+// walk keys on that rather than trying to model the report's shape.
+function accountUsage(report: unknown): Map<string, number> {
+  const out = new Map<string, number>();
+
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+
+    const cd = node.ColData;
+    if (Array.isArray(cd) && cd[0]?.id) {
+      const raw = String(cd[cd.length - 1]?.value ?? '').replace(/[^0-9.\-]/g, '');
+      const amt = Number(raw);
+      // Absolute value: a contra or credit-balance account is still IN USE, and
+      // the question here is "does this company post here", not "which way".
+      if (raw !== '' && isFinite(amt)) {
+        const id = String(cd[0].id);
+        out.set(id, (out.get(id) ?? 0) + Math.abs(amt));
+      }
+    }
+
+    for (const k of Object.keys(node)) if (k !== 'ColData') walk(node[k]);
+  };
+
+  walk(report);
+  return out;
+}
+
 function objectsIn(text: string, from: number): string[] {
   const out: string[] = [];
   let depth = 0, start = -1, inStr = false, esc = false;
@@ -279,7 +325,7 @@ Deno.serve(async (req) => {
   // all 450 accounts invites it to expense a purchase to a revenue account.
   const { data: accountRows } = await supabase
     .from('quickbooks_accounts')
-    .select('name, fully_qualified_name, account_type, account_sub_type')
+    .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type')
     .eq('company_entity_id', companyId)
     .eq('is_active', true)
     .in('account_type', [
@@ -287,10 +333,26 @@ Deno.serve(async (req) => {
       'Fixed Asset', 'Other Current Asset',
     ]);
 
+  // Which accounts this company actually posts to, from the most recent P&L
+  // SILO already holds. Absent one, every account is annotated null and the
+  // prompt says nothing about usage rather than implying everything is dead.
+  const { data: plRun } = await supabase
+    .from('quickbooks_report_runs')
+    .select('raw_response, start_date, end_date')
+    .eq('company_entity_id', companyId)
+    .in('report_name', ['ProfitAndLoss', 'ProfitAndLossDetail'])
+    .eq('status', 'ok')
+    .order('fetched_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const usage = plRun?.raw_response ? accountUsage(plRun.raw_response) : null;
+
   const accounts = (accountRows || []).map((a: any) => ({
     name: a.fully_qualified_name || a.name,
     type: a.account_type,
     sub: a.account_sub_type,
+    used: usage ? (usage.get(String(a.qbo_account_id)) ?? 0) : null,
   }));
   if (!accounts.length) {
     return json({ error: 'No QuickBooks accounts pulled yet — run Pull accounts in Integrations.' }, 400);
@@ -469,6 +531,8 @@ Deno.serve(async (req) => {
     batches: slices.length,
     related_entities: relatedEntities.length,
     company: companyName,
+    usage_from: usage ? `${plRun?.start_date} to ${plRun?.end_date}` : null,
+    accounts_with_activity: usage ? accounts.filter((a) => (a.used ?? 0) > 0).length : null,
     model: MODEL,
     errors: errors.length ? errors : undefined,
   });
