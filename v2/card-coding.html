@@ -266,6 +266,7 @@
                 <select class="bcn-field bcn-field--mono" id="codeFilter" style="width:auto">
                   <option value="all">All rows</option>
                   <option value="uncoded">Needs coding</option>
+                  <option value="conflict">Card vs merchant</option>
                   <option value="low">Low confidence</option>
                   <option value="ai">AI-suggested</option>
                   <option value="excluded">Excluded</option>
@@ -1002,32 +1003,56 @@
 
   // ------------------------------------------------------------- coding
 
+  // Returns the rule to apply, OR a conflict explaining why nothing should be
+  // applied. A merchant rule normally outranks a card-name rule -- knowing the
+  // vendor is more specific than knowing which card paid -- but that is right
+  // only when both point the same way. A Comcast charge on Jackie's card is not
+  // a Baseballism utility bill; it is money Jackie's owes, and the card is the
+  // only thing that says so. Letting the merchant rule win there would code it
+  // silently and plausibly wrong, which is the worst shape an error can take in
+  // a ledger.
   function ruleMatches(txn) {
     const norm = merchantKey(txn);
     const raw = String(txn.description || '').toLowerCase();
     const cardName = String(txn.card_name || '').toLowerCase();
 
-    const candidates = state.rules
+    const live = state.rules
       .filter((r) => r.is_active !== false)
-      .filter((r) => !r.source_id || r.source_id === state.batch?.source_id)
-      .filter((r) => {
-        const pat = String(r.pattern).toLowerCase();
-        if (r.match_field === 'card_name') {
-          if (!cardName) return false;
-          return r.match_type === 'contains' ? cardName.includes(pat) : cardName === pat;
-        }
-        if (r.match_type === 'exact') return raw === pat;
-        if (r.match_type === 'contains') return raw.includes(pat);
-        return norm === pat;
-      })
-      // A merchant rule outranks a card-name rule: knowing the vendor is more
-      // specific than knowing which card paid. Within a field, a card-specific
-      // rule beats an all-cards one.
-      .sort((a, b) =>
-        (b.priority - a.priority)
-        || ((a.match_field === 'card_name' ? 0 : 1) - (b.match_field === 'card_name' ? 0 : 1))
-        || ((b.source_id ? 1 : 0) - (a.source_id ? 1 : 0)));
-    return candidates[0] || null;
+      .filter((r) => !r.source_id || r.source_id === state.batch?.source_id);
+
+    const best = (list) => list.sort((a, b) =>
+      (b.priority - a.priority) || ((b.source_id ? 1 : 0) - (a.source_id ? 1 : 0)))[0] || null;
+
+    const merchantRule = best(live.filter((r) => (r.match_field || 'merchant') === 'merchant' && (() => {
+      const pat = String(r.pattern).toLowerCase();
+      if (r.match_type === 'exact') return raw === pat;
+      if (r.match_type === 'contains') return raw.includes(pat) || norm.includes(pat);
+      return norm === pat;
+    })()));
+
+    const cardRule = best(live.filter((r) => r.match_field === 'card_name' && cardName && (() => {
+      const pat = String(r.pattern).toLowerCase();
+      return r.match_type === 'contains' ? cardName.includes(pat) : cardName === pat;
+    })()));
+
+    if (merchantRule && cardRule) {
+      const sameAccount = merchantRule.qbo_account_id === cardRule.qbo_account_id;
+      const sameEntity = (merchantRule.entity_qbo_id || null) === (cardRule.entity_qbo_id || null);
+      if (!sameAccount || !sameEntity) {
+        return {
+          rule: null,
+          conflict: `The merchant “${merchantRule.pattern}” codes to `
+            + `${merchantRule.qbo_account_name || 'no account'}`
+            + `${merchantRule.entity_name ? ` (${merchantRule.entity_name})` : ''}, `
+            + `but the card “${cardRule.pattern}” codes to `
+            + `${cardRule.qbo_account_name || 'no account'}`
+            + `${cardRule.entity_name ? ` (${cardRule.entity_name})` : ''}. `
+            + 'Left for you to decide.',
+        };
+      }
+    }
+
+    return { rule: merchantRule || cardRule || null, conflict: null };
   }
 
   // The key a merchant rule matches on. Mirrors card_transactions_v: the
@@ -1053,11 +1078,24 @@
   async function applyRules(silent) {
     if (!state.batch) return;
     let hits = 0;
+    let conflicts = 0;
     for (const t of state.txns) {
       if (t.status === 'excluded') continue;
       if (t.qbo_account_id && t.coding_source === 'manual') continue;
-      const rule = ruleMatches(t);
+      const { rule, conflict } = ruleMatches(t);
+
+      if (conflict) {
+        // Deliberately left uncoded, carrying WHY. A row nobody can see the
+        // reasoning on is just a row that failed silently.
+        t.coding_conflict = conflict;
+        t.status = 'uncoded';
+        state.dirty.add(t.id);
+        conflicts++;
+        continue;
+      }
+
       if (!rule || !rule.qbo_account_id) continue;
+      t.coding_conflict = null;
       t.qbo_account_id = rule.qbo_account_id;
       t.qbo_account_name = rule.qbo_account_name;
       t.qbo_location_id = rule.qbo_location_id || defaultLocationId();
@@ -1076,8 +1114,15 @@
     }
     renderCoding();
     renderEntry();
-    if (!silent) setStatus(`${hits} row${hits === 1 ? '' : 's'} coded from rules.`, 'pos', 4000);
-    else if (hits) el('codeStatus').textContent = `${hits} coded from rules`;
+    const conflictNote = conflicts
+      ? ` ${conflicts} left for you — the card and the merchant disagree.` : '';
+    if (!silent) {
+      setStatus(`${hits} row${hits === 1 ? '' : 's'} coded from rules.${conflictNote}`,
+        conflicts ? 'info' : 'pos', conflicts ? 9000 : 4000);
+    } else if (hits || conflicts) {
+      el('codeStatus').textContent = `${hits} coded from rules${
+        conflicts ? `, ${conflicts} conflicted` : ''}`;
+    }
   }
 
   function defaultLocationId() {
@@ -1092,6 +1137,7 @@
       if (!matchesSearch(t, q)) return false;
       if (f === 'uncoded') return t.status === 'uncoded';
       if (f === 'excluded') return t.status === 'excluded';
+      if (f === 'conflict') return !!t.coding_conflict;
       if (f === 'low') return t.status !== 'excluded' && (t.confidence ?? 1) < 0.6;
       if (f === 'ai') return t.coding_source === 'ai';
       return true;
@@ -1115,8 +1161,11 @@
     const excluded = state.txns.filter((t) => t.status === 'excluded').length;
     const low = state.txns.filter((t) => t.status !== 'excluded' && (t.confidence ?? 1) < 0.6).length;
 
+    const conflicted = state.txns.filter((t) => t.coding_conflict).length;
+
     el('codeKpis').innerHTML = [
       ['Coded', coded], ['Needs coding', uncoded],
+      ['Card vs merchant', conflicted],
       ['Low confidence', low], ['Excluded', excluded],
     ].map(([l, v]) => `<div class="cc-kpi">
         <div class="cc-kpi-label">${l}</div><div class="cc-kpi-value">${v}</div></div>`).join('');
@@ -1248,6 +1297,10 @@
   }
 
   function confidenceChip(t) {
+    if (t.coding_conflict) {
+      return '<span class="cc-chip cc-chip--low">card vs merchant</span>'
+        + `<div class="cc-note">${esc(t.coding_conflict)}</div>`;
+    }
     if (t.status === 'excluded') {
       return `<span class="cc-chip">excluded</span>` +
         (t.exclude_reason ? `<div class="cc-note">${esc(t.exclude_reason)}</div>` : '');
@@ -1330,6 +1383,7 @@
         t.qbo_location_name = locName(t.qbo_location_id);
       }
       if (!needsEntity(t)) { t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null; }
+      t.coding_conflict = null;
       state.dirty.add(t.id);
     }
     e.target.value = '';
@@ -1421,6 +1475,7 @@
       // Moving a row off an AR/AP account leaves a stale entity that would ride
       // onto a line QuickBooks does not want one on.
       if (!needsEntity(t)) { t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null; }
+      t.coding_conflict = null;
     } else if (field === 'location') {
       t.qbo_location_id = e.target.value || null;
       t.qbo_location_name = locName(t.qbo_location_id);
@@ -1571,6 +1626,7 @@
         rule_id: t.rule_id,
         status: t.status,
         exclude_reason: t.exclude_reason,
+        coding_conflict: t.coding_conflict || null,
       }));
 
       let saved = 0;
