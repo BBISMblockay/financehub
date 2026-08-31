@@ -19,7 +19,10 @@ const MODEL = Deno.env.get('CARD_CODING_MODEL') || 'claude-sonnet-5';
 // One merchant is one question. Beyond this the request is split into several
 // model calls rather than truncated -- a silently dropped merchant comes back
 // as an uncoded row with no explanation, which is worse than a slower import.
-const BATCH_SIZE = 60;
+// 40, not 60. A batch of 60 with real reasoning strings ran past max_tokens and
+// came back truncated mid-array -- and truncation used to discard the whole
+// batch, which is what "Some merchants failed" was.
+const BATCH_SIZE = 40;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -140,7 +143,7 @@ async function askModel(
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 8000,
+      max_tokens: 24000,
       system: systemPrompt(
         accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames),
       messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
@@ -158,14 +161,66 @@ async function askModel(
     .map((c: any) => c.text)
     .join('');
 
-  // The model was asked for bare JSON, but a stray fence or preamble must not
-  // lose an entire batch of suggestions.
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('model_returned_no_json');
+  const { suggestions, salvaged } = parseSuggestions(text);
 
-  const parsed = JSON.parse(text.slice(start, end + 1));
-  return Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+  // The API says outright when it ran out of room. Worth surfacing, because a
+  // truncated batch is a budget problem with a fix, not a model that had no
+  // answers -- and from the coding screen those look identical.
+  if (data.stop_reason === 'max_tokens' || salvaged) {
+    console.warn(`card-categorize: response cut short (stop_reason=${data.stop_reason}); `
+      + `kept ${suggestions.length} of ${merchants.length} asked`);
+  }
+
+  return suggestions;
+}
+
+// The model is asked for bare JSON and usually obliges, but a batch that runs
+// out of tokens stops mid-array -- and first-brace-to-LAST-brace then produces
+// a string that will not parse at all, discarding forty good suggestions over
+// one half-written line. That is what "Some merchants failed: Expected ',' or
+// ']' after array element" was.
+function objectsIn(text: string, from: number): string[] {
+  const out: string[] = [];
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = from; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === '{') { if (depth === 0) start = i; depth++; }
+    else if (c === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) { out.push(text.slice(start, i + 1)); start = -1; }
+      if (depth < 0) return out;
+    }
+  }
+  return out;
+}
+
+function parseSuggestions(text: string): { suggestions: Suggestion[]; salvaged: boolean } {
+  // The first BALANCED object, so a trailing note or a brace inside a reasoning
+  // sentence cannot end it early.
+  const whole = objectsIn(text, 0)[0];
+  if (whole) {
+    try {
+      const p = JSON.parse(whole);
+      if (Array.isArray(p.suggestions)) return { suggestions: p.suggestions, salvaged: false };
+    } catch { /* truncated -- salvage below */ }
+  }
+
+  const arr = text.indexOf('[');
+  if (arr < 0) throw new Error('model_returned_no_json');
+
+  const suggestions: Suggestion[] = [];
+  for (const part of objectsIn(text, arr)) {
+    try { suggestions.push(JSON.parse(part)); } catch { /* the cut-off last one */ }
+  }
+  if (!suggestions.length) throw new Error('model_returned_no_parsable_suggestions');
+  return { suggestions, salvaged: true };
 }
 
 Deno.serve(async (req) => {
