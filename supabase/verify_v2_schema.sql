@@ -1639,3 +1639,19 @@ select
       then 'MISSING — qbo_account_needs_entity() flags plain expenses; every row would demand an entity'
     else 'ok'
   end as qbo_entities_and_line_entity;
+
+-- ---------------------------------------------------------------------------
+-- Card coding save path (20260831210000_apply_card_coding_rpc.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                      where n.nspname='public' and p.proname='apply_card_coding')
+      then 'MISSING — apply_card_coding() absent; the coding page cannot save'
+    -- SECURITY DEFINER here would bypass card_transactions_write entirely,
+    -- including its refusal to touch a posted batch.
+    when (select p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname='public' and p.proname='apply_card_coding')
+      then 'MISSING — apply_card_coding() is SECURITY DEFINER; it must run as the caller so RLS still applies'
+    else 'ok'
+  end as apply_card_coding;

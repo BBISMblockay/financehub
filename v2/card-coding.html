@@ -1534,18 +1534,16 @@
       setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
       return;
     }
+
     el('btnSaveCoding').disabled = true;
     try {
+      // Only the coding fields. This goes through apply_card_coding, which does
+      // a real UPDATE -- an upsert would send INSERT .. ON CONFLICT and so
+      // propose a COMPLETE row, which is what made saving fail twice: once on
+      // the RLS check (company_entity_id absent) and once on NOT NULL (amount
+      // absent). Nothing here needs the row's identity beyond its id.
       const rows = state.txns.filter((t) => state.dirty.has(t.id)).map((t) => ({
         id: t.id,
-        // These two are the row's identity, not editable fields, and they are
-        // here because this is an UPSERT: PostgREST sends INSERT .. ON CONFLICT,
-        // so the policy's WITH CHECK is evaluated against the proposed row even
-        // when the row already exists. Omitting company_entity_id proposes NULL
-        // for it, `NULL = active_company_id()` is NULL rather than true, and
-        // every save fails with "new row violates row-level security policy".
-        company_entity_id: t.company_entity_id || _co?.id || null,
-        batch_id: t.batch_id,
         qbo_account_id: t.qbo_account_id,
         qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id,
@@ -1561,14 +1559,32 @@
         rule_id: t.rule_id,
         status: t.status,
         exclude_reason: t.exclude_reason,
-        updated_at: new Date().toISOString(),
       }));
-      for (let i = 0; i < rows.length; i += 200) {
-        const { error } = await sb.from('card_transactions').upsert(rows.slice(i, i + 200));
+
+      let saved = 0;
+      for (let i = 0; i < rows.length; i += 400) {
+        const { data, error } = await sb.rpc('apply_card_coding', {
+          p_rows: rows.slice(i, i + 400),
+        });
         if (error) throw new Error(error.message);
+        saved += Number(data || 0);
       }
+
+      // RLS silently drops rows the caller may not write -- a posted batch, or
+      // another company's. Saying "saved 400" when 12 never landed would be
+      // the worst possible outcome here, so the count is compared.
+      if (saved < rows.length) {
+        setStatus(
+          `Saved ${saved} of ${rows.length} rows. ${rows.length - saved} could not be written — `
+          + 'the batch may already be posted. Reload to see what actually saved.', 'neg', 12000);
+        await loadTxns(state.batch.id);
+        renderCoding();
+        renderEntry();
+        return;
+      }
+
       state.dirty.clear();
-      setStatus(`Saved ${rows.length} row${rows.length === 1 ? '' : 's'}.`, 'pos', 4000);
+      setStatus(`Saved ${saved} row${saved === 1 ? '' : 's'}.`, 'pos', 4000);
       await loadBatches();
       renderBatches();
     } catch (e) {
