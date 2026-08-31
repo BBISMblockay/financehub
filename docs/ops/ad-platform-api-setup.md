@@ -176,6 +176,35 @@ upsert; the trailing-window upsert deliberately omits the column so it cannot bl
 days an earlier run already stamped. Older days stay null — a follower count cannot be
 honestly backfilled.
 
+## Sync scheduling: full Pacific days, present before the morning check-in
+
+The requirement is "yesterday is complete when someone opens a report at 8am PT". That is a
+CONDITION, not a clock, and tying it to a cron is what kept breaking. Three things enforce it:
+
+**1. The sync's day boundary is PACIFIC, not UTC.** `isoDateOnly()` is UTC, so between 5pm and
+midnight Pacific (00:00-07:00 UTC the next day) a UTC "today" is already tomorrow, and the
+window would treat the still-running Pacific day as finished. `computeWindow()` uses
+`pacificDateOnly()` for `endDate`, and the `[startDate, endDate)` clamp then makes the newest
+day written always Pacific YESTERDAY -- complete no matter what hour the run fires. This is
+what makes a late or extra run harmless instead of corrupting. On 2026-08-30 the UTC version
+wrote the 30th as closed at 6:15pm Pacific, six hours early, and nothing corrected it until
+the next morning.
+
+**2. Hourly light refreshes, because GitHub delivers crons late.** Since 2026-08-27 scheduled
+runs have arrived FOUR TO ELEVEN HOURS behind (verified via the Actions API: every one was
+`event: schedule`, not manual). Two fires a day cannot survive that; twenty-four can. The
+hourly crons are deliberately the cheap path -- Shopify does sales + inventory only, ads use a
+3-day window with `ADS_SKIP_ORGANIC` -- because the full paths are 45-75 min and ~30+ Meta
+requests respectively, and Meta already rate-limits this account. The nightly full runs are
+unchanged and still do catalog, organic and the 30-day window.
+
+**3. The freshness check detects a PARTIAL day, not just a missing one.** Being present is not
+being complete. A day only counts as complete once its newest `synced_at` is after that
+Pacific day ended; anything earlier is reported `PARTIAL` and healed like any other staleness.
+Without this, 08-30 passed the check twice while missing six hours of sales and ~$19k of Meta
+spend -- `day_date` 08-30 existed and lag was 1, so everything read healthy. A check at 14:00
+UTC (7am PT) is the last look before the morning check-in.
+
 ## TikTok Ads
 
 1. **business-api.tiktok.com** (TikTok for Business developer portal) → Become a developer → Create app.

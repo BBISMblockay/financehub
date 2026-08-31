@@ -34,10 +34,34 @@ export const GOOGLE_ADS_API_VERSION = 'v24';
 export const META_API_VERSION = 'v25.0';
 export const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3';
 
+/** The business day is PACIFIC, not UTC, and the difference is not cosmetic.
+ * isoDateOnly() is UTC, so between 5pm and midnight Pacific (00:00-07:00 UTC
+ * the next day) a UTC "today" is already tomorrow -- and the window would then
+ * treat the still-running Pacific day as a finished past day and write it as
+ * complete. That is exactly how 2026-08-30 was recorded: a self-heal run at
+ * 01:1x UTC on 08-31 (6:1x pm Pacific on the 30th) wrote the 30th as closed
+ * with six hours of selling still to go, and nothing corrected it until the
+ * next morning.
+ *
+ * check-sales-freshness.mjs already reasons in Pacific and says so in its own
+ * comments; this is the sync finally agreeing with the alarm about what day it
+ * is. With the [startDate, endDate) clamp in fetchFacebookPageInsights, an
+ * endDate of Pacific-today means the newest day written is always Pacific
+ * YESTERDAY -- a genuinely complete day -- no matter what hour the run fires.
+ * That is what makes a late or extra cron harmless instead of corrupting. */
+export function pacificDateOnly(d = new Date()) {
+  // en-CA formats as YYYY-MM-DD, which is the shape every day_date uses.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
 export function computeWindow(now, daysBack) {
+  const endDate = pacificDateOnly(new Date(now));
   return {
-    startDate: isoDateOnly(addDays(new Date(now), -Number(daysBack || 30))),
-    endDate: isoDateOnly(new Date(now)),
+    startDate: isoDateOnly(addDays(new Date(`${endDate}T00:00:00Z`), -Number(daysBack || 30))),
+    endDate,
   };
 }
 

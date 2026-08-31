@@ -203,3 +203,32 @@ Window size: **30 days** per chunk (tunable via `chunk_days` in edge request). 7
 - Show `sync_jobs` history inline on Integrations
 - `entities.meta.integrations.shopify` company-level flag
 - Baseballism online-only cutover from Sheets
+
+## The freshness invariant: yesterday is always complete, today may be partial
+
+That is the contract, stated deliberately in Pacific terms. Today being partial is fine and
+expected; YESTERDAY being partial is a bug, because it is what every morning report reads.
+
+Three things hold it up, and the first is the one that was missing:
+
+**`runIncrementalSales` always rebuilds Pacific yesterday and today.** Which dates got rebuilt
+used to be driven entirely by which orders came back as touched since the watermark. That is a
+decent optimisation and a bad guarantee: once the watermark has advanced past an order, its
+day is never recomputed and silently keeps whatever partial totals it had when last built. On
+2026-08-31 that left 08-30 at $14,990 online against Shopify's own $18,245, and that day's
+orders at essentially zero, across several successive SUCCESSFUL syncs -- nothing errored, the
+job log was clean, and the number was simply wrong. Both days are now forced into the rebuild
+set on every run, so yesterday converges to complete on the first run after Pacific midnight
+and stays there.
+
+**Day boundaries are Pacific, not UTC.** `isoDateOnly()` is UTC; use `pacificDateOnly()` for
+anything deciding what "today" or "yesterday" is. Between 5pm and midnight Pacific the two
+disagree, and a UTC "today" is already tomorrow -- which is how a run at 6:15pm Pacific came to
+write that day as closed.
+
+**The freshness check tests completeness, not presence.** A day counts as complete only once
+its newest `synced_at` lands after that Pacific day ended. Present-but-partial reads healthy on
+a `day_date`-only check, which is exactly how 08-30 passed twice while short six hours of sales.
+
+The practical rule when touching any of this: **a day is a Pacific day, and a day is only done
+when it was captured after it ended.**

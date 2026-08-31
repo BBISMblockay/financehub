@@ -76,6 +76,22 @@ export function isoDateOnly(d) {
   return d.toISOString().slice(0, 10);
 }
 
+/** The business day is PACIFIC. isoDateOnly() is UTC, and between 5pm and
+ * midnight Pacific those two disagree about what day it is -- which is why
+ * anything deciding "yesterday" must not use isoDateOnly(). */
+export function pacificDateOnly(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+export function shiftIsoDay(iso, days) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function addDays(date, days) {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + days);
@@ -1647,9 +1663,29 @@ export async function runIncrementalSales(supabase, connection, {
     newestUpdatedStamp = maxIso(newestUpdatedStamp, order.updated_at || order.created_at);
   }
 
-  const affectedDates = [...new Set(
-    touched.map((o) => (o.created_at || '').slice(0, 10)).filter(Boolean),
-  )].sort();
+  // Which dates get rebuilt was driven ENTIRELY by which orders came back as
+  // touched since the watermark. That is a decent optimisation and a bad
+  // guarantee: if the watermark has already advanced past an order, its day is
+  // never recomputed, and the day silently keeps whatever partial totals it had
+  // when it was last built. On 2026-08-31 that left 08-30 at $14,990 online
+  // against Shopify's own $18,245, and today at essentially zero orders,
+  // through several successive successful syncs.
+  //
+  // The invariant we actually want is simple: YESTERDAY (Pacific) is always
+  // complete; today is allowed to be partial. So force both days into the
+  // rebuild set on every run, regardless of the watermark. Each is then
+  // re-fetched from Shopify in full and its rows replaced, so yesterday
+  // converges to complete on the first run after Pacific midnight and stays
+  // there. Today is included too -- not because it must be complete, but
+  // because rebuilding it is what keeps it moving, and it costs one extra day
+  // of an order fetch this loop was already doing.
+  const pacToday = pacificDateOnly();
+  const pacYesterday = shiftIsoDay(pacToday, -1);
+  const affectedDates = [...new Set([
+    ...touched.map((o) => (o.created_at || '').slice(0, 10)).filter(Boolean),
+    pacYesterday,
+    pacToday,
+  ])].sort();
 
   let rowsUpserted = 0;
   let daysRebuilt = 0;
