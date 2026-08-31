@@ -50,6 +50,7 @@ function systemPrompt(
   locations: string[],
   examples: { merchant: string; account: string; location: string | null }[],
   sourceName: string,
+  relatedEntities: string[],
 ) {
   const acctList = accounts
     .map((a) => `- ${a.name} [${a.type}${a.sub ? ` / ${a.sub}` : ''}]`)
@@ -68,16 +69,12 @@ function systemPrompt(
 
 Return, for each line you are given, the account it should be expensed to.
 
-# The single most important judgement you make
-A CARD NAME is one of two very different things, and telling them apart matters more than any account choice:
+# Related entities -- the ONLY names that mean "not this company's expense"
+${relatedEntities.length ? relatedEntities.map((e) => `- ${e}`).join('\n') : '(none on file)'}
 
-  (a) a SPEND CATEGORY belonging to this company -- "Software", "Supplies - HQ", "Lease & Rent", "COLAB". Code the line normally.
+These are separate businesses this company carries an intercompany balance with. If a CARD NAME clearly refers to one of them, the charge is NOT this company's expense -- it is money that entity owes, and it belongs on an intercompany account that is deliberately NOT in the account list below. For those lines return account_name: null and name the entity in reasoning. A Comcast bill on Jackie's card is not this company's utilities; coding it that way is plausible, silent, and wrong.
 
-  (b) a RELATED ENTITY or one of its venues -- a person's name, a bar, a restaurant, a property: "Jackies PDX", "Sugar Hill", "La Palma", "QDs Bar", "Left Field Real Estate". These charges are NOT this company's expenses. They are money that entity owes, and they belong on an intercompany receivable that is NOT in the account list you were given.
-
-For (b) you MUST return account_name: null and say in reasoning which entity it looks like and that it needs intercompany coding. Do not reach for the nearest expense account. A Comcast bill on Jackie's card is not this company's utilities -- coding it that way is plausible, silent, and wrong, and it moves another entity's cost onto these books.
-
-When you cannot tell which of (a) or (b) a card name is, treat it as (b) and say so. A row left for a person costs a minute. A row coded to the wrong entity costs a restatement.
+Every OTHER card name is this company's own -- a spend category ("VIRTUAL ACCT SHIPPING", "Software", "Lease & Rent") or an employee whose card it is ("JONATHAN LOOMIS"). An employee name is NOT a related entity: code those lines normally from the merchant, and use the card name as the hint it is. Only the names listed above mean decline.
 
 Each line is a merchant, optionally paired with a CARD NAME. The card name is the internal card the charge was made on, and this company uses it as a cost centre -- values look like "Software", "Supplies - HQ", "Lease & Rent", "COLAB", or a person's name where the card is theirs personally. Where a card name is present it is strong evidence, and for some merchants it is BETTER evidence than the merchant: a payment processor like Bill.com, Melio or PayPal tells you nothing on its own, but the same charge on a "Lease & Rent" card is rent. The same merchant may appear twice with different card names and should then get different accounts.
 
@@ -111,6 +108,7 @@ async function askModel(
   locations: string[],
   examples: { merchant: string; account: string; location: string | null }[],
   sourceName: string,
+  relatedEntities: string[],
 ): Promise<Suggestion[]> {
   const userMsg = merchants
     .map((m) =>
@@ -129,7 +127,7 @@ async function askModel(
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 8000,
-      system: systemPrompt(accounts, locations, examples, sourceName),
+      system: systemPrompt(accounts, locations, examples, sourceName, relatedEntities),
       messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
     }),
   });
@@ -228,6 +226,39 @@ Deno.serve(async (req) => {
     return json({ error: 'No QuickBooks accounts pulled yet — run Pull accounts in Integrations.' }, 400);
   }
 
+  // The intercompany accounts ARE the list of related entities -- there is no
+  // separate register of them, and asking the model to recognise "a name that
+  // looks like a business rather than an employee" was exactly the guess that
+  // made it decline 76 rows on a card belonging to a member of staff.
+  const { data: intercoRows } = await supabase
+    .from('quickbooks_accounts')
+    .select('name, account_type')
+    .eq('company_entity_id', companyId)
+    .eq('is_active', true)
+    .in('account_type', ['Accounts Receivable', 'Accounts Payable']);
+
+  // The card feeds themselves settle to AP accounts ('Brex Account', 'Divvy
+  // Account', 'Parker'), which are emphatically NOT related entities -- listing
+  // them would invite the model to decline a card's own rows.
+  const { data: cardAccts } = await supabase
+    .from('card_sources')
+    .select('credit_qbo_account_name')
+    .eq('company_entity_id', companyId);
+  const cardAccountNames = new Set((cardAccts || [])
+    .map((c: any) => String(c.credit_qbo_account_name || '').toLowerCase().trim())
+    .filter(Boolean));
+
+  const relatedEntities = [...new Set((intercoRows || [])
+    .filter((a: any) => !cardAccountNames.has(String(a.name || '').toLowerCase().trim()))
+    .map((a: any) => String(a.name || '')
+      .replace(/\s*(receivable|payable)s?\s*$/i, '')
+      .replace(/^due\s+(from|to)\s+/i, '')
+      .trim())
+    // 'Accounts Receivable' and 'Accounts Payable' reduce to 'Accounts', which
+    // is not an entity and would make the model decline half the file.
+    .filter((n: string) => n && !/^accounts?$/i.test(n) && n.length > 2))]
+    .sort();
+
   const { data: locationRows } = await supabase
     .from('quickbooks_locations')
     .select('name, fully_qualified_name')
@@ -257,56 +288,38 @@ Deno.serve(async (req) => {
   const out: Suggestion[] = [];
   const errors: string[] = [];
 
+  const slices: Merchant[][] = [];
   for (let i = 0; i < merchants.length; i += BATCH_SIZE) {
-    const slice = merchants.slice(i, i + BATCH_SIZE);
-    try {
-      const suggestions = await askModel(slice, accounts, locations, examples, sourceName);
-      // Answers are matched back on the merchant AND card pair, since the same
-      // merchant can legitimately appear twice with different cards.
-      const key = (merchant: unknown, card: unknown) =>
-        `${String(merchant ?? '')}||${card == null ? '' : String(card)}`;
-      const byMerchant = new Map(suggestions.map((s) => [key(s.merchant, s.card_name), s]));
+    slices.push(merchants.slice(i, i + BATCH_SIZE));
+  }
 
-      for (const m of slice) {
-        const s = byMerchant.get(key(m.merchant, m.card_name));
-        if (!s) {
-          // Asked about but not answered. Recorded as unanswered rather than
-          // dropped, so it surfaces for a human instead of vanishing.
-          out.push({
-            merchant: m.merchant,
-            card_name: m.card_name ?? null,
-            account_name: null,
-            location_name: null,
-            vendor_name: null,
-            confidence: 0,
-            reasoning: 'The model did not return a suggestion for this line.',
-          });
-          continue;
-        }
+  // CONCURRENT, not sequential. Each call takes ~65s, and Supabase's gateway
+  // kills the request at 150s -- so two batches ran to 144s and a third would
+  // have been killed outright, returning nothing and looking like the model
+  // simply had no answers. Capped at 4 in flight to stay clear of the API's
+  // own rate limits.
+  const LIMIT = 4;
+  const results: (Suggestion[] | Error)[] = new Array(slices.length);
+  let next = 0;
 
-        // A hallucinated account name would post real money to an account that
-        // does not exist, or fail at post time with an opaque QuickBooks error.
-        // Either way it is not a suggestion, so it is dropped to "no account"
-        // and says why.
-        const acct = s.account_name && validAccounts.has(s.account_name) ? s.account_name : null;
-        const invented = !!s.account_name && !acct;
-        const loc = s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
-
-        out.push({
-          merchant: m.merchant,
-          card_name: m.card_name ?? null,
-          account_name: acct,
-          location_name: loc,
-          vendor_name: s.vendor_name || null,
-          confidence: invented ? 0 : Math.max(0, Math.min(1, Number(s.confidence) || 0)),
-          reasoning: invented
-            ? `Suggested "${s.account_name}", which is not in the chart of accounts — needs coding by hand.`
-            : String(s.reasoning || '').slice(0, 400),
-        });
+  await Promise.all(Array.from({ length: Math.min(LIMIT, slices.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= slices.length) return;
+      try {
+        results[i] = await askModel(
+          slices[i], accounts, locations, examples, sourceName, relatedEntities);
+      } catch (e) {
+        results[i] = e instanceof Error ? e : new Error(String(e));
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      errors.push(msg);
+    }
+  }));
+
+  slices.forEach((slice, i) => {
+    const result = results[i];
+
+    if (result instanceof Error) {
+      errors.push(result.message);
       for (const m of slice) {
         out.push({
           merchant: m.merchant,
@@ -315,16 +328,57 @@ Deno.serve(async (req) => {
           location_name: null,
           vendor_name: null,
           confidence: 0,
-          reasoning: `Categorisation failed: ${msg.slice(0, 160)}`,
+          reasoning: `Categorisation failed: ${result.message.slice(0, 160)}`,
         });
       }
+      return;
     }
-  }
+
+    // Answers are matched back on the merchant AND card pair, since the same
+    // merchant can legitimately appear twice with different cards.
+    const key = (merchant: unknown, card: unknown) =>
+      `${String(merchant ?? '')}||${card == null ? '' : String(card)}`;
+    const byMerchant = new Map((result || []).map((s) => [key(s.merchant, s.card_name), s]));
+
+    for (const m of slice) {
+      const s = byMerchant.get(key(m.merchant, m.card_name));
+      if (!s) {
+        out.push({
+          merchant: m.merchant,
+          card_name: m.card_name ?? null,
+          account_name: null,
+          location_name: null,
+          vendor_name: null,
+          confidence: 0,
+          reasoning: 'The model did not return a suggestion for this line.',
+        });
+        continue;
+      }
+
+      const acct = s.account_name && validAccounts.has(s.account_name) ? s.account_name : null;
+      const invented = !!s.account_name && !acct;
+      const loc = s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
+
+      out.push({
+        merchant: m.merchant,
+        card_name: m.card_name ?? null,
+        account_name: acct,
+        location_name: loc,
+        vendor_name: s.vendor_name || null,
+        confidence: invented ? 0 : Math.max(0, Math.min(1, Number(s.confidence) || 0)),
+        reasoning: invented
+          ? `Suggested "${s.account_name}", which is not in the chart of accounts — needs coding by hand.`
+          : String(s.reasoning || '').slice(0, 400),
+      });
+    }
+  });
 
   return json({
     ok: true,
     suggestions: out,
     merchants_asked: merchants.length,
+    batches: slices.length,
+    related_entities: relatedEntities.length,
     model: MODEL,
     errors: errors.length ? errors : undefined,
   });
