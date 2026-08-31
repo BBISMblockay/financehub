@@ -380,6 +380,12 @@
         sb.from('facebook_page_insights_daily')
           .select('day_date,page_impressions,page_reach,page_post_engagements,page_fan_count')
           .gte('day_date', sinceIso())
+          // Upper bound as well as lower. Without it this query had no ceiling
+          // at all, so when a sync bug left 87 zero-filled FUTURE rows in the
+          // table the card loaded 117 rows instead of 30 and reported an
+          // average of 4,018/day against a true 15,535 -- and because those
+          // rows held 0 rather than null, no null-check could hide them.
+          .lte('day_date', new Date().toISOString().slice(0,10))
           .order('day_date', { ascending:false })));
     } catch(e){ console.warn('facebook_page_insights_daily unavailable', e); return []; }
   }

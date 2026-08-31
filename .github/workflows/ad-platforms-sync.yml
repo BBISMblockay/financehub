@@ -38,6 +38,16 @@ on:
     # unsynced. The sync is an idempotent upsert on a trailing window, so a
     # second run when the first succeeded is close to free.
     - cron: "30 16 * * *"
+    # Hourly light refresh -- same reasoning as shopify-sync.yml: survive
+    # GitHub delivering crons hours late, rather than needing hourly numbers.
+    #
+    # Cheap on purpose, because Meta rate limits are real on this account
+    # ("Application request limit reached", code 4, hit repeatedly in 2026-08).
+    # A 3-day window instead of 30 turns the day-by-day ad-level pull from ~30
+    # requests into 3, and ADS_SKIP_ORGANIC drops the Instagram walk, which is
+    # one request PER POST and by far the most expensive part. Restatements
+    # beyond 3 days are still picked up by the full nightly runs below.
+    - cron: "0 * * * *"
 
 jobs:
   ad-platforms-sync:
@@ -57,7 +67,8 @@ jobs:
       ADS_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
       ADS_ONLY_PLATFORM: ${{ github.event.inputs.platform || '' }}
       ADS_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
-      ADS_DAYS_BACK: ${{ github.event.inputs.days_back || '' }}
+      ADS_DAYS_BACK: ${{ github.event.inputs.days_back || (github.event.schedule == '0 * * * *' && '3') || '' }}
+      ADS_SKIP_ORGANIC: ${{ (github.event.schedule == '0 * * * *' && 'true') || 'false' }}
       ADS_IG_POST_LIMIT: ${{ github.event.inputs.ig_post_limit || '' }}
 
     steps:
