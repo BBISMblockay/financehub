@@ -315,6 +315,7 @@
               <button class="bcn-btn" id="btnEntryCsv">Download CSV</button>
               <button class="bcn-btn" id="btnApprove">Approve</button>
               <button class="bcn-btn bcn-btn--dark" id="btnPost" disabled>Post to QuickBooks</button>
+              <button class="bcn-btn bcn-btn--danger" id="btnVoid" hidden>Mark unposted</button>
               <span class="cc-note" id="entryStatus"></span>
             </div>
           </div>
@@ -1910,12 +1911,14 @@
 
     const posted = state.batch.status === 'posted';
     const approved = state.batch.status === 'approved';
+    el('btnVoid').hidden = !posted;
     el('btnApprove').disabled = posted || blockers.length > 0;
     el('btnPost').disabled = posted || !approved || blockers.length > 0
       || !e.src?.posting_enabled;
 
     el('entryStatus').textContent = posted
-      ? `Posted as JE ${state.batch.qbo_doc_number || state.batch.qbo_journal_entry_id || ''}`
+      ? `Posted as JE ${state.batch.qbo_doc_number || state.batch.qbo_journal_entry_id || ''}.`
+        + ' If it was deleted in QuickBooks, mark it unposted so it can be posted again.'
       : blockers.length ? `Blocked: ${blockers.join('; ')}.`
       : !approved ? 'Ready to approve.'
       : !e.src?.posting_enabled ? 'Approved. Posting is off for this card — turn it on in the Cards tab.'
@@ -1970,6 +1973,42 @@
     renderBatches();
     renderEntry();
     setStatus('Approved.', 'pos', 4000);
+  });
+
+  // Deleting an entry in QuickBooks is ordinary. Until this existed, doing so
+  // left SILO claiming a batch was posted to an entry that no longer existed --
+  // and the double-post guard then refused to ever post that batch again.
+  el('btnVoid').addEventListener('click', async () => {
+    if (!state.batch) return;
+    const je = state.batch.qbo_doc_number || state.batch.qbo_journal_entry_id || 'the entry';
+
+    const reason = prompt(
+      `Mark this batch unposted?\n\n`
+      + `This does NOT delete anything in QuickBooks. Delete ${je} there first, `
+      + `or you will post it twice.\n\n`
+      + `SILO will return the batch to Approved so it can be posted again.\n\n`
+      + `Why?`, '');
+    if (reason === null) return;
+    if (!reason.trim()) return setStatus('A reason is required to void a posting.', 'neg', 5000);
+
+    el('btnVoid').disabled = true;
+    try {
+      const { data, error } = await sb.rpc('void_card_posting', {
+        p_batch_id: state.batch.id, p_reason: reason.trim(),
+      });
+      if (error) throw new Error(error.message);
+      await loadBatches();
+      state.batch = state.batches.find((b) => b.id === state.batch.id);
+      renderBatches();
+      renderEntry();
+      setStatus(
+        `Marked unposted. Journal entry ${data?.qbo_journal_entry_id || ''} must be deleted in `
+        + 'QuickBooks if it still exists there.', 'pos', 12000);
+    } catch (e) {
+      setStatus(`Could not void — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('btnVoid').disabled = false;
+    }
   });
 
   el('btnPost').addEventListener('click', async () => {
