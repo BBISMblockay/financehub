@@ -1655,3 +1655,22 @@ select
       then 'MISSING — apply_card_coding() is SECURITY DEFINER; it must run as the caller so RLS still applies'
     else 'ok'
   end as apply_card_coding;
+
+-- ---------------------------------------------------------------------------
+-- Voiding a posted card batch (20260831220000_void_card_posting.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                      where n.nspname='public' and p.proname='void_card_posting')
+      then 'MISSING — void_card_posting() absent; an entry deleted in QuickBooks leaves the batch '
+        || 'permanently unpostable, because the double-post index only releases on a non-posted row'
+    -- quickbooks_journal_postings must stay closed to client writes: this
+    -- function is the only sanctioned way in, and it can only void.
+    when exists (select 1 from pg_policies
+                  where schemaname='public' and tablename='quickbooks_journal_postings'
+                    and cmd in ('ALL','UPDATE','INSERT','DELETE'))
+      then 'MISSING — quickbooks_journal_postings has a client write policy; what SILO believes it '
+        || 'sent to Intuit must not be rewritable from a browser'
+    else 'ok'
+  end as void_card_posting;
