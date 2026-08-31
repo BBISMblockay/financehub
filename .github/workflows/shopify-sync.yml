@@ -80,18 +80,26 @@ on:
     # and the expensive optional stages are skipped for it (see the env
     # block below, which keys off github.event.schedule).
     - cron: "30 14 * * *"
-    # Hourly light refresh. GitHub's scheduled triggers are best-effort and
-    # since 2026-08-27 have been arriving FOUR TO ELEVEN HOURS late -- every
+    # Light refresh every 2 hours. GitHub's scheduled triggers are best-effort
+    # and since 2026-08-27 have been arriving FOUR TO ELEVEN HOURS late -- every
     # run in that stretch was event:schedule, not manual, so the crons fired,
-    # just not when asked. Two fires a day cannot survive that; twenty-four
-    # can, because several land before anyone checks in even if each is hours
-    # off. This is about SURVIVING delay, not about needing hourly resolution.
+    # just not when asked. Two fires a day cannot survive that; twelve can,
+    # because several land before anyone checks in even if each is hours off.
+    # This is about SURVIVING delay, not about needing hourly resolution.
     #
-    # It is deliberately the cheap path (see the env block): sales + inventory
-    # only, no catalog paging and no per-day ShopifyQL loops. incremental_sales
-    # runs in well under a minute; the full nightly takes 45-75, which is why
-    # running THAT hourly would overlap continuously and is not what this does.
-    - cron: "0 * * * *"
+    # Was hourly for a few hours on 2026-08-31 and moved to 2h once the real
+    # cost was measured: GitHub bills workflow WALL CLOCK, and a light run is
+    # ~28 min, not the ~9 min the sync_jobs durations suggested (npm install,
+    # checkout, and per-connection setup are untimed). Hourly projected to
+    # ~28,000 min/month. Every 2 hours still closes yesterday within 2 hours of
+    # Pacific midnight -- done by 2am PT, well before anyone reads it.
+    #
+    # It is deliberately the cheap path (see the env block): SALES only -- no
+    # inventory snapshot, no catalog paging, no per-day ShopifyQL loops. Sales
+    # is the only thing that needs sub-daily freshness, because it is the only
+    # thing that makes "yesterday is complete" true. The full nightly takes
+    # 45-75 minutes and still does everything.
+    - cron: "0 */2 * * *"
 
 # NO concurrency group here, deliberately. One was added 2026-08-27 to stop
 # the two crons racing each other's watermarks, and it was removed the same
@@ -117,19 +125,28 @@ jobs:
       SHOPIFY_SYNC_MODE: ${{ github.event.inputs.sync_mode || 'incremental' }}
       SHOPIFY_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
       SHOPIFY_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
-      SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || 'false' }}
+      # Skipped on the light refresh. Inventory snapshots are APPEND-ONLY: each
+      # run writes a full ~18k-row snapshot into inventory_on_hand, a table that
+      # took months to reach 3.49M rows / 5.2GB. Running it hourly added 90,916
+      # rows in five hours on 2026-08-31 -- ~12% table growth per day, doubling
+      # in about eight days -- and inventory_on_hand_current_mv has to scan that
+      # table on every refresh, so the bloat would have made the nightly refresh
+      # progressively slower until it broke. Twenty-four near-identical
+      # snapshots of the same stock levels have no analytical value either. The
+      # nightly and the 14:30 catch-up still snapshot as before.
+      SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || (github.event.schedule == '0 */2 * * *' && 'true') || 'false' }}
       SHOPIFY_SKIP_SALES: ${{ github.event.inputs.skip_sales || 'false' }}
       # Skipped on the 14:30 catch-up AND the hourly refresh: those runs exist
       # to keep SALES fresh, and these stages are the slow ones (catalog
       # paging, one ShopifyQL query PER DAY for landing pages and discount
       # codes) -- they are what makes a full run 45-75 minutes rather than one.
       # The 08:30 nightly still does them in full.
-      SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 * * * *') && 'true') || 'false' }}
-      SHOPIFY_SKIP_SESSIONS: ${{ github.event.inputs.skip_sessions || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 * * * *') && 'true') || 'false' }}
+      SHOPIFY_SKIP_CATALOG: ${{ github.event.inputs.skip_catalog || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
+      SHOPIFY_SKIP_SESSIONS: ${{ github.event.inputs.skip_sessions || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
       SHOPIFY_SESSIONS_DAYS: ${{ github.event.inputs.sessions_days || '' }}
-      SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 * * * *') && 'true') || 'false' }}
+      SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
       SHOPIFY_LANDING_PAGES_DAYS: ${{ github.event.inputs.landing_pages_days || '' }}
-      SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 * * * *') && 'true') || 'false' }}
+      SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
       SHOPIFY_DISCOUNT_CODES_DAYS: ${{ github.event.inputs.discount_codes_days || '' }}
       SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
@@ -177,7 +194,7 @@ jobs:
         # tied out, and doing this 24x a day instead of twice is Supabase
         # compute spent for no gain -- inventory cadence is unchanged from
         # before the hourly cron existed.
-        if: ${{ !cancelled() && github.event.schedule != '0 * * * *' }}
+        if: ${{ !cancelled() && github.event.schedule != '0 */2 * * *' }}
         run: |
           node -e "
           import('@supabase/supabase-js').then(({ createClient }) => {
@@ -200,7 +217,7 @@ jobs:
         # SKIPPED on the hourly refresh: this is a nightly BRIEFING and each run
         # spends an Anthropic call writing the narrative. Regenerating it every
         # hour would be 24 calls a day to restate the same day's findings.
-        if: ${{ !cancelled() && github.event.schedule != '0 * * * *' }}
+        if: ${{ !cancelled() && github.event.schedule != '0 */2 * * *' }}
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
