@@ -527,7 +527,6 @@
             <div class="ax-map-grid" id="mapGrid"></div>
             <div class="ax-map-actions">
               <button class="bcn-btn bcn-btn--primary" id="btnSaveMap">Save mapping</button>
-              <button class="bcn-btn" id="btnRecommendedMap">Apply recommended names</button>
             </div>
             <div class="ax-hint">
               <b>Accounting note:</b> discounts are contra-revenue, sales tax payable is a liability,
@@ -636,7 +635,6 @@
     btnAutoMatchLocations: document.getElementById('btnAutoMatchLocations'),
     locationHint: document.getElementById('locationHint'),
     btnSaveMap: document.getElementById('btnSaveMap'),
-    btnRecommendedMap: document.getElementById('btnRecommendedMap'),
     btnExportJournal: document.getElementById('btnExportJournal'),
     btnExportRegister: document.getElementById('btnExportRegister'),
     kpiTotal: document.getElementById('kpiTotal'),
@@ -682,17 +680,6 @@
     ['processing_fees',     'Processing fees'],
   ];
 
-  const MAP_DEFAULTS = {
-    revenue_template: 'Retail Revenue - Shopify ({location})',
-    freight: 'Shipping Revenue - Shopify',
-    refunds_template: 'Sales Refunds - Shopify ({location})',
-    discounts: 'Sales Discounts - Shopify',
-    tax_liability: 'Sales Tax Clearing',
-    tax_payable: 'Sales Tax Payable',
-    tax_income_all: 'Sales Tax Income',
-    accounts_receivable: 'Shopify Clearing',
-    processing_fees: 'Shopify Processing Fees',
-  };
 
   // Keys whose account name is per-location ({location} is substituted at
   // journal time), so a single QBO account cannot express them. They stay
@@ -701,7 +688,9 @@
   const TEMPLATE_KEYS = new Set(['revenue_template', 'refunds_template']);
 
   const state = {
-    coa: { ...MAP_DEFAULTS },
+    // map_key -> account name, loaded from accounting_coa_map. No seeded
+    // defaults: an unmapped key must read as unmapped.
+    coa: {},
     // map_key -> QBO Account.Id, the authority for posting once a QuickBooks
     // connection exists. Empty when no connection is set up.
     qboIds: {},
@@ -730,9 +719,38 @@
     }[m]));
   }
 
-  function coa(key, location) {
-    const raw = state.coa[key] || MAP_DEFAULTS[key] || key;
-    return raw.replace('{location}', location || '');
+  // Resolves a journal line's account from the QuickBooks mappings.
+  //
+  // The {location} name template it replaces could not work: the chart of
+  // accounts carries at least three conventions for store revenue ("In Store
+  // Retail Revenue - Shopify (X)", "In Store Retail Sales Revenue - Shopify
+  // (X)", and a parens-misplaced variant), so a single expansion resolved for
+  // only 13 of 21 locations -- about $2.6M of 2026 revenue pointing at account
+  // names that do not exist.
+  //
+  // Per-location revenue and refunds now come from accounting_location_map,
+  // chosen explicitly; every other key comes from accounting_coa_map bound to a
+  // QBO account id.
+  //
+  // An unmapped account returns a VISIBLE marker rather than a plausible
+  // guess. A journal line naming an account that does not exist is caught on
+  // import; one naming the wrong real account is not.
+  function coa(key, bucket) {
+    const tag = typeof bucket === 'string' ? bucket : bucket?.location_tag;
+
+    if (key === 'revenue_template' || key === 'refunds_template') {
+      const acct = state.locationAccounts[tag] || {};
+      const name = key === 'revenue_template' ? acct.revenue_name : acct.refunds_name;
+      const id = key === 'revenue_template' ? acct.revenue_id : acct.refunds_id;
+      const label = key === 'revenue_template' ? 'revenue' : 'refunds';
+      return name
+        ? { name, id: id || null }
+        : { name: `** UNMAPPED ${label}: ${tag || 'no location'} **`, id: null, unmapped: true };
+    }
+
+    return state.coa[key]
+      ? { name: state.coa[key], id: state.qboIds[key] || null }
+      : { name: `** UNMAPPED: ${key} **`, id: null, unmapped: true };
   }
 
   function prettyStore(domain) {
@@ -765,18 +783,23 @@
     // include tax, so it picks up the +taxes term instead.
     const ar = gross - discounts - refunds + shipping + taxes;
 
+    const line = (key, dr, cr) => {
+      const a = coa(key, b);
+      return { account: a.name, qboAccountId: a.id, unmapped: !!a.unmapped, dr, cr };
+    };
+
     return [
-      { account: coa('revenue_template', loc), dr: 0, cr: gross },
+      line('revenue_template', 0, gross),
       // Sales tax pass-through wash: offsets the Sales Tax Expense debit
       // below on the P&L so the tax collected nets to zero as income,
       // not a bare expense. Scoped per location so this card ties out.
-      { account: coa('tax_income_all'), dr: 0, cr: taxes },
-      { account: coa('freight'), dr: 0, cr: shipping },
-      { account: coa('refunds_template', loc), dr: refunds, cr: 0 },
-      { account: coa('discounts'), dr: discounts, cr: 0 },
-      { account: coa('tax_liability'), dr: taxes, cr: 0 },
-      { account: coa('tax_payable'), dr: 0, cr: taxes },
-      { account: coa('accounts_receivable'), dr: ar, cr: 0 },
+      line('tax_income_all', 0, taxes),
+      line('freight', 0, shipping),
+      line('refunds_template', refunds, 0),
+      line('discounts', discounts, 0),
+      line('tax_liability', taxes, 0),
+      line('tax_payable', 0, taxes),
+      line('accounts_receivable', ar, 0),
     ];
   }
 
@@ -808,7 +831,7 @@
         salesDr += Number(l.dr || 0);
         salesCr += Number(l.cr || 0);
       }
-      const clearing = lines.find(l => l.account === coa('accounts_receivable', b.location_name || b.location_tag));
+      const clearing = lines.find(l => l.account === coa('accounts_receivable', b).name);
       clearingTotal += Number(clearing?.dr || 0);
     }
 
@@ -945,10 +968,17 @@
       // A {location} template expands to a different account per location, so
       // one QBO account cannot represent it. Left as free text; posting will
       // resolve it by name (see docs/ops/quickbooks-integration.md).
-      if (!hasQbo || TEMPLATE_KEYS.has(key)) {
-        const note = hasQbo
-          ? `<div class="ax-map-note">Per-location — matched to QuickBooks by name</div>`
-          : '';
+      if (TEMPLATE_KEYS.has(key)) {
+        // Revenue and refunds are chosen per location on the location card,
+        // because the chart of accounts has no single naming convention to
+        // derive them from.
+        return keyCell
+          + '<div class="ax-map-note">Set per location in the QuickBooks location '
+          + 'mapping card below.</div>';
+      }
+
+      if (!hasQbo) {
+        const note = '';
         return keyCell +
           `<div><input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}"
              data-kind="text" value="${esc(state.coa[key] || '')}" />${note}</div>`;
@@ -980,12 +1010,6 @@
     }).join('');
   }
 
-  function applyRecommendedMap() {
-    state.coa = { ...MAP_DEFAULTS };
-    renderMap();
-    render();
-    setStatus('Recommended account names applied — click Save mapping to persist them.', 'info', 6000);
-  }
 
   function csvEscape(v) {
     const s = String(v ?? '');
@@ -1007,17 +1031,26 @@
       return;
     }
 
-    const rows = [['Period', 'Entry', 'Location', 'Account', 'Debit', 'Credit']];
+    const rows = [[
+      'Period', 'Entry', 'Location', 'QBO Location ID',
+      'Account', 'QBO Account ID', 'Debit', 'Credit',
+    ]];
+
+    let unmapped = 0;
 
     for (const b of state.buckets) {
       const loc = b.location_name || b.location_tag;
+      const locId = state.locationMap[b.location_tag] || '';
       for (const l of salesEntryLines(b)) {
         if (!l.dr && !l.cr) continue;
+        if (l.unmapped) unmapped++;
         rows.push([
           state.period,
           'Shopify Sales Summary',
           loc,
+          locId,
           l.account,
+          l.qboAccountId || '',
           l.dr ? Number(l.dr).toFixed(2) : '',
           l.cr ? Number(l.cr).toFixed(2) : '',
         ]);
@@ -1026,11 +1059,27 @@
 
     for (const [domain, v] of feeRowsByStore()) {
       if (!v.fees) continue;
-      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('processing_fees'), Number(v.fees).toFixed(2), '']);
-      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('accounts_receivable'), '', Number(v.fees).toFixed(2)]);
+      const fee = coa('processing_fees');
+      const clr = coa('accounts_receivable');
+      if (fee.unmapped) unmapped++;
+      if (clr.unmapped) unmapped++;
+      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), '',
+        fee.name, fee.id || '', Number(v.fees).toFixed(2), '']);
+      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), '',
+        clr.name, clr.id || '', '', Number(v.fees).toFixed(2)]);
     }
 
     downloadCsv(`silo-journal-${state.period}.csv`, rows);
+
+    // Say it plainly rather than letting someone import a file with
+    // "** UNMAPPED **" sitting in the account column.
+    if (unmapped) {
+      setStatus(`Exported, but ${unmapped} line${unmapped === 1 ? '' : 's'} have no QuickBooks `
+        + 'account mapped and are marked ** UNMAPPED ** in the file. Map them before importing.',
+        'neg', 12000);
+    } else {
+      setStatus('Exported. Every line carries a QuickBooks account id.', 'pos', 5000);
+    }
   }
 
   function exportRegister() {
@@ -1474,7 +1523,7 @@
           // export emits names, and it is the fallback if QBO is disconnected.
           account_name: acct
             ? (acct.fully_qualified_name || acct.name)
-            : (state.coa[key] || MAP_DEFAULTS[key]),
+            : (state.coa[key] || null),
           qbo_account_id: id,
           qbo_account_name: acct ? (acct.fully_qualified_name || acct.name) : null,
           updated_at: new Date().toISOString(),
@@ -1484,29 +1533,53 @@
       return {
         company_entity_id: _co.id,
         map_key: key,
-        account_name: f.value.trim() || MAP_DEFAULTS[key],
+        account_name: f.value.trim() || null,
         qbo_account_id: null,
         qbo_account_name: null,
         updated_at: new Date().toISOString(),
       };
     });
 
-    const { error } = await sb
-      .from('accounting_coa_map')
-      .upsert(rows, { onConflict: 'company_entity_id,map_key' });
+    // account_name is NOT NULL, so a key the user has cleared cannot be written
+    // as an empty row -- it is removed instead, which is what "unmapped" means.
+    const toSave = rows.filter(r => r.account_name);
+    const toClear = rows.filter(r => !r.account_name).map(r => r.map_key);
 
-    if (error) {
-      setStatus(`Save failed: ${error.message}`, 'neg', 6000);
-      return;
+    if (toSave.length) {
+      const { error } = await sb
+        .from('accounting_coa_map')
+        .upsert(toSave, { onConflict: 'company_entity_id,map_key' });
+      if (error) {
+        setStatus(`Save failed: ${error.message}`, 'neg', 6000);
+        return;
+      }
     }
 
-    for (const r of rows) {
+    if (toClear.length) {
+      const { error } = await sb
+        .from('accounting_coa_map')
+        .delete()
+        .eq('company_entity_id', _co.id)
+        .in('map_key', toClear);
+      if (error) {
+        setStatus(`Could not clear mapping: ${error.message}`, 'neg', 6000);
+        return;
+      }
+    }
+
+    for (const r of toSave) {
       state.coa[r.map_key] = r.account_name;
       if (r.qbo_account_id) state.qboIds[r.map_key] = r.qbo_account_id;
       else delete state.qboIds[r.map_key];
     }
+    for (const k of toClear) {
+      delete state.coa[k];
+      delete state.qboIds[k];
+    }
 
-    setStatus('Mapping saved.', 'pos', 2500);
+    setStatus(toClear.length
+      ? `Mapping saved. ${toClear.length} key${toClear.length === 1 ? '' : 's'} left unmapped.`
+      : 'Mapping saved.', 'pos', 4000);
     renderMap();
     render();
   }
@@ -1581,7 +1654,6 @@
   el.btnSaveMap.addEventListener('click', saveCoaMap);
   el.btnSaveLocationMap.addEventListener('click', saveLocationMap);
   el.btnAutoMatchLocations.addEventListener('click', autoMatchLocations);
-  el.btnRecommendedMap.addEventListener('click', applyRecommendedMap);
   el.btnExportJournal.addEventListener('click', exportJournal);
   el.btnExportRegister.addEventListener('click', exportRegister);
 
