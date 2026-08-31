@@ -32,10 +32,15 @@
       border-bottom: 1px solid var(--bcn-border);
     }
 
+    /* The page itself does not scroll. One tab is visible at a time and its
+       table is the only scroll region, so the filter row, the tab bar and the
+       Save button all stay put instead of being 3,000px apart. */
     .ax-page {
       flex: 1;
       min-height: 0;
-      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       background: var(--bcn-bg);
     }
 
@@ -47,47 +52,61 @@
       align-items: flex-end;
       gap: 12px;
       flex-wrap: wrap;
-      position: sticky;
-      top: 62px;
-      z-index: 25;
+      flex: none;
     }
 
-    .ax-status {
-      font-size: 11px;
-      color: var(--bcn-ink-3);
-      font-family: var(--bcn-mono);
-      margin-left: auto;
-      white-space: nowrap;
+    /* .bcn-tab is styled for links; these are buttons. */
+    .ax-tabbar .bcn-tab {
+      background: none;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      font: inherit;
+      cursor: pointer;
     }
+
+    .ax-page > .bcn-status { flex: none; margin: 10px 18px 0; }
 
     .ax-content {
-      padding: 14px 18px 28px;
-      display: grid;
-      grid-template-columns: minmax(0, 1.25fr) minmax(360px, .75fr);
-      gap: 14px;
-      align-items: start;
+      flex: 1;
+      min-height: 0;
+      padding: 14px 18px;
+      display: flex;
     }
 
-    @media(max-width: 1180px) {
-      .ax-content {
-        grid-template-columns: 1fr;
-      }
+    .ax-pane {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
     }
 
-    .ax-wide {
-      grid-column: 1 / -1;
-    }
+    .ax-pane[hidden] { display: none; }
+
+    /* Narrow tables read badly stretched across a wide monitor: three columns
+       spread over 2,000px puts the debit column nowhere near its account. */
+    .ax-pane[data-pane="journal"] .ax-card { max-width: 940px; }
+    .ax-pane[data-pane="fees"] .ax-card { max-width: 1100px; }
+
+    /* Centred rather than left-aligned: on a wide monitor a capped card pinned
+       left leaves a void the eye keeps checking for content. */
+    .ax-pane[data-pane="journal"] .ax-card,
+    .ax-pane[data-pane="fees"] .ax-card { margin-inline: auto; }
 
     .ax-card {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       background: var(--bcn-panel);
       border: 1px solid var(--bcn-border);
       border-radius: 12px;
       box-shadow: var(--ax-shadow);
       overflow: hidden;
-      min-width: 0;
     }
 
     .ax-card-header {
+      flex: none;
       min-height: 42px;
       padding: 10px 12px;
       display: flex;
@@ -117,27 +136,20 @@
       min-width: 0;
     }
 
-    .ax-pad {
-      padding: 12px;
-    }
-
+    /* Grows to whatever height the tab has left, rather than a fixed 470px
+       that left dead space on a tall screen and clipped on a short one. */
     .ax-scroll {
-      max-height: 500px;
-      overflow: auto;
+      flex: 1;
+      min-height: 0;
       min-width: 0;
-    }
-
-    .ax-scroll--journal {
-      max-height: 470px;
-    }
-
-    .ax-scroll--register {
-      max-height: 520px;
-    }
-
-    .ax-table-wrap {
-      width: 100%;
       overflow: auto;
+    }
+
+    .ax-card-foot {
+      flex: none;
+      padding: 10px 12px;
+      border-top: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
     }
 
     .ax-tbl {
@@ -245,23 +257,27 @@
       white-space: nowrap;
     }
 
-    .ax-loc-scroll { overflow-x: auto; }
-
     .ax-loc-table {
       width: 100%;
+      min-width: 980px;
       border-collapse: collapse;
       font-size: 12px;
     }
 
     .ax-loc-table th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: var(--bcn-sunken);
       text-align: left;
       font-family: var(--bcn-mono);
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: .04em;
       color: var(--bcn-ink-3);
-      padding: 0 8px 6px 0;
+      padding: 9px 8px 7px 0;
       white-space: nowrap;
+      border-bottom: 1px solid var(--bcn-border-strong);
     }
 
     .ax-loc-table td {
@@ -269,6 +285,12 @@
       vertical-align: middle;
       border-top: 1px solid var(--bcn-border);
     }
+
+    /* The table is flush to the card edge now that the padded wrapper is gone. */
+    .ax-loc-table th:first-child,
+    .ax-loc-table td:first-child { padding-left: 12px; }
+    .ax-loc-table th:last-child,
+    .ax-loc-table td:last-child { padding-right: 12px; }
 
     .ax-loc-table select { width: 100%; min-width: 190px; font-size: 11px; }
 
@@ -301,21 +323,22 @@
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-      margin-top: 12px;
     }
 
     .ax-hint {
       font-size: 11px;
       color: var(--bcn-ink-3);
-      margin-top: 10px;
+      margin-top: 8px;
       line-height: 1.5;
       background: var(--bcn-sunken);
       border: 1px solid var(--bcn-border);
       border-radius: 10px;
       padding: 10px;
+      max-width: 118ch;
     }
 
     .ax-summary-grid {
+      flex: none;
       display: grid;
       grid-template-columns: repeat(4, minmax(160px, 1fr));
       gap: 10px;
@@ -410,7 +433,7 @@
         <div class="bcn-kpi-value" id="kpiTotal">—</div>
       </div>
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Shopify clearing</div>
+        <div class="bcn-kpi-label">Receivable / clearing</div>
         <div class="bcn-kpi-value" id="kpiAr">—</div>
       </div>
       <div class="bcn-kpi">
@@ -430,44 +453,51 @@
           <input type="month" id="month" class="bcn-field bcn-field--mono" />
         </div>
         <button class="bcn-btn bcn-btn--dark" id="btnRun">Generate</button>
-        <div class="ax-status" id="axStatus">Pick a month and hit Generate.</div>
       </div>
+
+      <nav class="bcn-tabs ax-tabbar" id="axTabs" role="tablist">
+        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="journal">Sales journal</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="fees">Processing fees</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="register">Deposit register</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="mapping">Account mapping</button>
+        <span class="bcn-tabs-meta" id="axPaneMeta"></span>
+      </nav>
 
       <div class="bcn-status" id="status" hidden></div>
 
       <div class="ax-content">
-        <div class="ax-card ax-wide">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Sales journal — by location</div>
-              <div class="ax-card-sub">Summary JE: gross revenue, shipping, refunds, discounts, sales tax, and Shopify clearing</div>
+        <section class="ax-pane" data-pane="journal">
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Sales journal — by location</div>
+                <div class="ax-card-sub">Summary JE: gross revenue, shipping, refunds, discounts, sales tax and the receivable leg</div>
+              </div>
+              <div class="ax-right-actions">
+                <span class="ax-chip" id="journalBalanceChip">Balanced: —</span>
+              </div>
             </div>
-            <div class="ax-right-actions">
-              <span class="ax-chip" id="journalBalanceChip">Balanced: —</span>
-            </div>
-          </div>
 
-          <div class="ax-summary-grid">
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Journal DR</div>
-              <div class="ax-mini-value" id="sumDr">—</div>
+            <div class="ax-summary-grid">
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Journal DR</div>
+                <div class="ax-mini-value" id="sumDr">—</div>
+              </div>
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Journal CR</div>
+                <div class="ax-mini-value" id="sumCr">—</div>
+              </div>
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Difference</div>
+                <div class="ax-mini-value" id="sumDiff">—</div>
+              </div>
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Locations</div>
+                <div class="ax-mini-value" id="sumLocations">—</div>
+              </div>
             </div>
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Journal CR</div>
-              <div class="ax-mini-value" id="sumCr">—</div>
-            </div>
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Difference</div>
-              <div class="ax-mini-value" id="sumDiff">—</div>
-            </div>
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Locations</div>
-              <div class="ax-mini-value" id="sumLocations">—</div>
-            </div>
-          </div>
 
-          <div class="ax-card-body ax-scroll ax-scroll--journal">
-            <div class="ax-table-wrap">
+            <div class="ax-card-body ax-scroll">
               <table class="ax-tbl" id="tblSales">
                 <thead>
                   <tr>
@@ -482,17 +512,17 @@
               </table>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="ax-card">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Processing fees — by store</div>
-              <div class="ax-card-sub">Fee JE clears against Shopify clearing</div>
+        <section class="ax-pane" data-pane="fees" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Processing fees — by store</div>
+                <div class="ax-card-sub">Fee JE clears against the receivable leg</div>
+              </div>
             </div>
-          </div>
-          <div class="ax-card-body ax-scroll">
-            <div class="ax-table-wrap">
+            <div class="ax-card-body ax-scroll">
               <table class="ax-tbl ax-tbl--compact" id="tblFees">
                 <thead>
                   <tr>
@@ -509,38 +539,20 @@
               </table>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="ax-card">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Account mapping</div>
-              <div class="ax-card-sub">Where each journal line posts in QuickBooks</div>
+        <section class="ax-pane" data-pane="register" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Deposit register — bank reconciliation</div>
+                <div class="ax-card-sub">Payout-level detail to tie Shopify deposits to bank activity</div>
+              </div>
+              <div class="ax-right-actions">
+                <span class="ax-chip" id="registerChip">Payouts: —</span>
+              </div>
             </div>
-            <div class="ax-card-sub" id="mapCount"></div>
-          </div>
-          <div class="ax-card-body ax-pad">
-            <div class="ax-loc-scroll"><table class="ax-loc-table" id="mapGrid"></table></div>
-            <div class="ax-map-actions">
-              <button class="bcn-btn bcn-btn--primary" id="btnSaveMap">Save mapping</button>
-              <button class="bcn-btn" id="btnAutoMatchLocations">Auto-match by name</button>
-            </div>
-            <div class="ax-hint" id="locationHint"></div>
-          </div>
-        </div>
-
-        <div class="ax-card ax-wide">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Deposit register — bank reconciliation</div>
-              <div class="ax-card-sub">Payout-level detail to tie Shopify deposits to bank activity</div>
-            </div>
-            <div class="ax-right-actions">
-              <span class="ax-chip" id="registerChip">Payouts: —</span>
-            </div>
-          </div>
-          <div class="ax-card-body ax-scroll ax-scroll--register">
-            <div class="ax-table-wrap">
+            <div class="ax-card-body ax-scroll">
               <table class="ax-tbl" id="tblRegister">
                 <thead>
                   <tr>
@@ -560,7 +572,31 @@
               </table>
             </div>
           </div>
-        </div>
+        </section>
+
+        <section class="ax-pane" data-pane="mapping" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Account mapping</div>
+                <div class="ax-card-sub">Where each journal line posts in QuickBooks</div>
+              </div>
+              <div class="ax-card-sub" id="mapCount"></div>
+            </div>
+            <div class="ax-card-body ax-scroll">
+              <table class="ax-loc-table" id="mapGrid"></table>
+            </div>
+            <!-- Save sits in a pinned foot, not after the last row: with 30-odd
+                 locations it was a scroll away from every edit. -->
+            <div class="ax-card-foot">
+              <div class="ax-map-actions">
+                <button class="bcn-btn bcn-btn--primary" id="btnSaveMap">Save mapping</button>
+                <button class="bcn-btn" id="btnAutoMatchLocations">Auto-match by name</button>
+              </div>
+              <div class="ax-hint" id="locationHint"></div>
+            </div>
+          </div>
+        </section>
 
       </div>
     </div>
@@ -596,7 +632,6 @@
   const el = {
     month: document.getElementById('month'),
     btnRun: document.getElementById('btnRun'),
-    axStatus: document.getElementById('axStatus'),
     subTitle: document.getElementById('subTitle'),
     tblSales: document.querySelector('#tblSales tbody'),
     tblFees: document.querySelector('#tblFees tbody'),
@@ -604,6 +639,8 @@
     mapGrid: document.getElementById('mapGrid'),
     btnAutoMatchLocations: document.getElementById('btnAutoMatchLocations'),
     locationHint: document.getElementById('locationHint'),
+    axTabs: document.getElementById('axTabs'),
+    axPaneMeta: document.getElementById('axPaneMeta'),
     btnSaveMap: document.getElementById('btnSaveMap'),
     mapCount: document.getElementById('mapCount'),
     btnExportJournal: document.getElementById('btnExportJournal'),
@@ -920,7 +957,7 @@
     el.journalBalanceChip.style.color = balanced ? 'var(--ax-green)' : 'var(--ax-red)';
 
     el.registerChip.textContent = `${state.payouts.length} payouts`;
-    el.axStatus.textContent = `${state.buckets.length} locations · ${state.payouts.length} payouts · ${state.period || 'no period'}`;
+    renderPaneMeta();
   }
 
   // The company-wide half of the mapping table: keys that resolve to ONE
@@ -1576,7 +1613,7 @@
     }
 
     const [from, to] = monthRange(val);
-    el.axStatus.textContent = 'Loading…';
+    el.axPaneMeta.textContent = 'Loading…';
     el.btnRun.disabled = true;
 
     try {
@@ -1592,13 +1629,13 @@
 
       if (bucketsRes.error) {
         setStatus(`Sales load failed: ${bucketsRes.error.message}`, 'neg', 8000);
-        el.axStatus.textContent = 'Failed.';
+        el.axPaneMeta.textContent = 'Failed.';
         return;
       }
 
       if (payoutsRes.error) {
         setStatus(`Payouts load failed: ${payoutsRes.error.message}`, 'neg', 8000);
-        el.axStatus.textContent = 'Failed.';
+        el.axPaneMeta.textContent = 'Failed.';
         return;
       }
 
@@ -1622,6 +1659,39 @@
   }
 
   el.btnRun.addEventListener('click', run);
+  // Remembered per tab, not per session: coming back to this page mid-close
+  // should land where you left off, but a fresh browser opens on the journal.
+  const PANE_KEY = 'ax-active-pane';
+
+  function showPane(name) {
+    let matched = false;
+    for (const p of document.querySelectorAll('.ax-pane')) {
+      const on = p.dataset.pane === name;
+      p.hidden = !on;
+      matched = matched || on;
+    }
+    if (!matched) return showPane('journal');
+
+    for (const t of el.axTabs.querySelectorAll('.bcn-tab')) {
+      const on = t.dataset.pane === name;
+      t.classList.toggle('bcn-tab--active', on);
+      t.setAttribute('aria-selected', String(on));
+    }
+    try { sessionStorage.setItem(PANE_KEY, name); } catch { /* private mode */ }
+    renderPaneMeta();
+  }
+
+  function renderPaneMeta() {
+    el.axPaneMeta.textContent = state.period
+      ? `${state.period} · ${state.buckets.length} locations · ${state.payouts.length} payouts`
+      : 'Pick a month and hit Generate.';
+  }
+
+  el.axTabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('.bcn-tab');
+    if (tab) showPane(tab.dataset.pane);
+  });
+
   el.btnSaveMap.addEventListener('click', saveMapping);
   el.btnAutoMatchLocations.addEventListener('click', autoMatchLocations);
   el.btnExportJournal.addEventListener('click', exportJournal);
@@ -1661,6 +1731,9 @@
       loadStoreNames(),
     ]);
     renderMap();
+    let saved = null;
+    try { saved = sessionStorage.getItem(PANE_KEY); } catch { /* private mode */ }
+    showPane(saved || 'journal');
     await run();
   }
 
