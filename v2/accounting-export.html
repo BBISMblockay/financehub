@@ -245,27 +245,6 @@
       white-space: nowrap;
     }
 
-    .ax-map-grid {
-      display: grid;
-      grid-template-columns: minmax(165px, 230px) minmax(260px, 1fr);
-      gap: 8px 12px;
-      align-items: center;
-      padding: 2px 0;
-    }
-
-    @media(max-width: 720px) {
-      .ax-map-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .ax-map-key {
-      font-family: var(--bcn-mono);
-      font-size: 10.5px;
-      color: var(--bcn-ink-3);
-      white-space: nowrap;
-    }
-
     .ax-loc-scroll { overflow-x: auto; }
 
     .ax-loc-table {
@@ -294,6 +273,22 @@
     .ax-loc-table select { width: 100%; min-width: 190px; font-size: 11px; }
 
     .ax-loc-name { font-weight: 600; white-space: nowrap; }
+
+    /* Section band inside the one mapping table. The two halves differ in
+       shape (per-location vs company-wide), so they are labelled rather than
+       silently run together. */
+    .ax-map-section td {
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--bcn-ink-3);
+      background: var(--bcn-surface-2, rgba(0,0,0,.03));
+      padding: 6px 8px 5px 0;
+      border-top: 1px solid var(--bcn-border);
+    }
+
+    .ax-loc-table input { width: 100%; min-width: 190px; font-size: 11px; }
 
     .ax-map-note {
       font-family: var(--bcn-mono);
@@ -519,37 +514,15 @@
         <div class="ax-card">
           <div class="ax-card-header">
             <div>
-              <div class="ax-card-title">Company-wide accounts</div>
-              <div class="ax-card-sub">Same for every location — tax, freight, discounts, clearing and fees</div>
+              <div class="ax-card-title">Account mapping</div>
+              <div class="ax-card-sub">Where each journal line posts in QuickBooks</div>
             </div>
+            <div class="ax-card-sub" id="mapCount"></div>
           </div>
           <div class="ax-card-body ax-pad">
-            <div class="ax-map-grid" id="mapGrid"></div>
+            <div class="ax-loc-scroll"><table class="ax-loc-table" id="mapGrid"></table></div>
             <div class="ax-map-actions">
               <button class="bcn-btn bcn-btn--primary" id="btnSaveMap">Save mapping</button>
-            </div>
-            <div class="ax-hint">
-              These map to real QuickBooks accounts by id, so a renamed account keeps working.
-              Revenue and refunds are set per location in the QuickBooks location mapping card
-              below — the chart of accounts uses several naming conventions for store revenue,
-              so there is no single name to derive them from.
-              <br /><br />
-              Anything left unmapped exports as <code>** UNMAPPED **</code> rather than a guess.
-            </div>
-          </div>
-        </div>
-
-        <div class="ax-card">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Per-location accounts</div>
-              <div class="ax-card-sub">QBO location, revenue account and refunds account per sales location</div>
-            </div>
-          </div>
-          <div class="ax-card-body ax-pad">
-            <div class="ax-loc-scroll"><table class="ax-loc-table" id="locationMapGrid"></table></div>
-            <div class="ax-map-actions">
-              <button class="bcn-btn bcn-btn--primary" id="btnSaveLocationMap">Save locations</button>
               <button class="bcn-btn" id="btnAutoMatchLocations">Auto-match by name</button>
             </div>
             <div class="ax-hint" id="locationHint"></div>
@@ -629,11 +602,10 @@
     tblFees: document.querySelector('#tblFees tbody'),
     tblRegister: document.querySelector('#tblRegister tbody'),
     mapGrid: document.getElementById('mapGrid'),
-    locationMapGrid: document.getElementById('locationMapGrid'),
-    btnSaveLocationMap: document.getElementById('btnSaveLocationMap'),
     btnAutoMatchLocations: document.getElementById('btnAutoMatchLocations'),
     locationHint: document.getElementById('locationHint'),
     btnSaveMap: document.getElementById('btnSaveMap'),
+    mapCount: document.getElementById('mapCount'),
     btnExportJournal: document.getElementById('btnExportJournal'),
     btnExportRegister: document.getElementById('btnExportRegister'),
     kpiTotal: document.getElementById('kpiTotal'),
@@ -951,20 +923,19 @@
     el.axStatus.textContent = `${state.buckets.length} locations · ${state.payouts.length} payouts · ${state.period || 'no period'}`;
   }
 
-  function renderMap() {
+  // The company-wide half of the mapping table: keys that resolve to ONE
+  // account no matter which store the sale came from.
+  function companyRows() {
     const hasQbo = state.qboAccounts.length > 0;
 
-    el.mapGrid.innerHTML = MAP_KEYS.map(([key, label]) => {
-      const keyCell = `<div class="ax-map-key">${esc(label)}</div>`;
+    return MAP_KEYS.map(([key, label]) => {
+      const nameCell = `<td class="ax-loc-name">${esc(label)}<div class="ax-map-note">every location</div></td>`;
 
-      // A {location} template expands to a different account per location, so
-      // one QBO account cannot represent it. Left as free text; posting will
-      // resolve it by name (see docs/ops/quickbooks-integration.md).
       if (!hasQbo) {
-        const note = '';
-        return keyCell +
-          `<div><input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}"
-             data-kind="text" value="${esc(state.coa[key] || '')}" />${note}</div>`;
+        return `<tr>${nameCell}<td class="ax-map-note">—</td>
+          <td><input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}"
+             data-kind="text" value="${esc(state.coa[key] || '')}" /></td>
+          <td class="ax-map-note">—</td></tr>`;
       }
 
       const selectedId = state.qboIds[key] || '';
@@ -985,14 +956,14 @@
         ? `<option value="${esc(selectedId)}" selected>⚠ ${esc(state.coa[key] || selectedId)} — not in QuickBooks</option>`
         : '';
 
-      return keyCell +
-        `<select class="bcn-field bcn-field--mono" data-map-key="${esc(key)}" data-kind="qbo">
+      return `<tr>${nameCell}<td class="ax-map-note">—</td>
+        <td><select class="bcn-field bcn-field--mono" data-map-key="${esc(key)}" data-kind="qbo">
            <option value=""${selectedId ? '' : ' selected'}>— not mapped —</option>
            ${missingOpt}${options}
-         </select>`;
+         </select></td>
+        <td class="ax-map-note">—</td></tr>`;
     }).join('');
   }
-
 
   function csvEscape(v) {
     const s = String(v ?? '');
@@ -1251,28 +1222,34 @@
   // Applies the stored selections after innerHTML, since the option markup
   // above deliberately carries no `selected` attribute.
   function applyStoredSelections() {
-    for (const f of el.locationMapGrid.querySelectorAll('[data-selected]')) {
+    for (const f of el.mapGrid.querySelectorAll('[data-selected]')) {
       if (f.dataset.selected) f.value = f.dataset.selected;
     }
   }
 
-  function renderLocationMap() {
+  // ONE mapping table. Two sections, because the rows genuinely differ in
+  // shape -- a company-wide key resolves to a single account, a sales location
+  // resolves to a QBO location plus its own revenue and refunds accounts --
+  // but they are the same decision ("where does this line post?") and the same
+  // Save, so splitting them across two cards only made you hunt.
+  function renderMap() {
     const rows = locationRows();
     const hasLocations = state.qboLocations.length > 0;
     const hasAccounts = state.qboAccounts.length > 0;
 
-    if (!rows.length) {
-      el.locationMapGrid.innerHTML =
-        '<tr><td class="ax-map-note">No sales locations in this period.</td></tr>';
-    } else {
-      const head = `<thead><tr>
-          <th>Sales location</th>
-          <th>QuickBooks location</th>
-          <th>Revenue account</th>
-          <th>Refunds account</th>
-        </tr></thead>`;
+    const head = `<thead><tr>
+        <th>Posts to</th>
+        <th>QuickBooks location</th>
+        <th>Account</th>
+        <th>Refunds account</th>
+      </tr></thead>`;
 
-      const body = rows.map(([tag, name]) => {
+    const section = (label) =>
+      `<tr class="ax-map-section"><td colspan="4">${esc(label)}</td></tr>`;
+
+    const locBody = !rows.length
+      ? '<tr><td colspan="4" class="ax-map-note">No sales locations in this period.</td></tr>'
+      : rows.map(([tag, name]) => {
         const selected = state.locationMap[tag] || '';
         const acct = state.locationAccounts[tag] || {};
         const locName = state.qboLocations
@@ -1312,13 +1289,21 @@
         </tr>`;
       }).join('');
 
-      el.locationMapGrid.innerHTML = head + `<tbody>${body}</tbody>`;
-      applyStoredSelections();
-    }
+    el.mapGrid.innerHTML = head + '<tbody>'
+      + section('Per sales location')
+      + locBody
+      + section('Company-wide')
+      + companyRows()
+      + '</tbody>';
+    applyStoredSelections();
 
     const mappedLoc = rows.filter(([t]) => state.locationMap[t]).length;
     const mappedRev = rows.filter(([t]) => state.locationAccounts[t]?.revenue_id).length;
     const mappedRef = rows.filter(([t]) => state.locationAccounts[t]?.refunds_id).length;
+    const mappedCoa = MAP_KEYS.filter(([k]) => state.coa[k]).length;
+
+    el.mapCount.textContent =
+      `${mappedLoc + mappedRev + mappedRef + mappedCoa}/${rows.length * 3 + MAP_KEYS.length} mapped`;
 
     let hint;
     if (state.locationTracking === false) {
@@ -1329,11 +1314,13 @@
       hint = 'No QuickBooks locations found. Connect QuickBooks in '
         + '<a href="/v2/integrations.html">Integrations</a> and click Pull accounts.';
     } else {
-      hint = `${mappedLoc}/${rows.length} locations · ${mappedRev}/${rows.length} revenue accounts · `
-        + `${mappedRef}/${rows.length} refund accounts mapped. `
-        + 'Each location posts to its own revenue and refund account, chosen here rather than '
-        + 'derived from a name pattern — the chart of accounts uses several naming conventions, '
-        + 'so a pattern would miss real accounts. "Suggested" lists accounts naming that location.';
+      hint = `${mappedLoc}/${rows.length} locations · ${mappedRev}/${rows.length} revenue · `
+        + `${mappedRef}/${rows.length} refunds · ${mappedCoa}/${MAP_KEYS.length} company-wide. `
+        + 'Every row binds to QuickBooks by id, so renaming an account there keeps it working. '
+        + 'Revenue and refunds are chosen per location rather than derived from a name pattern — '
+        + 'the chart of accounts uses several naming conventions, so a pattern would miss real '
+        + 'accounts. "Suggested" lists accounts naming that location. Anything left unmapped '
+        + 'exports as <code>** UNMAPPED **</code> rather than a guess.';
     }
     el.locationHint.innerHTML = hint;
   }
@@ -1360,7 +1347,7 @@
     }
 
     // Location selects only -- the account selects share data-location-tag.
-    const fields = [...el.locationMapGrid.querySelectorAll(
+    const fields = [...el.mapGrid.querySelectorAll(
       '[data-location-tag]:not([data-loc-account])')];
     let matched = 0;
     let ambiguous = 0;
@@ -1384,7 +1371,7 @@
     // fill it; anything else stays for a person. Same rule as locations.
     let acctMatched = 0;
     let acctLeft = 0;
-    for (const f of el.locationMapGrid.querySelectorAll('[data-loc-account]')) {
+    for (const f of el.mapGrid.querySelectorAll('[data-loc-account]')) {
       if (f.value) continue;
       const group = f.querySelector('optgroup[label^="Suggested"]');
       const opts = group ? [...group.querySelectorAll('option')] : [];
@@ -1415,20 +1402,16 @@
       (matched || acctMatched) ? 'pos' : 'info', 12000);
   }
 
-  async function saveLocationMap() {
-    if (!_co?.id) {
-      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
-      return;
-    }
-
+  // Returns a one-line summary, or throws with a message the caller shows.
+  async function persistLocationMap() {
     // Three selects share data-location-tag; the account ones are additionally
     // marked data-loc-account, so the location select is the one WITHOUT it.
-    const locFields = [...el.locationMapGrid.querySelectorAll(
+    const locFields = [...el.mapGrid.querySelectorAll(
       '[data-location-tag]:not([data-loc-account])')];
-    if (!locFields.length) return;
+    if (!locFields.length) return null;
 
     const acctValue = (tag, kind) => {
-      const f = el.locationMapGrid.querySelector(
+      const f = el.mapGrid.querySelector(
         `[data-loc-account="${kind}"][data-location-tag="${CSS.escape(tag)}"]`);
       if (!f || !f.value) return { id: null, name: null };
       const a = state.qboAccounts.find(x => x.qbo_account_id === f.value);
@@ -1460,10 +1443,7 @@
       .from('accounting_location_map')
       .upsert(rows, { onConflict: 'company_entity_id,location_tag' });
 
-    if (error) {
-      setStatus(`Location save failed: ${error.message}`, 'neg', 6000);
-      return;
-    }
+    if (error) throw new Error(`locations: ${error.message}`);
 
     for (const r of rows) {
       if (r.qbo_location_id) state.locationMap[r.location_tag] = r.qbo_location_id;
@@ -1478,19 +1458,10 @@
 
     const complete = rows.filter(r =>
       r.qbo_location_id && r.qbo_revenue_account_id && r.qbo_refunds_account_id).length;
-    setStatus(`Saved. ${complete} of ${rows.length} locations fully mapped `
-      + '(location, revenue and refunds).', 'pos', 5000);
-    renderLocationMap();
+    return `${complete}/${rows.length} locations fully mapped`;
   }
 
-  async function saveCoaMap() {
-    // Without a company the upsert's conflict target and the RLS check both
-    // operate on a null, so refuse rather than appear to save.
-    if (!_co?.id) {
-      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
-      return;
-    }
-
+  async function persistCoaMap() {
     const fields = [...el.mapGrid.querySelectorAll('[data-map-key]')];
 
     const rows = fields.map(f => {
@@ -1532,10 +1503,7 @@
       const { error } = await sb
         .from('accounting_coa_map')
         .upsert(toSave, { onConflict: 'company_entity_id,map_key' });
-      if (error) {
-        setStatus(`Save failed: ${error.message}`, 'neg', 6000);
-        return;
-      }
+      if (error) throw new Error(`accounts: ${error.message}`);
     }
 
     if (toClear.length) {
@@ -1544,10 +1512,7 @@
         .delete()
         .eq('company_entity_id', _co.id)
         .in('map_key', toClear);
-      if (error) {
-        setStatus(`Could not clear mapping: ${error.message}`, 'neg', 6000);
-        return;
-      }
+      if (error) throw new Error(`clearing accounts: ${error.message}`);
     }
 
     for (const r of toSave) {
@@ -1560,9 +1525,32 @@
       delete state.qboIds[k];
     }
 
-    setStatus(toClear.length
-      ? `Mapping saved. ${toClear.length} key${toClear.length === 1 ? '' : 's'} left unmapped.`
-      : 'Mapping saved.', 'pos', 4000);
+    return `${toSave.length}/${rows.length} company-wide mapped`;
+  }
+
+  // One Save for the whole table. The two halves land in different tables
+  // (accounting_coa_map, accounting_location_map) but that is storage detail,
+  // not something the person mapping accounts should have to think about.
+  async function saveMapping() {
+    // Without a company the upsert's conflict target and the RLS check both
+    // operate on a null, so refuse rather than appear to save.
+    if (!_co?.id) {
+      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
+      return;
+    }
+
+    el.btnSaveMap.disabled = true;
+    try {
+      // Sequential on purpose: if the first write fails the second must not
+      // run, or the page ends up half-saved with no way to tell which half.
+      const locMsg = await persistLocationMap();
+      const coaMsg = await persistCoaMap();
+      setStatus(`Saved. ${[locMsg, coaMsg].filter(Boolean).join(' · ')}.`, 'pos', 5000);
+    } catch (e) {
+      setStatus(`Save failed — ${e.message}`, 'neg', 8000);
+    } finally {
+      el.btnSaveMap.disabled = false;
+    }
     renderMap();
     render();
   }
@@ -1627,15 +1615,14 @@
       state.period = val;
       el.subTitle.textContent = `Journal-ready Shopify sales and payout entries — ${val}`;
       render();
-      renderLocationMap();
+      renderMap();
     } finally {
       el.btnRun.disabled = false;
     }
   }
 
   el.btnRun.addEventListener('click', run);
-  el.btnSaveMap.addEventListener('click', saveCoaMap);
-  el.btnSaveLocationMap.addEventListener('click', saveLocationMap);
+  el.btnSaveMap.addEventListener('click', saveMapping);
   el.btnAutoMatchLocations.addEventListener('click', autoMatchLocations);
   el.btnExportJournal.addEventListener('click', exportJournal);
   el.btnExportRegister.addEventListener('click', exportRegister);
@@ -1674,7 +1661,6 @@
       loadStoreNames(),
     ]);
     renderMap();
-    renderLocationMap();
     await run();
   }
 
