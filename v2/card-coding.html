@@ -113,6 +113,42 @@
       background: rgba(37,99,235,.10); border: 1px solid rgba(37,99,235,.28);
       color: var(--bcn-ink-2); }
 
+    /* The distinct card names in the file, with counts. This is how you see
+       what variants the export actually produced -- including the ones that
+       came from a person's name because Card Name was blank. */
+    .cc-variants { flex: none; display: flex; gap: 6px; flex-wrap: wrap;
+      padding: 8px 12px 0; }
+    .cc-var { font-family: var(--bcn-mono); font-size: 10.5px; cursor: pointer;
+      padding: 3px 8px; border-radius: 999px; border: 1px solid var(--bcn-border);
+      background: var(--bcn-panel); color: var(--bcn-ink-2); white-space: nowrap; }
+    .cc-var:hover { border-color: var(--bcn-accent); }
+    .cc-var--on { background: rgba(37,99,235,.12); border-color: var(--bcn-accent);
+      color: var(--bcn-ink); font-weight: 700; }
+    .cc-var-n { opacity: .6; margin-left: 4px; }
+
+    .cc-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 460px;
+      max-width: 92vw; z-index: 60; background: var(--bcn-panel);
+      border-left: 1px solid var(--bcn-border); box-shadow: -8px 0 28px rgba(15,23,42,.10);
+      display: flex; flex-direction: column; }
+    .cc-drawer[hidden] { display: none; }
+    .cc-drawer-head { flex: none; display: flex; align-items: center;
+      justify-content: space-between; gap: 12px; padding: 12px;
+      border-bottom: 1px solid var(--bcn-border); }
+    .cc-drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+    .cc-kv { display: grid; grid-template-columns: minmax(120px, 38%) 1fr;
+      gap: 4px 10px; font-size: 11.5px; }
+    .cc-kv dt { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3); padding-top: 2px; }
+    .cc-kv dd { margin: 0; word-break: break-word; }
+    .cc-kv-head { grid-column: 1 / -1; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      border-bottom: 1px solid var(--bcn-border); padding: 12px 0 4px; margin-bottom: 4px; }
+    .cc-kv-head:first-child { padding-top: 0; }
+
+    .cc-addrule { flex: none; display: flex; gap: 8px; flex-wrap: wrap;
+      align-items: center; padding: 10px 12px;
+      border-bottom: 1px solid var(--bcn-border); background: var(--bcn-sunken); }
+
     .cc-empty { padding: 22px 12px; text-align: center; color: var(--bcn-ink-3);
       font-size: 12px; }
     .cc-drop { border: 1.5px dashed var(--bcn-border-strong); border-radius: 10px;
@@ -234,6 +270,7 @@
                 </select>
               </div>
             </div>
+            <div class="cc-variants" id="codeVariants"></div>
             <div class="cc-bulk" id="codeBulk" hidden>
               <span class="cc-bulk-count" id="bulkCount"></span>
               <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
@@ -291,11 +328,32 @@
               </div>
               <div class="cc-sub" id="rulesCount"></div>
             </div>
+            <!-- A mapping can be written straight down, without first
+                 importing a file and coding rows to learn from. Waiting for
+                 rows before you can record a mapping you already know is
+                 backwards. -->
+            <div class="cc-addrule">
+              <select class="bcn-field bcn-field--mono" id="ruleField" style="width:130px">
+                <option value="merchant">Merchant</option>
+                <option value="card_name">Card name</option>
+              </select>
+              <select class="bcn-field bcn-field--mono" id="ruleMatch" style="width:130px">
+                <option value="normalized">matches</option>
+                <option value="contains">contains</option>
+                <option value="exact">is exactly</option>
+              </select>
+              <input class="bcn-field bcn-field--mono" id="rulePattern"
+                     placeholder="e.g. sugar hill" style="width:200px" />
+              <select class="bcn-field bcn-field--mono" id="ruleAccount" style="width:250px"></select>
+              <select class="bcn-field bcn-field--mono" id="ruleEntity" style="width:200px"></select>
+              <select class="bcn-field bcn-field--mono" id="ruleLocation" style="width:170px"></select>
+              <button class="bcn-btn bcn-btn--primary" id="btnAddRule">Add rule</button>
+            </div>
             <div class="cc-body">
               <table class="cc-tbl" id="tblRules"></table>
             </div>
             <div class="cc-foot">
-              <span class="cc-note">Deleting a rule stops it applying to future imports. Rows already coded keep their account.</span>
+              <span class="cc-note">Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already coded keep what they have.</span>
             </div>
           </div>
         </section>
@@ -322,6 +380,20 @@
       </div>
     </div>
   </main>
+
+  <!-- Every column of the original row, not just the ones SILO mapped. The
+       import keeps the whole CSV line in `raw` precisely so a column nobody
+       thought to map is still readable here. -->
+  <aside class="cc-drawer" id="rawDrawer" hidden>
+    <div class="cc-drawer-head">
+      <div>
+        <div class="cc-title">Row detail</div>
+        <div class="cc-sub" id="rawSub"></div>
+      </div>
+      <button class="bcn-btn" id="btnRawClose">Close</button>
+    </div>
+    <div class="cc-drawer-body" id="rawBody"></div>
+  </aside>
 </div>
 
 <script src="../pages/config.js"></script>
@@ -1042,6 +1114,8 @@
     ].map(([l, v]) => `<div class="cc-kpi">
         <div class="cc-kpi-label">${l}</div><div class="cc-kpi-value">${v}</div></div>`).join('');
 
+    renderVariants();
+
     const rows = codingRows();
 
     // Selecting rows that a filter has since hidden would apply a bulk change
@@ -1081,7 +1155,10 @@
         <td data-cell="location">${cellButton(t.qbo_location_name, 'location')}</td>
         <td data-cell="entity">${entityCell(t)}</td>
         <td>${confidenceChip(t)}</td>
-        <td><button class="bcn-btn" data-toggle-exclude>${t.status === 'excluded' ? 'Include' : 'Exclude'}</button></td>
+        <td style="white-space:nowrap">
+          <button class="bcn-btn" data-raw title="Show every column from the file">⋯</button>
+          <button class="bcn-btn" data-toggle-exclude>${t.status === 'excluded' ? 'Include' : 'Exclude'}</button>
+        </td>
       </tr>`).join('') + '</tbody>';
 
     el('codeSearch').placeholder =
@@ -1097,6 +1174,34 @@
     return needsEntity(t)
       ? '<button class="cc-cell cc-cell--req" data-edit="entity">needs entity</button>'
       : '<span class="cc-note">not needed</span>';
+  }
+
+  // Every distinct card name in the file, with its row count and total. This
+  // is the answer to "what variants did this export actually produce" -- the
+  // real ones, not the ones a mapping guessed at -- including the entries that
+  // came from a person's name because Card Name was blank.
+  function renderVariants() {
+    const counts = new Map();
+    for (const t of state.txns) {
+      const k = t.card_name || '(no card name)';
+      const cur = counts.get(k) || { n: 0, total: 0, coded: 0 };
+      cur.n++;
+      cur.total += Number(t.amount || 0);
+      if (t.status === 'coded') cur.coded++;
+      counts.set(k, cur);
+    }
+
+    if (counts.size <= 1) { el('codeVariants').innerHTML = ''; return; }
+
+    const active = codeSearchTerm();
+    el('codeVariants').innerHTML = [...counts.entries()]
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([name, c]) => {
+        const on = active && name.toLowerCase() === active;
+        return `<span class="cc-var${on ? ' cc-var--on' : ''}" data-var="${esc(name)}"
+          title="${c.coded}/${c.n} coded · ${money(c.total)}">${esc(name)}<span
+          class="cc-var-n">${c.n}</span></span>`;
+      }).join('');
   }
 
   function cellButton(name, field) {
@@ -1162,6 +1267,7 @@
   // though every row in one batch shares a card.
   function matchesSearch(t, q) {
     if (!q) return true;
+    if (q === '(no card name)') return !t.card_name;
     return [
       t.description, t.clean_merchant, merchantKey(t), t.qbo_account_name,
       t.qbo_location_name, t.entity_name, t.card_name, t.cardholder, t.cardholder_email,
@@ -1176,6 +1282,15 @@
     _searchTimer = setTimeout(renderCoding, 120);
   });
   el('codeFilter').addEventListener('change', renderCoding);
+
+  // A card-name chip toggles that card as the filter.
+  el('codeVariants').addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-var]');
+    if (!chip) return;
+    const name = chip.dataset.var;
+    el('codeSearch').value = codeSearchTerm() === name.toLowerCase() ? '' : name;
+    renderCoding();
+  });
 
   function renderBulkBar() {
     const n = state.selected.size;
@@ -1326,6 +1441,11 @@
 
     // Clicking the normalised merchant searches for it -- the fastest route to
     // "select every Amazon row and code them all at once".
+    if (e.target.matches('[data-raw]')) {
+      openRawDrawer(t0);
+      return;
+    }
+
     if (e.target.matches('[data-merch]') || e.target.matches('[data-card-name]')) {
       el('codeSearch').value = e.target.textContent.trim();
       renderCoding();
@@ -1354,6 +1474,52 @@
     state.dirty.add(t.id);
     renderCoding();
     renderEntry();
+  });
+
+  // Shows the ORIGINAL row alongside what SILO derived from it, so a value
+  // that looks wrong can be traced to the column it came from without
+  // re-exporting the statement.
+  function openRawDrawer(t) {
+    const kv = (label, value) => value == null || value === ''
+      ? `<dt>${esc(label)}</dt><dd class="cc-note">—</dd>`
+      : `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`;
+
+    const raw = t.raw && typeof t.raw === 'object' ? t.raw : {};
+    const rawRows = Object.entries(raw).map(([k, v]) => kv(k, v)).join('');
+
+    el('rawSub').textContent = `Row ${t.row_no} · ${state.batch?.source_name || ''}`;
+    el('rawBody').innerHTML = `<dl class="cc-kv">
+      <div class="cc-kv-head">As imported</div>
+      ${kv('Date', t.txn_date)}
+      ${kv('Description', t.description)}
+      ${kv('Clean merchant', t.clean_merchant)}
+      ${kv('Merchant key', merchantKey(t))}
+      ${kv('Amount', money(t.amount))}
+      ${kv('Card name', t.card_name)}
+      ${kv('Cardholder', t.cardholder)}
+      ${kv('Cardholder email', t.cardholder_email)}
+      ${kv('Card last 4', t.last4)}
+
+      <div class="cc-kv-head">Coding</div>
+      ${kv('Account', t.qbo_account_name)}
+      ${kv('Account type', acctType(t.qbo_account_id))}
+      ${kv('Location', t.qbo_location_name)}
+      ${kv('Entity', t.entity_name ? `${t.entity_name} (${t.entity_type})` : null)}
+      ${kv('Coded by', t.coding_source)}
+      ${kv('Confidence', t.confidence == null ? null : `${(t.confidence * 100).toFixed(0)}%`)}
+      ${kv('Reason', t.ai_reasoning)}
+      ${kv('Status', t.status)}
+      ${kv('Excluded because', t.exclude_reason)}
+
+      <div class="cc-kv-head">Every column in the file</div>
+      ${rawRows || '<dd class="cc-note">No raw row stored.</dd>'}
+    </dl>`;
+    el('rawDrawer').hidden = false;
+  }
+
+  el('btnRawClose').addEventListener('click', () => { el('rawDrawer').hidden = true; });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') el('rawDrawer').hidden = true;
   });
 
   async function saveCoding() {
@@ -1795,25 +1961,125 @@
 
   function renderRules() {
     el('rulesCount').textContent = `${state.rules.length} rules`;
+
+    if (!el('ruleAccount').options.length) {
+      el('ruleAccount').innerHTML = `<option value="">Account…</option>${_acctOptions}`;
+      el('ruleEntity').innerHTML = `<option value="">Entity (AR/AP only)…</option>${_entityOptions}`;
+      el('ruleLocation').innerHTML = `<option value="">Location…</option>${_locOptions}`;
+    }
+
     if (!state.rules.length) {
       el('tblRules').innerHTML =
-        '<tr><td class="cc-empty">No rules yet. Code a batch, save it, then hit “Learn rules”.</td></tr>';
+        '<tr><td class="cc-empty">No rules yet. Add one above, or code a batch and hit “Learn rules”.</td></tr>';
       return;
     }
+
     el('tblRules').innerHTML = `<thead><tr>
-        <th>Matches on</th><th>Pattern</th><th>Account</th><th>Location</th><th>Card</th>
-        <th class="num">Used</th><th></th>
+        <th>Matches on</th><th>Pattern</th><th style="min-width:220px">Account</th>
+        <th style="min-width:150px">Entity</th><th style="min-width:150px">Location</th>
+        <th>Card</th><th class="num">Used</th><th></th>
       </tr></thead><tbody>` + state.rules.map((r) => `<tr data-rule="${esc(r.id)}">
         <td><span class="cc-chip ${r.match_field === 'card_name' ? 'cc-chip--ai' : 'cc-chip--rule'}">${
-          r.match_field === 'card_name' ? 'card name' : 'merchant'}</span></td>
+          r.match_field === 'card_name' ? 'card name' : 'merchant'}</span>
+          <div class="cc-note">${esc(r.match_type)}</div></td>
         <td class="cc-mono">${esc(r.pattern)}</td>
-        <td>${esc(r.qbo_account_name || '—')}</td>
-        <td class="cc-note">${esc(r.qbo_location_name || 'card default')}</td>
-        <td class="cc-note">${esc(state.sources.find((s) => s.id === r.source_id)?.display_name || 'any')}</td>
+        <td data-rcell="account">${cellButton(r.qbo_account_name, 'account')}</td>
+        <td data-rcell="entity">${cellButton(r.entity_name, 'entity')}</td>
+        <td data-rcell="location">${cellButton(r.qbo_location_name, 'location')}</td>
+        <td class="cc-note">${esc(state.sources.find((x) => x.id === r.source_id)?.display_name || 'any')}</td>
         <td class="num">${r.hit_count || 0}</td>
         <td><button class="bcn-btn" data-del-rule>Delete</button></td>
       </tr>`).join('') + '</tbody>';
   }
+
+  async function addRule() {
+    const pattern = el('rulePattern').value.trim();
+    const accountId = el('ruleAccount').value;
+    if (!pattern) return setStatus('Give the rule something to match on.', 'neg', 5000);
+    if (!accountId) return setStatus('Pick an account for the rule.', 'neg', 5000);
+
+    const field = el('ruleField').value;
+    const [entType, entId] = (el('ruleEntity').value || '').split(':');
+    const locId = el('ruleLocation').value || null;
+
+    // A merchant pattern is stored the way a merchant key is built, or it can
+    // never match: 'Sugar Hill' typed by hand has to become 'sugar hill'.
+    const stored = field === 'merchant' && el('ruleMatch').value === 'normalized'
+      ? normalizeMerchant(pattern) : pattern.toLowerCase();
+
+    const row = {
+      company_entity_id: _co.id,
+      source_id: null,
+      match_field: field,
+      match_type: field === 'card_name' && el('ruleMatch').value === 'normalized'
+        ? 'exact' : el('ruleMatch').value,
+      pattern: stored,
+      priority: field === 'card_name' ? 50 : 100,
+      qbo_account_id: accountId,
+      qbo_account_name: acctName(accountId),
+      qbo_location_id: locId,
+      qbo_location_name: locName(locId),
+      entity_qbo_id: entId || null,
+      entity_name: entId
+        ? (state.entities.find((x) => x.id === entId && x.type === entType)?.name || null) : null,
+      entity_type: entId ? entType : null,
+      note: 'Added by hand',
+    };
+
+    const { error } = await sb.from('card_coding_rules').upsert(row);
+    if (error) return setStatus(`Could not add rule — ${error.message}`, 'neg', 8000);
+
+    el('rulePattern').value = '';
+    await loadRules();
+    renderRules();
+    setStatus(`Rule added: ${stored} → ${row.qbo_account_name}.`, 'pos', 5000);
+  }
+
+  el('btnAddRule').addEventListener('click', addRule);
+  el('rulePattern').addEventListener('keydown', (e) => { if (e.key === 'Enter') addRule(); });
+
+  // Editing a rule in place, same click-to-edit as the coding table.
+  el('tblRules').addEventListener('click', (e) => {
+    const edit = e.target.closest('[data-edit]');
+    if (!edit) return;
+    const tr = e.target.closest('[data-rule]');
+    const r = state.rules.find((x) => x.id === tr.dataset.rule);
+    if (!r) return;
+    openEditor(edit.closest('td'), {
+      qbo_account_id: r.qbo_account_id, qbo_account_name: r.qbo_account_name,
+      qbo_location_id: r.qbo_location_id, qbo_location_name: r.qbo_location_name,
+      entity_qbo_id: r.entity_qbo_id, entity_name: r.entity_name, entity_type: r.entity_type,
+    }, edit.dataset.edit);
+  });
+
+  el('tblRules').addEventListener('change', async (e) => {
+    const tr = e.target.closest('[data-rule]');
+    if (!tr || !e.target.dataset.field) return;
+    const r = state.rules.find((x) => x.id === tr.dataset.rule);
+    if (!r) return;
+
+    const patch = {};
+    if (e.target.dataset.field === 'account') {
+      patch.qbo_account_id = e.target.value || null;
+      patch.qbo_account_name = acctName(patch.qbo_account_id);
+    } else if (e.target.dataset.field === 'location') {
+      patch.qbo_location_id = e.target.value || null;
+      patch.qbo_location_name = locName(patch.qbo_location_id);
+    } else {
+      const [type, id] = (e.target.value || '').split(':');
+      patch.entity_qbo_id = id || null;
+      patch.entity_type = id ? type : null;
+      patch.entity_name = id
+        ? (state.entities.find((x) => x.id === id && x.type === type)?.name || null) : null;
+    }
+
+    const { error } = await sb.from('card_coding_rules')
+      .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', r.id);
+    if (error) return setStatus(`Could not update rule — ${error.message}`, 'neg', 8000);
+    Object.assign(r, patch);
+    renderRules();
+    setStatus('Rule updated.', 'pos', 3000);
+  });
 
   el('tblRules').addEventListener('click', async (e) => {
     if (!e.target.closest('[data-del-rule]')) return;
