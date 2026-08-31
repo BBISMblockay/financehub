@@ -145,6 +145,8 @@
       border-bottom: 1px solid var(--bcn-border); padding: 12px 0 4px; margin-bottom: 4px; }
     .cc-kv-head:first-child { padding-top: 0; }
 
+    .cc-sep { width: 1px; align-self: stretch; background: var(--bcn-border); margin: 0 4px; }
+
     .cc-addrule { flex: none; display: flex; gap: 8px; flex-wrap: wrap;
       align-items: center; padding: 10px 12px;
       border-bottom: 1px solid var(--bcn-border); background: var(--bcn-sunken); }
@@ -372,6 +374,10 @@
             </div>
             <div class="cc-foot">
               <button class="bcn-btn bcn-btn--primary" id="btnSaveCards">Save cards</button>
+              <span class="cc-sep"></span>
+              <input class="bcn-field bcn-field--mono" id="newCardName"
+                     placeholder="New card name, e.g. Ramp" style="width:220px" />
+              <button class="bcn-btn" id="btnAddCard">Add card</button>
               <span class="cc-note" id="cardsStatus"></span>
             </div>
           </div>
@@ -2097,7 +2103,7 @@
   function renderCards() {
     el('tblCards').innerHTML = `<thead><tr>
         <th>Card</th><th>Balancing account</th><th>Vendor (AP only)</th>
-        <th>Default location</th><th>Posting</th>
+        <th>Default location</th><th>Posting</th><th>In use</th><th></th>
       </tr></thead><tbody>` + state.sources.map((s) => {
       const isAp = /Accounts (Payable|Receivable)/i.test(s.credit_qbo_account_type || '');
       return `<tr data-card="${esc(s.id)}">
@@ -2116,6 +2122,10 @@
         <td><label class="cc-note" style="display:flex;gap:6px;align-items:center">
               <input type="checkbox" data-card-field="posting" ${s.posting_enabled ? 'checked' : ''} />
               ${s.posting_enabled ? 'on' : 'off'}</label></td>
+        <td><label class="cc-note" style="display:flex;gap:6px;align-items:center">
+              <input type="checkbox" data-card-field="active" ${s.is_active ? 'checked' : ''} />
+              ${s.is_active ? 'yes' : 'retired'}</label></td>
+        <td><button class="bcn-btn" data-del-card="${esc(s.id)}">Delete</button></td>
       </tr>`;
     }).join('') + '</tbody>';
     applySelections(el('tblCards'));
@@ -2157,6 +2167,7 @@
           default_qbo_location_id: locId,
           default_qbo_location_name: locName(locId),
           posting_enabled: get('posting').checked,
+          is_active: get('active').checked,
           updated_at: new Date().toISOString(),
         };
       });
@@ -2173,6 +2184,86 @@
       el('btnSaveCards').disabled = false;
     }
   }
+
+  // A card key has to be stable and unique per company, but nobody should have
+  // to invent one: it is derived from the name and de-duplicated.
+  function slugKey(name) {
+    const base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '').slice(0, 40) || 'card';
+    if (!state.sources.some((s) => s.source_key === base)) return base;
+    for (let i = 2; i < 100; i++) {
+      const k = `${base}_${i}`;
+      if (!state.sources.some((s) => s.source_key === k)) return k;
+    }
+    return `${base}_${Date.now()}`;
+  }
+
+  async function addCard() {
+    const name = el('newCardName').value.trim();
+    if (!name) return setStatus('Give the card a name.', 'neg', 4000);
+    if (!_co?.id) return setStatus('No active company resolved — reload the page.', 'neg', 6000);
+    if (state.sources.some((s) => s.display_name.toLowerCase() === name.toLowerCase())) {
+      return setStatus(`There is already a card called ${name}.`, 'neg', 5000);
+    }
+
+    el('btnAddCard').disabled = true;
+    try {
+      const { error } = await sb.from('card_sources').insert({
+        company_entity_id: _co.id,
+        source_key: slugKey(name),
+        display_name: name,
+      });
+      if (error) throw new Error(error.message);
+
+      el('newCardName').value = '';
+      await loadReference();
+      buildOptionCache();
+      renderSourceSelect();
+      renderCards();
+      setStatus(`Added ${name}. Set its balancing account before importing.`, 'pos', 6000);
+    } catch (e) {
+      setStatus(`Could not add card — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('btnAddCard').disabled = false;
+    }
+  }
+
+  el('btnAddCard').addEventListener('click', addCard);
+  el('newCardName').addEventListener('keydown', (e) => { if (e.key === 'Enter') addCard(); });
+
+  // Delete only while a card has no history. A card with batches behind it is
+  // deactivated instead: deleting it would cascade the imports and the journal
+  // entries they produced, and "we stopped using that card" is not a reason to
+  // lose what it posted.
+  el('tblCards').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-del-card]');
+    if (!btn) return;
+    const id = btn.dataset.delCard;
+    const src = state.sources.find((x) => x.id === id);
+    if (!src) return;
+
+    const { count } = await sb.from('card_import_batches')
+      .select('id', { count: 'exact', head: true }).eq('source_id', id);
+
+    if (count) {
+      setStatus(
+        `${src.display_name} has ${count} import${count === 1 ? '' : 's'} behind it, so it cannot `
+        + 'be deleted without losing them. Untick “In use” and save to retire it instead.',
+        'neg', 10000);
+      return;
+    }
+
+    if (!confirm(`Delete ${src.display_name}? It has no imports, so nothing is lost.`)) return;
+
+    const { error } = await sb.from('card_sources').delete().eq('id', id);
+    if (error) return setStatus(`Delete failed — ${error.message}`, 'neg', 8000);
+
+    await loadReference();
+    buildOptionCache();
+    renderSourceSelect();
+    renderCards();
+    setStatus(`${src.display_name} deleted.`, 'pos', 4000);
+  });
 
   el('btnSaveCards').addEventListener('click', saveCards);
   el('btnRefresh').addEventListener('click', () => boot());
