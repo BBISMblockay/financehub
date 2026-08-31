@@ -145,11 +145,19 @@ Deno.serve(async (req) => {
     return json({ error: `${src.display_name} has no balancing account set` }, 400);
   }
 
+  // The ID is what posts. A name alone cannot be sent to QuickBooks, so a card
+  // carrying only a typed name is not configured, however complete it looks.
   const isAp = /Accounts (Payable|Receivable)/i.test(src.credit_qbo_account_type || '');
-  if (isAp && !src.credit_vendor_qbo_id && !src.credit_vendor_name) {
+  if (isAp && !src.credit_vendor_qbo_id) {
+    const kind = /Accounts Receivable/i.test(src.credit_qbo_account_type || '')
+      ? 'customer' : 'vendor';
     return json({
-      error: `${src.credit_qbo_account_name} is an Accounts Payable account; `
-        + 'QuickBooks requires a vendor on that line. Set one on the Cards tab.',
+      error: `${src.credit_qbo_account_name} is an ${src.credit_qbo_account_type} account, `
+        + `so QuickBooks requires a ${kind} on that line`
+        + (src.credit_vendor_name
+          ? ` — "${src.credit_vendor_name}" is stored as text, not as a ${kind} record. `
+            + 'Re-pick it from the list on the Cards tab.'
+          : '. Set one on the Cards tab.'),
     }, 400);
   }
 
@@ -230,8 +238,16 @@ Deno.serve(async (req) => {
     JournalEntryLineDetail: {
       PostingType: net >= 0 ? 'Credit' : 'Debit',
       AccountRef: { value: String(src.credit_qbo_account_id) },
+      // Vendor on an AP line, Customer on an AR line -- QuickBooks rejects the
+      // wrong kind, and the kind follows from the account, not from a guess.
       ...(src.credit_vendor_qbo_id
-        ? { Entity: { Type: 'Vendor', EntityRef: { value: String(src.credit_vendor_qbo_id) } } }
+        ? {
+          Entity: {
+            Type: /Accounts Receivable/i.test(src.credit_qbo_account_type || '')
+              ? 'Customer' : 'Vendor',
+            EntityRef: { value: String(src.credit_vendor_qbo_id) },
+          },
+        }
         : {}),
       ...(src.default_qbo_location_id
         ? { DepartmentRef: { value: String(src.default_qbo_location_id) } }
