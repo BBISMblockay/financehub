@@ -51,6 +51,8 @@ function systemPrompt(
   examples: { merchant: string; account: string; location: string | null }[],
   sourceName: string,
   relatedEntities: string[],
+  companyName: string,
+  cardNames: string[],
 ) {
   const acctList = accounts
     .map((a) => `- ${a.name} [${a.type}${a.sub ? ` / ${a.sub}` : ''}]`)
@@ -65,18 +67,28 @@ function systemPrompt(
       .join('\n')
     : '(none yet -- this is the first import)';
 
-  return `You are coding credit-card transactions for a US retail company (Baseballism, a baseball-themed apparel brand) into their QuickBooks Online chart of accounts. The card feed is "${sourceName}".
+  // Everything company-specific here is DATA. Naming one company and its trade
+  // in the prompt would make this function wrong for the next company that
+  // connects QuickBooks -- and telling a model that a credit union is an
+  // apparel brand is not a harmless inaccuracy, it steers every borderline
+  // account choice.
+  return `You are coding credit-card transactions for ${companyName} into their QuickBooks Online chart of accounts. The card feed is "${sourceName}".
+
+You are not told what trade this company is in. Infer it from the accounts, locations and merchants below rather than assuming one.
 
 Return, for each line you are given, the account it should be expensed to.
 
 # Related entities -- the ONLY names that mean "not this company's expense"
 ${relatedEntities.length ? relatedEntities.map((e) => `- ${e}`).join('\n') : '(none on file)'}
 
-These are separate businesses this company carries an intercompany balance with. If a CARD NAME clearly refers to one of them, the charge is NOT this company's expense -- it is money that entity owes, and it belongs on an intercompany account that is deliberately NOT in the account list below. For those lines return account_name: null and name the entity in reasoning. A Comcast bill on Jackie's card is not this company's utilities; coding it that way is plausible, silent, and wrong.
+These are separate businesses this company carries an intercompany balance with. If a CARD NAME clearly refers to one of them, the charge is NOT this company's expense -- it is money that entity owes, and it belongs on an intercompany account that is deliberately NOT in the account list below. For those lines return account_name: null and name the entity in reasoning. A utility bill on a related entity's card is not this company's utilities; coding it that way is plausible, silent, and wrong.
 
-Every OTHER card name is this company's own -- a spend category ("VIRTUAL ACCT SHIPPING", "Software", "Lease & Rent") or an employee whose card it is ("JONATHAN LOOMIS"). An employee name is NOT a related entity: code those lines normally from the merchant, and use the card name as the hint it is. Only the names listed above mean decline.
+# The card names actually in this file
+${cardNames.length ? cardNames.map((c) => `- ${c}`).join('\n') : '(this file has no card names)'}
 
-Each line is a merchant, optionally paired with a CARD NAME. The card name is the internal card the charge was made on, and this company uses it as a cost centre -- values look like "Software", "Supplies - HQ", "Lease & Rent", "COLAB", or a person's name where the card is theirs personally. Where a card name is present it is strong evidence, and for some merchants it is BETTER evidence than the merchant: a payment processor like Bill.com, Melio or PayPal tells you nothing on its own, but the same charge on a "Lease & Rent" card is rent. The same merchant may appear twice with different card names and should then get different accounts.
+Every card name NOT in the related-entity list above is this company's own -- a spend category, one of its own stores or locations, or an employee whose card it is. An employee name is NOT a related entity: code those lines normally from the merchant, and use the card name as the hint it is. Only names matching the related-entity list mean decline.
+
+The card name is the internal card the charge was made on, and companies commonly use it as a cost centre. Where one is present it is strong evidence, and for some merchants it is BETTER evidence than the merchant: a payment processor like Bill.com, Melio or PayPal tells you nothing on its own, but the same charge on a card named for rent is rent. The same merchant may appear twice with different card names and should then get different accounts.
 
 # The ONLY accounts you may use
 ${acctList}
@@ -109,6 +121,8 @@ async function askModel(
   examples: { merchant: string; account: string; location: string | null }[],
   sourceName: string,
   relatedEntities: string[],
+  companyName: string,
+  cardNames: string[],
 ): Promise<Suggestion[]> {
   const userMsg = merchants
     .map((m) =>
@@ -127,7 +141,8 @@ async function askModel(
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 8000,
-      system: systemPrompt(accounts, locations, examples, sourceName, relatedEntities),
+      system: systemPrompt(
+        accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames),
       messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
     }),
   });
@@ -288,6 +303,18 @@ Deno.serve(async (req) => {
     location: r.qbo_location_name,
   }));
 
+  // The company's own name, not a name baked into this function.
+  const { data: entityRow } = await supabase
+    .from('entities').select('title').eq('id', companyId).maybeSingle();
+  const companyName = entityRow?.title || 'this company';
+
+  // The card names in THIS file, rather than one company's examples. A card
+  // named "VIRTUAL ACCT SHIPPING" means nothing to a company that names its
+  // cards after branches or people.
+  const cardNames = [...new Set(merchants
+    .map((m) => String(m.card_name || '').trim())
+    .filter(Boolean))].sort().slice(0, 40);
+
   const validAccounts = new Set(accounts.map((a) => a.name));
   const validLocations = new Set(locations);
 
@@ -314,7 +341,8 @@ Deno.serve(async (req) => {
       if (i >= slices.length) return;
       try {
         results[i] = await askModel(
-          slices[i], accounts, locations, examples, sourceName, relatedEntities);
+          slices[i], accounts, locations, examples, sourceName, relatedEntities,
+          companyName, cardNames);
       } catch (e) {
         results[i] = e instanceof Error ? e : new Error(String(e));
       }
@@ -385,6 +413,7 @@ Deno.serve(async (req) => {
     merchants_asked: merchants.length,
     batches: slices.length,
     related_entities: relatedEntities.length,
+    company: companyName,
     model: MODEL,
     errors: errors.length ? errors : undefined,
   });

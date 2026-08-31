@@ -575,7 +575,7 @@
     // A person may code to ANY account. The narrow expense-ish list is what the
     // MODEL is offered, never what a bookkeeper may choose: card spend on
     // behalf of a related entity is coded to an intercompany receivable, and
-    // Baseballism has ~26 of those -- Sugar Hill Receivable, La Palma
+    // a company can have dozens of those -- Sugar Hill Receivable, La Palma
     // Receivable, Two Wrongs Receivable, COLAB Receivable, Due From LFRE/RFRE.
     // None is an expense account, so the narrow picker made the thing this
     // tool exists for impossible to enter.
@@ -1007,7 +1007,7 @@
   // applied. A merchant rule normally outranks a card-name rule -- knowing the
   // vendor is more specific than knowing which card paid -- but that is right
   // only when both point the same way. A Comcast charge on Jackie's card is not
-  // a Baseballism utility bill; it is money Jackie's owes, and the card is the
+  // this company's utility bill; it is money that entity owes, and the card is the
   // only thing that says so. Letting the merchant rule win there would code it
   // silently and plausibly wrong, which is the worst shape an error can take in
   // a ledger.
