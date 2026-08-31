@@ -171,7 +171,13 @@ jobs:
         # inline mat-view refresh timed out) or errored elsewhere — a slow
         # cache refresh shouldn't block this from being retried, and the
         # insights step below depends on base tables, not this step's success.
-        if: ${{ !cancelled() }}
+        #
+        # SKIPPED on the hourly refresh: this rebuilds a materialised view over
+        # inventory_on_hand (~3.47M rows). The hourly cron exists to keep SALES
+        # tied out, and doing this 24x a day instead of twice is Supabase
+        # compute spent for no gain -- inventory cadence is unchanged from
+        # before the hourly cron existed.
+        if: ${{ !cancelled() && github.event.schedule != '0 * * * *' }}
         run: |
           node -e "
           import('@supabase/supabase-js').then(({ createClient }) => {
@@ -190,7 +196,11 @@ jobs:
         # failing. Also runs regardless of earlier step outcomes (see above)
         # so a mat-view timeout can never leave this digest stale again —
         # continue-on-error covers an LLM API hiccup within this step itself.
-        if: ${{ !cancelled() }}
+        #
+        # SKIPPED on the hourly refresh: this is a nightly BRIEFING and each run
+        # spends an Anthropic call writing the narrative. Regenerating it every
+        # hour would be 24 calls a day to restate the same day's findings.
+        if: ${{ !cancelled() && github.event.schedule != '0 * * * *' }}
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
