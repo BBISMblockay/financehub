@@ -207,8 +207,11 @@ create table if not exists public.card_transactions (
   -- reimbursed: real rows that do not belong in this entry.
   exclude_reason text,
 
-  -- Identity of the underlying charge, so re-importing an overlapping export
-  -- does not duplicate it.
+  -- SHA-256 of source + date + amount + description: the identity of the
+  -- underlying charge. On import the page checks incoming hashes against rows
+  -- ALREADY STORED for that card and asks whether to skip the overlap -- it
+  -- does not decide alone, because two identical charges in one statement are
+  -- usually two real charges, while the same charge in two downloads is not.
   dedupe_hash text,
 
   created_at timestamptz not null default now(),

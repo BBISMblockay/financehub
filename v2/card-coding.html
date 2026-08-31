@@ -400,6 +400,17 @@
     return flip ? -n : n;
   }
 
+  // Identity of a charge, used to spot a statement re-download that overlaps
+  // one already imported. SHA-256 rather than the raw fields joined together:
+  // descriptions contain commas, and a PostgREST `in.(...)` filter would treat
+  // those as value separators and silently match the wrong rows.
+  async function dedupeHash(sourceId, date, amount, description) {
+    const bytes = new TextEncoder().encode(
+      `${sourceId}|${date}|${Number(amount).toFixed(2)}|${String(description || '').trim().toLowerCase()}`);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+  }
+
   // ---------------------------------------------------------------- loads
 
   async function loadReference() {
@@ -631,6 +642,53 @@
         .update({ column_map: map, updated_at: new Date().toISOString() })
         .eq('id', src.id);
 
+      const staged = [];
+      for (let i = 0; i < state.parsed.rows.length; i++) {
+        const r = state.parsed.rows[i];
+        const amount = signedAmount(r[map.amount], map.flip_sign);
+        const description = r[map.description] || '';
+        const txnDate = normalizeDate(r[map.txn_date]);
+        staged.push({
+          row_no: i + 1,
+          txn_date: txnDate,
+          description,
+          amount,
+          cardholder: map.cardholder ? (r[map.cardholder] || null) : null,
+          last4: map.last4 ? String(r[map.last4] || '').replace(/\D/g, '').slice(-4) || null : null,
+          raw: r,
+          dedupe_hash: await dedupeHash(src.id, txnDate, amount, description),
+        });
+      }
+
+      // Compare against what this card has already imported, across batches.
+      // Only PREVIOUSLY STORED rows count: two identical charges inside one
+      // statement are usually two real charges, not a mistake.
+      const existing = new Set();
+      const hashes = staged.map((r) => r.dedupe_hash);
+      for (let i = 0; i < hashes.length; i += 200) {
+        const { data } = await sb.from('card_transactions')
+          .select('dedupe_hash').in('dedupe_hash', hashes.slice(i, i + 200));
+        for (const d of data || []) existing.add(d.dedupe_hash);
+      }
+
+      let rowsToImport = staged;
+      const dupes = staged.filter((r) => existing.has(r.dedupe_hash));
+      if (dupes.length) {
+        // Not decided silently either way. Skipping a real repeat charge and
+        // double-booking a re-download are both wrong, and only the person
+        // looking at the statement knows which this is.
+        const skip = confirm(
+          `${dupes.length} of ${staged.length} rows were already imported for ${src.display_name}.\n\n`
+          + `OK — skip them (a re-downloaded statement that overlaps)\n`
+          + `Cancel — import them anyway (they are genuinely repeat charges)`);
+        if (skip) rowsToImport = staged.filter((r) => !existing.has(r.dedupe_hash));
+      }
+
+      if (!rowsToImport.length) {
+        setStatus('Every row in that file was already imported — nothing to do.', 'info', 6000);
+        return;
+      }
+
       const { data: batch, error: bErr } = await sb.from('card_import_batches').insert({
         company_entity_id: _co.id,
         source_id: src.id,
@@ -639,27 +697,13 @@
         period_end: periodEnd,
         entry_date: entryDate || periodEnd,
         file_name: state.parsed.file.name,
-        row_count: state.parsed.rows.length,
+        row_count: rowsToImport.length,
       }).select('id').single();
       if (bErr) throw new Error(bErr.message);
 
-      const rows = state.parsed.rows.map((r, i) => {
-        const amount = signedAmount(r[map.amount], map.flip_sign);
-        const description = r[map.description] || '';
-        const txnDate = normalizeDate(r[map.txn_date]);
-        return {
-          company_entity_id: _co.id,
-          batch_id: batch.id,
-          row_no: i + 1,
-          txn_date: txnDate,
-          description,
-          amount,
-          cardholder: map.cardholder ? (r[map.cardholder] || null) : null,
-          last4: map.last4 ? String(r[map.last4] || '').replace(/\D/g, '').slice(-4) || null : null,
-          raw: r,
-          dedupe_hash: `${src.id}|${txnDate}|${amount}|${description}`.slice(0, 400),
-        };
-      });
+      const rows = rowsToImport.map((r) => ({
+        ...r, company_entity_id: _co.id, batch_id: batch.id,
+      }));
 
       // Chunked: a year-end Amex file is thousands of rows and one insert of
       // that size times out at the API gateway.
@@ -672,7 +716,9 @@
       await sb.from('card_import_batches')
         .update({ total_amount: total.toFixed(2) }).eq('id', batch.id);
 
-      setStatus(`Imported ${rows.length} rows.`, 'pos', 4000);
+      setStatus(dupes.length && rows.length < staged.length
+        ? `Imported ${rows.length} rows, skipped ${staged.length - rows.length} already-imported.`
+        : `Imported ${rows.length} rows.`, 'pos', 5000);
       state.parsed = null;
       el('impDrop').textContent = 'Drop a CSV here, or click to choose one.';
       el('impMapWrap').hidden = true;
