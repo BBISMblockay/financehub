@@ -1940,7 +1940,12 @@
     }).join(',')).join('\n');
 
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    // Excel does not sniff UTF-8. Without a BOM it falls back to the legacy
+    // codepage, so the middle dot in "2026-08-29 · APPLE.COM/BILL" (UTF-8
+    // bytes C2 B7) renders as "Â·" -- and so would every accented vendor name
+    // and the ® in "The Plum Card®". The BOM is what tells Excel the encoding.
+    a.href = URL.createObjectURL(
+      new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `${memo.replace(/\s+/g, '-').toLowerCase()}-je.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
