@@ -1530,10 +1530,22 @@
 
   async function saveCoding() {
     if (!state.dirty.size) return setStatus('Nothing changed.', 'info', 3000);
+    if (!_co?.id) {
+      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
+      return;
+    }
     el('btnSaveCoding').disabled = true;
     try {
       const rows = state.txns.filter((t) => state.dirty.has(t.id)).map((t) => ({
         id: t.id,
+        // These two are the row's identity, not editable fields, and they are
+        // here because this is an UPSERT: PostgREST sends INSERT .. ON CONFLICT,
+        // so the policy's WITH CHECK is evaluated against the proposed row even
+        // when the row already exists. Omitting company_entity_id proposes NULL
+        // for it, `NULL = active_company_id()` is NULL rather than true, and
+        // every save fails with "new row violates row-level security policy".
+        company_entity_id: t.company_entity_id || _co?.id || null,
+        batch_id: t.batch_id,
         qbo_account_id: t.qbo_account_id,
         qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id,
