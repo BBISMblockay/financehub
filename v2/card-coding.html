@@ -1889,7 +1889,11 @@
     if (!e.src?.credit_qbo_account_id) blockers.push('the card has no balancing account set (Cards tab)');
     if (/Accounts (Payable|Receivable)/i.test(e.src?.credit_qbo_account_type || '')
         && !e.src?.credit_vendor_qbo_id) {
-      blockers.push('the balancing account is Accounts Payable, which QuickBooks requires a vendor on');
+      blockers.push(e.src?.credit_vendor_name
+        ? `the balancing account needs a ${/Receivable/i.test(e.src.credit_qbo_account_type || '')
+            ? 'customer' : 'vendor'} record — “${e.src.credit_vendor_name}” is stored as typed text, `
+          + 'so re-pick it from the list on the Cards tab'
+        : `the balancing account is ${e.src?.credit_qbo_account_type}, which QuickBooks requires an entity on`);
     }
     if (uncoded) blockers.push(`${uncoded} row${uncoded === 1 ? ' is' : 's are'} still uncoded`);
     // QuickBooks refuses the WHOLE entry over one AR/AP line with no entity, so
@@ -2143,9 +2147,48 @@
 
   // -------------------------------------------------------------- cards
 
+  // QuickBooks wants a VENDOR on an Accounts Payable line and a CUSTOMER on an
+  // Accounts Receivable one -- picking the wrong kind is rejected. So the list
+  // is scoped by what the chosen balancing account actually accepts, rather
+  // than offering both and failing at post time.
+  function entitiesFor(accountType) {
+    if (/Accounts Payable/i.test(accountType || '')) {
+      return { kind: 'Vendor', list: state.entities.filter((e) => e.type === 'Vendor') };
+    }
+    if (/Accounts Receivable/i.test(accountType || '')) {
+      return { kind: 'Customer', list: state.entities.filter((e) => e.type === 'Customer') };
+    }
+    return { kind: null, list: [] };
+  }
+
+  function vendorPicker(s) {
+    const { kind, list } = entitiesFor(s.credit_qbo_account_type);
+    if (!kind) {
+      return '<span class="cc-note">not needed</span>'
+        + (s.credit_vendor_name
+          ? `<div class="cc-note">stored: ${esc(s.credit_vendor_name)}</div>` : '');
+    }
+
+    const selected = s.credit_vendor_qbo_id || '';
+    const opts = list
+      .map((e) => `<option value="${esc(e.id)}"${e.id === selected ? ' selected' : ''}>${esc(e.name)}</option>`)
+      .join('');
+
+    // A name typed before this was a picker cannot be posted -- QuickBooks
+    // needs the id, not the string -- so it is shown as unresolved rather than
+    // silently dropped.
+    const stale = !selected && s.credit_vendor_name
+      ? `<div class="cc-note" style="color:var(--bcn-neg)">“${esc(s.credit_vendor_name)}” was typed, not picked — choose it from the list</div>`
+      : '';
+
+    return `<select class="bcn-field bcn-field--mono" data-card-field="vendor">
+        <option value="">— pick a ${kind.toLowerCase()} —</option>${opts}
+      </select>${stale}`;
+  }
+
   function renderCards() {
     el('tblCards').innerHTML = `<thead><tr>
-        <th>Card</th><th>Balancing account</th><th>Vendor (AP only)</th>
+        <th>Card</th><th>Balancing account</th><th>Entity on the balancing line</th>
         <th>Default location</th><th>Posting</th><th>In use</th><th></th>
       </tr></thead><tbody>` + state.sources.map((s) => {
       const isAp = /Accounts (Payable|Receivable)/i.test(s.credit_qbo_account_type || '');
@@ -2155,9 +2198,7 @@
               data-selected="${esc(s.credit_qbo_account_id || '')}"
               data-selected-label="${esc(s.credit_qbo_account_name || '')}">
               <option value="">— not set —</option>${_allAcctOptions}</select></td>
-        <td><input class="bcn-field bcn-field--mono" data-card-field="vendor"
-              value="${esc(s.credit_vendor_name || '')}"
-              placeholder="${isAp ? 'required' : 'not needed'}" /></td>
+        <td data-vendor-cell>${vendorPicker(s)}</td>
         <td><select class="bcn-field bcn-field--mono" data-card-field="location"
               data-selected="${esc(s.default_qbo_location_id || '')}"
               data-selected-label="${esc(s.default_qbo_location_name || '')}">
@@ -2173,9 +2214,11 @@
     }).join('') + '</tbody>';
     applySelections(el('tblCards'));
 
+    // Checks the id, which is what the post and the Approve blocker require.
+    // Checking the name told you a card was ready while Approve stayed blocked.
     const apNoVendor = state.sources.filter((s) =>
       /Accounts (Payable|Receivable)/i.test(s.credit_qbo_account_type || '')
-      && !s.credit_vendor_name);
+      && !s.credit_vendor_qbo_id);
     const unset = state.sources.filter((s) => !s.credit_qbo_account_id);
 
     el('cardsHint').innerHTML = [
@@ -2200,13 +2243,19 @@
         const get = (f) => tr.querySelector(`[data-card-field="${f}"]`);
         const creditId = get('credit').value || null;
         const acct = state.allAccounts.find((a) => a.id === creditId);
+        const vendorField = get('vendor');
+        const vendorId = vendorField && vendorField.tagName === 'SELECT'
+          ? (vendorField.value || null) : null;
         const locId = get('location').value || null;
         return {
           ...s,
           credit_qbo_account_id: creditId,
           credit_qbo_account_name: acct?.name || null,
           credit_qbo_account_type: acct?.type || null,
-          credit_vendor_name: get('vendor').value.trim() || null,
+          credit_vendor_qbo_id: vendorId || null,
+          credit_vendor_name: vendorId
+            ? (state.entities.find((x) => x.id === vendorId)?.name || null)
+            : null,
           default_qbo_location_id: locId,
           default_qbo_location_name: locName(locId),
           posting_enabled: get('posting').checked,
@@ -2306,6 +2355,18 @@
     renderSourceSelect();
     renderCards();
     setStatus(`${src.display_name} deleted.`, 'pos', 4000);
+  });
+
+  // The account decides which entity list is valid, so the cell is rebuilt as
+  // soon as the account changes rather than after a save-and-reload.
+  el('tblCards').addEventListener('change', (e) => {
+    if (e.target.dataset.cardField !== 'credit') return;
+    const tr = e.target.closest('[data-card]');
+    const acct = state.allAccounts.find((a) => a.id === e.target.value);
+    const src = state.sources.find((x) => x.id === tr.dataset.card);
+    if (!src) return;
+    src.credit_qbo_account_type = acct?.type || null;
+    tr.querySelector('[data-vendor-cell]').innerHTML = vendorPicker(src);
   });
 
   el('btnSaveCards').addEventListener('click', saveCards);
