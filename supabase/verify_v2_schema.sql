@@ -1546,3 +1546,46 @@ select
       then 'MISSING — employee_goals_target_date_idx absent; run 20260827200000_review_scale_1_4_and_goal_dates.sql'
     else 'ok'
   end as review_scale_1_4_and_goal_dates;
+
+-- ---------------------------------------------------------------------------
+-- Card coding (20260831180000_card_coding.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_sources')
+      then 'MISSING — card_sources absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_import_batches')
+      then 'MISSING — card_import_batches absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_transactions')
+      then 'MISSING — card_transactions absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_coding_rules')
+      then 'MISSING — card_coding_rules absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                      where n.nspname='public' and p.proname='can_manage_journal_entries')
+      then 'MISSING — can_manage_journal_entries() absent; card coding RLS would deny everyone'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                      where n.nspname='public' and p.proname='normalize_merchant')
+      then 'MISSING — normalize_merchant() absent; coding rules cannot match'
+    -- The browser mirrors this function. If the two disagree, rules stop
+    -- matching silently, so the behaviour is asserted rather than assumed.
+    when public.normalize_merchant('AMZN Mktp US*2A4XY9') is distinct from 'amzn mktp us'
+      then 'MISSING — normalize_merchant() no longer strips a *reference code; every Amazon charge becomes its own merchant and no rule matches twice'
+    when public.normalize_merchant('SQ *BLUE BOTTLE 0421') is distinct from 'blue bottle'
+      then 'MISSING — normalize_merchant() no longer strips the SQ * processor prefix'
+    when public.normalize_merchant('ADOBE  *ACROPRO SUBS') is distinct from 'adobe acropro subs'
+      then 'MISSING — normalize_merchant() is over-stripping; a product name after * must survive'
+    when not exists (select 1 from pg_views where schemaname='public' and viewname='card_transactions_v')
+      then 'MISSING — card_transactions_v absent'
+    when not exists (select 1 from pg_views where schemaname='public' and viewname='card_import_batches_v')
+      then 'MISSING — card_import_batches_v absent'
+    when not exists (select 1 from pg_policies
+                      where schemaname='public' and tablename='card_transactions'
+                        and policyname='card_transactions_write'
+                        and qual like '%status <> ''posted''%')
+      then 'MISSING — card_transactions_write no longer blocks edits to a posted batch'
+    else 'ok'
+  end as card_coding;

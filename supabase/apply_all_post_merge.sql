@@ -15273,3 +15273,11 @@ comment on column public.schedule_items.payment_request_id is
 create index if not exists idx_schedule_items_payment_request
   on public.schedule_items (payment_request_id)
   where payment_request_id is not null;
+
+
+-- ---------------------------------------------------------------------------
+-- 20260831180000_card_coding.sql
+-- Credit-card coding and journal entry staging. The migration is idempotent,
+-- so it is included here verbatim rather than summarised.
+-- ---------------------------------------------------------------------------
+\i migrations/20260831180000_card_coding.sql
