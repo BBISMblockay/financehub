@@ -1589,3 +1589,27 @@ select
       then 'MISSING — card_transactions_write no longer blocks edits to a posted batch'
     else 'ok'
   end as card_coding;
+
+-- ---------------------------------------------------------------------------
+-- Card name / cardholder (20260831190000_card_name_and_holder.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='card_name')
+      then 'MISSING — card_transactions.card_name absent; run 20260831190000_card_name_and_holder.sql'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='clean_merchant')
+      then 'MISSING — card_transactions.clean_merchant absent'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_coding_rules'
+                        and column_name='match_field')
+      then 'MISSING — card_coding_rules.match_field absent; card-name rules cannot be stored'
+    -- The view must prefer the issuer's cleaned name, or a rule learned on a
+    -- Divvy row keyed 'amazon' silently stops matching.
+    when (select pg_get_viewdef('public.card_transactions_v'::regclass)) not like '%clean_merchant%'
+      then 'MISSING — card_transactions_v no longer keys merchant_norm off clean_merchant'
+    else 'ok'
+  end as card_name_and_holder;

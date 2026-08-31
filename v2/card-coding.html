@@ -104,6 +104,13 @@
 
     .cc-merch { cursor: pointer; text-decoration: underline dotted; }
 
+    /* The Divvy card name is a cost centre, not a card brand, so it reads as
+       a tag rather than metadata. Clicking it searches, which is the route to
+       coding a whole card at once. */
+    .cc-card-chip { cursor: pointer; padding: 1px 5px; border-radius: 999px;
+      background: rgba(37,99,235,.10); border: 1px solid rgba(37,99,235,.28);
+      color: var(--bcn-ink-2); }
+
     .cc-empty { padding: 22px 12px; text-align: center; color: var(--bcn-ink-3);
       font-size: 12px; }
     .cc-drop { border: 1.5px dashed var(--bcn-border-strong); border-radius: 10px;
@@ -404,19 +411,32 @@
     return { headers, rows: body };
   }
 
+  // Resolved MOST SPECIFIC FIRST, each header claimed once. Order matters: a
+  // Divvy export has First Name, Last Name, Merchant, Clean Merchant Name and
+  // Card Name all in one row, and a loose /name|merchant/ for the description
+  // picks whichever comes first in the file -- which there is "First Name".
   const FIELDS = [
-    ['txn_date',    'Date',        /^(transaction\s*)?date|posted|post date/i],
-    ['description', 'Description', /descript|merchant|name|payee|vendor|memo|detail/i],
-    ['amount',      'Amount',      /amount|debit|charge|total/i],
-    ['cardholder',  'Cardholder',  /card\s*member|cardholder|employee|user|owner/i],
-    ['last4',       'Card last 4', /last\s*4|last four|card\s*#|account\s*#|card number/i],
+    ['clean_merchant',   'Clean merchant', /clean.*merchant|merchant.*clean|normali[sz]ed/i],
+    ['card_name',        'Card name',      /card\s*name|budget|virtual\s*card/i],
+    ['first_name',       'First name',     /first\s*name|given\s*name/i],
+    ['last_name',        'Last name',      /last\s*name|surname|family\s*name/i],
+    ['cardholder_email', 'Cardholder email', /e-?mail/i],
+    ['cardholder',       'Cardholder',     /card\s*member|cardholder|employee|\buser\b|owner|spender/i],
+    ['last4',            'Card last 4',    /last\s*4|last\s*four|card\s*(#|number)|account\s*#/i],
+    ['txn_date',         'Date',           /date|spent|posted/i],
+    ['amount',           'Amount',         /amount|debit|charge|total|spend/i],
+    ['description',      'Description',    /merchant|descript|payee|vendor|detail|memo/i],
   ];
+
+  // Only these three have to be present to import.
+  const REQUIRED = ['txn_date', 'description', 'amount'];
 
   function autoDetect(headers) {
     const map = {};
+    const taken = new Set();
     for (const [key, , rx] of FIELDS) {
-      const hit = headers.find((h) => rx.test(h));
-      if (hit) map[key] = hit;
+      const hit = headers.find((h) => !taken.has(h) && rx.test(h));
+      if (hit) { map[key] = hit; taken.add(hit); }
     }
     return map;
   }
@@ -480,7 +500,9 @@
 
   async function loadRules() {
     const { data } = await sb.from('card_coding_rules')
-      .select('*').order('hit_count', { ascending: false }).limit(500);
+      .select('*')
+      .order('priority', { ascending: false })
+      .order('hit_count', { ascending: false }).limit(500);
     state.rules = data || [];
   }
 
@@ -614,8 +636,7 @@
     }).join('<br />');
 
     const total = rows.reduce((n, r) => n + signedAmount(r[map.amount], map.flip_sign), 0);
-    const missing = FIELDS.filter(([k]) => ['txn_date', 'description', 'amount'].includes(k) && !map[k])
-      .map(([, l]) => l);
+    const missing = FIELDS.filter(([k]) => REQUIRED.includes(k) && !map[k]).map(([, l]) => l);
 
     el('impPreviewHint').innerHTML = missing.length
       ? `<b>Map ${esc(missing.join(', '))} before importing.</b>`
@@ -682,12 +703,32 @@
         const amount = signedAmount(r[map.amount], map.flip_sign);
         const description = r[map.description] || '';
         const txnDate = normalizeDate(r[map.txn_date]);
+        const person = [
+          map.first_name ? r[map.first_name] : '',
+          map.last_name ? r[map.last_name] : '',
+        ].map((v) => String(v || '').trim()).filter(Boolean).join(' ');
+        const email = map.cardholder_email ? String(r[map.cardholder_email] || '').trim() : '';
+        const cardholder = person
+          || (map.cardholder ? String(r[map.cardholder] || '').trim() : '')
+          || email || null;
+
+        // Card Name is blank on plenty of Divvy rows. Where it is, the person
+        // holding the card IS the card, so the name (or failing that the
+        // email) stands in -- otherwise those rows carry no cost centre at all
+        // and every one of them has to be coded by hand, every month.
+        const cardName = (map.card_name ? String(r[map.card_name] || '').trim() : '')
+          || cardholder || null;
+
         staged.push({
           row_no: i + 1,
           txn_date: txnDate,
           description,
           amount,
-          cardholder: map.cardholder ? (r[map.cardholder] || null) : null,
+          card_name: cardName,
+          cardholder,
+          cardholder_email: email || null,
+          clean_merchant: map.clean_merchant
+            ? String(r[map.clean_merchant] || '').trim() || null : null,
           last4: map.last4 ? String(r[map.last4] || '').replace(/\D/g, '').slice(-4) || null : null,
           raw: r,
           dedupe_hash: await dedupeHash(src.id, txnDate, amount, description),
@@ -853,19 +894,38 @@
   // ------------------------------------------------------------- coding
 
   function ruleMatches(txn) {
-    const norm = normalizeMerchant(txn.description);
+    const norm = merchantKey(txn);
     const raw = String(txn.description || '').toLowerCase();
+    const cardName = String(txn.card_name || '').toLowerCase();
+
     const candidates = state.rules
       .filter((r) => r.is_active !== false)
       .filter((r) => !r.source_id || r.source_id === state.batch?.source_id)
       .filter((r) => {
-        if (r.match_type === 'exact') return raw === String(r.pattern).toLowerCase();
-        if (r.match_type === 'contains') return raw.includes(String(r.pattern).toLowerCase());
-        return norm === String(r.pattern).toLowerCase();
+        const pat = String(r.pattern).toLowerCase();
+        if (r.match_field === 'card_name') {
+          if (!cardName) return false;
+          return r.match_type === 'contains' ? cardName.includes(pat) : cardName === pat;
+        }
+        if (r.match_type === 'exact') return raw === pat;
+        if (r.match_type === 'contains') return raw.includes(pat);
+        return norm === pat;
       })
-      // A card-specific rule beats an all-cards rule at equal priority.
-      .sort((a, b) => (b.priority - a.priority) || ((b.source_id ? 1 : 0) - (a.source_id ? 1 : 0)));
+      // A merchant rule outranks a card-name rule: knowing the vendor is more
+      // specific than knowing which card paid. Within a field, a card-specific
+      // rule beats an all-cards one.
+      .sort((a, b) =>
+        (b.priority - a.priority)
+        || ((a.match_field === 'card_name' ? 0 : 1) - (b.match_field === 'card_name' ? 0 : 1))
+        || ((b.source_id ? 1 : 0) - (a.source_id ? 1 : 0)));
     return candidates[0] || null;
+  }
+
+  // The key a merchant rule matches on. Mirrors card_transactions_v: the
+  // issuer's own cleaned name wins where the export has one, because it knows
+  // the merchant id behind the descriptor and we are only reading the string.
+  function merchantKey(t) {
+    return normalizeMerchant(t.clean_merchant || t.description);
   }
 
   // Mirrors public.normalize_merchant so the browser and the database agree on
@@ -979,8 +1039,9 @@
         <td>
           <div class="cc-desc" title="${esc(t.description)}">${esc(t.description)}</div>
           <div class="cc-note"><span class="cc-merch" data-merch
-            title="Search for this merchant">${esc(normalizeMerchant(t.description))}</span>${
-            t.cardholder ? ' · ' + esc(t.cardholder) : ''}</div>
+            title="Search for this merchant">${esc(merchantKey(t))}</span>${
+            t.card_name ? ' · <span class="cc-card-chip" data-card-name'
+              + ` title="Search this card">${esc(t.card_name)}</span>` : ''}</div>
         </td>
         <td class="num">${money(t.amount)}</td>
         <td data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
@@ -1052,8 +1113,9 @@
   function matchesSearch(t, q) {
     if (!q) return true;
     return [
-      t.description, normalizeMerchant(t.description), t.qbo_account_name,
-      t.qbo_location_name, t.cardholder, t.vendor_name, t.memo, t.exclude_reason,
+      t.description, t.clean_merchant, merchantKey(t), t.qbo_account_name,
+      t.qbo_location_name, t.card_name, t.cardholder, t.cardholder_email,
+      t.vendor_name, t.memo, t.exclude_reason,
       state.batch?.source_name, String(t.amount), t.txn_date,
     ].some((v) => String(v ?? '').toLowerCase().includes(q));
   }
@@ -1189,7 +1251,7 @@
 
     // Clicking the normalised merchant searches for it -- the fastest route to
     // "select every Amazon row and code them all at once".
-    if (e.target.matches('[data-merch]')) {
+    if (e.target.matches('[data-merch]') || e.target.matches('[data-card-name]')) {
       el('codeSearch').value = e.target.textContent.trim();
       renderCoding();
       return;
@@ -1262,9 +1324,15 @@
     // One question per merchant, not per row.
     const byMerchant = new Map();
     for (const t of pending) {
-      const key = normalizeMerchant(t.description);
-      if (!key) continue;
-      const cur = byMerchant.get(key) || { merchant: key, sample: t.description, count: 0, total: 0 };
+      const m = merchantKey(t);
+      if (!m) continue;
+      // Keyed on merchant AND card name. Bill.com is the reason: as a merchant
+      // it means nothing -- it is a payment processor -- but on the
+      // 'Lease & Rent' card it is unmistakably rent, and one answer for both
+      // would be wrong for one of them.
+      const key = `${m}||${t.card_name || ''}`;
+      const cur = byMerchant.get(key)
+        || { merchant: m, card_name: t.card_name || null, sample: t.description, count: 0, total: 0 };
       cur.count++;
       cur.total += Number(t.amount || 0);
       byMerchant.set(key, cur);
@@ -1287,10 +1355,11 @@
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
 
-      const byKey = new Map((out.suggestions || []).map((s) => [s.merchant, s]));
+      const byKey = new Map((out.suggestions || [])
+        .map((s) => [`${s.merchant}||${s.card_name || ''}`, s]));
       let applied = 0;
       for (const t of pending) {
-        const s = byKey.get(normalizeMerchant(t.description));
+        const s = byKey.get(`${merchantKey(t)}||${t.card_name || ''}`);
         if (!s) continue;
         t.ai_reasoning = s.reasoning || null;
         t.confidence = s.confidence ?? 0;
@@ -1339,38 +1408,60 @@
       return setStatus('Save coding first — unsaved rows are not confirmed yet.', 'neg', 6000);
     }
 
+    const confirmed = state.txns.filter((t) =>
+      t.status === 'coded' && t.qbo_account_id
+      && (t.coding_source === 'manual' || t.coding_source === 'ai'));
+
+    // Merchant rules. Conflicting codings for one merchant teach nothing
+    // rather than picking a winner.
     const byMerchant = new Map();
-    for (const t of state.txns) {
-      if (t.status !== 'coded' || !t.qbo_account_id) continue;
-      if (t.coding_source !== 'manual' && t.coding_source !== 'ai') continue;
-      const key = normalizeMerchant(t.description);
+    for (const t of confirmed) {
+      const key = merchantKey(t);
       if (!key) continue;
-      // Conflicting codings for one merchant: teach nothing rather than pick.
       const cur = byMerchant.get(key);
-      if (cur && cur.qbo_account_id !== t.qbo_account_id) { cur.conflict = true; continue; }
-      if (!cur) {
-        byMerchant.set(key, {
-          pattern: key,
-          qbo_account_id: t.qbo_account_id,
-          qbo_account_name: t.qbo_account_name,
-          qbo_location_id: t.qbo_location_id,
-          qbo_location_name: t.qbo_location_name,
-          vendor_name: t.vendor_name,
-        });
-      }
+      if (cur) { if (cur.qbo_account_id !== t.qbo_account_id) cur.conflict = true; continue; }
+      byMerchant.set(key, {
+        match_field: 'merchant', priority: 100, pattern: key,
+        qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
+        qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
+        vendor_name: t.vendor_name,
+      });
     }
 
-    const fresh = [...byMerchant.values()].filter((r) => !r.conflict).filter((r) =>
-      !state.rules.some((x) => x.pattern === r.pattern
+    // Card-name rules. Only learned where EVERY coded row on that card agrees:
+    // a card carrying mixed spend is a cost centre, not an account, and a rule
+    // saying otherwise would mis-code the next month silently.
+    const byCard = new Map();
+    for (const t of confirmed) {
+      const key = String(t.card_name || '').trim();
+      if (!key) continue;
+      const cur = byCard.get(key);
+      if (cur) { if (cur.qbo_account_id !== t.qbo_account_id) cur.conflict = true; continue; }
+      byCard.set(key, {
+        match_field: 'card_name',
+        // Below merchant rules: knowing the vendor beats knowing the card.
+        priority: 50, pattern: key,
+        qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
+        qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
+        vendor_name: t.vendor_name,
+      });
+    }
+
+    const fresh = [...byMerchant.values(), ...byCard.values()]
+      .filter((r) => !r.conflict)
+      .filter((r) => !state.rules.some((x) =>
+        x.pattern === r.pattern && (x.match_field || 'merchant') === r.match_field
         && (x.source_id === state.batch.source_id || !x.source_id)));
 
     if (!fresh.length) return setStatus('No new rules to learn.', 'info', 4000);
 
     const rows = fresh.map((r) => ({
       company_entity_id: _co.id,
-      source_id: null, // a vendor codes the same way whichever card paid it
-      match_type: 'normalized',
+      source_id: r.match_field === 'card_name' ? state.batch.source_id : null,
+      match_field: r.match_field,
+      match_type: r.match_field === 'card_name' ? 'exact' : 'normalized',
       pattern: r.pattern,
+      priority: r.priority,
       qbo_account_id: r.qbo_account_id,
       qbo_account_name: r.qbo_account_name,
       qbo_location_id: r.qbo_location_id,
@@ -1379,13 +1470,16 @@
       note: `Learned from ${state.batch.source_name} ${state.batch.label || ''}`.trim(),
     }));
 
-    const { error } = await sb.from('card_coding_rules')
-      .upsert(rows, { onConflict: 'company_entity_id,source_id,match_type,pattern' });
+    const { error } = await sb.from('card_coding_rules').upsert(rows);
     if (error) return setStatus(`Could not save rules — ${error.message}`, 'neg', 8000);
 
     await loadRules();
     renderRules();
-    setStatus(`Learned ${rows.length} rule${rows.length === 1 ? '' : 's'}. Next month these code themselves.`, 'pos', 6000);
+    const cards = rows.filter((r) => r.match_field === 'card_name').length;
+    setStatus(
+      `Learned ${rows.length} rule${rows.length === 1 ? '' : 's'}`
+      + (cards ? ` (${cards} on card name)` : '')
+      + '. Next month these code themselves.', 'pos', 7000);
   }
 
   el('btnApplyRules').addEventListener('click', () => applyRules(false));
@@ -1603,9 +1697,11 @@
       return;
     }
     el('tblRules').innerHTML = `<thead><tr>
-        <th>Merchant</th><th>Account</th><th>Location</th><th>Card</th>
+        <th>Matches on</th><th>Pattern</th><th>Account</th><th>Location</th><th>Card</th>
         <th class="num">Used</th><th></th>
       </tr></thead><tbody>` + state.rules.map((r) => `<tr data-rule="${esc(r.id)}">
+        <td><span class="cc-chip ${r.match_field === 'card_name' ? 'cc-chip--ai' : 'cc-chip--rule'}">${
+          r.match_field === 'card_name' ? 'card name' : 'merchant'}</span></td>
         <td class="cc-mono">${esc(r.pattern)}</td>
         <td>${esc(r.qbo_account_name || '—')}</td>
         <td class="cc-note">${esc(r.qbo_location_name || 'card default')}</td>

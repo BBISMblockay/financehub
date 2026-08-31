@@ -1,10 +1,9 @@
 // Suggests a QuickBooks account and location for card transactions that no
 // learned rule could answer.
 //
-// The caller has already applied its rules and sends only the leftovers, keyed
-// by NORMALISED merchant -- so a file with 400 Amazon charges asks about
-// "amzn mktp us" once, not 400 times. That is the whole reason this stays cheap
-// enough to run on every import.
+// The caller applies its rules first and sends only the leftovers, keyed by
+// normalised merchant AND card name, so a file with 400 Amazon charges asks
+// about "amazon" once.
 //
 // READ ONLY with respect to QuickBooks. Nothing here posts.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -30,6 +29,7 @@ const json = (body: unknown, status = 200) =>
 
 type Merchant = {
   merchant: string;        // normalised key
+  card_name?: string | null; // the issuer's card / cost centre, where there is one
   sample: string;          // one raw descriptor, for context
   count: number;
   total: number;
@@ -37,6 +37,7 @@ type Merchant = {
 
 type Suggestion = {
   merchant: string;
+  card_name?: string | null;
   account_name: string | null;
   location_name: string | null;
   vendor_name: string | null;
@@ -65,7 +66,9 @@ function systemPrompt(
 
   return `You are coding credit-card transactions for a US retail company (Baseballism, a baseball-themed apparel brand) into their QuickBooks Online chart of accounts. The card feed is "${sourceName}".
 
-Return, for each merchant, the account it should be expensed to.
+Return, for each line you are given, the account it should be expensed to.
+
+Each line is a merchant, optionally paired with a CARD NAME. The card name is the internal card the charge was made on, and this company uses it as a cost centre -- values look like "Software", "Supplies - HQ", "Lease & Rent", "COLAB", or a person's name where the card is theirs personally. Where a card name is present it is strong evidence, and for some merchants it is BETTER evidence than the merchant: a payment processor like Bill.com, Melio or PayPal tells you nothing on its own, but the same charge on a "Lease & Rent" card is rent. The same merchant may appear twice with different card names and should then get different accounts.
 
 # The ONLY accounts you may use
 ${acctList}
@@ -77,16 +80,17 @@ ${locations.map((l) => `- ${l}`).join('\n')}
 ${exampleList}
 
 # Rules
+- Echo back BOTH the merchant and the card_name you were given, unchanged, so the answer can be matched to the right line. Use null for card_name when the line had none.
 - account_name MUST be copied EXACTLY from the account list above. Never invent one, never abbreviate, never fix a typo in it.
-- location_name MUST be copied exactly from the location list, or be null. Null means "use the card's default location" -- prefer null over a guess. Only name a location when the merchant clearly belongs to one store (a utility for that address, a landlord, a local service).
+- location_name MUST be copied exactly from the location list, or be null. Null means "use the card's default location" -- prefer null over a guess. Only name a location when the merchant or card name clearly belongs to one store.
 - vendor_name is the real company behind the descriptor in plain form ("AMZN Mktp US" -> "Amazon"). Null if you cannot tell.
 - confidence is 0.0-1.0 and must reflect real uncertainty. Use below 0.6 whenever the merchant is ambiguous, generic, or could reasonably be two different accounts. A wrong code at high confidence is worse than an honest low one, because low confidence is what gets a human to look.
-- reasoning is one short sentence a bookkeeper would accept. Say what the merchant is, not what you did.
-- If a merchant looks like a card payment, transfer, or the card issuer itself rather than a purchase, set account_name to null and say so in reasoning -- those do not belong in an expense entry.
+- reasoning is one short sentence a bookkeeper would accept. Say what the merchant is, not what you did. Where the card name is what decided it, say so.
+- If a line looks like a card payment, transfer, or the card issuer itself rather than a purchase, set account_name to null and say so in reasoning -- those do not belong in an expense entry.
 
 Respond with JSON only, no prose, no code fence:
-{"suggestions":[{"merchant":"...","account_name":"...","location_name":null,"vendor_name":"...","confidence":0.0,"reasoning":"..."}]}
-Every merchant you were given must appear exactly once.`;
+{"suggestions":[{"merchant":"...","card_name":null,"account_name":"...","location_name":null,"vendor_name":"...","confidence":0.0,"reasoning":"..."}]}
+Every line you were given must appear exactly once.`;
 }
 
 async function askModel(
@@ -98,7 +102,8 @@ async function askModel(
 ): Promise<Suggestion[]> {
   const userMsg = merchants
     .map((m) =>
-      `- "${m.merchant}" | example descriptor: "${m.sample}" | ${m.count} charge(s) | $${m.total.toFixed(2)} total`
+      `- merchant: "${m.merchant}" | card: ${m.card_name ? `"${m.card_name}"` : 'none'}`
+      + ` | example descriptor: "${m.sample}" | ${m.count} charge(s) | $${m.total.toFixed(2)} total`
     )
     .join('\n');
 
@@ -113,7 +118,7 @@ async function askModel(
       model: MODEL,
       max_tokens: 8000,
       system: systemPrompt(accounts, locations, examples, sourceName),
-      messages: [{ role: 'user', content: `Code these merchants:\n${userMsg}` }],
+      messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
     }),
   });
 
@@ -244,20 +249,25 @@ Deno.serve(async (req) => {
     const slice = merchants.slice(i, i + BATCH_SIZE);
     try {
       const suggestions = await askModel(slice, accounts, locations, examples, sourceName);
-      const byMerchant = new Map(suggestions.map((s) => [String(s.merchant), s]));
+      // Answers are matched back on the merchant AND card pair, since the same
+      // merchant can legitimately appear twice with different cards.
+      const key = (merchant: unknown, card: unknown) =>
+        `${String(merchant ?? '')}||${card == null ? '' : String(card)}`;
+      const byMerchant = new Map(suggestions.map((s) => [key(s.merchant, s.card_name), s]));
 
       for (const m of slice) {
-        const s = byMerchant.get(m.merchant);
+        const s = byMerchant.get(key(m.merchant, m.card_name));
         if (!s) {
           // Asked about but not answered. Recorded as unanswered rather than
           // dropped, so it surfaces for a human instead of vanishing.
           out.push({
             merchant: m.merchant,
+            card_name: m.card_name ?? null,
             account_name: null,
             location_name: null,
             vendor_name: null,
             confidence: 0,
-            reasoning: 'The model did not return a suggestion for this merchant.',
+            reasoning: 'The model did not return a suggestion for this line.',
           });
           continue;
         }
@@ -272,6 +282,7 @@ Deno.serve(async (req) => {
 
         out.push({
           merchant: m.merchant,
+          card_name: m.card_name ?? null,
           account_name: acct,
           location_name: loc,
           vendor_name: s.vendor_name || null,
@@ -287,6 +298,7 @@ Deno.serve(async (req) => {
       for (const m of slice) {
         out.push({
           merchant: m.merchant,
+          card_name: m.card_name ?? null,
           account_name: null,
           location_name: null,
           vendor_name: null,
