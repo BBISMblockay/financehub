@@ -315,6 +315,7 @@ supabase/
     20260826150000_shopify_sessions_daily.sql
     20260827180000_paid_media_reality_check.sql
     20260827200000_review_scale_1_4_and_goal_dates.sql
+    20260831180000_card_coding.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
