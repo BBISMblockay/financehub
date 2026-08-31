@@ -1354,12 +1354,23 @@
     const [type, id] = (e.target.value || '').split(':');
     if (!id) return;
     const name = state.entities.find((x) => x.id === id && x.type === type)?.name || null;
-    for (const t of selectedTxns()) {
+    const rows = selectedTxns();
+    for (const t of rows) {
       t.entity_type = type; t.entity_qbo_id = id; t.entity_name = name;
       state.dirty.add(t.id);
     }
     e.target.value = '';
-    setStatus(`Set ${state.selected.size} rows to ${name}.`, 'pos', 4000);
+
+    // Applied to everything selected -- QuickBooks accepts an entity on any
+    // line, so refusing would be deciding for you. But a P&L line does not
+    // need one, and setting it silently is how a stray ends up on an expense
+    // row nobody meant to tag.
+    const spare = rows.filter((t) => t.qbo_account_id && !needsEntity(t)).length;
+    setStatus(
+      `Set ${rows.length} row${rows.length === 1 ? '' : 's'} to ${name}.`
+      + (spare ? ` ${spare} of them ${spare === 1 ? 'is' : 'are'} on an account that does not `
+        + 'need an entity — clear those if they were not meant to carry one.' : ''),
+      spare ? 'info' : 'pos', spare ? 9000 : 4000);
     renderCoding();
     renderEntry();
   });
@@ -1860,14 +1871,13 @@
       : `${e.included} of ${state.txns.length} rows included`;
 
     el('tblEntry').innerHTML = `<thead><tr>
-        <th>Account</th><th>Location</th><th>Description</th>
+        <th>Account</th><th>Location</th><th>Entity</th><th>Description</th>
         <th class="num">Debit</th><th class="num">Credit</th>
       </tr></thead><tbody>` + all.map((l) => `<tr${l.is_credit_leg ? ' style="font-weight:700"' : ''}>
         <td>${l.account_name ? esc(l.account_name) : '<span class="cc-chip cc-chip--none">card account not set</span>'}</td>
-        <td class="cc-note">${l.needs_entity
-          ? (l.entity_name ? esc(l.entity_name)
-             : '<span class="cc-chip cc-chip--none">needs entity</span>')
-          : esc(l.location_name || '—')}</td>
+        <td class="cc-note">${esc(l.location_name || '—')}</td>
+        <td class="cc-note">${l.entity_name ? esc(l.entity_name)
+          : l.needs_entity ? '<span class="cc-chip cc-chip--none">needs entity</span>' : '—'}</td>
         <td class="cc-desc" title="${esc(l.description)}">${esc(l.description)}</td>
         <td class="num">${l.debit ? money(l.debit) : ''}</td>
         <td class="num">${l.credit ? money(l.credit) : ''}</td>
