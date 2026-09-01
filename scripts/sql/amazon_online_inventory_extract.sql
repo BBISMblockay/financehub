@@ -24,6 +24,12 @@
 --    10,035 online rows); the latter is a legacy column that is emptier (8,774)
 --    and disagrees on 145 rows. upc_status flags rows Amazon will reject.
 --
+-- Titles and variant names are passed through EXACTLY as Shopify holds them,
+-- typos included (double spaces, mixed S/M/L vs Small/Medium/Large size
+-- vocabulary, promo phrasing like "Free with $100 Purchase"). That is
+-- deliberate: this file has to reconcile against POS, so cleaning it here
+-- would make the two disagree. Fix them in Shopify if they need fixing.
+--
 -- Reads the MV directly with an explicit company filter because
 -- inventory_on_hand_current_v applies active_company_id(), which is NULL on a
 -- service-role / SQL-editor connection and would return zero rows.
@@ -53,6 +59,7 @@ select
   r.variant_sku                                        as sku,
   r.product_title,
   r.variant_title,
+  coalesce(nullif(trim(r.product_type), ''), nullif(trim(pm.product_type), '')) as product_type,
   nullif(trim(r.variant_barcode), '')                  as upc,
   case
     when nullif(trim(r.variant_barcode), '') is null then 'missing'
