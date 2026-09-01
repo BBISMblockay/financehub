@@ -107,6 +107,14 @@
       .je-tbl td { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--bcn-border, #dde3e0);
         vertical-align: middle; }
       .je-tbl select, .je-tbl input { width: 100%; font-size: 11.5px; }
+      /* A cell that reads as a field until clicked, then becomes a real
+         select -- looks like the fields around it, not a button. */
+      .je-tbl .je-cell-btn { width: 100%; font-size: 11.5px; text-align: left;
+        background: var(--bcn-panel, #fff); border: 1px solid var(--bcn-border, #dde3e0);
+        border-radius: 6px; padding: 5px 8px; color: var(--bcn-ink, #16211e);
+        font-family: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; }
+      .je-tbl .je-cell-btn:hover { border-color: var(--bcn-accent, #2f6fdb); }
       .je-tbl input.je-amt { text-align: right; font-family: var(--bcn-mono, monospace);
         font-variant-numeric: tabular-nums; }
       .je-tbl td.je-amt, .je-tbl th.je-amt { text-align: right;
@@ -226,47 +234,81 @@
     }
 
     // Each line carries ~936 options across three selects (450 accounts, 64
-    // locations, 422 entities on Baseballism's chart). Measured in Chromium:
-    // building 2 lines takes 104ms, 10 takes 458ms, 30 takes 1,559ms. That is
-    // fine ONCE and not fine on every account pick, which used to rebuild the
-    // whole table. So structural changes (open, add, delete) rebuild and
-    // everything else edits in place: one account change went 113ms -> 22ms at
-    // 4 lines and 738ms -> 22ms at 30, flat instead of growing. Same lesson as
-    // the coding table, where a select per row cost 5.1s to open a batch.
+    // locations, 422 entities on Baseballism's chart). A card batch is at
+    // most a couple dozen lines by hand, but Accounting Export's "Build &
+    // post journal entry" stages a real month's sales journal in one shot --
+    // 106 lines for August 2026 -- and building all three selects live for
+    // every row measured 5,594ms in Chromium, the exact 5.1s-to-open-a-batch
+    // failure the coding table already had to fix once. So account/location/
+    // entity render as a plain button showing the current label, becoming a
+    // real <select> only on click (openEditor) and collapsing back to a
+    // button the moment a value is picked -- the table stays light both
+    // before AND after editing, not just before. postingType stays a live
+    // select (two options, free) and amount/description stay plain inputs.
+    // Measured after the fix, same 106 lines: opening the composer is 74ms
+    // (was 5,594ms) and a single cell edit is 29ms, flat regardless of row
+    // count -- the same shape of fix as the coding table's 5.1s -> 0.65s.
+    function acctLabel(id) {
+      if (!id) return '— pick an account —';
+      const a = acct(id);
+      return a ? `${a.name} · ${a.type}` : id;
+    }
+    function locLabel(id) {
+      if (!id) return '— none —';
+      const l = ref.locations.find((x) => x.id === id);
+      return l ? l.name : id;
+    }
+    function entLabel(v) {
+      if (!v) return '— required —';
+      const [etype, eid] = v.split(':');
+      const e = ref.entities.find((x) => x.id === eid && x.type === etype);
+      return e ? `${e.name} · ${e.type}` : v;
+    }
+    const FIELD_LABEL = { accountId: acctLabel, locationId: locLabel, entity: entLabel };
+    const FIELD_OPTS = { accountId: () => acctOpts, locationId: () => locOpts, entity: () => entOpts };
+    const FIELD_PLACEHOLDER = {
+      accountId: '— pick an account —', locationId: '— none —', entity: '— required —',
+    };
+
+    const cellBtn = (field, value) =>
+      `<button type="button" class="bcn-btn je-cell-btn" data-edit="${field}">`
+      + `${esc(FIELD_LABEL[field](value))}</button>`;
+
+    // Swaps a label button for a real <select>, populated from the cached
+    // option string (built once in loadReference, not re-parsed per cell).
+    function openEditor(field, i, td) {
+      const l = state.lines[i];
+      const sel = document.createElement('select');
+      sel.className = 'bcn-field bcn-field--mono';
+      sel.dataset.f = field;
+      sel.innerHTML = `<option value="">${FIELD_PLACEHOLDER[field]}</option>${FIELD_OPTS[field]()}`;
+      sel.value = l[field] || '';
+      td.innerHTML = '';
+      td.appendChild(sel);
+      sel.focus();
+    }
+
     const entityCell = (l) => lineNeedsEntity(l)
-      ? `<select class="bcn-field bcn-field--mono" data-f="entity">
-           <option value="">— required —</option>${entOpts}</select>`
+      ? cellBtn('entity', l.entity)
       : '<span class="je-note">not needed</span>';
 
     const rowHtml = (l, i) => `
       <tr data-i="${i}">
-        <td><select class="bcn-field bcn-field--mono" data-f="accountId">
-          <option value="">— pick an account —</option>${acctOpts}</select></td>
+        <td>${cellBtn('accountId', l.accountId)}</td>
         <td><select class="bcn-field bcn-field--mono" data-f="postingType">
-          <option value="Debit">Debit</option><option value="Credit">Credit</option>
+          <option value="Debit"${l.postingType !== 'Credit' ? ' selected' : ''}>Debit</option>
+          <option value="Credit"${l.postingType === 'Credit' ? ' selected' : ''}>Credit</option>
         </select></td>
         <td><input class="bcn-field je-amt" data-f="amount" inputmode="decimal"
           placeholder="0.00" value="${esc(l.amount)}" /></td>
-        <td><select class="bcn-field bcn-field--mono" data-f="locationId">
-          <option value="">— none —</option>${locOpts}</select></td>
+        <td>${cellBtn('locationId', l.locationId)}</td>
         <td>${entityCell(l)}</td>
         <td><input class="bcn-field" data-f="description" value="${esc(l.description)}" /></td>
         <td><button class="bcn-btn" data-del title="Remove line">×</button></td>
       </tr>`;
 
-    // A <select>'s value cannot be set in its own markup without marking an
-    // option, so it is applied after the row is in the DOM.
-    function applyValues(tr, l) {
-      for (const f of ['accountId', 'postingType', 'locationId', 'entity']) {
-        const e = tr.querySelector(`[data-f="${f}"]`);
-        if (e) e.value = l[f] || (f === 'postingType' ? 'Debit' : '');
-      }
-    }
-
     function renderLines() {
       $('jeLines').innerHTML = state.lines.map(rowHtml).join('');
-      state.lines.forEach((l, i) =>
-        applyValues($('jeLines').querySelector(`tr[data-i="${i}"]`), l));
       renderTotals();
     }
 
@@ -274,7 +316,6 @@
       addLine(seed);
       const i = state.lines.length - 1;
       $('jeLines').insertAdjacentHTML('beforeend', rowHtml(state.lines[i], i));
-      applyValues($('jeLines').querySelector(`tr[data-i="${i}"]`), state.lines[i]);
       renderTotals();
     }
 
@@ -323,20 +364,23 @@
     $('jeLines').addEventListener('change', (e) => {
       const tr = e.target.closest('tr[data-i]');
       if (!tr) return;
-      const l = state.lines[Number(tr.dataset.i)];
+      const i = Number(tr.dataset.i);
+      const l = state.lines[i];
       const f = e.target.dataset.f;
       if (!f) return;
       l[f] = e.target.value;
       if (f === 'accountId') {
         // Changing the account can change whether an entity is required, and a
         // stale entity on a line that no longer takes one would ride along.
-        if (!lineNeedsEntity(l)) l.entity = '';
         // Only this row's entity cell changes -- rebuilding the table here
         // would re-parse every option list on every account pick.
-        const cell = tr.children[4];
-        cell.innerHTML = entityCell(l);
-        const sel = cell.querySelector('[data-f="entity"]');
-        if (sel) sel.value = l.entity || '';
+        if (!lineNeedsEntity(l)) l.entity = '';
+        tr.children[4].innerHTML = entityCell(l);
+      }
+      if (f === 'accountId' || f === 'locationId' || f === 'entity') {
+        // Collapse this one cell back to a label -- editing in place means
+        // the table stays light AFTER the pick too, not just before it.
+        e.target.closest('td').innerHTML = cellBtn(f, l[f]);
       }
       renderTotals();
     });
@@ -347,9 +391,16 @@
       renderTotals();
     });
     $('jeLines').addEventListener('click', (e) => {
-      if (!e.target.closest('[data-del]')) return;
-      state.lines.splice(Number(e.target.closest('tr[data-i]').dataset.i), 1);
-      renderLines();
+      const editBtn = e.target.closest('[data-edit]');
+      if (editBtn) {
+        const tr = editBtn.closest('tr[data-i]');
+        openEditor(editBtn.dataset.edit, Number(tr.dataset.i), editBtn.closest('td'));
+        return;
+      }
+      if (e.target.closest('[data-del]')) {
+        state.lines.splice(Number(e.target.closest('tr[data-i]').dataset.i), 1);
+        renderLines();
+      }
     });
 
     $('jeAddLine').addEventListener('click', () => appendLine());

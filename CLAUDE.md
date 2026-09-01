@@ -560,7 +560,20 @@ than this section.
 - **Shopify API sync** — replaced the Google Sheets / Better Reports pipeline as the sole sales +
   inventory source (`shopify_connections`, `scripts/lib/shopify-sync-core.mjs`)
 - **Accounting Export** (`/v2/accounting-export.html`) — month → journal-ready entries + deposit
-  register, backed by `shopify_payouts` and `accounting_coa_map`
+  register, backed by `shopify_payouts` and `accounting_coa_map`. "Build & post journal entry"
+  extracts the ACTUAL computed lines (`salesEntryLines()` per location bucket, `feeRowsByStore()`
+  per payout store — the same functions the Sales Journal card and the Journal CSV already use) and
+  stages them through `v2/je-composer.js` in one shot, rather than a blank form someone retypes 20+
+  rows into by hand. Refuses to build (rather than posting garbage) when any line is unmapped.
+  `accounts_receivable` is a true `Accounts Receivable`-typed account today, so every line that hits
+  it needs a QuickBooks customer before it can post — a real month is ~22 such lines with no natural
+  single customer to assign; said up front with the exact count rather than left as a surprise at
+  the review step. This is also what forced `je-composer.js` to stop rendering account/location/
+  entity as always-live `<select>`s: a real month is 100+ lines, and building three full option
+  lists (450 accounts × 64 locations × 422 entities on Baseballism's chart) per row measured 5.6s to
+  open. They now render as a label button that becomes a real select only on click and collapses
+  back after — 74ms to open the same 106-line entry, the identical fix Card Coding's table needed
+  for the same reason
 - **Mailroom** (`/v2/mail-intake.html`, `/v2/mailroom.html`) — intake, routing, email notifications
 - **Org Calendar** (`/v2/calendar.html`) — one time layer over launches, tasks, POs, AP, payroll,
   live slots and mail via the `security_invoker` `calendar_events_v` union
