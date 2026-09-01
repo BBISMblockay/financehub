@@ -1,4 +1,6 @@
-// Fetches a QuickBooks Online report and stores the run.
+// Fetches a QuickBooks Online report and stores the run -- or, given
+// journal_entry_id instead of report_name, fetches ONE JournalEntry by id for
+// the report drill-down's "click a Journal Entry row to see its lines" view.
 //
 // READ ONLY. There is no write path to QuickBooks in this function and there
 // is not meant to be one -- posting is a separate, deliberately unbuilt piece.
@@ -175,8 +177,13 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const reportName: string = body.report_name ?? '';
   const params: Record<string, string> = body.params ?? {};
+  // Set instead of report_name: fetch one JournalEntry by id rather than a
+  // report. Report drill-down rows carry this id on their Transaction Type
+  // cell whenever the row is a Journal Entry -- confirmed against a real
+  // GeneralLedger run rather than assumed from QBO's docs.
+  const journalEntryId: string = body.journal_entry_id ? String(body.journal_entry_id) : '';
 
-  if (!ALLOWED_REPORTS.has(reportName)) {
+  if (!journalEntryId && !ALLOWED_REPORTS.has(reportName)) {
     return json({ error: `Unsupported report: ${reportName}` }, 400);
   }
 
@@ -239,6 +246,11 @@ Deno.serve(async (req) => {
   }
 
   const recordFailure = async (msg: string) => {
+    // A JournalEntry lookup isn't a report run -- this table's whole point is
+    // a point-in-time report SNAPSHOT, and logging an ad-hoc single-entity
+    // fetch here (one per row a person clicks, potentially many per session)
+    // would misrepresent what actually ran when someone reads this table back.
+    if (journalEntryId) return;
     await supabase.from('quickbooks_report_runs').insert({
       company_entity_id: conn.company_entity_id,
       connection_id: conn.id,
@@ -259,6 +271,25 @@ Deno.serve(async (req) => {
     const msg = e instanceof Error ? e.message : String(e);
     await recordFailure(msg);
     return json({ error: msg }, 502);
+  }
+
+  if (journalEntryId) {
+    try {
+      const res = await fetch(
+        `${apiBase(conn.environment)}/v3/company/${conn.realm_id}/journalentry/${encodeURIComponent(journalEntryId)}?minorversion=75`,
+        { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } },
+      );
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        return json({
+          error: `journal_entry_fetch_failed_${res.status}: ${detail.slice(0, 300)}${tid(res)}`,
+        }, 502);
+      }
+      const body2 = await res.json();
+      return json({ ok: true, journal_entry: body2?.JournalEntry ?? null });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : String(e) }, 502);
+    }
   }
 
   const qs = new URLSearchParams();
