@@ -1566,6 +1566,36 @@ select
     else 'ok'
   end as wow_sales_rollup;
 
+-- ── Week over Week organic posts (20260901150000) ─────────────────────
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts')
+      then 'MISSING — run 20260901150000_wow_organic_posts.sql'
+    -- SECURITY INVOKER or instagram_media_insights' RLS stops scoping it to
+    -- the caller's company, exactly as for wow_report.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_organic_posts' and p.prosecdef)
+      then 'MISSING — wow_organic_posts became SECURITY DEFINER; it must stay INVOKER so RLS scopes it'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts'
+                       and pg_get_functiondef(p.oid) like '%wow_window(p_report_date, p_grain)%')
+      then 'MISSING — wow_organic_posts does not delegate its window to wow_window; organic would describe a different period than the rest of the report'
+    -- history_starts is what lets the page mark a window partial. Organic data
+    -- begins 2026-05-21, so a YTD window asks for January and gets May onward;
+    -- without this the card prints a confident total that is most of a year short.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts'
+                       and pg_get_functiondef(p.oid) like '%history_starts%')
+      then 'MISSING — wow_organic_posts no longer returns history_starts; a YTD organic total silently short by months would render as complete'
+    -- engagement_rate must divide by reach (people), never views (plays).
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts'
+                       and pg_get_functiondef(p.oid) like '%engagement::numeric/reach%')
+      then 'MISSING — engagement_rate no longer divides by reach; dividing by views measures plays, not people, and understates every post'
+    else 'ok'
+  end as wow_organic_posts;
+
 -- ── Shopify sessions / funnel (20260826150000) ────────────────────────
 select
   case

@@ -15092,3 +15092,10 @@ create index if not exists idx_schedule_items_payment_request
 -- narrowed CTE text). Idempotent; verifies itself against sales_by_day.
 -- ---------------------------------------------------------------------------
 \i migrations/20260901140000_wow_sales_daily_rollup.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260901150000_wow_organic_posts.sql
+-- Organic Instagram posts for the Week over Week report, replacing the manual
+-- "type these in" table. Must run AFTER 20260901120000 (it calls wow_window).
+-- ---------------------------------------------------------------------------
+\i migrations/20260901150000_wow_organic_posts.sql

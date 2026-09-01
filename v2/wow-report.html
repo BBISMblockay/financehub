@@ -125,6 +125,11 @@
 
     .wow-thumb { width:34px; height:34px; object-fit:cover; border-radius:5px;
       border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; flex:none; }
+    /* Post captions link out to Instagram. Default link blue is the one colour
+       not in the Beacon palette, and it reads as an error state next to the
+       red/green deltas -- inherit the cell's ink and mark the link on hover. */
+    .wow-tbl a { color:inherit; text-decoration:none; }
+    .wow-tbl a:hover, .wow-tbl a:focus-visible { text-decoration:underline; }
     .wow-ad { display:flex; align-items:center; gap:9px; }
 
     .wow-note { padding:9px 14px; font-size:11px; color:var(--bcn-ink-3);
@@ -365,6 +370,25 @@
           <div class="wow-say-body"><textarea id="say_creatives" class="wow-say-box" data-say="creatives" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div>
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Instagram organic — top posts</h2><span class="bcn-card-meta" id="orgMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="wow-grp-head" id="orgTotals"></div>
+          <div class="bcn-matrix-scroll">
+            <table class="wow-tbl"><thead><tr>
+              <th>Post</th><th>Type</th><th>Posted</th><th>Views</th><th>Reach</th>
+              <th title="Likes + comments + shares + saves.">Engagement</th>
+              <th title="Engagement ÷ reach — people, not plays. Blank when reach is 0.">Eng. rate</th>
+            </tr></thead>
+            <tbody id="orgBody"></tbody></table>
+          </div>
+        </div>
+        <div class="wow-note" id="orgNote" hidden></div>
+        <details class="wow-say" data-key="organic">
+          <summary>Notes on organic</summary>
+          <div class="wow-say-body"><textarea id="say_organic" class="wow-say-box" data-say="organic" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
+      </div>
       <div id="man_meta"></div>
 
       <div class="wow-sec" id="sec_google"><span class="wow-sec-n">Paid Media — Google</span><span class="wow-sec-sub">paid search &amp; shopping</span></div>
@@ -542,12 +566,12 @@
       cols:[['date','Date',100],['spend','Spend',100],['totalRevenue','Revenue',110],
             ['emailSubs','Email subs',110],['emailNetSubs','Email net subs',120],
             ['smsSubs','SMS subs',110],['smsNetSubs','SMS net subs',115],['notes','Notes',0]] },
-    { key:'organic_posts', section:'meta', title:'Meta & Instagram organic — last 12 posts',
-      seedRows:12,
-      hint:'Type these in. Fills in automatically once Meta access is granted.',
-      cols:[['post','Post',0],['type','Type',90],['date','Date',100],
-            ['views','Views',100],['reach','Reach',100],['likes','Likes',90],
-            ['comments','Comments',100],['saves','Saves',90],['link','Link',150]] },
+    // 'organic_posts' was here: twelve blank rows hinted "Fills in
+    // automatically once Meta access is granted." It was granted, and the sync
+    // has been filling instagram_media_insights since 2026-05-21 -- so this is
+    // now the live "Instagram organic" card above. Anything typed into the old
+    // table is still in wow_report_entries.sections.tables.organic_posts; it is
+    // simply no longer rendered, not deleted.
     { key:'tiktok_sources', section:'tiktok', title:'TikTok — sales by attribution source',
       seedValues:[{source:'Lives'},{source:'Ads'},{source:'GMV Affiliate'},{source:'Direct'}],
       hint:'Type these in. TikTok Ads and TikTok Shop are not connected.',
@@ -759,6 +783,7 @@
   let LANDING = null;
   let CODES = null;
   let COHORTS = null;
+  let ORGANIC = null;
   let KPI = null;
   let DATA_THROUGH = null;
   const FAILED = new Set();
@@ -1162,7 +1187,7 @@
         sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
       ]);
-      const [funnel, paid, landing, codes, cohorts] = await Promise.all([
+      const [funnel, paid, landing, codes, cohorts, organic] = await Promise.all([
         sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_landing_pages', { p_report_date: d, p_limit: 15, p_grain: gr }),
@@ -1170,6 +1195,7 @@
         // Cohorts are monthly by construction -- a retention curve has its own
         // grain and does not follow this selector.
         sb.rpc('wow_cohorts', { p_months: 12 }),
+        sb.rpc('wow_organic_posts', { p_report_date: d, p_grain: gr, p_limit: 12 }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -1190,6 +1216,9 @@
       COHORTS = cohorts.error ? null : (cohorts.data || null);
       if (cohorts.error) FAILED.add('cohorts');
       if (cohorts.error) console.warn('cohorts unavailable:', cohorts.error.message);
+      ORGANIC = organic.error ? null : (organic.data || null);
+      if (organic.error) FAILED.add('organic');
+      if (organic.error) console.warn('organic posts unavailable:', organic.error.message);
       KPI = kpi.error ? null : (kpi.data || null);
       if (kpi.error) FAILED.add('kpi');
       if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
@@ -1278,6 +1307,79 @@
     </tr>`).join('') || `<tr><td class="wow-empty" colspan="3">No data.</td></tr>`;
 
     renderPaid();
+    renderOrganic();
+  }
+
+  // Organic posts, live from instagram_media_insights -- the same table
+  // Marketing Overview's Organic tab reads. Ranked by views, and the card says
+  // so: views, reach and engagement disagree about which post won, and an
+  // unnamed "top post" is how that gets reported wrong.
+  function renderOrganic(){
+    const o = ORGANIC;
+    const body = el('orgBody'), meta = el('orgMeta'), tot = el('orgTotals'), note = el('orgNote');
+    if (!body) return;
+
+    if (!o) {
+      meta.textContent = '';
+      tot.innerHTML = '';
+      body.innerHTML = `<tr><td class="wow-empty" colspan="7">${FAILED.has('organic')
+        ? 'Could not load organic posts — try Refresh.'
+        : 'No organic posts in this window.'}</td></tr>`;
+      note.hidden = true;
+      return;
+    }
+
+    const t = o.totals || {};
+    const chip = (label, m, fmt) => {
+      if (!m) return '';
+      const v = m.wow;
+      const cls = v == null ? 'dim' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim';
+      const delta = v == null ? '—' : `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%`;
+      return `<span>${label} <b>${fmt(m.cur)}</b> <span class="${cls}">${delta}</span></span>`;
+    };
+    tot.innerHTML =
+      `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0">` +
+      chip('Posts', t.posts, intFmt) + chip('Views', t.views, intFmt) +
+      chip('Reach', t.reach, intFmt) + chip('Engagement', t.engagement, intFmt) +
+      `</span><span>${esc(G().prevAbbr)}</span>`;
+
+    const posts = o.posts || [];
+    meta.textContent = posts.length
+      ? `${intFmt(t.posts?.cur)} posts · top ${posts.length} by ${o.ranked_by || 'views'}`
+      : 'no posts in window';
+
+    body.innerHTML = posts.length ? posts.map(p => {
+      // No thumbnail for IMAGE/CAROUSEL_ALBUM -- Meta only returns one for
+      // video. Draw the placeholder rather than a broken image, so nobody goes
+      // hunting for a sync fault that is not there.
+      const thumb = p.thumb
+        ? `<img class="wow-thumb" src="${esc(p.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />`
+        : `<span class="wow-thumb"></span>`;
+      const cap = (p.caption || '').trim() || p.media_id;
+      const label = p.permalink
+        ? `<a href="${esc(p.permalink)}" target="_blank" rel="noopener">${esc(cap.slice(0, 90))}${cap.length > 90 ? '…' : ''}</a>`
+        : `${esc(cap.slice(0, 90))}${cap.length > 90 ? '…' : ''}`;
+      return `<tr>
+        <td><div class="wow-ad">${thumb}<span>${label}</span></div></td>
+        <td>${esc((p.media_type || '').replace('CAROUSEL_ALBUM','CAROUSEL'))}</td>
+        <td>${esc(p.posted_on || '')}</td>
+        <td>${intFmt(p.views)}</td><td>${intFmt(p.reach)}</td><td>${intFmt(p.engagement)}</td>
+        <td>${p.engagement_rate == null ? '<span class="dim">—</span>' : Number(p.engagement_rate).toFixed(2) + '%'}</td>
+      </tr>`;
+    }).join('') : `<tr><td class="wow-empty" colspan="7">No organic posts in this window.</td></tr>`;
+
+    // Say when the window reaches back further than the data does. A YTD
+    // organic total that silently begins in May, next to sales that begin on
+    // Jan 1, is the kind of number that gets read aloud in a meeting.
+    const starts = o.history_starts, wStart = DATA?.window?.start;
+    if (starts && wStart && wStart < starts) {
+      note.hidden = false;
+      note.innerHTML = `<b>Partial period.</b> Organic history begins ${esc(starts)}, but this ` +
+        `${esc(G().label.toLowerCase())} starts ${esc(wStart)} — posts before ${esc(starts)} are not counted, ` +
+        `and the comparison periods may have no coverage at all.`;
+    } else {
+      note.hidden = true;
+    }
   }
 
   // Each Meta objective gets its own table with its own columns. A thruplay
@@ -1466,6 +1568,26 @@
     push('Creative','Ad copy','Spend','ROAS','Conversions','Clicks');
     (pm.creatives || []).forEach(a => push(a.ad, a.copy ?? '', a.spend, a.roas ?? '',
       a.conversions ?? '', a.clicks ?? ''));
+
+    // Organic goes out with everything else -- the export exists so the whole
+    // report can leave the page, and a missing block reads as a section with
+    // no data rather than a section this file forgot.
+    const og = ORGANIC || {};
+    section('META — organic posts');
+    if (og.history_starts && DATA.window.start < og.history_starts) {
+      push('Partial period', `organic history begins ${og.history_starts}`);
+    }
+    push('Metric', G().cur, G().prev, `${G().delta} %`, G().ly, 'YoY %');
+    ['posts','views','reach','engagement'].forEach(k => {
+      const m = (og.totals || {})[k];
+      if (m) push(k, m.cur ?? '', m.prev ?? '', m.wow ?? '', m.ly ?? '', m.yoy ?? '');
+    });
+    blank();
+    push(`Post (top ${(og.posts || []).length} by ${og.ranked_by || 'views'})`,
+         'Type','Posted','Views','Reach','Engagement','Eng rate %','Link');
+    (og.posts || []).forEach(p => push(p.caption || p.media_id, p.media_type ?? '',
+      p.posted_on ?? '', p.views ?? '', p.reach ?? '', p.engagement ?? '',
+      p.engagement_rate ?? '', p.permalink ?? ''));
 
     if (pm.google) {
       section('GOOGLE — campaigns');
