@@ -1691,3 +1691,38 @@ select
         || 'Rules tab reverts to always reading 0'
     else 'ok'
   end as rule_hits_and_conflicts;
+
+-- ---------------------------------------------------------------------------
+-- Journal adjustments (20260901000000, 20260901010000, 20260901020000)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='journal_adjustments')
+      then 'MISSING — journal_adjustments absent; run 20260901000000_journal_adjustments.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='journal_adjustment_lines')
+      then 'MISSING — journal_adjustment_lines absent'
+    when not exists (select 1 from pg_views
+                      where schemaname='public' and viewname='journal_adjustments_v')
+      then 'MISSING — journal_adjustments_v absent; the Adjustments card on '
+        || '/v2/qbo-reports.html renders from it'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                      where n.nspname='public' and p.proname='void_journal_adjustment')
+      then 'MISSING — void_journal_adjustment() absent; an adjustment whose entry was deleted in '
+        || 'QuickBooks becomes permanently unpostable, exactly as card batches did before '
+        || 'void_card_posting existed'
+    -- The half-guard that shipped first: USING alone refuses to EDIT a posted
+    -- row but says nothing about the row being WRITTEN, so a draft could be
+    -- moved straight to 'posted' from a browser and SILO would then claim an
+    -- entry Intuit never received. Both halves must carry the status clause.
+    when exists (
+      select 1 from pg_policies
+       where schemaname='public'
+         and tablename in ('journal_adjustments','card_import_batches')
+         and cmd = 'ALL'
+         and with_check not like '%posted%')
+      then 'MISSING — a posting-status WITH CHECK is absent; a finance user could mark an entry '
+        || 'posted from the browser without it ever reaching QuickBooks'
+    else 'ok'
+  end as journal_adjustments;

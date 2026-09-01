@@ -52,6 +52,13 @@
        thing that makes a nested balance sheet readable. */
     .qr-depth-0 > td:first-child { font-weight: 650; }
     .qr-summary td { font-weight: 650; background: var(--bcn-sunken); }
+    /* Rows QBO gave an account id: clicking one starts an adjustment against
+       it, so the affordance has to be visible without shouting. */
+    .qr-clickable { cursor: pointer; }
+    .qr-clickable td:first-child { text-decoration: underline;
+      text-decoration-color: var(--bcn-border-strong, #c3cdc8);
+      text-underline-offset: 2px; }
+    .qr-clickable:hover td { background: var(--bcn-accent-soft, #eaf1fb); }
     .qr-empty { padding: 28px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -62,6 +69,7 @@
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
+  <script src="je-composer.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
@@ -69,10 +77,11 @@
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>QuickBooks Reports</div>
-          <div class="bcn-header-sub" id="subTitle">Read-only. Nothing here writes to QuickBooks.</div>
+          <div class="bcn-header-sub" id="subTitle">Reports read live from QuickBooks. Adjustments posted here write to the books.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
+          <button class="bcn-btn bcn-btn--dark" id="btnAdjust">Post adjustment</button>
           <button class="bcn-btn" id="btnCsv">CSV</button>
         </div>
       </header>
@@ -130,6 +139,20 @@
             <table class="qr-table" id="tbl">
               <tbody><tr><td class="qr-empty">Nothing loaded.</td></tr></tbody>
             </table>
+          </div>
+        </div>
+
+        <div class="qr-card" id="adjCard" hidden>
+          <div class="qr-card-head">
+            <div>
+              <div class="qr-title">Adjustments posted from SILO</div>
+              <div class="qr-sub">Deleting an entry in QuickBooks does not tell SILO.
+                Void it here so the adjustment can be corrected and posted again.</div>
+            </div>
+            <div class="qr-sub" id="adjCount"></div>
+          </div>
+          <div class="qr-scroll">
+            <table class="qr-table" id="adjTbl"><tbody></tbody></table>
           </div>
         </div>
       </div>
@@ -205,6 +228,9 @@
 
     const body = lastRows.map((r) => {
       const cls = r.kind === 'summary' ? 'qr-summary' : `qr-depth-${r.depth}`;
+      // QBO stamps the account id on the first cell of an account row. Where it
+      // is there, the row is the fastest way into an adjustment about it.
+      const acctId = r.cells?.[0]?.id ? String(r.cells[0].id) : '';
       const tds = headers.map((_, i) => {
         const cell = r.cells[i];
         const v = cell?.value ?? '';
@@ -215,7 +241,12 @@
         const isNum = v !== '' && Number.isFinite(num);
         return `<td class="qr-num${isNum && num < 0 ? ' qr-neg' : ''}">${esc(v)}</td>`;
       }).join('');
-      return `<tr class="${cls}">${tds}</tr>`;
+      return `<tr class="${cls}${acctId ? ' qr-clickable' : ''}"`
+        + (acctId
+          ? ` data-acct="${esc(acctId)}" data-label="${esc(r.cells[0].value || '')}"`
+            + ' title="Post an adjustment against this account"'
+          : '')
+        + `>${tds}</tr>`;
     }).join('');
 
     tbl.innerHTML = thead + `<tbody>${body}</tbody>`;
@@ -285,6 +316,72 @@
     }
   }
 
+  // The point of putting this here is proximity: the entry gets written where
+  // the discrepancy was noticed, and the report refreshes on top of it, so the
+  // adjustment is checked against the same numbers that prompted it.
+  function openComposer(prefill) {
+    if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
+    if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
+    window.SiloJE.open({
+      db: sb,
+      companyId: _co.id,
+      context: `qbo-reports:${el('report').value}`,
+      prefill,
+      onPosted: async (out) => {
+        setStatus(
+          `Posted journal entry ${out.doc_number || out.qbo_journal_entry_id}. Re-running the report…`,
+          'pos', 10000);
+        await loadAdjustments();
+        await run();
+      },
+    });
+  }
+
+  async function loadAdjustments() {
+    let q = sb.from('journal_adjustments_v')
+      .select('*').eq('status', 'posted')
+      .order('entry_date', { ascending: false }).limit(10);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { console.warn('adjustments load failed', error); return; }
+
+    const rows = data || [];
+    el('adjCard').hidden = rows.length === 0;
+    if (!rows.length) return;
+
+    el('adjCount').textContent = `${rows.length} shown`;
+    el('adjTbl').innerHTML =
+      '<thead><tr><th>Date</th><th>Memo</th><th class="qr-num">Amount</th>'
+      + '<th>Entry</th><th></th></tr></thead><tbody>'
+      + rows.map((a) => `<tr>
+          <td class="bcn-mono">${esc(a.entry_date)}</td>
+          <td>${esc(a.memo)}</td>
+          <td class="qr-num">${esc(fmtMoney(a.debits))}</td>
+          <td class="bcn-mono">${esc(a.qbo_doc_number || a.qbo_journal_entry_id || '—')}</td>
+          <td><button class="bcn-btn" data-void="${esc(a.id)}">Void</button></td>
+        </tr>`).join('')
+      + '</tbody>';
+  }
+
+  function fmtMoney(n) {
+    const v = Number(n || 0);
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  async function voidAdjustment(id) {
+    const reason = prompt(
+      'Why is this being voided? (Recorded against the posting.)\n\n'
+      + 'Void only after the entry has actually been deleted in QuickBooks — '
+      + 'this changes what SILO believes, not what QuickBooks holds.');
+    if (reason === null) return;
+    const { data, error } = await sb.rpc('void_journal_adjustment',
+      { p_adjustment_id: id, p_reason: reason });
+    if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
+    setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}.`
+      + ' The adjustment is back to approved and can be posted again.', 'pos', 10000);
+    await loadAdjustments();
+  }
+
   function csv() {
     if (!lastRows.length) { setStatus('Run a report first.', 'info', 3000); return; }
     const lines = lastRows.map((r) =>
@@ -331,6 +428,26 @@
 
     el('btnRun').addEventListener('click', run);
     el('btnCsv').addEventListener('click', csv);
+    el('btnAdjust').addEventListener('click', () => openComposer({
+      entryDate: el('to').value || undefined,
+    }));
+
+    el('tbl').addEventListener('click', (e) => {
+      const tr = e.target.closest('tr[data-acct]');
+      if (!tr) return;
+      openComposer({
+        entryDate: el('to').value || undefined,
+        memo: `Adjustment — ${tr.dataset.label || ''}`.trim(),
+        lines: [{ accountId: tr.dataset.acct, postingType: 'Debit' }, {}],
+      });
+    });
+
+    el('adjTbl').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-void]');
+      if (b) voidAdjustment(b.dataset.void);
+    });
+
+    await loadAdjustments();
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');

@@ -15281,3 +15281,20 @@ create index if not exists idx_schedule_items_payment_request
 -- so it is included here verbatim rather than summarised.
 -- ---------------------------------------------------------------------------
 \i migrations/20260831180000_card_coding.sql
+
+
+-- ---------------------------------------------------------------------------
+-- Card coding follow-ons and journal adjustments (20260831190000 - 20260901020000)
+-- All idempotent, included verbatim rather than summarised. Order matters:
+-- journal_adjustments references quickbooks_journal_postings (20260827210000)
+-- and can_manage_journal_entries() (20260831180000), and the RLS tightening
+-- last replaces policies both earlier files create.
+-- ---------------------------------------------------------------------------
+\i migrations/20260831190000_card_name_and_holder.sql
+\i migrations/20260831200000_qbo_entities_and_line_entity.sql
+\i migrations/20260831210000_apply_card_coding_rpc.sql
+\i migrations/20260831220000_void_card_posting.sql
+\i migrations/20260831230000_rule_hits_and_conflicts.sql
+\i migrations/20260901000000_journal_adjustments.sql
+\i migrations/20260901010000_void_journal_adjustment.sql
+\i migrations/20260901020000_posted_status_not_client_writable.sql
