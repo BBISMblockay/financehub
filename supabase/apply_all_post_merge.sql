@@ -15092,3 +15092,20 @@ create index if not exists idx_schedule_items_payment_request
 -- narrowed CTE text). Idempotent; verifies itself against sales_by_day.
 -- ---------------------------------------------------------------------------
 \i migrations/20260901140000_wow_sales_daily_rollup.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260901150000_wow_organic_posts.sql
+-- Organic Instagram posts for the Week over Week report, replacing the manual
+-- "type these in" table. Must run AFTER 20260901120000 (it calls wow_window).
+-- ---------------------------------------------------------------------------
+\i migrations/20260901150000_wow_organic_posts.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260901160000_meta_followers_group.sql / 20260901170000_wow_creatives.sql
+-- Followers becomes its own Meta objective, and ad-level creative performance
+-- grouped by objective for the Week over Week report. Both run AFTER
+-- 20260901120000 (wow_window) and the followers split must precede
+-- wow_creatives, which groups by it.
+-- ---------------------------------------------------------------------------
+\i migrations/20260901160000_meta_followers_group.sql
+\i migrations/20260901170000_wow_creatives.sql
