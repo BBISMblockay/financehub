@@ -1551,9 +1551,10 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
 
 /**
  * Keeps products_master current with Shopify's active catalog. Only
- * touches catalog-identity columns (title, type, vendor, image, barcode) --
+ * touches catalog-identity columns (title, type, vendor, image, barcode) and
+ * Shopify's own storefront status (shopify_status, online_published_at) --
  * never the human-curated merchandising fields (cost, reorder points,
- * lifecycle_status, notes, etc.), which are absent from the upsert payload
+ * is_active, lifecycle_status, notes, etc.), which are absent from the upsert payload
  * and therefore untouched by Postgres's ON CONFLICT DO UPDATE. New SKUs
  * land with those fields blank for someone to fill in; existing SKUs never
  * get overwritten or deleted, even if since discontinued in Shopify.
@@ -1608,6 +1609,18 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
       vendor_original: p.vendor || null,
       image_url: imageUrl,
       barcode: v.barcode || null,
+      // Shopify's own storefront status. These are SYNC-owned and deliberately
+      // separate from is_active / lifecycle_status, which stay human-owned per
+      // the contract above -- writing Shopify's answer into is_active would have
+      // the nightly sync silently reverse a merchandiser's edit.
+      //
+      // Worth having because SILO had no way to answer "is this product live on
+      // the website": is_active is true on all 24,056 rows, is_discontinued has
+      // never been set, and lifecycle_status only carries PO-pipeline states.
+      // The product objects are already fetched for all three statuses just
+      // above, so this costs no extra API call.
+      shopify_status: p.status || null,
+      online_published_at: p.published_at || null,
       shop_domain: domain,
       updated_at: now,
     });
