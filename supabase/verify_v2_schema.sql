@@ -1631,6 +1631,29 @@ select
     else 'ok'
   end as wow_creatives;
 
+-- ── Storefront status on products_master (20260901180000) ─────────────
+-- Sammie asked "is this product live on the website" six different ways in the
+-- Ask SILO log and the honest answer was no: is_active is true on all 24,056
+-- rows, is_discontinued has never been set, lifecycle_status only carries PO
+-- states, and created_at is a bulk-load date on 98% of rows. These two columns
+-- are the answer, and the catalog note is what stops the next person repeating
+-- those six rounds.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='products_master'
+                       and column_name='shopify_status')
+      then 'MISSING — run 20260901180000_products_shopify_status.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='products_master'
+                       and column_name='online_published_at')
+      then 'MISSING — products_master.online_published_at; "live on the site" needs the publication date as well as the status'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='products_master' and description like '%shopify_status%')
+      then 'MISSING — the products_master catalog note does not mention shopify_status; Ask SILO will keep answering "no such field" and steer people to is_active, which is true on every row'
+    else 'ok'
+  end as products_storefront_status;
+
 -- ── Shopify sessions / funnel (20260826150000) ────────────────────────
 select
   case

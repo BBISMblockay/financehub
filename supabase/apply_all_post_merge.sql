@@ -15109,3 +15109,11 @@ create index if not exists idx_schedule_items_payment_request
 -- ---------------------------------------------------------------------------
 \i migrations/20260901160000_meta_followers_group.sql
 \i migrations/20260901170000_wow_creatives.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260901180000_products_shopify_status.sql
+-- shopify_status / online_published_at on products_master, so "is this product
+-- live on the website" is answerable. Sync-owned columns; the catalog sync
+-- fills them from product objects it already fetches.
+-- ---------------------------------------------------------------------------
+\i migrations/20260901180000_products_shopify_status.sql
