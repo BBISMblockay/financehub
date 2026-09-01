@@ -1441,10 +1441,19 @@ select
                      where n.nspname='public' and p.proname='wow_report'
                        and pg_get_functiondef(p.oid) like '%distinct on (variant_sku)%')
       then 'MISSING — inventory de-duplication dropped; the matview has duplicate sku/location rows and a naive sum overstates online units by ~5%'
+    -- The 364-day rule moved into wow_window (20260901120000) when the report
+    -- gained day/month/YTD grains, so it is checked there rather than in
+    -- wow_report's own text. It still has to hold: 365 lands the comparison
+    -- window on different weekdays, which moves a 7-day number more than real
+    -- demand does.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_window'
+                       and pg_get_functiondef(p.oid) like '%364%')
+      then 'MISSING — wow_window last-year offset is not 364 days; 365 misaligns the weekdays'
     when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
                      where n.nspname='public' and p.proname='wow_report'
-                       and pg_get_functiondef(p.oid) like '%364%')
-      then 'MISSING — last-year window is not 364 days; 365 misaligns the weekdays'
+                       and pg_get_functiondef(p.oid) like '%wow_window(p_report_date, p_grain)%')
+      then 'MISSING — wow_report no longer delegates its window to wow_window; the grain selector would move the headline and nothing else'
     else 'ok'
   end as wow_report_rpc;
 
@@ -1464,6 +1473,40 @@ select
       then 'MISSING — wow_report reads the matview directly; authenticated has no grant on it and it is not company-scoped. Use inventory_on_hand_current_v'
     else 'ok'
   end as wow_report_entries;
+
+-- ── Week over Week period grains (20260901120000) ─────────────────────
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_window')
+      then 'MISSING — run 20260901120000_wow_grain_windows.sql'
+    -- ROWS 1 is not cosmetic. A set-returning function defaults to an estimate
+    -- of 1000 rows and every report RPC joins this one as `cross join w`, so
+    -- losing it multiplies every downstream row estimate by 1000 and the
+    -- report starts timing out rather than returning a wrong answer.
+    when (select prorows from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+          where n.nspname='public' and p.proname='wow_window') <> 1
+      then 'MISSING — wow_window lost ROWS 1; the planner will estimate 1000 rows per cross join w and the report RPCs will time out'
+    -- Every report RPC must take the grain AND actually delegate its window to
+    -- wow_window. One that quietly kept its own hand-typed 7-day CTE would
+    -- render under a "Month to date" heading while measuring a week.
+    when exists (select 1 from unnest(array['wow_report','wow_kpi_compare','wow_funnel','wow_landing_pages',
+                                            'wow_discount_codes','wow_paid_media','wow_paid_media_not_synced',
+                                            'wow_paid_media_reality']) fn
+                 where not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                                   where n.nspname='public' and p.proname=fn
+                                     and pg_get_function_identity_arguments(p.oid) like '%p_grain%'
+                                     and pg_get_functiondef(p.oid) like '%wow_window(p_report_date, p_grain)%'))
+      then 'MISSING — a wow_* report RPC is not on wow_window; its window would disagree with the rest of the report'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='wow_report_entries' and column_name='grain')
+      then 'MISSING — wow_report_entries.grain; notes for a day and a week on the same date would overwrite each other'
+    when not exists (select 1 from pg_indexes where schemaname='public'
+                       and tablename='wow_report_entries'
+                       and indexdef like '%(company_entity_id, report_date, grain)%')
+      then 'MISSING — the (company, report_date, grain) unique index; the page upserts on that conflict target'
+    else 'ok'
+  end as wow_report_grains;
 
 -- ── Shopify sessions / funnel (20260826150000) ────────────────────────
 select
