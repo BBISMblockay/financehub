@@ -145,9 +145,10 @@
         <div class="qr-card" id="adjCard" hidden>
           <div class="qr-card-head">
             <div>
-              <div class="qr-title">Adjustments posted from SILO</div>
-              <div class="qr-sub">Deleting an entry in QuickBooks does not tell SILO.
-                Void it here so the adjustment can be corrected and posted again.</div>
+              <div class="qr-title">Adjustments</div>
+              <div class="qr-sub">Staged entries live here until posted — nothing reaches
+                QuickBooks until you approve one. Deleting an entry in QuickBooks does not
+                tell SILO, so void a posted one here to correct and re-post it.</div>
             </div>
             <div class="qr-sub" id="adjCount"></div>
           </div>
@@ -319,7 +320,7 @@
   // The point of putting this here is proximity: the entry gets written where
   // the discrepancy was noticed, and the report refreshes on top of it, so the
   // adjustment is checked against the same numbers that prompted it.
-  function openComposer(prefill) {
+  function openComposer(prefill, adjustmentId) {
     if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
     if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
     window.SiloJE.open({
@@ -327,6 +328,8 @@
       companyId: _co.id,
       context: `qbo-reports:${el('report').value}`,
       prefill,
+      adjustmentId,
+      onStaged: loadAdjustments,
       onPosted: async (out) => {
         setStatus(
           `Posted journal entry ${out.doc_number || out.qbo_journal_entry_id}. Re-running the report…`,
@@ -337,10 +340,13 @@
     });
   }
 
+  // Staged drafts are listed alongside posted entries on purpose: a draft you
+  // cannot find again is an orphan, and staging would just be a way to lose
+  // work. This is where you come back to one.
   async function loadAdjustments() {
     let q = sb.from('journal_adjustments_v')
-      .select('*').eq('status', 'posted')
-      .order('entry_date', { ascending: false }).limit(10);
+      .select('*').in('status', ['draft', 'approved', 'posted'])
+      .order('entry_date', { ascending: false }).limit(25);
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
     if (error) { console.warn('adjustments load failed', error); return; }
@@ -349,18 +355,42 @@
     el('adjCard').hidden = rows.length === 0;
     if (!rows.length) return;
 
-    el('adjCount').textContent = `${rows.length} shown`;
+    const staged = rows.filter((a) => a.status !== 'posted');
+    const posted = rows.filter((a) => a.status === 'posted');
+    el('adjCount').textContent =
+      `${staged.length} staged · ${posted.length} posted`;
+
+    const section = (label, list, actions) => list.length
+      ? `<tr class="qr-summary"><td colspan="5">${esc(label)}</td></tr>`
+        + list.map((a) => `<tr>
+            <td class="bcn-mono">${esc(a.entry_date)}</td>
+            <td>${esc(a.memo)}</td>
+            <td class="qr-num">${esc(fmtMoney(a.debits))}</td>
+            <td class="bcn-mono">${esc(a.qbo_doc_number || a.qbo_journal_entry_id
+              || `${a.line_count} lines · ${a.status}`)}</td>
+            <td>${actions(a)}</td>
+          </tr>`).join('')
+      : '';
+
     el('adjTbl').innerHTML =
       '<thead><tr><th>Date</th><th>Memo</th><th class="qr-num">Amount</th>'
       + '<th>Entry</th><th></th></tr></thead><tbody>'
-      + rows.map((a) => `<tr>
-          <td class="bcn-mono">${esc(a.entry_date)}</td>
-          <td>${esc(a.memo)}</td>
-          <td class="qr-num">${esc(fmtMoney(a.debits))}</td>
-          <td class="bcn-mono">${esc(a.qbo_doc_number || a.qbo_journal_entry_id || '—')}</td>
-          <td><button class="bcn-btn" data-void="${esc(a.id)}">Void</button></td>
-        </tr>`).join('')
+      + section('Staged — not yet in QuickBooks', staged, (a) =>
+        `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
+        + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`)
+      + section('Posted to QuickBooks', posted, (a) =>
+        `<button class="bcn-btn" data-void="${esc(a.id)}">Void</button>`)
       + '</tbody>';
+  }
+
+  async function discardAdjustment(id) {
+    if (!confirm('Discard this staged adjustment? It has not been posted, so '
+      + 'nothing in QuickBooks changes.')) return;
+    // The lines go with it -- journal_adjustment_lines cascades on the parent.
+    const { error } = await sb.from('journal_adjustments').delete().eq('id', id);
+    if (error) { setStatus(`Could not discard: ${error.message}`, 'neg', 10000); return; }
+    setStatus('Staged adjustment discarded.', 'pos', 5000);
+    await loadAdjustments();
   }
 
   function fmtMoney(n) {
@@ -443,8 +473,12 @@
     });
 
     el('adjTbl').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-void]');
-      if (b) voidAdjustment(b.dataset.void);
+      const v = e.target.closest('[data-void]');
+      if (v) { voidAdjustment(v.dataset.void); return; }
+      const o = e.target.closest('[data-open]');
+      if (o) { openComposer(null, o.dataset.open); return; }
+      const d = e.target.closest('[data-drop]');
+      if (d) discardAdjustment(d.dataset.drop);
     });
 
     await loadAdjustments();
