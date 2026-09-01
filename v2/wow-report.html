@@ -22,6 +22,23 @@
       padding:8px 2px; border-bottom:1px solid var(--bcn-border);
     }
     .wow-period b { color:var(--bcn-ink); font-weight:600; }
+    /* The two comparison chips wrap as units. Without this the delta broke
+       mid-chip and left a bare "YoY" on its own line under the number. */
+    .bcn-kpi-delta span { white-space:nowrap; }
+
+    /* Sits in the header next to the date, because the grain and the date
+       together are the one question "which period am I reading". */
+    .wow-grain { gap:0; }
+    .wow-grain .bcn-tab {
+      font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
+      padding:5px 11px; cursor:pointer; background:none; border:1px solid var(--bcn-border-strong);
+      border-right:none; color:var(--bcn-ink-3); border-radius:0;
+    }
+    .wow-grain .bcn-tab:first-child { border-radius:6px 0 0 6px; }
+    .wow-grain .bcn-tab:last-child  { border-radius:0 6px 6px 0; border-right:1px solid var(--bcn-border-strong); }
+    .wow-grain .bcn-tab--active { background:var(--bcn-band); color:#fff; border-color:var(--bcn-band); }
+    .wow-grain .bcn-tab:not(.bcn-tab--active):hover { color:var(--bcn-ink); background:var(--bcn-sunken); }
+
     .wow-date { font-family:var(--bcn-mono); font-size:11px; padding:4px 8px;
       border:1px solid var(--bcn-border-strong); border-radius:6px;
       background:var(--bcn-surface); color:var(--bcn-ink); }
@@ -198,11 +215,17 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Week over Week</h1>
-        <div class="bcn-header-sub">
-          Online store · live · notes save per week
+        <div class="bcn-header-sub" id="headerSub">
+          Online store · live · notes save per period
         </div>
       </div>
       <div class="bcn-header-actions">
+        <div class="bcn-tabs wow-grain" id="grainTabs" role="tablist" aria-label="Reporting period">
+          <button type="button" class="bcn-tab" data-grain="day"   role="tab">Day</button>
+          <button type="button" class="bcn-tab" data-grain="week"  role="tab">Week</button>
+          <button type="button" class="bcn-tab" data-grain="month" role="tab">MTD</button>
+          <button type="button" class="bcn-tab" data-grain="ytd"   role="tab">YTD</button>
+        </div>
         <input type="date" id="reportDate" class="wow-date" />
         <span class="wow-saved" id="savedAt">&nbsp;</span>
         <button id="btnSave" class="bcn-btn bcn-btn--primary">Save</button>
@@ -254,7 +277,7 @@
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-card-meta" id="funnelMeta">online store</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th title="Each step as a share of sessions, against last week. Change alone drops whenever traffic drops.">vs sessions</th><th>Same wk LY</th><th title="Against the same week last year. Counts show relative change, rates show percentage points — same meaning as the Change column.">YoY</th><th title="Each step as a share of sessions, against the same week last year. Strips out the traffic difference, so it reads the step's own performance rather than the year's.">YoY vs sess</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th data-gl="cur">This week</th><th data-gl="prev">Prior week</th><th>Change</th><th title="Each step as a share of sessions, against the prior period. Change alone drops whenever traffic drops.">vs sessions</th><th data-gl="lyShort">Same wk LY</th><th data-gl-title="tipYoy" title="Against the same week last year. Counts show relative change, rates show percentage points — same meaning as the Change column.">YoY</th><th data-gl-title="tipYoySess" title="Each step as a share of sessions, against the same week last year. Strips out the traffic difference, so it reads the step's own performance rather than the year's.">YoY vs sess</th></tr></thead>
           <tbody id="funnelBody"></tbody></table>
         </div></div>
       
@@ -265,7 +288,7 @@
       </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>Top products</h2><span class="bcn-card-meta" id="prodMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th title="On hand ÷ this week&#39;s daily rate. Each SKU counted once.">Days of stock</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th title="On hand ÷ this period&#39;s daily rate. Each SKU counted once.">Days of stock</th></tr></thead>
           <tbody id="prodBody"><tr><td class="wow-empty" colspan="5"><span class="wow-spin"></span>Loading…</td></tr></tbody></table>
         </div></div>
       
@@ -274,9 +297,9 @@
           <div class="wow-say-body"><textarea id="say_products" class="wow-say-box" data-say="products" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div><div class="bcn-card">
-        <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta">vs prior week</span></div>
+        <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta" data-gl="prevShort">vs prior week</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th>vs prior week</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th data-gl="prevShort">vs prior week</th></tr></thead>
           <tbody id="catBody"></tbody></table>
         </div></div>
       
@@ -300,7 +323,7 @@
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Sessions by landing page</h2><span class="bcn-card-meta" id="lpMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th title="Top 250 pages per day — a slice, not every page.">Landing page</th><th>Sessions</th><th>vs prior wk</th><th>Cart rate</th><th>Conv. rate</th><th>Orders</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th title="Top 250 pages per day — a slice, not every page.">Landing page</th><th>Sessions</th><th data-gl="prevAbbr">vs prior wk</th><th>Cart rate</th><th>Conv. rate</th><th>Orders</th></tr></thead>
           <tbody id="lpBody"></tbody></table>
         </div></div>
         <details class="wow-say" data-key="landing">
@@ -378,7 +401,7 @@
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Sales by affiliate code</h2><span class="bcn-card-meta" id="dcMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Code</th><th>Sales $</th><th>Orders</th><th>AOV</th><th>% of total</th><th>vs prior wk</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Code</th><th>Sales $</th><th>Orders</th><th>AOV</th><th>% of total</th><th data-gl="prevAbbr">vs prior wk</th></tr></thead>
           <tbody id="dcBody"></tbody></table>
         </div></div>
       </div>
@@ -444,6 +467,58 @@
     const cls = v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim';
     return `<td class="${cls}">${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%</td>`;
   }
+
+  // One vocabulary per grain. Every "prior week" on the page reads from here,
+  // because a month-to-date column headed "vs prior week" is not a cosmetic
+  // slip -- it tells the reader the number means something it does not.
+  //
+  // `delta` is what the KPI band calls the change against the previous period.
+  // The RPCs return that under the jsonb key `wow` and last year's under `yoy`
+  // whatever the grain -- those keys are the report's original names for the
+  // two comparison SLOTS, not claims about weeks. They are not renamed here
+  // because the key is shared with wow_kpi_compare and every export column
+  // already written against it; the label is what the reader sees.
+  const GRAINS = {
+    day: {
+      label:'Day',
+      cur:'This day',      prev:'Prior day',   prevShort:'vs prior day',    prevAbbr:'vs prior day',
+      lyShort:'Same day LY', ly:'Same day last year', delta:'DoD',
+      sub:'day vs the day before',
+      periodCur:'This day', periodPrev:'Prior day', periodLy:'Same weekday last year',
+      tipYoy:'Against the same weekday last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same weekday last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+    week: {
+      label:'Week',
+      cur:'This week',     prev:'Prior week',  prevShort:'vs prior week',   prevAbbr:'vs prior wk',
+      lyShort:'Same wk LY',  ly:'Same week last year', delta:'WoW',
+      sub:'7 days vs the 7 before',
+      periodCur:'This week', periodPrev:'Prior week', periodLy:'Same week last year',
+      tipYoy:'Against the same week last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same week last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+    month: {
+      label:'Month to date',
+      cur:'Month to date', prev:'Prior month', prevShort:'vs prior month',  prevAbbr:'vs prior mo',
+      lyShort:'Same period LY', ly:'Same period last year', delta:'MoM',
+      sub:'month to date vs the same days last month',
+      periodCur:'Month to date', periodPrev:'Same days, prior month', periodLy:'Same dates last year',
+      tipYoy:'Against the same dates last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same dates last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+    ytd: {
+      label:'Year to date',
+      cur:'Year to date',  prev:'Prior period', prevShort:'vs prior period', prevAbbr:'vs prior per.',
+      lyShort:'Same period LY', ly:'Same period last year', delta:'vs prev',
+      sub:'year to date vs the equal-length period before it',
+      periodCur:'Year to date', periodPrev:'Prior period, equal length', periodLy:'Same dates last year',
+      tipYoy:'Against the same dates last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same dates last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+  };
+  const GRAIN_KEYS = Object.keys(GRAINS);
+  let GRAIN = 'week';
+  const G = () => GRAINS[GRAIN] || GRAINS.week;
 
   let DATA = null;
   let ENTRY = { commentary:{}, manual:{}, tables:{} };
@@ -642,7 +717,8 @@
     ENTRY = { commentary:{}, manual:{}, tables:{} };
     try {
       let q = sb.from('wow_report_entries').select('sections,updated_at')
-                .eq('report_date', el('reportDate').value);
+                .eq('report_date', el('reportDate').value)
+                .eq('grain', GRAIN);
       if (_co?.id) q = q.eq('company_entity_id', _co.id);
       const { data, error } = await q.maybeSingle();
       if (error) throw error;
@@ -660,10 +736,13 @@
   async function saveEntry(){
     try {
       el('btnSave').disabled = true;
-      const row = { report_date: el('reportDate').value, sections: collectWritten() };
+      const row = { report_date: el('reportDate').value, grain: GRAIN, sections: collectWritten() };
       if (_co?.id) row.company_entity_id = _co.id;
+      // Keyed by grain too: a day's commentary and a week's commentary for the
+      // same date are different documents, and without this the daily view
+      // would silently overwrite the week's notes.
       const { error } = await sb.from('wow_report_entries')
-        .upsert(row, { onConflict: 'company_entity_id,report_date' });
+        .upsert(row, { onConflict: 'company_entity_id,report_date,grain' });
       if (error) throw error;
       markSaved(new Date().toLocaleTimeString());
       setStatus('Saved.', 'pos', 2000);
@@ -708,9 +787,11 @@
     const part  = (label, v) => v == null
       ? `<span class="dim">${label} —</span>`
       : `<span class="${cls(v)}">${arrow(v)} ${Math.abs(v).toFixed(1)}% ${label}</span>`;
+    // m.wow / m.yoy are the RPC's names for the two comparison slots, not a
+    // claim that the period is a week -- the label comes from the grain.
     const line = (m, tail) => {
       if (!m) return tail;
-      return `${part('WoW', m.wow)} &nbsp; ${part('YoY', m.yoy)}`;
+      return `${part(G().delta, m.wow)} &nbsp; ${part('YoY', m.yoy)}`;
     };
     const set = (id, m, tail) => { const n = el(id); if (n) n.innerHTML = line(m, tail); };
     set('kSalesSub',  k.total_sales, 'matches Shopify "total sales"');
@@ -827,7 +908,7 @@
     const lyRaw = f.ly, lyComplete = !!(lyRaw && Number(lyRaw.days) >= 7);
     const l = lyComplete ? lyRaw : null;
     if (!t || !Number(t.sessions)) {
-      body.innerHTML = '<tr><td colspan="8" style="color:var(--bcn-ink-3)">No session data for this week yet — the Shopify sessions sync populates this nightly.</td></tr>';
+      body.innerHTML = `<tr><td colspan="8" style="color:var(--bcn-ink-3)">No session data for this ${esc(G().label.toLowerCase())} yet — the Shopify sessions sync populates this nightly.</td></tr>`;
       el('funnelMeta').textContent = 'no session data yet';
       return;
     }
@@ -999,18 +1080,77 @@
     }
   }
 
+  // Every "prior week" the page prints comes from one place. A [data-gl] node
+  // names which word it wants; nothing hardcodes a period anywhere else.
+  function applyGrainLabels(){
+    const g = G();
+    document.querySelectorAll('[data-gl]').forEach(n => {
+      const v = g[n.dataset.gl];
+      if (v != null) n.textContent = v;
+    });
+    document.querySelectorAll('[data-gl-title]').forEach(n => {
+      const v = g[n.dataset.glTitle];
+      if (v != null) n.title = v;
+    });
+    document.querySelectorAll('#grainTabs .bcn-tab').forEach(b => {
+      const on = b.dataset.grain === GRAIN;
+      b.classList.toggle('bcn-tab--active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    const sub = el('headerSub');
+    if (sub) sub.textContent = `Online store · ${g.sub} · notes save per period`;
+    document.title = `SILO · ${g.label === 'Week' ? 'Week over Week' : 'Week over Week — ' + g.label}`;
+  }
+
+  // The grain lives in the URL as well as localStorage: a report someone is
+  // reading at YTD is a link they will paste to someone else, and a link that
+  // silently reopens at the sender's default grain shows the recipient a
+  // different set of numbers under the same URL.
+  function readGrain(){
+    const q = new URLSearchParams(location.search).get('grain');
+    if (q && GRAIN_KEYS.includes(q)) return q;
+    try {
+      const v = localStorage.getItem('wow.grain');
+      if (v && GRAIN_KEYS.includes(v)) return v;
+    } catch (e) { /* private window: fall through to the default */ }
+    return 'week';
+  }
+  function writeGrain(){
+    try { localStorage.setItem('wow.grain', GRAIN); } catch (e) { /* not fatal */ }
+    const u = new URL(location.href);
+    u.searchParams.set('grain', GRAIN);
+    history.replaceState(null, '', u);
+  }
+
+  async function setGrain(next){
+    if (!GRAIN_KEYS.includes(next) || next === GRAIN) return;
+    // Notes are stored per grain, so switching away from unsaved ones loses
+    // them exactly as switching the date does.
+    if (dirty && !confirm(`You have unsaved notes on this ${G().label.toLowerCase()}. Switch period anyway?`)) return;
+    GRAIN = next;
+    writeGrain();
+    applyGrainLabels();
+    await load();
+  }
+
   async function load(){
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+      // One grain for every call. If these were allowed to drift, the KPI band
+      // and the funnel below it would describe different periods while looking
+      // like one report.
+      const d = el('reportDate').value, gr = GRAIN;
       const [main, funnel, paid, landing, codes, cohorts, kpi] = await Promise.all([
-        sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
-        sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
-        sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
-        sb.rpc('wow_landing_pages', { p_report_date: el('reportDate').value, p_limit: 15 }),
-        sb.rpc('wow_discount_codes', { p_report_date: el('reportDate').value, p_limit: 20 }),
+        sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
+        sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
+        sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
+        sb.rpc('wow_landing_pages', { p_report_date: d, p_limit: 15, p_grain: gr }),
+        sb.rpc('wow_discount_codes', { p_report_date: d, p_limit: 20, p_grain: gr }),
+        // Cohorts are monthly by construction -- a retention curve has its own
+        // grain and does not follow this selector.
         sb.rpc('wow_cohorts', { p_months: 12 }),
-        sb.rpc('wow_kpi_compare', { p_report_date: el('reportDate').value }),
+        sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -1046,8 +1186,8 @@
         // Not an error -- but the totals below are genuinely incomplete, and a
         // partial week looks like a bad week rather than a partial one.
         setStatus(
-          `Showing ${DATA.window.start} – ${end}, but sales are only complete through ${DATA_THROUGH}. ` +
-          `Totals for the days after that are partial.`, 'warn');
+          `Showing ${G().label.toLowerCase()} ${DATA.window.start} – ${end}, but sales are only complete ` +
+          `through ${DATA_THROUGH}. Totals for the days after that are partial.`, 'warn');
       } else {
         setStatus(`Loaded ${DATA.window.start} – ${end}`, 'pos', 2500);
       }
@@ -1061,10 +1201,14 @@
     const d = DATA; if (!d) return;
     const w = d.window, c = d.core, cu = d.customers, inv = d.inventory, g = d.ga4;
 
+    // Print every window's real dates, always. At YTD on Dec 31 the prior
+    // period and last year are genuinely the same window -- that is arithmetic,
+    // not a bug, and the dates let the reader see it instead of being told.
+    const gl = G();
     el('periodBar').innerHTML =
-      `<span>This week <b>${esc(w.start)} → ${esc(w.end)}</b></span>` +
-      `<span>Prior week <b>${esc(w.prev_start)} → ${esc(w.prev_end)}</b></span>` +
-      `<span>Same week last year <b>${esc(w.ly_start)} → ${esc(w.ly_end)}</b></span>` +
+      `<span>${esc(gl.periodCur)} <b>${esc(w.start)} → ${esc(w.end)}</b></span>` +
+      `<span>${esc(gl.periodPrev)} <b>${esc(w.prev_start)} → ${esc(w.prev_end)}</b></span>` +
+      `<span>${esc(gl.periodLy)} <b>${esc(w.ly_start)} → ${esc(w.ly_end)}</b></span>` +
       `<span style="margin-left:auto">scope <b>online store</b></span>`;
 
     el('kSales').textContent  = money(c.total_sales);
@@ -1150,7 +1294,7 @@
           const cols = PAID_COLS[g.judged_on] || PAID_COLS.spend;
           const wowSpend = (g.prev_spend != null && Number(g.prev_spend) > 0)
             ? (() => { const pct = (Number(g.spend)-Number(g.prev_spend))/Number(g.prev_spend)*100;
-                       return `<span class="${pct>=0?'pos':'neg'}" style="font-size:10.5px">${pct>=0?'+':''}${pct.toFixed(0)}% vs prior wk</span>`; })()
+                       return `<span class="${pct>=0?'pos':'neg'}" style="font-size:10.5px">${pct>=0?'+':''}${pct.toFixed(0)}% ${esc(G().prevAbbr)}</span>`; })()
             : '';
           const rows = (g.campaigns||[]).map(c =>
             `<tr><td>${esc(c.campaign)}</td>${cols.map(([k,,kind]) => `<td>${fmtBy(c[k], kind)}</td>`).join('')}</tr>`).join('');
@@ -1221,13 +1365,14 @@
     const k = KPI || {}, pm = PAID || {}, fn = FUNNEL || {},
           lp = LANDING || {}, dc = CODES || {}, ch = COHORTS || {};
 
-    push('Week over Week — online store', `${DATA.window.start} to ${DATA.window.end}`);
-    push('Prior week', `${DATA.window.prev_start} to ${DATA.window.prev_end}`);
+    push(`Week over Week — online store — ${G().label}`, `${DATA.window.start} to ${DATA.window.end}`);
+    push(G().periodPrev, `${DATA.window.prev_start} to ${DATA.window.prev_end}`);
+    push(G().periodLy, `${DATA.window.ly_start} to ${DATA.window.ly_end}`);
     if (DATA_THROUGH) push('Sales complete through', DATA_THROUGH);
 
     // ---- headline ----
     section('KPIs');
-    push('Metric','Value','WoW %','YoY %');
+    push('Metric','Value',`${G().delta} %`,'YoY %');
     push('Total sales', DATA.core.total_sales, k.total_sales?.wow ?? '', k.total_sales?.yoy ?? '');
     push('Net sales',   DATA.core.net_sales,   k.net_sales?.wow ?? '',   k.net_sales?.yoy ?? '');
     push('Orders',      DATA.core.orders,      k.orders?.wow ?? '',      k.orders?.yoy ?? '');
@@ -1238,7 +1383,7 @@
 
     // ---- website & sales ----
     section('WEBSITE — funnel');
-    push('Stage','This week','Prior week','Change %','vs sessions %','Same week LY','YoY %','YoY vs sess %');
+    push('Stage', G().cur, G().prev, 'Change %', 'vs sessions %', G().ly, 'YoY %', 'YoY vs sess %');
     const t = fn.this, pv = fn.prev;
     // Same completeness guard the table uses. Sessions history only reaches
     // back to the first ShopifyQL backfill, so a year-ago window is often
@@ -1268,7 +1413,7 @@
     (DATA.top_products||[]).forEach(p => push(p.product, p.units, p.sales, p.on_hand ?? '', p.days_of_stock ?? ''));
 
     section('WEBSITE — sales by category');
-    push('Category','Net sales','% of total','vs prior week %');
+    push('Category','Net sales','% of total', `${G().prevShort} %`);
     (DATA.categories||[]).forEach(c => push(c.category, c.sales, c.pct, c.wow ?? ''));
 
     section('WEBSITE — all channels');
@@ -1276,7 +1421,7 @@
     (DATA.channels||[]).forEach(c => push(c.channel, c.sales, c.pct));
 
     section('WEBSITE — sessions by landing page');
-    push('Landing page','Sessions','vs prior wk %','Cart rate %','Conv rate %','Orders');
+    push('Landing page','Sessions', `${G().prevAbbr} %`, 'Cart rate %','Conv rate %','Orders');
     (lp.pages||[]).forEach(p => push(p.path, p.sessions, p.sessions_wow ?? '',
       p.cart_rate ?? '', p.conversion_rate ?? '', p.orders));
 
@@ -1317,7 +1462,7 @@
     (DATA.channels||[]).filter(c => /tiktok/i.test(c.channel||'')).forEach(c => push(c.channel, c.sales, c.pct));
 
     section('AFFILIATE — sales by code');
-    push('Code','Sales','Orders','AOV','% of total','vs prior wk %');
+    push('Code','Sales','Orders','AOV','% of total', `${G().prevAbbr} %`);
     (dc.codes||[]).forEach(c => push(c.code, c.sales, c.orders, c.aov ?? '',
       c.pct_of_total ?? '', c.sales_wow ?? ''));
     if (dc.total_sales) push('Coded / total', dc.coded_sales, dc.total_sales);
@@ -1356,7 +1501,7 @@
     const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `wow-${DATA.window.start}-to-${DATA.window.end}.csv`;
+    a.download = `wow-${GRAIN}-${DATA.window.start}-to-${DATA.window.end}.csv`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(a.href);
     setStatus('Exported', 'pos', 2000);
@@ -1397,9 +1542,17 @@
     // banner below does the warning the cap was pretending to do. The
     // default still lands on the last complete day, so nobody reads a
     // partial week by accident.
+    GRAIN = readGrain();
+    writeGrain();
+    applyGrainLabels();
+    el('grainTabs').addEventListener('click', ev => {
+      const b = ev.target.closest('[data-grain]');
+      if (b) setGrain(b.dataset.grain);
+    });
+
     el('reportDate').max = iso(new Date());
     el('reportDate').addEventListener('change', async () => {
-      if (dirty && !confirm('You have unsaved notes on this week. Switch date anyway?')) return;
+      if (dirty && !confirm(`You have unsaved notes on this ${G().label.toLowerCase()}. Switch date anyway?`)) return;
       await load();
     });
     el('btnRefresh').addEventListener('click', load);

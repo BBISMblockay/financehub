@@ -15064,3 +15064,14 @@ create index if not exists idx_schedule_items_payment_request
 -- Included verbatim, idempotent (IF EXISTS throughout).
 -- ---------------------------------------------------------------------------
 \i migrations/20260901030000_retire_silo_insights.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260901120000_wow_grain_windows.sql
+-- Day / week / month-to-date / year-to-date on the Week over Week report.
+-- Adds wow_window() and repoints every wow_* report RPC at it. Idempotent: it
+-- rewrites the DEPLOYED definition of each RPC rather than retyping the bodies,
+-- and skips any function that already carries p_grain -- so it must run AFTER
+-- every other migration that touches a wow_* function.
+-- ---------------------------------------------------------------------------
+\i migrations/20260901120000_wow_grain_windows.sql
