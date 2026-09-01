@@ -422,6 +422,7 @@
         <div class="bcn-header-sub" id="subTitle">Journal-ready Shopify sales and payout entries</div>
       </div>
       <div class="bcn-header-actions">
+        <button class="bcn-btn" id="btnPostAdjustment">Post adjustment</button>
         <button class="bcn-btn" id="btnExportRegister">Deposit register CSV</button>
         <button class="bcn-btn bcn-btn--primary" id="btnExportJournal">Journal CSV</button>
       </div>
@@ -460,6 +461,7 @@
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="fees">Processing fees</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="register">Deposit register</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="mapping">Account mapping</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="adjustments">Adjustments</button>
         <span class="bcn-tabs-meta" id="axPaneMeta"></span>
       </nav>
 
@@ -598,12 +600,37 @@
           </div>
         </section>
 
+        <section class="ax-pane" data-pane="adjustments" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Journal adjustments</div>
+                <div class="ax-card-sub">A hand-written entry, raised from whatever this export turned up.
+                  Staged entries live here until approved and posted &mdash; nothing reaches QuickBooks
+                  until then.</div>
+              </div>
+              <div class="ax-right-actions">
+                <button class="bcn-btn bcn-btn--primary" id="btnNewAdjustment">New adjustment</button>
+              </div>
+            </div>
+            <div class="ax-card-body ax-scroll">
+              <table class="ax-tbl" id="tblAdjustments">
+                <thead>
+                  <tr><th>Date</th><th>Memo</th><th class="num">Amount</th><th>Entry</th><th></th></tr>
+                </thead>
+                <tbody><tr><td colspan="5" class="ax-empty">No adjustments yet.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>
   </main>
 </div>
 
 <script src="../pages/config.js"></script>
+<script src="je-composer.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="dept-guard.js" data-departments="exec,finance"></script>
 <script src="nav-config.js"></script>
@@ -655,6 +682,9 @@
     sumLocations: document.getElementById('sumLocations'),
     journalBalanceChip: document.getElementById('journalBalanceChip'),
     registerChip: document.getElementById('registerChip'),
+    btnPostAdjustment: document.getElementById('btnPostAdjustment'),
+    btnNewAdjustment: document.getElementById('btnNewAdjustment'),
+    tblAdjustments: document.querySelector('#tblAdjustments tbody'),
   };
 
   function setStatus(msg, type = 'info', ms = 0) {
@@ -1658,6 +1688,111 @@
     }
   }
 
+  // The composer is the same widget /v2/qbo-reports.html uses -- it stages a
+  // draft, shows it read back from the database on a review screen, and only
+  // posts to QuickBooks on Approve & post. Nothing here bypasses that.
+  function fmtMoney(n) {
+    const v = Number(n || 0);
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function periodEntryDate() {
+    // The period being reviewed, not today -- an adjustment raised while
+    // looking at July's export should default to a July date, not whatever
+    // day it happens to be opened.
+    const m = el.month.value;
+    if (!m) return undefined;
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+  }
+
+  function openComposer(prefill, adjustmentId) {
+    if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
+    if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
+    window.SiloJE.open({
+      db: sb,
+      companyId: _co.id,
+      context: `accounting-export:${el.month.value || 'no-period'}`,
+      prefill,
+      adjustmentId,
+      onStaged: loadAdjustments,
+      onPosted: async (out) => {
+        setStatus(`Posted journal entry ${out.doc_number || out.qbo_journal_entry_id}.`, 'pos', 8000);
+        await loadAdjustments();
+      },
+    });
+  }
+
+  async function loadAdjustments() {
+    let q = sb.from('journal_adjustments_v')
+      .select('*').in('status', ['draft', 'approved', 'posted'])
+      .order('entry_date', { ascending: false }).limit(25);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { console.warn('adjustments load failed', error); return; }
+
+    const rows = data || [];
+    if (!rows.length) {
+      el.tblAdjustments.innerHTML = '<tr><td colspan="5" class="ax-empty">No adjustments yet.</td></tr>';
+      return;
+    }
+
+    const staged = rows.filter((a) => a.status !== 'posted');
+    const posted = rows.filter((a) => a.status === 'posted');
+    const section = (label, list, actions) => list.length
+      ? `<tr class="ax-grand-row"><td colspan="5">${esc(label)}</td></tr>`
+        + list.map((a) => `<tr>
+            <td>${esc(a.entry_date)}</td>
+            <td>${esc(a.memo)}</td>
+            <td class="num">${fmtMoney(a.debits)}</td>
+            <td>${esc(a.qbo_doc_number || a.qbo_journal_entry_id || `${a.line_count} lines · ${a.status}`)}</td>
+            <td>${actions(a)}</td>
+          </tr>`).join('')
+      : '';
+
+    el.tblAdjustments.innerHTML =
+      section('Staged — not yet in QuickBooks', staged, (a) =>
+        `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
+        + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`)
+      + section('Posted to QuickBooks', posted, (a) =>
+        `<button class="bcn-btn" data-void="${esc(a.id)}">Void</button>`);
+  }
+
+  async function discardAdjustment(id) {
+    if (!confirm('Discard this staged adjustment? It has not been posted, so '
+      + 'nothing in QuickBooks changes.')) return;
+    const { error } = await sb.from('journal_adjustments').delete().eq('id', id);
+    if (error) { setStatus(`Could not discard: ${error.message}`, 'neg', 10000); return; }
+    setStatus('Staged adjustment discarded.', 'pos', 5000);
+    await loadAdjustments();
+  }
+
+  async function voidAdjustment(id) {
+    const reason = prompt(
+      'Why is this being voided? (Recorded against the posting.)\n\n'
+      + 'Void only after the entry has actually been deleted in QuickBooks — '
+      + 'this changes what SILO believes, not what QuickBooks holds.');
+    if (reason === null) return;
+    const { data, error } = await sb.rpc('void_journal_adjustment',
+      { p_adjustment_id: id, p_reason: reason });
+    if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
+    setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}.`
+      + ' The adjustment is back to approved and can be posted again.', 'pos', 10000);
+    await loadAdjustments();
+  }
+
+  el.tblAdjustments.addEventListener('click', (e) => {
+    const v = e.target.closest('[data-void]');
+    if (v) { voidAdjustment(v.dataset.void); return; }
+    const o = e.target.closest('[data-open]');
+    if (o) { openComposer(null, o.dataset.open); return; }
+    const d = e.target.closest('[data-drop]');
+    if (d) discardAdjustment(d.dataset.drop);
+  });
+
+  el.btnPostAdjustment.addEventListener('click', () => openComposer({ entryDate: periodEntryDate() }));
+  el.btnNewAdjustment.addEventListener('click', () => openComposer({ entryDate: periodEntryDate() }));
+
   el.btnRun.addEventListener('click', run);
   // Remembered per tab, not per session: coming back to this page mid-close
   // should land where you left off, but a fresh browser opens on the journal.
@@ -1729,6 +1864,7 @@
       loadQboLocations(),
       loadLocationMap(),
       loadStoreNames(),
+      loadAdjustments(),
     ]);
     renderMap();
     let saved = null;
