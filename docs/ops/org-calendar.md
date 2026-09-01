@@ -21,11 +21,13 @@ This doc is the audit + architecture record for the org-wide calendar layer.
   due-date buckets; no chronological view.
 - The launch workbench's *feed* tab is the only agenda-style UI.
 - The nightly **insights engine** (`compute_silo_insights()`, surfaced in
-  `/v2/insights.html`) is the only server-side cross-tool aggregator. It reads
-  all six date domains (launches, launch tasks, POs, AP, AR, sales/inventory)
-  but emits severity findings, not dated events. Its domain taxonomy and
-  deep-link pattern transfer directly to the calendar; its data layer does not
-  (SECURITY DEFINER, service-role-only, one digest row per company).
+  `/v2/insights.html`) was the only other server-side cross-tool aggregator at
+  the time this was written — it read six date domains (launches, launch
+  tasks, POs, AP, AR, sales/inventory) and emitted severity findings, not
+  dated events. **Retired 2026-09-01** (`20260901030000_retire_silo_insights.sql`):
+  it hadn't been kept current since it shipped and its AI narrative had never
+  actually worked (the GitHub Actions secret it needed was never set). Noted
+  here for history, not as prior art to build against — nothing replaced it.
 - `v2/profile.html` builds a personal "attention feed" from 8+ client-side
   queries — per-user, browser-side, not reusable.
 - **Conclusion: no second aggregation architecture exists to conflict with.**

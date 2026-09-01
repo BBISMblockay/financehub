@@ -158,14 +158,11 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 
 **All operational tables are company-isolated** as of 20260709000000. `inventory_on_hand` was the last data holdout (20260708030000: Sheets-sync rows stamped, legacy NULLs backfilled, company-blind admin policy replaced); `launch_task_templates` was the last schema holdout (20260709000000: empty table with `true` policies, scoped before first use). A full audit of every remaining table/view without `company_entity_id` confirmed the rest are correct by design: the `entity_*` family, `activity_events`, and `files` scope by membership, `profiles` is per-user, `job_sync_state` is service_role-only (RLS on, zero policies = deny clients), and all 31 flagged views are either security_invoker over scoped tables or DEFINER MV readers filtering `active_company_id()`.
 
-## Action Items & Insights digest
+## Action Items & Insights — retired 2026-09-01
 
-`/v2/insights.html` reads a nightly-generated digest from `silo_insights_digest`, populated by `scripts/generate-insights.mjs` as the last step of the Shopify sync workflow. Two parts:
+`/v2/insights.html`, `compute_silo_insights()`, `silo_insights_digest`, and `scripts/generate-insights.mjs` are gone (`20260901030000_retire_silo_insights.sql`). The rules engine hadn't been touched since it shipped 2026-07-09 and didn't know about anything built since — card coding, journal adjustments, comp requests, mail routing, product concepts, returns. Its six original domains (sales pace, inventory stockout/dead stock, purchasing draft/overdue POs, launch readiness/overdue tasks, AR aging, AP overdue/large payment requests) still ran correctly against live data when checked, so this wasn't a bug fix — it was a call that the module wasn't worth keeping current.
 
-1. **Findings** — `compute_silo_insights(company_entity_id)` is a deterministic SQL rules engine (sales pace vs prior year, inventory stockout risk / dead stock, purchasing draft/overdue POs, launch readiness / overdue tasks, AR aging, AP overdue/large payment requests). Thresholds are hardcoded in the migration with comments explaining each one.
-2. **Narrative** — the findings JSON is sent to the Anthropic API with a system prompt that forbids inventing any fact beyond what's given. Requires the `ANTHROPIC_API_KEY` GitHub Actions secret; without it the step still stores findings, just with `narrative = null`, and the UI falls back to "AI summary not available — see the findings below." The workflow step is `continue-on-error: true` so a narrative-generation hiccup never fails the sync.
-
-AR/AP findings are hidden client-side for non-finance departments (same session-cached department used for nav filtering) — see `v2/dept-guard.js` / the department plan in `docs/ops/`.
+The half that had been silently broken since the feature existed: the nightly AI narrative needs the `ANTHROPIC_API_KEY` GitHub Actions secret, which was never set. Every digest ever generated logged `ANTHROPIC_API_KEY not set` and stored `narrative = null` — the "Briefing" card always showed the fallback placeholder, never the real thing, confirmed from the last real run's job log before retiring it.
 
 ## Write access
 
@@ -213,7 +210,6 @@ supabase/
     20260709020000_sync_jobs_allow_payouts_sync.sql
     20260709030000_slack_po_status_accuracy.sql
     20260709040000_slack_skip_draft_po_posts.sql
-    20260709050000_silo_insights_engine.sql
     20260710000000_accounting_tax_income_wash.sql
     20260713180000_approve_access_request_entity_membership.sql
     20260713190000_harden_active_company_function_grants.sql
@@ -324,6 +320,7 @@ supabase/
     20260901000000_journal_adjustments.sql
     20260901010000_void_journal_adjustment.sql
     20260901020000_posted_status_not_client_writable.sql
+    20260901030000_retire_silo_insights.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

@@ -497,18 +497,23 @@ select
     else 'MISSING — run 20260709010000_shopify_payouts_accounting.sql'
   end as shopify_payouts_accounting;
 
+-- Action Items & Insights was retired 2026-09-01 (20260901030000) --
+-- compute_silo_insights() and silo_insights_digest are gone on purpose. This
+-- checks the RETIREMENT held, not that the feature exists: either object
+-- reappearing means something (a bad merge, a stale branch re-applying old
+-- migrations) resurrected a module that was deliberately removed.
 select
   case
-    when exists (
-      select 1 from information_schema.tables
-      where table_schema = 'public' and table_name = 'silo_insights_digest'
-    ) and exists (
-      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname = 'compute_silo_insights'
-    ) and not has_function_privilege('authenticated', 'public.compute_silo_insights(uuid)', 'EXECUTE')
-    then 'ok'
-    else 'MISSING — run 20260709050000_silo_insights_engine.sql'
-  end as silo_insights_engine;
+    when exists (select 1 from information_schema.tables
+                  where table_schema = 'public' and table_name = 'silo_insights_digest')
+      then 'UNEXPECTED — silo_insights_digest exists; Action Items was retired 2026-09-01, '
+        || 'see 20260901030000_retire_silo_insights.sql'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'compute_silo_insights')
+      then 'UNEXPECTED — compute_silo_insights() exists; Action Items was retired 2026-09-01, '
+        || 'see 20260901030000_retire_silo_insights.sql'
+    else 'ok'
+  end as silo_insights_retired;
 
 select
   case
