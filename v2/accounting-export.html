@@ -477,6 +477,7 @@
               </div>
               <div class="ax-right-actions">
                 <span class="ax-chip" id="journalBalanceChip">Balanced: —</span>
+                <button class="bcn-btn bcn-btn--dark" id="btnBuildJournal">Build &amp; post journal entry</button>
               </div>
             </div>
 
@@ -684,6 +685,7 @@
     registerChip: document.getElementById('registerChip'),
     btnPostAdjustment: document.getElementById('btnPostAdjustment'),
     btnNewAdjustment: document.getElementById('btnNewAdjustment'),
+    btnBuildJournal: document.getElementById('btnBuildJournal'),
     tblAdjustments: document.querySelector('#tblAdjustments tbody'),
   };
 
@@ -882,6 +884,90 @@
       journalCr: salesCr + feeCr,
       diff: round2((salesDr + feeDr) - (salesCr + feeCr)),
     };
+  }
+
+  // Builds the SAME lines the Sales Journal card and the Journal CSV already
+  // compute -- salesEntryLines() per location bucket, feeRowsByStore() per
+  // payout store -- and stages them as one journal entry through the
+  // composer, instead of leaving the accountant to retype 20+ rows by hand
+  // from what this page already knows. This is the actual computed entry,
+  // not a blank form: "Post adjustment" stays for a genuine ad-hoc
+  // correction someone spots while looking at the numbers.
+  function buildJournalLines() {
+    const lines = [];
+    const unmapped = [];
+
+    for (const b of state.buckets) {
+      const loc = b.location_name || b.location_tag;
+      const locId = state.locationMap[b.location_tag] || '';
+      for (const l of salesEntryLines(b)) {
+        if (!l.dr && !l.cr) continue;
+        if (l.unmapped) { unmapped.push(`${l.account} (${loc})`); continue; }
+        lines.push({
+          accountId: l.qboAccountId,
+          postingType: l.dr ? 'Debit' : 'Credit',
+          amount: l.dr || l.cr,
+          locationId: locId,
+          description: `Shopify Sales Summary — ${loc}`,
+        });
+      }
+    }
+
+    for (const [domain, v] of feeRowsByStore()) {
+      if (!v.fees) continue;
+      const fee = coa('processing_fees');
+      const clr = coa('accounts_receivable');
+      if (fee.unmapped) unmapped.push(`${fee.name} (${prettyStore(domain)} fees)`);
+      if (clr.unmapped) unmapped.push(`${clr.name} (${prettyStore(domain)} fees)`);
+      if (!fee.unmapped && !clr.unmapped) {
+        const desc = `Shopify Payout Fees — ${prettyStore(domain)}`;
+        lines.push({ accountId: fee.id, postingType: 'Debit', amount: v.fees, description: desc });
+        lines.push({ accountId: clr.id, postingType: 'Credit', amount: v.fees, description: desc });
+      }
+    }
+
+    return { lines, unmapped };
+  }
+
+  function buildAndPostJournal() {
+    if (!state.period) { setStatus('Generate a period first.', 'info', 3000); return; }
+
+    const { lines, unmapped } = buildJournalLines();
+
+    if (unmapped.length) {
+      setStatus(`Can't build the entry — ${unmapped.length} account`
+        + `${unmapped.length === 1 ? '' : 's'} unmapped: ${unmapped.slice(0, 4).join(', ')}`
+        + `${unmapped.length > 4 ? ', …' : ''}. Map them on the Account mapping tab first.`,
+        'neg', 15000);
+      return;
+    }
+    if (!lines.length) {
+      setStatus('Nothing to post — every line for this period is zero.', 'info', 6000);
+      return;
+    }
+
+    // Accounts Receivable is an AR-typed account today (not a plain clearing
+    // account), and QuickBooks refuses a journal-entry line on an AR/AP
+    // account with no Entity. Aggregate Shopify revenue has no single real
+    // customer to assign, so every line hitting it WILL block at the review
+    // step until someone picks one -- said up front, with the real count,
+    // rather than left as a silent surprise two clicks later.
+    const clr = coa('accounts_receivable');
+    if (!clr.unmapped) {
+      const arLines = lines.filter((l) => l.accountId === clr.id).length;
+      if (arLines) {
+        setStatus(`${clr.name} is an Accounts Receivable-type account — QuickBooks requires a `
+          + `customer on every line that hits it. ${arLines} of ${lines.length} lines do. Fix the `
+          + 'mapping to a non-AR clearing account, or assign a customer to each on the review step.',
+          'info', 15000);
+      }
+    }
+
+    openComposer({
+      entryDate: periodEntryDate(),
+      memo: `Shopify sales & payout fees — ${state.period}`,
+      lines,
+    });
   }
 
   function render() {
@@ -1792,6 +1878,7 @@
 
   el.btnPostAdjustment.addEventListener('click', () => openComposer({ entryDate: periodEntryDate() }));
   el.btnNewAdjustment.addEventListener('click', () => openComposer({ entryDate: periodEntryDate() }));
+  el.btnBuildJournal.addEventListener('click', buildAndPostJournal);
 
   el.btnRun.addEventListener('click', run);
   // Remembered per tab, not per session: coming back to this page mid-close
