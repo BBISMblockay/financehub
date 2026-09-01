@@ -1508,6 +1508,23 @@ select
     else 'ok'
   end as wow_report_grains;
 
+-- ── Week over Week sbd column list (20260901130000) ───────────────────
+-- Not a style check. `select s.*` in these CTEs materialises ~30 columns of a
+-- 1.1M-row table when eight are read, and at YTD that alone was the difference
+-- between 3.67s and 0.83s over the same rows -- enough to push wow_report past
+-- the 8s statement_timeout `authenticated` carries and fail the page outright.
+-- A migration that rebuilds either function from the older repo text would
+-- reintroduce it, and the symptom (only the widest grain fails, only for real
+-- users, never for a superuser connection) is expensive to rediscover.
+select
+  case
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname in ('wow_report','wow_kpi_compare')
+                   and pg_get_functiondef(p.oid) like '%select s.* from public.sales_by_day s%')
+      then 'MISSING — a wow_* sbd CTE is back to select s.*; YTD will exceed the 8s authenticated statement_timeout. Run 20260901130000_wow_narrow_sbd_cte.sql'
+    else 'ok'
+  end as wow_sbd_narrow;
+
 -- ── Shopify sessions / funnel (20260826150000) ────────────────────────
 select
   case
