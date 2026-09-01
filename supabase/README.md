@@ -316,6 +316,14 @@ supabase/
     20260827180000_paid_media_reality_check.sql
     20260827200000_review_scale_1_4_and_goal_dates.sql
     20260831180000_card_coding.sql
+    20260831190000_card_name_and_holder.sql
+    20260831200000_qbo_entities_and_line_entity.sql
+    20260831210000_apply_card_coding_rpc.sql
+    20260831220000_void_card_posting.sql
+    20260831230000_rule_hits_and_conflicts.sql
+    20260901000000_journal_adjustments.sql
+    20260901010000_void_journal_adjustment.sql
+    20260901020000_posted_status_not_client_writable.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

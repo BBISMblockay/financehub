@@ -1,17 +1,23 @@
-// Posts a coded card batch to QuickBooks Online as a JournalEntry.
+// Posts a JournalEntry to QuickBooks Online. Two sources, one write path:
+// a coded card batch (batch_id) or a hand-written adjustment (adjustment_id).
 //
 // This is the only write path to QuickBooks in SILO. Everything it does is
-// arranged around one property: it must be impossible to post the same batch
+// arranged around one property: it must be impossible to post the same thing
 // twice, and impossible to believe a post succeeded when it did not.
 //
-//   - the entry is REBUILT here from card_transactions, never taken from the
-//     browser, so what posts is what the database holds
-//   - the batch must already be 'approved' and its card explicitly enabled
-//   - a 'posted' row in quickbooks_journal_postings is written under a partial
-//     unique index on (company, source, source_ref), so a concurrent second
-//     call loses the race rather than posting a duplicate
-//   - after Intuit accepts, the entry is READ BACK and compared line-for-line;
-//     a mismatch is recorded rather than reported as a clean success
+//   - the entry is REBUILT here from card_transactions or from
+//     journal_adjustment_lines, never taken from the browser, so what posts is
+//     what the database holds
+//   - the source must already be 'approved' -- and for a card batch, its card
+//     explicitly enabled for posting
+//   - a 'posted' row in quickbooks_journal_postings is written BEFORE Intuit is
+//     called, under a partial unique index on (company, source, source_ref), so
+//     a concurrent second call loses the race rather than posting a duplicate
+//   - after Intuit accepts, the entry is READ BACK and compared on line count
+//     and both totals; a mismatch is recorded rather than reported as success
+//
+// Adding a source means filling in the shared variables below and nothing else.
+// A second posting function would mean a second place to get all of that wrong.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -103,8 +109,13 @@ Deno.serve(async (req) => {
     authHeader.replace('Bearer ', ''));
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
-  const { batch_id } = await req.json().catch(() => ({}));
-  if (!batch_id) return json({ error: 'batch_id required' }, 400);
+  const { batch_id, adjustment_id } = await req.json().catch(() => ({}));
+  if (!batch_id && !adjustment_id) {
+    return json({ error: 'batch_id or adjustment_id required' }, 400);
+  }
+  if (batch_id && adjustment_id) {
+    return json({ error: 'pass batch_id or adjustment_id, not both' }, 400);
+  }
 
   // The caller's permission is re-checked through THEIR token against RLS,
   // not inferred here: this function holds the service-role key, so a check it
@@ -125,59 +136,21 @@ Deno.serve(async (req) => {
   }
   const companyId = profile.active_company_id;
 
-  const { data: batch } = await supabase
-    .from('card_import_batches').select('*')
-    .eq('id', batch_id).eq('company_entity_id', companyId).maybeSingle();
-  if (!batch) return json({ error: 'Batch not found' }, 404);
-  if (batch.status === 'posted') return json({ error: 'This batch is already posted' }, 409);
-  if (batch.status !== 'approved') {
-    return json({ error: `Batch must be approved before posting (it is ${batch.status})` }, 409);
-  }
-  if (!batch.entry_date) return json({ error: 'Batch has no entry date' }, 400);
+  // Two sources, one write path. The guarantees that matter -- rebuilt from the
+  // database, claimed before Intuit is called, read back afterwards -- are
+  // shared, so a second posting function would mean a second place to get them
+  // wrong.
+  let lines: any[] = [];
+  let entryDate = '';
+  let privateNote = '';
+  let periodStart: string | null = null;
+  let periodEnd: string | null = null;
+  let source = '';
+  let sourceRef = '';
 
-  const { data: src } = await supabase
-    .from('card_sources').select('*').eq('id', batch.source_id).maybeSingle();
-  if (!src) return json({ error: 'Card source not found' }, 404);
-  if (!src.posting_enabled) {
-    return json({ error: `Posting is turned off for ${src.display_name}` }, 409);
-  }
-  if (!src.credit_qbo_account_id) {
-    return json({ error: `${src.display_name} has no balancing account set` }, 400);
-  }
-
-  // The ID is what posts. A name alone cannot be sent to QuickBooks, so a card
-  // carrying only a typed name is not configured, however complete it looks.
-  const isAp = /Accounts (Payable|Receivable)/i.test(src.credit_qbo_account_type || '');
-  if (isAp && !src.credit_vendor_qbo_id) {
-    const kind = /Accounts Receivable/i.test(src.credit_qbo_account_type || '')
-      ? 'customer' : 'vendor';
-    return json({
-      error: `${src.credit_qbo_account_name} is an ${src.credit_qbo_account_type} account, `
-        + `so QuickBooks requires a ${kind} on that line`
-        + (src.credit_vendor_name
-          ? ` — "${src.credit_vendor_name}" is stored as text, not as a ${kind} record. `
-            + 'Re-pick it from the list on the Cards tab.'
-          : '. Set one on the Cards tab.'),
-    }, 400);
-  }
-
-  const { data: txns } = await supabase
-    .from('card_transactions').select('*')
-    .eq('batch_id', batch_id).eq('status', 'coded');
-
-  const coded = (txns || []).filter((t: any) => t.qbo_account_id);
-  if (!coded.length) return json({ error: 'No coded rows to post' }, 400);
-
-  const { count: uncoded } = await supabase
-    .from('card_transactions').select('id', { count: 'exact', head: true })
-    .eq('batch_id', batch_id).eq('status', 'uncoded');
-  if (uncoded) return json({ error: `${uncoded} row(s) are still uncoded` }, 400);
-
-  // ---- build the entry from the database, not from the browser ----
-  // Which accounts require an Entity on their line. Read from the synced
-  // chart rather than assumed: a row coded to an intercompany receivable
-  // ('Sugar Hill Receivable', 'Two Wrongs Receivable') is an AR line, and
-  // QuickBooks refuses the WHOLE entry if any such line lacks an Entity.
+  // Which accounts require an Entity on their line, read from the synced chart
+  // rather than assumed: QuickBooks refuses the WHOLE entry if an AR or AP
+  // line lacks one.
   const { data: acctRows } = await supabase
     .from('quickbooks_accounts')
     .select('qbo_account_id, name, account_type')
@@ -187,73 +160,188 @@ Deno.serve(async (req) => {
   const needsEntity = (id: unknown) =>
     ['Accounts Receivable', 'Accounts Payable'].includes(acctType.get(String(id)) || '');
 
-  const lines: any[] = [];
-  let net = 0;
+  if (batch_id) {
+    const { data: batch } = await supabase
+      .from('card_import_batches').select('*')
+      .eq('id', batch_id).eq('company_entity_id', companyId).maybeSingle();
+    if (!batch) return json({ error: 'Batch not found' }, 404);
+    if (batch.status === 'posted') return json({ error: 'This batch is already posted' }, 409);
+    if (batch.status !== 'approved') {
+      return json({ error: `Batch must be approved before posting (it is ${batch.status})` }, 409);
+    }
+    if (!batch.entry_date) return json({ error: 'Batch has no entry date' }, 400);
 
-  // Checked before anything is staged: failing here costs nothing, whereas
-  // failing at Intuit costs a claimed posting row and an opaque error.
-  const missingEntity = coded.filter((t: any) => needsEntity(t.qbo_account_id) && !t.entity_qbo_id);
-  if (missingEntity.length) {
-    const names = [...new Set(missingEntity
-      .map((t: any) => acctLabel.get(String(t.qbo_account_id)) || t.qbo_account_name))].slice(0, 4);
-    return json({
-      error: `${missingEntity.length} line(s) post to a receivable or payable account `
-        + `(${names.join(', ')}) with no entity. QuickBooks requires a customer or vendor `
-        + 'on those lines.',
-    }, 400);
-  }
+    const { data: src } = await supabase
+      .from('card_sources').select('*').eq('id', batch.source_id).maybeSingle();
+    if (!src) return json({ error: 'Card source not found' }, 404);
+    if (!src.posting_enabled) {
+      return json({ error: `Posting is turned off for ${src.display_name}` }, 409);
+    }
+    if (!src.credit_qbo_account_id) {
+      return json({ error: `${src.display_name} has no balancing account set` }, 400);
+    }
 
-  for (const t of coded) {
-    const amount = round2(Number(t.amount));
-    if (amount === 0) continue;
-    net += amount;
-    const locId = t.qbo_location_id || src.default_qbo_location_id || null;
+    // The ID is what posts. A name alone cannot be sent to QuickBooks, so a card
+    // carrying only a typed name is not configured, however complete it looks.
+    const isAp = /Accounts (Payable|Receivable)/i.test(src.credit_qbo_account_type || '');
+    if (isAp && !src.credit_vendor_qbo_id) {
+      const kind = /Accounts Receivable/i.test(src.credit_qbo_account_type || '')
+        ? 'customer' : 'vendor';
+      return json({
+        error: `${src.credit_qbo_account_name} is an ${src.credit_qbo_account_type} account, `
+          + `so QuickBooks requires a ${kind} on that line`
+          + (src.credit_vendor_name
+            ? ` — "${src.credit_vendor_name}" is stored as text, not as a ${kind} record. `
+              + 'Re-pick it from the list on the Cards tab.'
+            : '. Set one on the Cards tab.'),
+      }, 400);
+    }
+
+    const { data: txns } = await supabase
+      .from('card_transactions').select('*')
+      .eq('batch_id', batch_id).eq('status', 'coded');
+
+    const coded = (txns || []).filter((t: any) => t.qbo_account_id);
+    if (!coded.length) return json({ error: 'No coded rows to post' }, 400);
+
+    const { count: uncoded } = await supabase
+      .from('card_transactions').select('id', { count: 'exact', head: true })
+      .eq('batch_id', batch_id).eq('status', 'uncoded');
+    if (uncoded) return json({ error: `${uncoded} row(s) are still uncoded` }, 400);
+
+    // ---- build the entry from the database, not from the browser ----
+    // A row coded to an intercompany receivable ('Sugar Hill Receivable',
+    // 'Two Wrongs Receivable') is an AR line, which is why needsEntity above
+    // matters here and not only on hand-written adjustments.
+    let net = 0;
+
+    // Checked before anything is staged: failing here costs nothing, whereas
+    // failing at Intuit costs a claimed posting row and an opaque error.
+    const missingEntity = coded.filter((t: any) => needsEntity(t.qbo_account_id) && !t.entity_qbo_id);
+    if (missingEntity.length) {
+      const names = [...new Set(missingEntity
+        .map((t: any) => acctLabel.get(String(t.qbo_account_id)) || t.qbo_account_name))].slice(0, 4);
+      return json({
+        error: `${missingEntity.length} line(s) post to a receivable or payable account `
+          + `(${names.join(', ')}) with no entity. QuickBooks requires a customer or vendor `
+          + 'on those lines.',
+      }, 400);
+    }
+
+    for (const t of coded) {
+      const amount = round2(Number(t.amount));
+      if (amount === 0) continue;
+      net += amount;
+      const locId = t.qbo_location_id || src.default_qbo_location_id || null;
+      lines.push({
+        DetailType: 'JournalEntryLineDetail',
+        Amount: Math.abs(amount),
+        Description: [t.txn_date, t.description].filter(Boolean).join(' · ').slice(0, 4000),
+        JournalEntryLineDetail: {
+          PostingType: amount >= 0 ? 'Debit' : 'Credit',
+          AccountRef: { value: String(t.qbo_account_id) },
+          ...(t.entity_qbo_id
+            ? {
+              Entity: {
+                Type: t.entity_type === 'Vendor' ? 'Vendor' : 'Customer',
+                EntityRef: { value: String(t.entity_qbo_id) },
+              },
+            }
+            : {}),
+          ...(locId ? { DepartmentRef: { value: String(locId) } } : {}),
+        },
+      });
+    }
+
+    net = round2(net);
+    if (!lines.length) return json({ error: 'Every coded row is zero' }, 400);
+
     lines.push({
       DetailType: 'JournalEntryLineDetail',
-      Amount: Math.abs(amount),
-      Description: [t.txn_date, t.description].filter(Boolean).join(' · ').slice(0, 4000),
+      Amount: Math.abs(net),
+      Description: `${src.display_name} ${batch.label || ''}`.trim().slice(0, 4000),
       JournalEntryLineDetail: {
-        PostingType: amount >= 0 ? 'Debit' : 'Credit',
-        AccountRef: { value: String(t.qbo_account_id) },
-        ...(t.entity_qbo_id
+        PostingType: net >= 0 ? 'Credit' : 'Debit',
+        AccountRef: { value: String(src.credit_qbo_account_id) },
+        // Vendor on an AP line, Customer on an AR line -- QuickBooks rejects the
+        // wrong kind, and the kind follows from the account, not from a guess.
+        ...(src.credit_vendor_qbo_id
           ? {
             Entity: {
-              Type: t.entity_type === 'Vendor' ? 'Vendor' : 'Customer',
-              EntityRef: { value: String(t.entity_qbo_id) },
+              Type: /Accounts Receivable/i.test(src.credit_qbo_account_type || '')
+                ? 'Customer' : 'Vendor',
+              EntityRef: { value: String(src.credit_vendor_qbo_id) },
             },
           }
           : {}),
-        ...(locId ? { DepartmentRef: { value: String(locId) } } : {}),
+        ...(src.default_qbo_location_id
+          ? { DepartmentRef: { value: String(src.default_qbo_location_id) } }
+          : {}),
       },
     });
+
+    entryDate = batch.entry_date;
+    privateNote = `SILO card coding \u00b7 ${src.display_name} \u00b7 ${batch.label || ''}`.trim();
+    periodStart = batch.period_start;
+    periodEnd = batch.period_end;
+    source = 'card_import';
+    sourceRef = batch_id;
+
+  } else {
+    const { data: adj } = await supabase
+      .from('journal_adjustments').select('*')
+      .eq('id', adjustment_id).eq('company_entity_id', companyId).maybeSingle();
+    if (!adj) return json({ error: 'Adjustment not found' }, 404);
+    if (adj.status === 'posted') return json({ error: 'This adjustment is already posted' }, 409);
+    if (adj.status !== 'approved') {
+      return json({ error: `Adjustment must be approved before posting (it is ${adj.status})` }, 409);
+    }
+
+    const { data: adjLines } = await supabase
+      .from('journal_adjustment_lines').select('*')
+      .eq('adjustment_id', adjustment_id).order('line_no');
+
+    if (!adjLines || adjLines.length < 2) {
+      return json({ error: 'An entry needs at least two lines' }, 400);
+    }
+
+    const missing = adjLines.filter((l: any) => needsEntity(l.qbo_account_id) && !l.entity_qbo_id);
+    if (missing.length) {
+      const names = [...new Set(missing
+        .map((l: any) => acctLabel.get(String(l.qbo_account_id)) || l.qbo_account_name))].slice(0, 4);
+      return json({
+        error: `${missing.length} line(s) post to a receivable or payable account `
+          + `(${names.join(', ')}) with no entity. QuickBooks requires a customer or vendor `
+          + 'on those lines.',
+      }, 400);
+    }
+
+    lines = adjLines.map((l: any) => ({
+      DetailType: 'JournalEntryLineDetail',
+      Amount: round2(Number(l.amount)),
+      Description: String(l.description || '').slice(0, 4000),
+      JournalEntryLineDetail: {
+        PostingType: l.posting_type,
+        AccountRef: { value: String(l.qbo_account_id) },
+        ...(l.entity_qbo_id
+          ? {
+            Entity: {
+              Type: l.entity_type === 'Vendor' ? 'Vendor' : 'Customer',
+              EntityRef: { value: String(l.entity_qbo_id) },
+            },
+          }
+          : {}),
+        ...(l.qbo_location_id ? { DepartmentRef: { value: String(l.qbo_location_id) } } : {}),
+      },
+    }));
+
+    entryDate = adj.entry_date;
+    privateNote = `SILO adjustment \u00b7 ${adj.memo}`.slice(0, 4000);
+    periodStart = adj.entry_date;
+    periodEnd = adj.entry_date;
+    source = 'journal_adjustment';
+    sourceRef = adjustment_id;
   }
-
-  net = round2(net);
-  if (!lines.length) return json({ error: 'Every coded row is zero' }, 400);
-
-  lines.push({
-    DetailType: 'JournalEntryLineDetail',
-    Amount: Math.abs(net),
-    Description: `${src.display_name} ${batch.label || ''}`.trim().slice(0, 4000),
-    JournalEntryLineDetail: {
-      PostingType: net >= 0 ? 'Credit' : 'Debit',
-      AccountRef: { value: String(src.credit_qbo_account_id) },
-      // Vendor on an AP line, Customer on an AR line -- QuickBooks rejects the
-      // wrong kind, and the kind follows from the account, not from a guess.
-      ...(src.credit_vendor_qbo_id
-        ? {
-          Entity: {
-            Type: /Accounts Receivable/i.test(src.credit_qbo_account_type || '')
-              ? 'Customer' : 'Vendor',
-            EntityRef: { value: String(src.credit_vendor_qbo_id) },
-          },
-        }
-        : {}),
-      ...(src.default_qbo_location_id
-        ? { DepartmentRef: { value: String(src.default_qbo_location_id) } }
-        : {}),
-    },
-  });
 
   const dr = round2(lines.filter((l) => l.JournalEntryLineDetail.PostingType === 'Debit')
     .reduce((n, l) => n + l.Amount, 0));
@@ -264,8 +352,8 @@ Deno.serve(async (req) => {
   }
 
   const payload = {
-    TxnDate: batch.entry_date,
-    PrivateNote: `SILO card coding · ${src.display_name} · ${batch.label || ''}`.trim(),
+    TxnDate: entryDate,
+    PrivateNote: privateNote,
     Line: lines,
   };
 
@@ -277,10 +365,10 @@ Deno.serve(async (req) => {
   const { data: claim, error: claimErr } = await supabase
     .from('quickbooks_journal_postings').insert({
       company_entity_id: companyId,
-      source: 'card_import',
-      source_ref: batch_id,
-      period_start: batch.period_start,
-      period_end: batch.period_end,
+      source,
+      source_ref: sourceRef,
+      period_start: periodStart,
+      period_end: periodEnd,
       memo: payload.PrivateNote,
       payload,
       status: 'posted',
@@ -292,7 +380,11 @@ Deno.serve(async (req) => {
   if (claimErr) {
     // 23505 is the unique violation: someone already posted this batch.
     if ((claimErr as any).code === '23505') {
-      return json({ error: 'This batch has already been posted.' }, 409);
+      return json({
+        error: batch_id
+          ? 'This batch has already been posted.'
+          : 'This adjustment has already been posted.',
+      }, 409);
     }
     return json({ error: `Could not stage the entry: ${claimErr.message}` }, 500);
   }
@@ -384,11 +476,15 @@ Deno.serve(async (req) => {
     intuit_tid: intuitTid,
   }).eq('id', claim.id);
 
-  await supabase.from('card_import_batches').update({
-    status: 'posted',
-    posting_id: claim.id,
-    updated_at: new Date().toISOString(),
-  }).eq('id', batch_id);
+  if (batch_id) {
+    await supabase.from('card_import_batches').update({
+      status: 'posted', posting_id: claim.id, updated_at: new Date().toISOString(),
+    }).eq('id', batch_id);
+  } else {
+    await supabase.from('journal_adjustments').update({
+      status: 'posted', posting_id: claim.id, updated_at: new Date().toISOString(),
+    }).eq('id', adjustment_id);
+  }
 
   return json({
     ok: true,
