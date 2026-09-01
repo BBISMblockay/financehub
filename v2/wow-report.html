@@ -1141,8 +1141,28 @@
       // and the funnel below it would describe different periods while looking
       // like one report.
       const d = el('reportDate').value, gr = GRAIN;
-      const [main, funnel, paid, landing, codes, cohorts, kpi] = await Promise.all([
+
+      // TWO BATCHES, NOT ONE Promise.all -- this is a correctness fix, not a
+      // tidy-up. `authenticated` carries statement_timeout = 8s, and firing all
+      // seven at once meant seven concurrent readers of the same large tables
+      // contending for CPU and buffers. At YTD the Postgres log for a single
+      // load showed SEVEN cancellations inside forty seconds, three of them
+      // within 21 milliseconds of each other: wow_report measures ~3.1s alone
+      // and still lost that race, and wow_cohorts (~3.7s) failed alongside it.
+      //
+      // The two heavy calls are therefore kept out of each other's way.
+      // wow_report goes first on its own -- it feeds the KPI band, so the
+      // headline also lands sooner -- with wow_kpi_compare (~0.8s) alongside
+      // it, then everything else follows. Every other call is sub-second, so
+      // the second batch's long pole is wow_cohorts running essentially alone.
+      //
+      // Sequencing costs about a second of wall clock at YTD and is the
+      // difference between a slow report and no report.
+      const [main, kpi] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
+        sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
+      ]);
+      const [funnel, paid, landing, codes, cohorts] = await Promise.all([
         sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_landing_pages', { p_report_date: d, p_limit: 15, p_grain: gr }),
@@ -1150,7 +1170,6 @@
         // Cohorts are monthly by construction -- a retention curve has its own
         // grain and does not follow this selector.
         sb.rpc('wow_cohorts', { p_months: 12 }),
-        sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;

@@ -364,6 +364,16 @@ async function main() {
       console.error(`[error] monthly rollup mv refresh: ${rollupError.message}`);
     }
 
+    // Week over Week reads its sales figures from this rollup rather than from
+    // sales_by_day directly -- 137k rows against 1.14M. Without the refresh the
+    // report silently reports yesterday's numbers, so a failure here is a real
+    // error, not a warning.
+    const { error: wowRollupError } = await supabase.rpc('refresh_wow_sales_daily_mv');
+    if (wowRollupError) {
+      hadError = true;
+      console.error(`[error] wow sales daily mv refresh: ${wowRollupError.message}`);
+    }
+
     // The retired Sheets sync used to refresh this after its inventory
     // import — with Shopify as the sole inventory source, it happens here.
     if (!SKIP_INVENTORY) {

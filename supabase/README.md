@@ -311,6 +311,8 @@ supabase/
     20260826150000_shopify_sessions_daily.sql
     20260827180000_paid_media_reality_check.sql
     20260901120000_wow_grain_windows.sql
+    20260901130000_wow_narrow_sbd_cte.sql
+    20260901140000_wow_sales_daily_rollup.sql
     20260827200000_review_scale_1_4_and_goal_dates.sql
     20260831180000_card_coding.sql
     20260831190000_card_name_and_holder.sql

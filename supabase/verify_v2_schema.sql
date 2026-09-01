@@ -1508,6 +1508,64 @@ select
     else 'ok'
   end as wow_report_grains;
 
+-- ── Week over Week sbd column list (20260901130000) ───────────────────
+-- Not a style check. `select s.*` in these CTEs materialises ~30 columns of a
+-- 1.1M-row table when eight are read, and at YTD that alone was the difference
+-- between 3.67s and 0.83s over the same rows -- enough to push wow_report past
+-- the 8s statement_timeout `authenticated` carries and fail the page outright.
+-- A migration that rebuilds either function from the older repo text would
+-- reintroduce it, and the symptom (only the widest grain fails, only for real
+-- users, never for a superuser connection) is expensive to rediscover.
+select
+  case
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname in ('wow_report','wow_kpi_compare')
+                   and pg_get_functiondef(p.oid) like '%select s.* from public.sales_by_day s%')
+      then 'MISSING — a wow_* sbd CTE is back to select s.*; YTD will exceed the 8s authenticated statement_timeout. Run 20260901130000_wow_narrow_sbd_cte.sql'
+    else 'ok'
+  end as wow_sbd_narrow;
+
+-- ── Week over Week sales rollup (20260901140000) ──────────────────────
+-- The report reads its sales figures from a rollup because seven RPCs firing
+-- in parallel over sales_by_day blew the 8s authenticated statement_timeout on
+-- all of them at once at YTD. Four things have to stay true or that returns,
+-- or worse.
+select
+  case
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='wow_sales_daily_type_mv' and c.relkind='m')
+      then 'MISSING — run 20260901140000_wow_sales_daily_rollup.sql'
+    -- Without a unique index the nightly REFRESH cannot run CONCURRENTLY and
+    -- takes an AccessExclusiveLock, blocking every reader while it rebuilds.
+    when not exists (select 1 from pg_indexes where schemaname='public'
+                       and tablename='wow_sales_daily_type_mv'
+                       and indexdef like '%UNIQUE%')
+      then 'MISSING — wow_sales_daily_type_mv has no unique index; CONCURRENTLY refresh is impossible and the nightly refresh will lock out readers'
+    -- security_invoker MUST stay false. The matview carries no RLS and
+    -- authenticated holds no grant on it, so an invoker view would fail at
+    -- runtime -- and if the grant were then "fixed", it would serve every
+    -- company's sales to every caller.
+    when coalesce((select option_value from pg_class c
+                     join pg_namespace n on n.oid=c.relnamespace,
+                   lateral pg_options_to_table(c.reloptions)
+                   where n.nspname='public' and c.relname='wow_sales_daily_type_v'
+                     and option_name='security_invoker'), 'true') <> 'false'
+      then 'MISSING — wow_sales_daily_type_v is not security_invoker=false; it reads a matview that has no RLS'
+    when (select count(*) from information_schema.role_table_grants
+          where table_schema='public' and table_name='wow_sales_daily_type_mv'
+            and grantee in ('anon','authenticated')) > 0
+      then 'MISSING — the wow rollup matview is granted to anon/authenticated; it carries no RLS and no company filter. Read it through wow_sales_daily_type_v'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='refresh_wow_sales_daily_mv' and p.prosecdef)
+      then 'MISSING — refresh_wow_sales_daily_mv() absent or not SECURITY DEFINER; the nightly sync cannot refresh the rollup and the report would serve stale sales'
+    when exists (select 1 from unnest(array['wow_report','wow_kpi_compare']) fn
+                 where not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                                   where n.nspname='public' and p.proname=fn
+                                     and pg_get_functiondef(p.oid) like '%wow_sales_daily_type_v%'))
+      then 'MISSING — wow_report or wow_kpi_compare is back on sales_by_day directly; YTD will exceed the 8s statement_timeout under the page''s parallel load'
+    else 'ok'
+  end as wow_sales_rollup;
+
 -- ── Shopify sessions / funnel (20260826150000) ────────────────────────
 select
   case

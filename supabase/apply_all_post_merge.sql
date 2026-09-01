@@ -15075,3 +15075,20 @@ create index if not exists idx_schedule_items_payment_request
 -- every other migration that touches a wow_* function.
 -- ---------------------------------------------------------------------------
 \i migrations/20260901120000_wow_grain_windows.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260901130000_wow_narrow_sbd_cte.sql
+-- Narrows the sbd CTEs in wow_report / wow_kpi_compare to the columns actually
+-- read. Must run AFTER 20260901120000 (it matches the grain-aware signature).
+-- Idempotent: skips a function that is already narrowed.
+-- ---------------------------------------------------------------------------
+\i migrations/20260901130000_wow_narrow_sbd_cte.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260901140000_wow_sales_daily_rollup.sql
+-- The (company, location, day, product_type) sales rollup the Week over Week
+-- report reads, plus its refresh RPC, plus repointing wow_report /
+-- wow_kpi_compare at it. Must run AFTER 20260901130000 (it matches the
+-- narrowed CTE text). Idempotent; verifies itself against sales_by_day.
+-- ---------------------------------------------------------------------------
+\i migrations/20260901140000_wow_sales_daily_rollup.sql
