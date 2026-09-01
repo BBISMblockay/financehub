@@ -546,6 +546,10 @@
     },
   };
   const GRAIN_KEYS = Object.keys(GRAINS);
+  // Falls back to the <title>'s own text so a missing heading cannot blank the
+  // tab, and to a literal only if both are gone.
+  const PAGE_NAME = (document.querySelector('.bcn-header h1')?.textContent
+    || document.title.replace(/^SILO\s*·\s*/, '') || 'Marketing').trim();
   let GRAIN = 'week';
   const G = () => GRAINS[GRAIN] || GRAINS.week;
 
@@ -1133,7 +1137,12 @@
     });
     const sub = el('headerSub');
     if (sub) sub.textContent = `Online store · ${g.sub} · notes save per period`;
-    document.title = `SILO · ${g.label === 'Week' ? 'Week over Week' : 'Week over Week — ' + g.label}`;
+    // The page's name lives in the markup, not here. When it was renamed to
+    // "Marketing Report" this line still said "Week over Week" and quietly
+    // overwrote the browser tab on every load, so the tab and the heading
+    // disagreed. Reading the heading means a future rename is a one-line
+    // markup change and the tab follows it.
+    document.title = `SILO · ${PAGE_NAME}${GRAIN === 'week' ? '' : ' — ' + g.label}`;
   }
 
   // The grain lives in the URL as well as localStorage: a report someone is
