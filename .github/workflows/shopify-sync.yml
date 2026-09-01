@@ -186,8 +186,7 @@ jobs:
       - name: Refresh inventory mat view
         # Runs even if the orchestrator step above failed (e.g. its own
         # inline mat-view refresh timed out) or errored elsewhere — a slow
-        # cache refresh shouldn't block this from being retried, and the
-        # insights step below depends on base tables, not this step's success.
+        # cache refresh shouldn't block this from being retried on the next run.
         #
         # SKIPPED on the hourly refresh: this rebuilds a materialised view over
         # inventory_on_hand (~3.47M rows). The hourly cron exists to keep SALES
@@ -206,19 +205,3 @@ jobs:
           });
           "
 
-      - name: Generate Action Items & Insights digest
-        # Runs after sales/inventory are fresh so the sales/stockout findings
-        # reflect tonight's data. ANTHROPIC_API_KEY is optional — without it
-        # the script still stores findings (no AI narrative) rather than
-        # failing. Also runs regardless of earlier step outcomes (see above)
-        # so a mat-view timeout can never leave this digest stale again —
-        # continue-on-error covers an LLM API hiccup within this step itself.
-        #
-        # SKIPPED on the hourly refresh: this is a nightly BRIEFING and each run
-        # spends an Anthropic call writing the narrative. Regenerating it every
-        # hour would be 24 calls a day to restate the same day's findings.
-        if: ${{ !cancelled() && github.event.schedule != '0 */2 * * *' }}
-        continue-on-error: true
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node scripts/generate-insights.mjs

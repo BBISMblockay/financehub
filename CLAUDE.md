@@ -110,9 +110,9 @@ The Supabase client is then created with these values. If they're empty the page
 ## Three page patterns — use the right one
 
 ### Pattern 1: Full Beacon shell (preferred for new tools)
-Now the majority of `v2/` — 33 pages. Anything in `v2/` that loads `silo-chrome.js` but **not**
+Now the majority of `v2/` — 32 pages. Anything in `v2/` that loads `silo-chrome.js` but **not**
 `tool-shell.js` is Pattern 1: `accounting-export`, `bi-daily-trend`, `bi-product-search`,
-`bi-product-types`, `bi-sales-overview`, `bi-top-sellers`, `calendar`, `finance`, `insights`,
+`bi-product-types`, `bi-sales-overview`, `bi-top-sellers`, `calendar`, `finance`,
 `integrations`, `inventory`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`,
 `marketing-overview`, `my-review`, `planning-scenarios`, `po-builder`, `po-costing`, `po-report`,
 `product-concepts`, `products`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
@@ -363,7 +363,6 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `redo_return_items` | Line items per Redo return |
 | `meta_ad_creatives` / `meta_ad_performance_daily` | Meta ad-level creative metadata + daily performance |
 | `facebook_page_insights_daily` / `instagram_media_insights` | Meta organic insights |
-| `silo_insights_digest` | Nightly AI-written briefing over the deterministic findings behind `/v2/insights.html` |
 | `mail_items` | Mailroom queue (subject, sender, priority, assignee, status: open/done/archived) |
 | `mail_item_files` | Attachments per mail item (`mail-item-files` storage bucket) |
 | `mail_item_activity` | Activity log per mail item (status/assignment/priority changes, notifications sent) |
@@ -479,8 +478,7 @@ its ~2-day window going forward), `backfill-company-entity-large-tables.yml`, `m
 `diagnose-shopify-returns.yml`.
 
 Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (set in GitHub repo settings).
-Additionally: `ANTHROPIC_API_KEY` for the insights narrative (falls back to findings-only if unset) and
-`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPER_TOKEN` for Google ad-platform syncs.
+Additionally: `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPER_TOKEN` for Google ad-platform syncs.
 
 ---
 
@@ -562,7 +560,6 @@ than this section.
   inventory source (`shopify_connections`, `scripts/lib/shopify-sync-core.mjs`)
 - **Accounting Export** (`/v2/accounting-export.html`) — month → journal-ready entries + deposit
   register, backed by `shopify_payouts` and `accounting_coa_map`
-- **Action Items & Insights** (`/v2/insights.html`) — deterministic rules engine + nightly AI briefing
 - **Mailroom** (`/v2/mail-intake.html`, `/v2/mailroom.html`) — intake, routing, email notifications
 - **Org Calendar** (`/v2/calendar.html`) — one time layer over launches, tasks, POs, AP, payroll,
   live slots and mail via the `security_invoker` `calendar_events_v` union
