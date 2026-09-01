@@ -123,6 +123,14 @@
     .pos { color:var(--bcn-pos); } .neg { color:var(--bcn-neg); }
     .dim { color:var(--bcn-ink-4) !important; }
 
+    .wow-more {
+      display:block; width:100%; padding:9px 12px; border:none; border-top:1px dashed var(--bcn-border);
+      background:none; cursor:pointer; font-family:var(--bcn-mono); font-size:10.5px;
+      letter-spacing:.06em; text-transform:uppercase; color:var(--bcn-ink-3);
+    }
+    .wow-more:hover { background:var(--bcn-sunken); color:var(--bcn-ink); }
+    .wow-copy { text-align:left !important; white-space:normal !important; max-width:300px;
+      font-family:var(--bcn-font) !important; font-size:11px !important; color:var(--bcn-ink-3) !important; }
     .wow-thumb { width:34px; height:34px; object-fit:cover; border-radius:5px;
       border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; flex:none; }
     /* Post captions link out to Instagram. Default link blue is the one colour
@@ -359,11 +367,8 @@
           <div class="wow-say-body"><textarea id="say_paid" class="wow-say-box" data-say="paid" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div><div class="bcn-card">
-        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">purchase campaigns, top 10 by spend</span></div>
-        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Creative</th><th>Ad copy</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Clicks</th></tr></thead>
-          <tbody id="creBody"></tbody></table>
-        </div></div>
+        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta" id="creMeta">every ad that spent, by objective</span></div>
+        <div class="bcn-card-body" style="padding:0" id="creRoot"></div>
       
         <details class="wow-say" data-key="creatives">
           <summary>Notes on creative</summary>
@@ -784,6 +789,10 @@
   let CODES = null;
   let COHORTS = null;
   let ORGANIC = null;
+  let CREATIVES = null;
+  // How many ads are revealed per objective. Sammie asked for ten, then the
+  // next ten -- so this is per group and resets whenever the period changes.
+  let CRE_SHOWN = {};
   let KPI = null;
   let DATA_THROUGH = null;
   const FAILED = new Set();
@@ -1187,7 +1196,7 @@
         sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
       ]);
-      const [funnel, paid, landing, codes, cohorts, organic] = await Promise.all([
+      const [funnel, paid, landing, codes, cohorts, organic, creatives] = await Promise.all([
         sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_landing_pages', { p_report_date: d, p_limit: 15, p_grain: gr }),
@@ -1196,6 +1205,10 @@
         // grain and does not follow this selector.
         sb.rpc('wow_cohorts', { p_months: 12 }),
         sb.rpc('wow_organic_posts', { p_report_date: d, p_grain: gr, p_limit: 12 }),
+        // 50 per objective: enough for five "show ten more" presses without a
+        // round trip, and bounded so a YTD window (380 purchase ads) does not
+        // ship a megabyte of ad copy to render ten rows.
+        sb.rpc('wow_creatives', { p_report_date: d, p_grain: gr, p_limit: 50 }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -1219,6 +1232,10 @@
       ORGANIC = organic.error ? null : (organic.data || null);
       if (organic.error) FAILED.add('organic');
       if (organic.error) console.warn('organic posts unavailable:', organic.error.message);
+      CREATIVES = creatives.error ? null : (creatives.data || null);
+      if (creatives.error) FAILED.add('creatives');
+      if (creatives.error) console.warn('creatives unavailable:', creatives.error.message);
+      CRE_SHOWN = {};
       KPI = kpi.error ? null : (kpi.data || null);
       if (kpi.error) FAILED.add('kpi');
       if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
@@ -1463,13 +1480,88 @@
       : `<tr><td class="wow-empty" colspan="6">No Google spend in this window.</td></tr>`;
 
     // --- Creatives, purchase campaigns only ---
-    el('creBody').innerHTML = (pm.creatives||[]).map(a => `<tr>
-      <td><div class="wow-ad">${a.thumb ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" />` : ''}<span>${esc(a.ad)}</span></div></td>
-      <td style="text-align:left;white-space:normal;max-width:320px;font-size:11px;color:var(--bcn-ink-2)">${
-        a.copy ? esc(String(a.copy).slice(0, 180)) + (String(a.copy).length > 180 ? '…' : '') : '<span class="dim">—</span>'}</td>
-      <td>${money(a.spend)}</td><td>${a.roas ? xFmt(a.roas) : '<span class="dim">—</span>'}</td>
-      <td>${intFmt(a.conversions)}</td><td>${intFmt(a.clicks)}</td>
-    </tr>`).join('') || `<tr><td class="wow-empty" colspan="6">No Meta purchase-campaign ads in this window.</td></tr>`;
+    renderCreatives();
+  }
+
+  // Every ad that SPENT in the window, grouped under its campaign objective and
+  // ordered by spend -- Purchases, Thruplays, Subscribers, Followers.
+  //
+  // "Ads that spent" is the definition of live-in-period, not the ad's current
+  // status: an ad that ran all week and was paused yesterday belongs in this
+  // week's report, and filtering on status would delete it retroactively.
+  const CRE_PAGE = 10;
+  function renderCreatives(){
+    const root = el('creRoot');
+    if (!root) return;
+    const groups = (CREATIVES && CREATIVES.groups) || [];
+    el('creMeta').textContent = groups.length
+      ? `${groups.reduce((n,g) => n + Number(g.ads_total || 0), 0)} ads spent · by objective`
+      : 'every ad that spent, by objective';
+
+    if (!groups.length) {
+      root.innerHTML = `<div class="wow-empty" style="padding:14px">${FAILED.has('creatives')
+        ? 'Could not load creatives — try Refresh.'
+        : 'No Meta ads spent in this window.'}</div>`;
+      return;
+    }
+
+    root.innerHTML = groups.map(g => {
+      const key = g.group;
+      const shown = Math.min(CRE_SHOWN[key] || CRE_PAGE, (g.ads || []).length);
+      const rows = (g.ads || []).slice(0, shown).map(a => {
+        // A blank copy cell reads as "this ad had no copy". The truth is Meta
+        // keeps Dynamic Creative variants in asset_feed_spec and the sync does
+        // not fetch them, so say that instead of showing nothing.
+        const copy = a.copy
+          ? `${esc(String(a.copy).slice(0, 160))}${String(a.copy).length > 160 ? '…' : ''}`
+          : `<span class="dim">not synced</span>`;
+        const chg = a.is_new
+          ? `<span class="bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 5px">new</span>`
+          : a.spend_wow == null ? '<span class="dim">—</span>'
+          : `<span class="${a.spend_wow >= 0 ? 'pos' : 'neg'}">${a.spend_wow >= 0 ? '+' : ''}${Number(a.spend_wow).toFixed(0)}%</span>`;
+        return `<tr>
+          <td><div class="wow-ad">${a.thumb
+              ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />`
+              : `<span class="wow-thumb"></span>`}<span>${esc(a.ad || a.ad_id)}</span></div></td>
+          <td style="text-align:left;white-space:normal;font-size:11px;color:var(--bcn-ink-3)">${esc(a.adset || '—')}</td>
+          <td class="wow-copy">${copy}</td>
+          <td>${money(a.spend)}</td>
+          <td>${a.roas == null ? '<span class="dim">—</span>' : xFmt(a.roas)}</td>
+          <td>${a.cpa == null ? '<span class="dim">—</span>' : money2(a.cpa)}</td>
+          <td>${chg}</td>
+        </tr>`;
+      }).join('');
+
+      const total = Number(g.ads_total || 0);
+      const loaded = (g.ads || []).length;
+      const remaining = loaded - shown;
+      const more = remaining > 0
+        ? `<button type="button" class="wow-more" data-cre-more="${esc(key)}">
+             Show ${Math.min(CRE_PAGE, remaining)} more — ${shown} of ${total} by spend</button>`
+        : (total > loaded
+            // Never imply the list is complete when it is not: the RPC caps at
+            // 50 per objective and a YTD purchase window holds 380.
+            ? `<div class="wow-grp-foot">Showing all ${loaded} loaded of ${total} ads that spent — top ${loaded} by spend.</div>`
+            : '');
+
+      // The group's own headline: ROAS where the objective is purchases, spend
+      // everywhere else. A thruplay buy has no attributed revenue by design, so
+      // printing 0.00x against it reads as failure rather than as not-the-point.
+      const headline = g.judged_on === 'roas'
+        ? `${money(g.spend)} · ${g.roas == null ? '—' : xFmt(g.roas)} ROAS · ${g.cpa == null ? 'no CPA' : money2(g.cpa) + ' CPA'}`
+        : `${money(g.spend)} · ${total} ad${total === 1 ? '' : 's'}`;
+      const gchg = g.spend_wow == null ? ''
+        : `<span class="${g.spend_wow >= 0 ? 'pos' : 'neg'}" style="font-size:10.5px">${g.spend_wow >= 0 ? '+' : ''}${Number(g.spend_wow).toFixed(0)}% ${esc(G().prevAbbr)}</span>`;
+
+      return `<div class="wow-grp">
+          <div class="wow-grp-head"><span>${esc(g.label)} — ${headline}</span>${gchg}</div>
+          <div class="bcn-matrix-scroll"><table class="wow-tbl">
+            <thead><tr><th>Ad</th><th>Ad set</th><th>Copy</th><th>Spend</th><th>ROAS</th>
+              <th title="Spend ÷ conversions. Blank when the ad converted nobody — it has no cost per acquisition, and 0 would rank it cheapest.">CPA</th>
+              <th>Spend ${esc(G().prevAbbr)}</th></tr></thead>
+            <tbody>${rows}</tbody></table></div>${more}
+        </div>`;
+    }).join('');
   }
 
   // Export mirrors what is on screen, as raw numbers rather than display strings.
@@ -1564,10 +1656,21 @@
       row(g, 'Total');
     });
 
-    section('META — top creatives');
-    push('Creative','Ad copy','Spend','ROAS','Conversions','Clicks');
-    (pm.creatives || []).forEach(a => push(a.ad, a.copy ?? '', a.spend, a.roas ?? '',
-      a.conversions ?? '', a.clicks ?? ''));
+    // Every ad that spent, under its objective -- the whole list the card
+    // paginates, not just the ten on screen. An export that stopped at what
+    // happened to be expanded would be a different report each time.
+    section('META — ads that spent, by objective');
+    ((CREATIVES && CREATIVES.groups) || []).forEach(g => {
+      blank();
+      push(`${g.label} — ${g.ads_total} ads`, `spend ${g.spend}`,
+           g.roas == null ? '' : `ROAS ${g.roas}`, g.cpa == null ? '' : `CPA ${g.cpa}`,
+           g.spend_wow == null ? '' : `spend ${G().delta} ${g.spend_wow}%`);
+      push('Ad','Ad set','Campaign','Copy','Copy source','Spend','ROAS','CPA','Conversions','Clicks',
+           `Spend ${G().delta} %`,'New this period');
+      (g.ads || []).forEach(a => push(a.ad ?? '', a.adset ?? '', a.campaign ?? '',
+        a.copy ?? '', a.copy_source ?? 'not synced', a.spend ?? '', a.roas ?? '', a.cpa ?? '',
+        a.conversions ?? '', a.clicks ?? '', a.spend_wow ?? '', a.is_new ? 'yes' : ''));
+    });
 
     // Organic goes out with everything else -- the export exists so the whole
     // report can leave the page, and a missing block reads as a section with
@@ -1696,6 +1799,16 @@
       if (dirty && !confirm(`You have unsaved notes on this ${G().label.toLowerCase()}. Switch date anyway?`)) return;
       await load();
     });
+    // Delegated: the creative tables are re-rendered wholesale on every load,
+    // so a listener bound to the buttons themselves would not survive.
+    document.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-cre-more]');
+      if (!b) return;
+      const k = b.dataset.creMore;
+      CRE_SHOWN[k] = (CRE_SHOWN[k] || CRE_PAGE) + CRE_PAGE;
+      renderCreatives();
+    });
+
     el('btnRefresh').addEventListener('click', load);
     el('btnExport').addEventListener('click', exportCsv);
     el('btnSave').addEventListener('click', saveEntry);
