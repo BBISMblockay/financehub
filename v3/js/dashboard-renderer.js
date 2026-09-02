@@ -197,6 +197,21 @@
       } else if (widget.visual_type === 'kpi') {
         body.innerHTML = window.SiloChart.kpiHtml(rows, cfg, semantics);
       } else {
+        // A result carrying jsonb columns cannot be charted at all -- there
+        // is no axis in a nested object. Ask SILO produces this shape often
+        // (json_agg / row_to_json reads well in prose), so say what is wrong
+        // and where to fix it rather than drawing an empty chart.
+        const prof = window.SiloChart.profileColumns(rows);
+        const jsonCols = prof.filter((c) => c.type === 'json').map((c) => c.name);
+        if (jsonCols.length) {
+          body.innerHTML = `<div class="dw-empty dw-empty--warn">
+              <strong>This report returns nested JSON, not rows.</strong>
+              ${esc(jsonCols.join(', '))} ${jsonCols.length === 1 ? 'is an object' : 'are objects'}, so there is
+              nothing for an axis to plot. Switch to Table to read it, or rebuild it as flat columns
+              ${editable ? '<a href="/v3/report-builder.html">in the report builder</a>' : 'in the report builder'}.
+            </div>`;
+          return;
+        }
         const shaped = window.SiloChart.shape(rows, cfg, semantics);
         if (!shaped) {
           body.innerHTML = `<div class="dw-empty">This visual needs a dimension and a measure. ${editable ? 'Open ⚙ to pick them.' : ''}</div>`;

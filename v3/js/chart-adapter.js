@@ -71,7 +71,7 @@
   }
 
   /**
-   * @returns {{name:string, type:'number'|'date'|'string'|'boolean', distinct:number, nonNull:number}[]}
+   * @returns {{name:string, type:'number'|'date'|'string'|'boolean'|'json', distinct:number, nonNull:number}[]}
    */
   function profileColumns(rows) {
     if (!Array.isArray(rows) || !rows.length) return [];
@@ -82,6 +82,10 @@
       const distinct = new Set(sample.map((r) => String(r[name]))).size;
       let type = 'string';
       if (!vals.length) type = 'string';
+      // A jsonb column arrives as a real object or array. It is neither a
+      // dimension nor a measure -- there is nothing to plot -- and calling
+      // it a string is how it ended up rendered as "[object Object]".
+      else if (vals.some((v) => v !== null && typeof v === 'object')) type = 'json';
       else if (vals.every((v) => typeof v === 'boolean')) type = 'boolean';
       else if (vals.every(looksDate)) type = 'date';
       else if (vals.every(looksNumeric)) type = 'number';
@@ -89,7 +93,7 @@
     });
   }
 
-  const dimensionsOf = (prof) => prof.filter((c) => c.type !== 'number');
+  const dimensionsOf = (prof) => prof.filter((c) => c.type !== 'number' && c.type !== 'json');
   const measuresOf = (prof) => prof.filter((c) => c.type === 'number');
 
   /**
@@ -111,6 +115,9 @@
     const meas = ranked.length ? ranked : allMeas;
 
     if (!rows || !rows.length || !prof.length) return { visual_type: 'table', visual_config: {} };
+    // Nested JSON is not plottable. Ask SILO returns this shape often --
+    // json_agg/row_to_json reads well in prose and charts not at all.
+    if (prof.some((c) => c.type === 'json')) return { visual_type: 'table', visual_config: {} };
 
     // One row, one number: that is a KPI, whatever it is called.
     if (rows.length === 1 && meas.length >= 1) {
@@ -430,10 +437,16 @@
     const head = prof.map((c) => `<th class="${c.type === 'number' ? 'dw-num' : ''}">${esc(c.name)}</th>`).join('');
     const body = shown.map((r) => `<tr>${prof.map((c) => {
       const raw = r[c.name];
-      const cell = c.type === 'number'
-        ? formatValue(raw, semanticOf(c.name, semantics, prof))
-        : (raw === null || raw === undefined ? '' : String(raw));
-      return `<td class="${c.type === 'number' ? 'dw-num' : ''}">${esc(cell)}</td>`;
+      let cell;
+      if (c.type === 'number') cell = formatValue(raw, semanticOf(c.name, semantics, prof));
+      else if (raw !== null && typeof raw === 'object') {
+        // jsonb. Show the JSON rather than "[object Object]" -- the value is
+        // the point, and a truncated object at least says what is in there.
+        try { cell = JSON.stringify(raw); } catch { cell = '[unserialisable]'; }
+      } else cell = (raw === null || raw === undefined ? '' : String(raw));
+      const full = cell;
+      if (cell.length > 160) cell = cell.slice(0, 157) + '…';
+      return `<td class="${c.type === 'number' ? 'dw-num' : ''}"${c.type === 'json' ? ` title="${esc(full)}"` : ''}>${esc(cell)}</td>`;
     }).join('')}</tr>`).join('');
 
     const note = truncated ? `<div class="dw-foot-note">Showing ${shown.length} of ${rows.length} rows</div>` : '';
