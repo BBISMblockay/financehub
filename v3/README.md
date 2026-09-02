@@ -269,6 +269,47 @@ Two rules make a multi-measure chart honest:
 The acceptance case is one flat query — `day_date, online_net_sales,
 ad_spend, roas`, one row per day — plotted as three series on two axes.
 
+## Link and image cells
+
+Two semantics that say how to DRAW a cell rather than how to measure it, so
+neither is a measure and neither is offered as a dimension (grouping by URL
+is meaningless):
+
+| Semantic | Renders as |
+|---|---|
+| `link` | An anchor labelled `host/last-path-segment`, full URL on `title`, `target="_blank" rel="noopener noreferrer"` |
+| `image` | A 44px-tall lazy-loaded thumbnail, itself linked to the full image |
+
+**Detected from the VALUES, not the name.** A column whose every non-null
+value is an `http(s)` URL is a link; a column *named* `link` might hold
+anything. An image is a URL column that either looks like one (`.png`,
+`.jpg`, …) or is named like one (`image`, `thumb`, `creative`, …).
+
+**These are the only cells that put a database value into an HTML attribute**
+rather than a text node, so both go through one guard: `^https?://` with no
+whitespace. That rejects `javascript:`, `data:`, `vbscript:`, `file:` and
+protocol-relative `//evil.com` (which silently inherits the page's scheme).
+A value that fails renders as ordinary escaped text — visible, but inert.
+`v3/tests/unit/link-image-cells.test.js` asserts each of those cases can
+reach neither an `href` nor a `src`.
+
+Image height is capped rather than width, because ad creatives arrive in
+wildly different aspect ratios and a width cap makes a tall one enormous.
+
+## Publishing a board publishes its reports
+
+A **company** dashboard whose reports are **private** renders blank tiles for
+everyone else — `dashboard_widgets_v` is `security_invoker`, so a report the
+viewer cannot see yields a null `query_sql`. Sharing the arrangement is not
+sharing the data, and a board was shared exactly once before this was true,
+landing the recipient on nine empty tiles.
+
+So saving a board as company-visible promotes its private reports too — and
+says how many, because this widens who can read them. Only reports the saver
+is allowed to update move (the RLS policy is creator-or-exec); someone else's
+private report stays private and the message says those tiles will still be
+blank for everyone but their owner.
+
 ## Calculated measures
 
 A measure over two aggregates rather than one. ROAS is `sum(sales) /

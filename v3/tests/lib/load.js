@@ -42,6 +42,12 @@ function loadV3(files) {
   g.console = console;
   g.setTimeout = setTimeout;
   g.clearTimeout = clearTimeout;
+  // Browser globals the modules use at CALL time. Without URL, linkLabel()
+  // silently fell into its catch branch and every test exercised the
+  // fallback rather than the real path.
+  g.URL = URL;
+  g.URLSearchParams = URLSearchParams;
+  g.Intl = Intl;
 
   vm.createContext(g);
   for (const f of files) {

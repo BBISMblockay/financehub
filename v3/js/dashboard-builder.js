@@ -574,6 +574,54 @@
         for (const w of widgets) { delete w._new; w.layout = geometry.get(w.id) || w.layout; }
       }
 
+      // ── Publishing a board has to publish what it shows ───────────────
+      // A COMPANY dashboard whose reports are PRIVATE renders blank tiles for
+      // everyone else -- dashboard_widgets_v is security_invoker, so a report
+      // the viewer cannot see yields a null query_sql. That is not a
+      // theoretical failure: a board was shared and the recipient got nine
+      // empty tiles, because sharing the arrangement is not sharing the data.
+      //
+      // So making a board company-visible promotes its private reports too.
+      // NOT silently: the count is reported, because this widens who can read
+      // those reports. And only the ones this user is allowed to update --
+      // the RLS policy is creator-or-exec, so someone else's private report
+      // simply is not returned, and we say that instead of pretending.
+      if (el('dashVisibility').value === 'company') {
+        const privateIds = Array.from(new Set(widgets
+          .filter((w) => w.report_id && w.report_visibility === 'private')
+          .map((w) => w.report_id)));
+        if (privateIds.length) {
+          const { data: promoted, error: promoteErr } = await sb
+            .from('silo_chat_saved_reports')
+            .update({ visibility: 'company' })
+            .in('id', privateIds)
+            .eq('visibility', 'private')
+            .select('id, title');
+          if (promoteErr) {
+            setStatus('Dashboard saved, but its private reports could not be shared: '
+              + promoteErr.message, 'neg', 8000);
+            markDirty(false);
+            return true;
+          }
+          const done = (promoted || []).length;
+          const blocked = privateIds.length - done;
+          // Keep the local copies in step so a second Save does not retry.
+          for (const w of widgets) {
+            if (privateIds.includes(w.report_id) && (promoted || []).some((r) => r.id === w.report_id)) {
+              w.report_visibility = 'company';
+            }
+          }
+          markDirty(false);
+          setStatus(
+            `Dashboard saved. ${done} report${done === 1 ? '' : 's'} made company-visible so the tiles are not blank for others.`
+            + (blocked
+              ? ` ${blocked} belong${blocked === 1 ? 's' : ''} to someone else and stayed private — those tiles will be blank for everyone but the owner.`
+              : ''),
+            blocked ? 'neg' : 'pos', blocked ? 10000 : 6000);
+          return true;
+        }
+      }
+
       markDirty(false);
       setStatus('Dashboard saved.', 'pos', 3000);
       return true;

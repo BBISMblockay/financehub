@@ -73,6 +73,28 @@
   /**
    * @returns {{name:string, type:'number'|'date'|'string'|'boolean'|'json', distinct:number, nonNull:number}[]}
    */
+  /**
+   * The one gate between a database value and an href/src attribute.
+   *
+   * ONLY http(s), and no whitespace. That rejects javascript:, data:,
+   * vbscript: and file: -- every scheme that turns a rendered link into
+   * script execution -- and also protocol-relative "//evil.com", which
+   * silently inherits the page's scheme. Anything that fails this is
+   * rendered as ordinary escaped text instead, never as a link.
+   */
+  function isHttpUrl(v) {
+    return typeof v === 'string' && /^https?:\/\/[^\s<>"']+$/i.test(v.trim());
+  }
+  const safeUrl = (v) => (isHttpUrl(v) ? String(v).trim() : null);
+
+  const IMAGE_NAME_RE = /(image|img|thumb|thumbnail|photo|picture|avatar|creative)/i;
+  const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|avif|svg)(\?|#|$)/i;
+  /** An image is a URL that either looks like one or is named like one. */
+  function looksImageColumn(name, vals) {
+    if (IMAGE_NAME_RE.test(name)) return true;
+    return vals.length > 0 && vals.every((v) => IMAGE_EXT_RE.test(String(v)));
+  }
+
   function profileColumns(rows) {
     if (!Array.isArray(rows) || !rows.length) return [];
     const names = Object.keys(rows[0] || {});
@@ -89,11 +111,16 @@
       else if (vals.every((v) => typeof v === 'boolean')) type = 'boolean';
       else if (vals.every(looksDate)) type = 'date';
       else if (vals.every(looksNumeric)) type = 'number';
+      // Decided by the VALUES, not the name: every non-null value is an
+      // http(s) URL. A column *named* `link` might hold anything, but a
+      // column full of URLs is a link whatever it is called.
+      else if (vals.every(isHttpUrl)) type = looksImageColumn(name, vals) ? 'image' : 'url';
       return { name, type, distinct, nonNull: vals.length };
     });
   }
 
-  const dimensionsOf = (prof) => prof.filter((c) => c.type !== 'number' && c.type !== 'json');
+  const NOT_A_FIELD = new Set(['json', 'url', 'image']);
+  const dimensionsOf = (prof) => prof.filter((c) => c.type !== 'number' && !NOT_A_FIELD.has(c.type));
   const measuresOf = (prof) => prof.filter((c) => c.type === 'number');
 
   /**
@@ -548,6 +575,22 @@
   }
 
   // ── HTML visuals (table / KPI) ───────────────────────────────────────
+  /**
+   * A readable label for a link cell. A raw 120-character Ads Manager URL
+   * makes a table unreadable, and the full URL is still on the title
+   * attribute and in the href.
+   */
+  function linkLabel(url) {
+    try {
+      const u = new URL(url);
+      const last = u.pathname.split('/').filter(Boolean).pop();
+      const host = u.hostname.replace(/^www\./, '');
+      return last ? `${host}/${decodeURIComponent(last)}` : host;
+    } catch (e) {
+      return url.length > 60 ? url.slice(0, 57) + '…' : url;
+    }
+  }
+
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
@@ -570,8 +613,26 @@
     const head = prof.map((c) => `<th class="${c.type === 'number' ? 'dw-num' : ''}">${esc(c.name)}</th>`).join('');
     const body = shown.map((r) => `<tr>${prof.map((c) => {
       const raw = r[c.name];
+      const sem = semanticOf(c.name, semantics, prof);
+
+      // Links and images are the only cells that put a database value into
+      // an HTML ATTRIBUTE rather than a text node, so both go through
+      // safeUrl() first. A value that is not an http(s) URL falls through
+      // and renders as ordinary escaped text -- never as a broken link.
+      if (sem === 'image' || sem === 'link') {
+        const url = safeUrl(raw);
+        if (url) {
+          if (sem === 'image') {
+            return `<td class="dw-cell-img"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">`
+              + `<img class="dw-thumb" src="${esc(url)}" alt="" loading="lazy" /></a></td>`;
+          }
+          return `<td class="dw-cell-link"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer"`
+            + ` title="${esc(url)}">${esc(linkLabel(url))}</a></td>`;
+        }
+      }
+
       let cell;
-      if (c.type === 'number') cell = formatValue(raw, semanticOf(c.name, semantics, prof));
+      if (c.type === 'number') cell = formatValue(raw, sem);
       else if (raw !== null && typeof raw === 'object') {
         // jsonb. Show the JSON rather than "[object Object]" -- the value is
         // the point, and a truncated object at least says what is in there.
