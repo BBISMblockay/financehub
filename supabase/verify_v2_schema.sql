@@ -2047,6 +2047,33 @@ select
     else 'ok'
   end as v3_dashboards;
 
+-- ── Reports that cannot run ──────────────────────────────────────────
+-- A saved report reading a MATERIALIZED VIEW from a security_invoker view
+-- does not return fewer rows -- it RAISES 42501, because a matview has no
+-- RLS and is therefore not granted to `authenticated`. That is how
+-- demand_coverage_by_type_v was broken for every user until 20260904140000.
+-- The wrapper views (security_invoker = false, tenant filter inside) are the
+-- only correct way to read one.
+select
+  case
+    when exists (
+      select 1 from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind = 'm'
+         and has_table_privilege('authenticated', c.oid, 'SELECT')
+    ) then 'BROKEN — a materialized view is granted to authenticated; matviews have no RLS, so that hands every company''s rows to every user'
+    when not exists (
+      select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relname = 'demand_coverage_by_type_v'
+    ) then 'MISSING — demand_coverage_by_type_v'
+    when exists (
+      select 1 from pg_views v
+       where v.schemaname = 'public' and v.viewname = 'demand_coverage_by_type_v'
+         and v.definition ~ '_mv\b'
+    ) then 'BROKEN — demand_coverage_by_type_v reads a matview directly; it will raise 42501 for every authenticated user (use the _v wrappers)'
+    else 'ok'
+  end as reports_runnable;
+
 select
   case
     when not exists (select 1 from information_schema.columns
