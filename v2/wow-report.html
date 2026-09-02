@@ -1542,7 +1542,11 @@
   };
   const creFmt = (v, k) => {
     if (v == null) return '<span class="dim">—</span>';
-    if (k === 'spend') return money(v);
+    // Cents below a dollar. This table is defined as "ads that spent", so a row
+    // reading $0 looks like the filter is broken -- and it isn't: the RPC
+    // filters spend > 0, but money() rounds to whole dollars, so a real $0.01
+    // ad (2 impressions, seen live) rendered as $0. Show what it actually was.
+    if (k === 'spend') return Math.abs(Number(v)) < 1 ? money2(v) : money(v);
     if (k === 'roas')  return xFmt(v);
     if (k === 'cpa' || k === 'cpm') return money2(v);
     if (k === 'cpc')   return `$${Number(v).toFixed(2)}`;
