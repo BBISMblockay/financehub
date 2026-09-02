@@ -173,7 +173,8 @@
     let db = null;
     let profile = null;
     let authUser = null;
-    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+    let _co = null;
+    let access = null;
 
     const els = {
       bootStatus: document.getElementById('bootStatus'),
@@ -236,15 +237,6 @@
       return new Date().toISOString().slice(0, 10);
     }
 
-    function currentMonthBounds() {
-      const now = new Date();
-      const y = now.getFullYear();
-      const m = now.getMonth();
-      const monthStart = `${y}-${String(m + 1).padStart(2, '0')}-01`;
-      const last = new Date(y, m + 1, 0);
-      return { monthStart, monthEnd: last.toISOString().slice(0, 10) };
-    }
-
     function addDaysIso(iso, days) {
       const d = new Date(iso + 'T12:00:00');
       d.setDate(d.getDate() + days);
@@ -255,22 +247,37 @@
       return String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     }
 
-    function roleTokens(p) {
-      const r = normToken(pickRole(p));
-      const d = normToken(pickDepartment(p));
-      const blob = `${r} ${d}`;
+    // Department bucketing mirrors the real profiles.department picklist
+    // (v2/backend.html's admin dropdowns: ops, finance, logistics, marketing,
+    // retail, exec) rather than the old regex-over-free-text approach — a
+    // 'logistics' or 'retail' user used to fall through every bucket and see
+    // an empty queue even though nothing here actually matched their dept.
+    // Admin detection prefers entity_memberships.role for the active company
+    // (owner_admin/admin), falling back to profiles.role only when no
+    // membership row exists — the same precedence is_admin_user() uses
+    // server-side (see CLAUDE.md). profiles.role 'executive' always counts,
+    // matching is_exec_or_owner()'s reach.
+    async function resolveAccess(db, authUser, profile, co) {
+      let membershipRole = null;
+      if (co?.id && authUser?.id) {
+        try {
+          const { data } = await db.from('entity_memberships')
+            .select('role').eq('user_id', authUser.id).eq('entity_id', co.id).maybeSingle();
+          membershipRole = data?.role ? String(data.role).toLowerCase() : null;
+        } catch { /* fall back to profile role below */ }
+      }
+      const profileRole = normToken(pickRole(profile));
+      const dept = normToken(pickDepartment(profile));
+      const isOwnerAdmin = membershipRole === 'owner_admin' || (!membershipRole && profileRole === 'owner');
+      const isAdmin = isOwnerAdmin || membershipRole === 'admin' || (!membershipRole && profileRole === 'admin') || profileRole === 'executive';
       return {
-        isAdmin: /\badmin\b/.test(blob) || /\bowner\b/.test(blob) || r === 'owner',
-        finance: /\bfinance\b/.test(blob) || /\baccounting\b/.test(blob) || /\bap\b/.test(blob) || /\bpayable\b/.test(blob),
-        purchasing: /\bpurchas\b/.test(blob) || /\bbuyer\b/.test(blob) || /\bops\b/.test(blob) || /\boperations\b/.test(blob),
-        marketing: /\bmarket\b/.test(blob) || /\bcreative\b/.test(blob) || /\bbrand\b/.test(blob),
-        planning: /\bplanning\b/.test(blob) || /\bmerch\b/.test(blob),
+        isAdmin,
+        isOwnerAdmin,
+        finance: isAdmin || dept === 'finance' || dept === 'exec',
+        purchasing: isAdmin || dept === 'ops',
+        marketing: isAdmin || dept === 'marketing',
+        logistics: isAdmin || dept === 'logistics',
       };
-    }
-
-    function feedVisibleFor(p) {
-      const t = roleTokens(p);
-      return t.isAdmin || t.finance || t.purchasing || t.marketing || t.planning;
     }
 
     async function countRows(table, applyFilters) {
@@ -294,8 +301,8 @@
       items.push(item);
     }
 
-    async function loadPaymentAttention(items, tokens) {
-      if (!tokens.isAdmin && !tokens.finance) return;
+    async function loadPaymentAttention(items, access) {
+      if (!access.finance) return;
       const today = todayIso();
       const [openRes, newRes, needsRes, paidTodayRes, overdueRes] = await Promise.all([
         safeCount('payment_requests_v', q => { let _q = q.eq('completed', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
@@ -322,8 +329,8 @@
       }
     }
 
-    async function loadPoAttention(items, tokens) {
-      if (!tokens.isAdmin && !tokens.finance && !tokens.purchasing && !tokens.planning) return;
+    async function loadPoAttention(items, access) {
+      if (!access.finance && !access.purchasing) return;
       const OPEN = ['Approved', 'Sent to Factory', 'Confirmed', 'In Production', 'Shipped', 'In Transit', 'Partially Received'];
       const today = todayIso();
       const weekEnd = addDaysIso(today, 7);
@@ -345,8 +352,8 @@
       }
     }
 
-    async function loadLaunchAttention(items, tokens) {
-      if (!tokens.isAdmin && !tokens.marketing && !tokens.planning) return;
+    async function loadLaunchAttention(items, access) {
+      if (!access.marketing) return;
       const today = todayIso();
       const weekEnd = addDaysIso(today, 7);
       let launches = [];
@@ -376,16 +383,34 @@
       }
     }
 
-    async function loadTrackerAttention(items, tokens) {
+    // Always runs, for every active user — "assigned to you" is inherently
+    // personal and has nothing to do with department.
+    async function loadMyTasksAttention(items) {
       try {
         const today = todayIso();
-        const sevenDaysAgo = addDaysIso(today, -7);
-        const [photoRes, readyRes, orphanRes, overdueTasksRes, myTasksRes] = await Promise.all([
+        const [overdueTasksRes, myTasksRes] = await Promise.all([
+          safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today).eq('assigned_to_user_id', authUser?.id); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+          safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').eq('assigned_to_user_id', authUser?.id); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        ]);
+        if (overdueTasksRes.ok && overdueTasksRes.count > 0) {
+          pushFeedItem(items, { kind: 'my_tasks_overdue', title: `${overdueTasksRes.count} of your tasks overdue`, detail: 'Assigned to you, past due date.', href: '/v2/tasks.html', severity: 'high', count: overdueTasksRes.count });
+        }
+        if (myTasksRes.ok && myTasksRes.count > 0) {
+          pushFeedItem(items, { kind: 'my_tasks_open', title: `${myTasksRes.count} open task${myTasksRes.count === 1 ? '' : 's'} assigned to you`, detail: 'Your current task queue.', href: '/v2/tasks.html', severity: 'info', count: myTasksRes.count });
+        }
+      } catch (e) { /* optional */ }
+    }
+
+    // Org-wide product content backlog (product_tracker, not product_samples)
+    // — a department-relevant pipeline view, gated like everything else.
+    async function loadProductPipelineAttention(items, access) {
+      if (!access.marketing) return;
+      try {
+        const sevenDaysAgo = addDaysIso(todayIso(), -7);
+        const [photoRes, readyRes, orphanRes] = await Promise.all([
           safeCount('product_tracker', q => { let _q = q.eq('photo_complete', 'pending').eq('is_live', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
           safeCount('product_tracker', q => { let _q = q.eq('photo_complete', 'complete').eq('copy_complete', true).eq('is_live', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
           safeCount('product_tracker', q => { let _q = q.is('launch_id', null).gte('created_at', sevenDaysAgo); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
-          safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today).eq('assigned_to_user_id', authUser?.id); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
-          safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').eq('assigned_to_user_id', authUser?.id); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
         ]);
         if (photoRes.ok && photoRes.count > 0) {
           pushFeedItem(items, { kind: 'tracker_photo_pending', title: `${photoRes.count} product${photoRes.count === 1 ? '' : 's'} need photos`, detail: 'Photo status is pending in Products.', href: '/v2/products.html?tab=pipeline', severity: photoRes.count > 5 ? 'warn' : 'info', count: photoRes.count });
@@ -396,31 +421,62 @@
         if (orphanRes.ok && orphanRes.count > 0) {
           pushFeedItem(items, { kind: 'tracker_unlinked', title: `${orphanRes.count} new product${orphanRes.count === 1 ? '' : 's'} not linked to a launch`, detail: 'Added in last 7 days with no launch.', href: '/v2/products.html?tab=pipeline', severity: 'info', count: orphanRes.count });
         }
-        if (overdueTasksRes.ok && overdueTasksRes.count > 0) {
-          pushFeedItem(items, { kind: 'my_tasks_overdue', title: `${overdueTasksRes.count} of your tasks overdue`, detail: 'Assigned to you, past due date.', href: '/v2/tasks.html', severity: 'high', count: overdueTasksRes.count });
-        }
-        if (myTasksRes.ok && myTasksRes.count > 0) {
-          pushFeedItem(items, { kind: 'my_tasks_open', title: `${myTasksRes.count} open task${myTasksRes.count === 1 ? '' : 's'} assigned to you`, detail: 'Your current task queue.', href: '/v2/tasks.html', severity: 'info', count: myTasksRes.count });
-        }
       } catch (e) { /* optional */ }
     }
 
-    async function loadProjectionAttention(items, tokens) {
-      if (!tokens.isAdmin && !tokens.finance && !tokens.planning) return;
-      const { monthStart, monthEnd } = currentMonthBounds();
-      try {
-        let _qrp = db.from('revenue_projections').select('*', { count: 'exact', head: true }).gte('projection_date', monthStart).lte('projection_date', monthEnd);
-        if (_co?.id) _qrp = _qrp.eq('company_entity_id', _co.id);
-        const { count, error } = await _qrp;
-        if (error) throw error;
-        if (!count) {
-          pushFeedItem(items, { kind: 'proj_empty', title: 'No projections this month', detail: 'Seed revenue plan in Planning scenarios.', href: '/v2/planning-scenarios.html', severity: 'warn' });
-        }
-      } catch (e) { /* optional */ }
+    // Mailroom triage (mail_items) — org-wide only. Mailroom.html itself is
+    // dept-guarded to exec/finance, so a personal "mail assigned to you"
+    // card would dead-end for anyone outside that department; this stays an
+    // org backlog like Payables/Purchasing rather than a personal item.
+    async function loadMailAttention(items, access) {
+      if (!access.finance) return;
+      const today = todayIso();
+      const dueSoon = addDaysIso(today, 3);
+      const [unassignedRes, overdueRes, dueSoonRes] = await Promise.all([
+        safeCount('mail_items', q => { let _q = q.eq('status', 'open').is('assigned_to', null); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('mail_items', q => { let _q = q.eq('status', 'open').not('due_date', 'is', null).lt('due_date', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('mail_items', q => { let _q = q.eq('status', 'open').not('due_date', 'is', null).gte('due_date', today).lte('due_date', dueSoon); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+      ]);
+      if (overdueRes.ok && overdueRes.count > 0) {
+        pushFeedItem(items, { kind: 'mail_overdue', title: `${overdueRes.count} mail item${overdueRes.count === 1 ? '' : 's'} overdue`, detail: 'Past due date and still open.', href: '/v2/mailroom.html', severity: 'high', count: overdueRes.count });
+      }
+      if (unassignedRes.ok && unassignedRes.count > 0) {
+        pushFeedItem(items, { kind: 'mail_unassigned', title: `${unassignedRes.count} unassigned mail item${unassignedRes.count === 1 ? '' : 's'}`, detail: 'Open and not routed to anyone.', href: '/v2/mailroom.html', severity: 'warn', count: unassignedRes.count });
+      }
+      if (dueSoonRes.ok && dueSoonRes.count > 0) {
+        pushFeedItem(items, { kind: 'mail_due_soon', title: `${dueSoonRes.count} mail item${dueSoonRes.count === 1 ? '' : 's'} due in 3 days`, detail: 'Open items approaching their due date.', href: '/v2/mailroom.html', severity: 'info', count: dueSoonRes.count });
+      }
     }
 
-    async function loadCostingAttention(items, tokens) {
-      if (!tokens.isAdmin && !tokens.purchasing && !tokens.finance) return;
+    // Samples (product_samples) — org backlog gated to logistics, the
+    // department sample-notify already falls back to when no one is
+    // assigned. products.html carries no dept-guard, so the personal
+    // "assigned to you" card is safe to show every active user, same as
+    // My Tasks.
+    async function loadSampleAttention(items, access) {
+      const READY_FOR_PHOTO = ['warehouse_ready', 'picked_up', 'pps_received', 'full_run_received'];
+      const [assignedMeRes] = await Promise.all([
+        safeCount('product_samples', q => { let _q = q.eq('assigned_to', authUser?.id).eq('live_status', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+      ]);
+      if (assignedMeRes.ok && assignedMeRes.count > 0) {
+        pushFeedItem(items, { kind: 'sample_assigned_me', title: `${assignedMeRes.count} sample${assignedMeRes.count === 1 ? '' : 's'} assigned to you`, detail: 'Still in progress in Products.', href: '/v2/products.html?tab=pipeline', severity: 'info', count: assignedMeRes.count });
+      }
+
+      if (!access.logistics) return;
+      const [unassignedRes, needsPhotoRes] = await Promise.all([
+        safeCount('product_samples', q => { let _q = q.is('assigned_to', null).eq('live_status', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('product_samples', q => { let _q = q.eq('photo_status', 'pending').in('sample_status', READY_FOR_PHOTO); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+      ]);
+      if (unassignedRes.ok && unassignedRes.count > 0) {
+        pushFeedItem(items, { kind: 'sample_unassigned', title: `${unassignedRes.count} sample${unassignedRes.count === 1 ? '' : 's'} unassigned`, detail: 'In progress with nobody assigned.', href: '/v2/products.html?tab=pipeline', severity: 'warn', count: unassignedRes.count });
+      }
+      if (needsPhotoRes.ok && needsPhotoRes.count > 0) {
+        pushFeedItem(items, { kind: 'sample_needs_photo', title: `${needsPhotoRes.count} sample${needsPhotoRes.count === 1 ? '' : 's'} need photos`, detail: 'In hand and waiting on photography.', href: '/v2/products.html?tab=pipeline', severity: needsPhotoRes.count > 5 ? 'warn' : 'info', count: needsPhotoRes.count });
+      }
+    }
+
+    async function loadCostingAttention(items, access) {
+      if (!access.purchasing && !access.finance) return;
       const ACTIVE = ['Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received'];
       const SHIPPED = ['Shipped','In Transit','Partially Received','Received'];
       try {
@@ -468,8 +524,8 @@
       } catch (e) { console.warn('costing queue error', e); }
     }
 
-    async function loadAdminAttention(items, tokens) {
-      if (!tokens.isAdmin) return;
+    async function loadAdminAttention(items, access) {
+      if (!access.isAdmin) return;
       try {
         const { data, error } = await db.rpc('admin_list_access_requests', { p_status: 'pending' });
         if (error) return;
@@ -482,6 +538,9 @@
 
 
     const FEED_KIND_META = {
+      my_tasks_overdue: { domain: 'For you', workspace: 'Task Manager', icon: 'bell' },
+      my_tasks_open: { domain: 'For you', workspace: 'Task Manager', icon: 'bell' },
+      sample_assigned_me: { domain: 'For you', workspace: 'Products', icon: 'camera' },
       ap_new: { domain: 'Payables', workspace: 'Request Manager', icon: 'wallet' },
       ap_needs_info: { domain: 'Payables', workspace: 'Request Manager', icon: 'wallet' },
       ap_overdue: { domain: 'Payables', workspace: 'Request Manager', icon: 'wallet' },
@@ -495,12 +554,14 @@
       launch_readiness: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
       launch_tasks: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
       launch_products: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
-      proj_empty: { domain: 'Planning', workspace: 'Planning scenarios', icon: 'chart' },
-      tracker_photo_pending: { domain: 'Creative', workspace: 'Product Hub', icon: 'package' },
-      tracker_ready_not_live: { domain: 'Creative', workspace: 'Product Hub', icon: 'package' },
-      tracker_unlinked: { domain: 'Creative', workspace: 'Product Hub', icon: 'package' },
-      my_tasks_overdue: { domain: 'Tasks', workspace: 'Task Manager', icon: 'bell' },
-      my_tasks_open: { domain: 'Tasks', workspace: 'Task Manager', icon: 'bell' },
+      tracker_photo_pending: { domain: 'Product pipeline', workspace: 'Product Hub', icon: 'package' },
+      tracker_ready_not_live: { domain: 'Product pipeline', workspace: 'Product Hub', icon: 'package' },
+      tracker_unlinked: { domain: 'Product pipeline', workspace: 'Product Hub', icon: 'package' },
+      mail_overdue: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
+      mail_unassigned: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
+      mail_due_soon: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
+      sample_unassigned: { domain: 'Samples', workspace: 'Products', icon: 'camera' },
+      sample_needs_photo: { domain: 'Samples', workspace: 'Products', icon: 'camera' },
       admin_access: { domain: 'Admin', workspace: 'Backend hub', icon: 'shield' },
     };
 
@@ -514,7 +575,8 @@
         wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="16" cy="14" r="1.2" fill="currentColor" stroke="none"/></svg>',
         package: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>',
         rocket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.07-2.91a2.18 2.18 0 0 0-2.91-.07z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/></svg>',
-        chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 16v-4M12 16V8M17 16v-6"/></svg>',
+        mailbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 10V6a2 2 0 0 0-2-2H4v16h14a2 2 0 0 0 2-2v-4"/><path d="M4 4l7 7-7 7"/><circle cx="19" cy="12" r="2" fill="currentColor" stroke="none"/></svg>',
+        camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
         shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
         bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
       };
@@ -561,21 +623,25 @@
         groups.get(domain).push(it);
       });
 
-      const domainOrder = ['Payables', 'Purchasing', 'Launches', 'Planning', 'Admin', 'SILO'];
+      const domainOrder = ['For you', 'Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin'];
       const orderedDomains = [...groups.keys()].sort((a, b) => {
         const ia = domainOrder.indexOf(a);
         const ib = domainOrder.indexOf(b);
         return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
       });
 
-      els.feedList.innerHTML = orderedDomains.map(domain => `
-        <section class="profile-feed-group" aria-label="${esc(domain)}">
-          <h3 class="profile-feed-group__label">${esc(domain)}</h3>
+      els.feedList.innerHTML = orderedDomains.map(domain => {
+        const domainItems = groups.get(domain);
+        const isPersonal = domain === 'For you';
+        return `
+        <section class="profile-feed-group${isPersonal ? ' profile-feed-group--personal' : ''}" aria-label="${esc(domain)}">
+          <h3 class="profile-feed-group__label">${esc(domain)}<span class="profile-feed-group__count">${domainItems.length}</span></h3>
           <div class="profile-feed-group__list" role="list">
-            ${groups.get(domain).map(renderFeedCard).join('')}
+            ${domainItems.map(renderFeedCard).join('')}
           </div>
         </section>
-      `).join('');
+      `;
+      }).join('');
 
       els.feedEmpty.hidden = sorted.length > 0;
       els.feedList.hidden = sorted.length === 0;
@@ -586,25 +652,23 @@
     }
 
     async function loadAttentionFeed() {
-      if (!db || !profile) return;
-      if (!feedVisibleFor(profile)) {
-        els.attentionAside.hidden = true;
-        return;
-      }
+      if (!db || !profile || !authUser) return;
       els.attentionAside.hidden = false;
       els.feedStatus.textContent = 'Checking SILO data…';
       els.feedEmpty.hidden = true;
       els.feedList.hidden = false;
       attentionItems = [];
-      const tokens = roleTokens(profile);
+      access = await resolveAccess(db, authUser, profile, _co);
       await Promise.all([
-        loadPaymentAttention(attentionItems, tokens),
-        loadPoAttention(attentionItems, tokens),
-        loadCostingAttention(attentionItems, tokens),
-        loadLaunchAttention(attentionItems, tokens),
-        loadTrackerAttention(attentionItems, tokens),
-        loadProjectionAttention(attentionItems, tokens),
-        loadAdminAttention(attentionItems, tokens),
+        loadMyTasksAttention(attentionItems),
+        loadSampleAttention(attentionItems, access),
+        loadPaymentAttention(attentionItems, access),
+        loadPoAttention(attentionItems, access),
+        loadCostingAttention(attentionItems, access),
+        loadLaunchAttention(attentionItems, access),
+        loadProductPipelineAttention(attentionItems, access),
+        loadMailAttention(attentionItems, access),
+        loadAdminAttention(attentionItems, access),
       ]);
       renderAttentionFeed();
       const n = attentionItems.length;
@@ -627,9 +691,6 @@
       els.navCard.hidden = false;
       els.actionsCard.hidden = hasProfile;
       els.btnSave.disabled = !hasProfile;
-      if (els.attentionAside) {
-        els.attentionAside.hidden = !feedVisibleFor(profile);
-      }
       fixProfileScroll();
     }
 
@@ -762,6 +823,7 @@
         return;
       }
       authUser = sessionData.session.user;
+      _co = await (window.__SILO_CONFIG__?.ensureActiveCompany?.(db)) || null;
 
       const { data, error } = await db
         .from('profiles')
