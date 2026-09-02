@@ -167,6 +167,19 @@ Idempotent via fixed UUIDs and `on conflict (id) do nothing` — deliberately no
 do-update would discard anyone's correction. Changing a shipped definition is
 its own migration.
 
+## Bump the asset version when you change these files
+
+Every `v3` script and stylesheet is loaded with `?v=<version>`. The site is
+served statically with no build step, so a browser that cached
+`dashboard-builder.js` keeps running it after a deploy — and the symptom is a
+half-updated page, not an error. It cost a real debugging round: an inspector
+showing the previous release's single-measure dropdown while the rest of the
+same page was current.
+
+**Changing anything in `v3/js/` or `dashboard.css` means bumping the version
+in all three `v3/*.html` files.** One find-and-replace. If you skip it, the
+change ships and nobody sees it until they hard-refresh.
+
 ## Files
 
 | File | Role |

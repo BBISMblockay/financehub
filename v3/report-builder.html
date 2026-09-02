@@ -6,7 +6,17 @@
   <title>SILO · New report</title>
   <link rel="stylesheet" href="../v2/beacon.css" />
   <link rel="stylesheet" href="../v2/silo-brand.css" />
-  <link rel="stylesheet" href="dashboard.css" />
+<!--
+  v3 assets carry ?v= because this site is served statically with no build
+  step: a browser that cached dashboard-builder.js keeps running it after a
+  deploy, and the symptom is a half-updated page rather than an error. It
+  cost a real debugging round -- an inspector showing the previous release's
+  single-measure dropdown while the rest of the page was current.
+
+  BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
+  It is one find-and-replace across v3/*.html; v3/README.md says so too.
+-->
+  <link rel="stylesheet" href="dashboard.css?v=20260902a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -124,9 +134,9 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/field-semantics.js"></script>
-<script src="js/chart-adapter.js"></script>
-<script src="js/report-builder.js"></script>
-<script src="js/report-builder-ui.js"></script>
+<script src="js/field-semantics.js?v=20260902a"></script>
+<script src="js/chart-adapter.js?v=20260902a"></script>
+<script src="js/report-builder.js?v=20260902a"></script>
+<script src="js/report-builder-ui.js?v=20260902a"></script>
 </body>
 </html>
