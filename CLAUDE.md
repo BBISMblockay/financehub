@@ -636,7 +636,7 @@ than this section.
   RLS is the boundary either way. Four `source = 'system'` report definitions are seeded
   (`20260828150000`) so a dashboard has something to build on without anyone having saved an Ask
   SILO report first.
-  **Slicers shipped 2026-09-03** (`silo_chat_saved_reports.parameters` +
+  **Calculated measures** in the report builder (2026-09-03): a measure over TWO aggregates (ROAS = sum(sales)/sum(spend)), every division guarded by `nullif(x,0)` so a zero denominator empties the cell instead of failing the tile, and the calculation DECLARES its own semantic -- a calculated column is in no catalog, so the grounded typing layer has nothing to say and name heuristics get `net_sales_pct_of_total` wrong ("sales" reads as money, printing 12.4% as $12.40). Also `defaultQueryIndex()`: an Ask SILO answer's `queries_run` is a TRANSCRIPT, so a widget now defaults to the last NON-PROBE query rather than index 0 -- index 0 is routinely an `information_schema` lookup, and a tile drawing one renders a list of column names that looks like it works. **Slicers shipped 2026-09-03** (`silo_chat_saved_reports.parameters` +
   `dashboards.filter_state`): a report declares `{{token}}`s, the dashboard header supplies them,
   and one control drives every tile sharing a key. The Week over Week board is the worked example —
   nine reports on one Day/Week/MTD/YTD switch, where before it was frozen at week grain.

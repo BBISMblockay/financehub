@@ -530,3 +530,39 @@
 @media (max-width: 700px) {
   .rb-param .bcn-field-group { min-width: 100%; }
 }
+
+/* ── Calculated measures ──────────────────────────────────────────────
+   A calculation is a longer row than a plain total, so it wraps on a narrow
+   pane. The tint groups its two operands as one statement rather than
+   letting them read as two unrelated dropdown pairs. */
+.rb-rule--calc {
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bcn-surface-2, rgba(0, 0, 0, 0.03));
+}
+.rb-calc-op { max-width: 150px; font-weight: 600; }
+
+/* ── Query picker badges ──────────────────────────────────────────────
+   An agentic answer's queries_run is a transcript. A query reading
+   information_schema is the model looking up column names, and drawing it
+   produces a tile of column names that LOOKS like it works. */
+.v3-query-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bcn-pos);
+  background: color-mix(in srgb, var(--bcn-pos) 12%, transparent);
+}
+.v3-query-badge--probe {
+  color: var(--bcn-ink-3);
+  background: color-mix(in srgb, var(--bcn-ink-3) 12%, transparent);
+}
+/* Dimmed, not hidden: it is still previewable, and hiding a query would
+   make the numbering ("Query 1", "Query 2") lie about the transcript. */
+.v3-query-card--probe { opacity: 0.62; }
+.v3-query-card--probe:hover { opacity: 1; }
