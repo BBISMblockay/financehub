@@ -347,6 +347,10 @@ supabase/
     20260904140000_demand_coverage_grants.sql
     20260904160000_logistics_reports.sql
     20260904180000_logistics_dashboard.sql
+    20260904200000_readonly_query_column_order.sql
+    20260904210000_demand_coverage_base_mv.sql
+    20260904220000_is_admin_user_definer.sql
+    20260904230000_demand_coverage_uses_base.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
