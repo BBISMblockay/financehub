@@ -1499,6 +1499,55 @@
   // status: an ad that ran all week and was paused yesterday belongs in this
   // week's report, and filtering on status would delete it retroactively.
   const CRE_PAGE = 10;
+
+  // Columns per objective, because a metric a campaign was never bought on is
+  // not a low score -- it is the wrong question. The campaign-level tables above
+  // already split this way (PAID_COLS); the ad-level table launched with one
+  // fixed column set and reintroduced exactly the failure that split exists to
+  // prevent: a Thruplay ad reading 0.00x ROAS, and a Subscribers ad carrying a
+  // $772 "CPA" that is cost per PURCHASE on a lead campaign -- a real number
+  // answering a question nobody asked, which is worse than a blank.
+  //
+  // What is actually available at AD level (verified against
+  // meta_ad_performance_daily for the week to 2026-08-31):
+  //   purchase     1,152 conversions / $100,003 value  -> ROAS and CPA are real
+  //   subscribers     94 conversions -- PURCHASE pixel, not leads; leads are
+  //                   not synced per ad, so no cost-per-lead column exists
+  //   thruplay         0 conversions; thruplay COUNT is not synced per ad
+  //   followers        0 conversions; follows are not synced at all
+  // Everything non-purchase therefore reads on spend, reach and click cost --
+  // the things that ARE measured -- and the footnote names what is missing so a
+  // blank column is not mistaken for a dead campaign.
+  const CRE_COLS = {
+    purchase:    [['spend','Spend'],['roas','ROAS'],['cpa','CPA'],['conversions','Conv.'],['clicks','Clicks']],
+    thruplay:    [['spend','Spend'],['impressions','Impressions'],['clicks','Clicks'],['cpm','CPM'],['cpc','CPC']],
+    subscribers: [['spend','Spend'],['clicks','Clicks'],['cpc','CPC'],['impressions','Impressions'],['cpm','CPM']],
+    followers:   [['spend','Spend'],['impressions','Impressions'],['clicks','Clicks'],['cpc','CPC'],['cpm','CPM']],
+    traffic:     [['spend','Spend'],['clicks','Clicks'],['cpc','CPC'],['impressions','Impressions'],['cpm','CPM']],
+    other:       [['spend','Spend'],['clicks','Clicks'],['impressions','Impressions'],['cpc','CPC'],['cpm','CPM']],
+  };
+  // Named per objective so nobody reads the gap as a data fault.
+  const CRE_FOOT = {
+    thruplay:    'Thruplay counts are not synced per ad, so cost per thruplay is only available at campaign level above. Judged here on reach and click cost.',
+    subscribers: 'Leads are not synced per ad, so there is no cost per lead here — and the conversions Meta does report against these ads are purchases, not sign-ups. Judged on click cost.',
+    followers:   'Follows are not synced, so there is no cost per follow. Judged on reach and click cost.',
+  };
+  // Derived rather than stored: spend, clicks and impressions are already in the
+  // payload, so CPC and CPM need no round trip. Null over zero clicks — dividing
+  // by nothing is not a cost of nothing.
+  const creVal = (a, k) => {
+    if (k === 'cpc') return a.clicks > 0 ? Number(a.spend) / Number(a.clicks) : null;
+    if (k === 'cpm') return a.impressions > 0 ? Number(a.spend) / Number(a.impressions) * 1000 : null;
+    return a[k];
+  };
+  const creFmt = (v, k) => {
+    if (v == null) return '<span class="dim">—</span>';
+    if (k === 'spend') return money(v);
+    if (k === 'roas')  return xFmt(v);
+    if (k === 'cpa' || k === 'cpm') return money2(v);
+    if (k === 'cpc')   return `$${Number(v).toFixed(2)}`;
+    return intFmt(v);
+  };
   function renderCreatives(){
     const root = el('creRoot');
     if (!root) return;
@@ -1517,6 +1566,7 @@
     root.innerHTML = groups.map(g => {
       const key = g.group;
       const shown = Math.min(CRE_SHOWN[key] || CRE_PAGE, (g.ads || []).length);
+      const cols = CRE_COLS[key] || CRE_COLS.other;
       const rows = (g.ads || []).slice(0, shown).map(a => {
         // A blank copy cell reads as "this ad had no copy". The truth is Meta
         // keeps Dynamic Creative variants in asset_feed_spec and the sync does
@@ -1534,9 +1584,7 @@
               : `<span class="wow-thumb"></span>`}<span>${esc(a.ad || a.ad_id)}</span></div></td>
           <td style="text-align:left;white-space:normal;font-size:11px;color:var(--bcn-ink-3)">${esc(a.adset || '—')}</td>
           <td class="wow-copy">${copy}</td>
-          <td>${money(a.spend)}</td>
-          <td>${a.roas == null ? '<span class="dim">—</span>' : xFmt(a.roas)}</td>
-          <td>${a.cpa == null ? '<span class="dim">—</span>' : money2(a.cpa)}</td>
+          ${cols.map(([k]) => `<td>${creFmt(creVal(a, k), k)}</td>`).join('')}
           <td>${chg}</td>
         </tr>`;
       }).join('');
@@ -1556,7 +1604,7 @@
       // The group's own headline: ROAS where the objective is purchases, spend
       // everywhere else. A thruplay buy has no attributed revenue by design, so
       // printing 0.00x against it reads as failure rather than as not-the-point.
-      const headline = g.judged_on === 'roas'
+      const headline = key === 'purchase'
         ? `${money(g.spend)} · ${g.roas == null ? '—' : xFmt(g.roas)} ROAS · ${g.cpa == null ? 'no CPA' : money2(g.cpa) + ' CPA'}`
         : `${money(g.spend)} · ${total} ad${total === 1 ? '' : 's'}`;
       const gchg = g.spend_wow == null ? ''
@@ -1565,10 +1613,13 @@
       return `<div class="wow-grp">
           <div class="wow-grp-head"><span>${esc(g.label)} — ${headline}</span>${gchg}</div>
           <div class="bcn-matrix-scroll"><table class="wow-tbl">
-            <thead><tr><th>Ad</th><th>Ad set</th><th>Copy</th><th>Spend</th><th>ROAS</th>
-              <th title="Spend ÷ conversions. Blank when the ad converted nobody — it has no cost per acquisition, and 0 would rank it cheapest.">CPA</th>
+            <thead><tr><th>Ad</th><th>Ad set</th><th>Copy</th>
+              ${cols.map(([k, lbl]) => `<th${k === 'cpa'
+                ? ' title="Spend ÷ conversions. Blank when the ad converted nobody — it has no cost per acquisition, and 0 would rank it cheapest."'
+                : ''}>${lbl}</th>`).join('')}
               <th>Spend ${esc(G().prevAbbr)}</th></tr></thead>
-            <tbody>${rows}</tbody></table></div>${more}
+            <tbody>${rows}</tbody></table></div>${
+              CRE_FOOT[key] ? `<div class="wow-grp-foot">${esc(CRE_FOOT[key])}</div>` : ''}${more}
         </div>`;
     }).join('');
   }
