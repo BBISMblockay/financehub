@@ -351,6 +351,8 @@ supabase/
     20260904210000_demand_coverage_base_mv.sql
     20260904220000_is_admin_user_definer.sql
     20260904230000_demand_coverage_uses_base.sql
+    20260904240000_ownership_reports.sql
+    20260904260000_ownership_dashboard.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
