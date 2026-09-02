@@ -342,6 +342,8 @@ supabase/
     20260903100000_report_parameters.sql
     20260903200000_matrix_visual.sql
     20260903210000_section_widget.sql
+    20260904100000_saved_report_edit.sql
+    20260904120000_storage_company_scoping.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

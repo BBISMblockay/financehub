@@ -1950,6 +1950,46 @@ select
         || '$24,000 asset disposed after 6mo must recognise $6,000, not $24,000)'
     else 'ok'
   end as fixed_assets;
+-- ── Storage isolation ────────────────────────────────────────────────
+-- Storage RLS is easy to forget because it lives in another schema and is
+-- not touched by any normal migration. Before 20260904120000 all 27 policies
+-- on storage.objects gated on bucket_id ALONE -- so every authenticated user
+-- of every company could read and delete all 375 payment-request
+-- attachments and all 51 mailroom scans. This asserts the private buckets
+-- have not drifted back.
+--
+-- The test is that every command on a private bucket names its parent table.
+-- A policy mentioning only its bucket is the exact shape of the bug.
+select
+  case
+    when exists (
+      select 1 from pg_policies
+       where schemaname='storage' and tablename='objects'
+         and coalesce(qual,'') || ' ' || coalesce(with_check,'') like '%payment-request-files%'
+         and coalesce(qual,'') || ' ' || coalesce(with_check,'') !~* 'payment_requests'
+    ) then 'BROKEN — a payment-request-files policy does not check the parent request; every company can read every invoice'
+    when exists (
+      select 1 from pg_policies
+       where schemaname='storage' and tablename='objects'
+         and coalesce(qual,'') || ' ' || coalesce(with_check,'') like '%mail-item-files%'
+         and coalesce(qual,'') || ' ' || coalesce(with_check,'') !~* 'mail_items'
+    ) then 'BROKEN — a mail-item-files policy does not check the parent mail item'
+    when exists (
+      select 1 from pg_policies
+       where schemaname='storage' and tablename='objects'
+         and coalesce(qual,'') || ' ' || coalesce(with_check,'') like '%schedule-item-files%'
+         and coalesce(qual,'') || ' ' || coalesce(with_check,'') !~* 'schedule_items'
+    ) then 'BROKEN — a schedule-item-files policy does not check the parent schedule item'
+    -- Four each: select, insert, update, delete. A missing one means a
+    -- command fell back to no policy at all, which storage denies -- a
+    -- broken feature rather than a leak, but still wrong.
+    when (select count(*) from pg_policies
+           where schemaname='storage' and tablename='objects'
+             and coalesce(qual,'') || ' ' || coalesce(with_check,'') like '%payment-request-files%') < 4
+      then 'MISSING — payment-request-files is short a policy; uploads or downloads will fail'
+    else 'ok'
+  end as storage_isolation;
+
 select
   case
     when not exists (select 1 from information_schema.tables
@@ -1991,6 +2031,19 @@ select
                      where conrelid='public.dashboard_widgets'::regclass
                        and conname='dashboard_widgets_section_has_title')
       then 'MISSING — dashboard_widgets_section_has_title; an untitled section is an invisible tile that still takes grid space'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='builder_config')
+      then 'MISSING — silo_chat_saved_reports.builder_config; every guided report would reopen as raw SQL'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='saved_report_usage')
+      then 'MISSING — saved_report_usage(); the report editor would save with no idea how many tiles it changes'
+    -- SECURITY DEFINER is the whole point of that function: dashboard_widgets
+    -- RLS hides widgets on dashboards the caller cannot see, and an
+    -- undercount in a blast-radius warning reads as safety.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='saved_report_usage' and p.prosecdef)
+      then 'BROKEN — saved_report_usage() is not SECURITY DEFINER; it would undercount widgets on dashboards the caller cannot see'
     else 'ok'
   end as v3_dashboards;
 

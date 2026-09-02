@@ -34,6 +34,14 @@
   let tab = 'build';
   let showAllColumns = false;
   let lastRun = null;        // { sql, rows }
+  // Edit mode. Null on /v3/report-builder.html with no ?id=, which is the
+  // create path and behaves exactly as it always has.
+  let editing = null;        // { id, source, createdBy, canWrite, usage, declaredKeys }
+  // True once the SQL has been hand-edited away from what the guided config
+  // generates. Tracked because builder_config is scaffolding, not the source
+  // of truth: reopening a report guided when its SQL has since diverged would
+  // silently regenerate a query nobody asked for.
+  let sqlIsHandWritten = false;
   const cfg = {
     columns: [], summarise: false, dimensions: [], measures: [],
     dateColumn: '', dateRange: '', filters: [], sortColumn: '', sortDir: 'desc', limit: 100,
@@ -395,42 +403,281 @@
     return Object.keys(md).length ? md : null;
   }
 
+  // ── Editing an existing report ───────────────────────────────────────
+  /**
+   * Load a saved report into the builder.
+   *
+   * Three outcomes, and the page must be honest about which one you are in
+   * BEFORE you start typing:
+   *   - yours (or you are exec/owner): a real edit, saved over the original
+   *   - someone else's, or a central `system` definition: read-only, and the
+   *     only way forward is Save as a copy
+   *   - not found: it was deleted, or it belongs to another company
+   *
+   * The gate below mirrors silo_chat_saved_reports_update, but it is UX
+   * only -- RLS is the boundary, and confirmSave() handles a refusal even
+   * when this guess says yes (membership owner_admin passes is_exec_or_owner
+   * without carrying a profile role that says so).
+   */
+  async function loadForEdit(id, user, profile) {
+    const { data: rep, error } = await sb.from('silo_chat_saved_reports')
+      .select('id, title, description, visibility, source, company_entity_id, created_by, '
+            + 'queries_run, parameters, columns_metadata, builder_config')
+      .eq('id', id).maybeSingle();
+    if (error || !rep) {
+      setStatus('That report could not be opened — it may have been deleted, or it belongs to '
+        + 'another company. Everything below is a new report.', 'neg', 9000);
+      return;
+    }
+
+    const isGlobal = rep.source === 'system' || !rep.company_entity_id;
+    const roleIsExec = ['owner', 'executive'].includes(String(profile?.role || ''));
+    const canWrite = !isGlobal && (rep.created_by === user.id || roleIsExec);
+
+    // Blast radius. Fetched before anything is editable so the count is on
+    // screen while you decide, not after you have already typed.
+    let usage = null;
+    const { data: u } = await sb.rpc('saved_report_usage', { p_report_id: id });
+    if (Array.isArray(u) && u.length) usage = u[0];
+
+    const queries = Array.isArray(rep.queries_run) ? rep.queries_run : [];
+    const qi = RB.defaultQueryIndex(queries);
+    cfg.parameters = Array.isArray(rep.parameters) ? rep.parameters.map((d) => ({
+      key: d.key || '', label: d.label || '', type: d.type || 'text',
+      default: d.default == null ? '' : String(d.default), options: d.options || [],
+    })) : [];
+
+    editing = {
+      id, source: rep.source, createdBy: rep.created_by, canWrite, usage,
+      queryCount: queries.length,
+      // What this report declared when it was opened. The parameter-removal
+      // warning needs the BEFORE picture; cfg.parameters is the after.
+      declaredKeys: cfg.parameters.map((d) => d.key).filter(Boolean),
+    };
+
+    el('saveName').value = rep.title || '';
+    el('saveDesc').value = rep.description || '';
+    el('saveVis').value = rep.visibility || 'company';
+    el('pageTitle').textContent = canWrite ? 'Edit report' : 'Report (read-only)';
+    el('pageSub').textContent = rep.title || '';
+    // The chrome mounts before we know which report this is, so the trail
+    // still reads "New report". Left alone it is the page contradicting
+    // itself in two places a foot apart.
+    const crumb = document.querySelector('.silo-crumbs .crumb-last');
+    if (crumb) crumb.textContent = canWrite ? 'Edit report' : 'Report';
+    el('btnSave').textContent = canWrite ? 'Save changes' : 'Save as a copy';
+
+    // Guided config restores the guided tab; anything else opens as SQL,
+    // because that is genuinely what the report is. A builder_config naming
+    // a table this user cannot report on is treated as absent rather than
+    // half-restored.
+    const bc = rep.builder_config;
+    const restorable = bc && bc.relname && bc.cfg && catalog.some((r) => r.relname === bc.relname);
+    if (restorable) {
+      selectSource(bc.relname);
+      Object.assign(cfg, bc.cfg, { parameters: cfg.parameters });
+      renderBuild();
+      el('sqlText').value = RB.buildSql(source, cfg) || '';
+    } else {
+      document.querySelector('[data-tab="sql"]').click();
+      el('sqlText').value = queries[qi] || '';
+      sqlIsHandWritten = true;
+      checkSql();
+    }
+    renderParams();
+
+    if (!canWrite) {
+      setStatus(isGlobal
+        ? 'This is a central SILO report — it is shared by every company and cannot be edited here. '
+          + 'Change it and save it as your own copy.'
+        : 'This report belongs to someone else. You can run it and change it, but saving makes '
+          + 'your own copy — theirs is untouched.', 'info', 12000);
+    } else if (queries.length > 1) {
+      setStatus(`This was saved from a chat answer with ${queries.length} queries. You are editing `
+        + `query ${qi + 1}; saving replaces the report with that one query.`, 'info', 12000);
+    }
+    preview();
+  }
+
+  /** Columns tiles name that this report no longer returns. The concrete breakage. */
+  function droppedColumns() {
+    if (!editing?.usage || !lastRun) return [];
+    const have = new Set(Object.keys((lastRun.rows || [])[0] || {}));
+    // No rows means we cannot tell what it returns, so we claim nothing.
+    if (!have.size) return [];
+    return (editing.usage.referenced_columns || []).filter((c) => !have.has(c));
+  }
+
+  /** Parameters a dashboard still supplies that this edit would undeclare. */
+  function droppedParameters() {
+    if (!editing?.usage) return [];
+    const now = new Set(declaredKeys());
+    const supplied = new Set(editing.usage.supplied_parameters || []);
+    return (editing.declaredKeys || []).filter((k) => !now.has(k) && supplied.has(k));
+  }
+
+  /**
+   * What saving will do to everything else. Rendered into the save dialog.
+   *
+   * Warnings here are deliberately not blocking. Removing a column that a
+   * tile draws is sometimes exactly the intent -- the tile is wrong, not the
+   * report -- and a builder that refuses the edit just sends the person back
+   * to saving a duplicate, which is the behaviour this whole change exists
+   * to stop.
+   */
+  function renderImpact() {
+    const box = el('impactPanel');
+    if (!editing || !editing.canWrite) { box.innerHTML = ''; return; }
+    const u = editing.usage || { widget_count: 0, dashboard_count: 0, max_query_index: 0 };
+    const n = u.widget_count || 0;
+    const parts = [];
+
+    parts.push(n === 0
+      ? '<div class="rb-impact">No dashboard uses this report yet — this edit affects nothing else.</div>'
+      : `<div class="rb-impact"><strong>${n} tile${n === 1 ? '' : 's'}</strong> across `
+        + `${u.dashboard_count} dashboard${u.dashboard_count === 1 ? '' : 's'} draw${n === 1 ? 's' : ''} `
+        + 'this report. Saving changes every one of them.</div>');
+
+    const dropped = droppedColumns();
+    if (dropped.length) {
+      parts.push(`<div class="rb-warn rb-warn--bad">Tiles reference `
+        + `${dropped.map((c) => `<code>${esc(c)}</code>`).join(', ')}, which this version no longer `
+        + `returns. Those tiles will render empty until someone re-points them.</div>`);
+    }
+    const lostParams = droppedParameters();
+    if (lostParams.length) {
+      parts.push(`<div class="rb-warn rb-warn--bad">A dashboard still supplies `
+        + `${lostParams.map((c) => `<code>${esc(c)}</code>`).join(', ')}. Undeclaring a parameter a `
+        + 'board sets leaves that slicer controlling nothing.</div>');
+    }
+    if ((u.max_query_index || 0) > 0 && editing.queryCount > 1) {
+      parts.push(`<div class="rb-warn">A tile draws query #${u.max_query_index + 1} of this report. `
+        + 'Saving writes a single-query report, so that tile will have nothing to draw.</div>');
+    }
+    box.innerHTML = parts.join('');
+  }
+
   // ── Saving ───────────────────────────────────────────────────────────
   function openSave() {
     if (!lastRun) { setStatus('Preview it first — saving a report nobody has run is how a broken tile gets shared.', 'neg', 6000); return; }
     el('saveName').value = source && !el('saveName').value ? source.relname.replace(/_/g, ' ') : el('saveName').value;
+    el('saveTitle').textContent = editing && editing.canWrite ? 'Save changes' : 'Save report';
+    el('btnConfirmSave').textContent = editing && editing.canWrite ? 'Save changes' : 'Save';
+    // The copy button is the way out of a read-only report, and the second
+    // option on one you own -- "I meant to fork this" is a normal thing to
+    // realise at the save step.
+    el('btnSaveCopy').hidden = !editing;
+    renderImpact();
     el('saveBackdrop').classList.add('open');
     el('saveName').focus();
     el('saveName').select();
   }
 
+  /**
+   * The report as it now stands, ready for insert or update.
+   *
+   * builder_config is written only when the guided tab actually produced the
+   * SQL being saved. Storing it alongside hand-edited SQL would mean the
+   * next edit reopens guided and regenerates a query that is not the one
+   * this report runs -- scaffolding overwriting the building.
+   */
+  function reportPayload() {
+    const declared = P.normalizeDeclarations(cfg.parameters);
+    return {
+      title: (el('saveName').value || '').trim(),
+      description: (el('saveDesc').value || '').trim() || null,
+      queries_run: [lastRun.sql],
+      visibility: el('saveVis').value,
+      columns_metadata: currentMetadata(lastRun.rows),
+      parameters: declared.length ? declared : null,
+      builder_config: (tab === 'build' && source && !sqlIsHandWritten)
+        ? { relname: source.relname, cfg: JSON.parse(JSON.stringify(cfg)) }
+        : null,
+    };
+  }
+
   async function confirmSave() {
-    const title = (el('saveName').value || '').trim();
-    if (!title) { el('saveName').focus(); return; }
+    if (editing && !editing.canWrite) return saveAsCopy();
+    const payload = reportPayload();
+    if (!payload.title) { el('saveName').focus(); return; }
     el('btnConfirmSave').disabled = true;
-    const md = currentMetadata(lastRun.rows);
+
+    if (editing) {
+      // The TEMPLATE is saved, not the query that previewed. `source` is
+      // deliberately not sent: the update policy's WITH CHECK pins it to
+      // ask_silo/manual, and an Ask SILO report stays an Ask SILO report
+      // when its owner corrects a label -- rewriting the provenance would
+      // hide where the SQL came from.
+      const { data, error } = await sb.from('silo_chat_saved_reports')
+        .update(payload).eq('id', editing.id).select('id');
+      el('btnConfirmSave').disabled = false;
+      if (error) { setStatus('Could not save: ' + error.message, 'neg', 8000); return; }
+      // No error and no row means RLS refused it rather than the request
+      // failing -- the update matched nothing this user may write. Offer
+      // the copy instead of leaving them at a button that does nothing.
+      if (!data || !data.length) {
+        editing.canWrite = false;
+        el('btnSaveCopy').hidden = false;
+        renderImpact();
+        setStatus('You do not have permission to change this report — only its creator or an '
+          + 'executive can. Save it as your own copy instead.', 'neg', 12000);
+        return;
+      }
+      el('saveBackdrop').classList.remove('open');
+      const n = editing.usage?.widget_count || 0;
+      setStatus(`Saved. ${n ? `${n} tile${n === 1 ? '' : 's'} now draw${n === 1 ? 's' : ''} the updated report.`
+        : 'No dashboard uses it yet.'}`, 'pos', 7000);
+      el('btnSave').textContent = 'Saved ✓';
+      setTimeout(() => { el('btnSave').textContent = 'Save changes'; }, 4000);
+      window.__lastSavedReportId = editing.id;
+      return;
+    }
+
     const { data, error } = await sb.from('silo_chat_saved_reports').insert({
       // source='manual' has been allowed for clients since 20260828130000 --
       // company-scoped, never global. Nothing new was needed for this page.
       source: 'manual',
-      title,
-      description: (el('saveDesc').value || '').trim() || null,
       question: null,
       answer: null,
-      queries_run: [lastRun.sql],
-      visibility: el('saveVis').value,
-      columns_metadata: md,
-      // The TEMPLATE is saved, not the query that previewed. Normalised
-      // first so a half-typed declaration never reaches the runtime.
-      parameters: P.normalizeDeclarations(cfg.parameters).length
-        ? P.normalizeDeclarations(cfg.parameters) : null,
+      ...payload,
     }).select('id').single();
     el('btnConfirmSave').disabled = false;
     if (error) { setStatus('Could not save: ' + error.message, 'neg', 6000); return; }
     el('saveBackdrop').classList.remove('open');
-    setStatus(`Saved "${title}". It is now available to every dashboard.`, 'pos', 6000);
+    setStatus(`Saved "${payload.title}". It is now available to every dashboard.`, 'pos', 6000);
     el('btnSave').textContent = 'Saved ✓';
     setTimeout(() => { el('btnSave').textContent = 'Save report'; }, 4000);
+    window.__lastSavedReportId = data.id;
+  }
+
+  /**
+   * Fork rather than overwrite. The only path forward on a central `system`
+   * definition or someone else's report, and always available on your own.
+   *
+   * The copy is a NEW report by this user, so it is `manual` regardless of
+   * where the original came from -- a hand-edited fork of an Ask SILO answer
+   * is not an Ask SILO answer, and claiming it was would misattribute the
+   * SQL. Once saved the page becomes an editor for the copy, so the next
+   * save updates it rather than minting a third.
+   */
+  async function saveAsCopy() {
+    const payload = reportPayload();
+    if (!payload.title) { el('saveName').focus(); return; }
+    if (editing && payload.title === el('pageSub').textContent) payload.title += ' (copy)';
+    el('btnSaveCopy').disabled = true;
+    const { data, error } = await sb.from('silo_chat_saved_reports')
+      .insert({ source: 'manual', question: null, answer: null, ...payload })
+      .select('id').single();
+    el('btnSaveCopy').disabled = false;
+    if (error) { setStatus('Could not save the copy: ' + error.message, 'neg', 8000); return; }
+    el('saveBackdrop').classList.remove('open');
+    editing = { id: data.id, source: 'manual', createdBy: null, canWrite: true,
+                usage: null, queryCount: 1, declaredKeys: declaredKeys() };
+    el('pageTitle').textContent = 'Edit report';
+    el('pageSub').textContent = payload.title;
+    el('btnSave').textContent = 'Save changes';
+    history.replaceState(null, '', `/v3/report-builder.html?id=${data.id}`);
+    setStatus(`Saved "${payload.title}" as your own copy. The original is untouched.`, 'pos', 8000);
     window.__lastSavedReportId = data.id;
   }
 
@@ -475,7 +722,15 @@
     // Preview -- by which point the person has moved on from the token.
     checkParams();
   }
-  el('sqlText').addEventListener('input', checkSql);
+  el('sqlText').addEventListener('input', () => {
+    // The moment the SQL stops matching what the guided config generates,
+    // builder_config is stale scaffolding and must not be saved -- otherwise
+    // the next edit reopens guided and regenerates a query this report does
+    // not run. Compared rather than assumed, so clicking into the tab and
+    // clicking back out does not count as hand-writing.
+    sqlIsHandWritten = !source || el('sqlText').value.trim() !== (RB.buildSql(source, cfg) || '').trim();
+    checkSql();
+  });
 
   // ── Parameters wiring ────────────────────────────────────────────────
   el('btnAddParam').addEventListener('click', () => {
@@ -604,6 +859,7 @@
   el('btnPreview').addEventListener('click', preview);
   el('btnSave').addEventListener('click', openSave);
   el('btnConfirmSave').addEventListener('click', confirmSave);
+  el('btnSaveCopy').addEventListener('click', saveAsCopy);
   el('btnCancelSave').addEventListener('click', () => el('saveBackdrop').classList.remove('open'));
   el('btnCloseSave').addEventListener('click', () => el('saveBackdrop').classList.remove('open'));
   el('saveBackdrop').addEventListener('click', (e) => { if (e.target.id === 'saveBackdrop') el('saveBackdrop').classList.remove('open'); });
@@ -643,6 +899,17 @@
     setStatus(`${catalog.length} sales, product, inventory and marketing sources available.`, 'info', 5000);
 
     const params = new URLSearchParams(location.search);
+
+    // ?id= opens an existing report for editing. It comes first: a report
+    // brings its own source, SQL and parameters, and letting ?source= or
+    // ?sql= also run would half-overwrite what was just loaded.
+    const editId = params.get('id');
+    if (editId) {
+      if (window.SiloChrome) el('pageSub').textContent = 'Loading…';
+      await loadForEdit(editId, user, profile);
+      return;
+    }
+
     const want = params.get('source');
     if (want && catalog.some((r) => r.relname === want)) selectSource(want);
 
@@ -664,5 +931,7 @@
 
   window.__siloReportBuilder = { get cfg() { return cfg; }, get source() { return source; },
                                 get lastRun() { return lastRun; }, get catalog() { return catalog; },
-                                preview, renderParams, checkParams, currentSql };
+                                get editing() { return editing; },
+                                preview, renderParams, checkParams, currentSql,
+                                reportPayload, renderImpact, droppedColumns, droppedParameters };
 })();

@@ -269,6 +269,69 @@ Two rules make a multi-measure chart honest:
 The acceptance case is one flat query — `day_date, online_net_sales,
 ad_spend, roas`, one row per day — plotted as three series on two axes.
 
+## Editing a saved report
+
+The workbench was create-only until 2026-09-04, and that is the cause of
+library rot rather than a missing convenience. A typo'd title, a column that
+should be labelled, a hardcoded date that should be a parameter — none could
+be corrected, so the only way to fix a report was to save a second one and
+leave the first in the shared list.
+
+`/v3/report-builder.html?id=<uuid>` opens an existing report. Entry points:
+the **Edit this report** link in a widget's inspector — the tile is where you
+notice a report is wrong — and the URL.
+
+**No new policy.** `silo_chat_saved_reports_update` already said the right
+thing: creator or exec/owner, same company, `WITH CHECK` pinning `source` to
+`ask_silo`/`manual` (so an edit can never promote a report to a global
+`system` definition) and `company_entity_id IS NOT NULL` (so a global one can
+never be edited at all). The page rides that policy and does not widen it.
+
+### Three things the page must be honest about before you type
+
+| | |
+|---|---|
+| **Whether this saves or forks** | Yours, or you are exec/owner → a real edit. Someone else's, or a central `system` definition → read-only, and the primary button offers a copy. The role check in the page mirrors RLS but is UX only: `confirmSave()` also handles a refusal, because an update RLS rejects is a **success with zero rows**, not an error |
+| **How many tiles it changes** | `saved_report_usage()` — see below |
+| **Which of those tiles it breaks** | A column the tiles draw that this version no longer returns, named; a parameter a dashboard still supplies that this edit undeclares, named; a widget pointing past query 0 when the edit collapses a multi-query chat report to one |
+
+None of those warnings block the save. Removing a column a tile draws is
+sometimes exactly the intent — the tile is wrong, not the report — and a
+builder that refuses just sends the person back to saving a duplicate.
+
+### `saved_report_usage(report_id)`
+
+SECURITY DEFINER, and that is the point: `dashboard_widgets` RLS scopes reads
+to dashboards the *caller* can see, so counting from the browser misses
+widgets on a colleague's private board — and an undercount in a blast-radius
+warning reads as safety.
+
+It is guarded to the caller's active company, written out by hand since RLS
+is bypassed. A report the caller cannot see returns **no rows at all**, not a
+zero row: zero would confirm the id is real. It returns counts and column
+names only — never dashboard or widget titles, which are not the caller's to
+see and which "3 tiles on dashboards you cannot see" already covers.
+
+`supplied_parameters` is returned **raw**. A board's `filter_state` also
+holds keys belonging to other reports on it, and only the editor knows which
+keys it is about to remove, so the editor intersects.
+
+### `builder_config`, and why it is not the truth
+
+A guided report used to store only its generated SQL, which made the guided
+builder a one-way door: the second edit of any report was a SQL edit.
+`silo_chat_saved_reports.builder_config` holds `{relname, cfg}` so it reopens
+guided.
+
+Nullable, and every reader copes with null — an Ask SILO save and a
+hand-written SQL report have none and never will. **Null means "edit this as
+SQL", not "something is missing".**
+
+`queries_run` remains the only thing that runs. The moment the SQL is
+hand-edited away from what the guided config generates, `builder_config` is
+stale scaffolding and is dropped on save — otherwise the next edit reopens
+guided and regenerates a query this report does not run.
+
 ## Presentation defaults are module-wide
 
 Everything in this section lives in `chart-adapter.js`, the one file every
@@ -582,12 +645,12 @@ node v3/tests/run.js --unit      # needs nothing installed
 node v3/tests/run.js             # everything
 ```
 
-Fourteen suites, ~350 checks, in `v3/tests/` — see its
+Fifteen suites, ~390 checks, in `v3/tests/` — see its
 [README](tests/README.md). `.github/workflows/v3-tests.yml` runs them on any
 push or PR touching `v3/`, with no secrets, because nothing there talks to a
 real database.
 
-Nine unit suites cover the pure modules. Five browser suites drive the real
+Nine unit suites cover the pure modules. Six browser suites drive the real
 pages in Chromium against a stubbed Supabase — **the pages are served
 unmodified from the repo**, so the real `dashboard.html` runs the real
 `dashboard-renderer.js` and only the outside world is faked.

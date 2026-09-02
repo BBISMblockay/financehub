@@ -16,7 +16,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260903g" />
+  <link rel="stylesheet" href="dashboard.css?v=20260904a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -26,8 +26,8 @@
   <main class="silo-main">
     <header class="bcn-header">
       <div class="bcn-header-title">
-        <h1>New report</h1>
-        <span class="bcn-header-sub">Build one from any table or view · In testing</span>
+        <h1 id="pageTitle">New report</h1>
+        <span class="bcn-header-sub" id="pageSub">Build one from any table or view · In testing</span>
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost" href="/v3/dashboards.html">Dashboards</a>
@@ -141,8 +141,15 @@
         Saved reports are available to every dashboard. The SQL runs as whoever opens it, so a
         colleague sees their own company's rows, never yours.
       </p>
+
+      <!-- Blast radius. Editing a shared report changes every tile built on
+           it -- that is the point, and it is also the danger, so the count
+           and any breakage are stated here rather than discovered later. -->
+      <div id="impactPanel"></div>
+
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCancelSave">Cancel</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnSaveCopy" hidden>Save as a copy</button>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnConfirmSave">Save</button>
       </div>
     </div>
@@ -154,10 +161,10 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260903g"></script>
-<script src="js/field-semantics.js?v=20260903g"></script>
-<script src="js/chart-adapter.js?v=20260903g"></script>
-<script src="js/report-builder.js?v=20260903g"></script>
-<script src="js/report-builder-ui.js?v=20260903g"></script>
+<script src="js/report-params.js?v=20260904a"></script>
+<script src="js/field-semantics.js?v=20260904a"></script>
+<script src="js/chart-adapter.js?v=20260904a"></script>
+<script src="js/report-builder.js?v=20260904a"></script>
+<script src="js/report-builder-ui.js?v=20260904a"></script>
 </body>
 </html>

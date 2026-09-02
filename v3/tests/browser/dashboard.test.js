@@ -26,7 +26,13 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   // ── 2. Add a widget from a saved report ─────────────────────────────
   await page.click('#btnAddWidget');
   await page.waitForSelector('.v3-report-card');
-  ok('picker lists every source, not just Ask SILO', (await page.locator('.v3-report-card').count()) === 10); // +2: the parameterised fixtures added for slicers
+  // Counted from the fixtures rather than pinned to a number: the picker's
+  // rule is "every saved report that has SQL", and a hardcoded count turns
+  // adding any fixture into an unrelated test failure.
+  const withSql = await page.evaluate(() =>
+    window.__FAKE_DB__.silo_chat_saved_reports.filter((r) => (r.queries_run || []).length).length);
+  ok('picker lists every source, not just Ask SILO',
+     (await page.locator('.v3-report-card').count()) === withSql, 'expected ' + withSql);
   ok('a saved report with no stored SQL is not offered',
     (await page.locator('.v3-report-card[data-report="R4"]').count()) === 0);
   ok('...and the picker says so rather than hiding it silently',

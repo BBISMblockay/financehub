@@ -54,6 +54,7 @@ stub at load time, add it in `load.js` so every suite sees one environment.
 | `dashboard` | The V1 milestone: add a report, switch Table/Bar/Line/Donut/KPI, drag/resize, save, **reload identically**. Plus mobile collapse |
 | `slicers` | Parameters end to end, and that a bad value never reaches the RPC |
 | `report-builder` | The workbench: source picking, summarise, filters, preview, save |
+| `report-edit` | Editing a saved report: guided reopens guided, the blast-radius warnings, save-vs-fork by role, and hand-edited SQL dropping the guided scaffolding |
 | `ask-silo-hop` | Save an answer as a report and land on a canvas with it added |
 | `dashboards-list` | The index, and a missing id explaining itself |
 

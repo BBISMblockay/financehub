@@ -16338,3 +16338,429 @@ alter table public.dashboard_widgets
 
 comment on column public.dashboard_widgets.visual_type is
   'Which visual draws this widget: table, kpi, bar, line, donut, matrix, or section. A matrix reads row_field (down) x x_field (across) with y_field as the cell measure. A section is a heading with no report_id -- its title is its content.';
+
+-- v3 reports: make a saved report EDITABLE.
+--
+-- Until now the workbench was create-only. That is the cause of library rot,
+-- not a missing convenience: a typo'd title, a column that should be labelled
+-- `Net Sales`, a hardcoded date that should be a parameter -- none of them
+-- could be corrected, so the only way to fix a report was to save a second
+-- one and leave the first in the shared list. Twenty-two shared reports with
+-- three near-duplicates among them is what that produces at one user. At
+-- twenty-nine it is unmanageable, and the duplicates belong to other people.
+--
+-- No policy changes. `silo_chat_saved_reports_update` already says exactly
+-- the right thing -- creator or exec/owner, same company, and a WITH CHECK
+-- that pins `source` to ask_silo/manual so an edit can never promote a report
+-- to a global `system` definition, and `company_entity_id IS NOT NULL` so a
+-- global one can never be edited at all. The page rides that policy; it does
+-- not widen it.
+
+-- ── 1. Reopening a guided report GUIDED ──────────────────────────────
+-- Saving stored only the generated SQL, so a report built with dimensions,
+-- measures and filters could only ever be reopened as a wall of SQL -- which
+-- means the guided builder is a one-way door and the second edit of any
+-- report is a SQL edit. The config that produced the SQL is the report's own
+-- fact, so it belongs on the report.
+--
+-- Nullable, and every reader must cope with null: an Ask SILO save and a
+-- hand-written SQL report have no guided config and never will. Null means
+-- "open this on the SQL tab", not "something is missing".
+--
+-- Deliberately NOT the source of truth for what runs. `queries_run` stays
+-- that. If the two ever disagree -- someone edits the SQL by hand after
+-- building it guided -- the SQL is what executes and the builder config is
+-- stale scaffolding, so the page drops it rather than silently regenerating
+-- SQL nobody asked for.
+alter table public.silo_chat_saved_reports
+  add column if not exists builder_config jsonb;
+
+comment on column public.silo_chat_saved_reports.builder_config is
+  'How a guided report was built: {relname, cfg} from /v3/report-builder.html, so it reopens guided rather than as raw SQL. Null for Ask SILO saves and hand-written SQL -- null means "edit this as SQL", not "incomplete". queries_run remains the only thing that RUNS; this is scaffolding, and is dropped when the SQL is edited by hand.';
+
+-- ── 2. What an edit will break ───────────────────────────────────────
+-- Editing a shared report changes every tile built on it. That IS the point
+-- -- one correction fixes every widget -- and it is also the danger: drop a
+-- column from the select list and nine tiles across four dashboards go blank,
+-- with nothing to connect the blank tile to the edit that caused it.
+--
+-- So the editor states the blast radius before saving. It cannot do that from
+-- the browser: dashboard_widgets RLS scopes reads to dashboards the CALLER
+-- can see, so a widget on a colleague's private dashboard is invisible -- and
+-- an undercount is worse than no count, because it reads as safety.
+-- SECURITY DEFINER, with the tenant check written out by hand.
+--
+-- It returns counts and COLUMN NAMES only -- never dashboard or widget
+-- titles. The caller is editing this report, so they already know its
+-- columns; the names of other people's dashboards are not theirs to see, and
+-- "3 tiles on dashboards you cannot see" carries the whole warning anyway.
+create or replace function public.saved_report_usage(p_report_id uuid)
+returns table (
+  widget_count          int,
+  dashboard_count       int,
+  max_query_index       int,
+  referenced_columns    text[],
+  supplied_parameters   text[]
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid;
+begin
+  -- The tenant guard. Without it a SECURITY DEFINER function that takes a
+  -- uuid is an oracle: call it across every id and learn which reports exist
+  -- in other companies and how widely they are used. A report the caller
+  -- cannot see returns nothing at all, not a zero row -- zero would confirm
+  -- the id is real.
+  select r.company_entity_id into v_company
+    from public.silo_chat_saved_reports r
+   where r.id = p_report_id
+     and r.company_entity_id is not null
+     and r.company_entity_id = active_company_id();
+  if v_company is null then
+    return;
+  end if;
+
+  return query
+  with w as (
+    select dw.id, dw.dashboard_id, dw.query_index, coalesce(dw.visual_config, '{}'::jsonb) as vc
+      from public.dashboard_widgets dw
+     where dw.report_id = p_report_id
+       and dw.company_entity_id = v_company
+  ),
+  -- Every place a widget names a column of this report. A column dropped
+  -- from the select list that appears here is the concrete breakage: the
+  -- tile keeps rendering and quietly shows nothing.
+  cols as (
+    select distinct c as col from w,
+      lateral (
+        select w.vc ->> 'x_field'
+        union all select w.vc ->> 'y_field'
+        union all select w.vc ->> 'row_field'
+        union all select w.vc ->> 'compare_field'
+        union all select jsonb_array_elements_text(
+                     case when jsonb_typeof(w.vc -> 'measures') = 'array'
+                          then w.vc -> 'measures' else '[]'::jsonb end)
+        union all select jsonb_array_elements_text(
+                     case when jsonb_typeof(w.vc -> 'columns') = 'array'
+                          then w.vc -> 'columns' else '[]'::jsonb end)
+      ) as t(c)
+     where c is not null and c <> ''
+  ),
+  -- Parameter keys the boards carrying this report supply, from their saved
+  -- slicer values. Reported RAW, and deliberately not filtered to this
+  -- report's own declarations: a board's filter_state also holds keys
+  -- belonging to other reports on it, and the editor is the only side that
+  -- knows which keys are being removed. It intersects. Filtering here would
+  -- either drop the useful case or invent warnings about other reports.
+  params as (
+    select distinct k as param
+      from public.dashboards d,
+           lateral jsonb_object_keys(coalesce(d.filter_state, '{}'::jsonb)) k
+     where d.company_entity_id = v_company
+       and exists (select 1 from w where w.dashboard_id = d.id)
+  )
+  select
+    (select count(*)::int from w),
+    (select count(distinct w.dashboard_id)::int from w),
+    (select coalesce(max(w.query_index), 0)::int from w),
+    (select coalesce(array_agg(col order by col), '{}') from cols),
+    (select coalesce(array_agg(param order by param), '{}') from params);
+end;
+$$;
+
+comment on function public.saved_report_usage(uuid) is
+  'Blast radius of editing a saved report: how many widgets and dashboards use it, the highest query_index any widget points at, the columns those widgets name, and the parameter keys their dashboards supply (raw -- the editor intersects them with the declarations it is about to remove). SECURITY DEFINER because dashboard_widgets RLS hides widgets on dashboards the caller cannot see, and an undercount reads as safety. Guarded to the caller''s active company; a report they cannot see returns no rows at all. Returns counts and column names only -- never dashboard or widget titles.';
+
+revoke all on function public.saved_report_usage(uuid) from public;
+grant execute on function public.saved_report_usage(uuid) to authenticated;
+
+-- Storage: scope object access to the company that owns the file.
+--
+-- Found 2026-09-04 auditing multi-tenancy. The database tier is solid --
+-- every operational table carries company_entity_id and every policy checks
+-- active_company_id(). Storage had 27 policies and NOT ONE of them mentioned
+-- a company. Every private-bucket policy read, in full:
+--
+--     using (bucket_id = 'payment-request-files')
+--
+-- which is "any authenticated user, of any company, may read or DELETE any
+-- object in this bucket". That covered 375 payment-request attachments --
+-- invoices, commission statements, AP confirmations -- and 51 mailroom
+-- scans. The bucket being private bought nothing: private means the CDN will
+-- not serve it anonymously, and RLS is what decides who may.
+--
+-- The `schedule-item-files` policies are the clearest evidence it was copied
+-- rather than decided: they are NAMED "readable by company" / "writable by
+-- company" and carry no company clause at all, because they were modelled on
+-- the payment-request ones.
+--
+-- ── The key ─────────────────────────────────────────────────────────
+-- Every private bucket already writes its parent row's id as the first path
+-- segment -- `<payment_request_id>/<file>`, `<mail_item_id>/<file>` -- and
+-- the parent tables are the ones with correct RLS. So the object inherits
+-- the row's visibility through a plain EXISTS: no SECURITY DEFINER, no path
+-- rewriting, no backfill, and no second definition of who may see what.
+--
+-- For payment requests that is STRICTER than company scoping and is the
+-- right answer: payment_requests_active_select is "your own request, or you
+-- manage AP, or you are an admin", so an attachment is now exactly as
+-- visible as the request it belongs to. Files should follow the row, not
+-- invent a parallel rule that drifts from it.
+--
+-- Compared as TEXT, never cast to uuid: a malformed first segment would make
+-- the cast raise, and an erroring policy is a broken bucket rather than a
+-- denied read.
+--
+-- ── Why the parent row and not the metadata row ─────────────────────
+-- `payment_request_files.file_path` would be an exact match, but the object
+-- is uploaded BEFORE its metadata row is inserted. Keying on the metadata
+-- row would make an upload whose insert then failed permanently
+-- undeletable -- and Request Manager's cleanup path calls .remove() on
+-- exactly those. The parent row exists before the upload starts, so the
+-- folder-segment check works for INSERT too.
+--
+-- Service-role bypasses RLS entirely, so edge functions and syncs are
+-- unaffected by everything below.
+
+-- ── payment-request-files (private, 375 objects) ────────────────────
+drop policy if exists "payment request reads by authenticated users" on storage.objects;
+drop policy if exists "payment request updates by authenticated users" on storage.objects;
+drop policy if exists "payment request deletes by authenticated users" on storage.objects;
+drop policy if exists "payment request uploads by authenticated users" on storage.objects;
+
+create policy "payment request files readable with the request"
+  on storage.objects for select to authenticated
+  using (
+    bucket_id = 'payment-request-files'
+    and exists (
+      select 1 from public.payment_requests pr
+       where pr.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "payment request files writable with the request"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'payment-request-files'
+    and exists (
+      select 1 from public.payment_requests pr
+       where pr.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "payment request files updatable with the request"
+  on storage.objects for update to authenticated
+  using (
+    bucket_id = 'payment-request-files'
+    and exists (
+      select 1 from public.payment_requests pr
+       where pr.id::text = (storage.foldername(name))[1]
+    )
+  )
+  with check (
+    bucket_id = 'payment-request-files'
+    and exists (
+      select 1 from public.payment_requests pr
+       where pr.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "payment request files deletable with the request"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'payment-request-files'
+    and exists (
+      select 1 from public.payment_requests pr
+       where pr.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+-- ── mail-item-files (private, 51 objects) ───────────────────────────
+drop policy if exists "mail item files read by authenticated users" on storage.objects;
+drop policy if exists "mail item files update by authenticated users" on storage.objects;
+drop policy if exists "mail item files delete by authenticated users" on storage.objects;
+drop policy if exists "mail item files upload by authenticated users" on storage.objects;
+
+create policy "mail item files readable with the item"
+  on storage.objects for select to authenticated
+  using (
+    bucket_id = 'mail-item-files'
+    and exists (
+      select 1 from public.mail_items mi
+       where mi.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "mail item files writable with the item"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'mail-item-files'
+    and exists (
+      select 1 from public.mail_items mi
+       where mi.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "mail item files updatable with the item"
+  on storage.objects for update to authenticated
+  using (
+    bucket_id = 'mail-item-files'
+    and exists (
+      select 1 from public.mail_items mi
+       where mi.id::text = (storage.foldername(name))[1]
+    )
+  )
+  with check (
+    bucket_id = 'mail-item-files'
+    and exists (
+      select 1 from public.mail_items mi
+       where mi.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "mail item files deletable with the item"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'mail-item-files'
+    and exists (
+      select 1 from public.mail_items mi
+       where mi.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+-- ── schedule-item-files (private, 0 objects) ────────────────────────
+-- Nothing writes this bucket yet, so the convention is FIXED here to match
+-- its siblings: <schedule_item_id>/<file>. Any page that later uploads a
+-- signed agreement must use that path or the policy will refuse it -- which
+-- is the intended failure mode, not a bug to work around.
+drop policy if exists "schedule files readable by company" on storage.objects;
+drop policy if exists "schedule files writable by company" on storage.objects;
+drop policy if exists "schedule files deletable by company" on storage.objects;
+
+create policy "schedule files readable with the item"
+  on storage.objects for select to authenticated
+  using (
+    bucket_id = 'schedule-item-files'
+    and exists (
+      select 1 from public.schedule_items si
+       where si.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "schedule files writable with the item"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'schedule-item-files'
+    and exists (
+      select 1 from public.schedule_items si
+       where si.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+create policy "schedule files deletable with the item"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'schedule-item-files'
+    and exists (
+      select 1 from public.schedule_items si
+       where si.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+-- ── sample-images (PUBLIC bucket, 89 objects) ───────────────────────
+-- Read stays open, and tightening it would be theatre: a public bucket is
+-- served by the CDN at /object/public/... with no RLS evaluated at all, so a
+-- policy here cannot hide a file whose URL someone already has. What a
+-- policy CAN do is stop another company's user DELETING it.
+--
+-- The path is samples/<sample_id>/<file>, so segment 2 is the parent id and
+-- product_samples is company-scoped.
+drop policy if exists sample_images_auth_update on storage.objects;
+drop policy if exists sample_images_auth_delete on storage.objects;
+drop policy if exists sample_images_auth_insert on storage.objects;
+
+create policy sample_images_insert_with_sample
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'sample-images'
+    and (storage.foldername(name))[1] = 'samples'
+    and exists (
+      select 1 from public.product_samples ps
+       where ps.id::text = (storage.foldername(name))[2]
+    )
+  );
+
+create policy sample_images_update_with_sample
+  on storage.objects for update to authenticated
+  using (
+    bucket_id = 'sample-images'
+    and exists (
+      select 1 from public.product_samples ps
+       where ps.id::text = (storage.foldername(name))[2]
+    )
+  )
+  with check (
+    bucket_id = 'sample-images'
+    and exists (
+      select 1 from public.product_samples ps
+       where ps.id::text = (storage.foldername(name))[2]
+    )
+  );
+
+create policy sample_images_delete_with_sample
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'sample-images'
+    and exists (
+      select 1 from public.product_samples ps
+       where ps.id::text = (storage.foldername(name))[2]
+    )
+  );
+
+-- ── launch-images / product-concept-images (PUBLIC) ─────────────────
+-- These two have NO usable key. `launches/<launchId>-<ts>.png` is not a
+-- folder, and the id is literally the string `new` for an image attached
+-- before the launch row is saved -- 3 of the 10 objects. Inventing a parent
+-- join here would break that upload, and the honest scoping (put the company
+-- id in the path) is a page change, not a policy change.
+--
+-- So writes narrow to the UPLOADER, which storage records itself in
+-- `owner`. That closes the actual cross-tenant hole -- another company's
+-- user deleting Baseballism's launch artwork -- and breaks nothing, because
+-- nothing in the app deletes from either bucket today (both pages only
+-- upload and getPublicUrl). Insert stays open to any authenticated user:
+-- an unsaved launch has no row to check against, and a stray image in a
+-- public marketing bucket is not the risk worth blocking an upload over.
+drop policy if exists launch_images_auth_update on storage.objects;
+drop policy if exists launch_images_auth_delete on storage.objects;
+
+create policy launch_images_owner_update
+  on storage.objects for update to authenticated
+  using (bucket_id = 'launch-images' and owner = auth.uid())
+  with check (bucket_id = 'launch-images' and owner = auth.uid());
+
+create policy launch_images_owner_delete
+  on storage.objects for delete to authenticated
+  using (bucket_id = 'launch-images' and owner = auth.uid());
+
+drop policy if exists product_concept_images_auth_update on storage.objects;
+drop policy if exists product_concept_images_auth_delete on storage.objects;
+
+create policy product_concept_images_owner_update
+  on storage.objects for update to authenticated
+  using (bucket_id = 'product-concept-images' and owner = auth.uid())
+  with check (bucket_id = 'product-concept-images' and owner = auth.uid());
+
+create policy product_concept_images_owner_delete
+  on storage.objects for delete to authenticated
+  using (bucket_id = 'product-concept-images' and owner = auth.uid());
+
+-- ── avatars ─────────────────────────────────────────────────────────
+-- Left exactly as they are. `avatars` was already the one bucket scoped to
+-- anything: <auth.uid()>/avatar.png, with writes gated on the folder being
+-- your own id. That is narrower than company scoping and correct as it
+-- stands.
