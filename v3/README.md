@@ -415,17 +415,32 @@ Named here so nobody reads their absence as an oversight:
 
 ## Testing
 
-`chart-adapter.js`, `field-semantics.js`, `report-builder.js` and
-`report-params.js` are pure and testable in node (no DOM needed). The full
-path — add a report, switch Table ↔ Bar ↔ Line ↔ Donut ↔ KPI, drag/resize,
-save, reload identically, move a slicer — was verified in Chromium against a
-stubbed Supabase client during development.
+```bash
+node v3/tests/run.js --unit      # needs nothing installed
+node v3/tests/run.js             # everything
+```
 
-`report-params.js` in particular is worth keeping under test whatever else
-changes: it is the one file that turns a value from a control into part of a
-query, and its suite includes the injection attempts each type must refuse
-(`1 or 1=1` into a number, a quote-break into text, an undeclared option into
-an enum, a `{{token}}` nobody declared).
+Ten suites, ~310 checks, in `v3/tests/` — see its
+[README](tests/README.md). `.github/workflows/v3-tests.yml` runs them on any
+push or PR touching `v3/`, with no secrets, because nothing there talks to a
+real database.
 
-There is still no test runner checked into this repo to hang those on; see
-`docs/ops/roadmap.md` (smoke tests).
+Five unit suites cover the pure modules. Five browser suites drive the real
+pages in Chromium against a stubbed Supabase — **the pages are served
+unmodified from the repo**, so the real `dashboard.html` runs the real
+`dashboard-renderer.js` and only the outside world is faked.
+
+Two things worth preserving if you change how any of this is tested:
+
+**`report-params.js` stays under test whatever else moves.** It is the one
+file that turns a value from a control into part of a query, and its suite
+includes the injection attempt each type must refuse — `1 or 1=1` into a
+number, a quote-break into text, an undeclared option into an enum, a
+`{{token}}` nobody declared.
+
+**Assert on what reached the RPC, not on pixels.** The fake Supabase records
+every call in `window.__FAKE_DB__.rpcCalls`, and the strongest assertions read
+that array: the resolved SQL carried the expected literal, an invalid value
+produced *zero* calls. A tile can look right and be running the wrong query —
+which is exactly how two widgets shipped rendering an `information_schema`
+lookup.

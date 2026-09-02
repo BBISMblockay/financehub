@@ -1,0 +1,74 @@
+name: v3 tests
+
+# Tests for the /v3/ dashboard runtime.
+#
+# Why this exists: v3 is ~2,500 lines of executing code with no redundancy --
+# chart-adapter.js is the ONLY file that touches ECharts, report-params.js is
+# the ONLY place a UI value becomes part of a query. That concentration is
+# good for reasoning about the system and bad for blast radius, so the suites
+# have to run on every change rather than living on someone's machine.
+#
+# It needs NO secrets. Nothing here talks to a real database: the pages are
+# served from the checkout and Supabase is stubbed in-memory. That is what
+# makes it safe to run on pull requests.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'v3/**'
+      - '.github/workflows/v3-tests.yml'
+  pull_request:
+    paths:
+      - 'v3/**'
+      - '.github/workflows/v3-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede an in-flight run for the same branch: only the latest commit's
+  # result matters, and a queued duplicate just delays the answer.
+  group: v3-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # No install step on purpose. The unit suites must run on a bare
+      # checkout; if that ever stops being true, this job fails and says so.
+      - name: Run unit suites
+        run: node v3/tests/run.js --unit
+
+  browser:
+    name: Browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v3/tests/package.json
+
+      - name: Install test dependencies
+        working-directory: v3/tests
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: v3/tests
+        run: npx playwright install --with-deps chromium
+
+      # harness.js finds Chromium itself: no PLAYWRIGHT_CHROMIUM_PATH set and
+      # no sandbox symlink on a runner, so it falls through to Playwright's
+      # own resolution, which is what `playwright install` just set up.
+      - name: Run browser suites
+        run: node v3/tests/run.js --browser

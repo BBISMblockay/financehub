@@ -640,7 +640,7 @@ than this section.
   `dashboards.filter_state`): a report declares `{{token}}`s, the dashboard header supplies them,
   and one control drives every tile sharing a key. The Week over Week board is the worked example —
   nine reports on one Day/Week/MTD/YTD switch, where before it was frozen at week grain.
-  Read `v3/README.md` before changing any of it — it records what was deliberately left out
+  **Tests live in `v3/tests/` and run in CI** (`.github/workflows/v3-tests.yml`, no secrets): `node v3/tests/run.js --unit` needs nothing installed; the browser suites need `cd v3/tests && npm install && npx playwright install chromium` and are SKIPPED (not failed) without them. Ten suites, ~310 checks.   Read `v3/README.md` before changing any of it — it records what was deliberately left out
   (per-widget parameter overrides, an "Add to dashboard" button in Ask SILO, AI-authored widget config)
 - **Ask SILO** (`/v2/silo-chat.html`) — agentic chat with taught notes (`silo_chat_notes`) and a
   dedicated access grant (`silo_chat_managers`); exec-only in the sidebar during soft launch

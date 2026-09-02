@@ -1,0 +1,18 @@
+{
+  "name": "silo-v3-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tests for the /v3/ dashboard runtime. Own package scope because the repo root is type:module and these suites are CommonJS.",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node run.js",
+    "test:unit": "node run.js --unit",
+    "test:browser": "node run.js --browser",
+    "postinstall": "echo 'Browser suites also need: npx playwright install chromium'"
+  },
+  "devDependencies": {
+    "echarts": "5.5.1",
+    "gridstack": "10.3.1",
+    "playwright": "^1.62.1"
+  }
+}
