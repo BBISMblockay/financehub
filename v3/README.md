@@ -430,7 +430,9 @@ passthrough and never left in place: the declaration is the allowlist. The
 report builder blocks saving on one; the tile says so rather than running.
 
 Relative date values are deliberately few — `today`, `today-Nd`,
-`month_start`, `year_start`, or a literal date. A date slicer stores the
+`month_start`, `month_end`, `year_start`, `year_end`, or a literal date.
+(`month_end` is computed as day 0 of the next month, which handles February
+and leap years without a table of month lengths.) A date slicer stores the
 **token**, not the date it resolves to today: storing the resolved date would
 freeze a "last 28 days" board on the day it was saved. The concrete date is
 shown under the control so nobody has to work it out.
