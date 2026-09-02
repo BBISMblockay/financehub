@@ -540,7 +540,13 @@ export async function fetchMetaAdCreatives(connection, adIds) {
   for (let i = 0; i < storyIds.length; i += 50) {
     const slice = storyIds.slice(i, i + 50);
     const batch = slice.map((id) => ({
-      method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=message,description`,
+      // message ONLY. Asking for `description` alongside it failed the whole
+      // request -- Meta returns "(#12) deprecate_post_aggregated_fields_for_
+      // attachement is deprecated for versions v3.3 and higher" and drops
+      // `message` with it, so 100 of 113 post reads came back 400. It was
+      // added as a harmless-looking fallback and was the thing that broke the
+      // call.
+      method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=message`,
     }));
     let data;
     try {
@@ -579,8 +585,7 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       try { post = JSON.parse(item.body); } catch { return; }
       const msg = typeof post?.message === 'string' && post.message.trim()
         ? post.message.trim()
-        : (typeof post?.description === 'string' && post.description.trim()
-            ? post.description.trim() : null);
+        : null;
       if (!msg) return;
       for (const r of needPost.get(storyId) || []) {
         r.body = msg;
