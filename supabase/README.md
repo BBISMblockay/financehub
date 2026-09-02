@@ -332,6 +332,10 @@ supabase/
     20260901020000_posted_status_not_client_writable.sql
     20260901030000_retire_silo_insights.sql
     20260902030000_fixed_assets.sql
+    20260828120000_v3_dashboards.sql
+    20260828130000_saved_report_source.sql
+    20260828140000_saved_report_column_semantics.sql
+    20260828150000_seed_system_reports.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

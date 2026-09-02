@@ -1,0 +1,283 @@
+/* ==========================================================================
+   SILO v3 — dashboard canvas
+   Built on beacon.css tokens only; no new CSS variables are defined here.
+   GridStack supplies the positioning rules for .grid-stack-item; everything
+   below is the tile chrome that sits inside them.
+   ========================================================================== */
+
+.v3-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 14px 60px;
+}
+
+.grid-stack { background: transparent; }
+
+/* The selector has to match gridstack.min.css's own
+   `.grid-stack > .grid-stack-item > .grid-stack-item-content` specificity,
+   or its `overflow-y: auto` wins and the whole tile scrolls behind its own
+   sticky header instead of the body scrolling inside it. */
+.grid-stack > .grid-stack-item > .grid-stack-item-content {
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border);
+  border-radius: var(--bcn-radius);
+  box-shadow: var(--bcn-shadow);
+}
+
+/* GridStack's drop placeholder, restyled to read as a slot rather than a
+   green box. */
+.grid-stack > .grid-stack-placeholder > .placeholder-content {
+  background: var(--bcn-accent-soft);
+  border: 1px dashed var(--bcn-accent-border);
+  border-radius: var(--bcn-radius);
+}
+
+/* ── Widget tile ─────────────────────────────────────────────────────── */
+.dw { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+.dw-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--bcn-border);
+  background: var(--bcn-sunken);
+  flex-shrink: 0;
+}
+/* .dw-head is GridStack's drag handle in edit mode. */
+.grid-stack.is-editing .dw-head { cursor: move; }
+
+.dw-head-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dw-title {
+  font-size: 12.5px; font-weight: 700; color: var(--bcn-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dw-sub {
+  font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.dw-head-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.dw-type-badge {
+  font-family: var(--bcn-mono); font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--bcn-ink-3);
+  border: 1px solid var(--bcn-border); border-radius: 999px; padding: 1px 7px;
+}
+.dw-type-badge--btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer; font-family: var(--bcn-mono); font-size: 9.5px;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--bcn-ink-2); background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border); border-radius: 999px; padding: 2px 8px;
+}
+.dw-type-badge--btn:hover { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); color: var(--bcn-accent); }
+.dw-type-badge--btn:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 1px; }
+.dw-caret { font-size: 8px; opacity: .6; }
+
+.dw-icon-btn {
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: var(--bcn-radius-sm);
+  background: transparent; color: var(--bcn-ink-3); cursor: pointer; font-size: 12px; line-height: 1;
+}
+.dw-icon-btn:hover { background: var(--bcn-surface); border-color: var(--bcn-border); color: var(--bcn-ink); }
+
+.dw-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+.dw-chart { width: 100%; height: 100%; min-height: 90px; }
+
+.dw-foot:not(:empty) {
+  flex-shrink: 0; padding: 5px 12px;
+  border-top: 1px solid var(--bcn-border);
+  font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3);
+}
+
+.dw-loading, .dw-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  height: 100%; min-height: 60px; text-align: center;
+  font-size: 12px; color: var(--bcn-ink-3); padding: 8px;
+}
+.dw-empty--warn { color: var(--bcn-ink-2); }
+.dw-empty--error { color: var(--bcn-neg); }
+.dw-empty-hint { font-size: 11px; color: var(--bcn-ink-3); max-width: 40ch; }
+
+/* ── Table visual ────────────────────────────────────────────────────── */
+.dw-table-wrap { width: 100%; overflow-x: auto; }
+.dw-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.dw-table th {
+  position: sticky; top: -10px; z-index: 1;
+  background: var(--bcn-surface);
+  text-align: left; padding: 4px 8px 5px;
+  border-bottom: 1px solid var(--bcn-border-strong);
+  font-family: var(--bcn-mono); font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--bcn-ink-3); white-space: nowrap;
+}
+.dw-table td {
+  padding: 4px 8px; border-bottom: 1px solid var(--bcn-border);
+  color: var(--bcn-ink-2); max-width: 320px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dw-table .dw-num { text-align: right; font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; color: var(--bcn-ink); }
+.dw-foot-note { padding-top: 6px; font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3); }
+
+/* ── KPI visual ──────────────────────────────────────────────────────── */
+.dw-kpi { display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 2px; }
+.dw-kpi-value {
+  font-family: var(--bcn-mono); font-variant-numeric: tabular-nums;
+  font-size: clamp(20px, 3.6vw, 36px); font-weight: 700; line-height: 1.05; color: var(--bcn-ink);
+}
+.dw-kpi-label {
+  font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--bcn-ink-3);
+}
+
+/* ── Empty canvas ────────────────────────────────────────────────────── */
+.v3-blank {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 60px 20px; text-align: center; color: var(--bcn-ink-3);
+}
+/* Same trap as .v3-meta-bar and .bcn-btn: an author `display` beats the UA's
+   `[hidden]` rule, so the empty-canvas message would keep showing under the
+   widgets someone just added. */
+.v3-blank[hidden] { display: none; }
+.v3-blank h3 { font-size: 14px; color: var(--bcn-ink); margin: 0; }
+.v3-blank p { font-size: 12.5px; max-width: 46ch; margin: 0; line-height: 1.5; }
+
+/* ── Inspector panel ─────────────────────────────────────────────────── */
+.v3-inspector {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(330px, 92vw);
+  background: var(--bcn-surface); border-left: 1px solid var(--bcn-border);
+  box-shadow: -8px 0 24px rgba(15, 23, 42, .10);
+  transform: translateX(100%); transition: transform .18s ease;
+  display: flex; flex-direction: column; z-index: 60;
+}
+.v3-inspector.open { transform: translateX(0); }
+.v3-inspector-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0;
+}
+.v3-inspector-head h3 { margin: 0; font-size: 13px; font-weight: 700; }
+.v3-inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+
+.v3-visual-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.v3-visual-opt {
+  position: relative;
+  display: flex; flex-direction: column; gap: 1px; cursor: pointer;
+  padding: 7px 9px; border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+  background: var(--bcn-surface);
+}
+/* The radio itself is visually hidden, so the keyboard focus ring has to be
+   drawn on the label or tabbing through the visual picker shows nothing. */
+.v3-visual-opt:focus-within { outline: 2px solid var(--bcn-accent); outline-offset: 1px; }
+.v3-visual-opt:hover { border-color: var(--bcn-border-strong); }
+.v3-visual-opt.is-active { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
+.v3-visual-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.v3-visual-label { font-size: 12px; font-weight: 700; color: var(--bcn-ink); }
+.v3-visual-hint { font-size: 10px; color: var(--bcn-ink-3); line-height: 1.3; }
+
+.v3-insp-source {
+  padding: 9px 10px; border: 1px solid var(--bcn-border);
+  border-radius: var(--bcn-radius); background: var(--bcn-sunken);
+}
+.v3-insp-source-name { font-size: 12px; font-weight: 600; color: var(--bcn-ink); margin-top: 2px; }
+.v3-insp-hint, .v3-insp-note { font-size: 10.5px; color: var(--bcn-ink-3); line-height: 1.45; }
+.v3-insp-actions { margin-top: auto; padding-top: 8px; }
+.v3-insp-actions .bcn-btn { width: 100%; }
+
+/* ── Report picker modal ─────────────────────────────────────────────── */
+.v3-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
+  display: none; align-items: center; justify-content: center; z-index: 80; padding: 20px;
+}
+.v3-backdrop.open { display: flex; }
+.v3-modal {
+  width: min(720px, 100%); max-height: 84vh; display: flex; flex-direction: column;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+  border-radius: var(--bcn-radius); box-shadow: 0 18px 48px rgba(15, 23, 42, .28);
+}
+.v3-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0;
+}
+.v3-modal-head h3 { margin: 0; font-size: 13.5px; font-weight: 700; }
+.v3-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 18px; }
+.v3-close {
+  border: none; background: transparent; color: var(--bcn-ink-3);
+  font-size: 15px; cursor: pointer; line-height: 1; padding: 2px 4px;
+}
+.v3-close:hover { color: var(--bcn-ink); }
+
+.v3-picker-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.v3-picker-toolbar .bcn-field { flex: 1; }
+.v3-picker-count { font-family: var(--bcn-mono); font-size: 10.5px; color: var(--bcn-ink-3); white-space: nowrap; }
+.v3-picker-note {
+  font-size: 11.5px; color: var(--bcn-ink-2); line-height: 1.5; margin-bottom: 10px;
+  padding: 7px 10px; background: var(--bcn-sunken); border-radius: var(--bcn-radius);
+  border: 1px solid var(--bcn-border);
+}
+.v3-picker-head { margin-bottom: 10px; }
+
+.v3-report-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.v3-report-card {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; cursor: pointer;
+  padding: 10px 11px; border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+  background: var(--bcn-surface); font: inherit;
+}
+.v3-report-card:hover { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
+.v3-report-title { font-size: 12.5px; font-weight: 700; color: var(--bcn-ink); }
+.v3-report-question {
+  font-size: 11px; color: var(--bcn-ink-3); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.v3-report-foot { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+.v3-report-meta { font-family: var(--bcn-mono); font-size: 9.5px; color: var(--bcn-ink-4); }
+
+.v3-query-list { display: flex; flex-direction: column; gap: 8px; }
+.v3-query-card {
+  display: flex; flex-direction: column; gap: 5px; text-align: left; cursor: pointer;
+  padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+  background: var(--bcn-surface); font: inherit; width: 100%;
+}
+.v3-query-card:hover { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
+.v3-query-label {
+  font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--bcn-ink-3);
+}
+.v3-query-sql {
+  margin: 0; font-family: var(--bcn-mono); font-size: 10.5px; line-height: 1.45;
+  color: var(--bcn-ink-2); white-space: pre-wrap; word-break: break-word; max-height: 130px; overflow: hidden;
+}
+
+.v3-back {
+  border: none; background: transparent; color: var(--bcn-accent);
+  font: inherit; font-size: 11.5px; cursor: pointer; padding: 0 0 10px;
+}
+.v3-empty { padding: 26px 10px; text-align: center; font-size: 12.5px; color: var(--bcn-ink-3); line-height: 1.6; }
+.v3-empty a { color: var(--bcn-accent); }
+
+/* ── Dashboard list page ─────────────────────────────────────────────── */
+.v3-dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.v3-dash-card {
+  display: flex; flex-direction: column; gap: 5px; text-decoration: none;
+  padding: 13px 14px; border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+  background: var(--bcn-surface); box-shadow: var(--bcn-shadow);
+}
+.v3-dash-card:hover { border-color: var(--bcn-accent-border); }
+.v3-dash-name { font-size: 13.5px; font-weight: 700; color: var(--bcn-ink); }
+.v3-dash-desc { font-size: 11.5px; color: var(--bcn-ink-3); line-height: 1.45; min-height: 1.45em; }
+.v3-dash-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.v3-dash-meta { font-family: var(--bcn-mono); font-size: 9.5px; color: var(--bcn-ink-4); }
+
+.v3-meta-bar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+/* .bcn-filter-bar sets `display: flex`, which beats the UA's `[hidden]`
+   rule -- without this the edit-mode settings bar stays on screen in view
+   mode. Same trap beacon.css already documents for .bcn-status. */
+.v3-meta-bar[hidden] { display: none; }
+.v3-meta-bar .bcn-field-group { min-width: 170px; }
+.v3-meta-bar .bcn-field-group--wide { flex: 1; min-width: 240px; }
+
+@media (max-width: 720px) {
+  .v3-canvas { padding: 4px 8px 60px; }
+  .v3-visual-opts { grid-template-columns: 1fr; }
+}

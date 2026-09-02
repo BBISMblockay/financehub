@@ -1950,3 +1950,105 @@ select
         || '$24,000 asset disposed after 6mo must recognise $6,000, not $24,000)'
     else 'ok'
   end as fixed_assets;
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='dashboards')
+      then 'MISSING — run 20260828120000_v3_dashboards.sql'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='dashboard_widgets')
+      then 'MISSING — dashboard_widgets table'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='dashboards'
+                       and policyname='dashboards_select')
+      then 'MISSING — dashboards RLS policies'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='dashboard_widgets'
+                       and policyname='dashboard_widgets_select')
+      then 'MISSING — dashboard_widgets RLS policies'
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.dashboard_widgets'::regclass
+                       and tgname='stamp_company_entity_id')
+      then 'MISSING — stamp_company_entity_id trigger on dashboard_widgets; re-run attach_stamp_company_entity_id_triggers()'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='query_sql')
+      then 'MISSING — dashboard_widgets_v.query_sql; every widget renders "source report not visible" without it'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='dashboard_widgets_v'
+                       and c.reloptions::text like '%security_invoker%')
+      then 'MISSING — dashboard_widgets_v is not security_invoker; it would hand a private report''s SQL to every viewer'
+    else 'ok'
+  end as v3_dashboards;
+
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='source')
+      then 'MISSING — run 20260828130000_saved_report_source.sql'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.silo_chat_saved_reports'::regclass
+                       and conname='silo_chat_saved_reports_global_is_system_check')
+      then 'MISSING — the global-is-system CHECK; without it a null-company row need not be source=system, and the SELECT policy would show one user''s report to every company'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_insert'
+                       and with_check like '%company_entity_id IS NOT NULL%')
+      then 'MISSING — insert policy lost its explicit company_entity_id IS NOT NULL guard. Not immediately exploitable (NULL = active_company_id() is NULL, which RLS already treats as failure) but the protection is then emergent from three-valued logic rather than stated, and any NULL-tolerant rewrite of that comparison silently removes it'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_insert'
+                       and with_check like '%ask_silo%')
+      then 'MISSING — insert policy no longer restricts source; a client could create a system report'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_update'
+                       and with_check like '%ask_silo%')
+      then 'MISSING — update policy no longer restricts source; a user could promote their own report to a global system definition'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='silo_chat_saved_reports'
+                       and policyname='silo_chat_saved_reports_select'
+                       and qual like '%source = ''system''%')
+      then 'MISSING — select policy lost the global system branch; central SILO report definitions are invisible to everyone'
+    when exists (select 1 from information_schema.columns
+                 where table_schema='public' and table_name='silo_chat_saved_reports'
+                   and column_name in ('question','answer') and is_nullable='NO')
+      then 'MISSING — question/answer are still NOT NULL; a system report was never a conversation and cannot be seeded'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='report_source')
+      then 'MISSING — dashboard_widgets_v.report_source'
+    else 'ok'
+  end as saved_report_source;
+
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='columns_metadata')
+      then 'MISSING — run 20260828140000_saved_report_column_semantics.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='report_columns_metadata')
+      then 'MISSING — dashboard_widgets_v.report_columns_metadata; dashboards fall back to guessing currency vs count from column names'
+    else 'ok'
+  end as saved_report_column_semantics;
+
+select
+  case
+    when (select count(*) from public.silo_chat_saved_reports
+           where source = 'system'
+             and id in ('5110de50-0000-4000-a000-000000000001',
+                        '5110de50-0000-4000-a000-000000000002',
+                        '5110de50-0000-4000-a000-000000000003',
+                        '5110de50-0000-4000-a000-000000000004')) < 4
+      then 'MISSING — run 20260828150000_seed_system_reports.sql; dashboards have nothing to build on unless someone has saved an Ask SILO report'
+    when exists (select 1 from public.silo_chat_saved_reports
+                  where source = 'system' and company_entity_id is not null)
+      then 'MISSING — a system report is scoped to one company; system definitions are meant to be global (company_entity_id IS NULL) and reused by every tenant'
+    when exists (select 1 from public.silo_chat_saved_reports
+                  where source = 'system' and coalesce(array_length(queries_run, 1), 0) = 0)
+      then 'MISSING — a system report has no SQL to run'
+    else 'ok'
+  end as seed_system_reports;

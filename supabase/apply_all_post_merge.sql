@@ -15032,6 +15032,760 @@ create index if not exists idx_schedule_items_payment_request
   on public.schedule_items (payment_request_id)
   where payment_request_id is not null;
 
+-- 20260828120000_v3_dashboards.sql
+-- ============================================================
+-- v3 dashboard runtime: dashboards + dashboard_widgets.
+--
+-- The point of this pair of tables is what is NOT in them: HTML. A
+-- dashboard is stored as configuration -- which saved report feeds a
+-- widget, which visual renders it, which column is the dimension, which
+-- is the measure, and where the widget sits on the grid. The renderer
+-- (v3/js/dashboard-renderer.js) reads that config and draws it. Switching
+-- a widget from a table to a bar chart is a one-field UPDATE, not a new
+-- page, not an LLM call, not a deploy.
+--
+-- There is deliberately NO third table for saved reports. SILO already has
+-- one: silo_chat_saved_reports, which since 20260818050000 stores a
+-- question, an answer, and the exact SQL (queries_run) that produced it,
+-- and which the Ask SILO "Refresh data" button already re-runs client-side
+-- through chat_run_readonly_query. That RPC is SECURITY INVOKER, so every
+-- re-run stays scoped by the caller's own RLS. A dashboard widget is
+-- therefore just "saved report + which of its queries + how to draw it" --
+-- inventing a parallel saved_reports table would fork the one artifact
+-- Ask SILO already produces and split refresh behaviour across two code
+-- paths.
+--
+-- query_index exists because queries_run is an ARRAY. A saved Ask SILO
+-- answer routinely ran several queries to get where it got; a widget draws
+-- exactly one dataset. The widget names which one rather than silently
+-- taking the first and being wrong on multi-query reports.
+--
+-- report_id is `on delete set null`, not cascade and not restrict: deleting
+-- a saved report should not silently delete someone else's dashboard tile,
+-- and it should not block the delete either. The widget keeps its own
+-- `title`, so an orphaned tile can still say what it used to show.
+
+-- ── dashboards ────────────────────────────────────────────────────────
+create table if not exists public.dashboards (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid references public.entities(id),
+  created_by uuid references public.profiles(id),
+  name text not null,
+  description text,
+  -- Same two-value split as silo_chat_saved_reports.visibility, and for
+  -- the same reason: a personal daily-routine dashboard should not have
+  -- to live in the company list to exist.
+  visibility text not null default 'company'
+    check (visibility in ('company', 'private')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists dashboards_company_created_idx
+  on public.dashboards (company_entity_id, created_at desc);
+
+alter table public.dashboards enable row level security;
+
+drop policy if exists dashboards_select on public.dashboards;
+create policy dashboards_select on public.dashboards
+  for select using (
+    company_entity_id = active_company_id()
+    and (visibility = 'company' or created_by = auth.uid())
+  );
+
+drop policy if exists dashboards_insert on public.dashboards;
+create policy dashboards_insert on public.dashboards
+  for insert with check (
+    company_entity_id = active_company_id()
+    and (created_by = auth.uid() or created_by is null)
+  );
+
+drop policy if exists dashboards_update on public.dashboards;
+create policy dashboards_update on public.dashboards
+  for update using (
+    company_entity_id = active_company_id()
+    and (created_by = auth.uid() or is_exec_or_owner())
+  )
+  with check (
+    company_entity_id = active_company_id()
+    and (created_by = auth.uid() or is_exec_or_owner())
+  );
+
+drop policy if exists dashboards_delete on public.dashboards;
+create policy dashboards_delete on public.dashboards
+  for delete using (
+    company_entity_id = active_company_id()
+    and (created_by = auth.uid() or is_exec_or_owner())
+  );
+
+drop trigger if exists stamp_created_by on public.dashboards;
+create trigger stamp_created_by before insert on public.dashboards
+  for each row execute function public.stamp_created_by();
+
+drop trigger if exists set_updated_at on public.dashboards;
+create trigger set_updated_at before update on public.dashboards
+  for each row execute function public.set_updated_at();
+
+-- ── dashboard_widgets ─────────────────────────────────────────────────
+create table if not exists public.dashboard_widgets (
+  id uuid primary key default gen_random_uuid(),
+  dashboard_id uuid not null references public.dashboards(id) on delete cascade,
+  company_entity_id uuid references public.entities(id),
+  created_by uuid references public.profiles(id),
+  report_id uuid references public.silo_chat_saved_reports(id) on delete set null,
+  -- Which entry of the source report's queries_run array feeds this widget.
+  query_index integer not null default 0 check (query_index >= 0),
+  title text,
+  visual_type text not null default 'table'
+    check (visual_type in ('table', 'kpi', 'bar', 'line', 'donut')),
+  -- { x_field, y_field, sort, limit, value_format, ... } -- read by
+  -- v3/js/chart-adapter.js. Deliberately schemaless: adding a visual
+  -- option should never need a migration.
+  visual_config jsonb not null default '{}'::jsonb,
+  -- GridStack geometry: { x, y, w, h }. Kept separate from visual_config
+  -- so a drag/resize save never has to round-trip the visual settings.
+  layout jsonb not null default '{}'::jsonb,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists dashboard_widgets_dashboard_idx
+  on public.dashboard_widgets (dashboard_id, sort_order);
+
+alter table public.dashboard_widgets enable row level security;
+
+-- Widget visibility and writability are entirely the parent dashboard's,
+-- resolved through an EXISTS against dashboards -- the same shape
+-- comp_adjustment_request_activity uses against its parent request. No
+-- recursion risk: dashboards' own policies never reference this table.
+drop policy if exists dashboard_widgets_select on public.dashboard_widgets;
+create policy dashboard_widgets_select on public.dashboard_widgets
+  for select using (
+    exists (select 1 from public.dashboards d where d.id = dashboard_widgets.dashboard_id)
+  );
+
+drop policy if exists dashboard_widgets_insert on public.dashboard_widgets;
+create policy dashboard_widgets_insert on public.dashboard_widgets
+  for insert with check (
+    company_entity_id = active_company_id()
+    and exists (
+      select 1 from public.dashboards d
+       where d.id = dashboard_widgets.dashboard_id
+         and (d.created_by = auth.uid() or is_exec_or_owner())
+    )
+  );
+
+drop policy if exists dashboard_widgets_update on public.dashboard_widgets;
+create policy dashboard_widgets_update on public.dashboard_widgets
+  for update using (
+    exists (
+      select 1 from public.dashboards d
+       where d.id = dashboard_widgets.dashboard_id
+         and (d.created_by = auth.uid() or is_exec_or_owner())
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.dashboards d
+       where d.id = dashboard_widgets.dashboard_id
+         and (d.created_by = auth.uid() or is_exec_or_owner())
+    )
+  );
+
+drop policy if exists dashboard_widgets_delete on public.dashboard_widgets;
+create policy dashboard_widgets_delete on public.dashboard_widgets
+  for delete using (
+    exists (
+      select 1 from public.dashboards d
+       where d.id = dashboard_widgets.dashboard_id
+         and (d.created_by = auth.uid() or is_exec_or_owner())
+    )
+  );
+
+drop trigger if exists stamp_created_by on public.dashboard_widgets;
+create trigger stamp_created_by before insert on public.dashboard_widgets
+  for each row execute function public.stamp_created_by();
+
+drop trigger if exists set_updated_at on public.dashboard_widgets;
+create trigger set_updated_at before update on public.dashboard_widgets
+  for each row execute function public.set_updated_at();
+
+-- Attaches (and refreshes) the stamp_company_entity_id BEFORE INSERT
+-- trigger on both new tables so the UI can omit company_entity_id.
+select public.attach_stamp_company_entity_id_triggers();
+
+revoke all on public.dashboards from anon;
+revoke all on public.dashboard_widgets from anon;
+grant select, insert, update, delete on public.dashboards to authenticated;
+grant select, insert, update, delete on public.dashboard_widgets to authenticated;
+
+-- ── views ─────────────────────────────────────────────────────────────
+-- `drop view` + `create view`, not `create or replace view`: Postgres can
+-- only APPEND columns to an existing view, so replacing one whose column
+-- list changed shape fails with "cannot change name of view column". These
+-- three v3 migrations each reshape the same views, and
+-- apply_all_post_merge.sql runs all of them in sequence -- so a plain
+-- replace breaks a fresh rebuild at the second migration, and breaks a
+-- re-run of apply_all at the first. Nothing depends on these views, so the
+-- drop is safe and no cascade is needed.
+drop view if exists public.dashboards_v;
+create view public.dashboards_v
+with (security_invoker = true) as
+select
+  d.id,
+  d.company_entity_id,
+  d.created_by,
+  p.name as created_by_name,
+  d.name,
+  d.description,
+  d.visibility,
+  d.created_at,
+  d.updated_at,
+  (select count(*) from public.dashboard_widgets w where w.dashboard_id = d.id) as widget_count
+from public.dashboards d
+left join public.profiles p on p.id = d.created_by;
+
+revoke all on public.dashboards_v from anon;
+grant select on public.dashboards_v to authenticated;
+
+-- Joins the source report so the renderer fetches a dashboard's widgets
+-- AND their SQL in one round trip. security_invoker, so a widget whose
+-- source report is someone else's PRIVATE saved report comes back with a
+-- null query_sql for everyone but its owner -- the tile then renders a
+-- "source report not visible to you" state instead of silently blank.
+drop view if exists public.dashboard_widgets_v;
+create view public.dashboard_widgets_v
+with (security_invoker = true) as
+select
+  w.id,
+  w.dashboard_id,
+  w.company_entity_id,
+  w.created_by,
+  w.report_id,
+  w.query_index,
+  w.title,
+  w.visual_type,
+  w.visual_config,
+  w.layout,
+  w.sort_order,
+  w.created_at,
+  w.updated_at,
+  r.title      as report_title,
+  r.question   as report_question,
+  r.visibility as report_visibility,
+  r.queries_run[w.query_index + 1] as query_sql,
+  coalesce(array_length(r.queries_run, 1), 0) as report_query_count
+from public.dashboard_widgets w
+left join public.silo_chat_saved_reports r on r.id = w.report_id;
+
+revoke all on public.dashboard_widgets_v from anon;
+grant select on public.dashboard_widgets_v to authenticated;
+
+comment on table public.dashboards is
+  'v3 dashboard runtime: a named canvas of widgets. Stores configuration, never rendered HTML.';
+comment on table public.dashboard_widgets is
+  'One tile on a dashboard: which saved report (and which of its queries) feeds it, which visual draws it, and where it sits on the grid.';
+comment on column public.dashboard_widgets.query_index is
+  'Zero-based index into silo_chat_saved_reports.queries_run. A saved answer often ran several queries; a widget draws exactly one.';
+
+
+-- ============================================================
+-- 20260828130000_saved_report_source.sql
+-- ============================================================
+-- Make the saved-report layer generic, so Ask SILO is ONE authoring
+-- surface rather than the only door into dashboards.
+--
+-- Context: v3 dashboards (20260828120000) point a widget at a row in
+-- silo_chat_saved_reports. That table's NAME is chat-flavoured but its
+-- SHAPE never was -- it is title + queries_run[] + visibility +
+-- company_entity_id, which is exactly what a standard report needs too.
+-- And chat_run_readonly_query, despite its name, is a generic read-only
+-- SQL runner (SECURITY INVOKER, single SELECT/WITH, 500-row cap, 30s
+-- timeout). So the reporting ENGINE is already shared; what was missing
+-- was a way to say where a report came from.
+--
+-- This adds that and nothing else. Deliberately NOT here: renaming the
+-- table (mechanical, bigger diff than the thing it fixes, and a `source`
+-- column buys the architecture without it), a separate report-definition
+-- table, report parameters, and any actual system report. The point is
+-- that when those arrive, no dashboard_widgets row has to migrate.
+--
+--   source = 'ask_silo'  an answer pinned from chat (every existing row)
+--   source = 'manual'    a report a person defined by hand, company-scoped
+--   source = 'system'    a central SILO definition, reusable across tenants
+--
+-- ── The global/system boundary ────────────────────────────────────────
+-- A system definition like "Daily Sales" should exist ONCE and be usable
+-- by every company, with the underlying query still returning only the
+-- caller's RLS-scoped rows -- the SQL is scoped by the reader's own
+-- policies, so one definition scopes itself correctly per tenant. That
+-- means company_entity_id IS NULL for those rows.
+--
+-- NULL company is therefore a privileged state, and the policies below
+-- treat it as one. Three independent things have to hold for a global row
+-- to exist, and no client can satisfy them:
+--
+--   1. A table CHECK: company_entity_id IS NULL is only legal alongside
+--      source = 'system'. A null-company row can never be a user's report.
+--   2. INSERT WITH CHECK requires company_entity_id IS NOT NULL and
+--      source IN ('ask_silo','manual'). A client cannot create a global
+--      row, and cannot create a system row at all.
+--   3. UPDATE USING is company_entity_id = active_company_id(), which is
+--      NULL (not true) for a global row -- so no client, exec/owner
+--      included, can edit or convert one. UPDATE WITH CHECK repeats the
+--      insert conditions so a company row cannot be PROMOTED to global or
+--      to 'system' by nulling its company or rewriting its source.
+--
+-- On point 2, one thing worth being accurate about: the OLD policy already
+-- rejected this case, and the explicit IS NOT NULL is not a bug fix.
+-- A user whose active company is unset (a real state -- sessionStorage is
+-- per-tab and profiles.active_company_id can be empty) gets NULL from
+-- active_company_id(), stamp_company_entity_id() therefore stamps NULL,
+-- and the old `company_entity_id = active_company_id()` then evaluates
+-- NULL = NULL -> NULL, which RLS treats as failure. Verified by removing
+-- the guard and re-running: the insert is still denied.
+--
+-- The explicit test earns its place anyway, for two reasons. It states the
+-- rule instead of leaving it to emerge from three-valued logic, which is
+-- the kind of thing a later "simplification" quietly breaks -- swap that
+-- `=` for anything NULL-tolerant (coalesce, IS NOT DISTINCT FROM) and the
+-- accidental protection is gone with no visible change to the policy's
+-- apparent meaning. And it is testable: verify_v2_schema.sql asserts the
+-- clause is present, which it cannot do for an emergent property.
+--
+-- System rows are consequently writable only by service role / migrations,
+-- which is the intent: centrally controlled definitions.
+
+alter table public.silo_chat_saved_reports
+  add column if not exists source text not null default 'ask_silo',
+  add column if not exists description text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.silo_chat_saved_reports'::regclass
+       and conname = 'silo_chat_saved_reports_source_check'
+  ) then
+    alter table public.silo_chat_saved_reports
+      add constraint silo_chat_saved_reports_source_check
+      check (source in ('ask_silo', 'system', 'manual'));
+  end if;
+
+  -- Structural half of the guardrail: independent of RLS, and it holds
+  -- even for a service-role write that gets the source wrong.
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.silo_chat_saved_reports'::regclass
+       and conname = 'silo_chat_saved_reports_global_is_system_check'
+  ) then
+    alter table public.silo_chat_saved_reports
+      add constraint silo_chat_saved_reports_global_is_system_check
+      check (company_entity_id is not null or source = 'system');
+  end if;
+end $$;
+
+-- A system/manual definition has a description, not a chat question, and
+-- no model-written answer. Ask SILO still writes both on every save, so
+-- this changes nothing about existing behaviour -- it only stops the two
+-- chat-specific columns from being mandatory for a report that was never
+-- a conversation.
+alter table public.silo_chat_saved_reports
+  alter column question drop not null,
+  alter column answer   drop not null;
+
+comment on column public.silo_chat_saved_reports.source is
+  'Which authoring surface produced this report: ask_silo (pinned from chat), manual (hand-defined, company-scoped), or system (central SILO definition, company_entity_id IS NULL, reusable across tenants and writable only by service role/migrations).';
+comment on column public.silo_chat_saved_reports.description is
+  'Plain-language description for reports that were not a chat question. Ask SILO rows carry `question` instead.';
+
+-- ── Policies ──────────────────────────────────────────────────────────
+-- SELECT: unchanged for company rows. The new branch is narrow on purpose
+-- -- it requires BOTH a null company AND source = 'system', so a
+-- null-company row that somehow carried source='ask_silo' would still be
+-- visible to nobody rather than to everybody. (The table CHECK above makes
+-- that row impossible; this is the second lock on the same door.)
+drop policy if exists silo_chat_saved_reports_select on public.silo_chat_saved_reports;
+create policy silo_chat_saved_reports_select on public.silo_chat_saved_reports
+  for select using (
+    (
+      company_entity_id = active_company_id()
+      and (visibility = 'company' or created_by = auth.uid())
+    )
+    or (
+      company_entity_id is null and source = 'system'
+    )
+  );
+
+-- INSERT: tightened, not widened. Previously "company_entity_id =
+-- active_company_id()", which is satisfied by NULL = NULL being... not
+-- true, actually -- but the row never reached the check as NULL because
+-- the trigger had already stamped it. Now the requirement is explicit and
+-- does not depend on a trigger, and 'system' is closed to clients.
+drop policy if exists silo_chat_saved_reports_insert on public.silo_chat_saved_reports;
+create policy silo_chat_saved_reports_insert on public.silo_chat_saved_reports
+  for insert with check (
+    company_entity_id is not null
+    and company_entity_id = active_company_id()
+    and source in ('ask_silo', 'manual')
+    and (created_by = auth.uid() or created_by is null)
+  );
+
+-- UPDATE: USING already denied global rows (NULL = active_company_id() is
+-- NULL, not true) -- restated explicitly here because this boundary is the
+-- point of the migration and should be readable, not inferred. WITH CHECK
+-- now also blocks promotion: a user cannot null their report's company or
+-- rewrite its source to 'system' to make it globally visible.
+drop policy if exists silo_chat_saved_reports_update on public.silo_chat_saved_reports;
+create policy silo_chat_saved_reports_update on public.silo_chat_saved_reports
+  for update using (
+    company_entity_id is not null
+    and company_entity_id = active_company_id()
+    and (created_by = auth.uid() or is_exec_or_owner())
+  )
+  with check (
+    company_entity_id is not null
+    and company_entity_id = active_company_id()
+    and source in ('ask_silo', 'manual')
+    and (created_by = auth.uid() or is_exec_or_owner())
+  );
+
+drop policy if exists silo_chat_saved_reports_delete on public.silo_chat_saved_reports;
+create policy silo_chat_saved_reports_delete on public.silo_chat_saved_reports
+  for delete using (
+    company_entity_id is not null
+    and company_entity_id = active_company_id()
+    and (created_by = auth.uid() or is_exec_or_owner())
+  );
+
+-- ── Views ─────────────────────────────────────────────────────────────
+-- `drop view` + `create view`, not `create or replace view`: Postgres can
+-- only APPEND columns to an existing view, so replacing one whose column
+-- list changed shape fails with "cannot change name of view column". These
+-- three v3 migrations each reshape the same views, and
+-- apply_all_post_merge.sql runs all of them in sequence -- so a plain
+-- replace breaks a fresh rebuild at the second migration, and breaks a
+-- re-run of apply_all at the first. Nothing depends on these views, so the
+-- drop is safe and no cascade is needed.
+drop view if exists public.silo_chat_saved_reports_v;
+create view public.silo_chat_saved_reports_v
+with (security_invoker = true) as
+select
+  r.id,
+  r.company_entity_id,
+  r.created_by,
+  p.name as created_by_name,
+  r.source,
+  r.title,
+  r.description,
+  r.question,
+  r.answer,
+  r.queries_run,
+  r.visibility,
+  r.created_at,
+  r.updated_at
+from public.silo_chat_saved_reports r
+left join public.profiles p on p.id = r.created_by;
+
+revoke all on public.silo_chat_saved_reports_v from anon;
+grant select on public.silo_chat_saved_reports_v to authenticated;
+
+-- dashboard_widgets_v carries the source through so a tile can say where
+-- its data came from without a second query. The widget table itself is
+-- untouched by this migration -- that is the whole point: whatever a
+-- future report source turns out to be, no widget row migrates.
+drop view if exists public.dashboard_widgets_v;
+create view public.dashboard_widgets_v
+with (security_invoker = true) as
+select
+  w.id,
+  w.dashboard_id,
+  w.company_entity_id,
+  w.created_by,
+  w.report_id,
+  w.query_index,
+  w.title,
+  w.visual_type,
+  w.visual_config,
+  w.layout,
+  w.sort_order,
+  w.created_at,
+  w.updated_at,
+  r.title       as report_title,
+  r.question    as report_question,
+  r.description as report_description,
+  r.source      as report_source,
+  r.visibility  as report_visibility,
+  r.queries_run[w.query_index + 1] as query_sql,
+  coalesce(array_length(r.queries_run, 1), 0) as report_query_count
+from public.dashboard_widgets w
+left join public.silo_chat_saved_reports r on r.id = w.report_id;
+
+revoke all on public.dashboard_widgets_v from anon;
+grant select on public.dashboard_widgets_v to authenticated;
+
+
+-- ============================================================
+-- 20260828140000_saved_report_column_semantics.sql
+-- ============================================================
+-- v3 dashboards, pass 2: semantic column typing.
+--
+-- ── Why columns_metadata ──────────────────────────────────────────────
+-- The v3 renderer decides how to print a number by looking at its column
+-- NAME, and a name is a guess. The first build shipped with `total_units`
+-- formatting as currency because "total" is a money word -- a wrong number
+-- on a dashboard, not a cosmetic slip. Decoupling the dataset from the
+-- visual is what makes that class of bug possible at all: once one saved
+-- report can be drawn five ways, nothing in the drawing code knows what
+-- the values MEAN.
+--
+-- So the meaning has to travel with the report, not be re-guessed per
+-- widget. columns_metadata is that carrier:
+--
+--   {"net_sales":  {"semantic": "currency"},
+--    "units":      {"semantic": "count"},
+--    "day_date":   {"semantic": "date"},
+--    "conversion_rate": {"semantic": "percent"}}
+--
+-- Nullable, and every reader falls back to inference when a column is
+-- absent from it, so nothing breaks on the ~50 reports saved before this
+-- existed. It is on silo_chat_saved_reports rather than on
+-- dashboard_widgets deliberately: the semantics of `net_sales` belong to
+-- the report, and correcting them once should fix every widget and every
+-- future widget built on it. Per-widget DISPLAY overrides stay in
+-- dashboard_widgets.visual_config.value_format -- a different thing
+-- ("show this one as a plain number here"), not a different meaning.
+--
+-- Populated three ways, in ascending order of authority: v3 seeds it from
+-- profiling + silo_chat_schema_catalog the first time a widget is built on
+-- a report; a human corrects a field in the widget inspector; Ask SILO can
+-- write it at save time once the edge function is taught to (not yet -- the
+-- column exists so that work is additive rather than a migration away).
+alter table public.silo_chat_saved_reports
+  add column if not exists columns_metadata jsonb;
+
+comment on column public.silo_chat_saved_reports.columns_metadata is
+  'Semantic type per result column, e.g. {"net_sales":{"semantic":"currency"},"units":{"semantic":"count"}}. Null/absent means "infer" -- readers must fall back, never assume. Belongs to the report, so a correction fixes every widget built on it.';
+
+-- Anyone who can update the report can update its semantics: the existing
+-- silo_chat_saved_reports_update policy (creator or exec/owner, company
+-- rows only) already covers it, so no new policy. A SYSTEM definition's
+-- metadata stays service-role-only for the same reason its SQL does --
+-- that boundary is set in 20260828130000 and this migration does not
+-- widen it.
+
+-- ── Views ─────────────────────────────────────────────────────────────
+-- Rebuilt to carry columns_metadata alongside the source/description added
+-- in 20260828130000. Kept in one place rather than patched twice: a view is
+-- replaced wholesale, so the full column list has to be restated anyway.
+-- `drop view` + `create view`, not `create or replace view`: Postgres can
+-- only APPEND columns to an existing view, so replacing one whose column
+-- list changed shape fails with "cannot change name of view column". These
+-- three v3 migrations each reshape the same views, and
+-- apply_all_post_merge.sql runs all of them in sequence -- so a plain
+-- replace breaks a fresh rebuild at the second migration, and breaks a
+-- re-run of apply_all at the first. Nothing depends on these views, so the
+-- drop is safe and no cascade is needed.
+drop view if exists public.silo_chat_saved_reports_v;
+create view public.silo_chat_saved_reports_v
+with (security_invoker = true) as
+select
+  r.id,
+  r.company_entity_id,
+  r.created_by,
+  p.name as created_by_name,
+  r.source,
+  r.title,
+  r.description,
+  r.question,
+  r.answer,
+  r.queries_run,
+  r.visibility,
+  r.columns_metadata,
+  r.created_at,
+  r.updated_at
+from public.silo_chat_saved_reports r
+left join public.profiles p on p.id = r.created_by;
+
+revoke all on public.silo_chat_saved_reports_v from anon;
+grant select on public.silo_chat_saved_reports_v to authenticated;
+
+-- The renderer gets a widget, its SQL, and the semantics of its columns in
+-- one round trip. Same security_invoker caveat as query_sql: a report that
+-- is private to someone else yields nulls here, and the tile says so.
+drop view if exists public.dashboard_widgets_v;
+create view public.dashboard_widgets_v
+with (security_invoker = true) as
+select
+  w.id,
+  w.dashboard_id,
+  w.company_entity_id,
+  w.created_by,
+  w.report_id,
+  w.query_index,
+  w.title,
+  w.visual_type,
+  w.visual_config,
+  w.layout,
+  w.sort_order,
+  w.created_at,
+  w.updated_at,
+  r.title       as report_title,
+  r.question    as report_question,
+  r.description as report_description,
+  r.source      as report_source,
+  r.visibility  as report_visibility,
+  r.columns_metadata as report_columns_metadata,
+  r.queries_run[w.query_index + 1] as query_sql,
+  coalesce(array_length(r.queries_run, 1), 0) as report_query_count
+from public.dashboard_widgets w
+left join public.silo_chat_saved_reports r on r.id = w.report_id;
+
+revoke all on public.dashboard_widgets_v from anon;
+grant select on public.dashboard_widgets_v to authenticated;
+
+-- ============================================================
+-- 20260828150000_seed_system_reports.sql
+-- ============================================================
+-- Four central SILO report definitions, so dashboards have something to
+-- build on that did not come from Ask SILO.
+--
+-- These are the first source='system' rows: company_entity_id IS NULL, one
+-- definition reused by every tenant. That is safe because the stored SQL is
+-- executed through chat_run_readonly_query, which is SECURITY INVOKER --
+-- each viewer's own RLS decides which rows come back, so one definition
+-- scopes itself per company. No client can create, edit or delete these
+-- (see the three locks in 20260828130000); they are migration-owned.
+--
+-- ── Why these four, and why these sources ─────────────────────────────
+-- Every definition below reads a `security_invoker` view or an RLS-enabled
+-- base table, and NOT a materialized view. That is deliberate and it is
+-- the one rule to keep when adding more: **Postgres does not enforce RLS on
+-- materialized views**. sales_velocity_by_sku_location_mv,
+-- inventory_on_hand_current_mv and sales_monthly_product_type_rollup_mv all
+-- carry company_entity_id but none of them can filter on it by policy, so a
+-- global definition querying one would return every tenant's rows to every
+-- tenant. If a future system report genuinely needs a matview for speed, it
+-- must carry an explicit `where company_entity_id = active_company_id()`.
+--
+-- inventory_workboard_v is avoided for a different reason: it rebuilds a
+-- ~3.47M-row snapshot per query and already exceeds the 30s statement
+-- timeout (see the CLAUDE.md note). A seeded definition that times out on
+-- every load is worse than no definition.
+--
+-- ── columns_metadata ships with the definition ────────────────────────
+-- Each row states what its columns MEAN, so a dashboard formats them right
+-- on the first render without waiting on the schema catalog or falling back
+-- to guessing from names. This is the "authored" case the column was added
+-- for in 20260828140000.
+--
+-- ── Idempotency ───────────────────────────────────────────────────────
+-- Fixed UUIDs plus `on conflict (id) do nothing`. Deliberately NOT
+-- `do update`: apply_all_post_merge.sql is re-run for rebuilds, and a
+-- do-update would silently discard any correction someone made to a
+-- definition's SQL or its column semantics. Changing a shipped definition
+-- is its own migration with an explicit UPDATE.
+
+insert into public.silo_chat_saved_reports
+  (id, company_entity_id, created_by, source, visibility, title, description, question, answer, queries_run, columns_metadata)
+values
+  -- 1. Daily Sales — the shape a line chart is for.
+  ('5110de50-0000-4000-a000-000000000001', null, null, 'system', 'company',
+   'Daily Sales',
+   'Net sales, units and orders per day for the last 60 days. Every sales channel.',
+   null, null,
+   array[$q$
+     select day_date,
+            sum(net_sales)  as net_sales,
+            sum(units_sold) as units_sold,
+            sum(orders)     as orders
+       from sales_by_product_title_daily_v
+      where day_date >= current_date - 60
+      group by day_date
+      order by day_date
+   $q$],
+   '{"day_date":{"semantic":"date","source":"authored"},
+     "net_sales":{"semantic":"currency","source":"authored"},
+     "units_sold":{"semantic":"count","source":"authored"},
+     "orders":{"semantic":"count","source":"authored"}}'::jsonb),
+
+  -- 2. Top Products — a ranking, so it wants a bar, not a donut.
+  --
+  -- Package Protection is excluded: it is the Redo checkout line item
+  -- (sku 'x-redo'), not merchandise, and it outsells most real products by
+  -- order count. sales_by_product_title_daily_v has already collapsed sku,
+  -- so the exclusion is by title. If Redo's line item is ever renamed this
+  -- filter stops matching -- that is a visible wrong entry at the top of a
+  -- list, not a silent error, and it is fixable in one place.
+  ('5110de50-0000-4000-a000-000000000002', null, null, 'system', 'company',
+   'Top Products — last 30 days',
+   'Best-selling products by units over the last 30 days, excluding Package Protection.',
+   null, null,
+   array[$q$
+     select product_title,
+            sum(units_sold) as units_sold,
+            sum(net_sales)  as net_sales,
+            sum(orders)     as orders
+       from sales_by_product_title_daily_v
+      where day_date >= current_date - 30
+        and product_title not ilike '%package protection%'
+      group by product_title
+      order by units_sold desc
+      limit 50
+   $q$],
+   '{"product_title":{"semantic":"category","source":"authored"},
+     "units_sold":{"semantic":"count","source":"authored"},
+     "net_sales":{"semantic":"currency","source":"authored"},
+     "orders":{"semantic":"count","source":"authored"}}'::jsonb),
+
+  -- 3. Sales by Location — few categories summing to a whole, which is the
+  -- one shape a donut is honestly for.
+  ('5110de50-0000-4000-a000-000000000003', null, null, 'system', 'company',
+   'Sales by Location — last 30 days',
+   'Net sales split by sales channel / location over the last 30 days.',
+   null, null,
+   array[$q$
+     select coalesce(location_tag, 'Unknown') as location_tag,
+            sum(net_sales)  as net_sales,
+            sum(units_sold) as units_sold
+       from sales_by_product_title_daily_v
+      where day_date >= current_date - 30
+      group by 1
+      order by net_sales desc
+   $q$],
+   '{"location_tag":{"semantic":"category","source":"authored"},
+     "net_sales":{"semantic":"currency","source":"authored"},
+     "units_sold":{"semantic":"count","source":"authored"}}'::jsonb),
+
+  -- 4. Open Purchase Orders — a list, so it stays a table.
+  -- Status vocabulary comes from the PO Builder's own STATUSES array;
+  -- "open" is everything that has not landed or been abandoned.
+  ('5110de50-0000-4000-a000-000000000004', null, null, 'system', 'company',
+   'Open Purchase Orders',
+   'Purchase orders not yet received, closed or cancelled, soonest expected arrival first.',
+   null, null,
+   array[$q$
+     select po_name,
+            factory_name,
+            status,
+            order_date,
+            expected_arrival_date,
+            total_units,
+            total_estimated_cost
+       from v_po_header_summary
+      where coalesce(status, '') not in ('Received', 'Closed', 'Cancelled')
+      order by expected_arrival_date nulls last
+   $q$],
+   '{"po_name":{"semantic":"category","source":"authored"},
+     "factory_name":{"semantic":"category","source":"authored"},
+     "status":{"semantic":"category","source":"authored"},
+     "order_date":{"semantic":"date","source":"authored"},
+     "expected_arrival_date":{"semantic":"date","source":"authored"},
+     "total_units":{"semantic":"count","source":"authored"},
+     "total_estimated_cost":{"semantic":"currency","source":"authored"}}'::jsonb)
+on conflict (id) do nothing;
+=======
 
 -- ---------------------------------------------------------------------------
 -- 20260831180000_card_coding.sql
@@ -15152,3 +15906,4 @@ create index if not exists idx_schedule_items_payment_request
 -- shape has no room for.
 -- ---------------------------------------------------------------------------
 \i migrations/20260902030000_fixed_assets.sql
+-- =====================================================
