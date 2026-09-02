@@ -315,6 +315,33 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('no uncaught page errors (edit page)', errors.length === 0 || (console.log(errors.slice(0, 6)), false));
   ok('no uncaught page errors (view page)', errors2.length === 0 || (console.log(errors2.slice(0, 6)), false));
 
+  // ── Section tiles keep their place ──────────────────────────────────
+  // Regression: gs-min-h was a flat 2 for every widget, but a section is
+  // h=1. GridStack cannot honour a height under its minimum, so sections
+  // were resized to 2 and the resulting collisions reflowed them -- two of
+  // three headings on the real Logistics board ended up stacked at the
+  // bottom, under the last tile. Driven through the page's own + Section
+  // button so the real addWidget path is what gets tested.
+  await page2.click('#btnAddSection');
+  await page2.waitForTimeout(600);
+  // GridStack clears the gs-* attributes once it owns the element and keeps
+  // the live values on el.gridstackNode -- the same reason the renderer's
+  // save path reads the node rather than grid.save().
+  const mins = await page2.$$eval('.grid-stack-item', (els) => els.map((e) => ({
+    h: e.gridstackNode ? e.gridstackNode.h : null,
+    min: e.gridstackNode ? (e.gridstackNode.minH ?? null) : null,
+    section: !!e.querySelector('.dw--section'),
+  })));
+  const sec = mins.filter((m) => m.section);
+  const rest = mins.filter((m) => !m.section);
+  ok('a section tile may be one row tall: ' + JSON.stringify(sec),
+     sec.length > 0 && sec.every((m) => m.min === 1));
+  ok('...and keeps the height it was given, rather than being grown to the minimum',
+     sec.every((m) => m.h === 1));
+  ok('every other visual still needs two rows to draw in',
+     rest.length > 0 && rest.every((m) => m.min === 2));
+
+
   await suite.close();
   console.log(`\n${checks - fails}/${checks} checks passed`);
   process.exit(fails ? 1 : 0);

@@ -361,6 +361,18 @@
     }
 
     // ── Public surface ─────────────────────────────────────────────────
+    /**
+     * Minimum tile height, in grid rows.
+     *
+     * A section is a one-row heading; every other visual needs room to draw.
+     * This was a flat gs-min-h of 2 for everything, which silently broke
+     * every section on a board: GridStack cannot honour a height below the
+     * minimum, so an h=1 section was resized to 2 and the resulting
+     * collisions reflowed it -- on the Logistics board two of the three
+     * headings ended up stacked at the very bottom, under the last tile.
+     */
+    const minHeightFor = (w) => (w && w.visual_type === 'section' ? 1 : 2);
+
     function setWidgets(next) {
       if (!grid) initGrid();
       for (const id of Array.from(charts.keys())) disposeChart(id);
@@ -378,7 +390,7 @@
         el.setAttribute('gs-w', String(lay.w ?? 6));
         el.setAttribute('gs-h', String(lay.h ?? 4));
         el.setAttribute('gs-min-w', '2');
-        el.setAttribute('gs-min-h', '2');
+        el.setAttribute('gs-min-h', String(minHeightFor(w)));
         el.innerHTML = `<div class="grid-stack-item-content">${tileShell(w, editable)}</div>`;
         gridEl.appendChild(el);
         grid.makeWidget(el);
@@ -395,7 +407,7 @@
       el.setAttribute('gs-w', String(lay.w ?? 6));
       el.setAttribute('gs-h', String(lay.h ?? 4));
       el.setAttribute('gs-min-w', '2');
-      el.setAttribute('gs-min-h', '2');
+      el.setAttribute('gs-min-h', String(minHeightFor(w)));
       if (lay.x !== undefined) el.setAttribute('gs-x', String(lay.x));
       if (lay.y !== undefined) el.setAttribute('gs-y', String(lay.y));
       el.innerHTML = `<div class="grid-stack-item-content">${tileShell(w, editable)}</div>`;

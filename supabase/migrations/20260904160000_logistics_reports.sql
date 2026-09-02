@@ -264,7 +264,7 @@ $q$],
    "units_sold":{"semantic":"count","label":"Units Sold"},
    "net_sales":{"semantic":"currency","label":"Net Sales"},
    "days_with_sales":{"semantic":"count","label":"Days With Sales"}}'::jsonb,
- '[{"key":"date_from","type":"date","label":"Since","default":"today-29d"}]'::jsonb)
+ '[{"key":"date_from","type":"date","label":"Since","default":"today-28d"}]'::jsonb)
 
 on conflict (id) do update set
   title = excluded.title, description = excluded.description,

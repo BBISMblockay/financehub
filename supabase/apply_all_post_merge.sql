@@ -17238,3 +17238,276 @@ on conflict (id) do update set
   title = excluded.title, visual_type = excluded.visual_type,
   visual_config = excluded.visual_config, layout = excluded.layout,
   sort_order = excluded.sort_order;
+
+-- chat_run_readonly_query scrambled every result's COLUMN ORDER.
+--
+-- It aggregated with jsonb_agg, and jsonb does not preserve object key
+-- order -- it stores keys sorted by (length, then bytewise). So a report
+-- selecting product_title, product_type, units_sold, net_sales,
+-- days_with_sales came back as net_sales, units_sold, product_type,
+-- product_title, days_with_sales, and EVERY table tile in /v3/ rendered its
+-- columns in that order. Measured side by side on one row:
+--
+--   jsonb_agg -> {"net_sales":..,"units_sold":..,"product_type":..,
+--                 "product_title":..,"days_with_sales":..}
+--   json_agg  -> {"product_title":..,"product_type":..,"units_sold":..,
+--                 "net_sales":..,"days_with_sales":..}
+--
+-- json preserves the select list exactly; jsonb cannot at any cost, because
+-- key order is not part of the jsonb data model. So the return type changes
+-- to json, which is why this is a drop-and-create rather than a replace.
+--
+-- Nothing downstream cares: every caller (the silo-chat edge function, Ask
+-- SILO's refresh button, the v3 dashboard renderer, the report builder)
+-- consumes the result as a JSON array over the wire, where json and jsonb
+-- are indistinguishable.
+--
+-- This is why v3's README claimed column order comes from the query while
+-- the rendered board disagreed: the renderer was faithful, the transport
+-- was not.
+drop function if exists public.chat_run_readonly_query(text);
+
+create function public.chat_run_readonly_query(query text)
+returns json
+language plpgsql
+set search_path to 'public'
+as $function$
+declare
+  result  json;
+  trimmed text;
+begin
+  trimmed := btrim(
+    regexp_replace(query, '^(\s+|--[^\n]*(\n|$)|/\*.*?\*/)+', ''),
+    E' \t\r\n'
+  );
+
+  if right(trimmed, 1) = ';' then
+    trimmed := btrim(left(trimmed, length(trimmed) - 1), E' \t\r\n');
+  end if;
+
+  if trimmed !~* '^(select|with)\s' then
+    raise exception
+      'Only a single SELECT or WITH (read-only) statement is allowed (parsed statement began: %)',
+      left(coalesce(nullif(trimmed, ''), '<empty>'), 40);
+  end if;
+
+  if trimmed ~ ';' then
+    raise exception 'Statement must not contain a semicolon (single statement only)';
+  end if;
+
+  -- 10s -> 30s: a representative size-curve query measured 7.4s cold,
+  -- 74% of the old budget, so phase-2 grounding queries were timing out
+  -- and being recorded as unknowns.
+  set local statement_timeout = '30s';
+
+  -- json_agg, NOT jsonb_agg. See the header: jsonb sorts object keys and
+  -- destroys the select-list order every table visual depends on.
+  execute format(
+    'select coalesce(json_agg(t), ''[]''::json) from (select * from (%s) user_query limit 500) t',
+    trimmed
+  ) into result;
+
+  return result;
+end;
+$function$;
+
+revoke all on function public.chat_run_readonly_query(text) from public;
+grant execute on function public.chat_run_readonly_query(text) to authenticated;
+
+comment on function public.chat_run_readonly_query(text) is
+  'The shared read-only reporting engine: single SELECT/WITH, no semicolon, 500-row cap, 30s statement timeout, SECURITY INVOKER so every read is scoped by the caller''s own RLS. Returns json (NOT jsonb) deliberately -- jsonb stores object keys sorted by length then bytewise, which silently reordered every result''s columns and broke column order in every v3 table visual until 20260904200000.';
+
+-- Seven tiles on the Logistics board read demand_coverage_by_type_v, and
+-- every one re-scanned 66,539 inventory rows and 11,913 sales rows. Serially
+-- that measured 787ms each and looked fine. Fired together by a dashboard
+-- they contend, and every one hit the 30s statement timeout -- the board
+-- rendered seven red tiles.
+--
+-- Testing a dashboard query serially does not test a dashboard.
+--
+-- Only the SALES and INVENTORY branches are materialised. The PURCHASE ORDER
+-- branch deliberately stays live in the view: po_headers RLS is narrower
+-- than company (is_admin_user() OR created_by = auth.uid()) and a matview is
+-- built as the owner with RLS bypassed, so baking POs in here would hand
+-- units-on-order to users the PO table refuses. It is also cheap.
+--
+-- ~250 rows across all companies, against ~78k scanned before. Measured
+-- after: the wrapper reads in 3ms.
+drop materialized view if exists public.demand_coverage_base_mv cascade;
+
+create materialized view public.demand_coverage_base_mv as
+with bounds as (
+  select date_trunc('month', current_date::timestamptz)::date as this_month_start
+),
+sold as (
+  select r.company_entity_id, r.product_type,
+         sum(r.units) filter (where r.month_start >= ((select this_month_start from bounds) - interval '1 year')) as units_12m,
+         sum(r.units) filter (where r.month_start >= ((select this_month_start from bounds) - interval '3 mons')) as units_3m
+    from public.sales_monthly_product_type_rollup_mv r
+   where nullif(r.product_type, '') is not null
+     and r.month_start < (select this_month_start from bounds)
+   group by 1, 2
+),
+onhand as (
+  select i.company_entity_id, i.product_type,
+         sum(i.total_available_quantity) as on_hand
+    from public.inventory_on_hand_current_mv i
+   where nullif(i.product_type, '') is not null
+   group by 1, 2
+)
+select coalesce(s.company_entity_id, o.company_entity_id) as company_entity_id,
+       coalesce(s.product_type, o.product_type)           as product_type,
+       s.units_12m, s.units_3m, o.on_hand,
+       s.company_entity_id is not null as has_sales_history,
+       o.company_entity_id is not null as has_inventory
+  from sold s
+  full join onhand o
+    on o.company_entity_id = s.company_entity_id and o.product_type = s.product_type;
+
+-- Required for REFRESH ... CONCURRENTLY, which keeps the board readable
+-- while the nightly sync runs.
+create unique index if not exists demand_coverage_base_mv_uq
+  on public.demand_coverage_base_mv (company_entity_id, product_type);
+
+revoke all on public.demand_coverage_base_mv from anon, authenticated;
+
+-- Access is through this wrapper only: security_invoker = false so it may
+-- read the matview, with the tenant filter written inside.
+create or replace view public.demand_coverage_base_v as
+  select * from public.demand_coverage_base_mv
+   where company_entity_id = active_company_id();
+
+alter view public.demand_coverage_base_v set (security_invoker = false);
+grant select on public.demand_coverage_base_v to authenticated;
+
+create or replace function public.refresh_demand_coverage_base_mv()
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+set statement_timeout to '300s'
+as $$
+begin
+  begin
+    refresh materialized view concurrently public.demand_coverage_base_mv;
+  exception when others then
+    refresh materialized view public.demand_coverage_base_mv;
+  end;
+end;
+$$;
+
+comment on materialized view public.demand_coverage_base_mv is
+  'Sales-and-inventory half of demand coverage, per company per product type (~250 rows). Exists because seven Logistics tiles each re-scanned 66k inventory rows and, fired together by a dashboard, all hit the 30s statement timeout. Purchase orders are deliberately NOT here: po_headers RLS is narrower than company and a matview bypasses RLS, so baking POs in would widen units-on-order. Read through demand_coverage_base_v, never directly -- no RLS on a matview. Refreshed by refresh_demand_coverage_base_mv() at the end of the Shopify sync, after the two matviews it reads.';
+
+-- is_admin_user() cost 50x what it should, in 47 policies across 31 tables.
+--
+-- Measured, same session, same call count:
+--   is_admin_user()     x176  -> 755 ms   (STABLE, SECURITY INVOKER)
+--   active_company_id() x176  ->  15 ms   (STABLE, SECURITY DEFINER)
+--
+-- The difference is not the query -- both read one row of public.profiles by
+-- primary key. It is that is_admin_user() ran as the CALLER, so every call
+-- evaluated profiles' three SELECT policies, two of which call further
+-- functions (is_owner_admin(), current_user_can_manage_payment_requests())
+-- that query profiles again.
+--
+-- Found because seven Logistics dashboard tiles timed out. The tiles were
+-- innocent: po_headers RLS is `company AND (is_admin_user() OR created_by =
+-- auth.uid())`, so reading 176 PO headers cost 679ms of policy evaluation,
+-- and seven concurrent tiles turned that into chat_run_readonly_query's 30s
+-- statement timeout. Every PO, mailroom, payment-request, products and
+-- inventory page in SILO has been paying this.
+--
+-- SECURITY DEFINER CANNOT CHANGE THE ANSWER HERE, which is the only reason
+-- it is safe to do this to an authorization function. It reads exactly two
+-- things, both of them the caller's OWN rows:
+--     public.profiles           where p.id = auth.uid()
+--     public.entity_memberships where em.user_id = p.id
+-- and both tables carry a PERMISSIVE own-row SELECT policy
+-- (profiles_select_own: auth.uid() = id; memberships_select_own:
+-- user_id = auth.uid()), so those rows were always visible to the caller
+-- anyway. DEFINER removes the cost of proving it, not the check itself.
+--
+-- If anything the invoker version was the riskier one: had profiles RLS ever
+-- stopped returning the caller's own row, this would have silently answered
+-- FALSE and locked admins out of 31 tables.
+--
+-- VERIFIED rather than argued: is_admin_user() was evaluated as all 34 real
+-- users before and after the change -- 32 admins, 2 non-admins, ZERO
+-- differences. Whole Logistics board went 6,496ms -> 986ms.
+create or replace function public.is_admin_user()
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $function$
+  select exists (
+    select 1
+    from public.profiles p
+    left join public.entity_memberships em
+      on em.user_id = p.id and em.entity_id = p.active_company_id
+    where p.id = auth.uid()
+      and p.is_active = true
+      and case when em.role is not null
+            then em.role in ('owner_admin','admin')
+            else p.role::text in ('owner','admin')
+          end
+  );
+$function$;
+
+comment on function public.is_admin_user() is
+  'Is the caller an admin of their active company (membership owner_admin/admin, falling back to profile role owner/admin when they have no membership row). SECURITY DEFINER for COST, not reach: it reads only the caller''s own profiles and entity_memberships rows, both of which carry permissive own-row SELECT policies, so the answer is identical either way -- but as INVOKER each call re-evaluated profiles'' three policies (two of which call functions that query profiles again), measured at 755ms per 176 calls against 15ms for the DEFINER equivalent. It sits in 47 policies across 31 tables.';
+
+-- Point demand_coverage_by_type_v at the materialised base (20260904210000).
+-- The PO branch stays live and stays under the CALLER's RLS -- see that
+-- migration's header for why it must not be materialised.
+create or replace view public.demand_coverage_by_type_v as
+with co as (
+  select active_company_id() as id
+),
+base as (
+  select product_type, units_12m, units_3m, on_hand, has_sales_history, has_inventory
+    from public.demand_coverage_base_v
+),
+onorder as (
+  select pl.product_type_snapshot as product_type,
+         sum(pl.qty) filter (where h.status = any (array['Confirmed','Sent to Factory','In Production','In Transit'])) as on_order,
+         sum(pl.qty) filter (where h.status = 'Draft') as on_order_draft
+    from po_lines pl
+    join po_headers h on h.id = pl.po_header_id, co
+   where pl.company_entity_id = co.id
+     and nullif(pl.product_type_snapshot, '') is not null
+   group by pl.product_type_snapshot
+),
+types as (
+  select product_type from base
+  union select product_type from onorder
+)
+select t.product_type,
+       coalesce(b.has_sales_history, false) as has_sales_history,
+       coalesce(b.has_inventory, false)     as has_inventory,
+       oo.product_type is not null          as has_purchase_history,
+       coalesce(b.on_hand, 0)::numeric               as units_on_hand,
+       coalesce(oo.on_order, 0)::numeric             as units_on_order,
+       coalesce(oo.on_order_draft, 0)::numeric       as units_on_order_draft,
+       (coalesce(b.on_hand, 0) + coalesce(oo.on_order, 0))::numeric as units_available_committed,
+       b.units_12m,
+       b.units_3m,
+       round(b.units_12m / 52.0, 1) as units_per_week_12m,
+       round(b.units_3m / 13.0, 1)  as units_per_week_3m,
+       case when b.units_12m > 0
+            then round((coalesce(b.on_hand, 0) + coalesce(oo.on_order, 0))::numeric / (b.units_12m / 52.0), 1)
+       end as weeks_of_cover,
+       case when b.units_12m > 0 and b.units_3m is not null
+            then round((b.units_3m / 13.0 / (b.units_12m / 52.0) - 1) * 100, 1)
+       end as momentum_pct
+  from types t
+  left join base    b  on b.product_type  = t.product_type
+  left join onorder oo on oo.product_type = t.product_type;
+
+alter view public.demand_coverage_by_type_v set (security_invoker = true);
+grant select on public.demand_coverage_by_type_v to authenticated;
+
+comment on view public.demand_coverage_by_type_v is
+  'Per product type: whether sales history / inventory / purchase history exist, plus weeks of cover and 3m-vs-12m momentum. Sales and inventory come from demand_coverage_base_v (a matview wrapper, refreshed nightly); purchase orders are read LIVE under the caller''s own RLS because po_headers is narrower than company and must not be materialised. Stays security_invoker for the same reason.';

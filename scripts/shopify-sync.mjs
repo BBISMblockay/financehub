@@ -383,6 +383,16 @@ async function main() {
         console.error(`[error] inventory mv refresh: ${invMvError.message}`);
       }
     }
+
+    // Demand coverage is derived from the sales rollup and the inventory
+    // snapshot, so it refreshes LAST -- refreshing it before those two would
+    // rebuild it from yesterday's numbers and it would be a day stale until
+    // the next run. It backs seven Logistics dashboard tiles.
+    const { error: coverageMvError } = await supabase.rpc('refresh_demand_coverage_base_mv');
+    if (coverageMvError) {
+      hadError = true;
+      console.error(`[error] demand coverage mv refresh: ${coverageMvError.message}`);
+    }
   }
 
   console.log('[shopify-sync] done', JSON.stringify(allResults, null, 2));

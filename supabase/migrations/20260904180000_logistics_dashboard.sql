@@ -17,7 +17,7 @@ values ('da5b0a2d-0000-4000-a000-00000000000c',
         'Logistics',
         'Purchase orders, inventory cover and sell-through.',
         'company',
-        '{"cover_weeks":26,"min_units":200,"date_from":"today-29d"}'::jsonb)
+        '{"cover_weeks":26,"min_units":200,"date_from":"today-28d"}'::jsonb)
 on conflict (id) do update set
   name = excluded.name, description = excluded.description,
   visibility = excluded.visibility, filter_state = excluded.filter_state;

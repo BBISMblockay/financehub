@@ -2071,6 +2071,25 @@ select
        where v.schemaname = 'public' and v.viewname = 'demand_coverage_by_type_v'
          and v.definition ~ '_mv\b'
     ) then 'BROKEN — demand_coverage_by_type_v reads a matview directly; it will raise 42501 for every authenticated user (use the _v wrappers)'
+    -- json, not jsonb. jsonb sorts object keys by (length, bytewise), which
+    -- silently reorders the columns of EVERY table visual in /v3/. The
+    -- renderer cannot recover the select-list order once jsonb has eaten it.
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'chat_run_readonly_query'
+         and pg_get_function_result(p.oid) = 'json'
+    ) then 'BROKEN — chat_run_readonly_query does not return json; jsonb reorders result columns and every table tile renders its columns wrong'
+    -- is_admin_user() sits in 47 policies across 31 tables. As SECURITY
+    -- INVOKER every call re-evaluates profiles'' own RLS (measured 50x
+    -- slower), which is what made seven dashboard tiles time out.
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'is_admin_user' and p.prosecdef
+    ) then 'SLOW — is_admin_user() is not SECURITY DEFINER; it re-evaluates profiles RLS on every call, in 47 policies across 31 tables'
+    when not exists (
+      select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relname = 'demand_coverage_base_mv' and c.relkind = 'm'
+    ) then 'MISSING — demand_coverage_base_mv; the Logistics tiles will re-scan 66k inventory rows each and time out'
     else 'ok'
   end as reports_runnable;
 
