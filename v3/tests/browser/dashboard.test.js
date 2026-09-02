@@ -59,8 +59,12 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   };
   await switchTo('table');
   ok('Table renders a table', (await page.locator('.dw-table').count()) === 1);
-  ok('table header uses the query columns',
-    (await page.locator('.dw-table thead th').allTextContents()).join(',') === 'product_title,net_sales,units');
+  // Headers are the query's own columns, in query order, but rendered as
+  // readable labels rather than raw SQL aliases (changed deliberately).
+  ok('table header labels the query columns, in query order',
+    (await page.locator('.dw-table thead th').allTextContents()).join(',') === 'Product Title,Net Sales,Units');
+  ok('the real column name is still on the header for reference',
+    (await page.locator('.dw-table thead th').first().getAttribute('title')) === 'product_title');
   ok('badge says table', (await badgeText()) === 'table');
   ok('in edit mode the type badge is the control, not a status pill',
     (await page.locator('button.dw-type-badge--btn[data-act="configure"]').count()) === 1);

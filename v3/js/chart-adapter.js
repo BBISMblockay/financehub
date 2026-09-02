@@ -595,6 +595,70 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 
+  // ── Presentation, applied everywhere ─────────────────────────────────
+  // These are module-wide defaults, not per-report fixes. Every table and
+  // matrix on every dashboard renders through here, so improving a default
+  // improves every tile that already exists -- including reports nobody has
+  // opened since. An override belongs on the REPORT when the answer is the
+  // same wherever the column appears (a label), and on the WIDGET when two
+  // tiles could legitimately differ (abbreviation, density).
+
+  const ACRONYMS = { roas: 'ROAS', aov: 'AOV', sku: 'SKU', po: 'PO', qbo: 'QBO',
+                     mtd: 'MTD', ytd: 'YTD', cy: 'CY', ly: 'LY', id: 'ID',
+                     cogs: 'COGS', cac: 'CAC', cpm: 'CPM', ctr: 'CTR', pct: '%' };
+  // Noise words a SQL alias carries that a reader does not need.
+  const DROP_SUFFIX = /_(snapshot|tag)$/;
+
+  /**
+   * A column header a person would write.
+   *
+   *   qty_arriving_by_cutoff  ->  Qty Arriving By Cutoff
+   *   product_type_snapshot   ->  Product Type
+   *   platform_roas           ->  Platform ROAS
+   *
+   * A report can override any of it via columns_metadata[col].label -- that
+   * belongs to the report rather than the widget, because `net_sales` should
+   * read the same wherever it appears, and one correction then fixes every
+   * widget built on it.
+   */
+  function columnLabel(name, semantics) {
+    const meta = semantics && semantics[name];
+    if (meta && typeof meta === 'object' && meta.label) return meta.label;
+    return String(name)
+      .replace(DROP_SUFFIX, '')
+      .split('_')
+      .filter(Boolean)
+      .map((w) => ACRONYMS[w.toLowerCase()] || (w.charAt(0).toUpperCase() + w.slice(1)))
+      .join(' ');
+  }
+
+  const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /**
+   * Matrix column headers for a date dimension.
+   *
+   * A P&L across the top reading `2025-01-01 2025-02-01 …` is a SQL result;
+   * `Jan 2025 Feb 2025 …` is a statement. Only relabels when EVERY value is
+   * the first of a month -- that is what proves the grain is monthly. Any
+   * other set of dates keeps its ISO form, which stays unambiguous.
+   */
+  function dateColumnLabels(keys) {
+    const parsed = keys.map((k) => /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(k)));
+    if (!parsed.every(Boolean)) return null;
+    if (!parsed.every((m) => m[3] === '01')) return null;
+    return keys.map((k, i) => `${MONTH[Number(parsed[i][2]) - 1]} ${parsed[i][1]}`);
+  }
+
+  /** A negative currency or number is the thing a reader scans for. */
+  function signClass(value, semantic) {
+    if (value === null || value === undefined) return '';
+    const n = toNumber(value);
+    if (n === null || n >= 0) return '';
+    return (semantic === 'currency' || semantic === 'number' || semantic === 'percent')
+      ? ' dw-neg' : '';
+  }
+
   /**
    * A matrix: one dimension down, another across, a measure in the cells.
    *
@@ -656,8 +720,9 @@
     // The label sits in a block child rather than directly in the cell: a
     // table cell does not reliably honour width/min-width, and a sticky one
     // with nowrap and no width overflows on top of the first data column.
-    const head = `<tr><th class="dw-matrix-corner"><span class="dw-matrix-label">${esc(rowField)}</span></th>`
-      + colKeys.map((c) => `<th class="dw-num">${esc(c)}</th>`).join('') + '</tr>';
+    const colLabels = (colType === 'date' && dateColumnLabels(colKeys)) || colKeys;
+    const head = `<tr><th class="dw-matrix-corner"><span class="dw-matrix-label">${esc(columnLabel(rowField, semantics))}</span></th>`
+      + colLabels.map((c) => `<th class="dw-num">${esc(c)}</th>`).join('') + '</tr>';
 
     const body = shownRows.map((rk) => {
       const tds = colKeys.map((ck) => {
@@ -666,7 +731,7 @@
         // An absent cell is EMPTY, not zero. "No row for August" and
         // "August was zero" are different facts and a matrix that prints
         // 0 for both is the same class of lie as a coalesced velocity.
-        return `<td class="dw-num">${v === null ? '' : esc(formatValue(v, sem))}</td>`;
+        return `<td class="dw-num${signClass(v, sem)}">${v === null ? '' : esc(formatValue(v, sem))}</td>`;
       }).join('');
       return `<tr><th class="dw-matrix-row"><span class="dw-matrix-label" title="${esc(rk)}">${esc(rk)}</span></th>${tds}</tr>`;
     }).join('');
@@ -693,7 +758,8 @@
     const truncated = limit > 0 && shown.length > limit;
     if (truncated) shown = shown.slice(0, limit);
 
-    const head = prof.map((c) => `<th class="${c.type === 'number' ? 'dw-num' : ''}">${esc(c.name)}</th>`).join('');
+    const head = prof.map((c) =>
+      `<th class="${c.type === 'number' ? 'dw-num' : ''}" title="${esc(c.name)}">${esc(columnLabel(c.name, semantics))}</th>`).join('');
     const body = shown.map((r) => `<tr>${prof.map((c) => {
       const raw = r[c.name];
       const sem = semanticOf(c.name, semantics, prof);
@@ -715,7 +781,8 @@
       }
 
       let cell;
-      if (c.type === 'number') cell = formatValue(raw, sem);
+      let numClass = c.type === 'number' ? 'dw-num' : '';
+      if (c.type === 'number') { cell = formatValue(raw, sem); numClass += signClass(raw, sem); }
       else if (raw !== null && typeof raw === 'object') {
         // jsonb. Show the JSON rather than "[object Object]" -- the value is
         // the point, and a truncated object at least says what is in there.
@@ -723,7 +790,7 @@
       } else cell = (raw === null || raw === undefined ? '' : String(raw));
       const full = cell;
       if (cell.length > 160) cell = cell.slice(0, 157) + '…';
-      return `<td class="${c.type === 'number' ? 'dw-num' : ''}"${c.type === 'json' ? ` title="${esc(full)}"` : ''}>${esc(cell)}</td>`;
+      return `<td class="${numClass}"${c.type === 'json' ? ` title="${esc(full)}"` : ''}>${esc(cell)}</td>`;
     }).join('')}</tr>`).join('');
 
     const note = truncated ? `<div class="dw-foot-note">Showing ${shown.length} of ${rows.length} rows</div>` : '';
@@ -746,7 +813,7 @@
     // but a rate or an average is not summable, so the aggregate is part
     // of the config and printed under the value either way.
     const agg = cfg.aggregate || (nums.length === 1 ? 'first' : 'sum');
-    const value = agg === 'first' ? nums[0]
+    let value = agg === 'first' ? nums[0]
       : agg === 'avg' ? nums.reduce((a, b) => a + b, 0) / nums.length
       : agg === 'max' ? Math.max(...nums)
       : agg === 'min' ? Math.min(...nums)
@@ -754,9 +821,49 @@
       : nums.reduce((a, b) => a + b, 0);
 
     const semantic = semanticOf(field, semantics, prof);
-    const aggLabel = nums.length === 1 ? field : `${agg} of ${field} · ${nums.length} rows`;
+    const valueSemantic = agg === 'count' ? 'count' : semantic;
+
+    // A bare number is most of a KPI's job left undone: $36,393,571 says
+    // nothing without something to compare it to. `compare_field` names a
+    // second measure to read as the prior value; with no config, a
+    // multi-row result compares the LAST row to the one before it, which is
+    // what a daily or monthly series means by "vs last period".
+    let prior = null;
+    let priorLabel = '';
+    if (cfg.compare_field && prof.some((c) => c.name === cfg.compare_field)) {
+      const p2 = (rows || []).map((r) => toNumber(r[cfg.compare_field])).filter((n) => n !== null);
+      if (p2.length) {
+        prior = agg === 'first' ? p2[0] : p2.reduce((a, b) => a + b, 0);
+        priorLabel = columnLabel(cfg.compare_field, semantics);
+      }
+    } else if (cfg.compare === 'previous_row' && nums.length > 1) {
+      prior = nums[nums.length - 2];
+      value = nums[nums.length - 1];
+      priorLabel = 'previous';
+    }
+
+    let delta = '';
+    if (prior !== null && prior !== 0) {
+      const pct = ((value - prior) / Math.abs(prior)) * 100;
+      // Direction is stated with a word as well as a colour and an arrow --
+      // colour alone is not readable for everyone, and an arrow alone does
+      // not survive being pasted into Slack.
+      const dir = pct >= 0 ? 'up' : 'down';
+      delta = `<div class="dw-kpi-delta dw-kpi-delta--${dir}">
+          <span aria-hidden="true">${pct >= 0 ? '▲' : '▼'}</span>
+          ${esc(Math.abs(pct).toLocaleString(undefined, { maximumFractionDigits: 1 }))}%
+          <span class="dw-kpi-delta-note">${dir} vs ${esc(priorLabel)} (${esc(formatValue(prior, valueSemantic))})</span>
+        </div>`;
+    }
+
+    // Abbreviation is a WIDGET choice, not a report one: the same measure
+    // wants $36.4M in a 3-column tile and $36,393,571 in a wide one.
+    const shown = cfg.abbreviate ? compact(value, valueSemantic) : formatValue(value, valueSemantic);
+    const aggLabel = nums.length === 1 ? columnLabel(field, semantics)
+      : `${agg} of ${columnLabel(field, semantics)} · ${nums.length} rows`;
     return `<div class="dw-kpi">
-      <div class="dw-kpi-value">${esc(formatValue(value, agg === 'count' ? 'count' : semantic))}</div>
+      <div class="dw-kpi-value"${cfg.abbreviate ? ` title="${esc(formatValue(value, valueSemantic))}"` : ''}>${esc(shown)}</div>
+      ${delta}
       <div class="dw-kpi-label">${esc(aggLabel)}</div>
     </div>`;
   }
@@ -765,7 +872,7 @@
     VISUAL_TYPES: ['table', 'kpi', 'bar', 'line', 'donut'],
     profileColumns, dimensionsOf, measuresOf,
     recommend, shape, optionFor,
-    tableHtml, matrixHtml, kpiHtml,
+    tableHtml, matrixHtml, kpiHtml, columnLabel,
     AGGREGATES, defaultAggregate, semanticOf,
     formatValue, inferFormat, theme, isDark, esc,
   };

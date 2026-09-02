@@ -29,8 +29,9 @@ test('rows are the row dimension, columns the column dimension', () => {
   const html = C.matrixHtml(PL, CFG, SEM);
   has(html, '>Total Income<');
   has(html, '>Net Income<');
-  has(html, '>2025-01-01<');
-  has(html, '>2025-02-01<');
+  // Month-grain date columns render as "Jan 2025" -- see presentation.test.js.
+  has(html, '>Jan 2025<');
+  has(html, '>Feb 2025<');
 });
 test('the measure is formatted by its semantic', () =>
   has(C.matrixHtml(PL, CFG, SEM), '$924,080'));
@@ -54,7 +55,7 @@ test('date columns are chronological even if the query is not', () => {
     { m: '2025-02-01', l: 'A', v: 2 }];
   const html = C.matrixHtml(scrambled, { row_field: 'l', x_field: 'm', y_field: 'v' }, { m: 'date' });
   const at = (d) => html.indexOf('>' + d + '<');
-  truthy(at('2025-01-01') < at('2025-02-01') && at('2025-02-01') < at('2025-03-01'),
+  truthy(at('Jan 2025') < at('Feb 2025') && at('Feb 2025') < at('Mar 2025'),
     'date columns not in order');
 });
 test('a NON-date column keeps first-appearance order', () => {
