@@ -61,7 +61,9 @@
     };
     // Views first: they are the curated, join-resolved objects, and are what
     // someone building a report almost always wants over a raw table.
-    el('srcList').innerHTML = group('view', 'Views') + group('table', 'Tables') + group('matview', 'Materialized');
+    el('srcList').innerHTML = group('view', 'Views') + group('table', 'Tables') + group('matview', 'Materialized')
+      + `<div class="rb-rail-foot">Sales, product, inventory, marketing, launches and purchasing.
+           Finance and HR tables are deliberately not offered here.</div>`;
   }
 
   function selectSource(relname) {
@@ -402,14 +404,19 @@
       });
     }
 
+    // reportable, not is_hidden. is_hidden means "keep this out of Ask
+    // SILO's model index"; this means "this is a commercial reporting
+    // surface". Ask SILO still needs payroll and comp tables to answer
+    // headcount questions -- the workbench does not. It is an allowlist, so
+    // a newly synced table stays out until someone opts it in.
     const { data, error } = await sb.from('silo_chat_schema_catalog')
       .select('relname, relkind, columns, description')
-      .eq('is_hidden', false)
+      .eq('reportable', true)
       .order('relname');
     if (error) { setStatus('Could not load the schema catalog: ' + error.message, 'neg'); return; }
     catalog = (data || []).filter((r) => (r.columns || []).length);
     renderSourceList();
-    setStatus(`${catalog.length} tables and views available.`, 'info', 4000);
+    setStatus(`${catalog.length} sales, product, inventory and marketing sources available.`, 'info', 5000);
 
     const params = new URLSearchParams(location.search);
     const want = params.get('source');
