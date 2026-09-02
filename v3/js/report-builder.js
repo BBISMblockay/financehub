@@ -48,6 +48,12 @@
     { id: 'ne', label: 'is not', sql: (c, v) => `${c} <> ${v}` },
     { id: 'gt', label: 'greater than', sql: (c, v) => `${c} > ${v}` },
     { id: 'lt', label: 'less than', sql: (c, v) => `${c} < ${v}` },
+    // gte/lte exist so a date RANGE can be expressed as two filters --
+    // `day_date >= {{date_from}}` and `day_date <= {{date_to}}` -- which is
+    // how a parameterised window is built in the guided tab. Useful on
+    // their own too; `>` on a date is almost never what someone means.
+    { id: 'gte', label: 'on or after', sql: (c, v) => `${c} >= ${v}` },
+    { id: 'lte', label: 'on or before', sql: (c, v) => `${c} <= ${v}` },
     { id: 'contains', label: 'contains', sql: (c, v) => `${c} ilike ${v}`, wrap: (s) => `%${s}%` },
     { id: 'notnull', label: 'is not empty', sql: (c) => `${c} is not null`, noValue: true },
     { id: 'isnull', label: 'is empty', sql: (c) => `${c} is null`, noValue: true },
@@ -81,12 +87,28 @@
       if (days > 0) where.push(`${col(cfg.dateColumn)} >= current_date - ${days}`);
     }
 
+    // Parameters the report declares, by key. A filter value that is
+    // exactly {{key}} for a DECLARED key is emitted as the token rather
+    // than as a literal, so the value is supplied at run time by the
+    // dashboard's slicer. An undeclared token is deliberately NOT special-
+    // cased here: it falls through and is quoted as an ordinary string, so
+    // a typo produces a filter that matches nothing rather than SQL that
+    // the runner refuses -- and the Parameters panel flags it either way.
+    const declared = new Set(
+      window.SiloReportParams.normalizeDeclarations(cfg.parameters).map((d) => d.key));
+    const tokenFor = (v) => {
+      const m = /^\{\{\s*([a-z][a-z0-9_]*)\s*\}\}$/i.exec(String(v == null ? '' : v).trim());
+      return m && declared.has(m[1].toLowerCase()) ? `{{${m[1].toLowerCase()}}}` : null;
+    };
+
     for (const f of cfg.filters || []) {
       if (!f.column || !ok(f.column) || !f.op) continue;
       const op = OPERATORS.find((o) => o.id === f.op);
       if (!op) continue;
       if (op.noValue) { where.push(op.sql(col(f.column))); continue; }
       if (f.value === '' || f.value === undefined || f.value === null) continue;
+      const token = tokenFor(f.value);
+      if (token && !op.wrap) { where.push(op.sql(col(f.column), token)); continue; }
       const pgType = known.get(f.column) || '';
       const raw = op.wrap ? op.wrap(f.value) : f.value;
       // A numeric column compared to a quoted literal still works in
@@ -154,6 +176,50 @@
       + `Add "where company_entity_id = active_company_id()" unless you mean that.`;
   }
 
+  /**
+   * Does this report's SQL agree with its parameter declarations?
+   *
+   * Returns { errors, warnings }. The split matters: a token with no
+   * declaration CANNOT run (the runner refuses it, by design -- the
+   * declaration is the allowlist), so it is an error and blocks saving. A
+   * declaration the SQL never uses runs fine and is merely dead weight in
+   * the dashboard header, so it is a warning.
+   */
+  function validateParameters(sql, parameters) {
+    const decls = window.SiloReportParams.normalizeDeclarations(parameters);
+    const declaredKeys = new Set(decls.map((d) => d.key));
+    const used = window.SiloReportParams.tokensIn(sql);
+    const errors = [];
+    const warnings = [];
+
+    // Something in `parameters` that normalize dropped: a bad key, an
+    // unknown type, an enum with no options. Named specifically, because
+    // "your parameter disappeared" is otherwise a silent failure.
+    const rawKeys = (Array.isArray(parameters) ? parameters : [])
+      .map((p) => String((p && p.key) || '').trim().toLowerCase()).filter(Boolean);
+    for (const k of rawKeys) {
+      if (!declaredKeys.has(k)) {
+        errors.push(`Parameter "${k}" is incomplete — it needs a valid key, a type, and (for a choice) at least one option.`);
+      }
+    }
+
+    for (const k of used) {
+      if (!declaredKeys.has(k)) {
+        errors.push(`The SQL uses {{${k}}}, which is not declared as a parameter. Add it below, or remove the token.`);
+      }
+    }
+    for (const d of decls) {
+      if (!used.includes(d.key)) {
+        warnings.push(`"${d.label}" is declared but never used — {{${d.key}}} does not appear in the SQL.`);
+      }
+      if (d.default) {
+        const res = window.SiloReportParams.toLiteral(d, d.default);
+        if (res.error) errors.push(`Default for "${d.label}" is not valid: ${res.error}`);
+      }
+    }
+    return { errors, warnings };
+  }
+
   /** Semantics straight from the catalog's pg types — grounded, not guessed. */
   function metadataFromCatalog(source, sql, rows) {
     const known = new Map((source && source.columns || []).map((c) => [c.name, c.type]));
@@ -199,7 +265,7 @@
 
   global.SiloReportBuilder = {
     isPlumbing, businessColumns, PLUMBING_NAMES,
-    buildSql, checkRawSqlScope, metadataFromCatalog,
+    buildSql, checkRawSqlScope, metadataFromCatalog, validateParameters,
     AGGREGATES, OPERATORS, DATE_RANGES, qIdent, qLit,
     NUMERIC_PG, DATEISH_PG,
   };

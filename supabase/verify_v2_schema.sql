@@ -2037,6 +2037,45 @@ select
 
 select
   case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='parameters')
+      then 'MISSING — run 20260903100000_report_parameters.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboards'
+                       and column_name='filter_state')
+      then 'MISSING — dashboards.filter_state; a dashboard cannot remember where its slicers were set'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='report_parameters')
+      then 'MISSING — dashboard_widgets_v.report_parameters; every parameterised tile renders "not a declared parameter" because the renderer cannot see the declarations'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.silo_chat_saved_reports'::regclass
+                       and conname='silo_chat_saved_reports_parameters_is_array')
+      then 'MISSING — the parameters-is-array CHECK; a non-array normalises to zero declarations, so every {{token}} in that report becomes undeclared and the report stops running'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.dashboards'::regclass
+                       and conname='dashboards_filter_state_is_object')
+      then 'MISSING — the filter_state-is-object CHECK'
+    -- A report whose SQL carries a {{token}} it does not declare cannot run
+    -- at all: substitution refuses it by design, since the declaration IS
+    -- the allowlist. Cheap to check here, and the failure is otherwise only
+    -- visible as a broken tile.
+    when exists (
+      select 1 from public.silo_chat_saved_reports r,
+                    unnest(coalesce(r.queries_run, array[]::text[])) as q
+       where q ~ '\{\{[a-zA-Z]'
+         and exists (
+           select 1 from regexp_matches(q, '\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}', 'g') as m
+            where not exists (
+              select 1 from jsonb_array_elements(coalesce(r.parameters, '[]'::jsonb)) as d
+               where lower(d ->> 'key') = lower(m[1]))))
+      then 'BROKEN — a saved report uses a {{token}} its parameters do not declare; that report cannot run at all (an undeclared token is refused, not passed through). Fix the report''s parameters or remove the token'
+    else 'ok'
+  end as report_parameters;
+
+select
+  case
     when (select count(*) from public.silo_chat_saved_reports
            where source = 'system'
              and id in ('5110de50-0000-4000-a000-000000000001',

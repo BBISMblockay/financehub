@@ -513,14 +513,29 @@
       const name = (el('dashName').value || '').trim();
       if (!name) { setStatus('Give the dashboard a name before saving.', 'neg', 4000); el('dashName').focus(); return false; }
 
+      // The slicer values in the header become the dashboard's saved
+      // position. Only an EDITOR's save writes them: a viewer moving a
+      // slicer changes their own session and nobody else's, which is why
+      // this is read here rather than persisted on every change.
+      // Narrowed to declared keys so a parameter removed from a report does
+      // not leave a value behind that nothing reads.
+      const declared = new Set(runtime.parameterDeclarations().map((d) => d.key));
+      const live = runtime.getParamValues();
+      const filterState = {};
+      for (const [k, v] of Object.entries(live)) {
+        if (declared.has(k) && v !== '' && v != null) filterState[k] = String(v);
+      }
+
       const { error: dashErr } = await sb.from('dashboards').update({
         name,
         description: (el('dashDescription').value || '').trim() || null,
         visibility: el('dashVisibility').value,
+        filter_state: filterState,
       }).eq('id', dashboard.id);
       if (dashErr) { setStatus('Could not save the dashboard: ' + dashErr.message, 'neg', 6000); return false; }
       dashboard.name = name;
       dashboard.visibility = el('dashVisibility').value;
+      dashboard.filter_state = filterState;
 
       if (deletedIds.size) {
         const { error } = await sb.from('dashboard_widgets').delete().in('id', Array.from(deletedIds));
@@ -736,6 +751,9 @@
       /** GridStack moved or resized something -- geometry is read at save
           time from grid.save(), so this only has to flip the dirty flag. */
       markLayoutDirty: () => markDirty(),
+      /** A slicer moved while editing. Same deal: values are read from the
+          runtime at save time, so this only flips the flag. */
+      markFiltersDirty: () => markDirty(),
     };
   }
 

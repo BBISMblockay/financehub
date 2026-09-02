@@ -23,6 +23,14 @@
    report definition and a hand-defined report all render identically.
    Keep it that way: source-specific behaviour belongs in the builder's
    picker, not here.
+
+   Parameters (dashboard slicers) enter at exactly one point: resolveSql()
+   turns a widget's stored SQL into the SQL that runs, substituting each
+   {{token}} with a type-validated literal (see v3/js/report-params.js).
+   Every fetch goes through it, and the data cache is keyed on the RESOLVED
+   sql -- so two tiles on the same report and the same slicer values still
+   cost one query, and moving a slicer misses the cache without anyone
+   having to invalidate it by hand.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -76,9 +84,15 @@
 
     let grid = null;
     let widgets = [];
-    /** query_sql -> { rows } | { error } — one fetch per distinct SQL per
-        refresh, so two tiles reading the same report cost one query. */
+    /** RESOLVED sql -> { rows } | { error } — one fetch per distinct SQL per
+        refresh, so two tiles reading the same report cost one query.
+        Keyed on the resolved SQL, not the stored SQL, so two tiles on the
+        same parameterised report still share a fetch while a slicer change
+        naturally misses the cache instead of needing manual invalidation. */
     let dataCache = new Map();
+    /** Current slicer values, keyed by parameter key. Dashboard-level: one
+        value per key, applied to every widget declaring it. */
+    let paramValues = Object.assign({}, options.paramValues || {});
     /** widget id -> echarts instance */
     const charts = new Map();
     let resizeObserver = null;
@@ -126,6 +140,52 @@
 
     function tileEl(id) {
       return gridEl.querySelector(`.grid-stack-item[gs-id="${CSS.escape(id)}"]`);
+    }
+
+    // ── Parameters ─────────────────────────────────────────────────────
+    /**
+     * The SQL this widget should actually run: its stored SQL with every
+     * {{token}} replaced by a type-validated literal.
+     *
+     * Returns { sql } or { error }. A report with no tokens comes straight
+     * back, so an unparameterised dashboard costs nothing and behaves
+     * exactly as it did before parameters existed.
+     */
+    function resolveSql(widget) {
+      return window.SiloReportParams.substitute(
+        widget.query_sql, widget.report_parameters, paramValues);
+    }
+
+    /** Which parameters this dashboard's widgets actually read. */
+    function parameterDeclarations() {
+      return window.SiloReportParams.mergeDeclarations(widgets);
+    }
+
+    function getParamValues() {
+      return Object.assign({}, paramValues);
+    }
+
+    /**
+     * Apply new slicer values and reload only what they change.
+     *
+     * Widgets that declare none of the changed keys are left alone: a date
+     * slicer on a nine-tile board should not re-run the two tiles that do
+     * not take a date.
+     */
+    function setParamValues(next) {
+      const changed = new Set();
+      const merged = Object.assign({}, paramValues);
+      for (const [k, v] of Object.entries(next || {})) {
+        if (String(merged[k] == null ? '' : merged[k]) !== String(v == null ? '' : v)) changed.add(k);
+        merged[k] = v;
+      }
+      paramValues = merged;
+      if (!changed.size) return Promise.resolve();
+      const affected = widgets.filter((w) => {
+        if (!w.query_sql) return false;
+        return window.SiloReportParams.tokensIn(w.query_sql).some((k) => changed.has(k));
+      });
+      return Promise.all(affected.map(loadWidget));
     }
 
     // ── Data ───────────────────────────────────────────────────────────
@@ -259,8 +319,17 @@
         });
         return;
       }
+      // Substitution failures are AUTHORING errors -- an undeclared token, a
+      // value that is not a date -- so they are reported on the tile rather
+      // than sent to Postgres to come back as a syntax error nobody can act
+      // on. Nothing runs until the SQL is fully resolved.
+      const resolved = resolveSql(widget);
+      if (resolved.error) {
+        renderBody(widget, { notice: resolved.error });
+        return;
+      }
       renderBody(widget, { loading: true });
-      const [entry] = await Promise.all([fetchQuery(widget.query_sql), catalogIndexPromise]);
+      const [entry] = await Promise.all([fetchQuery(resolved.sql), catalogIndexPromise]);
       renderBody(widget, entry);
     }
 
@@ -334,7 +403,13 @@
     function refreshWidget(id) {
       const w = widgets.find((x) => x.id === id);
       if (!w) return Promise.resolve();
-      if (w.query_sql) dataCache.delete(w.query_sql);
+      if (w.query_sql) {
+        // Evict the key this widget will actually look up, which is the
+        // RESOLVED sql -- deleting the stored sql would leave the resolved
+        // entry cached and make "refresh" a no-op on any parameterised tile.
+        const r = resolveSql(w);
+        if (r.sql) dataCache.delete(r.sql);
+      }
       return loadWidget(w);
     }
 
@@ -415,7 +490,9 @@
     function rowsFor(id) {
       const w = widgets.find((x) => x.id === id);
       if (!w || !w.query_sql) return null;
-      const entry = dataCache.get(w.query_sql);
+      const r = resolveSql(w);
+      if (!r.sql) return null;
+      const entry = dataCache.get(r.sql);
       return entry && entry.rows ? entry.rows : null;
     }
 
@@ -436,6 +513,7 @@
     return {
       setWidgets, addWidget, removeWidget, rerenderWidget, refresh, refreshWidget,
       layout, getWidgets, updateWidget, retheme, rowsFor, setEditable, semanticsFor,
+      parameterDeclarations, getParamValues, setParamValues, resolveSql,
       get grid() { return grid; },
     };
   }
