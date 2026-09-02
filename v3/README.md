@@ -195,6 +195,28 @@ inherited from the parent dashboard via an `EXISTS`.
   author-stylesheet class of equal specificity. `beacon.css` documents the same
   trap for `.bcn-btn`; `.v3-blank` and `.v3-meta-bar` both hit it during build.
 
+## Charts with more than one measure
+
+`visual_config.measures` is an array of column names; `y_field` is the
+single-measure form every widget built before it used, and still works
+untouched — `points[].value` stays the first measure so KPI, donut and the
+table path are unaffected.
+
+Two rules make a multi-measure chart honest:
+
+- **A measure gets its own right-hand axis** when it means something
+  different from the first one, or when its typical magnitude is more than
+  25× away. ROAS averages 3.3 next to $38,000 of sales; on one axis it is a
+  flat line on the floor. A secondary-axis measure is drawn as a *line* even
+  in a bar chart — a ratio rendered as a bar beside dollar bars invites
+  reading them as comparable heights.
+- **Each measure is aggregated by its own semantic**, not the widget's.
+  Summing a ratio alongside summing dollars is how a ROAS column becomes 99
+  instead of 3.3.
+
+The acceptance case is one flat query — `day_date, online_net_sales,
+ad_spend, roas`, one row per day — plotted as three series on two axes.
+
 ## Getting a report onto a dashboard
 
 Two doors, both landing in the same place:

@@ -2056,3 +2056,23 @@ select
       then 'MISSING — Top Products no longer excludes x-redo; Redo''s Package Protection line item is not merchandise and outranks every real product (8,209 units when this was found). See 20260902100000_fix_top_products_redo_filter.sql'
     else 'ok'
   end as seed_system_reports;
+
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_schema_catalog'
+                       and column_name='reportable')
+      then 'MISSING — run 20260902110000_report_builder_reportable.sql'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                  where reportable
+                    and (relname like 'payroll%' or relname like 'ar\_%' or relname like 'comp\_%'
+                      or relname like 'payment\_request%' or relname like 'journal%'
+                      or relname like 'quickbooks%' or relname like 'review%'
+                      or relname like 'employee%' or relname like 'silo\_chat%'
+                      or relname like 'fixed\_asset%' or relname like 'card\_%'
+                      or relname like 'accounting\_%' or relname like 'schedule\_%'))
+      then 'MISSING — a finance or HR object is offered in the report builder rail; the workbench is for commercial reporting only (RLS is still the boundary, but it should not be OFFERED)'
+    when (select count(*) from public.silo_chat_schema_catalog where reportable) = 0
+      then 'MISSING — nothing is marked reportable; the report builder rail will be empty'
+    else 'ok'
+  end as report_builder_reportable;

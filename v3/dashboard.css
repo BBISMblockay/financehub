@@ -404,3 +404,12 @@
   cursor: pointer; font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
   letter-spacing: .05em; color: var(--bcn-ink-3);
 }
+
+/* Inspector: measure multi-select */
+.v3-measures { display: flex; flex-wrap: wrap; gap: 5px; }
+.v3-measures .rb-col { font-size: 11px; }
+
+.rb-rail-foot {
+  padding: 12px 10px 16px; font-size: 10.5px; line-height: 1.5;
+  color: var(--bcn-ink-4); border-top: 1px solid var(--bcn-border); margin-top: 8px;
+}
