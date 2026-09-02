@@ -32,7 +32,12 @@
   // The vocabulary. Deliberately small: these are the distinctions that
   // change how a value is printed or how it may be aggregated, not a type
   // system.
-  const SEMANTICS = ['currency', 'count', 'number', 'percent', 'date', 'category', 'boolean'];
+  // 'link' and 'image' are RENDERING semantics rather than measurement ones:
+  // they say how to draw a cell, not how to aggregate it. Neither is a
+  // measure, and neither is a useful dimension (grouping by URL is
+  // meaningless), so both stay out of MEASURES and out of the chart pickers.
+  const SEMANTICS = ['currency', 'count', 'number', 'percent', 'date', 'category', 'boolean',
+                     'link', 'image'];
   const MEASURES = new Set(['currency', 'count', 'number', 'percent']);
 
   const PERCENT_RE = /(pct|percent|rate|share|ratio)/i;
@@ -102,6 +107,12 @@
     // with a real column of a different kind.
     if (profiled === 'date') return { semantic: 'date', source: 'inferred' };
     if (profiled === 'boolean') return { semantic: 'boolean', source: 'inferred' };
+    // A column whose values are all http(s) URLs is a link, and the profiler
+    // decided that by looking at the VALUES, not the name. That ordering
+    // matters: a value that is a URL is a URL, whereas a column *named*
+    // `link` might hold anything.
+    if (profiled === 'image') return { semantic: 'image', source: 'inferred' };
+    if (profiled === 'url') return { semantic: 'link', source: 'inferred' };
     if (profiled !== 'number') return { semantic: 'category', source: 'inferred' };
 
     const kind = s.catalogIndex && s.catalogIndex.get(name);
