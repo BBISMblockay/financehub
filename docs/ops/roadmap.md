@@ -76,6 +76,35 @@ What remains is coverage and one missing branch.
 
 ## Reporting and data grain
 
+- [ ] **The Marketing RPCs hardcode `location_tag = 'online'`, which is a
+      multi-tenant bug.** `locations` already carries `store_type` per company
+      and CLAUDE.md already documents `locations.store_type = 'online'` as the
+      definition — the literal is drift from the repo's own stated rule. It
+      works only because Baseballism happened to name their online location
+      "online"; the second company's codes are `baseballismdsg_dsg` and
+      `chicago`, so every report would return zeros and read as a quiet week
+      rather than a misconfiguration. Fix is a lookup
+      (`location_tag in (select location_code from locations where
+      store_type = 'online')`) in each `wow_*` RPC and the rollup. No new
+      mapping needed in Integrations. Do it with the before/after md5
+      comparison used for the sales rollup — that method caught the one real
+      difference last time
+- [ ] **Retail has no ad measurement anywhere.** Retail is $7.59M of $25.2M YTD
+      (30%), a live `PMax Store Visits` campaign spent $24,069, and every
+      Marketing page reads online-store revenue only. `wow_paid_media_reality()`
+      computes `mer_blended` (2.20) against `mer_online` (1.23) and is the sole
+      place the difference exists. Store-visit attribution is modelled, not
+      measured, so the honest first step is establishing what CAN be tied to
+      POS before any retail ROAS is published
+- [ ] Surface `wow_paid_media_reality()` — spend / claimed / actual / claim
+      ratio / MER online vs blended / NCAC. Built, grain-aware, displayed
+      nowhere. Would stop anyone carrying an Explorer ROAS into a revenue
+      conversation without having to remember which page means what
+- [ ] Cost per thruplay and cost per lead exist per ad only from 2026-08-02 —
+      the columns are new and Meta must be re-pulled for history. A
+      `days_back=400` backfill needs the 240-minute timeout raised in #580;
+      the first attempt was killed at exactly 60 and wrote nothing, because
+      the ad-level fetch holds every row until one upsert at the end
 - [x] Marketing Explorer (`/v2/marketing-explorer.html`) — any date range by
       day, prior-period comparison, Google + Meta drill from platform to ad,
       CSV export at every level
