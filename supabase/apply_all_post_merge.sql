@@ -15131,3 +15131,11 @@ create index if not exists idx_schedule_items_payment_request
 -- the metric it was bought on rather than falling back to click cost.
 -- ---------------------------------------------------------------------------
 \i migrations/20260902010000_ad_level_thruplays_leads.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260902020000_meta_ad_performance_v_thruplays.sql
+-- Exposes thruplays/leads/creative_body_source on meta_ad_performance_v, which
+-- lists its columns explicitly and so did not inherit them. Must run AFTER
+-- 20260902000000 and 20260902010000, which add the underlying columns.
+-- ---------------------------------------------------------------------------
+\i migrations/20260902020000_meta_ad_performance_v_thruplays.sql
