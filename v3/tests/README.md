@@ -36,6 +36,10 @@ nobody runs.
 | `report-builder-sql` | Guided SQL composition, identifier quoting, forced matview scoping |
 | `report-parameters-sql` | `{{token}}` passthrough in guided filters, declaration validation |
 | `chart-adapter` | Column profiling, visual recommendation, grouping/sorting/limiting, formatting |
+| `presentation` | Module-wide defaults: column labels, month-grain date headers, negative emphasis, KPI deltas, abbreviation |
+| `matrix-visual` | Rows down / columns across, query order preserved, an absent cell empty rather than 0 |
+| `link-image-cells` | URL detection from values, and the `javascript:` / `data:` / protocol-relative attempts the guard must reject |
+| `totals-columns` | Totals (and the rates they refuse), column hide/reorder, chart value labels and stacking |
 
 `lib/load.js` evaluates `v3/js/*.js` in a node VM. Those files are IIFEs that
 hang objects off `window` — not a module format, deliberately, since the pages

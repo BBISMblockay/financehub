@@ -437,7 +437,12 @@
     };
   }
 
-  function axisChartOption(kind, shaped, t) {
+  function axisChartOption(kind, shaped, t, config) {
+    const cfg = config || {};
+    // Stacking only makes sense when every series measures the same
+    // KIND of thing. Dollars stacked on a ratio draws a number that
+    // does not exist.
+    const sameSemantic = new Set(shaped.series.map((sr) => sr.semantic)).size <= 1;
     const labels = shaped.points.map((p) => (p.label === null || p.label === undefined ? '—' : String(p.label)));
     const multi = shaped.series.length > 1;
     // Horizontal bars are for long category names, and only make sense with
@@ -490,6 +495,23 @@
         xAxisIndex: horizontal ? sr.axis : undefined,
         data,
         barMaxWidth: 34,
+        // Stacking is a BAR idea: stacked lines read as an area chart
+        // nobody asked for, and a stacked rate is meaningless. So it only
+        // applies to bars, and only when every series shares a semantic --
+        // stacking dollars on top of a ratio would draw a number that does
+        // not exist.
+        stack: (!asLine && cfg.stacked && sameSemantic) ? 'total' : undefined,
+        // Value labels are off by default: on a 40-point series they
+        // collide into a grey smear. Shown only when asked, and only where
+        // there is room.
+        label: (cfg.show_values && shaped.points.length <= 24) ? {
+          show: true,
+          position: horizontal ? 'right' : 'top',
+          fontSize: 10,
+          fontFamily: '"IBM Plex Mono", monospace',
+          color: t.ink2,
+          formatter: (p) => compact(p.value, sr.semantic || shaped.semantic),
+        } : { show: false },
         itemStyle: { borderRadius: !asLine ? (horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0]) : 0 },
         smooth: asLine ? 0.2 : false,
         showSymbol: asLine && shaped.points.length <= 40,
@@ -568,10 +590,10 @@
     };
   }
 
-  function optionFor(visualType, shaped) {
+  function optionFor(visualType, shaped, config) {
     const t = theme();
     if (visualType === 'donut') return donutOption(shaped, t);
-    return axisChartOption(visualType === 'line' ? 'line' : 'bar', shaped, t);
+    return axisChartOption(visualType === 'line' ? 'line' : 'bar', shaped, t, config);
   }
 
   // ── HTML visuals (table / KPI) ───────────────────────────────────────
@@ -602,6 +624,28 @@
   // opened since. An override belongs on the REPORT when the answer is the
   // same wherever the column appears (a label), and on the WIDGET when two
   // tiles could legitimately differ (abbreviation, density).
+
+  /**
+   * Is a total of this column meaningful?
+   *
+   * Currency and counts add up. A PERCENT or a ratio does not -- summing
+   * three days of 40%/50%/60% gives 150%, and averaging them gives 50%,
+   * which is only right when the days are equally weighted. Neither is
+   * reliably the answer, so a rate column gets a BLANK total rather than a
+   * confident wrong one. Same stance as an empty matrix cell.
+   */
+  const TOTALLABLE = new Set(['currency', 'count', 'number']);
+
+  /** Columns to show, in order. `visual_config.columns` wins when present. */
+  function visibleColumns(prof, cfg) {
+    const chosen = Array.isArray(cfg && cfg.columns) ? cfg.columns : null;
+    if (!chosen || !chosen.length) return prof;
+    // Only names that actually came back, in the ORDER the config lists
+    // them -- that is what makes this reorder as well as hide. A column the
+    // query stopped returning simply drops out rather than rendering blank.
+    const byName = new Map(prof.map((c) => [c.name, c]));
+    return chosen.map((n) => byName.get(n)).filter(Boolean);
+  }
 
   const ACRONYMS = { roas: 'ROAS', aov: 'AOV', sku: 'SKU', po: 'PO', qbo: 'QBO',
                      mtd: 'MTD', ytd: 'YTD', cy: 'CY', ly: 'LY', id: 'ID',
@@ -736,10 +780,57 @@
       return `<tr><th class="dw-matrix-row"><span class="dw-matrix-label" title="${esc(rk)}">${esc(rk)}</span></th>${tds}</tr>`;
     }).join('');
 
-    const note = truncated
-      ? `<div class="dw-foot-note">Showing ${shownRows.length} of ${rowKeys.length} rows</div>` : '';
+    // Totals only where a total means something: currency, counts and plain
+    // numbers add up, a rate does not. A matrix of percentages gets no
+    // totals at all rather than a row of nonsense.
+    const canTotal = TOTALLABLE.has(sem);
+    const wantRow = canTotal && (cfg.totals === 'row' || cfg.totals === 'both');
+    const wantCol = canTotal && (cfg.totals === 'column' || cfg.totals === 'both');
+
+    const sumOf = (vals) => (vals.length ? vals.reduce((a, b) => a + b, 0) : null);
+    const cellVal = (rk, ck) => {
+      const vals = cells.get(rk + '\u0000' + ck);
+      return vals ? aggregateValues(vals, agg) : null;
+    };
+
+    const headWithTotal = wantCol
+      ? head.replace('</tr>', '<th class="dw-num dw-total-label">Total</th></tr>')
+      : head;
+
+    const bodyWithTotal = !wantCol ? body : shownRows.map((rk) => {
+      const tds = colKeys.map((ck) => {
+        const v = cellVal(rk, ck);
+        return `<td class="dw-num${signClass(v, sem)}">${v === null ? '' : esc(formatValue(v, sem))}</td>`;
+      }).join('');
+      const rowTotal = sumOf(colKeys.map((ck) => cellVal(rk, ck)).filter((v) => v !== null));
+      return `<tr><th class="dw-matrix-row"><span class="dw-matrix-label" title="${esc(rk)}">${esc(rk)}</span></th>`
+        + tds
+        + `<td class="dw-num dw-total-cell${signClass(rowTotal, sem)}">${rowTotal === null ? '' : esc(formatValue(rowTotal, sem))}</td></tr>`;
+    }).join('');
+
+    let matrixFoot = '';
+    if (wantRow) {
+      const tds = colKeys.map((ck) => {
+        const v = sumOf(shownRows.map((rk) => cellVal(rk, ck)).filter((x) => x !== null));
+        return `<td class="dw-num${signClass(v, sem)}">${v === null ? '' : esc(formatValue(v, sem))}</td>`;
+      }).join('');
+      const grand = wantCol
+        ? sumOf(shownRows.flatMap((rk) => colKeys.map((ck) => cellVal(rk, ck))).filter((x) => x !== null))
+        : null;
+      matrixFoot = `<tfoot><tr class="dw-total-row">
+          <th class="dw-matrix-row dw-total-label"><span class="dw-matrix-label">Total</span></th>${tds}
+          ${wantCol ? `<td class="dw-num dw-total-cell${signClass(grand, sem)}">${grand === null ? '' : esc(formatValue(grand, sem))}</td>` : ''}
+        </tr></tfoot>`;
+    }
+
+    const totalsNote = (cfg.totals && !canTotal)
+      ? '<div class="dw-foot-note">Totals are off for this measure — summing a rate is not meaningful.</div>' : '';
+    const note = (truncated
+      ? `<div class="dw-foot-note">Showing ${shownRows.length} of ${rowKeys.length} rows${wantRow ? ' — the total covers the rows shown' : ''}</div>`
+      : '') + totalsNote;
+
     return `<div class="bcn-matrix-scroll dw-matrix-wrap">
-        <table class="bcn-table dw-matrix"><thead>${head}</thead><tbody>${body}</tbody></table>
+        <table class="bcn-table dw-matrix"><thead>${headWithTotal}</thead><tbody>${bodyWithTotal}</tbody>${matrixFoot}</table>
       </div>${note}`;
   }
 
@@ -758,9 +849,10 @@
     const truncated = limit > 0 && shown.length > limit;
     if (truncated) shown = shown.slice(0, limit);
 
-    const head = prof.map((c) =>
+    const cols = visibleColumns(prof, cfg);
+    const head = cols.map((c) =>
       `<th class="${c.type === 'number' ? 'dw-num' : ''}" title="${esc(c.name)}">${esc(columnLabel(c.name, semantics))}</th>`).join('');
-    const body = shown.map((r) => `<tr>${prof.map((c) => {
+    const body = shown.map((r) => `<tr>${cols.map((c) => {
       const raw = r[c.name];
       const sem = semanticOf(c.name, semantics, prof);
 
@@ -793,9 +885,29 @@
       return `<td class="${numClass}"${c.type === 'json' ? ` title="${esc(full)}"` : ''}>${esc(cell)}</td>`;
     }).join('')}</tr>`).join('');
 
-    const note = truncated ? `<div class="dw-foot-note">Showing ${shown.length} of ${rows.length} rows</div>` : '';
+    // A totals row sums the ROWS ON SCREEN, and says so when that is not
+    // all of them -- a footer reading "Total" under a truncated list, over
+    // a number covering everything, is the kind of quiet mismatch nobody
+    // catches.
+    let foot = '';
+    if (cfg.totals) {
+      const cells = cols.map((c, i) => {
+        if (i === 0) return `<th class="dw-total-label">Total</th>`;
+        const sem = semanticOf(c.name, semantics, prof);
+        if (c.type !== 'number' || !TOTALLABLE.has(sem)) return '<td></td>';
+        const nums = shown.map((r) => toNumber(r[c.name])).filter((n) => n !== null);
+        if (!nums.length) return '<td></td>';
+        const sum = nums.reduce((a, b) => a + b, 0);
+        return `<td class="dw-num${signClass(sum, sem)}">${esc(formatValue(sum, sem))}</td>`;
+      }).join('');
+      foot = `<tfoot><tr class="dw-total-row">${cells}</tr></tfoot>`;
+    }
+
+    const note = truncated
+      ? `<div class="dw-foot-note">Showing ${shown.length} of ${rows.length} rows${cfg.totals ? ' — the total covers the rows shown' : ''}</div>`
+      : '';
     return `<div class="dw-table-wrap"><table class="dw-table">
-      <thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${note}`;
+      <thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}</table></div>${note}`;
   }
 
   function kpiHtml(rows, config, semantics) {

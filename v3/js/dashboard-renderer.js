@@ -56,6 +56,21 @@
   }
 
   function tileShell(widget, editable) {
+    if (widget.visual_type === 'section') {
+      return `
+      <div class="dw dw--section" data-widget-id="${esc(widget.id)}">
+        <header class="dw-head dw-head--section">
+          <div class="dw-head-text"><span class="dw-section-title">${esc(widget.title || '')}</span></div>
+          <div class="dw-head-actions">${editable
+            ? `<button type="button" class="dw-type-badge dw-type-badge--btn" data-act="configure"
+                       title="Edit this section">section<span class="dw-caret" aria-hidden="true">▾</span></button>
+               <button type="button" class="dw-icon-btn" data-act="remove" aria-label="Remove section">✕</button>`
+            : ''}</div>
+        </header>
+        <div class="dw-body dw-body--section" data-role="body"></div>
+        <footer class="dw-foot" data-role="foot" hidden></footer>
+      </div>`;
+    }
     const title = widget.title || widget.report_title || 'Untitled';
     const sub = widget.report_title && widget.title && widget.title !== widget.report_title
       ? widget.report_title : '';
@@ -248,6 +263,12 @@
       const rows = state.rows || [];
       const cfg = widget.visual_config || {};
 
+      if (widget.visual_type === 'section') {
+        // The widget's own title is the content; the shell already renders
+        // it, so the body only carries an optional standfirst.
+        body.innerHTML = cfg.note ? `<p class="dw-section-note">${esc(cfg.note)}</p>` : '';
+        return;
+      }
       if (!rows.length) { body.innerHTML = '<div class="dw-empty">Query returned 0 rows.</div>'; return; }
 
       const semantics = semanticsFor(widget, rows);
@@ -282,7 +303,7 @@
         body.innerHTML = '<div class="dw-chart" data-role="chart"></div>';
         const host = body.querySelector('[data-role="chart"]');
         const chart = echarts.init(host, null, { renderer: 'canvas' });
-        chart.setOption(window.SiloChart.optionFor(widget.visual_type, shaped), true);
+        chart.setOption(window.SiloChart.optionFor(widget.visual_type, shaped, cfg), true);
         charts.set(widget.id, chart);
         // Say what the chart is actually showing. Grouping is invisible
         // otherwise: "top 10 of 46" reads very differently once you know
@@ -305,6 +326,10 @@
     }
 
     async function loadWidget(widget) {
+      // A section is a heading, not a query. It short-circuits before every
+      // report check below -- otherwise the "no saved report attached"
+      // notice would fire on a tile that correctly has none.
+      if (widget.visual_type === 'section') { renderBody(widget, { rows: [] }); return; }
       if (!widget.report_id) {
         renderBody(widget, { notice: 'No saved report attached to this widget.' });
         return;

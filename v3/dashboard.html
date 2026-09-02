@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260903f" />
+  <link rel="stylesheet" href="dashboard.css?v=20260903g" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -36,6 +36,7 @@
       <div class="bcn-header-actions">
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh">Refresh data</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Add widget</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddSection" hidden>+ Section</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnEdit" hidden>Edit</button>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnSave" hidden>Save</button>
       </div>
@@ -118,17 +119,17 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260903f"></script>
-<script src="js/field-semantics.js?v=20260903f"></script>
-<script src="js/chart-adapter.js?v=20260903f"></script>
+<script src="js/report-params.js?v=20260903g"></script>
+<script src="js/field-semantics.js?v=20260903g"></script>
+<script src="js/chart-adapter.js?v=20260903g"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260903f"></script>
-<script src="js/dashboard-renderer.js?v=20260903f"></script>
-<script src="js/dashboard-builder.js?v=20260903f"></script>
+<script src="js/report-builder.js?v=20260903g"></script>
+<script src="js/dashboard-renderer.js?v=20260903g"></script>
+<script src="js/dashboard-builder.js?v=20260903g"></script>
 <script>
 (function () {
   'use strict';
@@ -163,6 +164,7 @@
     runtime.setEditable(editing);
     el('metaBar').hidden = !editing;
     el('btnAddWidget').hidden = !editing;
+    el('btnAddSection').hidden = !editing;
     el('btnBlankAdd').hidden = !editing;
     el('btnSave').hidden = !editing;
     el('btnEdit').textContent = editing ? 'Done' : 'Edit';
@@ -410,6 +412,7 @@
   });
 
   el('btnBlankAdd').addEventListener('click', () => builder && builder.openAddWidget());
+  el('btnAddSection').addEventListener('click', () => builder && builder.addSection());
 
   // Slicers. `change`, not `input`: a text or number field would otherwise
   // fire a query per keystroke.

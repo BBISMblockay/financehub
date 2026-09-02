@@ -251,6 +251,30 @@
         ${window.SiloChart.tableHtml(rows.slice(0, 3), {})}`;
     }
 
+    /** A heading tile. No report, no query -- it just groups what follows. */
+    function addSection() {
+      const widget = {
+        id: uid(),
+        dashboard_id: dashboard.id,
+        report_id: null,
+        query_index: 0,
+        title: 'New section',
+        visual_type: 'section',
+        visual_config: {},
+        // Full width and short: a heading spans the row it introduces.
+        layout: { w: 12, h: 1 },
+        sort_order: runtime.getWidgets().length,
+        report_title: null, report_question: null, report_visibility: null,
+        report_source: null, report_columns_metadata: null, report_parameters: null,
+        query_sql: null, report_query_count: 0,
+        _new: true,
+      };
+      runtime.addWidget(widget);
+      markDirty();
+      onWidgetsChange();
+      openInspector(widget.id);
+    }
+
     async function addWidgetFromReport(report, queryIndex) {
       closeAddWidget();
       const widget = {
@@ -373,6 +397,7 @@
       const dims = window.SiloChart.dimensionsOf(prof);
       const meas = window.SiloChart.measuresOf(prof);
       const isChart = ['bar', 'line', 'donut'].includes(w.visual_type);
+      const isSection = w.visual_type === 'section';
       // A matrix needs a SECOND dimension -- one down, one across -- which
       // no other visual has. Everything else about it (measure, aggregate,
       // limit) reuses the existing controls.
@@ -466,6 +491,42 @@
           <input type="checkbox" id="inspAbbrev" ${cfg.abbreviate ? 'checked' : ''} />
           Abbreviate the number ($36.4M instead of $36,393,571)
         </label>` : ''}
+        ${(w.visual_type === 'table' || w.visual_type === 'matrix') ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspTotals">Totals</label>
+          <select class="bcn-field" id="inspTotals">
+            <option value="">None</option>
+            ${w.visual_type === 'table'
+              ? `<option value="row"${cfg.totals === 'row' ? ' selected' : ''}>A total row at the bottom</option>`
+              : `<option value="row"${cfg.totals === 'row' ? ' selected' : ''}>A total row</option>
+                 <option value="column"${cfg.totals === 'column' ? ' selected' : ''}>A total column</option>
+                 <option value="both"${cfg.totals === 'both' ? ' selected' : ''}>Both</option>`}
+          </select>
+          <span class="v3-insp-hint">Only currency, counts and plain numbers are totalled — summing a rate is not meaningful, so those cells stay blank.</span>
+        </div>` : ''}
+        ${w.visual_type === 'table' && rows ? `
+        <div class="bcn-field-group">
+          <span class="bcn-label">Columns · drag order is the query's unless you pick</span>
+          <div class="v3-measures">
+            ${prof.map((c) => {
+              const chosen = Array.isArray(cfg.columns) && cfg.columns.length
+                ? cfg.columns.includes(c.name) : true;
+              return `<label class="rb-col${chosen ? ' is-on' : ''}">
+                <input type="checkbox" data-col-show="${esc(c.name)}" ${chosen ? 'checked' : ''} />
+                ${esc(window.SiloChart.columnLabel(c.name, semantics))}</label>`;
+            }).join('')}
+          </div>
+        </div>` : ''}
+        ${isChart && w.visual_type !== 'donut' ? `
+        <label class="rb-col${cfg.show_values ? ' is-on' : ''}" style="align-self:flex-start">
+          <input type="checkbox" id="inspShowValues" ${cfg.show_values ? 'checked' : ''} />
+          Show the value on each point
+        </label>
+        ${w.visual_type === 'bar' ? `
+        <label class="rb-col${cfg.stacked ? ' is-on' : ''}" style="align-self:flex-start">
+          <input type="checkbox" id="inspStacked" ${cfg.stacked ? 'checked' : ''} />
+          Stack the bars
+        </label>` : ''}` : ''}
         ${(isChart || w.visual_type === 'kpi') ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspAgg">Aggregation</label>
@@ -746,7 +807,25 @@
           renderInspector();
           return;
         }
-        if (t.id === 'inspAbbrev') patchConfig({ abbreviate: t.checked || undefined });
+        if (t.dataset.colShow !== undefined) {
+          // Start from what is currently shown so unticking one column does
+          // not silently reorder or drop the rest.
+          const current = (Array.isArray(cfg.columns) && cfg.columns.length)
+            ? cfg.columns.slice()
+            : prof.map((c) => c.name);
+          const name = t.dataset.colShow;
+          const next = t.checked
+            ? (current.includes(name) ? current
+               : prof.map((c) => c.name).filter((n) => current.includes(n) || n === name))
+            : current.filter((n) => n !== name);
+          patchConfig({ columns: next.length ? next : undefined });
+          renderInspector();
+          return;
+        }
+        if (t.id === 'inspTotals') patchConfig({ totals: t.value || undefined });
+        else if (t.id === 'inspShowValues') patchConfig({ show_values: t.checked || undefined });
+        else if (t.id === 'inspStacked') patchConfig({ stacked: t.checked || undefined });
+        else if (t.id === 'inspAbbrev') patchConfig({ abbreviate: t.checked || undefined });
         else if (t.id === 'inspCompare') {
           patchConfig(t.value === '__prev'
             ? { compare: 'previous_row', compare_field: undefined }
@@ -846,7 +925,7 @@
 
     bind();
     return {
-      save, isDirty, openAddWidget, closeInspector, addReportById,
+      save, isDirty, openAddWidget, closeInspector, addReportById, addSection,
       /** GridStack moved or resized something -- geometry is read at save
           time from grid.save(), so this only has to flip the dirty flag. */
       markLayoutDirty: () => markDirty(),
