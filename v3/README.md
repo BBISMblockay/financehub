@@ -187,10 +187,12 @@ change ships and nobody sees it until they hard-refresh.
 | `dashboards.html` | List / create dashboards |
 | `dashboard.html` | The canvas. `?id=<uuid>` to view, `&edit=1` to edit |
 | `dashboard.css` | Tile chrome, inspector, picker. Beacon tokens only — no new CSS variables |
+| `js/report-params.js` | Turns a report's declared parameters plus a dashboard's slicer values into runnable SQL. The **only** place a UI value becomes part of a query — every literal is produced by type, never concatenated. No DOM, no ECharts, pure and unit-tested |
 | `js/field-semantics.js` | What a column *means* (currency / count / percent / date / category), resolved from four layers. No ECharts, no DOM |
 | `js/chart-adapter.js` | The only file that talks to ECharts. Profiles rows, recommends a visual, groups/sorts/limits, builds options, renders table/KPI HTML |
 | `js/dashboard-renderer.js` | Owns the GridStack instance and draws widgets from config. Used unchanged in view **and** edit mode |
 | `js/dashboard-builder.js` | Edit mode only: report picker, inspector, buffered save |
+| `report-builder.html`, `js/report-builder.js`, `js/report-builder-ui.js` | The workbench: build a report from a table/view or write SQL, declare parameters, preview, save. Composition and every safety rule live in `report-builder.js`, which is pure and unit-tested; the `-ui` file only turns clicks into config |
 
 Libraries are CDN-loaded and version-pinned: GridStack 10.3.1 (canvas
 interactions) and ECharts 5.5.1 (charts).
@@ -201,6 +203,9 @@ interactions) and ECharts 5.5.1 (charts).
 plus the `dashboards_v` / `dashboard_widgets_v` `security_invoker` views. RLS
 follows the existing company-membership model; widget access is entirely
 inherited from the parent dashboard via an `EXISTS`.
+
+`silo_chat_saved_reports.parameters` and `dashboards.filter_state`
+(`20260903100000_report_parameters.sql`) carry slicers — see below.
 
 ## Decisions worth knowing before changing this
 
@@ -264,6 +269,65 @@ Two rules make a multi-measure chart honest:
 The acceptance case is one flat query — `day_date, online_net_sales,
 ad_spend, roas`, one row per day — plotted as three series on two axes.
 
+## Parameters and slicers
+
+A report declares what it needs; the dashboard supplies it; the runner
+substitutes before executing.
+
+```
+report.parameters      [{ key, type, label, default, options? }]
+dashboard.filter_state { "grain": "week", "report_date": "today" }
+report SQL             select * from wow_kpi_compare({{report_date}}, {{grain}})
+```
+
+Matching is **by key across reports**, which is the whole point: nine reports
+that each declare `report_date` get one control in the header, not nine.
+Changing it re-runs only the widgets whose SQL actually reads that key.
+
+**Substitution is typed, never string interpolation.**
+`chat_run_readonly_query` is SECURITY INVOKER, so nothing pushed through a
+parameter can read another company's rows — RLS still decides that. But it
+could rewrite the report into a question nobody asked, and "the blast radius
+is small" is a bad reason to build an injection point. A value never reaches
+the SQL as text; it is converted to a literal by type:
+
+| Type | Becomes | Rejected if |
+|---|---|---|
+| `number` | digits, via `Number()` + `isFinite` | not a number — a string that isn't one cannot survive the conversion |
+| `date` | `date 'YYYY-MM-DD'` | not a real calendar date, or a relative token outside the small set below |
+| `enum` | a quoted string | not `===` one of the **declared** options. Compared, not sanitised |
+| `text` | a quoted string, quotes doubled | it carries a control character or a semicolon |
+
+A `{{token}}` the report does not declare is an **error**, never a
+passthrough and never left in place: the declaration is the allowlist. The
+report builder blocks saving on one; the tile says so rather than running.
+
+Relative date values are deliberately few — `today`, `today-Nd`,
+`month_start`, `year_start`, or a literal date. A date slicer stores the
+**token**, not the date it resolves to today: storing the resolved date would
+freeze a "last 28 days" board on the day it was saved. The concrete date is
+shown under the control so nobody has to work it out.
+
+Why literals and not bind parameters, which would be stronger in general:
+`chat_run_readonly_query` takes one `text` argument and `EXECUTE`s it,
+because it exists to run SQL nobody wrote in advance. Given that shape, the
+honest design is to make the set of things a parameter can become small and
+typed, and an undeclared token fatal.
+
+**Who a change belongs to.** Slicers are present in view mode — changing the
+date range is the ordinary way to read a dashboard, not an edit. A viewer's
+change applies to their session and nobody else's; only an editor's **Save**
+writes `filter_state` back as the dashboard's saved position.
+
+The Week over Week dashboard is the worked example: nine reports sharing
+`{{grain}}` (day/week/month/ytd) and `{{report_date}}`. Its `report_date` is
+wrapped in `least(..., complete_through)` so the slicer can only move the
+window *backward* from the last complete day — the useful direction, and it
+keeps the property the board was built with: never report a partial day.
+Its column aliases were renamed off the grain at the same time (`this_week` →
+`current_period`, `wow_pct` → `change_pct`), because at day grain a column
+headed "this_week" showing one day is a wrong label, not a cosmetic slip.
+
 ## Getting a report onto a dashboard
 
 Two doors, both landing in the same place:
@@ -288,10 +352,11 @@ same report twice.
 
 Named here so nobody reads their absence as an oversight:
 
-- **Dashboard-level filters** (date range, location, entity). These want to push
-  down into the report's SQL to be honest, and the SQL is opaque text a widget
-  does not own. Filtering the 500 returned rows client-side would look like a
-  filter and behave like a sample.
+- **Per-widget parameter overrides.** Slicers are dashboard-level only: one
+  value per key, applied to every widget declaring it. A tile quietly on a
+  different date range than the header claims makes "what am I looking at"
+  unanswerable, which defeats the point. Adding overrides later means a new
+  column on `dashboard_widgets`, not reinterpreting `filter_state`.
 - **Cross-widget interactions** (click a bar to filter the rest), scheduled
   email/export, and dashboard duplication.
 - **AI-authored widget config.** The natural next step — Ask SILO already
@@ -301,9 +366,17 @@ Named here so nobody reads their absence as an oversight:
 
 ## Testing
 
-`chart-adapter.js` is pure and testable in node (no DOM needed for profiling,
-shaping or formatting). The full path — add a report, switch Table ↔ Bar ↔ Line
-↔ Donut ↔ KPI, drag/resize, save, reload identically — was verified in Chromium
-against a stubbed Supabase client during development. There is no test runner
-checked into this repo to hang those on yet; see `docs/ops/roadmap.md` (smoke
-tests).
+`chart-adapter.js`, `field-semantics.js`, `report-builder.js` and
+`report-params.js` are pure and testable in node (no DOM needed). The full
+path — add a report, switch Table ↔ Bar ↔ Line ↔ Donut ↔ KPI, drag/resize,
+save, reload identically, move a slicer — was verified in Chromium against a
+stubbed Supabase client during development.
+
+`report-params.js` in particular is worth keeping under test whatever else
+changes: it is the one file that turns a value from a control into part of a
+query, and its suite includes the injection attempts each type must refuse
+(`1 or 1=1` into a number, a quote-break into text, an undeclared option into
+an enum, a `{{token}}` nobody declared).
+
+There is still no test runner checked into this repo to hang those on; see
+`docs/ops/roadmap.md` (smoke tests).

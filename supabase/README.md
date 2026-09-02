@@ -339,6 +339,7 @@ supabase/
     20260828130000_saved_report_source.sql
     20260828140000_saved_report_column_semantics.sql
     20260828150000_seed_system_reports.sql
+    20260903100000_report_parameters.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

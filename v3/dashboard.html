@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260902a" />
+  <link rel="stylesheet" href="dashboard.css?v=20260903a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -42,6 +42,19 @@
     </header>
 
     <div class="bcn-status" id="status" hidden></div>
+
+    <!-- Slicers. Rendered from the parameters this dashboard's reports
+         actually declare, so a board of unparameterised reports shows
+         nothing here and looks exactly as it did before. Present in VIEW
+         mode too: changing the date range is the ordinary way to read a
+         dashboard, not an edit. A viewer's change applies to their session;
+         only an editor's Save writes it back as the dashboard's position. -->
+    <section class="v3-slicer-bar" id="slicerBar" hidden>
+      <span class="v3-slicer-lead">Filters</span>
+      <div class="v3-slicer-fields" id="slicerFields"></div>
+      <button type="button" class="bcn-btn bcn-btn--ghost v3-slicer-reset" id="btnResetFilters"
+              title="Back to this dashboard's saved filter values">Reset</button>
+    </section>
 
     <!-- Dashboard-level settings, edit mode only. -->
     <section class="bcn-filter-bar v3-meta-bar" id="metaBar" hidden>
@@ -105,10 +118,11 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/field-semantics.js?v=20260902a"></script>
-<script src="js/chart-adapter.js?v=20260902a"></script>
-<script src="js/dashboard-renderer.js?v=20260902a"></script>
-<script src="js/dashboard-builder.js?v=20260902a"></script>
+<script src="js/report-params.js?v=20260903a"></script>
+<script src="js/field-semantics.js?v=20260903a"></script>
+<script src="js/chart-adapter.js?v=20260903a"></script>
+<script src="js/dashboard-renderer.js?v=20260903a"></script>
+<script src="js/dashboard-builder.js?v=20260903a"></script>
 <script>
 (function () {
   'use strict';
@@ -158,6 +172,90 @@
     const empty = !runtime.getWidgets().length;
     el('blank').hidden = !empty;
     el('grid').hidden = empty;
+  }
+
+  // ── Slicers ───────────────────────────────────────────────────────────
+  // A date slicer stores a TOKEN ("today-27d") rather than the date it
+  // resolves to today. Storing the resolved date would freeze the dashboard
+  // on the day it was saved -- a "last 28 days" board silently reporting
+  // late August forever. The concrete date is shown next to the control so
+  // nobody has to guess what the token means right now.
+  const DATE_PRESETS = [
+    { value: 'today', label: 'Today' },
+    { value: 'today-1d', label: 'Yesterday' },
+    { value: 'today-7d', label: '7 days ago' },
+    { value: 'today-28d', label: '28 days ago' },
+    { value: 'today-90d', label: '90 days ago' },
+    { value: 'month_start', label: 'Start of this month' },
+    { value: 'year_start', label: 'Start of this year' },
+  ];
+
+  const escAttr = (s) => window.SiloChart.esc(s);
+
+  function slicerFieldHtml(decl, value) {
+    const id = `slicer_${decl.key}`;
+    const label = `<label class="bcn-label" for="${escAttr(id)}">${escAttr(decl.label)}</label>`;
+
+    if (decl.conflict) {
+      // Two reports disagree about what this key is. Rendering either
+      // reading would break the other's tiles, so render neither.
+      return `<div class="bcn-field-group v3-slicer-field v3-slicer-field--bad">
+          ${label}
+          <span class="v3-slicer-conflict" title="Reports on this dashboard disagree about this filter">
+            ${escAttr(decl.conflict)}
+          </span>
+        </div>`;
+    }
+
+    if (decl.type === 'enum') {
+      const opts = decl.options.map((o) =>
+        `<option value="${escAttr(o)}"${o === value ? ' selected' : ''}>${escAttr(o)}</option>`).join('');
+      return `<div class="bcn-field-group v3-slicer-field">${label}
+          <select class="bcn-field" id="${escAttr(id)}" data-param="${escAttr(decl.key)}">${opts}</select>
+        </div>`;
+    }
+
+    if (decl.type === 'date') {
+      const isPreset = DATE_PRESETS.some((p) => p.value === value);
+      const resolved = window.SiloReportParams.resolveDateExpr(value);
+      const opts = DATE_PRESETS.map((p) =>
+        `<option value="${escAttr(p.value)}"${p.value === value ? ' selected' : ''}>${escAttr(p.label)}</option>`).join('');
+      return `<div class="bcn-field-group v3-slicer-field">${label}
+          <div class="v3-slicer-date">
+            <select class="bcn-field" id="${escAttr(id)}" data-param="${escAttr(decl.key)}" data-date-mode>
+              ${opts}<option value="__custom"${isPreset ? '' : ' selected'}>Specific date…</option>
+            </select>
+            <input class="bcn-field" type="date" data-param-date="${escAttr(decl.key)}"
+                   value="${escAttr(resolved || '')}"${isPreset ? ' hidden' : ''} />
+          </div>
+          ${isPreset && resolved ? `<span class="v3-slicer-hint bcn-mono">${escAttr(resolved)}</span>` : ''}
+        </div>`;
+    }
+
+    const type = decl.type === 'number' ? 'number' : 'text';
+    return `<div class="bcn-field-group v3-slicer-field">${label}
+        <input class="bcn-field" type="${type}" id="${escAttr(id)}"
+               data-param="${escAttr(decl.key)}" value="${escAttr(value == null ? '' : value)}" />
+      </div>`;
+  }
+
+  function renderSlicers() {
+    const decls = runtime.parameterDeclarations();
+    el('slicerBar').hidden = !decls.length;
+    if (!decls.length) return;
+    const values = runtime.getParamValues();
+    el('slicerFields').innerHTML = decls
+      .map((d) => slicerFieldHtml(d, values[d.key])).join('');
+  }
+
+  async function applyParam(key, value) {
+    setStatus('Re-running the tiles that use this filter…', 'info');
+    await runtime.setParamValues({ [key]: value });
+    renderSlicers();
+    if (editing && builder) builder.markFiltersDirty();
+    setStatus(editing
+      ? 'Filters updated. Save to make this the dashboard’s saved position.'
+      : 'Filters updated for this session.', 'pos', 4000);
   }
 
   async function boot() {
@@ -214,10 +312,20 @@
       .from('dashboard_widgets_v').select('*').eq('dashboard_id', id).order('sort_order');
     if (wErr) { setStatus('Could not load widgets: ' + wErr.message, 'neg'); return; }
 
+    // Seed the slicer values BEFORE the runtime draws anything: the first
+    // load of a parameterised tile has to substitute, so an empty value map
+    // would make every such tile render "needs a value" and then correct
+    // itself. mergeDeclarations reads the raw view rows, which is exactly
+    // what we already hold.
+    const startValues = window.SiloReportParams.defaultsFor(
+      window.SiloReportParams.mergeDeclarations(widgets || []),
+      dash.filter_state || {});
+
     runtime = window.SiloDashboardRenderer.createRuntime({
       sb,
       gridEl: el('grid'),
       editable: false,
+      paramValues: startValues,
       onLayoutChange: () => { if (builder) builder.markLayoutDirty(); },
     });
 
@@ -225,7 +333,9 @@
       builder = window.SiloDashboardBuilder.create({
         sb, runtime, dashboard, setStatus,
         onDirtyChange: (d) => { el('btnSave').textContent = d ? 'Save •' : 'Save'; },
-        onWidgetsChange: syncBlankState,
+        // Adding or removing a widget can add or remove a slicer, so the
+        // filter bar is rebuilt alongside the blank state.
+        onWidgetsChange: () => { syncBlankState(); renderSlicers(); },
       });
     }
 
@@ -237,6 +347,7 @@
 
     await runtime.setWidgets(widgets || []);
     syncBlankState();
+    renderSlicers();
 
     const params = new URLSearchParams(location.search);
     if (canEdit && params.get('edit') === '1') setMode(true);
@@ -291,6 +402,37 @@
   });
 
   el('btnBlankAdd').addEventListener('click', () => builder && builder.openAddWidget());
+
+  // Slicers. `change`, not `input`: a text or number field would otherwise
+  // fire a query per keystroke.
+  el('slicerFields').addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-param]');
+    if (sel) {
+      if (sel.dataset.dateMode !== undefined && sel.value === '__custom') {
+        // Reveal the date input and wait for it -- "Specific date…" is not
+        // itself a date, so nothing should re-query yet.
+        const input = sel.parentElement.querySelector('[data-param-date]');
+        if (input) { input.hidden = false; input.focus(); }
+        return;
+      }
+      applyParam(sel.dataset.param, sel.value);
+      return;
+    }
+    const dateInput = e.target.closest('[data-param-date]');
+    if (dateInput && dateInput.value) applyParam(dateInput.dataset.paramDate, dateInput.value);
+  });
+
+  el('btnResetFilters').addEventListener('click', async () => {
+    const decls = runtime.parameterDeclarations();
+    // Back to the SAVED position (each report's default where the dashboard
+    // has no saved value), not to empty -- empty is not a state a
+    // parameterised report can run in.
+    await runtime.setParamValues(
+      window.SiloReportParams.defaultsFor(decls, dashboard.filter_state || {}));
+    renderSlicers();
+    if (editing && builder) builder.markFiltersDirty();
+    setStatus('Filters reset to this dashboard’s saved values.', 'pos', 3000);
+  });
 
   // View-mode per-widget refresh.
   el('grid').addEventListener('click', (e) => {

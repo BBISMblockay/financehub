@@ -37,6 +37,10 @@
   const cfg = {
     columns: [], summarise: false, dimensions: [], measures: [],
     dateColumn: '', dateRange: '', filters: [], sortColumn: '', sortDir: 'desc', limit: 100,
+    // [{key, type, label, default, options}] — declared here, substituted at
+    // run time by v3/js/report-params.js. Lives on cfg (not on `source`) so
+    // it survives switching tables and applies to the SQL tab too.
+    parameters: [],
   };
 
   // ── Source rail ──────────────────────────────────────────────────────
@@ -101,6 +105,10 @@
   const numericCols = () => usableCols().filter((c) => RB.NUMERIC_PG.test(c.type));
   const dateCols = () => usableCols().filter((c) => RB.DATEISH_PG.test(c.type));
 
+  /** Keys of the parameters declared well enough to be usable in a filter. */
+  const declaredKeys = () =>
+    window.SiloReportParams.normalizeDeclarations(cfg.parameters).map((d) => d.key);
+
   function opts(list, sel, blank) {
     return (blank ? `<option value="">${esc(blank)}</option>` : '')
       + list.map((c) => `<option value="${esc(c.name || c)}"${(c.name || c) === sel ? ' selected' : ''}>${esc(c.name || c)}</option>`).join('');
@@ -142,7 +150,8 @@
         <select class="bcn-field" data-f-op="${i}">
           ${RB.OPERATORS.map((o) => `<option value="${o.id}"${o.id === f.op ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}
         </select>
-        ${op.noValue ? '' : `<input class="bcn-field" data-f-val="${i}" value="${esc(f.value || '')}" placeholder="value" />`}
+        ${op.noValue ? '' : `<input class="bcn-field" data-f-val="${i}" value="${esc(f.value || '')}"
+               placeholder="${esc(declaredKeys().length ? `value, or {{${declaredKeys()[0]}}}` : 'value')}" />`}
         <button type="button" class="rb-x" data-f-del="${i}" aria-label="Remove">✕</button>
       </div>`;
     }).join('');
@@ -241,6 +250,65 @@
       </div>`;
   }
 
+  // ── Parameters ───────────────────────────────────────────────────────
+  const P = window.SiloReportParams;
+
+  function renderParams() {
+    const rows = cfg.parameters.map((p, i) => {
+      const isEnum = p.type === 'enum';
+      return `<div class="rb-param" data-param-row="${i}">
+          <div class="bcn-field-group">
+            <label class="bcn-label">Key</label>
+            <input class="bcn-field bcn-field--mono" data-p="key" data-i="${i}"
+                   value="${esc(p.key || '')}" placeholder="date_from" />
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label">Label</label>
+            <input class="bcn-field" data-p="label" data-i="${i}"
+                   value="${esc(p.label || '')}" placeholder="From" />
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label">Type</label>
+            <select class="bcn-field" data-p="type" data-i="${i}">
+              ${P.TYPES.map((t) => `<option value="${t}"${t === p.type ? ' selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+          ${isEnum ? `<div class="bcn-field-group bcn-field-group--wide">
+            <label class="bcn-label">Choices (comma separated)</label>
+            <input class="bcn-field bcn-field--mono" data-p="options" data-i="${i}"
+                   value="${esc((p.options || []).join(', '))}" placeholder="day, week, month, ytd" />
+          </div>` : ''}
+          <div class="bcn-field-group">
+            <label class="bcn-label">Default</label>
+            <input class="bcn-field bcn-field--mono" data-p="default" data-i="${i}"
+                   value="${esc(p.default || '')}"
+                   placeholder="${p.type === 'date' ? 'today-27d' : ''}" />
+          </div>
+          <button type="button" class="dw-icon-btn" data-remove-param="${i}"
+                  title="Remove this parameter" aria-label="Remove this parameter">✕</button>
+        </div>`;
+    }).join('');
+
+    el('paramList').innerHTML = rows
+      || '<div class="v3-empty">No parameters. This report runs exactly as written.</div>';
+
+    // A date parameter accepts relative tokens, and nobody guesses that.
+    if (cfg.parameters.some((p) => p.type === 'date')) {
+      el('paramList').insertAdjacentHTML('beforeend',
+        `<p class="rb-note">A date default can be ${esc(P.DATE_HINT)}. A relative default keeps the report
+         rolling — a fixed date freezes it on the day you saved it.</p>`);
+    }
+    checkParams();
+  }
+
+  function checkParams() {
+    const sql = currentSql() || '';
+    const { errors, warnings } = RB.validateParameters(sql, cfg.parameters);
+    el('paramWarn').innerHTML = errors.map((m) => `<div class="rb-warn rb-warn--bad">${esc(m)}</div>`)
+      .concat(warnings.map((m) => `<div class="rb-warn">${esc(m)}</div>`)).join('');
+    return errors;
+  }
+
   // ── Running ──────────────────────────────────────────────────────────
   function currentSql() {
     if (tab === 'sql') return (el('sqlText').value || '').trim();
@@ -250,24 +318,38 @@
   async function preview() {
     const sql = currentSql();
     if (!sql) { setStatus('Nothing to run yet — pick a source, or type some SQL.', 'neg', 4000); return; }
+
+    // The report STORES the template; the preview RUNS the resolved query.
+    // Keeping both is the point: saving the resolved SQL would bake today's
+    // values in and the dashboard's slicers would have nothing to move.
+    const errors = checkParams();
+    if (errors.length) { setStatus(errors[0], 'neg', 6000); return; }
+    const resolved = P.substitute(sql, cfg.parameters, {});
+    if (resolved.error) { setStatus(resolved.error, 'neg', 6000); return; }
+
     el('previewBody').innerHTML = '<div class="dw-loading">Running…</div>';
     el('previewMeta').textContent = '';
     const t0 = performance.now();
-    const { data, error } = await sb.rpc('chat_run_readonly_query', { query: sql });
+    const { data, error } = await sb.rpc('chat_run_readonly_query', { query: resolved.sql });
     const ms = Math.round(performance.now() - t0);
     if (error) {
       lastRun = null;
-      el('previewBody').innerHTML = `<div class="dw-empty dw-empty--error"><strong>Query failed.</strong> ${esc(error.message)}</div>`;
+      el('previewBody').innerHTML = `<div class="dw-empty dw-empty--error"><strong>Query failed.</strong> ${esc(error.message)}</div>`
+        + (P.tokensIn(sql).length
+            ? `<pre class="rb-generated">${esc(resolved.sql)}</pre>` : '');
       el('previewMeta').textContent = `failed in ${ms}ms`;
       return;
     }
     const rows = Array.isArray(data) ? data : [];
-    lastRun = { sql, rows };
+    // `sql` is the template that gets saved; `resolved.sql` is what just ran.
+    lastRun = { sql, resolvedSql: resolved.sql, rows };
+    const usedParams = P.tokensIn(sql).length;
     el('previewMeta').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} · ${ms}ms`
+      + (usedParams ? ` · ran with default ${usedParams === 1 ? 'parameter' : 'parameters'}` : '')
       + (rows.length >= 500 ? ' · hit the 500-row cap' : '');
     el('previewBody').innerHTML = rows.length
       ? window.SiloChart.tableHtml(rows, { limit: 50 },
-          source ? mapSemantics(RB.metadataFromCatalog(source, sql, rows)) : null)
+          source ? mapSemantics(RB.metadataFromCatalog(source, resolved.sql, rows)) : null)
       : '<div class="dw-empty">Ran fine — 0 rows.</div>';
   }
 
@@ -292,7 +374,7 @@
     const title = (el('saveName').value || '').trim();
     if (!title) { el('saveName').focus(); return; }
     el('btnConfirmSave').disabled = true;
-    const md = source ? RB.metadataFromCatalog(source, lastRun.sql, lastRun.rows) : null;
+    const md = source ? RB.metadataFromCatalog(source, lastRun.resolvedSql, lastRun.rows) : null;
     const { data, error } = await sb.from('silo_chat_saved_reports').insert({
       // source='manual' has been allowed for clients since 20260828130000 --
       // company-scoped, never global. Nothing new was needed for this page.
@@ -304,6 +386,10 @@
       queries_run: [lastRun.sql],
       visibility: el('saveVis').value,
       columns_metadata: md,
+      // The TEMPLATE is saved, not the query that previewed. Normalised
+      // first so a half-typed declaration never reaches the runtime.
+      parameters: P.normalizeDeclarations(cfg.parameters).length
+        ? P.normalizeDeclarations(cfg.parameters) : null,
     }).select('id').single();
     el('btnConfirmSave').disabled = false;
     if (error) { setStatus('Could not save: ' + error.message, 'neg', 6000); return; }
@@ -350,8 +436,63 @@
   function checkSql() {
     const warn = RB.checkRawSqlScope(el('sqlText').value, catalog);
     el('sqlWarn').innerHTML = warn ? `<div class="rb-warn">${esc(warn)}</div>` : '';
+    // A {{token}} typed into the SQL has to be reconciled against the
+    // declarations as it is typed, or the mismatch is only discovered at
+    // Preview -- by which point the person has moved on from the token.
+    checkParams();
   }
   el('sqlText').addEventListener('input', checkSql);
+
+  // ── Parameters wiring ────────────────────────────────────────────────
+  el('btnAddParam').addEventListener('click', () => {
+    // Defaults chosen so a fresh parameter is immediately valid and
+    // immediately useful: a rolling date is what nearly every report wants.
+    cfg.parameters.push({ key: '', label: '', type: 'date', default: 'today', options: [] });
+    renderParams();
+    const inputs = el('paramList').querySelectorAll('[data-p="key"]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+
+  el('paramList').addEventListener('input', (e) => {
+    const t = e.target;
+    if (t.dataset.p === undefined) return;
+    const p = cfg.parameters[Number(t.dataset.i)];
+    if (!p) return;
+    if (t.dataset.p === 'options') {
+      p.options = t.value.split(',').map((s) => s.trim()).filter(Boolean);
+    } else if (t.dataset.p === 'key') {
+      // Keys are snake_case identifiers, so the field enforces that rather
+      // than letting a space or a capital become a token that never matches.
+      p.key = t.value.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      if (p.key !== t.value) t.value = p.key;
+    } else {
+      p[t.dataset.p] = t.value;
+    }
+    // Text inputs re-check without a full re-render, so the caret stays put.
+    checkParams();
+    if (tab === 'build' && source) renderBuild();
+  });
+
+  el('paramList').addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.p !== 'type') return;
+    const p = cfg.parameters[Number(t.dataset.i)];
+    if (!p) return;
+    p.type = t.value;
+    // Switching to/from enum adds or removes the choices field, and the
+    // old default rarely survives a type change, so this one re-renders.
+    if (p.type === 'enum' && !(p.options || []).length) p.options = [];
+    if (p.type === 'date' && !p.default) p.default = 'today';
+    renderParams();
+  });
+
+  el('paramList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-remove-param]');
+    if (!b) return;
+    cfg.parameters.splice(Number(b.dataset.removeParam), 1);
+    renderParams();
+    if (tab === 'build' && source) renderBuild();
+  });
 
   el('buildBody').addEventListener('change', (e) => {
     const t = e.target;
@@ -450,6 +591,7 @@
     if (error) { setStatus('Could not load the schema catalog: ' + error.message, 'neg'); return; }
     catalog = (data || []).filter((r) => (r.columns || []).length);
     renderSourceList();
+    renderParams();
     setStatus(`${catalog.length} sales, product, inventory and marketing sources available.`, 'info', 5000);
 
     const params = new URLSearchParams(location.search);
@@ -473,5 +615,6 @@
   })().catch((err) => setStatus('Something went wrong: ' + err.message, 'neg'));
 
   window.__siloReportBuilder = { get cfg() { return cfg; }, get source() { return source; },
-                                get lastRun() { return lastRun; }, get catalog() { return catalog; }, preview };
+                                get lastRun() { return lastRun; }, get catalog() { return catalog; },
+                                preview, renderParams, checkParams, currentSql };
 })();

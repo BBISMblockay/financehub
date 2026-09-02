@@ -419,3 +419,114 @@
   color: var(--bcn-accent); font: inherit; font-size: 11px; cursor: pointer;
 }
 .rb-linkbtn:hover { text-decoration: underline; }
+
+/* ── Slicers ──────────────────────────────────────────────────────────
+   The dashboard-level filter bar. Reads as a control strip attached to the
+   header rather than as another card: it acts on everything below it, so
+   giving it a card's border and shadow would make it look like one more
+   tile whose values happened to be inputs. */
+.v3-slicer-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--bcn-line, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  background: var(--bcn-surface-2, rgba(0, 0, 0, 0.02));
+}
+/* Same trap as .v3-meta-bar and .v3-blank: this rule sets `display: flex`,
+   which is an author declaration and therefore beats the UA stylesheet's
+   `[hidden] { display: none }`. Without this the bar shows on every
+   dashboard whose reports declare no parameters. */
+.v3-slicer-bar[hidden] { display: none; }
+
+.v3-slicer-lead {
+  align-self: flex-start;
+  margin-top: 18px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bcn-ink-3);
+}
+/* flex-START, not flex-end: only the date field carries a resolved-value
+   hint underneath, so aligning on the bottom edge would drop every other
+   control by the height of that one hint. Top-aligning puts all the labels
+   on one line and lets the hint hang below without moving anything. */
+.v3-slicer-fields { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; flex: 1; }
+.v3-slicer-field { min-width: 150px; }
+.v3-slicer-reset { align-self: flex-start; margin-top: 15px; }
+
+/* Preset select and the custom-date input sit on one line; the input is
+   hidden until "Specific date…" is chosen. */
+.v3-slicer-date { display: flex; gap: 6px; align-items: center; }
+.v3-slicer-date input[hidden] { display: none; }
+
+/* What the relative token resolves to right now. A dashboard saved as
+   "28 days ago" should not make anyone compute the date themselves. */
+.v3-slicer-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--bcn-ink-3);
+  margin-top: 3px;
+}
+
+/* Two reports disagree about this key -- rendering either reading would
+   break the other's tiles, so the control is replaced by the reason. */
+.v3-slicer-field--bad .v3-slicer-conflict {
+  display: inline-block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--bcn-neg);
+  background: color-mix(in srgb, var(--bcn-neg) 10%, transparent);
+}
+
+@media (max-width: 700px) {
+  .v3-slicer-bar { gap: 8px; }
+  .v3-slicer-fields { gap: 8px; }
+  .v3-slicer-field { min-width: 100%; }
+}
+
+/* ── Report builder: parameters ───────────────────────────────────────
+   A declaration is a row of small fields, not a card: it is one line of a
+   contract, and a bordered box per parameter would out-weigh the SQL it
+   parameterises. */
+.rb-params {
+  padding: 12px 14px;
+  border-top: 1px solid var(--bcn-line, rgba(0, 0, 0, 0.1));
+}
+.rb-params-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.rb-param-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.rb-param {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bcn-surface-2, rgba(0, 0, 0, 0.02));
+}
+.rb-param .bcn-field-group { min-width: 120px; }
+.rb-param .bcn-field-group--wide { flex: 1; min-width: 200px; }
+.rb-param .dw-icon-btn { margin-bottom: 2px; }
+
+/* An undeclared {{token}} cannot run at all, so it reads as an error;
+   a declared-but-unused parameter merely clutters a header. */
+.rb-warn--bad {
+  color: var(--bcn-neg);
+  border-color: color-mix(in srgb, var(--bcn-neg) 35%, transparent);
+  background: color-mix(in srgb, var(--bcn-neg) 8%, transparent);
+}
+
+@media (max-width: 700px) {
+  .rb-param .bcn-field-group { min-width: 100%; }
+}
