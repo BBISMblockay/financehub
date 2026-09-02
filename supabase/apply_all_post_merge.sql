@@ -16764,3 +16764,477 @@ create policy product_concept_images_owner_delete
 -- anything: <auth.uid()>/avatar.png, with writes gated on the folder being
 -- your own id. That is narrower than company scoping and correct as it
 -- stands.
+
+-- demand_coverage_by_type_v errored for every authenticated user.
+--
+--   ERROR: 42501: permission denied for materialized view
+--          sales_monthly_product_type_rollup_mv
+--
+-- The view is `security_invoker = true` and read two MATERIALIZED VIEWS
+-- directly. Postgres does not apply RLS to a matview, so neither is granted
+-- to `authenticated` -- and under security_invoker the caller needs the
+-- privilege itself. So the view did not return fewer rows, it raised. Any
+-- page or Ask SILO answer touching it failed outright.
+--
+-- The obvious fix is the wrong one. `grant select on
+-- sales_monthly_product_type_rollup_mv to authenticated` would make the
+-- error go away and hand every authenticated user EVERY COMPANY'S monthly
+-- sales, because there is no RLS on a matview to stop them querying it
+-- directly. That is the trap this codebase already documents.
+--
+-- The house pattern is a wrapper view: `security_invoker = false` (so it
+-- runs as the owner, which may read the matview) with the tenant filter
+-- written into the wrapper. Both wrappers ALREADY EXIST and are already
+-- granted -- `sales_monthly_product_type_rollup_v` and
+-- `inventory_on_hand_current_v`. This view simply never used them.
+--
+-- Note what is deliberately NOT changed: the view stays
+-- `security_invoker = true`. Flipping the whole thing to definer would have
+-- fixed the error in one line and quietly widened PO visibility --
+-- `po_headers_active_select` is `company AND (is_admin_user() OR created_by
+-- = auth.uid())`, narrower than company alone, and a definer view would
+-- bypass it. The units-on-order column would then have been visible to
+-- people the PO table refuses. Keeping the view as invoker means the PO
+-- branch still runs under the caller's own RLS; only the matview reads are
+-- delegated, which is exactly as much bypass as the problem needs.
+create or replace view public.demand_coverage_by_type_v as
+with co as (
+  select active_company_id() as id
+),
+bounds as (
+  select date_trunc('month', current_date::timestamptz)::date as this_month_start
+),
+sold as (
+  -- Wrapper, not the matview. It is security_invoker = false and carries the
+  -- company filter itself, so there is no company predicate to repeat here
+  -- (the wrapper does not even expose company_entity_id).
+  select r.product_type,
+         sum(r.units) filter (where r.month_start >= ((select this_month_start from bounds) - interval '1 year')) as units_12m,
+         sum(r.units) filter (where r.month_start >= ((select this_month_start from bounds) - interval '3 mons')) as units_3m
+    from sales_monthly_product_type_rollup_v r
+   where nullif(r.product_type, '') is not null
+     and r.month_start < (select this_month_start from bounds)
+   group by r.product_type
+),
+onhand as (
+  -- Same wrapper treatment. The company predicate is kept because this
+  -- wrapper does expose the column, and a redundant tenant filter is cheap
+  -- insurance against the wrapper ever being re-pointed.
+  select i.product_type,
+         sum(i.total_available_quantity) as on_hand
+    from inventory_on_hand_current_v i, co
+   where i.company_entity_id = co.id
+     and nullif(i.product_type, '') is not null
+   group by i.product_type
+),
+onorder as (
+  -- Real tables with real RLS, read as the CALLER. Unchanged.
+  select pl.product_type_snapshot as product_type,
+         sum(pl.qty) filter (where h.status = any (array['Confirmed','Sent to Factory','In Production','In Transit'])) as on_order,
+         sum(pl.qty) filter (where h.status = 'Draft') as on_order_draft
+    from po_lines pl
+    join po_headers h on h.id = pl.po_header_id, co
+   where pl.company_entity_id = co.id
+     and nullif(pl.product_type_snapshot, '') is not null
+   group by pl.product_type_snapshot
+),
+types as (
+  select product_type from sold
+  union select product_type from onhand
+  union select product_type from onorder
+)
+select t.product_type,
+       s.product_type is not null  as has_sales_history,
+       oh.product_type is not null as has_inventory,
+       oo.product_type is not null as has_purchase_history,
+       coalesce(oh.on_hand, 0)::numeric          as units_on_hand,
+       coalesce(oo.on_order, 0)::numeric         as units_on_order,
+       coalesce(oo.on_order_draft, 0)::numeric   as units_on_order_draft,
+       (coalesce(oh.on_hand, 0) + coalesce(oo.on_order, 0))::numeric as units_available_committed,
+       s.units_12m,
+       s.units_3m,
+       round(s.units_12m / 52.0, 1) as units_per_week_12m,
+       round(s.units_3m / 13.0, 1)  as units_per_week_3m,
+       case when s.units_12m > 0
+            then round((coalesce(oh.on_hand, 0) + coalesce(oo.on_order, 0))::numeric / (s.units_12m / 52.0), 1)
+       end as weeks_of_cover,
+       case when s.units_12m > 0 and s.units_3m is not null
+            then round((s.units_3m / 13.0 / (s.units_12m / 52.0) - 1) * 100, 1)
+       end as momentum_pct
+  from types t
+  left join sold    s  on s.product_type  = t.product_type
+  left join onhand  oh on oh.product_type = t.product_type
+  left join onorder oo on oo.product_type = t.product_type;
+
+alter view public.demand_coverage_by_type_v set (security_invoker = true);
+grant select on public.demand_coverage_by_type_v to authenticated;
+
+comment on view public.demand_coverage_by_type_v is
+  'Per product type: does sales history / inventory / purchase history exist at all, plus weeks of cover and 3m-vs-12m momentum. The cheap "do we have the data to answer this" pre-check. Reads the sales and inventory MATVIEW WRAPPERS (security_invoker = false, tenant filter inside) rather than the matviews themselves -- a matview has no RLS and is not granted to authenticated, so reading one directly from a security_invoker view raises 42501 rather than returning fewer rows. The PO branch reads po_lines/po_headers as the caller on purpose: po_headers RLS is narrower than company, and a definer view would widen it.';
+
+-- Logistics report definitions, seeded as `system` (global,
+-- company_entity_id null). Safe because every one reads a
+-- security_invoker view -- verified before writing these: all six sources
+-- (demand_coverage_by_type_v, inventory_workboard_v, v_po_incoming_summary,
+-- v_po_incoming_lines, v_po_header_summary, sales_by_product_title_daily_v)
+-- are security_invoker = true, so one definition scopes itself per tenant.
+-- A `system` report reading a MATERIALIZED view would hand every tenant's
+-- rows to every tenant, since Postgres does not enforce RLS on a matview.
+
+insert into public.silo_chat_saved_reports
+  (id, source, company_entity_id, created_by, title, description,
+   question, answer, queries_run, visibility, columns_metadata, parameters)
+values
+
+-- ── 1. Headline: what we hold and what is coming ────────────────────
+('c1000000-0000-4000-a000-000000000001','system',null,null,
+ 'Logistics · Inventory and on order',
+ 'Units on hand, units on purchase order, and weeks of cover across all merchandise.',
+ null,null,
+ array[$q$
+select sum(units_on_hand)   as units_on_hand,
+       sum(units_on_order)  as units_on_order,
+       round(sum(units_on_hand + units_on_order)
+             / nullif(sum(units_per_week_12m), 0), 1) as weeks_of_cover
+  from demand_coverage_by_type_v
+ where has_inventory and has_purchase_history
+$q$],
+ 'company',
+ '{"units_on_hand":{"semantic":"count"},"units_on_order":{"semantic":"count"},
+   "weeks_of_cover":{"semantic":"number","label":"Weeks Of Cover"}}'::jsonb,
+ null),
+
+-- ── 2. Overdue POs. The most actionable thing on the board. ─────────
+('c1000000-0000-4000-a000-000000000002','system',null,null,
+ 'Logistics · Purchase orders past their arrival date',
+ 'Open POs whose expected arrival has passed and which have not been received.',
+ null,null,
+ array[$q$
+select po_name,
+       factory_name,
+       status,
+       expected_arrival_date,
+       (current_date - expected_arrival_date) as days_late,
+       total_units,
+       style_count
+  from v_po_incoming_summary
+ where status in ('Confirmed','Sent to Factory','In Production','In Transit')
+   and expected_arrival_date is not null
+   and expected_arrival_date < current_date
+ order by expected_arrival_date asc
+$q$],
+ 'company',
+ '{"po_name":{"semantic":"category","label":"PO"},"factory_name":{"semantic":"category","label":"Factory"},
+   "status":{"semantic":"category"},"expected_arrival_date":{"semantic":"date","label":"Expected"},
+   "days_late":{"semantic":"count","label":"Days Late"},"total_units":{"semantic":"count","label":"Units"},
+   "style_count":{"semantic":"count","label":"Styles"}}'::jsonb,
+ null),
+
+-- ── 3. Incoming pipeline by month ───────────────────────────────────
+('c1000000-0000-4000-a000-000000000003','system',null,null,
+ 'Logistics · Units arriving by month',
+ 'Units on open purchase orders, grouped by expected arrival month.',
+ null,null,
+ array[$q$
+select date_trunc('month', expected_arrival_date)::date as arrival_month,
+       sum(total_units)          as units_arriving,
+       count(*)                  as purchase_orders
+  from v_po_incoming_summary
+ where status in ('Confirmed','Sent to Factory','In Production','In Transit')
+   and expected_arrival_date is not null
+ group by 1
+ order by 1
+$q$],
+ 'company',
+ '{"arrival_month":{"semantic":"date","label":"Arrival Month"},
+   "units_arriving":{"semantic":"count","label":"Units Arriving"},
+   "purchase_orders":{"semantic":"count","label":"Purchase Orders"}}'::jsonb,
+ null),
+
+-- ── 4. Where the open buy sits ──────────────────────────────────────
+('c1000000-0000-4000-a000-000000000004','system',null,null,
+ 'Logistics · Open units by factory',
+ 'Units on open purchase orders by factory, largest first.',
+ null,null,
+ array[$q$
+select factory_name,
+       sum(total_units)  as units_open,
+       count(*)          as purchase_orders,
+       min(expected_arrival_date) as next_arrival
+  from v_po_incoming_summary
+ where status in ('Confirmed','Sent to Factory','In Production','In Transit')
+   and factory_name is not null
+ group by 1
+ order by 2 desc
+$q$],
+ 'company',
+ '{"factory_name":{"semantic":"category","label":"Factory"},
+   "units_open":{"semantic":"count","label":"Units Open"},
+   "purchase_orders":{"semantic":"count","label":"Purchase Orders"},
+   "next_arrival":{"semantic":"date","label":"Next Arrival"}}'::jsonb,
+ null),
+
+-- ── 5. Cover and momentum, the buying picture ───────────────────────
+('c1000000-0000-4000-a000-000000000005','system',null,null,
+ 'Logistics · Cover and momentum by product type',
+ 'Weeks of cover against 3-month vs 12-month momentum, for merchandise only.',
+ null,null,
+ array[$q$
+select product_type,
+       units_on_hand,
+       units_on_order,
+       units_per_week_12m,
+       weeks_of_cover,
+       momentum_pct
+  from demand_coverage_by_type_v
+ where has_inventory and has_purchase_history
+   and units_12m >= 500
+ order by units_per_week_12m desc nulls last
+$q$],
+ 'company',
+ '{"product_type":{"semantic":"category","label":"Product Type"},
+   "units_on_hand":{"semantic":"count","label":"On Hand"},
+   "units_on_order":{"semantic":"count","label":"On Order"},
+   "units_per_week_12m":{"semantic":"number","label":"Units Per Week (12m)"},
+   "weeks_of_cover":{"semantic":"number","label":"Weeks Of Cover"},
+   "momentum_pct":{"semantic":"percent","label":"Momentum"}}'::jsonb,
+ null),
+
+-- ── 6. Running thin (parameterised threshold) ───────────────────────
+('c1000000-0000-4000-a000-000000000006','system',null,null,
+ 'Logistics · Running thin',
+ 'Merchandise types with fewer weeks of cover than the threshold. Empty is a good answer.',
+ null,null,
+ array[$q$
+select product_type,
+       units_on_hand,
+       units_on_order,
+       units_per_week_12m,
+       weeks_of_cover,
+       momentum_pct
+  from demand_coverage_by_type_v
+ where has_inventory and has_purchase_history
+   and units_12m >= 500
+   and weeks_of_cover is not null
+   and weeks_of_cover < {{cover_weeks}}
+ order by weeks_of_cover asc
+$q$],
+ 'company',
+ '{"product_type":{"semantic":"category","label":"Product Type"},
+   "units_on_hand":{"semantic":"count","label":"On Hand"},
+   "units_on_order":{"semantic":"count","label":"On Order"},
+   "units_per_week_12m":{"semantic":"number","label":"Units Per Week (12m)"},
+   "weeks_of_cover":{"semantic":"number","label":"Weeks Of Cover"},
+   "momentum_pct":{"semantic":"percent","label":"Momentum"}}'::jsonb,
+ '[{"key":"cover_weeks","type":"number","label":"Cover under (weeks)","default":26}]'::jsonb),
+
+-- ── 7. Overstocked and slowing ──────────────────────────────────────
+('c1000000-0000-4000-a000-000000000007','system',null,null,
+ 'Logistics · Overstocked and slowing',
+ 'Merchandise types carrying more than a year of cover while demand is falling.',
+ null,null,
+ array[$q$
+select product_type,
+       units_on_hand,
+       units_on_order,
+       weeks_of_cover,
+       momentum_pct,
+       units_per_week_12m
+  from demand_coverage_by_type_v
+ where has_inventory and has_purchase_history
+   and units_12m >= 500
+   and weeks_of_cover >= 52
+   and momentum_pct < 0
+ order by weeks_of_cover desc
+$q$],
+ 'company',
+ '{"product_type":{"semantic":"category","label":"Product Type"},
+   "units_on_hand":{"semantic":"count","label":"On Hand"},
+   "units_on_order":{"semantic":"count","label":"On Order"},
+   "weeks_of_cover":{"semantic":"number","label":"Weeks Of Cover"},
+   "momentum_pct":{"semantic":"percent","label":"Momentum"},
+   "units_per_week_12m":{"semantic":"number","label":"Units Per Week (12m)"}}'::jsonb,
+ null),
+
+-- ── 8. Dead stock, velocity-VERIFIED only ───────────────────────────
+-- The velocity_matched filter is not optional. 26,966 of 66,659 workboard
+-- rows carry velocity_matched = false, where every qty column is a
+-- coalesce(...,0) artefact meaning "unknown", not "none". Ranking dead
+-- stock without this filter is exactly the bug that put Shopify's #2 and
+-- #4 best sellers on a dead-stock list for an exec.
+('c1000000-0000-4000-a000-000000000008','system',null,null,
+ 'Logistics · Dead stock (velocity-verified)',
+ 'Stocked products with no units sold in 30 days. Only rows whose sales velocity actually matched.',
+ null,null,
+ array[$q$
+select product_title,
+       product_type,
+       sum(total_available_quantity)                as on_hand,
+       round(sum(total_available_inventory_value))  as value_at_retail,
+       max(last_sold_date)                          as last_sold
+  from inventory_workboard_v
+ where velocity_matched
+   and total_available_quantity > 0
+   and product_type is not null
+   and product_type not in ('Package Protection','Bundles & Multi-Packs','Uncategorized','custom_sale')
+ group by 1, 2
+having sum(sold_30) = 0
+   and sum(total_available_quantity) >= {{min_units}}
+ order by 4 desc nulls last
+$q$],
+ 'company',
+ '{"product_title":{"semantic":"category","label":"Product"},
+   "product_type":{"semantic":"category","label":"Product Type"},
+   "on_hand":{"semantic":"count","label":"On Hand"},
+   "value_at_retail":{"semantic":"currency","label":"Value At Retail"},
+   "last_sold":{"semantic":"date","label":"Last Sold"}}'::jsonb,
+ '[{"key":"min_units","type":"number","label":"At least (units on hand)","default":200}]'::jsonb),
+
+-- ── 9. Sell-through by product type ─────────────────────────────────
+('c1000000-0000-4000-a000-000000000009','system',null,null,
+ 'Logistics · Sell-through by product type',
+ 'Units sold in the last 3 months against units still on hand.',
+ null,null,
+ array[$q$
+select product_type,
+       units_3m                as units_sold_3m,
+       units_on_hand,
+       round(units_3m / nullif(units_3m + units_on_hand, 0) * 100, 1) as sell_through_pct
+  from demand_coverage_by_type_v
+ where has_inventory and has_purchase_history
+   and units_12m >= 500
+ order by units_3m desc nulls last
+$q$],
+ 'company',
+ '{"product_type":{"semantic":"category","label":"Product Type"},
+   "units_sold_3m":{"semantic":"count","label":"Units Sold (3m)"},
+   "units_on_hand":{"semantic":"count","label":"On Hand"},
+   "sell_through_pct":{"semantic":"percent","label":"Sell-Through"}}'::jsonb,
+ null),
+
+-- ── 10. What is actually moving ─────────────────────────────────────
+-- 'x-redo' is Package Protection, the Redo checkout line item, not
+-- merchandise -- it outsells real products and would take the top row.
+('c1000000-0000-4000-a000-00000000000a','system',null,null,
+ 'Logistics · Top products by units sold',
+ 'Best-selling products over the chosen window, by units.',
+ null,null,
+ array[$q$
+select product_title,
+       product_type,
+       sum(units_sold) as units_sold,
+       sum(net_sales)  as net_sales,
+       count(distinct day_date) as days_with_sales
+  from sales_by_product_title_daily_v
+ where day_date >= {{date_from}}
+   and product_title is not null
+   and product_title <> 'x-redo'
+ group by 1, 2
+ order by 3 desc
+$q$],
+ 'company',
+ '{"product_title":{"semantic":"category","label":"Product"},
+   "product_type":{"semantic":"category","label":"Product Type"},
+   "units_sold":{"semantic":"count","label":"Units Sold"},
+   "net_sales":{"semantic":"currency","label":"Net Sales"},
+   "days_with_sales":{"semantic":"count","label":"Days With Sales"}}'::jsonb,
+ '[{"key":"date_from","type":"date","label":"Since","default":"today-29d"}]'::jsonb)
+
+on conflict (id) do update set
+  title = excluded.title, description = excluded.description,
+  queries_run = excluded.queries_run, columns_metadata = excluded.columns_metadata,
+  parameters = excluded.parameters, updated_at = now();
+
+-- The Logistics dashboard: purchase orders, inventory cover, sell-through.
+--
+-- Seeded rather than clicked together so the board is reproducible and its
+-- reasoning is reviewable. The reports live in 20260904160000.
+--
+-- Layout note: the board is built around what the DATA actually says, not a
+-- generic template. Nothing at Baseballism is running thin -- cover is 27-43
+-- weeks across every merchandise type -- so a "reorder now" board would have
+-- been empty theatre. What the data does say is that 24 open POs are past
+-- their expected arrival (one by 62 days) and that some lines carry years of
+-- cover, so the board leads with overdue POs and overstock.
+insert into public.dashboards
+  (id, company_entity_id, created_by, name, description, visibility, filter_state)
+values ('da5b0a2d-0000-4000-a000-00000000000c',
+        '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',
+        '69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+        'Logistics',
+        'Purchase orders, inventory cover and sell-through.',
+        'company',
+        '{"cover_weeks":26,"min_units":200,"date_from":"today-29d"}'::jsonb)
+on conflict (id) do update set
+  name = excluded.name, description = excluded.description,
+  visibility = excluded.visibility, filter_state = excluded.filter_state;
+
+-- Widgets. Two visual_config decisions worth keeping, both found by looking
+-- at the rendered board rather than by reading the config:
+--
+--  * The overdue-PO tile carries NO totals. Totals sum every currency/count/
+--    number column, which is right far more often than not -- but the tile
+--    printed "TOTAL ... 361" under Days Late, and 361 days late across eight
+--    POs is a number that does not exist. The one useful total (units late)
+--    was not worth printing a meaningless one beside it.
+--  * The top-products tile carries no totals either, for a different reason:
+--    1,505 products sold in the window and chat_run_readonly_query caps at
+--    500 rows, so any total would be of whichever rows survived the cap.
+--
+--    Dead stock KEEPS its total: 48 rows is the whole answer, so the sum is
+--    the real value sitting still ($250,184 at retail).
+
+insert into public.dashboard_widgets
+  (id, dashboard_id, company_entity_id, created_by, report_id, query_index,
+   title, visual_type, visual_config, layout, sort_order)
+values
+('c2000000-0000-4000-a000-000000000001','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ null,0,'Needs a decision','section',
+ '{"note": "Overdue POs and cover that has drifted. Everything below this line is current state, not a period."}'::jsonb,'{"h": 1, "w": 12, "x": 0, "y": 0}'::jsonb,0),
+('c2000000-0000-4000-a000-000000000002','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000001',0,'Units on hand','kpi',
+ '{"y_field": "units_on_hand", "abbreviate": true}'::jsonb,'{"h": 2, "w": 3, "x": 0, "y": 1}'::jsonb,1),
+('c2000000-0000-4000-a000-000000000003','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000001',0,'Units on order','kpi',
+ '{"y_field": "units_on_order", "abbreviate": true}'::jsonb,'{"h": 2, "w": 3, "x": 3, "y": 1}'::jsonb,2),
+('c2000000-0000-4000-a000-000000000004','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000001',0,'Weeks of cover','kpi',
+ '{"y_field": "weeks_of_cover"}'::jsonb,'{"h": 2, "w": 3, "x": 6, "y": 1}'::jsonb,3),
+('c2000000-0000-4000-a000-000000000005','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000006',0,'Running thin','table',
+ '{"limit": 8}'::jsonb,'{"h": 2, "w": 3, "x": 9, "y": 1}'::jsonb,4),
+('c2000000-0000-4000-a000-000000000006','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000002',0,'Purchase orders past their arrival date','table',
+ '{"limit": 12, "columns": ["po_name", "factory_name", "status", "expected_arrival_date", "days_late", "total_units"]}'::jsonb,'{"h": 4, "w": 12, "x": 0, "y": 3}'::jsonb,5),
+('c2000000-0000-4000-a000-000000000007','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ null,0,'Incoming','section',
+ '{}'::jsonb,'{"h": 1, "w": 12, "x": 0, "y": 7}'::jsonb,6),
+('c2000000-0000-4000-a000-000000000008','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000003',0,'Units arriving by month','bar',
+ '{"sort": "none", "x_field": "arrival_month", "y_field": "units_arriving", "show_values": true}'::jsonb,'{"h": 4, "w": 7, "x": 0, "y": 8}'::jsonb,7),
+('c2000000-0000-4000-a000-000000000009','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000004',0,'Open units by factory','table',
+ '{"limit": 10}'::jsonb,'{"h": 4, "w": 5, "x": 7, "y": 8}'::jsonb,8),
+('c2000000-0000-4000-a000-00000000000a','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ null,0,'Cover and sell-through','section',
+ '{}'::jsonb,'{"h": 1, "w": 12, "x": 0, "y": 12}'::jsonb,9),
+('c2000000-0000-4000-a000-00000000000b','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000005',0,'Cover and momentum by product type','table',
+ '{"limit": 14}'::jsonb,'{"h": 5, "w": 7, "x": 0, "y": 13}'::jsonb,10),
+('c2000000-0000-4000-a000-00000000000c','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000009',0,'Sell-through by product type','bar',
+ '{"sort": "desc", "limit": 10, "x_field": "product_type", "y_field": "sell_through_pct"}'::jsonb,'{"h": 5, "w": 5, "x": 7, "y": 13}'::jsonb,11),
+('c2000000-0000-4000-a000-00000000000d','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000007',0,'Overstocked and slowing','table',
+ '{"limit": 10}'::jsonb,'{"h": 4, "w": 6, "x": 0, "y": 18}'::jsonb,12),
+('c2000000-0000-4000-a000-00000000000e','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-000000000008',0,'Dead stock (velocity-verified)','table',
+ '{"limit": 10, "totals": "row"}'::jsonb,'{"h": 4, "w": 6, "x": 6, "y": 18}'::jsonb,13),
+('c2000000-0000-4000-a000-00000000000f','da5b0a2d-0000-4000-a000-00000000000c','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7','69bd02b7-c711-4d4d-a03b-15d3e88d1932',
+ 'c1000000-0000-4000-a000-00000000000a',0,'Top products by units sold','table',
+ '{"limit": 12}'::jsonb,'{"h": 4, "w": 12, "x": 0, "y": 22}'::jsonb,14)
+on conflict (id) do update set
+  report_id = excluded.report_id, query_index = excluded.query_index,
+  title = excluded.title, visual_type = excluded.visual_type,
+  visual_config = excluded.visual_config, layout = excluded.layout,
+  sort_order = excluded.sort_order;

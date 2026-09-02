@@ -344,6 +344,9 @@ supabase/
     20260903210000_section_widget.sql
     20260904100000_saved_report_edit.sql
     20260904120000_storage_company_scoping.sql
+    20260904140000_demand_coverage_grants.sql
+    20260904160000_logistics_reports.sql
+    20260904180000_logistics_dashboard.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
