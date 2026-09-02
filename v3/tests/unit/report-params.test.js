@@ -173,5 +173,29 @@ t('saved state wins over the default', () =>
 t('omits a parameter with no default and no saved value', () =>
   eq(P.defaultsFor([{ key: 'q', type: 'text', label: 'Q', default: '' }], {}), {}));
 
+
+// ── month_end / year_end (added for planning reports) ────────────────────
+console.log('\n── month_end / year_end ──');
+{
+  const now = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const iso = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  t('month_end is the last day of this month', () =>
+    eq(P.resolveDateExpr('month_end'), iso(new Date(now.getFullYear(), now.getMonth() + 1, 0))));
+  t('year_end is 31 Dec of this year', () =>
+    eq(P.resolveDateExpr('year_end'), `${now.getFullYear()}-12-31`));
+  t('month_end handles February without a month-length table', () => {
+    // Day 0 of the next month is the last of this one, leap years included.
+    const feb = new Date(2024, 2, 0);
+    eq(iso(feb), '2024-02-29');
+  });
+  t('both survive toLiteral', () => {
+    ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'year_end').literal.startsWith("date '"));
+    ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'month_end').literal.startsWith("date '"));
+  });
+  t('an unknown relative token is still refused', () =>
+    ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'quarter_end').error));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

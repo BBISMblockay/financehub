@@ -85,6 +85,13 @@
     const now = new Date();
     if (s === 'month_start') return localISO(new Date(now.getFullYear(), now.getMonth(), 1));
     if (s === 'year_start') return localISO(new Date(now.getFullYear(), 0, 1));
+    // Day 0 of the NEXT month is the last day of this one, which handles
+    // February and leap years without a table of month lengths.
+    if (s === 'month_end') return localISO(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    // Planning reports ask "arriving by end of year" far more often than
+    // they ask about the start of it, and a literal '2026-12-31' default
+    // freezes the report on the year it was written.
+    if (s === 'year_end') return localISO(new Date(now.getFullYear(), 11, 31));
     const rel = RELATIVE_RE.exec(s);
     if (rel) {
       const days = rel[1] ? Number(rel[1]) : 0;
@@ -93,7 +100,7 @@
     return null;
   }
 
-  const DATE_HINT = 'a date (YYYY-MM-DD), or today, today-27d, month_start, year_start';
+  const DATE_HINT = 'a date (YYYY-MM-DD), or today, today-27d, month_start, month_end, year_start, year_end';
 
   // ── Declarations ───────────────────────────────────────────────────
   /**
