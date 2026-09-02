@@ -1920,3 +1920,33 @@ select
         || 'posted from the browser without it ever reaching QuickBooks'
     else 'ok'
   end as journal_adjustments;
+
+-- ---------------------------------------------------------------------------
+-- Fixed assets (20260902030000_fixed_assets.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='fixed_assets')
+      then 'MISSING — fixed_assets absent; run 20260902030000_fixed_assets.sql'
+    when not exists (select 1 from pg_views
+                      where schemaname='public' and viewname='fixed_asset_depreciation_v')
+      then 'MISSING — fixed_asset_depreciation_v absent; /v2/fixed-assets.html has nothing to post'
+    when not exists (select 1 from pg_views
+                      where schemaname='public' and viewname='fixed_asset_balances_v')
+      then 'MISSING — fixed_asset_balances_v absent; the asset register cannot show net book value'
+    -- The divisor bug caught before this shipped: an early disposal must
+    -- never force-recognise the remaining depreciable base in the months
+    -- actually served (a 24-month/$24,000 asset disposed after 6 months
+    -- was recognising the full $24,000 in those 6 months instead of
+    -- $6,000). Structural only -- this file stays read-only, so it checks
+    -- the view still divides by useful_life_months rather than re-deriving
+    -- a period count, not the live arithmetic.
+    when (select pg_get_viewdef('public.fixed_asset_depreciation_v'::regclass))
+         not like '%nominal_months%'
+      then 'MISSING — fixed_asset_depreciation_v no longer names nominal_months as its own concept; '
+        || 'check it still divides by useful_life_months rather than the disposal-shortened period '
+        || 'count (verified directly against synthetic assets when this view was built: a 24mo/'
+        || '$24,000 asset disposed after 6mo must recognise $6,000, not $24,000)'
+    else 'ok'
+  end as fixed_assets;
