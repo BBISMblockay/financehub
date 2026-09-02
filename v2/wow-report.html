@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · Week over Week</title>
+  <title>SILO · Marketing</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -22,6 +22,23 @@
       padding:8px 2px; border-bottom:1px solid var(--bcn-border);
     }
     .wow-period b { color:var(--bcn-ink); font-weight:600; }
+    /* The two comparison chips wrap as units. Without this the delta broke
+       mid-chip and left a bare "YoY" on its own line under the number. */
+    .bcn-kpi-delta span { white-space:nowrap; }
+
+    /* Sits in the header next to the date, because the grain and the date
+       together are the one question "which period am I reading". */
+    .wow-grain { gap:0; }
+    .wow-grain .bcn-tab {
+      font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
+      padding:5px 11px; cursor:pointer; background:none; border:1px solid var(--bcn-border-strong);
+      border-right:none; color:var(--bcn-ink-3); border-radius:0;
+    }
+    .wow-grain .bcn-tab:first-child { border-radius:6px 0 0 6px; }
+    .wow-grain .bcn-tab:last-child  { border-radius:0 6px 6px 0; border-right:1px solid var(--bcn-border-strong); }
+    .wow-grain .bcn-tab--active { background:var(--bcn-band); color:#fff; border-color:var(--bcn-band); }
+    .wow-grain .bcn-tab:not(.bcn-tab--active):hover { color:var(--bcn-ink); background:var(--bcn-sunken); }
+
     .wow-date { font-family:var(--bcn-mono); font-size:11px; padding:4px 8px;
       border:1px solid var(--bcn-border-strong); border-radius:6px;
       background:var(--bcn-surface); color:var(--bcn-ink); }
@@ -106,8 +123,21 @@
     .pos { color:var(--bcn-pos); } .neg { color:var(--bcn-neg); }
     .dim { color:var(--bcn-ink-4) !important; }
 
+    .wow-more {
+      display:block; width:100%; padding:9px 12px; border:none; border-top:1px dashed var(--bcn-border);
+      background:none; cursor:pointer; font-family:var(--bcn-mono); font-size:10.5px;
+      letter-spacing:.06em; text-transform:uppercase; color:var(--bcn-ink-3);
+    }
+    .wow-more:hover { background:var(--bcn-sunken); color:var(--bcn-ink); }
+    .wow-copy { text-align:left !important; white-space:normal !important; max-width:300px;
+      font-family:var(--bcn-font) !important; font-size:11px !important; color:var(--bcn-ink-3) !important; }
     .wow-thumb { width:34px; height:34px; object-fit:cover; border-radius:5px;
       border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; flex:none; }
+    /* Post captions link out to Instagram. Default link blue is the one colour
+       not in the Beacon palette, and it reads as an error state next to the
+       red/green deltas -- inherit the cell's ink and mark the link on hover. */
+    .wow-tbl a { color:inherit; text-decoration:none; }
+    .wow-tbl a:hover, .wow-tbl a:focus-visible { text-decoration:underline; }
     .wow-ad { display:flex; align-items:center; gap:9px; }
 
     .wow-note { padding:9px 14px; font-size:11px; color:var(--bcn-ink-3);
@@ -197,12 +227,18 @@
         <div class="bcn-header-title">
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
-        <h1>Week over Week</h1>
-        <div class="bcn-header-sub">
-          Online store · live · notes save per week
+        <h1>Marketing Report</h1>
+        <div class="bcn-header-sub" id="headerSub">
+          Online store · live · notes save per period
         </div>
       </div>
       <div class="bcn-header-actions">
+        <div class="bcn-tabs wow-grain" id="grainTabs" role="tablist" aria-label="Reporting period">
+          <button type="button" class="bcn-tab" data-grain="day"   role="tab">Day</button>
+          <button type="button" class="bcn-tab" data-grain="week"  role="tab">Week</button>
+          <button type="button" class="bcn-tab" data-grain="month" role="tab">MTD</button>
+          <button type="button" class="bcn-tab" data-grain="ytd"   role="tab">YTD</button>
+        </div>
         <input type="date" id="reportDate" class="wow-date" />
         <span class="wow-saved" id="savedAt">&nbsp;</span>
         <button id="btnSave" class="bcn-btn bcn-btn--primary">Save</button>
@@ -254,7 +290,7 @@
 <div class="bcn-card">
         <div class="bcn-card-header"><h2>Storefront funnel &amp; traffic</h2><span class="bcn-card-meta" id="funnelMeta">online store</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th>This week</th><th>Prior week</th><th>Change</th><th title="Each step as a share of sessions, against last week. Change alone drops whenever traffic drops.">vs sessions</th><th>Same wk LY</th><th title="Against the same week last year. Counts show relative change, rates show percentage points — same meaning as the Change column.">YoY</th><th title="Each step as a share of sessions, against the same week last year. Strips out the traffic difference, so it reads the step's own performance rather than the year's.">YoY vs sess</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Funnel stage</th><th data-gl="cur">This week</th><th data-gl="prev">Prior week</th><th>Change</th><th title="Each step as a share of sessions, against the prior period. Change alone drops whenever traffic drops.">vs sessions</th><th data-gl="lyShort">Same wk LY</th><th data-gl-title="tipYoy" title="Against the same week last year. Counts show relative change, rates show percentage points — same meaning as the Change column.">YoY</th><th data-gl-title="tipYoySess" title="Each step as a share of sessions, against the same week last year. Strips out the traffic difference, so it reads the step's own performance rather than the year's.">YoY vs sess</th></tr></thead>
           <tbody id="funnelBody"></tbody></table>
         </div></div>
       
@@ -265,7 +301,7 @@
       </div><div class="bcn-card">
         <div class="bcn-card-header"><h2>Top products</h2><span class="bcn-card-meta" id="prodMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th title="On hand ÷ this week&#39;s daily rate. Each SKU counted once.">Days of stock</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Product</th><th>Units</th><th>Net sales</th><th>On hand</th><th title="On hand ÷ this period&#39;s daily rate. Each SKU counted once.">Days of stock</th></tr></thead>
           <tbody id="prodBody"><tr><td class="wow-empty" colspan="5"><span class="wow-spin"></span>Loading…</td></tr></tbody></table>
         </div></div>
       
@@ -274,9 +310,9 @@
           <div class="wow-say-body"><textarea id="say_products" class="wow-say-box" data-say="products" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div><div class="bcn-card">
-        <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta">vs prior week</span></div>
+        <div class="bcn-card-header"><h2>Sales by category</h2><span class="bcn-card-meta" data-gl="prevShort">vs prior week</span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th>vs prior week</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Category</th><th>Net sales</th><th>% of total</th><th data-gl="prevShort">vs prior week</th></tr></thead>
           <tbody id="catBody"></tbody></table>
         </div></div>
       
@@ -300,7 +336,7 @@
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Sessions by landing page</h2><span class="bcn-card-meta" id="lpMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th title="Top 250 pages per day — a slice, not every page.">Landing page</th><th>Sessions</th><th>vs prior wk</th><th>Cart rate</th><th>Conv. rate</th><th>Orders</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th title="Top 250 pages per day — a slice, not every page.">Landing page</th><th>Sessions</th><th data-gl="prevAbbr">vs prior wk</th><th>Cart rate</th><th>Conv. rate</th><th>Orders</th></tr></thead>
           <tbody id="lpBody"></tbody></table>
         </div></div>
         <details class="wow-say" data-key="landing">
@@ -331,15 +367,31 @@
           <div class="wow-say-body"><textarea id="say_paid" class="wow-say-box" data-say="paid" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div><div class="bcn-card">
-        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta">purchase campaigns, top 10 by spend</span></div>
-        <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Creative</th><th>Ad copy</th><th>Spend</th><th>ROAS</th><th>Conversions</th><th>Clicks</th></tr></thead>
-          <tbody id="creBody"></tbody></table>
-        </div></div>
+        <div class="bcn-card-header"><h2>Top creatives</h2><span class="bcn-card-meta" id="creMeta">every ad that spent, by objective</span></div>
+        <div class="bcn-card-body" style="padding:0" id="creRoot"></div>
       
         <details class="wow-say" data-key="creatives">
           <summary>Notes on creative</summary>
           <div class="wow-say-body"><textarea id="say_creatives" class="wow-say-box" data-say="creatives" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
+      </div>
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Instagram organic — top posts</h2><span class="bcn-card-meta" id="orgMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="wow-grp-head" id="orgTotals"></div>
+          <div class="bcn-matrix-scroll">
+            <table class="wow-tbl"><thead><tr>
+              <th>Post</th><th>Type</th><th>Posted</th><th>Views</th><th>Reach</th>
+              <th title="Likes + comments + shares + saves.">Engagement</th>
+              <th title="Engagement ÷ reach — people, not plays. Blank when reach is 0.">Eng. rate</th>
+            </tr></thead>
+            <tbody id="orgBody"></tbody></table>
+          </div>
+        </div>
+        <div class="wow-note" id="orgNote" hidden></div>
+        <details class="wow-say" data-key="organic">
+          <summary>Notes on organic</summary>
+          <div class="wow-say-body"><textarea id="say_organic" class="wow-say-box" data-say="organic" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
         </details>
       </div>
       <div id="man_meta"></div>
@@ -378,7 +430,7 @@
       <div class="bcn-card">
         <div class="bcn-card-header"><h2>Sales by affiliate code</h2><span class="bcn-card-meta" id="dcMeta"></span></div>
         <div class="bcn-card-body" style="padding:0"><div class="bcn-matrix-scroll">
-          <table class="wow-tbl"><thead><tr><th>Code</th><th>Sales $</th><th>Orders</th><th>AOV</th><th>% of total</th><th>vs prior wk</th></tr></thead>
+          <table class="wow-tbl"><thead><tr><th>Code</th><th>Sales $</th><th>Orders</th><th>AOV</th><th>% of total</th><th data-gl="prevAbbr">vs prior wk</th></tr></thead>
           <tbody id="dcBody"></tbody></table>
         </div></div>
       </div>
@@ -445,6 +497,62 @@
     return `<td class="${cls}">${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%</td>`;
   }
 
+  // One vocabulary per grain. Every "prior week" on the page reads from here,
+  // because a month-to-date column headed "vs prior week" is not a cosmetic
+  // slip -- it tells the reader the number means something it does not.
+  //
+  // `delta` is what the KPI band calls the change against the previous period.
+  // The RPCs return that under the jsonb key `wow` and last year's under `yoy`
+  // whatever the grain -- those keys are the report's original names for the
+  // two comparison SLOTS, not claims about weeks. They are not renamed here
+  // because the key is shared with wow_kpi_compare and every export column
+  // already written against it; the label is what the reader sees.
+  const GRAINS = {
+    day: {
+      label:'Day',
+      cur:'This day',      prev:'Prior day',   prevShort:'vs prior day',    prevAbbr:'vs prior day',
+      lyShort:'Same day LY', ly:'Same day last year', delta:'DoD',
+      sub:'day vs the day before',
+      periodCur:'This day', periodPrev:'Prior day', periodLy:'Same weekday last year',
+      tipYoy:'Against the same weekday last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same weekday last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+    week: {
+      label:'Week',
+      cur:'This week',     prev:'Prior week',  prevShort:'vs prior week',   prevAbbr:'vs prior wk',
+      lyShort:'Same wk LY',  ly:'Same week last year', delta:'WoW',
+      sub:'7 days vs the 7 before',
+      periodCur:'This week', periodPrev:'Prior week', periodLy:'Same week last year',
+      tipYoy:'Against the same week last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same week last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+    month: {
+      label:'Month to date',
+      cur:'Month to date', prev:'Prior month', prevShort:'vs prior month',  prevAbbr:'vs prior mo',
+      lyShort:'Same period LY', ly:'Same period last year', delta:'MoM',
+      sub:'month to date vs the same days last month',
+      periodCur:'Month to date', periodPrev:'Same days, prior month', periodLy:'Same dates last year',
+      tipYoy:'Against the same dates last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same dates last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+    ytd: {
+      label:'Year to date',
+      cur:'Year to date',  prev:'Prior period', prevShort:'vs prior period', prevAbbr:'vs prior per.',
+      lyShort:'Same period LY', ly:'Same period last year', delta:'vs prev',
+      sub:'year to date vs the equal-length period before it',
+      periodCur:'Year to date', periodPrev:'Prior period, equal length', periodLy:'Same dates last year',
+      tipYoy:'Against the same dates last year. Counts show relative change, rates show percentage points — same meaning as the Change column.',
+      tipYoySess:'Each step as a share of sessions, against the same dates last year. Strips out the traffic difference, so it reads the step\u2019s own performance rather than the year\u2019s.',
+    },
+  };
+  const GRAIN_KEYS = Object.keys(GRAINS);
+  // Falls back to the <title>'s own text so a missing heading cannot blank the
+  // tab, and to a literal only if both are gone.
+  const PAGE_NAME = (document.querySelector('.bcn-header h1')?.textContent
+    || document.title.replace(/^SILO\s*·\s*/, '') || 'Marketing').trim();
+  let GRAIN = 'week';
+  const G = () => GRAINS[GRAIN] || GRAINS.week;
+
   let DATA = null;
   let ENTRY = { commentary:{}, manual:{}, tables:{} };
   let dirty = false;
@@ -467,12 +575,12 @@
       cols:[['date','Date',100],['spend','Spend',100],['totalRevenue','Revenue',110],
             ['emailSubs','Email subs',110],['emailNetSubs','Email net subs',120],
             ['smsSubs','SMS subs',110],['smsNetSubs','SMS net subs',115],['notes','Notes',0]] },
-    { key:'organic_posts', section:'meta', title:'Meta & Instagram organic — last 12 posts',
-      seedRows:12,
-      hint:'Type these in. Fills in automatically once Meta access is granted.',
-      cols:[['post','Post',0],['type','Type',90],['date','Date',100],
-            ['views','Views',100],['reach','Reach',100],['likes','Likes',90],
-            ['comments','Comments',100],['saves','Saves',90],['link','Link',150]] },
+    // 'organic_posts' was here: twelve blank rows hinted "Fills in
+    // automatically once Meta access is granted." It was granted, and the sync
+    // has been filling instagram_media_insights since 2026-05-21 -- so this is
+    // now the live "Instagram organic" card above. Anything typed into the old
+    // table is still in wow_report_entries.sections.tables.organic_posts; it is
+    // simply no longer rendered, not deleted.
     { key:'tiktok_sources', section:'tiktok', title:'TikTok — sales by attribution source',
       seedValues:[{source:'Lives'},{source:'Ads'},{source:'GMV Affiliate'},{source:'Direct'}],
       hint:'Type these in. TikTok Ads and TikTok Shop are not connected.',
@@ -642,7 +750,8 @@
     ENTRY = { commentary:{}, manual:{}, tables:{} };
     try {
       let q = sb.from('wow_report_entries').select('sections,updated_at')
-                .eq('report_date', el('reportDate').value);
+                .eq('report_date', el('reportDate').value)
+                .eq('grain', GRAIN);
       if (_co?.id) q = q.eq('company_entity_id', _co.id);
       const { data, error } = await q.maybeSingle();
       if (error) throw error;
@@ -660,10 +769,13 @@
   async function saveEntry(){
     try {
       el('btnSave').disabled = true;
-      const row = { report_date: el('reportDate').value, sections: collectWritten() };
+      const row = { report_date: el('reportDate').value, grain: GRAIN, sections: collectWritten() };
       if (_co?.id) row.company_entity_id = _co.id;
+      // Keyed by grain too: a day's commentary and a week's commentary for the
+      // same date are different documents, and without this the daily view
+      // would silently overwrite the week's notes.
       const { error } = await sb.from('wow_report_entries')
-        .upsert(row, { onConflict: 'company_entity_id,report_date' });
+        .upsert(row, { onConflict: 'company_entity_id,report_date,grain' });
       if (error) throw error;
       markSaved(new Date().toLocaleTimeString());
       setStatus('Saved.', 'pos', 2000);
@@ -680,6 +792,11 @@
   let LANDING = null;
   let CODES = null;
   let COHORTS = null;
+  let ORGANIC = null;
+  let CREATIVES = null;
+  // How many ads are revealed per objective. Sammie asked for ten, then the
+  // next ten -- so this is per group and resets whenever the period changes.
+  let CRE_SHOWN = {};
   let KPI = null;
   let DATA_THROUGH = null;
   const FAILED = new Set();
@@ -708,9 +825,11 @@
     const part  = (label, v) => v == null
       ? `<span class="dim">${label} —</span>`
       : `<span class="${cls(v)}">${arrow(v)} ${Math.abs(v).toFixed(1)}% ${label}</span>`;
+    // m.wow / m.yoy are the RPC's names for the two comparison slots, not a
+    // claim that the period is a week -- the label comes from the grain.
     const line = (m, tail) => {
       if (!m) return tail;
-      return `${part('WoW', m.wow)} &nbsp; ${part('YoY', m.yoy)}`;
+      return `${part(G().delta, m.wow)} &nbsp; ${part('YoY', m.yoy)}`;
     };
     const set = (id, m, tail) => { const n = el(id); if (n) n.innerHTML = line(m, tail); };
     set('kSalesSub',  k.total_sales, 'matches Shopify "total sales"');
@@ -827,7 +946,7 @@
     const lyRaw = f.ly, lyComplete = !!(lyRaw && Number(lyRaw.days) >= 7);
     const l = lyComplete ? lyRaw : null;
     if (!t || !Number(t.sessions)) {
-      body.innerHTML = '<tr><td colspan="8" style="color:var(--bcn-ink-3)">No session data for this week yet — the Shopify sessions sync populates this nightly.</td></tr>';
+      body.innerHTML = `<tr><td colspan="8" style="color:var(--bcn-ink-3)">No session data for this ${esc(G().label.toLowerCase())} yet — the Shopify sessions sync populates this nightly.</td></tr>`;
       el('funnelMeta').textContent = 'no session data yet';
       return;
     }
@@ -999,18 +1118,106 @@
     }
   }
 
+  // Every "prior week" the page prints comes from one place. A [data-gl] node
+  // names which word it wants; nothing hardcodes a period anywhere else.
+  function applyGrainLabels(){
+    const g = G();
+    document.querySelectorAll('[data-gl]').forEach(n => {
+      const v = g[n.dataset.gl];
+      if (v != null) n.textContent = v;
+    });
+    document.querySelectorAll('[data-gl-title]').forEach(n => {
+      const v = g[n.dataset.glTitle];
+      if (v != null) n.title = v;
+    });
+    document.querySelectorAll('#grainTabs .bcn-tab').forEach(b => {
+      const on = b.dataset.grain === GRAIN;
+      b.classList.toggle('bcn-tab--active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    const sub = el('headerSub');
+    if (sub) sub.textContent = `Online store · ${g.sub} · notes save per period`;
+    // The page's name lives in the markup, not here. When it was renamed to
+    // "Marketing Report" this line still said "Week over Week" and quietly
+    // overwrote the browser tab on every load, so the tab and the heading
+    // disagreed. Reading the heading means a future rename is a one-line
+    // markup change and the tab follows it.
+    document.title = `SILO · ${PAGE_NAME}${GRAIN === 'week' ? '' : ' — ' + g.label}`;
+  }
+
+  // The grain lives in the URL as well as localStorage: a report someone is
+  // reading at YTD is a link they will paste to someone else, and a link that
+  // silently reopens at the sender's default grain shows the recipient a
+  // different set of numbers under the same URL.
+  function readGrain(){
+    const q = new URLSearchParams(location.search).get('grain');
+    if (q && GRAIN_KEYS.includes(q)) return q;
+    try {
+      const v = localStorage.getItem('wow.grain');
+      if (v && GRAIN_KEYS.includes(v)) return v;
+    } catch (e) { /* private window: fall through to the default */ }
+    return 'week';
+  }
+  function writeGrain(){
+    try { localStorage.setItem('wow.grain', GRAIN); } catch (e) { /* not fatal */ }
+    const u = new URL(location.href);
+    u.searchParams.set('grain', GRAIN);
+    history.replaceState(null, '', u);
+  }
+
+  async function setGrain(next){
+    if (!GRAIN_KEYS.includes(next) || next === GRAIN) return;
+    // Notes are stored per grain, so switching away from unsaved ones loses
+    // them exactly as switching the date does.
+    if (dirty && !confirm(`You have unsaved notes on this ${G().label.toLowerCase()}. Switch period anyway?`)) return;
+    GRAIN = next;
+    writeGrain();
+    applyGrainLabels();
+    await load();
+  }
+
   async function load(){
     setStatus('Loading…');
     try {
       await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
-      const [main, funnel, paid, landing, codes, cohorts, kpi] = await Promise.all([
-        sb.rpc('wow_report', { p_report_date: el('reportDate').value }),
-        sb.rpc('wow_funnel', { p_report_date: el('reportDate').value }),
-        sb.rpc('wow_paid_media', { p_report_date: el('reportDate').value }),
-        sb.rpc('wow_landing_pages', { p_report_date: el('reportDate').value, p_limit: 15 }),
-        sb.rpc('wow_discount_codes', { p_report_date: el('reportDate').value, p_limit: 20 }),
+      // One grain for every call. If these were allowed to drift, the KPI band
+      // and the funnel below it would describe different periods while looking
+      // like one report.
+      const d = el('reportDate').value, gr = GRAIN;
+
+      // TWO BATCHES, NOT ONE Promise.all -- this is a correctness fix, not a
+      // tidy-up. `authenticated` carries statement_timeout = 8s, and firing all
+      // seven at once meant seven concurrent readers of the same large tables
+      // contending for CPU and buffers. At YTD the Postgres log for a single
+      // load showed SEVEN cancellations inside forty seconds, three of them
+      // within 21 milliseconds of each other: wow_report measures ~3.1s alone
+      // and still lost that race, and wow_cohorts (~3.7s) failed alongside it.
+      //
+      // The two heavy calls are therefore kept out of each other's way.
+      // wow_report goes first on its own -- it feeds the KPI band, so the
+      // headline also lands sooner -- with wow_kpi_compare (~0.8s) alongside
+      // it, then everything else follows. Every other call is sub-second, so
+      // the second batch's long pole is wow_cohorts running essentially alone.
+      //
+      // Sequencing costs about a second of wall clock at YTD and is the
+      // difference between a slow report and no report.
+      const [main, kpi] = await Promise.all([
+        sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
+        sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
+      ]);
+      const [funnel, paid, landing, codes, cohorts, organic, creatives] = await Promise.all([
+        sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
+        sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
+        sb.rpc('wow_landing_pages', { p_report_date: d, p_limit: 15, p_grain: gr }),
+        sb.rpc('wow_discount_codes', { p_report_date: d, p_limit: 20, p_grain: gr }),
+        // Cohorts are monthly by construction -- a retention curve has its own
+        // grain and does not follow this selector.
         sb.rpc('wow_cohorts', { p_months: 12 }),
-        sb.rpc('wow_kpi_compare', { p_report_date: el('reportDate').value }),
+        sb.rpc('wow_organic_posts', { p_report_date: d, p_grain: gr, p_limit: 12 }),
+        // 50 per objective: enough for five "show ten more" presses without a
+        // round trip, and bounded so a YTD window (380 purchase ads) does not
+        // ship a megabyte of ad copy to render ten rows.
+        sb.rpc('wow_creatives', { p_report_date: d, p_grain: gr, p_limit: 50 }),
       ]);
       if (main.error) throw main.error;
       DATA = main.data;
@@ -1031,6 +1238,13 @@
       COHORTS = cohorts.error ? null : (cohorts.data || null);
       if (cohorts.error) FAILED.add('cohorts');
       if (cohorts.error) console.warn('cohorts unavailable:', cohorts.error.message);
+      ORGANIC = organic.error ? null : (organic.data || null);
+      if (organic.error) FAILED.add('organic');
+      if (organic.error) console.warn('organic posts unavailable:', organic.error.message);
+      CREATIVES = creatives.error ? null : (creatives.data || null);
+      if (creatives.error) FAILED.add('creatives');
+      if (creatives.error) console.warn('creatives unavailable:', creatives.error.message);
+      CRE_SHOWN = {};
       KPI = kpi.error ? null : (kpi.data || null);
       if (kpi.error) FAILED.add('kpi');
       if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
@@ -1046,8 +1260,8 @@
         // Not an error -- but the totals below are genuinely incomplete, and a
         // partial week looks like a bad week rather than a partial one.
         setStatus(
-          `Showing ${DATA.window.start} – ${end}, but sales are only complete through ${DATA_THROUGH}. ` +
-          `Totals for the days after that are partial.`, 'warn');
+          `Showing ${G().label.toLowerCase()} ${DATA.window.start} – ${end}, but sales are only complete ` +
+          `through ${DATA_THROUGH}. Totals for the days after that are partial.`, 'warn');
       } else {
         setStatus(`Loaded ${DATA.window.start} – ${end}`, 'pos', 2500);
       }
@@ -1061,10 +1275,14 @@
     const d = DATA; if (!d) return;
     const w = d.window, c = d.core, cu = d.customers, inv = d.inventory, g = d.ga4;
 
+    // Print every window's real dates, always. At YTD on Dec 31 the prior
+    // period and last year are genuinely the same window -- that is arithmetic,
+    // not a bug, and the dates let the reader see it instead of being told.
+    const gl = G();
     el('periodBar').innerHTML =
-      `<span>This week <b>${esc(w.start)} → ${esc(w.end)}</b></span>` +
-      `<span>Prior week <b>${esc(w.prev_start)} → ${esc(w.prev_end)}</b></span>` +
-      `<span>Same week last year <b>${esc(w.ly_start)} → ${esc(w.ly_end)}</b></span>` +
+      `<span>${esc(gl.periodCur)} <b>${esc(w.start)} → ${esc(w.end)}</b></span>` +
+      `<span>${esc(gl.periodPrev)} <b>${esc(w.prev_start)} → ${esc(w.prev_end)}</b></span>` +
+      `<span>${esc(gl.periodLy)} <b>${esc(w.ly_start)} → ${esc(w.ly_end)}</b></span>` +
       `<span style="margin-left:auto">scope <b>online store</b></span>`;
 
     el('kSales').textContent  = money(c.total_sales);
@@ -1115,6 +1333,79 @@
     </tr>`).join('') || `<tr><td class="wow-empty" colspan="3">No data.</td></tr>`;
 
     renderPaid();
+    renderOrganic();
+  }
+
+  // Organic posts, live from instagram_media_insights -- the same table
+  // Marketing Overview's Organic tab reads. Ranked by views, and the card says
+  // so: views, reach and engagement disagree about which post won, and an
+  // unnamed "top post" is how that gets reported wrong.
+  function renderOrganic(){
+    const o = ORGANIC;
+    const body = el('orgBody'), meta = el('orgMeta'), tot = el('orgTotals'), note = el('orgNote');
+    if (!body) return;
+
+    if (!o) {
+      meta.textContent = '';
+      tot.innerHTML = '';
+      body.innerHTML = `<tr><td class="wow-empty" colspan="7">${FAILED.has('organic')
+        ? 'Could not load organic posts — try Refresh.'
+        : 'No organic posts in this window.'}</td></tr>`;
+      note.hidden = true;
+      return;
+    }
+
+    const t = o.totals || {};
+    const chip = (label, m, fmt) => {
+      if (!m) return '';
+      const v = m.wow;
+      const cls = v == null ? 'dim' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim';
+      const delta = v == null ? '—' : `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%`;
+      return `<span>${label} <b>${fmt(m.cur)}</b> <span class="${cls}">${delta}</span></span>`;
+    };
+    tot.innerHTML =
+      `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0">` +
+      chip('Posts', t.posts, intFmt) + chip('Views', t.views, intFmt) +
+      chip('Reach', t.reach, intFmt) + chip('Engagement', t.engagement, intFmt) +
+      `</span><span>${esc(G().prevAbbr)}</span>`;
+
+    const posts = o.posts || [];
+    meta.textContent = posts.length
+      ? `${intFmt(t.posts?.cur)} posts · top ${posts.length} by ${o.ranked_by || 'views'}`
+      : 'no posts in window';
+
+    body.innerHTML = posts.length ? posts.map(p => {
+      // No thumbnail for IMAGE/CAROUSEL_ALBUM -- Meta only returns one for
+      // video. Draw the placeholder rather than a broken image, so nobody goes
+      // hunting for a sync fault that is not there.
+      const thumb = p.thumb
+        ? `<img class="wow-thumb" src="${esc(p.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />`
+        : `<span class="wow-thumb"></span>`;
+      const cap = (p.caption || '').trim() || p.media_id;
+      const label = p.permalink
+        ? `<a href="${esc(p.permalink)}" target="_blank" rel="noopener">${esc(cap.slice(0, 90))}${cap.length > 90 ? '…' : ''}</a>`
+        : `${esc(cap.slice(0, 90))}${cap.length > 90 ? '…' : ''}`;
+      return `<tr>
+        <td><div class="wow-ad">${thumb}<span>${label}</span></div></td>
+        <td>${esc((p.media_type || '').replace('CAROUSEL_ALBUM','CAROUSEL'))}</td>
+        <td>${esc(p.posted_on || '')}</td>
+        <td>${intFmt(p.views)}</td><td>${intFmt(p.reach)}</td><td>${intFmt(p.engagement)}</td>
+        <td>${p.engagement_rate == null ? '<span class="dim">—</span>' : Number(p.engagement_rate).toFixed(2) + '%'}</td>
+      </tr>`;
+    }).join('') : `<tr><td class="wow-empty" colspan="7">No organic posts in this window.</td></tr>`;
+
+    // Say when the window reaches back further than the data does. A YTD
+    // organic total that silently begins in May, next to sales that begin on
+    // Jan 1, is the kind of number that gets read aloud in a meeting.
+    const starts = o.history_starts, wStart = DATA?.window?.start;
+    if (starts && wStart && wStart < starts) {
+      note.hidden = false;
+      note.innerHTML = `<b>Partial period.</b> Organic history begins ${esc(starts)}, but this ` +
+        `${esc(G().label.toLowerCase())} starts ${esc(wStart)} — posts before ${esc(starts)} are not counted, ` +
+        `and the comparison periods may have no coverage at all.`;
+    } else {
+      note.hidden = true;
+    }
   }
 
   // Each Meta objective gets its own table with its own columns. A thruplay
@@ -1150,7 +1441,7 @@
           const cols = PAID_COLS[g.judged_on] || PAID_COLS.spend;
           const wowSpend = (g.prev_spend != null && Number(g.prev_spend) > 0)
             ? (() => { const pct = (Number(g.spend)-Number(g.prev_spend))/Number(g.prev_spend)*100;
-                       return `<span class="${pct>=0?'pos':'neg'}" style="font-size:10.5px">${pct>=0?'+':''}${pct.toFixed(0)}% vs prior wk</span>`; })()
+                       return `<span class="${pct>=0?'pos':'neg'}" style="font-size:10.5px">${pct>=0?'+':''}${pct.toFixed(0)}% ${esc(G().prevAbbr)}</span>`; })()
             : '';
           const rows = (g.campaigns||[]).map(c =>
             `<tr><td>${esc(c.campaign)}</td>${cols.map(([k,,kind]) => `<td>${fmtBy(c[k], kind)}</td>`).join('')}</tr>`).join('');
@@ -1198,13 +1489,167 @@
       : `<tr><td class="wow-empty" colspan="6">No Google spend in this window.</td></tr>`;
 
     // --- Creatives, purchase campaigns only ---
-    el('creBody').innerHTML = (pm.creatives||[]).map(a => `<tr>
-      <td><div class="wow-ad">${a.thumb ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" />` : ''}<span>${esc(a.ad)}</span></div></td>
-      <td style="text-align:left;white-space:normal;max-width:320px;font-size:11px;color:var(--bcn-ink-2)">${
-        a.copy ? esc(String(a.copy).slice(0, 180)) + (String(a.copy).length > 180 ? '…' : '') : '<span class="dim">—</span>'}</td>
-      <td>${money(a.spend)}</td><td>${a.roas ? xFmt(a.roas) : '<span class="dim">—</span>'}</td>
-      <td>${intFmt(a.conversions)}</td><td>${intFmt(a.clicks)}</td>
-    </tr>`).join('') || `<tr><td class="wow-empty" colspan="6">No Meta purchase-campaign ads in this window.</td></tr>`;
+    renderCreatives();
+  }
+
+  // Every ad that SPENT in the window, grouped under its campaign objective and
+  // ordered by spend -- Purchases, Thruplays, Subscribers, Followers.
+  //
+  // "Ads that spent" is the definition of live-in-period, not the ad's current
+  // status: an ad that ran all week and was paused yesterday belongs in this
+  // week's report, and filtering on status would delete it retroactively.
+  const CRE_PAGE = 10;
+
+  // Columns per objective, because a metric a campaign was never bought on is
+  // not a low score -- it is the wrong question. The campaign-level tables above
+  // already split this way (PAID_COLS); the ad-level table launched with one
+  // fixed column set and reintroduced exactly the failure that split exists to
+  // prevent: a Thruplay ad reading 0.00x ROAS, and a Subscribers ad carrying a
+  // $772 "CPA" that is cost per PURCHASE on a lead campaign -- a real number
+  // answering a question nobody asked, which is worse than a blank.
+  //
+  // What is actually available at AD level (verified against
+  // meta_ad_performance_daily for the week to 2026-08-31):
+  //   purchase     1,152 conversions / $100,003 value  -> ROAS and CPA are real
+  //   subscribers     94 conversions -- PURCHASE pixel, not leads; leads are
+  //                   not synced per ad, so no cost-per-lead column exists
+  //   thruplay         0 conversions; thruplay COUNT is not synced per ad
+  //   followers        0 conversions; follows are not synced at all
+  // Everything non-purchase therefore reads on spend, reach and click cost --
+  // the things that ARE measured -- and the footnote names what is missing so a
+  // blank column is not mistaken for a dead campaign.
+  const CRE_COLS = {
+    purchase:    [['spend','Spend'],['roas','ROAS'],['cpa','CPA'],['conversions','Conv.'],['clicks','Clicks']],
+    // Each objective is judged on the metric it was BOUGHT on, per ad --
+    // thruplays and leads now land at ad level, so these no longer fall back
+    // to click cost. Followers reads on thruplays because that is what the
+    // buy actually reports; follows themselves are not synced.
+    thruplay:    [['spend','Spend'],['thruplays','Thruplays'],['cost_per_thruplay','Cost / thruplay'],['impressions','Impressions'],['clicks','Clicks']],
+    subscribers: [['spend','Spend'],['leads','Leads'],['cost_per_lead','Cost / lead'],['clicks','Clicks'],['cpc','CPC']],
+    followers:   [['spend','Spend'],['thruplays','Thruplays'],['cost_per_thruplay','Cost / thruplay'],['clicks','Clicks'],['cpc','CPC']],
+    traffic:     [['spend','Spend'],['clicks','Clicks'],['cpc','CPC'],['impressions','Impressions'],['cpm','CPM']],
+    other:       [['spend','Spend'],['clicks','Clicks'],['impressions','Impressions'],['cpc','CPC'],['cpm','CPM']],
+  };
+  // Named per objective so nobody reads the gap as a data fault.
+  // Derived from the data, not hardcoded. The old fixed strings said
+  // "not synced per ad" and would have kept saying it once the sync started
+  // carrying the metric -- a note that lies in the other direction. A group
+  // only gets a caveat when its own headline metric really is absent.
+  function creFoot(g) {
+    if (g.group === 'followers') {
+      return 'Follows are not synced, so there is no cost per follow — these ads read on thruplays, which the buy does report.';
+    }
+    if (g.group === 'subscribers') {
+      return g.leads == null
+        ? 'Leads have not synced for these ads yet — they fill in on the next ad-platforms sync. The conversions Meta reports against them are purchases, not sign-ups.'
+        : 'The conversions Meta reports against these ads are purchases, not sign-ups — cost per lead is the number to read.';
+    }
+    if (g.group === 'thruplay' && g.thruplays == null) {
+      return 'Thruplays have not synced for these ads yet — they fill in on the next ad-platforms sync.';
+    }
+    return null;
+  }
+  // Derived rather than stored: spend, clicks and impressions are already in the
+  // payload, so CPC and CPM need no round trip. Null over zero clicks — dividing
+  // by nothing is not a cost of nothing.
+  const creVal = (a, k) => {
+    if (k === 'cpc') return a.clicks > 0 ? Number(a.spend) / Number(a.clicks) : null;
+    if (k === 'cpm') return a.impressions > 0 ? Number(a.spend) / Number(a.impressions) * 1000 : null;
+    return a[k];
+  };
+  const creFmt = (v, k) => {
+    if (v == null) return '<span class="dim">—</span>';
+    // Cents below a dollar. This table is defined as "ads that spent", so a row
+    // reading $0 looks like the filter is broken -- and it isn't: the RPC
+    // filters spend > 0, but money() rounds to whole dollars, so a real $0.01
+    // ad (2 impressions, seen live) rendered as $0. Show what it actually was.
+    if (k === 'spend') return Math.abs(Number(v)) < 1 ? money2(v) : money(v);
+    if (k === 'roas')  return xFmt(v);
+    if (k === 'cpa' || k === 'cpm' || k === 'cost_per_lead') return money2(v);
+    if (k === 'cpc')   return `$${Number(v).toFixed(2)}`;
+    // Fractions of a cent are normal here — a thruplay ran $0.0059 in the week
+    // to 31 Aug, and money2 would flatten every one of them to $0.01.
+    if (k === 'cost_per_thruplay') return `$${Number(v).toFixed(4)}`;
+    return intFmt(v);
+  };
+  function renderCreatives(){
+    const root = el('creRoot');
+    if (!root) return;
+    const groups = (CREATIVES && CREATIVES.groups) || [];
+    el('creMeta').textContent = groups.length
+      ? `${groups.reduce((n,g) => n + Number(g.ads_total || 0), 0)} ads spent · by objective`
+      : 'every ad that spent, by objective';
+
+    if (!groups.length) {
+      root.innerHTML = `<div class="wow-empty" style="padding:14px">${FAILED.has('creatives')
+        ? 'Could not load creatives — try Refresh.'
+        : 'No Meta ads spent in this window.'}</div>`;
+      return;
+    }
+
+    root.innerHTML = groups.map(g => {
+      const key = g.group;
+      const shown = Math.min(CRE_SHOWN[key] || CRE_PAGE, (g.ads || []).length);
+      const cols = CRE_COLS[key] || CRE_COLS.other;
+      const rows = (g.ads || []).slice(0, shown).map(a => {
+        // A blank copy cell reads as "this ad had no copy". The truth is Meta
+        // keeps Dynamic Creative variants in asset_feed_spec and the sync does
+        // not fetch them, so say that instead of showing nothing.
+        const copy = a.copy
+          ? `${esc(String(a.copy).slice(0, 160))}${String(a.copy).length > 160 ? '…' : ''}`
+          : `<span class="dim">not synced</span>`;
+        const chg = a.is_new
+          ? `<span class="bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 5px">new</span>`
+          : a.spend_wow == null ? '<span class="dim">—</span>'
+          : `<span class="${a.spend_wow >= 0 ? 'pos' : 'neg'}">${a.spend_wow >= 0 ? '+' : ''}${Number(a.spend_wow).toFixed(0)}%</span>`;
+        return `<tr>
+          <td><div class="wow-ad">${a.thumb
+              ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />`
+              : `<span class="wow-thumb"></span>`}<span>${esc(a.ad || a.ad_id)}</span></div></td>
+          <td style="text-align:left;white-space:normal;font-size:11px;color:var(--bcn-ink-3)">${esc(a.adset || '—')}</td>
+          <td class="wow-copy">${copy}</td>
+          ${cols.map(([k]) => `<td>${creFmt(creVal(a, k), k)}</td>`).join('')}
+          <td>${chg}</td>
+        </tr>`;
+      }).join('');
+
+      const total = Number(g.ads_total || 0);
+      const loaded = (g.ads || []).length;
+      const remaining = loaded - shown;
+      const more = remaining > 0
+        ? `<button type="button" class="wow-more" data-cre-more="${esc(key)}">
+             Show ${Math.min(CRE_PAGE, remaining)} more — ${shown} of ${total} by spend</button>`
+        : (total > loaded
+            // Never imply the list is complete when it is not: the RPC caps at
+            // 50 per objective and a YTD purchase window holds 380.
+            ? `<div class="wow-grp-foot">Showing all ${loaded} loaded of ${total} ads that spent — top ${loaded} by spend.</div>`
+            : '');
+
+      // The group's own headline: ROAS where the objective is purchases, spend
+      // everywhere else. A thruplay buy has no attributed revenue by design, so
+      // printing 0.00x against it reads as failure rather than as not-the-point.
+      const headline = key === 'purchase'
+        ? `${money(g.spend)} · ${g.roas == null ? '—' : xFmt(g.roas)} ROAS · ${g.cpa == null ? 'no CPA' : money2(g.cpa) + ' CPA'}`
+        : g.cost_per_lead != null
+        ? `${money(g.spend)} · ${intFmt(g.leads)} leads · ${money2(g.cost_per_lead)} / lead`
+        : g.cost_per_thruplay != null
+        ? `${money(g.spend)} · ${intFmt(g.thruplays)} thruplays · $${Number(g.cost_per_thruplay).toFixed(4)} each`
+        : `${money(g.spend)} · ${total} ad${total === 1 ? '' : 's'}`;
+      const gchg = g.spend_wow == null ? ''
+        : `<span class="${g.spend_wow >= 0 ? 'pos' : 'neg'}" style="font-size:10.5px">${g.spend_wow >= 0 ? '+' : ''}${Number(g.spend_wow).toFixed(0)}% ${esc(G().prevAbbr)}</span>`;
+
+      return `<div class="wow-grp">
+          <div class="wow-grp-head"><span>${esc(g.label)} — ${headline}</span>${gchg}</div>
+          <div class="bcn-matrix-scroll"><table class="wow-tbl">
+            <thead><tr><th>Ad</th><th>Ad set</th><th>Copy</th>
+              ${cols.map(([k, lbl]) => `<th${k === 'cpa'
+                ? ' title="Spend ÷ conversions. Blank when the ad converted nobody — it has no cost per acquisition, and 0 would rank it cheapest."'
+                : ''}>${lbl}</th>`).join('')}
+              <th>Spend ${esc(G().prevAbbr)}</th></tr></thead>
+            <tbody>${rows}</tbody></table></div>${
+              (() => { const f = creFoot(g); return f ? `<div class="wow-grp-foot">${esc(f)}</div>` : ''; })()}${more}
+        </div>`;
+    }).join('');
   }
 
   // Export mirrors what is on screen, as raw numbers rather than display strings.
@@ -1221,13 +1666,14 @@
     const k = KPI || {}, pm = PAID || {}, fn = FUNNEL || {},
           lp = LANDING || {}, dc = CODES || {}, ch = COHORTS || {};
 
-    push('Week over Week — online store', `${DATA.window.start} to ${DATA.window.end}`);
-    push('Prior week', `${DATA.window.prev_start} to ${DATA.window.prev_end}`);
+    push(`Week over Week — online store — ${G().label}`, `${DATA.window.start} to ${DATA.window.end}`);
+    push(G().periodPrev, `${DATA.window.prev_start} to ${DATA.window.prev_end}`);
+    push(G().periodLy, `${DATA.window.ly_start} to ${DATA.window.ly_end}`);
     if (DATA_THROUGH) push('Sales complete through', DATA_THROUGH);
 
     // ---- headline ----
     section('KPIs');
-    push('Metric','Value','WoW %','YoY %');
+    push('Metric','Value',`${G().delta} %`,'YoY %');
     push('Total sales', DATA.core.total_sales, k.total_sales?.wow ?? '', k.total_sales?.yoy ?? '');
     push('Net sales',   DATA.core.net_sales,   k.net_sales?.wow ?? '',   k.net_sales?.yoy ?? '');
     push('Orders',      DATA.core.orders,      k.orders?.wow ?? '',      k.orders?.yoy ?? '');
@@ -1238,7 +1684,7 @@
 
     // ---- website & sales ----
     section('WEBSITE — funnel');
-    push('Stage','This week','Prior week','Change %','vs sessions %','Same week LY','YoY %','YoY vs sess %');
+    push('Stage', G().cur, G().prev, 'Change %', 'vs sessions %', G().ly, 'YoY %', 'YoY vs sess %');
     const t = fn.this, pv = fn.prev;
     // Same completeness guard the table uses. Sessions history only reaches
     // back to the first ShopifyQL backfill, so a year-ago window is often
@@ -1268,7 +1714,7 @@
     (DATA.top_products||[]).forEach(p => push(p.product, p.units, p.sales, p.on_hand ?? '', p.days_of_stock ?? ''));
 
     section('WEBSITE — sales by category');
-    push('Category','Net sales','% of total','vs prior week %');
+    push('Category','Net sales','% of total', `${G().prevShort} %`);
     (DATA.categories||[]).forEach(c => push(c.category, c.sales, c.pct, c.wow ?? ''));
 
     section('WEBSITE — all channels');
@@ -1276,7 +1722,7 @@
     (DATA.channels||[]).forEach(c => push(c.channel, c.sales, c.pct));
 
     section('WEBSITE — sessions by landing page');
-    push('Landing page','Sessions','vs prior wk %','Cart rate %','Conv rate %','Orders');
+    push('Landing page','Sessions', `${G().prevAbbr} %`, 'Cart rate %','Conv rate %','Orders');
     (lp.pages||[]).forEach(p => push(p.path, p.sessions, p.sessions_wow ?? '',
       p.cart_rate ?? '', p.conversion_rate ?? '', p.orders));
 
@@ -1298,10 +1744,41 @@
       row(g, 'Total');
     });
 
-    section('META — top creatives');
-    push('Creative','Ad copy','Spend','ROAS','Conversions','Clicks');
-    (pm.creatives || []).forEach(a => push(a.ad, a.copy ?? '', a.spend, a.roas ?? '',
-      a.conversions ?? '', a.clicks ?? ''));
+    // Every ad that spent, under its objective -- the whole list the card
+    // paginates, not just the ten on screen. An export that stopped at what
+    // happened to be expanded would be a different report each time.
+    section('META — ads that spent, by objective');
+    ((CREATIVES && CREATIVES.groups) || []).forEach(g => {
+      blank();
+      push(`${g.label} — ${g.ads_total} ads`, `spend ${g.spend}`,
+           g.roas == null ? '' : `ROAS ${g.roas}`, g.cpa == null ? '' : `CPA ${g.cpa}`,
+           g.spend_wow == null ? '' : `spend ${G().delta} ${g.spend_wow}%`);
+      push('Ad','Ad set','Campaign','Copy','Copy source','Spend','ROAS','CPA','Conversions','Clicks',
+           `Spend ${G().delta} %`,'New this period');
+      (g.ads || []).forEach(a => push(a.ad ?? '', a.adset ?? '', a.campaign ?? '',
+        a.copy ?? '', a.copy_source ?? 'not synced', a.spend ?? '', a.roas ?? '', a.cpa ?? '',
+        a.conversions ?? '', a.clicks ?? '', a.spend_wow ?? '', a.is_new ? 'yes' : ''));
+    });
+
+    // Organic goes out with everything else -- the export exists so the whole
+    // report can leave the page, and a missing block reads as a section with
+    // no data rather than a section this file forgot.
+    const og = ORGANIC || {};
+    section('META — organic posts');
+    if (og.history_starts && DATA.window.start < og.history_starts) {
+      push('Partial period', `organic history begins ${og.history_starts}`);
+    }
+    push('Metric', G().cur, G().prev, `${G().delta} %`, G().ly, 'YoY %');
+    ['posts','views','reach','engagement'].forEach(k => {
+      const m = (og.totals || {})[k];
+      if (m) push(k, m.cur ?? '', m.prev ?? '', m.wow ?? '', m.ly ?? '', m.yoy ?? '');
+    });
+    blank();
+    push(`Post (top ${(og.posts || []).length} by ${og.ranked_by || 'views'})`,
+         'Type','Posted','Views','Reach','Engagement','Eng rate %','Link');
+    (og.posts || []).forEach(p => push(p.caption || p.media_id, p.media_type ?? '',
+      p.posted_on ?? '', p.views ?? '', p.reach ?? '', p.engagement ?? '',
+      p.engagement_rate ?? '', p.permalink ?? ''));
 
     if (pm.google) {
       section('GOOGLE — campaigns');
@@ -1317,7 +1794,7 @@
     (DATA.channels||[]).filter(c => /tiktok/i.test(c.channel||'')).forEach(c => push(c.channel, c.sales, c.pct));
 
     section('AFFILIATE — sales by code');
-    push('Code','Sales','Orders','AOV','% of total','vs prior wk %');
+    push('Code','Sales','Orders','AOV','% of total', `${G().prevAbbr} %`);
     (dc.codes||[]).forEach(c => push(c.code, c.sales, c.orders, c.aov ?? '',
       c.pct_of_total ?? '', c.sales_wow ?? ''));
     if (dc.total_sales) push('Coded / total', dc.coded_sales, dc.total_sales);
@@ -1356,7 +1833,7 @@
     const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `wow-${DATA.window.start}-to-${DATA.window.end}.csv`;
+    a.download = `wow-${GRAIN}-${DATA.window.start}-to-${DATA.window.end}.csv`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(a.href);
     setStatus('Exported', 'pos', 2000);
@@ -1371,7 +1848,7 @@
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'reports/wow-report',
         user:{ email:user?.email||'', role:'admin' },
-        crumbs:['Reports','Week over Week'],
+        crumbs:['Marketing','Marketing Report'],
         supabaseClient:sb,
       });
     }
@@ -1397,11 +1874,29 @@
     // banner below does the warning the cap was pretending to do. The
     // default still lands on the last complete day, so nobody reads a
     // partial week by accident.
+    GRAIN = readGrain();
+    writeGrain();
+    applyGrainLabels();
+    el('grainTabs').addEventListener('click', ev => {
+      const b = ev.target.closest('[data-grain]');
+      if (b) setGrain(b.dataset.grain);
+    });
+
     el('reportDate').max = iso(new Date());
     el('reportDate').addEventListener('change', async () => {
-      if (dirty && !confirm('You have unsaved notes on this week. Switch date anyway?')) return;
+      if (dirty && !confirm(`You have unsaved notes on this ${G().label.toLowerCase()}. Switch date anyway?`)) return;
       await load();
     });
+    // Delegated: the creative tables are re-rendered wholesale on every load,
+    // so a listener bound to the buttons themselves would not survive.
+    document.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-cre-more]');
+      if (!b) return;
+      const k = b.dataset.creMore;
+      CRE_SHOWN[k] = (CRE_SHOWN[k] || CRE_PAGE) + CRE_PAGE;
+      renderCreatives();
+    });
+
     el('btnRefresh').addEventListener('click', load);
     el('btnExport').addEventListener('click', exportCsv);
     el('btnSave').addEventListener('click', saveEntry);

@@ -59,6 +59,13 @@
     .mo-ad-sub { font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-top:2px; }
     .mo-bar { display:inline-block; height:8px; border-radius:2px; background:var(--bcn-accent); opacity:.35; vertical-align:middle; margin-right:6px; }
     .mo-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
+    .mo-stats { display:flex; flex-wrap:wrap; gap:28px; padding:14px 16px; }
+    .mo-stat-label { font-family:var(--bcn-mono); font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--bcn-ink-3); }
+    .mo-stat-value { font-family:var(--bcn-mono); font-size:22px; font-weight:600; color:var(--bcn-ink); font-variant-numeric:tabular-nums; margin-top:3px; }
+    .mo-stat-sub { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); margin-top:2px; }
+    /* Retired metrics must never render as 0 -- a zero is a claim, and this
+       one would be false. See the mo-note under the Facebook card. */
+    .mo-na { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-4); font-style:italic; }
     .mo-filter-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
 
     .mo-funnel { display:flex; flex-direction:column; gap:2px; }
@@ -81,7 +88,7 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Marketing Performance</h1>
-        <div class="bcn-header-sub">Blended ad spend against Shopify online net revenue — the ledger MER — with GA4 as the directional channel layer and Meta ad-level creative detail. Synced nightly. See <a href="/v2/integrations.html">Integrations</a> to manage connections.</div>
+        <div class="bcn-header-sub">Online store · blended ad spend against Shopify online net revenue — the ledger MER — with GA4 as the directional channel layer and Meta ad-level creative detail. "Blended" means across ad PLATFORMS, not across sales channels: retail is not measured here or anywhere else in SILO. Synced nightly. See <a href="/v2/integrations.html">Integrations</a> to manage connections.</div>
       </div>
       <div class="bcn-header-actions">
         <div class="mo-window" id="windowBtns">
@@ -238,6 +245,24 @@
       <!-- ── Organic ──────────────────────────────────────────────── -->
       <div data-panel="organic" hidden>
         <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Facebook Page</h2></div>
+          <div class="bcn-card-body" style="padding:0">
+            <div class="mo-stats" id="fbStats">
+              <div><div class="mo-stat-label">Page followers</div><div class="mo-stat-value" id="fbFans">—</div><div class="mo-stat-sub" id="fbFansSub">&nbsp;</div></div>
+              <div><div class="mo-stat-label">Post engagements</div><div class="mo-stat-value" id="fbEng">—</div><div class="mo-stat-sub" id="fbEngSub">&nbsp;</div></div>
+              <div><div class="mo-stat-label">Avg / day</div><div class="mo-stat-value" id="fbEngAvg">—</div><div class="mo-stat-sub" id="fbEngAvgSub">&nbsp;</div></div>
+            </div>
+            <div style="overflow:auto;max-height:340px">
+              <table class="mo-tbl">
+                <thead><tr id="fbHead"><th>Day</th><th>Post engagements</th></tr></thead>
+                <tbody id="fbBody"><tr><td class="mo-empty" colspan="4">No Facebook Page data yet — set the Page ID on the Meta connection in Integrations.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="mo-note" id="fbNote">Page-level daily engagement.</div>
+        </div>
+
+        <div class="bcn-card">
           <div class="bcn-card-header"><h2>Instagram — top posts &amp; reels</h2></div>
           <div class="bcn-card-body" style="padding:0;overflow:auto">
             <table class="mo-tbl">
@@ -347,6 +372,22 @@
           .select('media_id,media_type,caption,permalink,thumbnail_url,posted_at,views,reach,likes,comments,shares,saved')
           .order('posted_at', { ascending:false })));
     } catch(e){ console.warn('instagram_media_insights unavailable', e); return []; }
+  }
+
+  async function loadPageInsights(){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('facebook_page_insights_daily')
+          .select('day_date,page_impressions,page_reach,page_post_engagements,page_fan_count')
+          .gte('day_date', sinceIso())
+          // Upper bound as well as lower. Without it this query had no ceiling
+          // at all, so when a sync bug left 87 zero-filled FUTURE rows in the
+          // table the card loaded 117 rows instead of 30 and reported an
+          // average of 4,018/day against a true 15,535 -- and because those
+          // rows held 0 rather than null, no null-check could hide them.
+          .lte('day_date', new Date().toISOString().slice(0,10))
+          .order('day_date', { ascending:false })));
+    } catch(e){ console.warn('facebook_page_insights_daily unavailable', e); return []; }
   }
 
   // ── KPI band (ratios only over days both inputs cover) ─────────
@@ -727,13 +768,76 @@
     }).join('');
   }
 
+  // null means NOT REPORTED, never zero: numFmt would turn null into a
+  // confident 0, which for a metric Meta has stopped serving is a false claim.
+  const numOrNa = v => v == null ? '<span class="mo-na">not reported</span>' : numFmt(v);
+
+  // ── Facebook Page ──────────────────────────────────────────────
+  // Meta retired the old impression/reach metrics and named replacements:
+  //   page_impressions        (2025-11-15) → page_media_view
+  //   page_impressions_unique (2025-06-15) → page_total_media_view_unique
+  //   page_engaged_users      (2024-03-14) → no replacement at all
+  // The columns keep their original names in the DB, but the LABELS here say
+  // "media views", because a media view is not an impression and a unique
+  // media view is not reach. Calling them Impressions/Reach would hide a
+  // measurement change behind a familiar word.
+  const FB_COLS = [
+    { key: 'page_post_engagements', label: 'Post engagements' },
+    { key: 'page_impressions', label: 'Media views' },
+    { key: 'page_reach', label: 'Unique media views' },
+  ];
+
+  function renderPageInsights(rows){
+    if (!rows.length) return; // leaves the empty state in place
+
+    const days = rows.slice().sort((a,b) => a.day_date < b.day_date ? 1 : -1);
+    const engDays = days.filter(d => d.page_post_engagements != null);
+    const engTotal = engDays.reduce((t,d) => t + Number(d.page_post_engagements||0), 0);
+
+    // Latest day that actually carries a follower count: only the newest day of
+    // each sync is stamped, so the top row is not guaranteed to have one.
+    const fanRow = days.find(d => d.page_fan_count != null);
+    el('fbFans').textContent = fanRow ? numFmt(fanRow.page_fan_count) : '—';
+    el('fbFansSub').textContent = fanRow ? `as of ${fanRow.day_date}` : 'not recorded yet';
+
+    el('fbEng').textContent = engDays.length ? numFmt(engTotal) : '—';
+    el('fbEngSub').textContent = `${engDays.length} day${engDays.length===1?'':'s'} in window`;
+    el('fbEngAvg').textContent = engDays.length ? numFmt(engTotal / engDays.length) : '—';
+    el('fbEngAvgSub').textContent = engDays.length ? 'per day with data' : '\u00a0';
+
+    // Hide a column that is null for the whole window rather than printing a
+    // stack of "not reported". A retired metric that Meta starts serving again
+    // brings its column back on its own -- nothing here is hardcoded to the
+    // metrics that happen to be dead today.
+    const live = FB_COLS.filter(c => days.some(d => d[c.key] != null));
+    const dead = FB_COLS.filter(c => !live.includes(c));
+
+    el('fbHead').innerHTML = '<th>Day</th>' + live.map(c => `<th>${esc(c.label)}</th>`).join('');
+    el('fbBody').innerHTML = days.map(d => `<tr>
+      <td class="bcn-mono">${esc(d.day_date)}</td>
+      ${live.map(c => `<td>${numOrNa(d[c.key])}</td>`).join('')}
+    </tr>`).join('');
+
+    const notes = ['Page-level daily engagement.'];
+    if (live.some(c => c.key !== 'page_post_engagements')) {
+      notes.push('Media views replaced impressions and reach in Meta\u2019s 2025 deprecations \u2014 '
+        + 'a related but different measurement, so treat this as a new series rather than a continuation.');
+    }
+    if (dead.length) {
+      notes.push(`${esc(dead.map(c => c.label).join(', '))} ${dead.length===1?'is':'are'} not being returned for this window `
+        + '\u2014 column hidden rather than shown as zero, since no data means unknown.');
+    }
+    notes.push('Followers come from the Page profile, and only the newest day of each sync is stamped, so history stays blank.');
+    el('fbNote').innerHTML = notes.join(' ');
+  }
+
   // ── Load orchestration ─────────────────────────────────────────
   async function runLoad(){
     setStatus('Loading…');
     el('btnRefresh').disabled = true;
     try {
-      const [rows, merRows, adPerf, creatives, organic] = await Promise.all([
-        loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(),
+      const [rows, merRows, adPerf, creatives, organic, pageDays] = await Promise.all([
+        loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(), loadPageInsights(),
       ]);
       _adPerf = adPerf; _creatives = creatives;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
@@ -747,6 +851,7 @@
       renderFunnel(rows);
       renderChannels(rows, merRows);
       renderOrganic(organic);
+      renderPageInsights(pageDays);
       setStatus(`${rows.length + adPerf.length} rows loaded.`);
     } catch(e){
       console.error(e);

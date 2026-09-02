@@ -76,6 +76,22 @@ export function isoDateOnly(d) {
   return d.toISOString().slice(0, 10);
 }
 
+/** The business day is PACIFIC. isoDateOnly() is UTC, and between 5pm and
+ * midnight Pacific those two disagree about what day it is -- which is why
+ * anything deciding "yesterday" must not use isoDateOnly(). */
+export function pacificDateOnly(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+export function shiftIsoDay(iso, days) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function addDays(date, days) {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + days);
@@ -1535,9 +1551,10 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
 
 /**
  * Keeps products_master current with Shopify's active catalog. Only
- * touches catalog-identity columns (title, type, vendor, image, barcode) --
+ * touches catalog-identity columns (title, type, vendor, image, barcode) and
+ * Shopify's own storefront status (shopify_status, online_published_at) --
  * never the human-curated merchandising fields (cost, reorder points,
- * lifecycle_status, notes, etc.), which are absent from the upsert payload
+ * is_active, lifecycle_status, notes, etc.), which are absent from the upsert payload
  * and therefore untouched by Postgres's ON CONFLICT DO UPDATE. New SKUs
  * land with those fields blank for someone to fill in; existing SKUs never
  * get overwritten or deleted, even if since discontinued in Shopify.
@@ -1592,6 +1609,18 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
       vendor_original: p.vendor || null,
       image_url: imageUrl,
       barcode: v.barcode || null,
+      // Shopify's own storefront status. These are SYNC-owned and deliberately
+      // separate from is_active / lifecycle_status, which stay human-owned per
+      // the contract above -- writing Shopify's answer into is_active would have
+      // the nightly sync silently reverse a merchandiser's edit.
+      //
+      // Worth having because SILO had no way to answer "is this product live on
+      // the website": is_active is true on all 24,056 rows, is_discontinued has
+      // never been set, and lifecycle_status only carries PO-pipeline states.
+      // The product objects are already fetched for all three statuses just
+      // above, so this costs no extra API call.
+      shopify_status: p.status || null,
+      online_published_at: p.published_at || null,
       shop_domain: domain,
       updated_at: now,
     });
@@ -1647,9 +1676,29 @@ export async function runIncrementalSales(supabase, connection, {
     newestUpdatedStamp = maxIso(newestUpdatedStamp, order.updated_at || order.created_at);
   }
 
-  const affectedDates = [...new Set(
-    touched.map((o) => (o.created_at || '').slice(0, 10)).filter(Boolean),
-  )].sort();
+  // Which dates get rebuilt was driven ENTIRELY by which orders came back as
+  // touched since the watermark. That is a decent optimisation and a bad
+  // guarantee: if the watermark has already advanced past an order, its day is
+  // never recomputed, and the day silently keeps whatever partial totals it had
+  // when it was last built. On 2026-08-31 that left 08-30 at $14,990 online
+  // against Shopify's own $18,245, and today at essentially zero orders,
+  // through several successive successful syncs.
+  //
+  // The invariant we actually want is simple: YESTERDAY (Pacific) is always
+  // complete; today is allowed to be partial. So force both days into the
+  // rebuild set on every run, regardless of the watermark. Each is then
+  // re-fetched from Shopify in full and its rows replaced, so yesterday
+  // converges to complete on the first run after Pacific midnight and stays
+  // there. Today is included too -- not because it must be complete, but
+  // because rebuilding it is what keeps it moving, and it costs one extra day
+  // of an order fetch this loop was already doing.
+  const pacToday = pacificDateOnly();
+  const pacYesterday = shiftIsoDay(pacToday, -1);
+  const affectedDates = [...new Set([
+    ...touched.map((o) => (o.created_at || '').slice(0, 10)).filter(Boolean),
+    pacYesterday,
+    pacToday,
+  ])].sort();
 
   let rowsUpserted = 0;
   let daysRebuilt = 0;

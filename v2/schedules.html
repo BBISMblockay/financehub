@@ -99,6 +99,7 @@
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
+  <script src="je-composer.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
@@ -106,7 +107,7 @@
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Balance Sheet Schedules</div>
-          <div class="bcn-header-sub">Prepaids and other amortised items. Nothing here posts to QuickBooks.</div>
+          <div class="bcn-header-sub">Prepaids and other amortised items. Stamping and tie-out are review only — posting a month's recognition is a separate, explicit action below.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn" id="btnFetch">Fetch transactions</button>
@@ -167,6 +168,24 @@
             <div class="sc-tie-value" id="cuRemaining">—</div>
           </div>
           <div class="sc-tie-note" id="cuNote"></div>
+        </div>
+
+        <div class="sc-card">
+          <div class="sc-card-head">
+            <div>
+              <div class="sc-title">Amortization entry</div>
+              <div class="sc-sub">Prepaid items only, for now. Recognises every active item's period for the chosen month in one entry — debiting each item's expense account, crediting the prepaid asset it was stamped against.</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input class="bcn-field bcn-field--mono" id="amMonth" type="month" style="width:130px" />
+              <button class="bcn-btn bcn-btn--dark" id="btnBuildAmort">Build &amp; post amortization entry</button>
+            </div>
+          </div>
+          <div class="sc-scroll" style="max-height:26vh;">
+            <table class="sc-table" id="tblAmort">
+              <tbody><tr><td class="sc-empty">No amortization entries yet.</td></tr></tbody>
+            </table>
+          </div>
         </div>
 
         <div class="sc-card">
@@ -271,6 +290,7 @@
   let excludedInfo = new Map();  // qbo_txn_id -> { reason, note }
   let ledgerBalance = null;
   let openingBalance = 0;
+  let expenseAccountOpts = '';  // <option> markup, built once per accounts load
 
   const el = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
@@ -307,6 +327,14 @@
     // Prepaid is the starting point, so land there when it exists.
     const pre = bs.find((a) => /^prepaid$/i.test(a.name));
     if (pre) sel.value = pre.qbo_account_id;
+
+    // The recognition side of an amortization entry hits a P&L account, never
+    // a balance sheet one -- the opposite filter from the picker above.
+    const exp = (data || []).filter((a) =>
+      /Expense|Cost of Goods Sold/i.test(a.account_type || ''));
+    expenseAccountOpts = exp.map((a) =>
+      `<option value="${esc(a.qbo_account_id)}" data-name="${esc(a.fully_qualified_name || a.name)}">`
+      + `${esc(a.fully_qualified_name || a.name)}</option>`).join('');
   }
 
   // Pull the newest stored General Ledger run for this account rather than
@@ -385,7 +413,24 @@
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
     if (error) { setStatus('Schedule load failed: ' + error.message, 'neg', 8000); return []; }
-    return data || [];
+    const items = data || [];
+    if (!items.length) return items;
+
+    // schedule_item_balances_v carries what the tie-out needs, not the
+    // recognition side -- qbo_expense_account_id lives only on schedule_items
+    // itself. A second lean query rather than widening the view: the view is
+    // read from several places and most callers have no use for this field.
+    let eq = sb.from('schedule_items')
+      .select('id, qbo_expense_account_id, qbo_expense_account_name')
+      .in('id', items.map((i) => i.schedule_item_id));
+    const { data: exp } = await eq;
+    const expMap = new Map((exp || []).map((r) => [r.id, r]));
+    for (const i of items) {
+      const e = expMap.get(i.schedule_item_id);
+      i.qbo_expense_account_id = e?.qbo_expense_account_id || '';
+      i.qbo_expense_account_name = e?.qbo_expense_account_name || '';
+    }
+    return items;
   }
 
   function renderItems(items) {
@@ -398,6 +443,7 @@
     t.innerHTML = `<thead><tr>
         <th>Item</th><th>Period</th><th class="sc-num">Total</th>
         <th class="sc-num">Recognised</th><th class="sc-num">Remaining</th><th>Progress</th>
+        <th style="min-width:200px">Expense account</th>
       </tr></thead><tbody>` + items.map((i) => `<tr>
         <td>${esc(i.label)}<div class="sc-sub">${esc(i.schedule_type)}</div></td>
         <td class="sc-sub">${esc(i.service_start)} → ${esc(i.service_end)}</td>
@@ -405,9 +451,31 @@
         <td class="sc-num">${money(i.recognized_to_date)}</td>
         <td class="sc-num">${money(i.remaining_balance)}</td>
         <td class="sc-sub">${i.periods_elapsed}/${i.months} months</td>
+        <td><select class="bcn-field bcn-field--mono" style="font-size:11px;min-width:190px"
+              data-expense-for="${esc(i.schedule_item_id)}">
+            <option value="">— pick, needed to post —</option>
+            ${expenseAccountOpts}
+          </select></td>
       </tr>`).join('') + '</tbody>';
+    for (const i of items) {
+      const sel = t.querySelector(`[data-expense-for="${CSS.escape(i.schedule_item_id)}"]`);
+      if (sel) sel.value = i.qbo_expense_account_id || '';
+    }
     el('itemCount').textContent = `${items.length} items`;
+    t.querySelectorAll('[data-expense-for]').forEach((sel) =>
+      sel.addEventListener('change', () => setItemExpenseAccount(sel.dataset.expenseFor, sel)));
     return items.reduce((s, i) => s + Number(i.remaining_balance || 0), 0);
+  }
+
+  async function setItemExpenseAccount(itemId, sel) {
+    const accountId = sel.value;
+    const name = sel.selectedOptions[0]?.dataset.name || null;
+    const { error } = await sb.from('schedule_items').update({
+      qbo_expense_account_id: accountId || null,
+      qbo_expense_account_name: accountId ? name : null,
+    }).eq('id', itemId);
+    if (error) { setStatus('Could not save expense account: ' + error.message, 'neg', 8000); return; }
+    setStatus(accountId ? 'Expense account saved.' : 'Expense account cleared.', 'pos', 3000);
   }
 
   function renderTxns() {
@@ -836,6 +904,176 @@
     await refresh();
   }
 
+  // Amortization posting -- the piece the migration deliberately deferred
+  // ("Nothing here posts to QuickBooks. Generated periods are a proposal a
+  // human reads; quickbooks_journal_postings exists for when that changes.").
+  // Scoped to schedule_type = 'prepaid' only: the migration's own comment
+  // notes deferred_revenue/deferred_cost share the arithmetic but flip sign
+  // for asset vs liability, and nobody has asked for those yet -- guessing
+  // the sign on an unasked-for type is a good way to post a backwards entry.
+  //
+  // One line per item (debit expense, credit the prepaid asset) rather than
+  // netting same-account items into one line: a reviewer approving the
+  // composer's review step should see which item produced which dollar, not
+  // a pre-summed number they have to trust.
+  function lastFullMonth() {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    return d.toISOString().slice(0, 7);
+  }
+
+  function monthEndDate(monthStr) {
+    const [y, m] = monthStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  }
+
+  async function buildAmortLines(monthStr) {
+    let q = sb.from('schedule_item_amortization_v')
+      .select('schedule_item_id, label, qbo_account_id, qbo_expense_account_id, period_amount')
+      .eq('schedule_type', 'prepaid')
+      .eq('period_start', `${monthStr}-01`)
+      .neq('status', 'closed');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const lines = [];
+    const unmapped = [];
+    for (const r of (data || [])) {
+      const amt = Number(r.period_amount || 0);
+      if (amt <= 0.004) continue;
+      if (!r.qbo_expense_account_id) { unmapped.push(r.label); continue; }
+      const desc = `${r.label} — ${monthStr}`;
+      lines.push({ accountId: r.qbo_expense_account_id, postingType: 'Debit', amount: amt, description: desc });
+      lines.push({ accountId: r.qbo_account_id, postingType: 'Credit', amount: amt, description: desc });
+    }
+    return { lines, unmapped };
+  }
+
+  function openAmortComposer(prefill, adjustmentId, context) {
+    if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
+    if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
+    window.SiloJE.open({
+      db: sb,
+      companyId: _co.id,
+      context: context || 'schedules:prepaid',
+      prefill,
+      adjustmentId,
+      onStaged: loadAmortAdjustments,
+      onPosted: async (out) => {
+        setStatus(`Posted amortization entry ${out.doc_number || out.qbo_journal_entry_id}.`, 'pos', 8000);
+        await loadAmortAdjustments();
+      },
+    });
+  }
+
+  async function buildAndPostAmortization() {
+    const monthStr = el('amMonth').value;
+    if (!monthStr) { setStatus('Pick a month first.', 'info', 3000); return; }
+    if (!_co?.id) { setStatus('No active company resolved.', 'neg', 5000); return; }
+
+    const context = `schedules:prepaid:${monthStr}`;
+
+    // journal_adjustments.source_context is deliberately free text (no schema
+    // key), so re-posting the same month is not stopped by the database the
+    // way a card batch's double-post is -- it would double the recognised
+    // expense in QuickBooks. Checked here instead: reuse a staged draft
+    // rather than duplicate it, and refuse outright once a month is posted.
+    const { data: existing } = await sb.from('journal_adjustments')
+      .select('id, status')
+      .eq('company_entity_id', _co.id)
+      .eq('source_context', context)
+      .in('status', ['draft', 'approved', 'posted'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (existing?.length) {
+      const ex = existing[0];
+      if (ex.status === 'posted') {
+        setStatus(`${monthStr} amortization is already posted. Void it first if it needs to change.`,
+          'info', 9000);
+        return;
+      }
+      setStatus(`${monthStr} already has a staged entry — reopening it instead of building a duplicate.`,
+        'info', 6000);
+      openAmortComposer(null, ex.id, context);
+      return;
+    }
+
+    let lines, unmapped;
+    try {
+      ({ lines, unmapped } = await buildAmortLines(monthStr));
+    } catch (e) {
+      setStatus('Could not read the schedule: ' + e.message, 'neg', 9000);
+      return;
+    }
+
+    if (unmapped.length) {
+      setStatus(`${unmapped.length} item(s) have no expense account mapped, so nothing was built: `
+        + unmapped.join(', '), 'neg', 15000);
+      return;
+    }
+    if (!lines.length) {
+      setStatus(`Nothing to recognise for ${monthStr} — no active prepaid item has a period in that month.`,
+        'info', 8000);
+      return;
+    }
+
+    openAmortComposer({
+      entryDate: monthEndDate(monthStr),
+      memo: `Prepaid amortization — ${monthStr}`,
+      lines,
+    }, null, context);
+  }
+
+  async function voidAmortAdjustment(id) {
+    const reason = window.prompt(
+      'Why is this being voided? (Recorded against the posting.)\n\n'
+      + 'Void only after the entry has actually been deleted in QuickBooks — '
+      + 'this changes what SILO believes, not what QuickBooks holds.');
+    if (reason === null) return;
+    const { data, error } = await sb.rpc('void_journal_adjustment',
+      { p_adjustment_id: id, p_reason: reason });
+    if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
+    setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}. `
+      + 'Back to approved, and can be posted again.', 'pos', 10000);
+    await loadAmortAdjustments();
+  }
+
+  async function loadAmortAdjustments() {
+    let q = sb.from('journal_adjustments_v')
+      .select('*')
+      .like('source_context', 'schedules:prepaid:%')
+      .in('status', ['draft', 'approved', 'posted'])
+      .order('entry_date', { ascending: false })
+      .limit(25);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { console.warn('amortization adjustments load failed', error); return; }
+
+    const rows = data || [];
+    const t = el('tblAmort');
+    if (!rows.length) {
+      t.innerHTML = '<tbody><tr><td class="sc-empty">No amortization entries yet.</td></tr></tbody>';
+      return;
+    }
+    t.innerHTML = `<thead><tr>
+        <th>Month</th><th>Memo</th><th class="sc-num">Amount</th><th>Status</th><th></th>
+      </tr></thead><tbody>` + rows.map((a) => {
+      const month = (a.source_context || '').split(':')[2] || esc(a.entry_date || '').slice(0, 7);
+      const action = a.status === 'posted'
+        ? `<button class="sc-link" data-void="${esc(a.id)}">void</button>`
+        : `<button class="sc-link" data-open="${esc(a.id)}">open</button>`;
+      return `<tr>
+        <td class="sc-sub">${esc(month)}</td>
+        <td>${esc(a.memo)}</td>
+        <td class="sc-num">${money(a.debits)}</td>
+        <td class="sc-sub">${esc(a.qbo_doc_number || a.status)}</td>
+        <td>${action}</td>
+      </tr>`;
+    }).join('') + '</tbody>';
+  }
+
   (async function boot() {
     const sess = await sb.auth.getSession();
     if (!sess?.data?.session) {
@@ -857,14 +1095,23 @@
     const now = new Date();
     el('from').value = `${now.getUTCFullYear()}-01-01`;
     el('to').value = now.toISOString().slice(0, 10);
+    el('amMonth').value = lastFullMonth();
 
     await loadAccounts();
     await refresh();
+    await loadAmortAdjustments();
 
     el('account').addEventListener('change', refresh);
     el('btnFetch').addEventListener('click', fetchLedger);
     el('btnStamp').addEventListener('click', openStamp);
     el('btnExclude').addEventListener('click', excludeSelected);
+    el('btnBuildAmort').addEventListener('click', buildAndPostAmortization);
+    el('tblAmort').addEventListener('click', (e) => {
+      const o = e.target.closest('[data-open]');
+      if (o) { openAmortComposer(null, o.dataset.open); return; }
+      const v = e.target.closest('[data-void]');
+      if (v) voidAmortAdjustment(v.dataset.void);
+    });
     el('dlgRequest').addEventListener('change', (e) => {
       const o = e.target.selectedOptions[0];
       el('dlgRequestNote').textContent = o && o.value

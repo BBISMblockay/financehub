@@ -60,7 +60,6 @@
    */
   const NAV_ITEMS = [
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'start/insights', section: 'Start', label: 'Action Items', href: '/v2/insights.html', profiles: ['grandfathered', 'standard'] },
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
     { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
 
@@ -68,17 +67,34 @@
     { departments: FINANCE_DEPTS, id: 'finance/accounting-export', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting Export', href: '/v2/accounting-export.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'finance/qbo-reports', section: 'Accounting', sectionStandard: 'Operations', label: 'QuickBooks Reports', href: '/v2/qbo-reports.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'finance/schedules', section: 'Accounting', sectionStandard: 'Operations', label: 'Schedules', href: '/v2/schedules.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/fixed-assets', section: 'Accounting', sectionStandard: 'Operations', label: 'Fixed Assets', href: '/v2/fixed-assets.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/card-coding', section: 'Accounting', sectionStandard: 'Operations', label: 'Card Coding', href: '/v2/card-coding.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
+
+    // Requests (AP intake/approval + mail handling) was split out of
+    // Accounting once that section reached nine items and stopped reading as
+    // a section at all. Mail Intake/Mailroom fold into the same section
+    // rather than getting a third one of their own -- both are "things that
+    // came in and need routing," and four items reads as one section fine.
+    // The nav is an accordion with one section open at a time, so this costs
+    // no height -- opening Requests collapses Accounting.
+    //
+    // sectionStandard stays 'Operations' on purpose. A section name absent
+    // from STANDARD_SECTION_ORDER is DROPPED for standard-profile companies,
+    // so renaming it here without adding it there would make these links
+    // vanish for every company but this one. Standard profile already reads
+    // all four of these as one 'Operations' bucket, so this change is
+    // grandfathered-only.
     // WPV Receivables removed 2026-08-16 — stale Google Sheets flow, page retired.
-    { id: 'finance/payment-request', section: 'Accounting', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
     // logistics added alongside FINANCE_DEPTS so that department can still
     // see Request Manager to track payment requests they submitted --
     // RLS (payment_requests_active_select) already lets anyone see their
     // own created_by rows regardless of department; this just keeps the
     // nav link (and dept-guard.js on the page itself) from hiding it.
-    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/mail-intake', section: 'Accounting', sectionStandard: 'Operations', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Accounting', sectionStandard: 'Operations', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
+    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/mail-intake', section: 'Requests', sectionStandard: 'Operations', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Operations', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
     // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
 
     { id: 'planning/calendar', section: 'Planning', label: 'Org Calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'] },
@@ -117,11 +133,21 @@
     { id: 'reports/product-search', section: 'Sales', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-report', section: 'Sales', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
 
-    // Week over Week sits under Marketing: its KPI band is sales-shaped, but
-    // it is a marketing report, read by and built for marketing.
-    { id: 'reports/wow-report', section: 'Marketing', label: 'Week over Week', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
-    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Marketing Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
-    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Marketing Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
+    // Three Marketing entries, ordered by how they are used rather than
+    // alphabetically: the report you produce, the dashboard you watch, the
+    // tool you dig with.
+    //
+    // 'Week over Week' was renamed to 'Marketing Report' because the page
+    // stopped being weekly -- it reads day / week / month-to-date / year-to-
+    // date -- and its own <h1> already said Marketing Report. A nav label that
+    // disagrees with the page heading makes people think they clicked wrong.
+    //
+    // The other two drop their 'Marketing' prefix: the section header above
+    // them already says MARKETING, so repeating it three times crowded out the
+    // word that actually distinguishes each one.
+    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
 
     // Deliberately left in its own 'Reports' section by the Sales/Marketing
     // split above, not moved and not promoted, because it is still in soft

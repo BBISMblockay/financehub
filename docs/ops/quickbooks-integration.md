@@ -9,9 +9,21 @@ The scope decision (2026-08-26) is deliberate and narrow:
 
 - **QBO owns the ledger.** Close, reconcile, file, report. SILO does not
   replicate double-entry, period locking, bank reconciliation, inventory
-  valuation, fixed assets, or payroll tax filing, and is not intended to.
+  valuation, or payroll tax filing, and is not intended to.
 - **SILO owns operations** — POs, landed cost, inventory, channel revenue,
   AP intake and approval — and produces journal entries a human reviews.
+
+**Clarified 2026-09-02, re: fixed assets.** This line originally listed fixed
+assets alongside bank reconciliation as out of scope. That was about not
+duplicating QBO's own ledger, not about refusing to compute a supporting
+schedule and hand a human a journal entry to review — `schedule_items`
+(2026-08-27) already established that shape for prepaid amortization, and
+`fixed_assets` (2026-09-02, `/v2/fixed-assets.html`) is the same posture for
+depreciation: SILO computes the straight-line schedule, a human decides
+whether and when to post it, QuickBooks stays the system of record for the
+asset and the entry both. What stays out of scope is a fixed asset SUBLEDGER
+that replaces QBO's own Fixed Asset list or computes disposal gain/loss — this
+is a schedule and a JE preparer, not that.
 
 Phase 3 (posting journal entries) and phase 4 (pulling QBO reports into SILO)
 build on this, but a human approving each post is a requirement of the design,

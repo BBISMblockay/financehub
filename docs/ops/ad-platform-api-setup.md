@@ -48,6 +48,24 @@ No OAuth flow — Meta's recommended server-to-server credential is a **System U
 3. Generate token: pick your app (create a Business-type app at developers.facebook.com if you have none), scopes `ads_read` + `business_management`, expiry **never**.
 4. **Connect in SILO**: `/v2/integrations.html` → *Add Meta Ads token…* → paste the token (ad account ID optional — Test lists the accounts the token can see, e.g. `act_1234567890`). Test, set the account, enable sync.
 
+**Replacing a regenerated token — do NOT use *Add Meta Ads token…* for this.** That button
+only ever INSERTs, so pasting a refreshed token there creates a SECOND connection for the
+same ad account. Use **Replace token** on the existing row instead: it swaps the credential
+in place and clears the row's previous test result, since the old "OK" pill was earned by
+the old token. The add form now refuses an account that is already connected (comparing
+`act_51281951` and `51281951` as the same account) and points here.
+
+For the record, a duplicate connection would NOT have doubled spend: every Meta table
+upserts on an identity hash that deliberately excludes `connection_id` — `marketing_kpis_daily`
+on company+platform+account+campaign+day, `meta_ad_performance_daily` on
+company+account+ad+day, `meta_ad_creatives` and `instagram_media_insights` on their natural
+keys — and the account id in those hashes comes from Meta's API response, not from the
+field you typed. Two connections on one account would land on the same rows and overwrite.
+What it WOULD cost is a doubled nightly pull against an account that already hits
+"Application request limit reached", a `connection_id` that flips between rows, and a
+stale-token row failing the whole workflow. Genuine double-counting needs two connections
+pointing at two DIFFERENT account ids.
+
 ### Optional: organic Instagram + Facebook Page insights (posts/reels — separate from the ads pull above)
 
 The System User token above only grants `ads_read` — organic reach/engagement needs two additional things, not just a permission checkbox:
@@ -58,6 +76,134 @@ The System User token above only grants `ads_read` — organic reach/engagement 
 4. Send Blake the **Facebook Page ID** and **Instagram Business Account ID** (Graph API Explorer: `GET /me/accounts` for the Page ID, then `GET /{page-id}?fields=instagram_business_account` for the IG account ID) — set on the existing Meta connection row (`facebook_page_id`, `instagram_business_account_id`), no new connection needed.
 
 Note: Meta unified impression-style metrics on Instagram media insights into a single `views` metric in 2024 — if comparing against an older report that says "impressions," that's the same thing under the new name.
+
+**Page Insights needs a PAGE access token, not the System User token.** The ads pull and
+Instagram both authenticate fine with the System User token, but `/{page-id}/insights`
+answers `(#190) This method must be called with a Page Access Token`. The sync now derives
+one automatically by reading `access_token` off the Page node before each Page pull, so
+there is nothing extra to paste — but that exchange only succeeds while the System User has
+the Page **assigned as an asset** (step 2 above). If the log says "Could not derive a Page
+access token", that assignment is what is missing; it is not a token or metric problem.
+This is also why Instagram was writing 50 rows in the very same run where Page insights
+wrote none — different auth path, not a different failure.
+
+**Page metrics are on a moving deprecation schedule, Instagram's are not.** Meta retires
+Page Insights metrics globally -- for ALL API versions at once, retroactively -- so pinning
+`META_API_VERSION` does not hold them still, and there is no permission, token or access
+tier that brings a retired metric back. It is deleted, not withheld. Do not confuse this
+with `(#190) must be called with a Page Access Token`, which IS an access problem and is
+handled above; both errors were hit on 2026-08-28 and only one of them was fixable.
+
+The API rejects a retired name with `(#100) The value must be a valid insights metric` and
+does **not** say which name it objected to, so one dead metric in a combined request kills
+every metric in it. `fetchFacebookPageInsights` therefore falls back to requesting each
+metric on its own when it sees that error, keeps whatever still works, and reports the rest
+as `page_metrics_dropped` in the `sync_jobs` result.
+
+What we request now, and why, from Meta's own deprecation table:
+
+| Metric | Status | What we use |
+|--------|--------|-------------|
+| `page_impressions` | retired 2025-11-15 | `page_media_view` |
+| `page_impressions_unique` | retired 2025-06-15 | `page_total_media_view_unique` |
+| `page_engaged_users` | retired 2024-03-14 | **nothing** -- no replacement exists |
+| `page_post_engagements` | still served | unchanged |
+
+**A media view is not an impression, and a unique media view is not reach.** These are
+related but different measurements, so they begin a NEW series rather than continuing the
+old one -- never splice them onto historical impression/reach numbers from Business Suite
+or an old report. `page_engaged_users` has no successor at all: its column stays null and
+is omitted from the row payload rather than written as 0, because "Meta stopped measuring
+this" is not zero.
+
+**Backfilling history — the two halves work differently, and `days_back` only drives one.**
+
+*Facebook Page* history is date-windowed, so `days_back` reaches further back (Meta retains
+roughly two years). The window is chunked at 90 days per request and each chunk follows
+`paging.next`. Both matter only for long windows, which is why their absence went unnoticed
+at 30 days: a single un-paged request returns just the first page, so a year-long window
+would have come back QUIETLY TRUNCATED, with fewer days than asked for and no error.
+
+Page Insights `paging.next` walks the time window **forward** rather than ending at the
+`until` that was asked for, so following it blindly marches past the window into buckets
+that have not happened yet. Doing exactly that on 2026-08-28 wrote 90 future-dated rows
+(08-29..11-26) full of ZEROES — worse than missing data, because a zero reads as a measured
+value and would have dragged every average down while the UI's null-check happily rendered
+it. The fetcher now stops paging as soon as a page reaches past the chunk end, and
+separately keeps only days inside `[startDate, endDate)`. The upper bound is exclusive
+because `endDate` is today and today is still in progress, so that range is exactly the set
+of COMPLETE days. Both guards are deliberate: the clamp filters by DATE and never by value,
+so a genuine zero-engagement day inside the window is still kept.
+
+*Instagram* history is **not** date-windowed at all — media insights are lifetime cumulative
+counters with no date range, so reaching further back means walking through more POSTS.
+`days_back` has no effect on Instagram whatsoever. Use the `ig_post_limit` workflow input
+(`ADS_IG_POST_LIMIT`) instead; it defaults to 50, which is the nightly's deliberate cost
+ceiling, since every post costs its own extra insights request against a rate limit this
+account already trips. The walk stops mid-page once the cap is reached rather than finishing
+the page, and the run logs a note when it stops exactly on the cap so a truncated walk is
+not mistaken for complete history.
+
+One-off backfill, via **Actions → Ad Platforms KPI Sync → Run workflow**:
+
+    platform:      meta_ads
+    connection_id: <the meta_ads connection id>
+    days_back:     365      # Facebook Page days
+    ig_post_limit: 500      # Instagram posts
+
+Every write is an idempotent upsert on identity, so a backfill can be re-run safely and the
+nightly 30-day window afterwards refreshes recent rows without disturbing the older ones it
+no longer covers.
+
+`page_fan_count` is unaffected by all of this -- it comes from the Page node
+(`?fields=fan_count`), not the insights edge. (The `page_fans` INSIGHTS metric was retired
+2025-11-15 with `page_follows` as its alternative; we do not use it.)
+
+When a future round retires something else, `page_metrics_dropped` names it. Look it up in
+Meta's deprecation table and swap the alternative into `PAGE_INSIGHT_METRICS`, which maps
+metric name to output field in one place. The Marketing Organic tab hides a column that is
+null across the whole window and names it in the note, so a newly-retired metric degrades
+to a hidden column rather than a wall of zeroes.
+
+The Instagram and Facebook halves are also independently error-trapped: a Page failure
+records `page_error` and leaves `media_upserted` intact, instead of replacing the whole
+organic summary with an error string (which is what hid those 50 Instagram rows).
+
+`page_fan_count` comes from the Page node (`?fields=fan_count`), not the insights edge —
+which is why the column sat unwritten from the table's creation until 2026-08-28. It is a
+current snapshot, so only the newest day is stamped, by a targeted update after the main
+upsert; the trailing-window upsert deliberately omits the column so it cannot blank out
+days an earlier run already stamped. Older days stay null — a follower count cannot be
+honestly backfilled.
+
+## Sync scheduling: full Pacific days, present before the morning check-in
+
+The requirement is "yesterday is complete when someone opens a report at 8am PT". That is a
+CONDITION, not a clock, and tying it to a cron is what kept breaking. Three things enforce it:
+
+**1. The sync's day boundary is PACIFIC, not UTC.** `isoDateOnly()` is UTC, so between 5pm and
+midnight Pacific (00:00-07:00 UTC the next day) a UTC "today" is already tomorrow, and the
+window would treat the still-running Pacific day as finished. `computeWindow()` uses
+`pacificDateOnly()` for `endDate`, and the `[startDate, endDate)` clamp then makes the newest
+day written always Pacific YESTERDAY -- complete no matter what hour the run fires. This is
+what makes a late or extra run harmless instead of corrupting. On 2026-08-30 the UTC version
+wrote the 30th as closed at 6:15pm Pacific, six hours early, and nothing corrected it until
+the next morning.
+
+**2. Hourly light refreshes, because GitHub delivers crons late.** Since 2026-08-27 scheduled
+runs have arrived FOUR TO ELEVEN HOURS behind (verified via the Actions API: every one was
+`event: schedule`, not manual). Two fires a day cannot survive that; twenty-four can. The
+hourly crons are deliberately the cheap path -- Shopify does sales + inventory only, ads use a
+3-day window with `ADS_SKIP_ORGANIC` -- because the full paths are 45-75 min and ~30+ Meta
+requests respectively, and Meta already rate-limits this account. The nightly full runs are
+unchanged and still do catalog, organic and the 30-day window.
+
+**3. The freshness check detects a PARTIAL day, not just a missing one.** Being present is not
+being complete. A day only counts as complete once its newest `synced_at` is after that
+Pacific day ended; anything earlier is reported `PARTIAL` and healed like any other staleness.
+Without this, 08-30 passed the check twice while missing six hours of sales and ~$19k of Meta
+spend -- `day_date` 08-30 existed and lag was 1, so everything read healthy. A check at 14:00
+UTC (7am PT) is the last look before the morning check-in.
 
 ## TikTok Ads
 
@@ -87,5 +233,5 @@ Note: Meta unified impression-style metrics on Instagram media insights into a s
 | Platform | Credential | Lifetime | On failure |
 |----------|-----------|----------|------------|
 | Google Ads / GA4 | OAuth refresh token | Indefinite (revoked if unused ~6 months or password/permission change) | Sync errors `invalid_grant` → reconnect via Integrations |
-| Meta Ads | System User token | Never expires | Only dies if the system user/app loses asset access → regenerate + re-paste |
+| Meta Ads | System User token | Never expires | Only dies if the system user/app loses asset access → regenerate, then **Replace token** on the existing row (see below) |
 | TikTok Ads | OAuth access token | Long-lived (v1.3 returns no expiry) | 401 from API → reconnect via Integrations |

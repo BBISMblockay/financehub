@@ -34,17 +34,128 @@
       -webkit-overflow-scrolling: touch;
       scrollbar-gutter: stable;
     }
-    .int-section-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--bcn-ink-3);
-      margin: 0 0 10px;
-    }
-    .int-stores-grid {
-      display: block;
+
+    /* ── Summary band ── */
+    .int-summary-band {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
       margin-bottom: 24px;
+    }
+    .int-summary-tile {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--bcn-surface, #fff);
+      border: 1px solid var(--bcn-border, #e5e7eb);
+      border-radius: 12px;
+    }
+    .int-summary-icon {
+      flex-shrink: 0;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+    }
+    .int-summary-icon svg { width: 18px; height: 18px; }
+    .int-summary-icon--pos  { background: #dcfce7; color: #16a34a; }
+    .int-summary-icon--warn { background: #fef3c7; color: #d97706; }
+    .int-summary-icon--info { background: #dbeafe; color: #2563eb; }
+    .int-summary-value {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.1;
+      color: var(--bcn-ink);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .int-summary-label {
+      font-size: 12px;
+      color: var(--bcn-ink-3);
+      margin-top: 2px;
+    }
+
+    /* ── Section cards ── */
+    .int-card {
+      background: var(--bcn-surface, #fff);
+      border: 1px solid var(--bcn-border, #e5e7eb);
+      border-radius: 12px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .int-card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 18px;
+    }
+    .int-card-icon {
+      flex-shrink: 0;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+    }
+    .int-card-icon svg { width: 17px; height: 17px; }
+    .int-card-icon--shopify { background: #95bf47; }
+    .int-card-icon--ads     { background: #2563eb; }
+    .int-card-icon--redo    { background: #ef4444; }
+    .int-card-icon--qbo     { background: #2ca01c; }
+    .int-card-header-text { min-width: 0; flex: 1; }
+    .int-card-header-text h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--bcn-ink);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .int-card-header-text p {
+      margin: 3px 0 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--bcn-ink-3);
+      max-width: 760px;
+    }
+    .int-card-header-text p a { color: var(--bcn-accent, #2563eb); }
+    .int-card-body { padding: 0 18px 18px; }
+    .int-backfill-banner-slot { padding: 0 18px; }
+
+    /* ── Card collapse ── */
+    .int-card-collapse-btn {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      border: 1px solid transparent;
+      background: none;
+      color: var(--bcn-ink-3);
+      cursor: pointer;
+      margin-left: auto;
+    }
+    .int-card-collapse-btn:hover { background: var(--bcn-surface-2, #f3f4f6); color: var(--bcn-ink-2); }
+    .int-card-collapse-btn svg { width: 15px; height: 15px; transition: transform 0.15s; }
+    .int-card--collapsed .int-card-collapse-btn svg { transform: rotate(-90deg); }
+    .int-card--collapsed .int-card-body,
+    .int-card--collapsed .int-backfill-banner-slot {
+      display: none;
+    }
+    .int-card--collapsed .int-card-header { padding-bottom: 16px; }
+
+    /* Shopify row count is unbounded (a company can connect many stores) —
+       cap the table's height and let it scroll internally rather than
+       stretching the whole page. The sticky thead keeps working since it's
+       sticky relative to this scroll container. */
+    .int-table-wrap--scroll {
+      max-height: 480px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     /* ── Store table ── */
@@ -54,8 +165,8 @@
       border-radius: 10px;
       overflow-x: auto;
       overflow-y: visible;
-      margin-bottom: 16px;
     }
+    .int-card-body > .int-table-wrap { margin-bottom: 0; }
     .int-table {
       width: 100%;
       border-collapse: collapse;
@@ -84,7 +195,7 @@
     .int-table tbody tr:last-child { border-bottom: none; }
     .int-table tbody tr:hover { background: #fafafa; }
     .int-table td {
-      padding: 10px 12px;
+      padding: 12px;
       vertical-align: middle;
       white-space: nowrap;
     }
@@ -96,23 +207,72 @@
       display: inline-block;
       background: #d1d5db;
       flex-shrink: 0;
+      box-shadow: 0 0 0 3px transparent;
     }
-    .int-dot--ok  { background: #22c55e; }
-    .int-dot--err { background: #ef4444; }
+    .int-dot--ok  { background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
+    .int-dot--err { background: #ef4444; box-shadow: 0 0 0 3px #fee2e2; }
+
+    /* platform label (ad platforms table) — real brand mark + name */
+    .int-platform-label { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+    .int-platform-label svg { flex-shrink: 0; }
 
     /* store name cell */
     .int-store-name { font-weight: 600; color: var(--bcn-ink); font-size: 13px; }
     .int-store-domain { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--bcn-ink-3); margin-top: 1px; }
 
-    /* nightly toggle */
+    /* pill (mirrors bcn-pill but scoped here so existing bcn-pill usage
+       elsewhere in the app is untouched) */
+    .int-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 99px;
+      background: var(--bcn-surface-2, #f3f4f6);
+      color: var(--bcn-ink-2);
+      white-space: nowrap;
+    }
+    .int-pill--pos { background: #dcfce7; color: #166534; }
+    .int-pill--neg { background: #fee2e2; color: #991b1b; }
+    .int-pill--accent { background: #dbeafe; color: #1d4ed8; }
+
+    /* nightly toggle — restyle the existing checkbox into a track/thumb
+       switch purely with CSS; markup + onchange handler untouched */
     .int-nightly-toggle {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       cursor: pointer;
       font-size: 12px;
       color: var(--bcn-ink-2);
     }
+    .int-table input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 34px;
+      height: 20px;
+      border-radius: 99px;
+      background: #d1d5db;
+      position: relative;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s;
+      margin: 0;
+    }
+    .int-table input[type="checkbox"]::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+      transition: transform 0.15s;
+    }
+    .int-table input[type="checkbox"]:checked { background: var(--bcn-accent, #2563eb); }
+    .int-table input[type="checkbox"]:checked::after { transform: translateX(14px); }
     .int-nightly-badge {
       font-size: 10px;
       font-weight: 700;
@@ -128,28 +288,52 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 26px;
-      padding: 0 9px;
-      border-radius: 5px;
+      height: 27px;
+      padding: 0 10px;
+      border-radius: 6px;
       font-size: 11px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
       border: 1px solid transparent;
       background: none;
-      transition: background 0.1s, border-color 0.1s;
+      transition: background 0.1s, border-color 0.1s, opacity 0.1s;
       white-space: nowrap;
       font-family: inherit;
     }
-    .int-btn--ghost { border-color: var(--bcn-border, #e5e7eb); color: var(--bcn-ink-2); background: #fff; }
-    .int-btn--ghost:hover { background: #f3f4f6; }
-    .int-btn--ghost:disabled { opacity: 0.4; cursor: default; }
+    .int-btn--ghost { border-color: #bfdbfe; color: var(--bcn-accent, #2563eb); background: #fff; }
+    .int-btn--ghost:hover { background: #eff6ff; }
+    .int-btn--ghost:disabled { opacity: 0.4; cursor: default; background: #fff; }
     .int-btn--primary { background: var(--bcn-accent, #2563eb); color: #fff; border-color: var(--bcn-accent, #2563eb); }
     .int-btn--primary:hover { opacity: 0.88; }
-    .int-btn--danger { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
-    .int-btn--danger:hover { background: #fee2e2; }
+    .int-btn--danger { background: none; color: #dc2626; border-color: transparent; }
+    .int-btn--danger:hover { background: #fef2f2; border-color: #fecaca; }
     .int-btn--warn { background: #fffbeb; color: #92400e; border-color: #fde68a; }
     .int-btn--warn:hover { background: #fef3c7; }
-    .int-btn-group { display: flex; gap: 3px; align-items: center; }
+    .int-btn-group { display: flex; gap: 4px; align-items: center; }
+
+    /* Real brand marks on the "Connect X" buttons, via ::before rather than
+       an inline <svg> child — several of these buttons have their
+       textContent swapped to "Redirecting…" and restored on error
+       (startAdOauth / the Shopify connect handler), which would silently
+       wipe an actual child element. A pseudo-element survives that. */
+    .int-brand-btn { padding-left: 8px; }
+    .int-brand-btn::before {
+      content: '';
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      margin-right: 6px;
+      vertical-align: -2px;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: contain;
+    }
+    .int-brand-btn--shopify::before    { background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%2395BF47%22%20d%3D%22M15.337%2023.979l7.216-1.561s-2.604-17.613-2.625-17.73c-.018-.116-.114-.192-.211-.192s-1.929-.136-1.929-.136-1.275-1.274-1.439-1.411c-.045-.037-.075-.057-.121-.074l-.914%2021.104h.023zM11.71%2011.305s-.81-.424-1.774-.424c-1.447%200-1.504.906-1.504%201.141%200%201.232%203.24%201.715%203.24%204.629%200%202.295-1.44%203.76-3.406%203.76-2.354%200-3.54-1.465-3.54-1.465l.646-2.086s1.245%201.066%202.28%201.066c.675%200%20.975-.545.975-.932%200-1.619-2.654-1.694-2.654-4.359-.034-2.237%201.571-4.416%204.827-4.416%201.257%200%201.875.361%201.875.361l-.945%202.715-.02.01zM11.17.83c.136%200%20.271.038.405.135-.984.465-2.064%201.639-2.508%203.992-.656.213-1.293.405-1.889.578C7.697%203.75%208.951.84%2011.17.84V.83zm1.235%202.949v.135c-.754.232-1.583.484-2.394.736.466-1.777%201.333-2.645%202.085-2.971.193.501.309%201.176.309%202.1zm.539-2.234c.694.074%201.141.867%201.429%201.755-.349.114-.735.231-1.158.366v-.252c0-.752-.096-1.371-.271-1.871v.002zm2.992%201.289c-.02%200-.06.021-.078.021s-.289.075-.714.21c-.423-1.233-1.176-2.37-2.508-2.37h-.115C12.135.209%2011.669%200%2011.265%200%208.159%200%206.675%203.877%206.21%205.846c-1.194.365-2.063.636-2.16.674-.675.213-.694.232-.772.87-.075.462-1.83%2014.063-1.83%2014.063L15.009%2024l.927-21.166z%22%2F%3E%3C%2Fsvg%3E"); }
+    .int-brand-btn--google-ads::before { background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%234285F4%22%20d%3D%22M3.9998%2022.9291C1.7908%2022.9291%200%2021.1383%200%2018.9293s1.7908-3.9998%203.9998-3.9998%203.9998%201.7908%203.9998%203.9998-1.7908%203.9998-3.9998%203.9998zm19.4643-6.0004L15.4632%203.072C14.3586%201.1587%2011.9121.5028%209.9988%201.6074S7.4295%205.1585%208.5341%207.0718l8.0009%2013.8567c1.1046%201.9133%203.5511%202.5679%205.4644%201.4646%201.9134-1.1046%202.568-3.5511%201.4647-5.4644zM7.5137%204.8438L1.5645%2015.1484A4.5%204.5%200%200%201%204%2014.4297c2.5597-.0075%204.6248%202.1585%204.4941%204.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z%22%2F%3E%3C%2Fsvg%3E"); }
+    .int-brand-btn--ga4::before         { background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%23E37400%22%20d%3D%22M22.84%202.9982v17.9987c.0086%201.6473-1.3197%202.9897-2.967%202.9984a2.9808%202.9808%200%2001-.3677-.0208c-1.528-.226-2.6477-1.5558-2.6105-3.1V3.1204c-.0369-1.5458%201.0856-2.8762%202.6157-3.1%201.6361-.1915%203.1178.9796%203.3093%202.6158.014.1201.0208.241.0202.3619zM4.1326%2018.0548c-1.6417%200-2.9726%201.331-2.9726%202.9726C1.16%2022.6691%202.4909%2024%204.1326%2024s2.9726-1.3309%202.9726-2.9726-1.331-2.9726-2.9726-2.9726zm7.8728-9.0098c-.0171%200-.0342%200-.0513.0003-1.6495.0904-2.9293%201.474-2.891%203.1256v7.9846c0%202.167.9535%203.4825%202.3505%203.763%201.6118.3266%203.1832-.7152%203.5098-2.327.04-.1974.06-.3983.0593-.5998v-8.9585c.003-1.6474-1.33-2.9852-2.9773-2.9882z%22%2F%3E%3C%2Fsvg%3E"); }
+    .int-brand-btn--tiktok::before      { background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%23000000%22%20d%3D%22M12.525.02c1.31-.02%202.61-.01%203.91-.02.08%201.53.63%203.09%201.75%204.17%201.12%201.11%202.7%201.62%204.24%201.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01%202.92.01%205.84-.02%208.75-.08%201.4-.54%202.79-1.35%203.94-1.31%201.92-3.58%203.17-5.91%203.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9%201.12-3.72%202.58-4.96%201.66-1.44%203.98-2.13%206.15-1.72.02%201.48-.04%202.96-.04%204.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11%201.04-1.36%201.75-.21.51-.15%201.07-.14%201.61.24%201.64%201.82%203.02%203.5%202.87%201.12-.01%202.19-.66%202.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z%22%2F%3E%3C%2Fsvg%3E"); }
+    .int-brand-btn--meta::before        { background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%230467DF%22%20d%3D%22M6.915%204.03c-1.968%200-3.683%201.28-4.871%203.113C.704%209.208%200%2011.883%200%2014.449c0%20.706.07%201.369.21%201.973a6.624%206.624%200%200%200%20.265.86%205.297%205.297%200%200%200%20.371.761c.696%201.159%201.818%201.927%203.593%201.927%201.497%200%202.633-.671%203.965-2.444.76-1.012%201.144-1.626%202.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152%203.595c.724%201.21%201.665%202.556%202.47%203.314%201.046.987%201.992%201.22%203.06%201.22%201.075%200%201.876-.355%202.455-.843a3.743%203.743%200%200%200%20.81-.973c.542-.939.861-2.127.861-3.745%200-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047%200-2.088.467-3.053%201.308-.652.57-1.257%201.29-1.82%202.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16%202.053c1.147%200%202.188.758%202.992%201.999%201.132%201.748%201.647%204.195%201.647%206.4%200%201.548-.368%202.9-1.839%202.9-.58%200-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908%2044.908%200%200%200-1.255-1.98c.07-.109.141-.224.211-.327%201.12-1.667%202.118-2.602%203.358-2.602zm-10.201.553c1.265%200%202.058.791%202.675%201.446.307.327.737.871%201.234%201.579l-1.02%201.566c-.757%201.163-1.882%203.017-2.837%204.338-1.191%201.649-1.81%201.817-2.486%201.817-.524%200-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046%200-2.221.63-4.535%201.66-6.088.454-.687.964-1.226%201.533-1.533a2.264%202.264%200%200%201%201.088-.285z%22%2F%3E%3C%2Fsvg%3E"); }
+    .int-brand-btn--qbo::before         { background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%232CA01C%22%20d%3D%22M12%200A12%2012%200%200%200%200%2012a12%2012%200%200%200%2012%2012%2012%2012%200%200%200%2012-12A12%2012%200%200%200%2012%200zm.642%204.1335c.9554%200%201.7296.776%201.7296%201.7332v9.0667h1.6c1.614%200%202.9275-1.3156%202.9275-2.933%200-1.6173-1.3136-2.9333-2.9276-2.9333h-.6654V7.3334h.6654c2.5722%200%204.6577%202.0897%204.6577%204.667%200%202.5774-2.0855%204.6666-4.6577%204.6666H12.642zM7.9837%207.333h3.3291v12.533c-.9555%200-1.73-.7759-1.73-1.7332V9.0662H7.9837c-1.6146%200-2.9277%201.316-2.9277%202.9334%200%201.6175%201.3131%202.9333%202.9277%202.9333h.6654v1.7332h-.6654c-2.5725%200-4.6577-2.0892-4.6577-4.6665%200-2.5771%202.0852-4.6666%204.6577-4.6666Z%22%2F%3E%3C%2Fsvg%3E"); }
 
     /* status / progress inline */
     .int-sync-status {
@@ -161,29 +345,40 @@
     .int-sync-status--ok { color: #166534; }
     .int-sync-status--running { color: var(--bcn-accent, #2563eb); }
 
-    /* progress bar row (spans full table width) */
+    /* progress bar row (spans full table width) — restyled to read as a
+       two-column "Import progress" panel, matching the location-mapper
+       panel next to it, when both are open on the same store */
     .int-progress-tr td {
-      padding: 0 12px 10px;
+      padding: 0 12px 12px;
       white-space: normal;
     }
     .int-progress {
       display: none;
-      padding: 8px 10px;
+      padding: 12px 14px;
       background: var(--bcn-surface-2, #f8f9fa);
-      border-radius: 6px;
+      border-radius: 8px;
       border: 1px solid var(--bcn-border, #e5e7eb);
       font-size: 11px;
       font-family: 'IBM Plex Mono', monospace;
       color: var(--bcn-ink-2);
     }
     .int-progress.active { display: block; }
-    .int-progress-bar { height: 3px; background: #e5e7eb; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+    .int-progress::before {
+      content: 'Import progress';
+      display: block;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--bcn-ink-2);
+      margin-bottom: 6px;
+    }
+    .int-progress-bar { height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 8px; overflow: hidden; }
     .int-progress-bar > span { display: block; height: 100%; background: var(--bcn-accent, #2563eb); transition: width 0.25s ease; }
 
     /* location mapper row */
     .int-loc-tr td { padding: 0; white-space: normal; }
     .int-loc-panel {
-      padding: 12px 16px;
+      padding: 14px 16px;
       background: var(--bcn-surface-2, #f9fafb);
       border-top: 1px solid var(--bcn-border, #e5e7eb);
     }
@@ -195,7 +390,7 @@
     }
     .int-loc-panel[hidden] { display: none !important; }
     .int-loc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .int-loc-summary { font-size: 12px; font-weight: 500; color: var(--bcn-ink-2); }
+    .int-loc-summary { font-size: 12px; font-weight: 700; color: var(--bcn-ink-2); }
     .int-loc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .int-loc-table th {
       text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
@@ -213,10 +408,10 @@
 
     /* scope warning */
     .int-scope-warn {
-      padding: 6px 10px;
+      padding: 8px 10px;
       background: #fffbeb;
       border: 1px solid #fde68a;
-      border-radius: 5px;
+      border-radius: 6px;
       font-size: 11px;
       color: #92400e;
       line-height: 1.4;
@@ -264,22 +459,23 @@
       font-size: 12px;
       color: var(--bcn-ink-3);
       line-height: 1.5;
-      margin: -4px 0 12px;
+      margin: 0;
       max-width: 720px;
     }
 
     /* add store row */
-    .int-add-row td { padding: 10px 12px; }
+    .int-add-row td { padding: 12px; }
     .int-add-trigger {
       display: inline-flex;
       align-items: center;
       gap: 7px;
       font-size: 13px;
-      color: var(--bcn-ink-3);
+      font-weight: 500;
+      color: var(--bcn-accent, #2563eb);
       cursor: pointer;
       padding: 4px 0;
     }
-    .int-add-trigger:hover { color: var(--bcn-accent, #2563eb); }
+    .int-add-trigger:hover { opacity: 0.8; }
     .int-add-form {
       display: none;
       padding: 12px 0 4px;
@@ -326,10 +522,35 @@
       <div class="bcn-status" id="status" hidden></div>
 
       <div class="int-page">
-        <p class="int-section-label">Shopify stores</p>
-        <p class="int-onboarding-note">After connecting: map locations → enable nightly sync → import sales history (365d or 730d). <strong>Keep this tab open</strong> during import; if progress stops, click <strong>Resume</strong> until complete.</p>
-        <div class="int-backfill-banner" id="backfill-banner" hidden></div>
-        <div class="int-table-wrap">
+        <div class="int-summary-band" id="int-summary-band">
+          <div class="int-summary-tile">
+            <span class="int-summary-icon int-summary-icon--pos" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+            <div><div class="int-summary-value" id="sum-connected">0</div><div class="int-summary-label">Connected</div></div>
+          </div>
+          <div class="int-summary-tile">
+            <span class="int-summary-icon int-summary-icon--warn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+            <div><div class="int-summary-value" id="sum-attention">0</div><div class="int-summary-label">Needs attention</div></div>
+          </div>
+          <div class="int-summary-tile">
+            <span class="int-summary-icon int-summary-icon--info" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></span>
+            <div><div class="int-summary-value" id="sum-running">0</div><div class="int-summary-label">Imports running</div></div>
+          </div>
+        </div>
+
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--shopify" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M15.337 23.979l7.216-1.561s-2.604-17.613-2.625-17.73c-.018-.116-.114-.192-.211-.192s-1.929-.136-1.929-.136-1.275-1.274-1.439-1.411c-.045-.037-.075-.057-.121-.074l-.914 21.104h.023zM11.71 11.305s-.81-.424-1.774-.424c-1.447 0-1.504.906-1.504 1.141 0 1.232 3.24 1.715 3.24 4.629 0 2.295-1.44 3.76-3.406 3.76-2.354 0-3.54-1.465-3.54-1.465l.646-2.086s1.245 1.066 2.28 1.066c.675 0 .975-.545.975-.932 0-1.619-2.654-1.694-2.654-4.359-.034-2.237 1.571-4.416 4.827-4.416 1.257 0 1.875.361 1.875.361l-.945 2.715-.02.01zM11.17.83c.136 0 .271.038.405.135-.984.465-2.064 1.639-2.508 3.992-.656.213-1.293.405-1.889.578C7.697 3.75 8.951.84 11.17.84V.83zm1.235 2.949v.135c-.754.232-1.583.484-2.394.736.466-1.777 1.333-2.645 2.085-2.971.193.501.309 1.176.309 2.1zm.539-2.234c.694.074 1.141.867 1.429 1.755-.349.114-.735.231-1.158.366v-.252c0-.752-.096-1.371-.271-1.871v.002zm2.992 1.289c-.02 0-.06.021-.078.021s-.289.075-.714.21c-.423-1.233-1.176-2.37-2.508-2.37h-.115C12.135.209 11.669 0 11.265 0 8.159 0 6.675 3.877 6.21 5.846c-1.194.365-2.063.636-2.16.674-.675.213-.694.232-.772.87-.075.462-1.83 14.063-1.83 14.063L15.009 24l.927-21.166z"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Shopify stores</h2>
+              <p>After connecting: map locations → enable nightly sync → import sales history (365d or 730d). <strong>Keep this tab open</strong> during import; if progress stops, click <strong>Resume</strong> until complete.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="shopify" aria-label="Collapse Shopify stores">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-backfill-banner-slot"><div class="int-backfill-banner" id="backfill-banner" hidden></div></div>
+          <div class="int-card-body">
+        <div class="int-table-wrap int-table-wrap--scroll">
           <table class="int-table">
             <thead>
               <tr>
@@ -365,7 +586,7 @@
                     </div>
                     <div class="form-row">
                       <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
-                      <button class="bcn-btn bcn-btn--primary" id="btn-connect-shopify">Connect with Shopify →</button>
+                      <button class="bcn-btn bcn-btn--primary int-brand-btn int-brand-btn--shopify" id="btn-connect-shopify">Connect with Shopify →</button>
                     </div>
                     <div class="test-result" id="test-result"></div>
                   </div>
@@ -374,9 +595,21 @@
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
 
-        <p class="int-section-label" style="margin-top:28px;">Ad platforms</p>
-        <p class="int-onboarding-note">Direct API connections for marketing KPIs (Google Ads, Meta Ads, TikTok Ads, GA4) → nightly sync into the <a href="/v2/marketing-overview.html">Marketing overview</a>. After connecting, set the account/property ID, test, then enable sync.</p>
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--ads" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11v3a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M17 8a5 5 0 0 1 0 8"/><path d="M20 5a9 9 0 0 1 0 14"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Ad platforms</h2>
+              <p>Direct API connections for marketing KPIs (Google Ads, Meta Ads, TikTok Ads, GA4) → nightly sync into the <a href="/v2/marketing-overview.html">Marketing overview</a>. After connecting, set the account/property ID, test, then enable sync.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="ads" aria-label="Collapse ad platforms">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -396,10 +629,10 @@
               <tr class="int-add-row">
                 <td colspan="6">
                   <div class="form-row" style="padding:10px 0;flex-wrap:wrap;gap:8px;">
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-google-ads">Connect Google Ads →</button>
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-ga4">Connect GA4 →</button>
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-tiktok">Connect TikTok Ads →</button>
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-add-meta">Add Meta Ads token…</button>
+                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--google-ads" id="btn-connect-google-ads">Connect Google Ads →</button>
+                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--ga4" id="btn-connect-ga4">Connect GA4 →</button>
+                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--tiktok" id="btn-connect-tiktok">Connect TikTok Ads →</button>
+                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--meta" id="btn-add-meta">Add Meta Ads token…</button>
                   </div>
                   <div class="int-add-form add-form" id="meta-add-form">
                     <div class="bcn-field-group">
@@ -422,9 +655,21 @@
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
 
-        <p class="int-section-label" style="margin-top:28px;">Redo returns</p>
-        <p class="int-onboarding-note">Webhook-driven ingestion of Redo return data (refund / exchange / store-credit amounts) for BI reconciliation — see <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/redo-integration.md">docs/ops/redo-integration.md</a>. Connect below, copy the webhook URL + secret into Redo's dashboard (Merchant Admin → Webhooks → Return event).</p>
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--redo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 1 2.64 6.36"/><path d="M3 21v-6h6"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Redo returns</h2>
+              <p>Webhook-driven ingestion of Redo return data (refund / exchange / store-credit amounts) for BI reconciliation — see <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/redo-integration.md">docs/ops/redo-integration.md</a>. Connect below, copy the webhook URL + secret into Redo's dashboard (Merchant Admin → Webhooks → Return event).</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="redo" aria-label="Collapse Redo returns">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -450,9 +695,21 @@
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
 
-        <p class="int-section-label" style="margin-top:28px;">QuickBooks Online</p>
-        <p class="int-onboarding-note">Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed. Which environment you connect to is set by the Intuit keys configured for SILO, not chosen here — switching to production means swapping those keys and registering the redirect URI on Intuit's Production tab.</p>
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--qbo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm.642 4.1335c.9554 0 1.7296.776 1.7296 1.7332v9.0667h1.6c1.614 0 2.9275-1.3156 2.9275-2.933 0-1.6173-1.3136-2.9333-2.9276-2.9333h-.6654V7.3334h.6654c2.5722 0 4.6577 2.0897 4.6577 4.667 0 2.5774-2.0855 4.6666-4.6577 4.6666H12.642zM7.9837 7.333h3.3291v12.533c-.9555 0-1.73-.7759-1.73-1.7332V9.0662H7.9837c-1.6146 0-2.9277 1.316-2.9277 2.9334 0 1.6175 1.3131 2.9333 2.9277 2.9333h.6654v1.7332h-.6654c-2.5725 0-4.6577-2.0892-4.6577-4.6665 0-2.5771 2.0852-4.6666 4.6577-4.6666Z"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>QuickBooks Online</h2>
+              <p>Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed. Which environment you connect to is set by the Intuit keys configured for SILO, not chosen here — switching to production means swapping those keys and registering the redirect URI on Intuit's Production tab.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="qbo" aria-label="Collapse QuickBooks Online">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -471,13 +728,15 @@
               <tr class="int-add-row">
                 <td colspan="5">
                   <div class="form-row" style="padding:10px 0;gap:8px;">
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-qbo">Connect QuickBooks →</button>
+                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--qbo" id="btn-connect-qbo">Connect QuickBooks →</button>
                   </div>
                 </td>
               </tr>
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -503,6 +762,50 @@
       el.hidden = false;
       if (ms) setTimeout(() => { el.hidden = true; }, ms);
     }
+
+    // ── Summary band ────────────────────────────────────────────────
+    // Purely presentational: tallies rows each load* function already
+    // fetched (no extra queries) into the four tiles at the top of the
+    // page. Each load* function stores its own rows here and re-derives
+    // the whole band — never reads the DOM back, so it can't drift from
+    // what's actually loaded.
+    const _summaryState = { shopify: [], ad: [], redo: null, qbo: null };
+
+    function updateSummaryBand() {
+      const s = _summaryState;
+      const connected =
+        s.shopify.filter((r) => r.last_test_status === 'ok').length
+        + s.ad.filter((r) => r.last_test_success === true).length
+        + (s.redo?.is_active ? 1 : 0)
+        + (s.qbo?.last_test_success ? 1 : 0);
+
+      const needsAttention =
+        s.shopify.filter((r) => r.last_test_status === 'error'
+          || (Array.isArray(r.scopes_missing) && r.scopes_missing.length > 0)).length
+        + s.ad.filter((r) => r.last_test_success === false).length
+        + (s.qbo && (s.qbo.last_test_success === false
+            || (s.qbo.refresh_token_expires_at && new Date(s.qbo.refresh_token_expires_at) < new Date())) ? 1 : 0);
+
+      const importsRunning = s.shopify.filter((r) => r?.meta?.history_backfill?.status === 'running').length;
+
+      const setVal = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = String(n); };
+      setVal('sum-connected', connected);
+      setVal('sum-attention', needsAttention);
+      setVal('sum-running', importsRunning);
+    }
+
+    // ── Card collapse (per-browser preference, purely presentational) ─
+    document.querySelectorAll('.int-card-collapse-btn').forEach((btn) => {
+      const card = btn.closest('.int-card');
+      const key = `int-card-collapsed:${btn.dataset.card}`;
+      let startCollapsed = false;
+      try { startCollapsed = localStorage.getItem(key) === '1'; } catch { /* ignore */ }
+      if (startCollapsed) card.classList.add('int-card--collapsed');
+      btn.addEventListener('click', () => {
+        const collapsed = card.classList.toggle('int-card--collapsed');
+        try { localStorage.setItem(key, collapsed ? '1' : '0'); } catch { /* ignore */ }
+      });
+    });
 
     // ── Auth + Chrome ──────────────────────────────────────────────
     let _session = null;
@@ -569,6 +872,8 @@
       if (error) { setStatus('Failed to load connections: ' + error.message, 'neg'); return; }
       renderConnections(data || []);
       syncBackfillPolling(data || []);
+      _summaryState.shopify = data || [];
+      updateSummaryBand();
     }
 
     function syncBackfillPolling(rows) {
@@ -1527,6 +1832,14 @@
     const AD_PLATFORM_LABELS = {
       google_ads: 'Google Ads', meta_ads: 'Meta Ads', tiktok_ads: 'TikTok Ads', ga4: 'GA4',
     };
+    // Real brand marks (simple-icons), inlined so the platform column reads
+    // as the actual product rather than a generic dot.
+    const AD_PLATFORM_ICON = {
+      google_ads: '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="#4285F4" d="M3.9998 22.9291C1.7908 22.9291 0 21.1383 0 18.9293s1.7908-3.9998 3.9998-3.9998 3.9998 1.7908 3.9998 3.9998-1.7908 3.9998-3.9998 3.9998zm19.4643-6.0004L15.4632 3.072C14.3586 1.1587 11.9121.5028 9.9988 1.6074S7.4295 5.1585 8.5341 7.0718l8.0009 13.8567c1.1046 1.9133 3.5511 2.5679 5.4644 1.4646 1.9134-1.1046 2.568-3.5511 1.4647-5.4644zM7.5137 4.8438L1.5645 15.1484A4.5 4.5 0 0 1 4 14.4297c2.5597-.0075 4.6248 2.1585 4.4941 4.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z"/></svg>',
+      meta_ads: '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="#0467DF" d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg>',
+      tiktok_ads: '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="#000" d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>',
+      ga4: '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="#E37400" d="M22.84 2.9982v17.9987c.0086 1.6473-1.3197 2.9897-2.967 2.9984a2.9808 2.9808 0 01-.3677-.0208c-1.528-.226-2.6477-1.5558-2.6105-3.1V3.1204c-.0369-1.5458 1.0856-2.8762 2.6157-3.1 1.6361-.1915 3.1178.9796 3.3093 2.6158.014.1201.0208.241.0202.3619zM4.1326 18.0548c-1.6417 0-2.9726 1.331-2.9726 2.9726C1.16 22.6691 2.4909 24 4.1326 24s2.9726-1.3309 2.9726-2.9726-1.331-2.9726-2.9726-2.9726zm7.8728-9.0098c-.0171 0-.0342 0-.0513.0003-1.6495.0904-2.9293 1.474-2.891 3.1256v7.9846c0 2.167.9535 3.4825 2.3505 3.763 1.6118.3266 3.1832-.7152 3.5098-2.327.04-.1974.06-.3983.0593-.5998v-8.9585c.003-1.6474-1.33-2.9852-2.9773-2.9882z"/></svg>',
+    };
     const AD_ACCOUNT_FIELD = {
       google_ads: 'google_customer_id', meta_ads: 'meta_ad_account_id',
       tiktok_ads: 'tiktok_advertiser_id', ga4: 'ga4_property_id',
@@ -1543,6 +1856,8 @@
         .order('platform').order('created_at');
       if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
       renderAdConnections(data || []);
+      _summaryState.ad = data || [];
+      updateSummaryBand();
     }
 
     function escAttr(s) {
@@ -1564,7 +1879,7 @@
               : `<span class="bcn-pill bcn-pill--neg" title="${escAttr(row.last_test_error)}">Failed</span>`)
           : '<span class="bcn-pill">Untested</span>';
         const mainRow = `<tr>
-          <td>${AD_PLATFORM_LABELS[row.platform] || row.platform}</td>
+          <td><span class="int-platform-label">${AD_PLATFORM_ICON[row.platform] || ''}${AD_PLATFORM_LABELS[row.platform] || row.platform}</span></td>
           <td><input class="bcn-field" style="min-width:140px;" value="${escAttr(row.display_name)}"
             onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
           <td><input class="bcn-field bcn-field--mono" style="min-width:150px;" value="${escAttr(acctVal)}"
@@ -1577,6 +1892,7 @@
           <td>${test}</td>
           <td style="white-space:nowrap;">
             <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
+            ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
             <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
           </td>
         </tr>`;
@@ -1589,6 +1905,15 @@
         const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>
           <td></td>
           <td colspan="5" style="padding-top:0;">
+            <div id="meta-token-${row.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;" hidden>
+              <span style="font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);">New System User token:</span>
+              <input class="bcn-field bcn-field--mono" style="min-width:260px;font-size:11px;" type="password"
+                placeholder="EAAB…" autocomplete="off" spellcheck="false"
+                onkeydown="if (event.key === 'Enter') saveMetaToken('${row.id}')" />
+              <button class="int-btn int-btn--primary" onclick="saveMetaToken('${row.id}')">Save token</button>
+              <button class="int-btn int-btn--ghost" onclick="toggleMetaTokenForm('${row.id}')">Cancel</button>
+              <span style="font-size:10.5px;color:var(--bcn-ink-3);">— replaces the token on THIS connection; never add a second one for the same account</span>
+            </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--bcn-ink-3);">
               <span style="font-family:var(--bcn-mono);">Organic (optional):</span>
               <input class="bcn-field bcn-field--mono" style="min-width:160px;font-size:11px;"
@@ -1603,6 +1928,45 @@
         </tr>`;
         return mainRow + organicRow;
       }).join('');
+    }
+
+    // Regenerating a Meta System User token used to have no home in this UI:
+    // the only Meta control was "Add Meta Ads token…", which INSERTs. Pasting
+    // a refreshed token there creates a SECOND connection for the same ad
+    // account, which double-pulls it every night and doubles the Meta API
+    // pressure on an account that already hits "Application request limit
+    // reached". (Spend itself would not double -- every Meta table upserts on
+    // an identity hash that excludes connection_id -- but nothing about that
+    // is obvious from here.) Replacing in place is the intended path.
+    function toggleMetaTokenForm(id) {
+      const el = document.getElementById(`meta-token-${id}`);
+      if (!el) return;
+      el.hidden = !el.hidden;
+      if (!el.hidden) el.querySelector('input').focus();
+    }
+
+    async function saveMetaToken(id) {
+      const el = document.getElementById(`meta-token-${id}`);
+      const input = el?.querySelector('input');
+      const token = (input?.value || '').trim();
+      if (!token) { setStatus('Paste the new token first', 'neg', 5000); return; }
+      const { error } = await db.from('ad_platform_connections')
+        .update({
+          access_token: token,
+          // Clear the previous test result too: the "OK" pill on this row was
+          // earned by the OLD token, and leaving it would vouch for a
+          // credential nothing has verified yet.
+          last_tested_at: null,
+          last_test_status: null,
+          last_test_success: null,
+          last_test_error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+      input.value = '';
+      if (error) { setStatus('Token update failed: ' + error.message, 'neg', 8000); return; }
+      setStatus('✓ Token replaced on the existing connection — run Test to verify it.', 'pos', 9000);
+      loadAdConnections();
     }
 
     async function updateAdConnection(id, patch) {
@@ -1705,6 +2069,27 @@
       const token = document.getElementById('meta-token').value.trim();
       const acct = document.getElementById('meta-account-id').value.trim();
       if (!token) { setStatus('Paste the System User access token first', 'neg', 5000); return; }
+
+      // A refreshed token for an account that is already connected belongs on
+      // the EXISTING row (Replace token), not in a new one. Compare account
+      // ids normalized, since "act_51281951" and "51281951" are the same
+      // account typed two ways. A blank account id is treated as a clash too:
+      // the overwhelmingly common reason to leave it blank is that this is the
+      // same single account being re-pasted.
+      const { data: existingMeta, error: existErr } = await db.from('ad_platform_connections')
+        .select('id, display_name, meta_ad_account_id')
+        .eq('company_entity_id', _co.id)
+        .eq('platform', 'meta_ads');
+      if (existErr) { setStatus('Could not check existing connections: ' + existErr.message, 'neg', 8000); return; }
+      const normAcct = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^act/, '');
+      const clash = (existingMeta || []).find((r) => !acct || normAcct(r.meta_ad_account_id) === normAcct(acct));
+      if (clash) {
+        setStatus(`Meta account ${clash.meta_ad_account_id || '(no account set)'} is already connected as "${clash.display_name}". `
+          + 'Use "Replace token" on that row instead — a second connection for the same account double-pulls it nightly.',
+          'neg', 15000);
+        return;
+      }
+
       const { error } = await db.from('ad_platform_connections').insert({
         company_entity_id: _co.id,
         platform: 'meta_ads',
@@ -1748,6 +2133,8 @@
         .maybeSingle();
       if (error) { setStatus('Failed to load Redo connection: ' + error.message, 'neg'); return; }
       renderRedoConnection(data || null);
+      _summaryState.redo = data || null;
+      updateSummaryBand();
     }
 
     function renderRedoConnection(row) {
@@ -1842,6 +2229,8 @@
       _qboRow = (data || [])[0] || null;
       if (_qboRow) await refreshQboAccountCount();
       renderQboConnection(_qboRow);
+      _summaryState.qbo = _qboRow;
+      updateSummaryBand();
     }
 
     let _qboLocationCount = null;
@@ -1858,6 +2247,24 @@
       ]);
       _qboAccountCount = acct.count ?? null;
       _qboLocationCount = loc.count ?? null;
+    }
+
+    // A raw error string like "account_query_failed_504: stream timeout
+    // [intuit_tid: ...]" reads as "this app is broken" even when it is Intuit's
+    // own API having an outage -- confirmed against status.quickbooks.intuit.com
+    // during a real incident (2026-09-01/02) where every symptom traced back to
+    // Intuit, not SILO. A 5xx / stream-timeout / intuit_tid signature gets its
+    // own reassuring message pointing at their status page instead of the raw
+    // string, same as refreshDead already gets its own message below rather
+    // than generic error text.
+    function qboFriendlyError(msg) {
+      if (!msg) return null;
+      if (/_query_failed_5\d\d|stream_timeout|intuit_tid/i.test(msg)) {
+        return 'QuickBooks Online is having connectivity issues on Intuit’s end '
+          + 'right now, not your connection. Check status.quickbooks.intuit.com '
+          + 'and try again once it clears.';
+      }
+      return null;
     }
 
     function renderQboConnection(row) {
@@ -1887,13 +2294,16 @@
       // generic error text.
       const refreshDead = row.refresh_token_expires_at
         && new Date(row.refresh_token_expires_at) < new Date();
+      const qboOutage = row.last_test_success === false ? qboFriendlyError(row.last_test_error) : null;
       const status = refreshDead
         ? '<span class="bcn-pill bcn-pill--neg">Authorization expired — reconnect</span>'
-        : row.last_test_success === false
-          ? `<span class="bcn-pill bcn-pill--neg">${escHtml(row.last_test_error || 'Error')}</span>`
-          : row.last_test_success
-            ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
-            : '<span class="bcn-pill">Untested</span>';
+        : qboOutage
+          ? `<span class="bcn-pill">QuickBooks Online outage</span> <span style="opacity:.7;font-size:12px;">${escHtml(qboOutage)}</span>`
+          : row.last_test_success === false
+            ? `<span class="bcn-pill bcn-pill--neg">${escHtml(row.last_test_error || 'Error')}</span>`
+            : row.last_test_success
+              ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
+              : '<span class="bcn-pill">Untested</span>';
 
       tbody.innerHTML = `<tr>
         <td>
@@ -1949,7 +2359,8 @@
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setStatus('Account pull failed: ' + (body.error || res.status), 'neg', 10000);
+        const outage = qboFriendlyError(body.error);
+        setStatus(outage || ('Account pull failed: ' + (body.error || res.status)), 'neg', 12000);
         await loadQboConnection();
         return;
       }

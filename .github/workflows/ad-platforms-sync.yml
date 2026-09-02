@@ -15,6 +15,12 @@ on:
       days_back:
         description: Override trailing-window days (default from connection row, 30)
         required: false
+      ig_post_limit:
+        description: >-
+          Instagram posts to walk back through (default 50). Instagram history is
+          per-post, not date-windowed, so days_back does NOT affect it. Each post
+          costs one extra API request.
+        required: false
   schedule:
     # 10:30 UTC — ad platforms have finalized the prior day by then.
     # (The old note here said "runs before the 11:00 Shopify sync"; that sync
@@ -32,11 +38,34 @@ on:
     # unsynced. The sync is an idempotent upsert on a trailing window, so a
     # second run when the first succeeded is close to free.
     - cron: "30 16 * * *"
+    # Light refresh every 2 hours -- same reasoning as shopify-sync.yml: survive
+    # GitHub delivering crons hours late, rather than needing hourly numbers.
+    #
+    # Cheap on purpose, because Meta rate limits are real on this account
+    # ("Application request limit reached", code 4, hit repeatedly in 2026-08).
+    # A 3-day window instead of 30 turns the day-by-day ad-level pull from ~30
+    # requests into 3, and ADS_SKIP_ORGANIC drops the Instagram walk, which is
+    # one request PER POST and by far the most expensive part. Restatements
+    # beyond 3 days are still picked up by the full nightly runs below.
+    - cron: "0 */2 * * *"
 
 jobs:
   ad-platforms-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 60 was set when this job was campaign-KPIs-only and finished in under a
+    # minute. Ad-level backfill is a different workload: it fetches DAY BY DAY
+    # (chunkDays=1, forced by Meta's "reduce the amount of data" error on
+    # 7-day chunks) and holds every row in memory until one upsert at the end.
+    # A days_back=400 backfill was killed at exactly 60 minutes on 2026-09-02
+    # and wrote NOTHING -- the fetch had not reached its upsert, so an hour of
+    # API calls was discarded rather than partially saved.
+    #
+    # 240 because that run was still going cleanly at the cut -- no rate
+    # limiting, no field rejection, purely wall clock. Only manual backfills
+    # come near this; the nightly and 2-hourly runs finish in ~5 minutes and
+    # never notice the ceiling. shopify-sync.yml carries 330 for the same
+    # reason.
+    timeout-minutes: 240
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -51,7 +80,9 @@ jobs:
       ADS_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
       ADS_ONLY_PLATFORM: ${{ github.event.inputs.platform || '' }}
       ADS_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
-      ADS_DAYS_BACK: ${{ github.event.inputs.days_back || '' }}
+      ADS_DAYS_BACK: ${{ github.event.inputs.days_back || (github.event.schedule == '0 */2 * * *' && '3') || '' }}
+      ADS_SKIP_ORGANIC: ${{ (github.event.schedule == '0 */2 * * *' && 'true') || 'false' }}
+      ADS_IG_POST_LIMIT: ${{ github.event.inputs.ig_post_limit || '' }}
 
     steps:
       - name: Checkout repo

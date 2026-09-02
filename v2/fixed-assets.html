@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Fixed Assets</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-panel); border-bottom: 1px solid var(--bcn-border); }
+    .fa-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+
+    .fa-card { background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+    .fa-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .fa-title { font-weight: 650; font-size: 14px; }
+    .fa-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+
+    .fa-scroll { overflow: auto; max-height: 52vh; }
+    .fa-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 12px; }
+    .fa-table th { position: sticky; top: 0; z-index: 2; background: var(--bcn-sunken);
+      text-align: left; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
+    .fa-table td { padding: 6px 10px; border-bottom: 1px solid var(--bcn-border);
+      vertical-align: top; line-height: 1.45; }
+    .fa-table tbody tr:nth-child(even) td { background: rgba(15,23,42,.015); }
+    .fa-num { text-align: right; font-family: var(--bcn-mono);
+      white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .fa-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    .fa-disposed { opacity: .55; }
+    .fa-link {
+      background: none; border: 0; padding: 0 0 0 8px; cursor: pointer;
+      color: var(--bcn-accent); font-size: 11px; text-decoration: underline;
+    }
+    .fa-link:hover { opacity: .75; }
+
+    dialog { border: 1px solid var(--bcn-border); border-radius: 14px;
+      padding: 0; max-width: 520px; width: 92vw; }
+    .fa-dlg-head { padding: 14px 16px; border-bottom: 1px solid var(--bcn-border); font-weight: 650; }
+    .fa-dlg-body { padding: 16px; display: grid; gap: 12px; }
+    .fa-dlg-foot { padding: 12px 16px; border-top: 1px solid var(--bcn-border);
+      display: flex; justify-content: flex-end; gap: 8px; }
+    .fa-field { display: flex; flex-direction: column; gap: 4px; }
+    .fa-field label { font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .fa-preview { font-family: var(--bcn-mono); font-size: 11px;
+      background: var(--bcn-sunken); border-radius: 8px; padding: 10px; line-height: 1.6; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+  <script src="je-composer.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Fixed Assets</div>
+          <div class="bcn-header-sub">A depreciation subledger — SILO computes the schedule and preps the monthly entry; QuickBooks stays the asset system of record. A human reviews and posts.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--primary" id="btnAddAsset">Add asset</button>
+        </div>
+      </header>
+
+      <div class="fa-page">
+        <div class="bcn-status" id="status" hidden></div>
+
+        <div class="fa-card">
+          <div class="fa-card-head">
+            <div>
+              <div class="fa-title">Asset register</div>
+              <div class="fa-sub">Straight-line only. Pick the expense and accumulated-depreciation accounts before posting a period.</div>
+            </div>
+            <div class="fa-sub" id="assetCount"></div>
+          </div>
+          <div class="fa-scroll">
+            <table class="fa-table" id="tblAssets">
+              <tbody><tr><td class="fa-empty">No assets yet — click Add asset.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="fa-card">
+          <div class="fa-card-head">
+            <div>
+              <div class="fa-title">Depreciation entry</div>
+              <div class="fa-sub">Recognises every active asset's period for the chosen month in one entry — debiting depreciation expense, crediting accumulated depreciation. The asset account itself is never touched.</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input class="bcn-field bcn-field--mono" id="depMonth" type="month" style="width:130px" />
+              <button class="bcn-btn bcn-btn--dark" id="btnBuildDep">Build &amp; post depreciation entry</button>
+            </div>
+          </div>
+          <div class="fa-scroll" style="max-height:26vh;">
+            <table class="fa-table" id="tblDep">
+              <tbody><tr><td class="fa-empty">No depreciation entries yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="dlg">
+    <form method="dialog">
+      <div class="fa-dlg-head">Add a fixed asset</div>
+      <div class="fa-dlg-body">
+        <div class="fa-field">
+          <label for="dlgLabel">Label</label>
+          <input class="bcn-field" id="dlgLabel" placeholder="2026 Ford Transit — delivery van" />
+        </div>
+        <div class="fa-field">
+          <label for="dlgVendor">Vendor (optional)</label>
+          <input class="bcn-field" id="dlgVendor" />
+        </div>
+        <div class="fa-field">
+          <label for="dlgAssetAccount">Asset account</label>
+          <select class="bcn-field bcn-field--mono" id="dlgAssetAccount"></select>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="fa-field" style="flex:1">
+            <label for="dlgInService">In service date</label>
+            <input class="bcn-field" id="dlgInService" type="date" />
+          </div>
+          <div class="fa-field" style="flex:1">
+            <label for="dlgLifeMonths">Useful life (months)</label>
+            <input class="bcn-field bcn-field--mono" id="dlgLifeMonths" type="number" min="1" step="1" placeholder="60" />
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="fa-field" style="flex:1">
+            <label for="dlgCost">Cost</label>
+            <input class="bcn-field bcn-field--mono" id="dlgCost" type="number" min="0.01" step="0.01" />
+          </div>
+          <div class="fa-field" style="flex:1">
+            <label for="dlgSalvage">Salvage value</label>
+            <input class="bcn-field bcn-field--mono" id="dlgSalvage" type="number" min="0" step="0.01" value="0" />
+          </div>
+        </div>
+        <div class="fa-preview" id="dlgSpread">Enter cost, salvage, and useful life to see the monthly amount.</div>
+      </div>
+      <div class="fa-dlg-foot">
+        <button class="bcn-btn" value="cancel">Cancel</button>
+        <button class="bcn-btn bcn-btn--primary" id="dlgSave" value="save">Add asset</button>
+      </div>
+    </form>
+  </dialog>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let _co = null;
+  let assetAccountOpts = '';       // Fixed Asset-typed accounts -- offered for BOTH the
+                                    // asset account and the accumulated-depreciation account,
+                                    // since QBO types both as "Fixed Asset" (distinguished by
+                                    // name/sub-type, not account_type) -- a person picks the
+                                    // right one from the real chart, same as card_sources does.
+  let expenseAccountOpts = '';     // Expense / Other Expense / COGS-typed accounts
+
+  const el = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (n) => (n < 0 ? '-' : '') + '$'
+    + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  async function loadAccountOptions() {
+    let q = sb.from('quickbooks_accounts')
+      .select('qbo_account_id, name, fully_qualified_name, account_type')
+      .eq('is_active', true)
+      .order('fully_qualified_name');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data } = await q;
+    const rows = data || [];
+
+    const fixedAsset = rows.filter((a) => /Fixed Asset/i.test(a.account_type || ''));
+    assetAccountOpts = fixedAsset.map((a) =>
+      `<option value="${esc(a.qbo_account_id)}" data-name="${esc(a.fully_qualified_name || a.name)}">`
+      + `${esc(a.fully_qualified_name || a.name)}</option>`).join('');
+
+    const expense = rows.filter((a) => /Expense|Cost of Goods Sold/i.test(a.account_type || ''));
+    expenseAccountOpts = expense.map((a) =>
+      `<option value="${esc(a.qbo_account_id)}" data-name="${esc(a.fully_qualified_name || a.name)}">`
+      + `${esc(a.fully_qualified_name || a.name)}</option>`).join('');
+
+    el('dlgAssetAccount').innerHTML = '<option value="">— pick —</option>' + assetAccountOpts;
+  }
+
+  async function loadAssets() {
+    let q = sb.from('fixed_asset_balances_v')
+      .select('fixed_asset_id, label, qbo_asset_account_id, qbo_asset_account_name, status, cost, depreciable_base, accumulated_depreciation, net_book_value, months, periods_elapsed, depreciation_start, depreciation_end')
+      .order('label');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Asset load failed: ' + error.message, 'neg', 8000); return []; }
+    const rows = data || [];
+    if (!rows.length) return rows;
+
+    // fixed_asset_balances_v carries the position, not the recognition-side
+    // accounts or disposal -- those live only on fixed_assets itself. A
+    // second lean query rather than widening a view several callers could
+    // read, same reasoning as Schedules' expense-account merge.
+    const { data: extra } = await sb.from('fixed_assets')
+      .select('id, qbo_depreciation_expense_account_id, qbo_accum_depreciation_account_id, disposal_date, in_service_date, useful_life_months, salvage_value, vendor_name')
+      .in('id', rows.map((r) => r.fixed_asset_id));
+    const map = new Map((extra || []).map((r) => [r.id, r]));
+    for (const r of rows) {
+      const e = map.get(r.fixed_asset_id) || {};
+      r.qbo_depreciation_expense_account_id = e.qbo_depreciation_expense_account_id || '';
+      r.qbo_accum_depreciation_account_id = e.qbo_accum_depreciation_account_id || '';
+      r.disposal_date = e.disposal_date || null;
+      r.in_service_date = e.in_service_date || '';
+      r.useful_life_months = e.useful_life_months || 0;
+      r.salvage_value = e.salvage_value || 0;
+    }
+    return rows;
+  }
+
+  function renderAssets(items) {
+    const t = el('tblAssets');
+    if (!items.length) {
+      t.innerHTML = '<tbody><tr><td class="fa-empty">No assets yet — click Add asset.</td></tr></tbody>';
+      el('assetCount').textContent = '';
+      return;
+    }
+    t.innerHTML = `<thead><tr>
+        <th>Asset</th><th>In service</th><th class="fa-num">Cost</th>
+        <th class="fa-num">Accum. depr.</th><th class="fa-num">Net book value</th>
+        <th>Progress</th><th style="min-width:190px">Depreciation expense</th>
+        <th style="min-width:190px">Accumulated depreciation</th><th></th>
+      </tr></thead><tbody>` + items.map((i) => `<tr class="${i.status === 'disposed' ? 'fa-disposed' : ''}">
+        <td>${esc(i.label)}<div class="fa-sub">${esc(i.qbo_asset_account_name || i.qbo_asset_account_id)}</div></td>
+        <td class="fa-sub">${esc(i.in_service_date)}${i.disposal_date ? `<br />disposed ${esc(i.disposal_date)}` : ''}</td>
+        <td class="fa-num">${money(i.cost)}</td>
+        <td class="fa-num">${money(i.accumulated_depreciation)}</td>
+        <td class="fa-num">${money(i.net_book_value)}</td>
+        <td class="fa-sub">${i.periods_elapsed}/${i.months} months</td>
+        <td><select class="bcn-field bcn-field--mono" style="font-size:11px;min-width:180px"
+              data-expense-for="${esc(i.fixed_asset_id)}">
+            <option value="">— pick, needed to post —</option>
+            ${expenseAccountOpts}
+          </select></td>
+        <td><select class="bcn-field bcn-field--mono" style="font-size:11px;min-width:180px"
+              data-accum-for="${esc(i.fixed_asset_id)}">
+            <option value="">— pick, needed to post —</option>
+            ${assetAccountOpts}
+          </select></td>
+        <td style="white-space:nowrap;">
+          ${i.status === 'disposed' ? '' : `<button class="fa-link" data-dispose="${esc(i.fixed_asset_id)}">dispose</button>`}
+        </td>
+      </tr>`).join('') + '</tbody>';
+
+    for (const i of items) {
+      const es = t.querySelector(`[data-expense-for="${CSS.escape(i.fixed_asset_id)}"]`);
+      if (es) es.value = i.qbo_depreciation_expense_account_id || '';
+      const as = t.querySelector(`[data-accum-for="${CSS.escape(i.fixed_asset_id)}"]`);
+      if (as) as.value = i.qbo_accum_depreciation_account_id || '';
+    }
+    el('assetCount').textContent = `${items.length} assets`;
+
+    t.querySelectorAll('[data-expense-for]').forEach((sel) =>
+      sel.addEventListener('change', () => setAssetAccount(sel.dataset.expenseFor,
+        'qbo_depreciation_expense_account_id', 'qbo_depreciation_expense_account_name', sel)));
+    t.querySelectorAll('[data-accum-for]').forEach((sel) =>
+      sel.addEventListener('change', () => setAssetAccount(sel.dataset.accumFor,
+        'qbo_accum_depreciation_account_id', 'qbo_accum_depreciation_account_name', sel)));
+    t.querySelectorAll('[data-dispose]').forEach((b) =>
+      b.addEventListener('click', () => disposeAsset(b.dataset.dispose)));
+  }
+
+  async function setAssetAccount(assetId, idCol, nameCol, sel) {
+    const accountId = sel.value;
+    const name = sel.selectedOptions[0]?.dataset.name || null;
+    const { error } = await sb.from('fixed_assets').update({
+      [idCol]: accountId || null,
+      [nameCol]: accountId ? name : null,
+    }).eq('id', assetId);
+    if (error) { setStatus('Could not save account: ' + error.message, 'neg', 8000); return; }
+    setStatus(accountId ? 'Account saved.' : 'Account cleared.', 'pos', 3000);
+  }
+
+  async function disposeAsset(assetId) {
+    const date = window.prompt(
+      'Disposal date (YYYY-MM-DD)?\n\n'
+      + 'This stops the depreciation schedule generating any period after this '
+      + 'month. It does not compute a gain or loss on disposal — that is a '
+      + 'separate question this page does not answer.');
+    if (!date) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { setStatus('Enter a date as YYYY-MM-DD.', 'neg', 5000); return; }
+    const { error } = await sb.from('fixed_assets')
+      .update({ disposal_date: date, status: 'disposed' })
+      .eq('id', assetId);
+    if (error) { setStatus('Could not record disposal: ' + error.message, 'neg', 8000); return; }
+    setStatus('Disposal recorded.', 'pos', 4000);
+    await refresh();
+  }
+
+  function updateSpread() {
+    const cost = Number(el('dlgCost').value || 0);
+    const salvage = Number(el('dlgSalvage').value || 0);
+    const months = Number(el('dlgLifeMonths').value || 0);
+    if (cost > 0 && months > 0) {
+      const base = cost - salvage;
+      el('dlgSpread').textContent =
+        `${money(base)} depreciable over ${months} month${months === 1 ? '' : 's'} = ${money(base / months)} per month`;
+    } else {
+      el('dlgSpread').textContent = 'Enter cost, salvage, and useful life to see the monthly amount.';
+    }
+  }
+
+  function openAddAsset() {
+    el('dlgLabel').value = '';
+    el('dlgVendor').value = '';
+    el('dlgAssetAccount').value = '';
+    el('dlgInService').value = new Date().toISOString().slice(0, 10);
+    el('dlgLifeMonths').value = '';
+    el('dlgCost').value = '';
+    el('dlgSalvage').value = '0';
+    updateSpread();
+    el('dlg').showModal();
+  }
+
+  async function saveAsset() {
+    const label = el('dlgLabel').value.trim();
+    const assetSel = el('dlgAssetAccount');
+    const accountId = assetSel.value;
+    const inService = el('dlgInService').value;
+    const months = Number(el('dlgLifeMonths').value || 0);
+    const cost = Number(el('dlgCost').value || 0);
+    const salvage = Number(el('dlgSalvage').value || 0);
+
+    if (!label || !accountId || !inService || !months || !cost) {
+      setStatus('Label, asset account, in-service date, useful life, and cost are all required.', 'neg', 6000);
+      return;
+    }
+    if (salvage >= cost) { setStatus('Salvage value must be less than cost.', 'neg', 5000); return; }
+    if (!_co?.id) { setStatus('No active company resolved.', 'neg', 5000); return; }
+
+    const { error } = await sb.from('fixed_assets').insert({
+      company_entity_id: _co.id,
+      label,
+      vendor_name: el('dlgVendor').value.trim() || null,
+      qbo_asset_account_id: accountId,
+      qbo_asset_account_name: assetSel.selectedOptions[0]?.dataset.name || null,
+      in_service_date: inService,
+      cost,
+      salvage_value: salvage,
+      useful_life_months: months,
+    });
+
+    if (error) { setStatus('Could not add asset: ' + error.message, 'neg', 8000); return; }
+    setStatus(`Added “${label}”.`, 'pos', 5000);
+    await refresh();
+  }
+
+  // Depreciation posting -- same shape as Schedules' amortization posting:
+  // one line per asset (debit expense, credit accumulated depreciation),
+  // never netted, so a reviewer sees which asset produced which dollar.
+  // Scoped to no method filter since only straight_line exists; the view
+  // itself has nothing else to compute.
+  function lastFullMonth() {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    return d.toISOString().slice(0, 7);
+  }
+
+  function monthEndDate(monthStr) {
+    const [y, m] = monthStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  }
+
+  async function buildDepreciationLines(monthStr) {
+    let q = sb.from('fixed_asset_depreciation_v')
+      .select('fixed_asset_id, label, qbo_depreciation_expense_account_id, qbo_accum_depreciation_account_id, period_amount')
+      .eq('period_start', `${monthStr}-01`)
+      .neq('status', 'closed');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+
+    const lines = [];
+    const unmapped = [];
+    for (const r of (data || [])) {
+      const amt = Number(r.period_amount || 0);
+      if (amt <= 0.004) continue;
+      if (!r.qbo_depreciation_expense_account_id || !r.qbo_accum_depreciation_account_id) {
+        unmapped.push(r.label);
+        continue;
+      }
+      const desc = `${r.label} — ${monthStr}`;
+      lines.push({ accountId: r.qbo_depreciation_expense_account_id, postingType: 'Debit', amount: amt, description: desc });
+      lines.push({ accountId: r.qbo_accum_depreciation_account_id, postingType: 'Credit', amount: amt, description: desc });
+    }
+    return { lines, unmapped };
+  }
+
+  function openDepComposer(prefill, adjustmentId, context) {
+    if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
+    if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
+    window.SiloJE.open({
+      db: sb,
+      companyId: _co.id,
+      context: context || 'fixed-assets:depreciation',
+      prefill,
+      adjustmentId,
+      onStaged: loadDepAdjustments,
+      onPosted: async (out) => {
+        setStatus(`Posted depreciation entry ${out.doc_number || out.qbo_journal_entry_id}.`, 'pos', 8000);
+        await loadDepAdjustments();
+      },
+    });
+  }
+
+  async function buildAndPostDepreciation() {
+    const monthStr = el('depMonth').value;
+    if (!monthStr) { setStatus('Pick a month first.', 'info', 3000); return; }
+    if (!_co?.id) { setStatus('No active company resolved.', 'neg', 5000); return; }
+
+    const context = `fixed-assets:depreciation:${monthStr}`;
+
+    const { data: existing } = await sb.from('journal_adjustments')
+      .select('id, status')
+      .eq('company_entity_id', _co.id)
+      .eq('source_context', context)
+      .in('status', ['draft', 'approved', 'posted'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (existing?.length) {
+      const ex = existing[0];
+      if (ex.status === 'posted') {
+        setStatus(`${monthStr} depreciation is already posted. Void it first if it needs to change.`,
+          'info', 9000);
+        return;
+      }
+      setStatus(`${monthStr} already has a staged entry — reopening it instead of building a duplicate.`,
+        'info', 6000);
+      openDepComposer(null, ex.id, context);
+      return;
+    }
+
+    let lines, unmapped;
+    try {
+      ({ lines, unmapped } = await buildDepreciationLines(monthStr));
+    } catch (e) {
+      setStatus('Could not read the schedule: ' + e.message, 'neg', 9000);
+      return;
+    }
+
+    if (unmapped.length) {
+      setStatus(`${unmapped.length} asset(s) have no expense/accumulated-depreciation account mapped, `
+        + `so nothing was built: ` + unmapped.join(', '), 'neg', 15000);
+      return;
+    }
+    if (!lines.length) {
+      setStatus(`Nothing to recognise for ${monthStr} — no active asset has a period in that month.`,
+        'info', 8000);
+      return;
+    }
+
+    openDepComposer({
+      entryDate: monthEndDate(monthStr),
+      memo: `Depreciation — ${monthStr}`,
+      lines,
+    }, null, context);
+  }
+
+  async function voidDepAdjustment(id) {
+    const reason = window.prompt(
+      'Why is this being voided? (Recorded against the posting.)\n\n'
+      + 'Void only after the entry has actually been deleted in QuickBooks.');
+    if (reason === null) return;
+    const { data, error } = await sb.rpc('void_journal_adjustment',
+      { p_adjustment_id: id, p_reason: reason });
+    if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
+    setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}. `
+      + 'Back to approved, and can be posted again.', 'pos', 10000);
+    await loadDepAdjustments();
+  }
+
+  async function loadDepAdjustments() {
+    let q = sb.from('journal_adjustments_v')
+      .select('*')
+      .like('source_context', 'fixed-assets:depreciation:%')
+      .in('status', ['draft', 'approved', 'posted'])
+      .order('entry_date', { ascending: false })
+      .limit(25);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { console.warn('depreciation adjustments load failed', error); return; }
+
+    const rows = data || [];
+    const t = el('tblDep');
+    if (!rows.length) {
+      t.innerHTML = '<tbody><tr><td class="fa-empty">No depreciation entries yet.</td></tr></tbody>';
+      return;
+    }
+    t.innerHTML = `<thead><tr>
+        <th>Month</th><th>Memo</th><th class="fa-num">Amount</th><th>Status</th><th></th>
+      </tr></thead><tbody>` + rows.map((a) => {
+      const month = (a.source_context || '').split(':')[2] || esc(a.entry_date || '').slice(0, 7);
+      const action = a.status === 'posted'
+        ? `<button class="fa-link" data-void="${esc(a.id)}">void</button>`
+        : `<button class="fa-link" data-open="${esc(a.id)}">open</button>`;
+      return `<tr>
+        <td class="fa-sub">${esc(month)}</td>
+        <td>${esc(a.memo)}</td>
+        <td class="fa-num">${money(a.debits)}</td>
+        <td class="fa-sub">${esc(a.qbo_doc_number || a.status)}</td>
+        <td>${action}</td>
+      </tr>`;
+    }).join('') + '</tbody>';
+  }
+
+  async function refresh() {
+    const items = await loadAssets();
+    renderAssets(items);
+  }
+
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app', active: 'finance/fixed-assets',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Accounting', 'Fixed Assets'], supabaseClient: sb,
+      });
+    }
+
+    el('depMonth').value = lastFullMonth();
+
+    await loadAccountOptions();
+    await refresh();
+    await loadDepAdjustments();
+
+    el('btnAddAsset').addEventListener('click', openAddAsset);
+    el('btnBuildDep').addEventListener('click', buildAndPostDepreciation);
+    el('dlgCost').addEventListener('input', updateSpread);
+    el('dlgSalvage').addEventListener('input', updateSpread);
+    el('dlgLifeMonths').addEventListener('input', updateSpread);
+    el('dlg').addEventListener('close', () => {
+      if (el('dlg').returnValue === 'save') saveAsset();
+    });
+    el('tblDep').addEventListener('click', (e) => {
+      const o = e.target.closest('[data-open]');
+      if (o) { openDepComposer(null, o.dataset.open); return; }
+      const v = e.target.closest('[data-void]');
+      if (v) voidDepAdjustment(v.dataset.void);
+    });
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

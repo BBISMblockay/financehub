@@ -52,7 +52,70 @@
        thing that makes a nested balance sheet readable. */
     .qr-depth-0 > td:first-child { font-weight: 650; }
     .qr-summary td { font-weight: 650; background: var(--bcn-sunken); }
+    /* Rows QBO gave an account id: clicking one starts an adjustment against
+       it, so the affordance has to be visible without shouting. */
+    .qr-clickable { cursor: pointer; }
+    .qr-clickable td:first-child { text-decoration: underline;
+      text-decoration-color: var(--bcn-border-strong, #c3cdc8);
+      text-underline-offset: 2px; }
+    .qr-clickable:hover td { background: var(--bcn-accent-soft, #eaf1fb); }
     .qr-empty { padding: 28px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+
+    .qr-check { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; }
+    .qr-check label { font-size: 12px; color: var(--bcn-ink-2); user-select: none; cursor: pointer; }
+    .qr-check input { cursor: pointer; }
+
+    /* ---------- drill-down: account transactions, and JE detail within it ---------- */
+    .qr-drill-scrim { position: fixed; inset: 0; z-index: 95; background: rgba(15,23,42,.45);
+      display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px;
+      overflow: auto; }
+    /* The [hidden] attribute is only a UA-stylesheet default (display:none) --
+       an author rule that sets display on the SAME element, even one with no
+       higher specificity, wins over it because author origin beats UA origin
+       regardless of specificity ties. Setting display: flex above, with no
+       [hidden] override, meant this full-screen fixed overlay rendered AND
+       intercepted every click on the whole page from the moment it loaded,
+       hidden attribute or not -- confirmed with elementFromPoint() landing on
+       this scrim instead of a real button behind it, in both the shown and
+       "hidden" state. This is what made the page look entirely unresponsive,
+       not a one-off state -- it was live from the moment the drill-down
+       shipped. */
+    .qr-drill-scrim[hidden] { display: none; }
+    .qr-drill-modal { background: var(--bcn-panel); color: var(--bcn-ink);
+      border: 1px solid var(--bcn-border); border-radius: 12px;
+      width: min(920px, 100%); box-shadow: 0 18px 48px rgba(15,23,42,.22);
+      display: flex; flex-direction: column; max-height: calc(100vh - 64px);
+      /* A body with no content yet (still loading, or a stuck/stale tab
+         state) would otherwise let this collapse to just the head and foot
+         glued together -- indistinguishable from broken. */
+      min-height: min(360px, 60vh); }
+    .qr-drill-head { flex: none; display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); }
+    .qr-drill-title { font-size: 14px; font-weight: 650; }
+    .qr-drill-sub { font-family: var(--bcn-mono); font-size: 10.5px; color: var(--bcn-ink-3); margin-top: 2px; }
+    .qr-drill-body { flex: 1; min-height: 0; overflow: auto; padding: 14px;
+      display: flex; flex-direction: column; }
+    .qr-drill-body > .qr-empty { flex: 1; display: flex; align-items: center;
+      justify-content: center; margin: 0; }
+    .qr-drill-foot { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding: 11px 14px; border-top: 1px solid var(--bcn-border); background: var(--bcn-sunken); }
+    .qr-drill-back { display: inline-block; margin-bottom: 10px; cursor: pointer;
+      font-size: 12.5px; color: var(--bcn-accent); background: none; border: none; padding: 0; }
+    .qr-drill-back:hover { text-decoration: underline; }
+    /* A row is a Journal Entry with an id -- QBO gave us enough to drill one level
+       further, into that entry's own lines. */
+    .qr-je-row { cursor: pointer; }
+    .qr-je-row td:nth-child(2) { text-decoration: underline;
+      text-decoration-color: var(--bcn-border-strong, #c3cdc8); text-underline-offset: 2px; }
+    .qr-je-row:hover td { background: var(--bcn-accent-soft, #eaf1fb); }
+    .qr-je-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+      background: var(--bcn-accent-soft, #eaf1fb); color: var(--bcn-accent);
+      border: 1px solid var(--bcn-accent); border-radius: 6px; padding: 6px 10px; margin-bottom: 12px; }
+    .qr-je-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 12px; }
+    .qr-je-meta div { display: flex; flex-direction: column; gap: 2px; }
+    .qr-je-meta span { font-family: var(--bcn-mono); font-size: 9.5px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .qr-je-meta strong { font-size: 12.5px; font-weight: 650; }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -62,6 +125,7 @@
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
+  <script src="je-composer.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
@@ -69,10 +133,11 @@
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>QuickBooks Reports</div>
-          <div class="bcn-header-sub" id="subTitle">Read-only. Nothing here writes to QuickBooks.</div>
+          <div class="bcn-header-sub" id="subTitle">Reports read live from QuickBooks. Adjustments posted here write to the books.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
+          <button class="bcn-btn bcn-btn--dark" id="btnAdjust">Post adjustment</button>
           <button class="bcn-btn" id="btnCsv">CSV</button>
         </div>
       </header>
@@ -116,6 +181,14 @@
               <option value="Cash">Cash</option>
             </select>
           </div>
+
+          <div class="qr-field">
+            <label>&nbsp;</label>
+            <div class="qr-check">
+              <input type="checkbox" id="byMonth" />
+              <label for="byMonth">By month</label>
+            </div>
+          </div>
         </div>
 
         <div class="qr-card">
@@ -132,8 +205,39 @@
             </table>
           </div>
         </div>
+
+        <div class="qr-card" id="adjCard" hidden>
+          <div class="qr-card-head">
+            <div>
+              <div class="qr-title">Adjustments</div>
+              <div class="qr-sub">Staged entries live here until posted — nothing reaches
+                QuickBooks until you approve one. Deleting an entry in QuickBooks does not
+                tell SILO, so void a posted one here to correct and re-post it.</div>
+            </div>
+            <div class="qr-sub" id="adjCount"></div>
+          </div>
+          <div class="qr-scroll">
+            <table class="qr-table" id="adjTbl"><tbody></tbody></table>
+          </div>
+        </div>
       </div>
     </main>
+  </div>
+
+  <div class="qr-drill-scrim" id="drillScrim" hidden>
+    <div class="qr-drill-modal" role="dialog" aria-modal="true" aria-label="Account detail">
+      <div class="qr-drill-head">
+        <div>
+          <div class="qr-drill-title" id="drillTitle">Account detail</div>
+          <div class="qr-drill-sub" id="drillSub"></div>
+        </div>
+        <button class="bcn-btn" id="drillClose">Close</button>
+      </div>
+      <div class="qr-drill-body" id="drillBody"></div>
+      <div class="qr-drill-foot">
+        <button class="bcn-btn bcn-btn--dark" id="drillPostAdjustment">Post adjustment for this account</button>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -188,6 +292,15 @@
     return out;
   }
 
+  // Finds a report column by QBO's own ColKey metadata (e.g. 'txn_type') rather
+  // than a hardcoded index -- the General Ledger column order is stable today,
+  // but reading the key QBO actually gave us costs nothing and doesn't break
+  // silently if that ever changes.
+  function colIndexByKey(cols, key) {
+    return cols.findIndex((c) =>
+      (c.MetaData || []).some((m) => m.Name === 'ColKey' && m.Value === key));
+  }
+
   function render(payload) {
     const cols = payload?.Columns?.Column ?? [];
     const headers = cols.map((c) => c.ColTitle || c.ColType || '');
@@ -205,6 +318,9 @@
 
     const body = lastRows.map((r) => {
       const cls = r.kind === 'summary' ? 'qr-summary' : `qr-depth-${r.depth}`;
+      // QBO stamps the account id on the first cell of an account row. Where it
+      // is there, the row is the fastest way into an adjustment about it.
+      const acctId = r.cells?.[0]?.id ? String(r.cells[0].id) : '';
       const tds = headers.map((_, i) => {
         const cell = r.cells[i];
         const v = cell?.value ?? '';
@@ -215,7 +331,12 @@
         const isNum = v !== '' && Number.isFinite(num);
         return `<td class="qr-num${isNum && num < 0 ? ' qr-neg' : ''}">${esc(v)}</td>`;
       }).join('');
-      return `<tr class="${cls}">${tds}</tr>`;
+      return `<tr class="${cls}${acctId ? ' qr-clickable' : ''}"`
+        + (acctId
+          ? ` data-acct="${esc(acctId)}" data-label="${esc(r.cells[0].value || '')}"`
+            + ' title="Post an adjustment against this account"'
+          : '')
+        + `>${tds}</tr>`;
     }).join('');
 
     tbl.innerHTML = thead + `<tbody>${body}</tbody>`;
@@ -240,6 +361,182 @@
     }
   }
 
+  // ---- drill-down: an account row opens its transactions for the current
+  // period, and a Journal Entry row within that opens the entry's own lines.
+  // Nothing here posts anything -- Post Adjustment lives in the footer as its
+  // own explicit action, seeded with the account being looked at.
+  const drillState = { acctId: null, acctLabel: null, payload: null };
+
+  async function openDrilldown(acctId, acctLabel) {
+    drillState.acctId = acctId;
+    drillState.acctLabel = acctLabel;
+    drillState.payload = null;
+    el('drillScrim').hidden = false;
+    el('drillTitle').textContent = acctLabel || 'Account detail';
+    el('drillSub').textContent =
+      `${el('from').value || 'start'} → ${el('to').value || 'today'} · ${el('method').value}`;
+    el('drillBody').innerHTML = '<div class="qr-empty">Loading transactions…</div>';
+
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/quickbooks-report`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          report_name: 'GeneralLedger',
+          params: {
+            account: acctId,
+            start_date: el('from').value || undefined,
+            end_date: el('to').value || undefined,
+            accounting_method: el('method').value,
+          },
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || String(res.status));
+      drillState.payload = body.report;
+      renderDrillTransactions(body.report);
+    } catch (e) {
+      el('drillBody').innerHTML =
+        `<div class="qr-empty">Could not load transactions — ${esc(e.message)}</div>`;
+    }
+  }
+
+  function renderDrillTransactions(payload) {
+    el('drillTitle').textContent = drillState.acctLabel || 'Account detail';
+    el('drillSub').textContent =
+      `${el('from').value || 'start'} → ${el('to').value || 'today'} · ${el('method').value}`;
+
+    const cols = payload?.Columns?.Column ?? [];
+    const headers = cols.map((c) => c.ColTitle || c.ColType || '');
+    const rows = flatten(payload);
+    const typeIdx = colIndexByKey(cols, 'txn_type');
+
+    if (!rows.length) {
+      el('drillBody').innerHTML =
+        '<div class="qr-empty">No transactions in this account for the selected period.</div>';
+      return;
+    }
+
+    const thead = `<thead><tr>${headers.map((h, i) =>
+      `<th${i > 0 ? ' class="qr-num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>`;
+
+    const body = rows.map((r) => {
+      const cls = r.kind === 'summary' ? 'qr-summary' : `qr-depth-${r.depth}`;
+      // Same drill-one-level-further shape as the account row itself: QBO put
+      // the transaction's own id on the Transaction Type cell whenever the row
+      // is a Journal Entry, confirmed against a real GeneralLedger run.
+      const typeCell = typeIdx >= 0 ? r.cells?.[typeIdx] : null;
+      const isJe = typeCell?.value === 'Journal Entry' && typeCell?.id;
+      const tds = headers.map((_, i) => {
+        const cell = r.cells[i];
+        const v = cell?.value ?? '';
+        const num = Number(String(v).replace(/[^0-9.-]/g, ''));
+        const isNum = v !== '' && Number.isFinite(num);
+        return `<td${i > 0 ? ` class="qr-num${isNum && num < 0 ? ' qr-neg' : ''}"` : ''}>${esc(v)}</td>`;
+      }).join('');
+      return `<tr class="${cls}${isJe ? ' qr-je-row' : ''}"`
+        + (isJe ? ` data-je="${esc(typeCell.id)}" title="Open this journal entry"` : '')
+        + `>${tds}</tr>`;
+    }).join('');
+
+    el('drillBody').innerHTML = `<table class="qr-table">${thead}<tbody>${body}</tbody></table>`;
+  }
+
+  async function openJeDetail(jeId) {
+    el('drillTitle').textContent = `Journal Entry ${esc(jeId)}`;
+    el('drillSub').innerHTML = '<button class="qr-drill-back" id="drillBack">← Back to transactions</button>';
+    el('drillBody').innerHTML = '<div class="qr-empty">Loading…</div>';
+
+    // Enrichment only -- whether SILO itself posted this entry, and its own
+    // audit trail. A lookup failure here should never block the QBO-sourced
+    // detail below, which is why its own errors are swallowed rather than
+    // thrown.
+    let posting = null;
+    try {
+      const { data } = await sb.from('quickbooks_journal_postings')
+        .select('source, status, posted_at, qbo_doc_number')
+        .eq('qbo_journal_entry_id', String(jeId))
+        .maybeSingle();
+      posting = data || null;
+    } catch { /* enrichment only */ }
+
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/quickbooks-report`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ journal_entry_id: jeId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || String(res.status));
+      renderJeDetail(body.journal_entry, posting);
+    } catch (e) {
+      el('drillBody').innerHTML = `<div class="qr-empty">Could not load this entry — ${esc(e.message)}</div>`;
+    }
+  }
+
+  const JE_SOURCE_LABEL = { card_import: 'Card Coding', journal_adjustment: 'Journal Adjustments' };
+
+  function renderJeDetail(je, posting) {
+    if (!je) {
+      el('drillBody').innerHTML = '<div class="qr-empty">QuickBooks returned no entry.</div>';
+      return;
+    }
+
+    const lines = je.Line || [];
+    const dr = lines.filter((l) => l.JournalEntryLineDetail?.PostingType === 'Debit')
+      .reduce((n, l) => n + Number(l.Amount || 0), 0);
+    const cr = lines.filter((l) => l.JournalEntryLineDetail?.PostingType === 'Credit')
+      .reduce((n, l) => n + Number(l.Amount || 0), 0);
+
+    const badge = posting
+      ? `<div class="qr-je-badge">Posted via SILO — ${esc(JE_SOURCE_LABEL[posting.source] || posting.source)}`
+        + ` · ${esc(posting.status)}`
+        + (posting.posted_at ? ` · ${new Date(posting.posted_at).toLocaleString()}` : '')
+        + '</div>'
+      : '';
+
+    const rows = lines.map((l) => {
+      const d = l.JournalEntryLineDetail || {};
+      const amt = Number(l.Amount || 0);
+      return `<tr>
+        <td>${esc(d.AccountRef?.name || d.AccountRef?.value || '—')}</td>
+        <td>${esc(d.DepartmentRef?.name || '—')}</td>
+        <td>${esc(d.Entity?.EntityRef?.name || '—')}</td>
+        <td>${esc(l.Description || '—')}</td>
+        <td class="qr-num">${d.PostingType === 'Debit' ? esc(amt.toFixed(2)) : ''}</td>
+        <td class="qr-num">${d.PostingType === 'Credit' ? esc(amt.toFixed(2)) : ''}</td>
+      </tr>`;
+    }).join('');
+
+    el('drillBody').innerHTML = `
+      ${badge}
+      <div class="qr-je-meta">
+        <div><span>Date</span><strong>${esc(je.TxnDate || '—')}</strong></div>
+        <div><span>Doc #</span><strong>${esc(je.DocNumber || '—')}</strong></div>
+        <div><span>Memo</span><strong>${esc(je.PrivateNote || '—')}</strong></div>
+      </div>
+      <table class="qr-table">
+        <thead><tr><th>Account</th><th>Location</th><th>Entity</th><th>Description</th>
+          <th class="qr-num">Debit</th><th class="qr-num">Credit</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr class="qr-summary"><td colspan="4">Totals</td>
+          <td class="qr-num">${esc(dr.toFixed(2))}</td><td class="qr-num">${esc(cr.toFixed(2))}</td></tr></tfoot>
+      </table>`;
+  }
+
+  // Reports QBO can actually break into monthly columns. The detail reports
+  // (GeneralLedger, TransactionList, ProfitAndLossDetail) are already
+  // transaction-level -- summarize_column_by doesn't apply to them.
+  const SUMMARY_REPORTS = ['BalanceSheet', 'ProfitAndLoss', 'TrialBalance'];
+
   async function run() {
     const report = el('report').value;
     const params = {
@@ -247,6 +544,14 @@
       end_date: el('to').value || undefined,
       accounting_method: el('method').value,
     };
+    if (el('byMonth').checked) {
+      if (SUMMARY_REPORTS.includes(report)) {
+        params.summarize_column_by = 'Month';
+      } else {
+        setStatus(`${report} doesn't break out by month — showing the full range as one column.`,
+          'info', 6000);
+      }
+    }
     // Only the transaction-level reports accept an account filter; sending it
     // to a Balance Sheet is silently ignored by QBO, which reads as the filter
     // not working rather than not applying.
@@ -283,6 +588,101 @@
     } finally {
       el('btnRun').disabled = false;
     }
+  }
+
+  // The point of putting this here is proximity: the entry gets written where
+  // the discrepancy was noticed, and the report refreshes on top of it, so the
+  // adjustment is checked against the same numbers that prompted it.
+  function openComposer(prefill, adjustmentId) {
+    if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
+    if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
+    window.SiloJE.open({
+      db: sb,
+      companyId: _co.id,
+      context: `qbo-reports:${el('report').value}`,
+      prefill,
+      adjustmentId,
+      onStaged: loadAdjustments,
+      onPosted: async (out) => {
+        setStatus(
+          `Posted journal entry ${out.doc_number || out.qbo_journal_entry_id}. Re-running the report…`,
+          'pos', 10000);
+        await loadAdjustments();
+        await run();
+      },
+    });
+  }
+
+  // Staged drafts are listed alongside posted entries on purpose: a draft you
+  // cannot find again is an orphan, and staging would just be a way to lose
+  // work. This is where you come back to one.
+  async function loadAdjustments() {
+    let q = sb.from('journal_adjustments_v')
+      .select('*').in('status', ['draft', 'approved', 'posted'])
+      .order('entry_date', { ascending: false }).limit(25);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { console.warn('adjustments load failed', error); return; }
+
+    const rows = data || [];
+    el('adjCard').hidden = rows.length === 0;
+    if (!rows.length) return;
+
+    const staged = rows.filter((a) => a.status !== 'posted');
+    const posted = rows.filter((a) => a.status === 'posted');
+    el('adjCount').textContent =
+      `${staged.length} staged · ${posted.length} posted`;
+
+    const section = (label, list, actions) => list.length
+      ? `<tr class="qr-summary"><td colspan="5">${esc(label)}</td></tr>`
+        + list.map((a) => `<tr>
+            <td class="bcn-mono">${esc(a.entry_date)}</td>
+            <td>${esc(a.memo)}</td>
+            <td class="qr-num">${esc(fmtMoney(a.debits))}</td>
+            <td class="bcn-mono">${esc(a.qbo_doc_number || a.qbo_journal_entry_id
+              || `${a.line_count} lines · ${a.status}`)}</td>
+            <td>${actions(a)}</td>
+          </tr>`).join('')
+      : '';
+
+    el('adjTbl').innerHTML =
+      '<thead><tr><th>Date</th><th>Memo</th><th class="qr-num">Amount</th>'
+      + '<th>Entry</th><th></th></tr></thead><tbody>'
+      + section('Staged — not yet in QuickBooks', staged, (a) =>
+        `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
+        + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`)
+      + section('Posted to QuickBooks', posted, (a) =>
+        `<button class="bcn-btn" data-void="${esc(a.id)}">Void</button>`)
+      + '</tbody>';
+  }
+
+  async function discardAdjustment(id) {
+    if (!confirm('Discard this staged adjustment? It has not been posted, so '
+      + 'nothing in QuickBooks changes.')) return;
+    // The lines go with it -- journal_adjustment_lines cascades on the parent.
+    const { error } = await sb.from('journal_adjustments').delete().eq('id', id);
+    if (error) { setStatus(`Could not discard: ${error.message}`, 'neg', 10000); return; }
+    setStatus('Staged adjustment discarded.', 'pos', 5000);
+    await loadAdjustments();
+  }
+
+  function fmtMoney(n) {
+    const v = Number(n || 0);
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  async function voidAdjustment(id) {
+    const reason = prompt(
+      'Why is this being voided? (Recorded against the posting.)\n\n'
+      + 'Void only after the entry has actually been deleted in QuickBooks — '
+      + 'this changes what SILO believes, not what QuickBooks holds.');
+    if (reason === null) return;
+    const { data, error } = await sb.rpc('void_journal_adjustment',
+      { p_adjustment_id: id, p_reason: reason });
+    if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
+    setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}.`
+      + ' The adjustment is back to approved and can be posted again.', 'pos', 10000);
+    await loadAdjustments();
   }
 
   function csv() {
@@ -331,6 +731,58 @@
 
     el('btnRun').addEventListener('click', run);
     el('btnCsv').addEventListener('click', csv);
+    el('btnAdjust').addEventListener('click', () => openComposer({
+      entryDate: el('to').value || undefined,
+    }));
+
+    // Clicking an account row now drills into its transactions rather than
+    // jumping straight to posting -- Post Adjustment moved into the
+    // drill-down's own footer, seeded with the account being looked at.
+    el('tbl').addEventListener('click', (e) => {
+      const tr = e.target.closest('tr[data-acct]');
+      if (!tr) return;
+      openDrilldown(tr.dataset.acct, tr.dataset.label);
+    });
+
+    el('report').addEventListener('change', () => {
+      const summarizable = SUMMARY_REPORTS.includes(el('report').value);
+      el('byMonth').disabled = !summarizable;
+      if (!summarizable) el('byMonth').checked = false;
+    });
+    el('report').dispatchEvent(new Event('change'));
+
+    el('drillClose').addEventListener('click', () => { el('drillScrim').hidden = true; });
+    el('drillScrim').addEventListener('mousedown', (e) => {
+      if (e.target === el('drillScrim')) el('drillScrim').hidden = true;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !el('drillScrim').hidden) el('drillScrim').hidden = true;
+    });
+    document.querySelector('.qr-drill-modal').addEventListener('click', (e) => {
+      if (e.target.closest('#drillBack')) { renderDrillTransactions(drillState.payload); return; }
+      const tr = e.target.closest('tr[data-je]');
+      if (tr) openJeDetail(tr.dataset.je);
+    });
+    el('drillPostAdjustment').addEventListener('click', () => {
+      if (!drillState.acctId) return;
+      el('drillScrim').hidden = true;
+      openComposer({
+        entryDate: el('to').value || undefined,
+        memo: `Adjustment — ${drillState.acctLabel || ''}`.trim(),
+        lines: [{ accountId: drillState.acctId, postingType: 'Debit' }, {}],
+      });
+    });
+
+    el('adjTbl').addEventListener('click', (e) => {
+      const v = e.target.closest('[data-void]');
+      if (v) { voidAdjustment(v.dataset.void); return; }
+      const o = e.target.closest('[data-open]');
+      if (o) { openComposer(null, o.dataset.open); return; }
+      const d = e.target.closest('[data-drop]');
+      if (d) discardAdjustment(d.dataset.drop);
+    });
+
+    await loadAdjustments();
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');

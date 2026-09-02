@@ -1,0 +1,2523 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Card Coding</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-panel); border-bottom: 1px solid var(--bcn-border); }
+
+    /* Same shape as the accounting export: the page does not scroll, the
+       visible tab's table does. */
+    .cc-page { flex: 1; min-height: 0; display: flex; flex-direction: column;
+      overflow: hidden; background: var(--bcn-bg); }
+    .cc-tabbar .bcn-tab { background: none; border: 0;
+      border-bottom: 2px solid transparent; font: inherit; cursor: pointer; }
+    .cc-page > .bcn-status { flex: none; margin: 10px 18px 0; }
+    .cc-content { flex: 1; min-height: 0; padding: 14px 18px; display: flex; }
+    .cc-pane { flex: 1; min-width: 0; min-height: 0; display: flex;
+      flex-direction: column; gap: 12px; }
+    .cc-pane[hidden] { display: none; }
+
+    .cc-card { display: flex; flex-direction: column; min-height: 0; min-width: 0;
+      background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; }
+    .cc-card--grow { flex: 1; }
+    .cc-card-head { flex: none; padding: 10px 12px; display: flex; gap: 12px;
+      align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--bcn-border); }
+    .cc-title { font-size: 13px; font-weight: 750; }
+    .cc-sub { font-size: 10.5px; font-family: var(--bcn-mono); color: var(--bcn-ink-3); }
+    .cc-body { flex: 1; min-height: 0; overflow: auto; }
+    .cc-pad { padding: 12px; }
+    .cc-foot { flex: none; padding: 10px 12px; border-top: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken); display: flex; gap: 8px; flex-wrap: wrap;
+      align-items: center; }
+
+    .cc-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .cc-tbl th { position: sticky; top: 0; z-index: 3; background: var(--bcn-sunken);
+      text-align: left; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 9px 8px 7px; white-space: nowrap;
+      border-bottom: 1px solid var(--bcn-border-strong); }
+    .cc-tbl td { padding: 4px 8px; border-top: 1px solid var(--bcn-border);
+      vertical-align: middle; }
+    .cc-tbl tr:hover td { background: rgba(37,99,235,.03); }
+    .cc-tbl .num { text-align: right; font-family: var(--bcn-mono);
+      font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .cc-tbl select, .cc-tbl input { width: 100%; font-size: 11px; }
+    .cc-desc { max-width: 320px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; }
+    .cc-note { font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3); }
+
+    .cc-row--excluded td { opacity: .45; }
+    .cc-row--excluded .cc-desc { text-decoration: line-through; }
+
+    .cc-chip { display: inline-block; font-family: var(--bcn-mono); font-size: 9.5px;
+      text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px;
+      border-radius: 999px; border: 1px solid var(--bcn-border); white-space: nowrap; }
+    .cc-chip--rule { background: rgba(22,163,74,.10); border-color: rgba(22,163,74,.35); }
+    .cc-chip--ai { background: rgba(37,99,235,.10); border-color: rgba(37,99,235,.35); }
+    .cc-chip--manual { background: rgba(100,116,139,.12); }
+    .cc-chip--low { background: rgba(217,119,6,.12); border-color: rgba(217,119,6,.4); }
+    .cc-chip--none { background: rgba(220,38,38,.10); border-color: rgba(220,38,38,.35); }
+
+    .cc-grid { display: grid; gap: 10px 14px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .cc-field { display: flex; flex-direction: column; gap: 4px; }
+    .cc-field label { font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
+
+    .cc-hint { font-size: 11px; line-height: 1.5; color: var(--bcn-ink-3);
+      background: var(--bcn-sunken); border: 1px solid var(--bcn-border);
+      border-radius: 10px; padding: 10px; max-width: 118ch; }
+    .cc-warn { border-color: rgba(217,119,6,.45); background: rgba(217,119,6,.07);
+      color: var(--bcn-ink-2); }
+
+    .cc-kpis { flex: none; display: grid; gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    .cc-kpi { background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 10px; padding: 9px 11px; }
+    .cc-kpi-label { font-family: var(--bcn-mono); font-size: 9.5px;
+      text-transform: uppercase; letter-spacing: .05em; color: var(--bcn-ink-3); }
+    .cc-kpi-value { font-family: var(--bcn-mono); font-size: 17px; font-weight: 700; }
+
+    .cc-bulk { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding: 8px 12px; border-bottom: 1px solid var(--bcn-border);
+      background: rgba(37,99,235,.06); }
+    .cc-bulk[hidden] { display: none; }
+    .cc-bulk-count { font-family: var(--bcn-mono); font-size: 11px; font-weight: 700; }
+
+    /* Account and location render as text and become a <select> only when
+       clicked. Rendering 420 rows x 188 options took 5s to open the batch and
+       500ms on every edit; one editor at a time costs neither. */
+    .cc-cell { width: 100%; text-align: left; font: inherit; font-size: 12px;
+      background: none; border: 1px solid transparent; border-radius: 6px;
+      padding: 3px 6px; cursor: pointer; color: var(--bcn-ink); }
+    .cc-cell:hover { border-color: var(--bcn-border-strong); background: var(--bcn-panel); }
+    .cc-cell--empty { color: var(--bcn-ink-3); font-style: italic; }
+    .cc-cell--req { color: var(--bcn-neg); font-weight: 600;
+      border-color: rgba(220,38,38,.35); background: rgba(220,38,38,.06); }
+    .cc-check { width: 14px; height: 14px; cursor: pointer; }
+
+    .cc-merch { cursor: pointer; text-decoration: underline dotted; }
+
+    /* The Divvy card name is a cost centre, not a card brand, so it reads as
+       a tag rather than metadata. Clicking it searches, which is the route to
+       coding a whole card at once. */
+    .cc-card-chip { cursor: pointer; padding: 1px 5px; border-radius: 999px;
+      background: rgba(37,99,235,.10); border: 1px solid rgba(37,99,235,.28);
+      color: var(--bcn-ink-2); }
+
+    /* The distinct card names in the file, with counts. This is how you see
+       what variants the export actually produced -- including the ones that
+       came from a person's name because Card Name was blank. */
+    .cc-variants { flex: none; display: flex; gap: 6px; flex-wrap: wrap;
+      padding: 8px 12px 0; }
+    .cc-var { font-family: var(--bcn-mono); font-size: 10.5px; cursor: pointer;
+      padding: 3px 8px; border-radius: 999px; border: 1px solid var(--bcn-border);
+      background: var(--bcn-panel); color: var(--bcn-ink-2); white-space: nowrap; }
+    .cc-var:hover { border-color: var(--bcn-accent); }
+    .cc-var--on { background: rgba(37,99,235,.12); border-color: var(--bcn-accent);
+      color: var(--bcn-ink); font-weight: 700; }
+    .cc-var-n { opacity: .6; margin-left: 4px; }
+
+    .cc-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 460px;
+      max-width: 92vw; z-index: 60; background: var(--bcn-panel);
+      border-left: 1px solid var(--bcn-border); box-shadow: -8px 0 28px rgba(15,23,42,.10);
+      display: flex; flex-direction: column; }
+    .cc-drawer[hidden] { display: none; }
+    .cc-drawer-head { flex: none; display: flex; align-items: center;
+      justify-content: space-between; gap: 12px; padding: 12px;
+      border-bottom: 1px solid var(--bcn-border); }
+    .cc-drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+    .cc-kv { display: grid; grid-template-columns: minmax(120px, 38%) 1fr;
+      gap: 4px 10px; font-size: 11.5px; }
+    .cc-kv dt { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3); padding-top: 2px; }
+    .cc-kv dd { margin: 0; word-break: break-word; }
+    .cc-kv-head { grid-column: 1 / -1; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      border-bottom: 1px solid var(--bcn-border); padding: 12px 0 4px; margin-bottom: 4px; }
+    .cc-kv-head:first-child { padding-top: 0; }
+
+    .cc-sep { width: 1px; align-self: stretch; background: var(--bcn-border); margin: 0 4px; }
+
+    .cc-addrule { flex: none; display: flex; gap: 8px; flex-wrap: wrap;
+      align-items: center; padding: 10px 12px;
+      border-bottom: 1px solid var(--bcn-border); background: var(--bcn-sunken); }
+
+    .cc-empty { padding: 22px 12px; text-align: center; color: var(--bcn-ink-3);
+      font-size: 12px; }
+    .cc-drop { border: 1.5px dashed var(--bcn-border-strong); border-radius: 10px;
+      padding: 18px; text-align: center; font-size: 12px; color: var(--bcn-ink-3);
+      background: var(--bcn-sunken); cursor: pointer; }
+    .cc-drop--over { border-color: var(--bcn-accent); background: rgba(37,99,235,.06); }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div>
+        <div class="bcn-header-title">Card Coding</div>
+        <div class="bcn-header-sub" id="ccSub">Upload a card export, code it, post the entry</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn" id="btnRefresh">Refresh</button>
+      </div>
+    </header>
+
+    <div class="cc-page">
+      <nav class="bcn-tabs cc-tabbar" id="ccTabs" role="tablist">
+        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="import">Import</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="coding">Coding</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="entry">Journal entry</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="rules">Rules</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="cards">Cards</button>
+        <span class="bcn-tabs-meta" id="ccMeta"></span>
+      </nav>
+
+      <div class="bcn-status" id="status" hidden></div>
+
+      <div class="cc-content">
+        <!-- ================= IMPORT ================= -->
+        <section class="cc-pane" data-pane="import">
+          <div class="cc-card">
+            <div class="cc-card-head">
+              <div>
+                <div class="cc-title">New import</div>
+                <div class="cc-sub">One upload becomes one journal entry</div>
+              </div>
+            </div>
+            <div class="cc-pad">
+              <div class="cc-grid">
+                <div class="cc-field">
+                  <label for="impSource">Card</label>
+                  <select class="bcn-field bcn-field--mono" id="impSource"></select>
+                </div>
+                <div class="cc-field">
+                  <label for="impPeriod">Statement month</label>
+                  <input type="month" class="bcn-field bcn-field--mono" id="impPeriod" />
+                </div>
+                <div class="cc-field">
+                  <label for="impEntryDate">Entry date</label>
+                  <input type="date" class="bcn-field bcn-field--mono" id="impEntryDate" />
+                </div>
+              </div>
+
+              <div style="margin-top:12px">
+                <input type="file" id="impFile" accept=".csv,text/csv" hidden />
+                <div class="cc-drop" id="impDrop">
+                  Drop a CSV here, or click to choose one.
+                </div>
+              </div>
+
+              <div id="impMapWrap" hidden style="margin-top:12px">
+                <div class="cc-sub" style="margin-bottom:6px">Columns — mapped once per card, then remembered</div>
+                <div class="cc-grid" id="impMap"></div>
+                <div class="cc-hint" style="margin-top:10px" id="impPreviewHint"></div>
+              </div>
+            </div>
+            <div class="cc-foot">
+              <button class="bcn-btn bcn-btn--primary" id="btnImport" disabled>Import file</button>
+              <span class="cc-note" id="impStatus"></span>
+            </div>
+          </div>
+
+          <div class="cc-card cc-card--grow">
+            <div class="cc-card-head">
+              <div><div class="cc-title">Batches</div></div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input class="bcn-field bcn-field--mono" id="batchSearch" type="search"
+                       placeholder="Search card, period, file…" style="width:260px" />
+                <span class="cc-sub" id="batchCount"></span>
+              </div>
+            </div>
+            <div class="cc-body">
+              <table class="cc-tbl" id="tblBatches"></table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= CODING ================= -->
+        <section class="cc-pane" data-pane="coding" hidden>
+          <div class="cc-kpis" id="codeKpis"></div>
+          <div class="cc-card cc-card--grow">
+            <div class="cc-card-head">
+              <div>
+                <div class="cc-title" id="codeTitle">No batch open</div>
+                <div class="cc-sub" id="codeSub">Open a batch from the Import tab</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
+                       placeholder="Search merchant, account, location, cardholder, card…"
+                       style="width:340px" />
+                <select class="bcn-field bcn-field--mono" id="codeFilter" style="width:auto">
+                  <option value="all">All rows</option>
+                  <option value="uncoded">Needs coding</option>
+                  <option value="conflict">Card vs merchant</option>
+                  <option value="low">Low confidence</option>
+                  <option value="ai">AI-suggested</option>
+                  <option value="excluded">Excluded</option>
+                </select>
+              </div>
+            </div>
+            <div class="cc-variants" id="codeVariants"></div>
+            <div class="cc-bulk" id="codeBulk" hidden>
+              <span class="cc-bulk-count" id="bulkCount"></span>
+              <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
+              <select class="bcn-field bcn-field--mono" id="bulkLocation" style="width:200px"></select>
+              <select class="bcn-field bcn-field--mono" id="bulkEntity" style="width:220px"></select>
+              <button class="bcn-btn" id="btnBulkExclude">Exclude</button>
+              <button class="bcn-btn" id="btnBulkInclude">Include</button>
+              <button class="bcn-btn" id="btnBulkClear">Clear selection</button>
+            </div>
+            <div class="cc-body">
+              <table class="cc-tbl" id="tblCoding"></table>
+            </div>
+            <div class="cc-foot">
+              <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
+              <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Categorise with AI</button>
+              <button class="bcn-btn" id="btnSaveCoding">Save coding</button>
+              <button class="bcn-btn" id="btnLearnRules">Learn rules from coded rows</button>
+              <span class="cc-note" id="codeStatus"></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= ENTRY ================= -->
+        <section class="cc-pane" data-pane="entry" hidden>
+          <div class="cc-kpis" id="entryKpis"></div>
+          <div class="cc-card cc-card--grow">
+            <div class="cc-card-head">
+              <div>
+                <div class="cc-title">Journal entry preview</div>
+                <div class="cc-sub" id="entrySub">Exactly what would be written to QuickBooks</div>
+              </div>
+              <label class="cc-note" style="display:flex;gap:6px;align-items:center">
+                <input type="checkbox" id="entryGroup" /> Group by account + location
+              </label>
+            </div>
+            <div class="cc-body">
+              <table class="cc-tbl" id="tblEntry"></table>
+            </div>
+            <div class="cc-foot">
+              <button class="bcn-btn" id="btnEntryCsv">Download CSV</button>
+              <button class="bcn-btn" id="btnApprove">Approve</button>
+              <button class="bcn-btn bcn-btn--dark" id="btnPost" disabled>Post to QuickBooks</button>
+              <button class="bcn-btn bcn-btn--danger" id="btnVoid" hidden>Mark unposted</button>
+              <span class="cc-note" id="entryStatus"></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= RULES ================= -->
+        <section class="cc-pane" data-pane="rules" hidden>
+          <div class="cc-card cc-card--grow">
+            <div class="cc-card-head">
+              <div>
+                <div class="cc-title">Coding rules</div>
+                <div class="cc-sub">What SILO already knows — every confirmation adds one</div>
+              </div>
+              <div class="cc-sub" id="rulesCount"></div>
+            </div>
+            <!-- A mapping can be written straight down, without first
+                 importing a file and coding rows to learn from. Waiting for
+                 rows before you can record a mapping you already know is
+                 backwards. -->
+            <div class="cc-addrule">
+              <select class="bcn-field bcn-field--mono" id="ruleField" style="width:130px">
+                <option value="merchant">Merchant</option>
+                <option value="card_name">Card name</option>
+              </select>
+              <select class="bcn-field bcn-field--mono" id="ruleMatch" style="width:130px">
+                <option value="normalized">matches</option>
+                <option value="contains">contains</option>
+                <option value="exact">is exactly</option>
+              </select>
+              <input class="bcn-field bcn-field--mono" id="rulePattern"
+                     placeholder="e.g. sugar hill" style="width:200px" />
+              <select class="bcn-field bcn-field--mono" id="ruleAccount" style="width:250px"></select>
+              <select class="bcn-field bcn-field--mono" id="ruleEntity" style="width:200px"></select>
+              <select class="bcn-field bcn-field--mono" id="ruleLocation" style="width:170px"></select>
+              <button class="bcn-btn bcn-btn--primary" id="btnAddRule">Add rule</button>
+            </div>
+            <div class="cc-body">
+              <table class="cc-tbl" id="tblRules"></table>
+            </div>
+            <div class="cc-foot">
+              <span class="cc-note">Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already coded keep what they have.</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= CARDS ================= -->
+        <section class="cc-pane" data-pane="cards" hidden>
+          <div class="cc-card cc-card--grow">
+            <div class="cc-card-head">
+              <div>
+                <div class="cc-title">Cards</div>
+                <div class="cc-sub">The balancing account each feed settles to</div>
+              </div>
+            </div>
+            <div class="cc-body">
+              <table class="cc-tbl" id="tblCards"></table>
+            </div>
+            <div class="cc-foot">
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveCards">Save cards</button>
+              <span class="cc-sep"></span>
+              <input class="bcn-field bcn-field--mono" id="newCardName"
+                     placeholder="New card name, e.g. Ramp" style="width:220px" />
+              <button class="bcn-btn" id="btnAddCard">Add card</button>
+              <span class="cc-note" id="cardsStatus"></span>
+            </div>
+          </div>
+          <div class="cc-hint cc-warn" id="cardsHint"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- Every column of the original row, not just the ones SILO mapped. The
+       import keeps the whole CSV line in `raw` precisely so a column nobody
+       thought to map is still readable here. -->
+  <aside class="cc-drawer" id="rawDrawer" hidden>
+    <div class="cc-drawer-head">
+      <div>
+        <div class="cc-title">Row detail</div>
+        <div class="cc-sub" id="rawSub"></div>
+      </div>
+      <button class="bcn-btn" id="btnRawClose">Close</button>
+    </div>
+    <div class="cc-drawer-body" id="rawBody"></div>
+  </aside>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function () {
+  'use strict';
+
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:40px">Missing Supabase config.</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (n) => {
+    const v = Number(n || 0);
+    return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US',
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  let _co = null;
+  const state = {
+    sources: [],
+    accounts: [],      // codeable QBO accounts
+    allAccounts: [],   // every active QBO account (for the credit leg)
+    locations: [],
+    entities: [],
+    batches: [],
+    rules: [],
+    batch: null,       // open batch
+    txns: [],
+    parsed: null,      // { headers, rows, file }
+    dirty: new Set(),
+    selected: new Set(),
+  };
+
+  // ---------------------------------------------------------------- CSV
+
+  // Handles quoted fields, embedded commas and doubled quotes. A statement
+  // export with a comma in a merchant name is the normal case, not the edge
+  // case, so split(',') is not an option.
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else field += c;
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        row.push(field); field = '';
+      } else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(field); field = '';
+        if (row.some((v) => v.trim() !== '')) rows.push(row);
+        row = [];
+      } else field += c;
+    }
+    row.push(field);
+    if (row.some((v) => v.trim() !== '')) rows.push(row);
+
+    if (!rows.length) return { headers: [], rows: [] };
+    const headers = rows[0].map((h) => h.trim());
+    const body = rows.slice(1).map((r) => {
+      const o = {};
+      headers.forEach((h, i) => { o[h] = (r[i] ?? '').trim(); });
+      return o;
+    });
+    return { headers, rows: body };
+  }
+
+  // Resolved MOST SPECIFIC FIRST, each header claimed once. Order matters: a
+  // Divvy export has First Name, Last Name, Merchant, Clean Merchant Name and
+  // Card Name all in one row, and a loose /name|merchant/ for the description
+  // picks whichever comes first in the file -- which there is "First Name".
+  const FIELDS = [
+    ['clean_merchant',   'Clean merchant', /clean.*merchant|merchant.*clean|normali[sz]ed/i],
+    ['card_name',        'Card name',      /card\s*name|budget|virtual\s*card/i],
+    ['first_name',       'First name',     /first\s*name|given\s*name/i],
+    ['last_name',        'Last name',      /last\s*name|surname|family\s*name/i],
+    ['cardholder_email', 'Cardholder email', /e-?mail/i],
+    ['cardholder',       'Cardholder',     /card\s*member|cardholder|employee|\buser\b|owner|spender/i],
+    ['last4',            'Card last 4',    /last\s*4|last\s*four|card\s*(#|number)|account\s*#/i],
+    ['txn_date',         'Date',           /date|spent|posted/i],
+    ['amount',           'Amount',         /amount|debit|charge|total|spend/i],
+    ['description',      'Description',    /merchant|descript|payee|vendor|detail|memo/i],
+  ];
+
+  // Only these three have to be present to import.
+  const REQUIRED = ['txn_date', 'description', 'amount'];
+
+  function autoDetect(headers) {
+    const map = {};
+    const taken = new Set();
+    for (const [key, , rx] of FIELDS) {
+      const hit = headers.find((h) => !taken.has(h) && rx.test(h));
+      if (hit) { map[key] = hit; taken.add(hit); }
+    }
+    return map;
+  }
+
+  // Statement exports disagree about which direction a charge points: Amex
+  // exports a purchase as positive, several others as negative. Getting this
+  // backwards silently posts every expense as a credit, so it is a stored
+  // per-card setting rather than a guess.
+  function signedAmount(raw, flip) {
+    const cleaned = String(raw ?? '')
+      .replace(/[$,\s]/g, '')
+      .replace(/^\((.*)\)$/, '-$1');
+    const n = Number(cleaned);
+    if (!isFinite(n)) return 0;
+    return flip ? -n : n;
+  }
+
+  // Identity of a charge, used to spot a statement re-download that overlaps
+  // one already imported. SHA-256 rather than the raw fields joined together:
+  // descriptions contain commas, and a PostgREST `in.(...)` filter would treat
+  // those as value separators and silently match the wrong rows.
+  async function dedupeHash(sourceId, date, amount, description) {
+    const bytes = new TextEncoder().encode(
+      `${sourceId}|${date}|${Number(amount).toFixed(2)}|${String(description || '').trim().toLowerCase()}`);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+  }
+
+  // ---------------------------------------------------------------- loads
+
+  async function loadReference() {
+    const [srcRes, acctRes, locRes, custRes, vendRes] = await Promise.all([
+      sb.from('card_sources').select('*').order('display_name'),
+      sb.from('quickbooks_accounts')
+        .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type, is_active')
+        .eq('is_active', true).order('fully_qualified_name'),
+      sb.from('quickbooks_locations')
+        .select('qbo_location_id, name, fully_qualified_name')
+        .eq('is_active', true).order('name'),
+      sb.from('quickbooks_customers')
+        .select('qbo_customer_id, display_name').eq('is_active', true).order('display_name'),
+      sb.from('quickbooks_vendors')
+        .select('qbo_vendor_id, display_name').eq('is_active', true).order('display_name'),
+    ]);
+
+    state.sources = srcRes.data || [];
+    state.allAccounts = (acctRes.data || []).map((a) => ({
+      id: a.qbo_account_id,
+      name: a.fully_qualified_name || a.name,
+      type: a.account_type,
+    }));
+    // A person may code to ANY account. The narrow expense-ish list is what the
+    // MODEL is offered, never what a bookkeeper may choose: card spend on
+    // behalf of a related entity is coded to an intercompany receivable, and
+    // a company can have dozens of those -- Sugar Hill Receivable, La Palma
+    // Receivable, Two Wrongs Receivable, COLAB Receivable, Due From LFRE/RFRE.
+    // None is an expense account, so the narrow picker made the thing this
+    // tool exists for impossible to enter.
+    state.accounts = state.allAccounts;
+
+    state.entities = [
+      ...(custRes.data || []).map((c) => ({
+        id: c.qbo_customer_id, name: c.display_name, type: 'Customer' })),
+      ...(vendRes.data || []).map((v) => ({
+        id: v.qbo_vendor_id, name: v.display_name, type: 'Vendor' })),
+    ];
+    state.locations = (locRes.data || []).map((l) => ({
+      id: l.qbo_location_id, name: l.fully_qualified_name || l.name,
+    }));
+  }
+
+  async function loadBatches() {
+    const { data } = await sb.from('card_import_batches_v')
+      .select('*').order('created_at', { ascending: false }).limit(60);
+    state.batches = data || [];
+  }
+
+  async function loadRules() {
+    const { data } = await sb.from('card_coding_rules')
+      .select('*')
+      .order('priority', { ascending: false })
+      .order('hit_count', { ascending: false }).limit(500);
+    state.rules = data || [];
+  }
+
+  async function loadTxns(batchId) {
+    const { data } = await sb.from('card_transactions')
+      .select('*').eq('batch_id', batchId).order('row_no');
+    state.txns = data || [];
+    state.dirty.clear();
+  }
+
+  // ------------------------------------------------------- cached options
+
+  // 124 accounts x 400 rows is 50,000 option elements if built per row. The
+  // markup is built once and the selection applied afterwards.
+  let _acctOptions = '', _locOptions = '', _allAcctOptions = '', _entityOptions = '';
+  function buildOptionCache() {
+    _acctOptions = state.accounts
+      .map((a) => `<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.type)}</option>`).join('');
+    _entityOptions = state.entities
+      .map((e) => `<option value="${esc(e.type)}:${esc(e.id)}">${esc(e.name)} · ${esc(e.type)}</option>`)
+      .join('');
+    _allAcctOptions = state.allAccounts
+      .map((a) => `<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.type)}</option>`).join('');
+    _locOptions = state.locations
+      .map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
+  }
+  function applySelections(root) {
+    for (const f of root.querySelectorAll('[data-selected]')) {
+      f.value = f.dataset.selected || '';
+      // A stored id no longer in QuickBooks would silently reset to blank.
+      if (f.value !== (f.dataset.selected || '')) {
+        const label = f.dataset.selectedLabel || f.dataset.selected;
+        f.insertAdjacentHTML('afterbegin',
+          `<option value="${esc(f.dataset.selected)}">⚠ ${esc(label)} — not in QuickBooks</option>`);
+        f.value = f.dataset.selected;
+      }
+      f.removeAttribute('data-selected');
+    }
+  }
+
+  // Mirrors public.qbo_account_needs_entity. QuickBooks rejects a journal entry
+  // line on an AR or AP account unless the line names an Entity, so this has to
+  // be known while coding, not discovered at post time.
+  const NEEDS_ENTITY = new Set(['Accounts Receivable', 'Accounts Payable']);
+  const acctType = (id) => state.allAccounts.find((a) => a.id === id)?.type || null;
+  const needsEntity = (t) => NEEDS_ENTITY.has(acctType(t.qbo_account_id) || '');
+
+  const acctName = (id) => state.accounts.find((a) => a.id === id)?.name
+    || state.allAccounts.find((a) => a.id === id)?.name || null;
+  const locName = (id) => state.locations.find((l) => l.id === id)?.name || null;
+
+  // ---------------------------------------------------------------- tabs
+
+  const PANE_KEY = 'cc-active-pane';
+  function showPane(name) {
+    let matched = false;
+    for (const p of document.querySelectorAll('.cc-pane')) {
+      const on = p.dataset.pane === name;
+      p.hidden = !on;
+      matched = matched || on;
+    }
+    if (!matched) return showPane('import');
+    for (const t of el('ccTabs').querySelectorAll('.bcn-tab')) {
+      const on = t.dataset.pane === name;
+      t.classList.toggle('bcn-tab--active', on);
+      t.setAttribute('aria-selected', String(on));
+    }
+    try { sessionStorage.setItem(PANE_KEY, name); } catch { /* private mode */ }
+  }
+
+  el('ccTabs').addEventListener('click', (e) => {
+    const t = e.target.closest('.bcn-tab');
+    if (t) showPane(t.dataset.pane);
+  });
+
+  function renderMeta() {
+    el('ccMeta').textContent = state.batch
+      ? `${state.batch.source_name} · ${state.batch.label || ''} · ${state.txns.length} rows`
+      : `${state.sources.length} cards · ${state.batches.length} batches`;
+  }
+
+  // -------------------------------------------------------------- import
+
+  function renderSourceSelect() {
+    el('impSource').innerHTML = state.sources
+      .filter((s) => s.is_active)
+      .map((s) => `<option value="${esc(s.id)}">${esc(s.display_name)}</option>`).join('');
+  }
+
+  function currentSource() {
+    return state.sources.find((s) => s.id === el('impSource').value) || null;
+  }
+
+  function renderColumnMap() {
+    if (!state.parsed) { el('impMapWrap').hidden = true; return; }
+    const src = currentSource();
+    const stored = (src?.column_map) || {};
+    const detected = autoDetect(state.parsed.headers);
+    const opts = state.parsed.headers
+      .map((h) => `<option value="${esc(h)}">${esc(h)}</option>`).join('');
+
+    el('impMap').innerHTML = FIELDS.map(([key, label]) => {
+      const val = stored[key] || detected[key] || '';
+      return `<div class="cc-field">
+        <label>${esc(label)}</label>
+        <select class="bcn-field bcn-field--mono" data-col="${esc(key)}" data-selected="${esc(val)}">
+          <option value="">— none —</option>${opts}
+        </select>
+      </div>`;
+    }).join('') + `<div class="cc-field">
+      <label>Charges appear as</label>
+      <select class="bcn-field bcn-field--mono" id="impSign" data-selected="${stored.flip_sign ? '1' : '0'}">
+        <option value="0">Positive numbers</option>
+        <option value="1">Negative numbers (flip)</option>
+      </select>
+    </div>`;
+
+    applySelections(el('impMap'));
+    el('impMapWrap').hidden = false;
+    renderImportPreview();
+    for (const s of el('impMap').querySelectorAll('select')) {
+      s.addEventListener('change', renderImportPreview);
+    }
+  }
+
+  function readColumnMap() {
+    const map = {};
+    for (const s of el('impMap').querySelectorAll('[data-col]')) {
+      if (s.value) map[s.dataset.col] = s.value;
+    }
+    map.flip_sign = el('impSign')?.value === '1';
+    return map;
+  }
+
+  function renderImportPreview() {
+    const map = readColumnMap();
+    const rows = state.parsed.rows;
+    const sample = rows.slice(0, 3).map((r) => {
+      const amt = signedAmount(r[map.amount], map.flip_sign);
+      return `${esc(r[map.txn_date] || '—')} · ${esc((r[map.description] || '—').slice(0, 44))} · ${money(amt)}`;
+    }).join('<br />');
+
+    const total = rows.reduce((n, r) => n + signedAmount(r[map.amount], map.flip_sign), 0);
+    const missing = FIELDS.filter(([k]) => REQUIRED.includes(k) && !map[k]).map(([, l]) => l);
+
+    el('impPreviewHint').innerHTML = missing.length
+      ? `<b>Map ${esc(missing.join(', '))} before importing.</b>`
+      : `${rows.length} rows · net ${money(total)}<br /><br />${sample}`;
+    el('btnImport').disabled = missing.length > 0;
+  }
+
+  el('impDrop').addEventListener('click', () => el('impFile').click());
+  ['dragover', 'dragenter'].forEach((ev) => el('impDrop').addEventListener(ev, (e) => {
+    e.preventDefault(); el('impDrop').classList.add('cc-drop--over');
+  }));
+  ['dragleave', 'drop'].forEach((ev) => el('impDrop').addEventListener(ev, (e) => {
+    e.preventDefault(); el('impDrop').classList.remove('cc-drop--over');
+  }));
+  el('impDrop').addEventListener('drop', (e) => {
+    const f = e.dataTransfer?.files?.[0];
+    if (f) readFile(f);
+  });
+  el('impFile').addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (f) readFile(f);
+  });
+  el('impSource').addEventListener('change', () => { if (state.parsed) renderColumnMap(); });
+
+  function readFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseCsv(String(reader.result || ''));
+      if (!parsed.rows.length) {
+        setStatus('That file has no data rows.', 'neg', 6000);
+        return;
+      }
+      state.parsed = { ...parsed, file };
+      el('impDrop').textContent = `${file.name} — ${parsed.rows.length} rows`;
+      renderColumnMap();
+    };
+    reader.readAsText(file);
+  }
+
+  async function doImport() {
+    const src = currentSource();
+    if (!src) return setStatus('Pick a card first.', 'neg', 5000);
+    if (!_co?.id) return setStatus('No active company resolved — reload the page.', 'neg', 6000);
+
+    const map = readColumnMap();
+    const period = el('impPeriod').value;
+    const entryDate = el('impEntryDate').value || null;
+    const [y, m] = (period || '').split('-').map(Number);
+    const periodStart = y ? `${period}-01` : null;
+    const periodEnd = y ? new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) : null;
+
+    el('btnImport').disabled = true;
+    el('impStatus').textContent = 'Importing…';
+
+    try {
+      // Remember the mapping so this card never has to be mapped again.
+      await sb.from('card_sources')
+        .update({ column_map: map, updated_at: new Date().toISOString() })
+        .eq('id', src.id);
+
+      const staged = [];
+      for (let i = 0; i < state.parsed.rows.length; i++) {
+        const r = state.parsed.rows[i];
+        const amount = signedAmount(r[map.amount], map.flip_sign);
+        const description = r[map.description] || '';
+        const txnDate = normalizeDate(r[map.txn_date]);
+        const person = [
+          map.first_name ? r[map.first_name] : '',
+          map.last_name ? r[map.last_name] : '',
+        ].map((v) => String(v || '').trim()).filter(Boolean).join(' ');
+        const email = map.cardholder_email ? String(r[map.cardholder_email] || '').trim() : '';
+        const cardholder = person
+          || (map.cardholder ? String(r[map.cardholder] || '').trim() : '')
+          || email || null;
+
+        // Card Name is blank on plenty of Divvy rows. Where it is, the person
+        // holding the card IS the card, so the name (or failing that the
+        // email) stands in -- otherwise those rows carry no cost centre at all
+        // and every one of them has to be coded by hand, every month.
+        const cardName = (map.card_name ? String(r[map.card_name] || '').trim() : '')
+          || cardholder || null;
+
+        staged.push({
+          row_no: i + 1,
+          txn_date: txnDate,
+          description,
+          amount,
+          card_name: cardName,
+          cardholder,
+          cardholder_email: email || null,
+          clean_merchant: map.clean_merchant
+            ? String(r[map.clean_merchant] || '').trim() || null : null,
+          last4: map.last4 ? String(r[map.last4] || '').replace(/\D/g, '').slice(-4) || null : null,
+          raw: r,
+          dedupe_hash: await dedupeHash(src.id, txnDate, amount, description),
+        });
+      }
+
+      // Compare against what this card has already imported, across batches.
+      // Only PREVIOUSLY STORED rows count: two identical charges inside one
+      // statement are usually two real charges, not a mistake.
+      const existing = new Set();
+      const hashes = staged.map((r) => r.dedupe_hash);
+      for (let i = 0; i < hashes.length; i += 200) {
+        const { data } = await sb.from('card_transactions')
+          .select('dedupe_hash').in('dedupe_hash', hashes.slice(i, i + 200));
+        for (const d of data || []) existing.add(d.dedupe_hash);
+      }
+
+      let rowsToImport = staged;
+      const dupes = staged.filter((r) => existing.has(r.dedupe_hash));
+      if (dupes.length) {
+        // Not decided silently either way. Skipping a real repeat charge and
+        // double-booking a re-download are both wrong, and only the person
+        // looking at the statement knows which this is.
+        const skip = confirm(
+          `${dupes.length} of ${staged.length} rows were already imported for ${src.display_name}.\n\n`
+          + `OK — skip them (a re-downloaded statement that overlaps)\n`
+          + `Cancel — import them anyway (they are genuinely repeat charges)`);
+        if (skip) rowsToImport = staged.filter((r) => !existing.has(r.dedupe_hash));
+      }
+
+      if (!rowsToImport.length) {
+        setStatus('Every row in that file was already imported — nothing to do.', 'info', 6000);
+        return;
+      }
+
+      const { data: batch, error: bErr } = await sb.from('card_import_batches').insert({
+        company_entity_id: _co.id,
+        source_id: src.id,
+        label: period || state.parsed.file.name,
+        period_start: periodStart,
+        period_end: periodEnd,
+        entry_date: entryDate || periodEnd,
+        file_name: state.parsed.file.name,
+        row_count: rowsToImport.length,
+      }).select('id').single();
+      if (bErr) throw new Error(bErr.message);
+
+      const rows = rowsToImport.map((r) => ({
+        ...r, company_entity_id: _co.id, batch_id: batch.id,
+      }));
+
+      // Chunked: a year-end Amex file is thousands of rows and one insert of
+      // that size times out at the API gateway.
+      for (let i = 0; i < rows.length; i += 400) {
+        const { error } = await sb.from('card_transactions').insert(rows.slice(i, i + 400));
+        if (error) throw new Error(error.message);
+      }
+
+      const total = rows.reduce((n, r) => n + r.amount, 0);
+      await sb.from('card_import_batches')
+        .update({ total_amount: total.toFixed(2) }).eq('id', batch.id);
+
+      setStatus(dupes.length && rows.length < staged.length
+        ? `Imported ${rows.length} rows, skipped ${staged.length - rows.length} already-imported.`
+        : `Imported ${rows.length} rows.`, 'pos', 5000);
+      state.parsed = null;
+      el('impDrop').textContent = 'Drop a CSV here, or click to choose one.';
+      el('impMapWrap').hidden = true;
+      el('impFile').value = '';
+
+      await loadBatches();
+      renderBatches();
+      await openBatch(batch.id);
+      showPane('coding');
+
+      // Rules first (free, deterministic), then the model on whatever is left.
+      // Running it here rather than waiting for a button press is the point of
+      // the tool: the feed should already be coded when you first look at it.
+      await applyRules(true);
+      const left = state.txns.filter((t) => t.status === 'uncoded' && !t.qbo_account_id).length;
+      if (left) await aiCategorise();
+    } catch (e) {
+      setStatus(`Import failed — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('impStatus').textContent = '';
+      el('btnImport').disabled = false;
+    }
+  }
+
+  // Statement exports use MM/DD/YYYY, DD/MM/YYYY and ISO. Only the
+  // unambiguous readings are converted; anything else is left for the row to
+  // show as blank rather than silently landing in the wrong month.
+  function normalizeDate(v) {
+    const s = String(v || '').trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if (m) {
+      let [, a, b, y] = m;
+      if (y.length === 2) y = `20${y}`;
+      const mm = String(a).padStart(2, '0');
+      const dd = String(b).padStart(2, '0');
+      if (Number(mm) <= 12) return `${y}-${mm}-${dd}`;
+    }
+    const d = new Date(s);
+    return isNaN(d) ? null : d.toISOString().slice(0, 10);
+  }
+
+  el('btnImport').addEventListener('click', doImport);
+
+  function renderBatches() {
+    const q = el('batchSearch').value.trim().toLowerCase();
+    const shown = state.batches.filter((b) => !q || [
+      b.source_name, b.label, b.file_name, b.status, b.qbo_doc_number,
+    ].some((v) => String(v ?? '').toLowerCase().includes(q)));
+
+    if (!shown.length) {
+      el('tblBatches').innerHTML = `<tr><td class="cc-empty">${
+        state.batches.length ? 'No batches match that search.' : 'No imports yet.'}</td></tr>`;
+      el('batchCount').textContent = '';
+      return;
+    }
+    el('batchCount').textContent = q
+      ? `${shown.length} of ${state.batches.length}`
+      : `${state.batches.length} shown`;
+    el('tblBatches').innerHTML = `<thead><tr>
+        <th>Card</th><th>Period</th><th class="num">Rows</th><th class="num">Uncoded</th>
+        <th class="num">Total</th><th>Status</th><th>Entry</th><th></th>
+      </tr></thead><tbody>` +
+      shown.map((b) => `<tr>
+        <td>${esc(b.source_name)}</td>
+        <td class="cc-note">${esc(b.label || '—')}</td>
+        <td class="num">${b.txn_count}</td>
+        <td class="num">${b.uncoded_count ? `<span class="cc-chip cc-chip--none">${b.uncoded_count}</span>` : '0'}</td>
+        <td class="num">${money(b.total_amount)}</td>
+        <td><span class="cc-chip">${esc(b.status)}</span></td>
+        <td class="cc-note">${b.qbo_journal_entry_id ? `JE ${esc(b.qbo_doc_number || b.qbo_journal_entry_id)}` : '—'}</td>
+        <td><button class="bcn-btn" data-open-batch="${esc(b.id)}">Open</button></td>
+      </tr>`).join('') + '</tbody>';
+  }
+
+  el('batchSearch').addEventListener('input', renderBatches);
+
+  el('tblBatches').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-open-batch]');
+    if (b) openBatch(b.dataset.openBatch).then(() => showPane('coding'));
+  });
+
+  async function openBatch(id) {
+    state.batch = state.batches.find((b) => b.id === id) || null;
+    if (!state.batch) {
+      await loadBatches();
+      state.batch = state.batches.find((b) => b.id === id) || null;
+    }
+    await loadTxns(id);
+    state.selected.clear();
+    el('codeSearch').value = '';
+    renderCoding();
+    renderEntry();
+    renderMeta();
+  }
+
+  // ------------------------------------------------------------- coding
+
+  // Returns the rule to apply, OR a conflict explaining why nothing should be
+  // applied. A merchant rule normally outranks a card-name rule -- knowing the
+  // vendor is more specific than knowing which card paid -- but that is right
+  // only when both point the same way. A Comcast charge on Jackie's card is not
+  // this company's utility bill; it is money that entity owes, and the card is the
+  // only thing that says so. Letting the merchant rule win there would code it
+  // silently and plausibly wrong, which is the worst shape an error can take in
+  // a ledger.
+  function ruleMatches(txn) {
+    const norm = merchantKey(txn);
+    const raw = String(txn.description || '').toLowerCase();
+    const cardName = String(txn.card_name || '').toLowerCase();
+
+    const live = state.rules
+      .filter((r) => r.is_active !== false)
+      .filter((r) => !r.source_id || r.source_id === state.batch?.source_id);
+
+    const best = (list) => list.sort((a, b) =>
+      (b.priority - a.priority) || ((b.source_id ? 1 : 0) - (a.source_id ? 1 : 0)))[0] || null;
+
+    const merchantRule = best(live.filter((r) => (r.match_field || 'merchant') === 'merchant' && (() => {
+      const pat = String(r.pattern).toLowerCase();
+      if (r.match_type === 'exact') return raw === pat;
+      if (r.match_type === 'contains') return raw.includes(pat) || norm.includes(pat);
+      return norm === pat;
+    })()));
+
+    const cardRule = best(live.filter((r) => r.match_field === 'card_name' && cardName && (() => {
+      const pat = String(r.pattern).toLowerCase();
+      return r.match_type === 'contains' ? cardName.includes(pat) : cardName === pat;
+    })()));
+
+    if (merchantRule && cardRule) {
+      const sameAccount = merchantRule.qbo_account_id === cardRule.qbo_account_id;
+      const sameEntity = (merchantRule.entity_qbo_id || null) === (cardRule.entity_qbo_id || null);
+      if (!sameAccount || !sameEntity) {
+        return {
+          rule: null,
+          conflict: `The merchant “${merchantRule.pattern}” codes to `
+            + `${merchantRule.qbo_account_name || 'no account'}`
+            + `${merchantRule.entity_name ? ` (${merchantRule.entity_name})` : ''}, `
+            + `but the card “${cardRule.pattern}” codes to `
+            + `${cardRule.qbo_account_name || 'no account'}`
+            + `${cardRule.entity_name ? ` (${cardRule.entity_name})` : ''}. `
+            + 'Left for you to decide.',
+        };
+      }
+    }
+
+    return { rule: merchantRule || cardRule || null, conflict: null };
+  }
+
+  // The key a merchant rule matches on. Mirrors card_transactions_v: the
+  // issuer's own cleaned name wins where the export has one, because it knows
+  // the merchant id behind the descriptor and we are only reading the string.
+  function merchantKey(t) {
+    return normalizeMerchant(t.clean_merchant || t.description);
+  }
+
+  // Mirrors public.normalize_merchant so the browser and the database agree on
+  // what a merchant key is. Changing one without the other silently stops
+  // rules matching.
+  function normalizeMerchant(text) {
+    let t = String(text || '').toLowerCase();
+    t = t.replace(/^(sq|tst|sp|py|paypal|pp|ppl|dd|ec)\s*\*+\s*/i, '');
+    t = t.replace(/\s*\*+\s*[a-z0-9-]*[0-9][a-z0-9-]*\s*$/g, '');
+    t = t.replace(/\s*[#*]?\s*[0-9]{2,}\s*$/g, '');
+    t = t.replace(/\s+[a-z0-9]*[0-9][a-z0-9]{3,}\s*$/g, '');
+    t = t.replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return t;
+  }
+
+  async function applyRules(silent) {
+    if (!state.batch) return;
+    let hits = 0;
+    let conflicts = 0;
+    for (const t of state.txns) {
+      if (t.status === 'excluded') continue;
+      if (t.qbo_account_id && t.coding_source === 'manual') continue;
+      const { rule, conflict } = ruleMatches(t);
+
+      if (conflict) {
+        // Deliberately left uncoded, carrying WHY. A row nobody can see the
+        // reasoning on is just a row that failed silently.
+        t.coding_conflict = conflict;
+        t.status = 'uncoded';
+        state.dirty.add(t.id);
+        conflicts++;
+        continue;
+      }
+
+      if (!rule || !rule.qbo_account_id) continue;
+      t.coding_conflict = null;
+      t.qbo_account_id = rule.qbo_account_id;
+      t.qbo_account_name = rule.qbo_account_name;
+      t.qbo_location_id = rule.qbo_location_id || defaultLocationId();
+      t.qbo_location_name = locName(t.qbo_location_id);
+      t.entity_qbo_id = rule.entity_qbo_id || null;
+      t.entity_name = rule.entity_name || null;
+      t.entity_type = rule.entity_type || null;
+      t.vendor_name = rule.vendor_name || t.vendor_name;
+      t.coding_source = 'rule';
+      t.confidence = 1;
+      t.ai_reasoning = null;
+      t.rule_id = rule.id;
+      t.status = 'coded';
+      state.dirty.add(t.id);
+      hits++;
+    }
+    renderCoding();
+    renderEntry();
+    const conflictNote = conflicts
+      ? ` ${conflicts} left for you — the card and the merchant disagree.` : '';
+    if (!silent) {
+      setStatus(`${hits} row${hits === 1 ? '' : 's'} coded from rules.${conflictNote}`,
+        conflicts ? 'info' : 'pos', conflicts ? 9000 : 4000);
+    } else if (hits || conflicts) {
+      el('codeStatus').textContent = `${hits} coded from rules${
+        conflicts ? `, ${conflicts} conflicted` : ''}`;
+    }
+  }
+
+  function defaultLocationId() {
+    const src = state.sources.find((s) => s.id === state.batch?.source_id);
+    return src?.default_qbo_location_id || null;
+  }
+
+  function codingRows() {
+    const f = el('codeFilter').value;
+    const q = codeSearchTerm();
+    return state.txns.filter((t) => {
+      if (!matchesSearch(t, q)) return false;
+      if (f === 'uncoded') return t.status === 'uncoded';
+      if (f === 'excluded') return t.status === 'excluded';
+      if (f === 'conflict') return !!t.coding_conflict;
+      if (f === 'low') return t.status !== 'excluded' && (t.confidence ?? 1) < 0.6;
+      if (f === 'ai') return t.coding_source === 'ai';
+      return true;
+    });
+  }
+
+  function renderCoding() {
+    if (!state.batch) {
+      el('tblCoding').innerHTML = '<tr><td class="cc-empty">Open a batch from the Import tab.</td></tr>';
+      el('codeKpis').innerHTML = '';
+      el('codeBulk').hidden = true;
+      return;
+    }
+
+    el('codeTitle').textContent = `${state.batch.source_name} — ${state.batch.label || ''}`;
+    el('codeSub').textContent =
+      `${state.txns.length} rows · ${state.batch.file_name || ''}`;
+
+    const coded = state.txns.filter((t) => t.status === 'coded').length;
+    const uncoded = state.txns.filter((t) => t.status === 'uncoded').length;
+    const excluded = state.txns.filter((t) => t.status === 'excluded').length;
+    const low = state.txns.filter((t) => t.status !== 'excluded' && (t.confidence ?? 1) < 0.6).length;
+
+    const conflicted = state.txns.filter((t) => t.coding_conflict).length;
+
+    el('codeKpis').innerHTML = [
+      ['Coded', coded], ['Needs coding', uncoded],
+      ['Card vs merchant', conflicted],
+      ['Low confidence', low], ['Excluded', excluded],
+    ].map(([l, v]) => `<div class="cc-kpi">
+        <div class="cc-kpi-label">${l}</div><div class="cc-kpi-value">${v}</div></div>`).join('');
+
+    renderVariants();
+
+    const rows = codingRows();
+
+    // Selecting rows that a filter has since hidden would apply a bulk change
+    // to things nobody can see, so the selection is trimmed to what is shown.
+    const visible = new Set(rows.map((r) => r.id));
+    for (const id of [...state.selected]) if (!visible.has(id)) state.selected.delete(id);
+    renderBulkBar();
+
+    if (!rows.length) {
+      el('tblCoding').innerHTML =
+        '<tr><td class="cc-empty">Nothing matches this filter.</td></tr>';
+      return;
+    }
+
+    const allChecked = rows.every((r) => state.selected.has(r.id));
+
+    el('tblCoding').innerHTML = `<thead><tr>
+        <th style="width:26px"><input type="checkbox" class="cc-check" id="codeAll"
+              ${allChecked ? 'checked' : ''} title="Select everything shown" /></th>
+        <th>Date</th><th>Description</th><th class="num">Amount</th>
+        <th style="min-width:220px">Account</th><th style="min-width:150px">Location</th>
+        <th style="min-width:150px">Entity</th><th>Why</th><th></th>
+      </tr></thead><tbody>` + rows.map((t) => `
+      <tr class="${t.status === 'excluded' ? 'cc-row--excluded' : ''}" data-txn="${esc(t.id)}">
+        <td><input type="checkbox" class="cc-check" data-pick
+              ${state.selected.has(t.id) ? 'checked' : ''} /></td>
+        <td class="cc-note">${esc(t.txn_date || '—')}</td>
+        <td>
+          <div class="cc-desc" title="${esc(t.description)}">${esc(t.description)}</div>
+          <div class="cc-note"><span class="cc-merch" data-merch
+            title="Search for this merchant">${esc(merchantKey(t))}</span>${
+            t.card_name ? ' · <span class="cc-card-chip" data-card-name'
+              + ` title="Search this card">${esc(t.card_name)}</span>` : ''}</div>
+        </td>
+        <td class="num">${money(t.amount)}</td>
+        <td data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
+        <td data-cell="location">${cellButton(t.qbo_location_name, 'location')}</td>
+        <td data-cell="entity">${entityCell(t)}</td>
+        <td>${confidenceChip(t)}</td>
+        <td style="white-space:nowrap">
+          <button class="bcn-btn" data-raw title="Show every column from the file">⋯</button>
+          <button class="bcn-btn" data-toggle-exclude>${t.status === 'excluded' ? 'Include' : 'Exclude'}</button>
+        </td>
+      </tr>`).join('') + '</tbody>';
+
+    el('codeSearch').placeholder =
+      `Search ${state.txns.length} rows — merchant, account, location, cardholder, card…`;
+  }
+
+  // An entity is required on AR/AP lines and meaningless elsewhere, so the cell
+  // says which of those it is rather than showing an empty dropdown on every
+  // row. Required-and-missing is red: it blocks the post.
+  function entityCell(t) {
+    if (!t.qbo_account_id) return '<span class="cc-note">—</span>';
+    if (t.entity_name) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
+    return needsEntity(t)
+      ? '<button class="cc-cell cc-cell--req" data-edit="entity">needs entity</button>'
+      : '<span class="cc-note">not needed</span>';
+  }
+
+  // Every distinct card name in the file, with its row count and total. This
+  // is the answer to "what variants did this export actually produce" -- the
+  // real ones, not the ones a mapping guessed at -- including the entries that
+  // came from a person's name because Card Name was blank.
+  function renderVariants() {
+    const counts = new Map();
+    for (const t of state.txns) {
+      const k = t.card_name || '(no card name)';
+      const cur = counts.get(k) || { n: 0, total: 0, coded: 0 };
+      cur.n++;
+      cur.total += Number(t.amount || 0);
+      if (t.status === 'coded') cur.coded++;
+      counts.set(k, cur);
+    }
+
+    if (counts.size <= 1) { el('codeVariants').innerHTML = ''; return; }
+
+    const active = codeSearchTerm();
+    el('codeVariants').innerHTML = [...counts.entries()]
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([name, c]) => {
+        const on = active && name.toLowerCase() === active;
+        return `<span class="cc-var${on ? ' cc-var--on' : ''}" data-var="${esc(name)}"
+          title="${c.coded}/${c.n} coded · ${money(c.total)}">${esc(name)}<span
+          class="cc-var-n">${c.n}</span></span>`;
+      }).join('');
+  }
+
+  function cellButton(name, field) {
+    return name
+      ? `<button class="cc-cell" data-edit="${field}">${esc(name)}</button>`
+      : `<button class="cc-cell cc-cell--empty" data-edit="${field}">${
+          field === 'account' ? 'set account' : 'card default'}</button>`;
+  }
+
+  // One <select> exists at a time, built on click from the cached option HTML.
+  function openEditor(td, txn, field) {
+    const isAcct = field === 'account';
+    const isEntity = field === 'entity';
+    const selected = isEntity
+      ? (txn.entity_qbo_id ? `${txn.entity_type}:${txn.entity_qbo_id}` : '')
+      : isAcct ? (txn.qbo_account_id || '') : (txn.qbo_location_id || '');
+    const label = isEntity ? (txn.entity_name || '')
+      : isAcct ? (txn.qbo_account_name || '') : (txn.qbo_location_name || '');
+    td.innerHTML = `<select class="bcn-field bcn-field--mono" data-field="${field}">
+        <option value="">${isAcct || isEntity ? '— none —' : '— card default —'}</option>
+        ${isEntity ? _entityOptions : isAcct ? _acctOptions : _locOptions}
+      </select>`;
+    const sel = td.querySelector('select');
+    sel.value = selected;
+    // A stored id no longer in QuickBooks would silently reset to blank.
+    if (selected && sel.value !== selected) {
+      sel.insertAdjacentHTML('afterbegin',
+        `<option value="${esc(selected)}">⚠ ${esc(label || selected)} — not in QuickBooks</option>`);
+      sel.value = selected;
+    }
+    sel.focus();
+    sel.addEventListener('blur', () => {
+      // Re-render only this cell; a full re-render on every blur is wasted work.
+      td.innerHTML = isEntity ? entityCell(txn)
+        : cellButton(isAcct ? txn.qbo_account_name : txn.qbo_location_name, field);
+    });
+  }
+
+  function confidenceChip(t) {
+    if (t.coding_conflict) {
+      return '<span class="cc-chip cc-chip--low">card vs merchant</span>'
+        + `<div class="cc-note">${esc(t.coding_conflict)}</div>`;
+    }
+    if (t.status === 'excluded') {
+      return `<span class="cc-chip">excluded</span>` +
+        (t.exclude_reason ? `<div class="cc-note">${esc(t.exclude_reason)}</div>` : '');
+    }
+    if (!t.qbo_account_id) return '<span class="cc-chip cc-chip--none">no account</span>';
+    if (t.coding_source === 'rule') return '<span class="cc-chip cc-chip--rule">rule</span>';
+    if (t.coding_source === 'manual') return '<span class="cc-chip cc-chip--manual">by hand</span>';
+    if (t.coding_source === 'ai') {
+      const c = Number(t.confidence ?? 0);
+      const cls = c < 0.6 ? 'cc-chip--low' : 'cc-chip--ai';
+      return `<span class="cc-chip ${cls}">AI ${(c * 100).toFixed(0)}%</span>` +
+        (t.ai_reasoning ? `<div class="cc-note">${esc(t.ai_reasoning)}</div>` : '');
+    }
+    return '<span class="cc-chip">—</span>';
+  }
+
+  // -------------------------------------------------------- search + bulk
+
+  function codeSearchTerm() {
+    return el('codeSearch').value.trim().toLowerCase();
+  }
+
+  // Card name is included so typing "amex" matches wherever you are, even
+  // though every row in one batch shares a card.
+  function matchesSearch(t, q) {
+    if (!q) return true;
+    if (q === '(no card name)') return !t.card_name;
+    return [
+      t.description, t.clean_merchant, merchantKey(t), t.qbo_account_name,
+      t.qbo_location_name, t.entity_name, t.card_name, t.cardholder, t.cardholder_email,
+      t.vendor_name, t.memo, t.exclude_reason,
+      state.batch?.source_name, String(t.amount), t.txn_date,
+    ].some((v) => String(v ?? '').toLowerCase().includes(q));
+  }
+
+  let _searchTimer = null;
+  el('codeSearch').addEventListener('input', () => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(renderCoding, 120);
+  });
+  el('codeFilter').addEventListener('change', renderCoding);
+
+  // A card-name chip toggles that card as the filter.
+  el('codeVariants').addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-var]');
+    if (!chip) return;
+    const name = chip.dataset.var;
+    el('codeSearch').value = codeSearchTerm() === name.toLowerCase() ? '' : name;
+    renderCoding();
+  });
+
+  function renderBulkBar() {
+    const n = state.selected.size;
+    el('codeBulk').hidden = n === 0;
+    if (!n) return;
+    el('bulkCount').textContent = `${n} selected`;
+    if (!el('bulkAccount').options.length) {
+      el('bulkAccount').innerHTML = `<option value="">Set account…</option>${_acctOptions}`;
+      el('bulkLocation').innerHTML = `<option value="">Set location…</option>${_locOptions}`;
+      el('bulkEntity').innerHTML = `<option value="">Set entity…</option>${_entityOptions}`;
+    }
+  }
+
+  function selectedTxns() {
+    return state.txns.filter((t) => state.selected.has(t.id));
+  }
+
+  el('bulkAccount').addEventListener('change', (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    for (const t of selectedTxns()) {
+      t.qbo_account_id = id;
+      t.qbo_account_name = acctName(id);
+      t.coding_source = 'manual';
+      t.confidence = 1;
+      t.ai_reasoning = null;
+      if (t.status !== 'excluded') t.status = 'coded';
+      if (!t.qbo_location_id) {
+        t.qbo_location_id = defaultLocationId();
+        t.qbo_location_name = locName(t.qbo_location_id);
+      }
+      if (!needsEntity(t)) { t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null; }
+      t.coding_conflict = null;
+      state.dirty.add(t.id);
+    }
+    e.target.value = '';
+    setStatus(`Set ${state.selected.size} rows to ${acctName(id)}.`, 'pos', 4000);
+    renderCoding();
+    renderEntry();
+  });
+
+  el('bulkLocation').addEventListener('change', (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    for (const t of selectedTxns()) {
+      t.qbo_location_id = id;
+      t.qbo_location_name = locName(id);
+      state.dirty.add(t.id);
+    }
+    e.target.value = '';
+    renderCoding();
+    renderEntry();
+  });
+
+  el('bulkEntity').addEventListener('change', (e) => {
+    const [type, id] = (e.target.value || '').split(':');
+    if (!id) return;
+    const name = state.entities.find((x) => x.id === id && x.type === type)?.name || null;
+    const rows = selectedTxns();
+    for (const t of rows) {
+      t.entity_type = type; t.entity_qbo_id = id; t.entity_name = name;
+      state.dirty.add(t.id);
+    }
+    e.target.value = '';
+
+    // Applied to everything selected -- QuickBooks accepts an entity on any
+    // line, so refusing would be deciding for you. But a P&L line does not
+    // need one, and setting it silently is how a stray ends up on an expense
+    // row nobody meant to tag.
+    const spare = rows.filter((t) => t.qbo_account_id && !needsEntity(t)).length;
+    setStatus(
+      `Set ${rows.length} row${rows.length === 1 ? '' : 's'} to ${name}.`
+      + (spare ? ` ${spare} of them ${spare === 1 ? 'is' : 'are'} on an account that does not `
+        + 'need an entity — clear those if they were not meant to carry one.' : ''),
+      spare ? 'info' : 'pos', spare ? 9000 : 4000);
+    renderCoding();
+    renderEntry();
+  });
+
+  el('btnBulkExclude').addEventListener('click', () => {
+    const rows = selectedTxns();
+    if (!rows.length) return;
+    const why = prompt(`Why are these ${rows.length} rows not part of the entry?`, '');
+    if (why === null) return;
+    for (const t of rows) {
+      t.status = 'excluded';
+      t.exclude_reason = why || 'excluded';
+      state.dirty.add(t.id);
+    }
+    renderCoding();
+    renderEntry();
+  });
+
+  el('btnBulkInclude').addEventListener('click', () => {
+    for (const t of selectedTxns()) {
+      t.status = t.qbo_account_id ? 'coded' : 'uncoded';
+      t.exclude_reason = null;
+      state.dirty.add(t.id);
+    }
+    renderCoding();
+    renderEntry();
+  });
+
+  el('btnBulkClear').addEventListener('click', () => {
+    state.selected.clear();
+    renderCoding();
+  });
+
+  el('tblCoding').addEventListener('change', (e) => {
+    const tr = e.target.closest('[data-txn]');
+    if (!tr) return;
+    const t = state.txns.find((x) => x.id === tr.dataset.txn);
+    if (!t) return;
+    const field = e.target.dataset.field;
+    if (field === 'account') {
+      t.qbo_account_id = e.target.value || null;
+      t.qbo_account_name = acctName(t.qbo_account_id);
+      t.coding_source = 'manual';
+      t.confidence = 1;
+      t.ai_reasoning = null;
+      t.status = t.qbo_account_id ? 'coded' : 'uncoded';
+      // Moving a row off an AR/AP account leaves a stale entity that would ride
+      // onto a line QuickBooks does not want one on.
+      if (!needsEntity(t)) { t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null; }
+      t.coding_conflict = null;
+    } else if (field === 'location') {
+      t.qbo_location_id = e.target.value || null;
+      t.qbo_location_name = locName(t.qbo_location_id);
+    } else if (field === 'entity') {
+      const [type, id] = (e.target.value || '').split(':');
+      t.entity_type = id ? type : null;
+      t.entity_qbo_id = id || null;
+      t.entity_name = id
+        ? (state.entities.find((x) => x.id === id && x.type === type)?.name || null) : null;
+    }
+    state.dirty.add(t.id);
+    renderCoding();
+    renderEntry();
+  });
+
+  el('tblCoding').addEventListener('click', (e) => {
+    if (e.target.id === 'codeAll') {
+      const rows = codingRows();
+      if (e.target.checked) for (const r of rows) state.selected.add(r.id);
+      else for (const r of rows) state.selected.delete(r.id);
+      renderCoding();
+      return;
+    }
+
+    const tr0 = e.target.closest('[data-txn]');
+    if (!tr0) return;
+    const t0 = state.txns.find((x) => x.id === tr0.dataset.txn);
+    if (!t0) return;
+
+    if (e.target.matches('[data-pick]')) {
+      if (e.target.checked) state.selected.add(t0.id);
+      else state.selected.delete(t0.id);
+      renderBulkBar();
+      return;
+    }
+
+    // Clicking the normalised merchant searches for it -- the fastest route to
+    // "select every Amazon row and code them all at once".
+    if (e.target.matches('[data-raw]')) {
+      openRawDrawer(t0);
+      return;
+    }
+
+    if (e.target.matches('[data-merch]') || e.target.matches('[data-card-name]')) {
+      el('codeSearch').value = e.target.textContent.trim();
+      renderCoding();
+      return;
+    }
+
+    const edit = e.target.closest('[data-edit]');
+    if (edit) {
+      openEditor(edit.closest('td'), t0, edit.dataset.edit);
+      return;
+    }
+
+    if (!e.target.closest('[data-toggle-exclude]')) return;
+    const tr = e.target.closest('[data-txn]');
+    const t = state.txns.find((x) => x.id === tr.dataset.txn);
+    if (!t) return;
+    if (t.status === 'excluded') {
+      t.status = t.qbo_account_id ? 'coded' : 'uncoded';
+      t.exclude_reason = null;
+    } else {
+      const why = prompt('Why is this row not part of the entry?', t.exclude_reason || '');
+      if (why === null) return;
+      t.status = 'excluded';
+      t.exclude_reason = why || 'excluded';
+    }
+    state.dirty.add(t.id);
+    renderCoding();
+    renderEntry();
+  });
+
+  // Shows the ORIGINAL row alongside what SILO derived from it, so a value
+  // that looks wrong can be traced to the column it came from without
+  // re-exporting the statement.
+  function openRawDrawer(t) {
+    const kv = (label, value) => value == null || value === ''
+      ? `<dt>${esc(label)}</dt><dd class="cc-note">—</dd>`
+      : `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`;
+
+    const raw = t.raw && typeof t.raw === 'object' ? t.raw : {};
+    const rawRows = Object.entries(raw).map(([k, v]) => kv(k, v)).join('');
+
+    el('rawSub').textContent = `Row ${t.row_no} · ${state.batch?.source_name || ''}`;
+    el('rawBody').innerHTML = `<dl class="cc-kv">
+      <div class="cc-kv-head">As imported</div>
+      ${kv('Date', t.txn_date)}
+      ${kv('Description', t.description)}
+      ${kv('Clean merchant', t.clean_merchant)}
+      ${kv('Merchant key', merchantKey(t))}
+      ${kv('Amount', money(t.amount))}
+      ${kv('Card name', t.card_name)}
+      ${kv('Cardholder', t.cardholder)}
+      ${kv('Cardholder email', t.cardholder_email)}
+      ${kv('Card last 4', t.last4)}
+
+      <div class="cc-kv-head">Coding</div>
+      ${kv('Account', t.qbo_account_name)}
+      ${kv('Account type', acctType(t.qbo_account_id))}
+      ${kv('Location', t.qbo_location_name)}
+      ${kv('Entity', t.entity_name ? `${t.entity_name} (${t.entity_type})` : null)}
+      ${kv('Coded by', t.coding_source)}
+      ${kv('Confidence', t.confidence == null ? null : `${(t.confidence * 100).toFixed(0)}%`)}
+      ${kv('Reason', t.ai_reasoning)}
+      ${kv('Status', t.status)}
+      ${kv('Excluded because', t.exclude_reason)}
+
+      <div class="cc-kv-head">Every column in the file</div>
+      ${rawRows || '<dd class="cc-note">No raw row stored.</dd>'}
+    </dl>`;
+    el('rawDrawer').hidden = false;
+  }
+
+  el('btnRawClose').addEventListener('click', () => { el('rawDrawer').hidden = true; });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') el('rawDrawer').hidden = true;
+  });
+
+  async function saveCoding() {
+    if (!state.dirty.size) return setStatus('Nothing changed.', 'info', 3000);
+    if (!_co?.id) {
+      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
+      return;
+    }
+
+    el('btnSaveCoding').disabled = true;
+    try {
+      // Only the coding fields. This goes through apply_card_coding, which does
+      // a real UPDATE -- an upsert would send INSERT .. ON CONFLICT and so
+      // propose a COMPLETE row, which is what made saving fail twice: once on
+      // the RLS check (company_entity_id absent) and once on NOT NULL (amount
+      // absent). Nothing here needs the row's identity beyond its id.
+      const rows = state.txns.filter((t) => state.dirty.has(t.id)).map((t) => ({
+        id: t.id,
+        qbo_account_id: t.qbo_account_id,
+        qbo_account_name: t.qbo_account_name,
+        qbo_location_id: t.qbo_location_id,
+        qbo_location_name: t.qbo_location_name,
+        entity_qbo_id: t.entity_qbo_id,
+        entity_name: t.entity_name,
+        entity_type: t.entity_type,
+        vendor_name: t.vendor_name,
+        memo: t.memo,
+        coding_source: t.coding_source,
+        confidence: t.confidence,
+        ai_reasoning: t.ai_reasoning,
+        rule_id: t.rule_id,
+        status: t.status,
+        exclude_reason: t.exclude_reason,
+        coding_conflict: t.coding_conflict || null,
+      }));
+
+      let saved = 0;
+      for (let i = 0; i < rows.length; i += 400) {
+        const { data, error } = await sb.rpc('apply_card_coding', {
+          p_rows: rows.slice(i, i + 400),
+        });
+        if (error) throw new Error(error.message);
+        saved += Number(data || 0);
+      }
+
+      // RLS silently drops rows the caller may not write -- a posted batch, or
+      // another company's. Saying "saved 400" when 12 never landed would be
+      // the worst possible outcome here, so the count is compared.
+      if (saved < rows.length) {
+        setStatus(
+          `Saved ${saved} of ${rows.length} rows. ${rows.length - saved} could not be written — `
+          + 'the batch may already be posted. Reload to see what actually saved.', 'neg', 12000);
+        await loadTxns(state.batch.id);
+        renderCoding();
+        renderEntry();
+        return;
+      }
+
+      state.dirty.clear();
+      setStatus(`Saved ${saved} row${saved === 1 ? '' : 's'}.`, 'pos', 4000);
+      await loadBatches();
+      renderBatches();
+    } catch (e) {
+      setStatus(`Save failed — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('btnSaveCoding').disabled = false;
+    }
+  }
+
+  async function aiCategorise() {
+    if (!state.batch) return;
+    const pending = state.txns.filter((t) => t.status === 'uncoded' && !t.qbo_account_id);
+    if (!pending.length) return setStatus('Nothing left to categorise.', 'info', 4000);
+
+    // One question per merchant, not per row.
+    const byMerchant = new Map();
+    for (const t of pending) {
+      const m = merchantKey(t);
+      if (!m) continue;
+      // Keyed on merchant AND card name. Bill.com is the reason: as a merchant
+      // it means nothing -- it is a payment processor -- but on the
+      // 'Lease & Rent' card it is unmistakably rent, and one answer for both
+      // would be wrong for one of them.
+      const key = `${m}||${t.card_name || ''}`;
+      const cur = byMerchant.get(key)
+        || { merchant: m, card_name: t.card_name || null, sample: t.description, count: 0, total: 0 };
+      cur.count++;
+      cur.total += Number(t.amount || 0);
+      byMerchant.set(key, cur);
+    }
+    const merchants = [...byMerchant.values()];
+
+    el('btnAiCode').disabled = true;
+    el('codeStatus').textContent = `Asking about ${merchants.length} merchant${merchants.length === 1 ? '' : 's'}…`;
+
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/card-categorize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ merchants, source_name: state.batch.source_name }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+
+      const byKey = new Map((out.suggestions || [])
+        .map((s) => [`${s.merchant}||${s.card_name || ''}`, s]));
+      let applied = 0;
+      for (const t of pending) {
+        const s = byKey.get(`${merchantKey(t)}||${t.card_name || ''}`);
+        if (!s) continue;
+        t.ai_reasoning = s.reasoning || null;
+        t.confidence = s.confidence ?? 0;
+        t.vendor_name = s.vendor_name || t.vendor_name;
+        if (s.account_name) {
+          const acct = state.accounts.find((a) => a.name === s.account_name);
+          if (acct) {
+            t.qbo_account_id = acct.id;
+            t.qbo_account_name = acct.name;
+            const loc = s.location_name && state.locations.find((l) => l.name === s.location_name);
+            t.qbo_location_id = loc ? loc.id : defaultLocationId();
+            t.qbo_location_name = locName(t.qbo_location_id);
+            t.coding_source = 'ai';
+            t.status = 'coded';
+            applied++;
+          }
+        }
+        state.dirty.add(t.id);
+      }
+
+      renderCoding();
+      renderEntry();
+      const low = state.txns.filter((t) => t.coding_source === 'ai' && (t.confidence ?? 0) < 0.6).length;
+      setStatus(
+        `${applied} row${applied === 1 ? '' : 's'} suggested from ${merchants.length} merchants.`
+        + (low ? ` ${low} came back under 60% — read those before approving.` : '')
+        + ' Nothing is saved until you hit Save coding.',
+        low ? 'info' : 'pos', 9000);
+      if (out.errors?.length) {
+        setStatus(`Some merchants failed: ${out.errors[0]}`, 'neg', 9000);
+      }
+    } catch (e) {
+      setStatus(`Categorisation failed — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('codeStatus').textContent = '';
+      el('btnAiCode').disabled = false;
+    }
+  }
+
+  // Turns confirmed rows into rules. Only rows a person can be said to have
+  // stood behind: coded by hand, or an AI suggestion the person left in place
+  // AND saved. An unsaved suggestion teaches nothing.
+  async function learnRules() {
+    if (!state.batch) return;
+    if (state.dirty.size) {
+      return setStatus('Save coding first — unsaved rows are not confirmed yet.', 'neg', 6000);
+    }
+
+    const confirmed = state.txns.filter((t) =>
+      t.status === 'coded' && t.qbo_account_id
+      && (t.coding_source === 'manual' || t.coding_source === 'ai'));
+
+    // Merchant rules. Conflicting codings for one merchant teach nothing
+    // rather than picking a winner.
+    const byMerchant = new Map();
+    for (const t of confirmed) {
+      const key = merchantKey(t);
+      if (!key) continue;
+      const cur = byMerchant.get(key);
+      if (cur) { if (cur.qbo_account_id !== t.qbo_account_id) cur.conflict = true; continue; }
+      byMerchant.set(key, {
+        match_field: 'merchant', priority: 100, pattern: key,
+        qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
+        qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
+        entity_qbo_id: t.entity_qbo_id, entity_name: t.entity_name, entity_type: t.entity_type,
+        vendor_name: t.vendor_name,
+      });
+    }
+
+    // Card-name rules. Only learned where EVERY coded row on that card agrees:
+    // a card carrying mixed spend is a cost centre, not an account, and a rule
+    // saying otherwise would mis-code the next month silently.
+    const byCard = new Map();
+    for (const t of confirmed) {
+      const key = String(t.card_name || '').trim();
+      if (!key) continue;
+      const cur = byCard.get(key);
+      if (cur) {
+        if (cur.qbo_account_id !== t.qbo_account_id
+            || (cur.entity_qbo_id || null) !== (t.entity_qbo_id || null)) cur.conflict = true;
+        continue;
+      }
+      byCard.set(key, {
+        match_field: 'card_name',
+        // Below merchant rules: knowing the vendor beats knowing the card.
+        priority: 50, pattern: key,
+        qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
+        qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
+        entity_qbo_id: t.entity_qbo_id, entity_name: t.entity_name, entity_type: t.entity_type,
+        vendor_name: t.vendor_name,
+      });
+    }
+
+    const fresh = [...byMerchant.values(), ...byCard.values()]
+      .filter((r) => !r.conflict)
+      .filter((r) => !state.rules.some((x) =>
+        x.pattern === r.pattern && (x.match_field || 'merchant') === r.match_field
+        && (x.source_id === state.batch.source_id || !x.source_id)));
+
+    if (!fresh.length) return setStatus('No new rules to learn.', 'info', 4000);
+
+    const rows = fresh.map((r) => ({
+      company_entity_id: _co.id,
+      source_id: r.match_field === 'card_name' ? state.batch.source_id : null,
+      match_field: r.match_field,
+      match_type: r.match_field === 'card_name' ? 'exact' : 'normalized',
+      pattern: r.pattern,
+      priority: r.priority,
+      qbo_account_id: r.qbo_account_id,
+      qbo_account_name: r.qbo_account_name,
+      qbo_location_id: r.qbo_location_id,
+      qbo_location_name: r.qbo_location_name,
+      entity_qbo_id: r.entity_qbo_id,
+      entity_name: r.entity_name,
+      entity_type: r.entity_type,
+      vendor_name: r.vendor_name,
+      note: `Learned from ${state.batch.source_name} ${state.batch.label || ''}`.trim(),
+    }));
+
+    const { error } = await sb.from('card_coding_rules').upsert(rows);
+    if (error) return setStatus(`Could not save rules — ${error.message}`, 'neg', 8000);
+
+    await loadRules();
+    renderRules();
+    const cards = rows.filter((r) => r.match_field === 'card_name').length;
+    setStatus(
+      `Learned ${rows.length} rule${rows.length === 1 ? '' : 's'}`
+      + (cards ? ` (${cards} on card name)` : '')
+      + '. Next month these code themselves.', 'pos', 7000);
+  }
+
+  el('btnApplyRules').addEventListener('click', () => applyRules(false));
+  el('btnAiCode').addEventListener('click', aiCategorise);
+  el('btnSaveCoding').addEventListener('click', saveCoding);
+  el('btnLearnRules').addEventListener('click', learnRules);
+
+  // -------------------------------------------------------------- entry
+
+  function buildEntry() {
+    if (!state.batch) return null;
+    const src = state.sources.find((s) => s.id === state.batch.source_id);
+    const included = state.txns.filter((t) => t.status === 'coded' && t.qbo_account_id);
+
+    let lines = included.map((t) => ({
+      account_id: t.qbo_account_id,
+      account_name: t.qbo_account_name,
+      entity_id: t.entity_qbo_id,
+      entity_name: t.entity_name,
+      entity_type: t.entity_type,
+      needs_entity: NEEDS_ENTITY.has(acctType(t.qbo_account_id) || ''),
+      location_id: t.qbo_location_id || src?.default_qbo_location_id || null,
+      location_name: t.qbo_location_name || src?.default_qbo_location_name || null,
+      // A charge debits the expense; a refund credits it.
+      debit: t.amount >= 0 ? t.amount : 0,
+      credit: t.amount < 0 ? -t.amount : 0,
+      description: [t.txn_date, t.description].filter(Boolean).join(' · ').slice(0, 4000),
+    }));
+
+    if (el('entryGroup').checked) {
+      const g = new Map();
+      for (const l of lines) {
+        // Entity is part of the key: two rows on the same receivable for
+        // different entities are not one line.
+        const k = `${l.account_id}|${l.location_id}|${l.entity_id || ''}`;
+        const cur = g.get(k) || { ...l, debit: 0, credit: 0, description: `${state.batch.label || ''} ${l.account_name}`.trim(), n: 0 };
+        cur.debit += l.debit; cur.credit += l.credit; cur.n++;
+        g.set(k, cur);
+      }
+      // Net each group so a line never carries both a debit and a credit.
+      lines = [...g.values()].map((l) => {
+        const net = l.debit - l.credit;
+        return { ...l, debit: net >= 0 ? net : 0, credit: net < 0 ? -net : 0,
+                 description: `${l.description} (${l.n} txn)` };
+      });
+    }
+
+    const net = lines.reduce((n, l) => n + l.debit - l.credit, 0);
+
+    // The balancing leg: the card liability. Net spend credits it.
+    const creditLine = {
+      account_id: src?.credit_qbo_account_id || null,
+      account_name: src?.credit_qbo_account_name || null,
+      account_type: src?.credit_qbo_account_type || null,
+      vendor_id: src?.credit_vendor_qbo_id || null,
+      vendor_name: src?.credit_vendor_name || null,
+      location_id: src?.default_qbo_location_id || null,
+      location_name: src?.default_qbo_location_name || null,
+      debit: net < 0 ? -net : 0,
+      credit: net >= 0 ? net : 0,
+      description: `${state.batch.source_name} ${state.batch.label || ''}`.trim(),
+      is_credit_leg: true,
+    };
+
+    return { src, lines, creditLine, net, included: included.length };
+  }
+
+  function renderEntry() {
+    const e = buildEntry();
+    if (!e) {
+      el('tblEntry').innerHTML = '<tr><td class="cc-empty">Open a batch first.</td></tr>';
+      el('entryKpis').innerHTML = '';
+      return;
+    }
+
+    const all = [...e.lines, e.creditLine];
+    const dr = all.reduce((n, l) => n + l.debit, 0);
+    const cr = all.reduce((n, l) => n + l.credit, 0);
+    const balanced = Math.abs(dr - cr) < 0.005;
+    const uncoded = state.txns.filter((t) => t.status === 'uncoded').length;
+
+    el('entryKpis').innerHTML = [
+      ['Debits', money(dr)], ['Credits', money(cr)],
+      ['Balanced', balanced ? 'yes' : money(dr - cr)],
+      ['Lines', String(all.length)],
+    ].map(([l, v]) => `<div class="cc-kpi">
+        <div class="cc-kpi-label">${l}</div><div class="cc-kpi-value">${esc(v)}</div></div>`).join('');
+
+    el('entrySub').textContent = state.batch.entry_date
+      ? `Dated ${state.batch.entry_date} · ${e.included} of ${state.txns.length} rows included`
+      : `${e.included} of ${state.txns.length} rows included`;
+
+    el('tblEntry').innerHTML = `<thead><tr>
+        <th>Account</th><th>Location</th><th>Entity</th><th>Description</th>
+        <th class="num">Debit</th><th class="num">Credit</th>
+      </tr></thead><tbody>` + all.map((l) => `<tr${l.is_credit_leg ? ' style="font-weight:700"' : ''}>
+        <td>${l.account_name ? esc(l.account_name) : '<span class="cc-chip cc-chip--none">card account not set</span>'}</td>
+        <td class="cc-note">${esc(l.location_name || '—')}</td>
+        <td class="cc-note">${l.entity_name ? esc(l.entity_name)
+          : l.needs_entity ? '<span class="cc-chip cc-chip--none">needs entity</span>' : '—'}</td>
+        <td class="cc-desc" title="${esc(l.description)}">${esc(l.description)}</td>
+        <td class="num">${l.debit ? money(l.debit) : ''}</td>
+        <td class="num">${l.credit ? money(l.credit) : ''}</td>
+      </tr>`).join('') + '</tbody>';
+
+    // Everything that would make a post fail or be wrong, said before the
+    // button is pressed rather than as a QuickBooks error afterwards.
+    const blockers = [];
+    if (!e.src?.credit_qbo_account_id) blockers.push('the card has no balancing account set (Cards tab)');
+    if (/Accounts (Payable|Receivable)/i.test(e.src?.credit_qbo_account_type || '')
+        && !e.src?.credit_vendor_qbo_id) {
+      blockers.push(e.src?.credit_vendor_name
+        ? `the balancing account needs a ${/Receivable/i.test(e.src.credit_qbo_account_type || '')
+            ? 'customer' : 'vendor'} record — “${e.src.credit_vendor_name}” is stored as typed text, `
+          + 'so re-pick it from the list on the Cards tab'
+        : `the balancing account is ${e.src?.credit_qbo_account_type}, which QuickBooks requires an entity on`);
+    }
+    if (uncoded) blockers.push(`${uncoded} row${uncoded === 1 ? ' is' : 's are'} still uncoded`);
+    // QuickBooks refuses the WHOLE entry over one AR/AP line with no entity, so
+    // it is caught here rather than after a person has approved it.
+    const noEntity = state.txns.filter((t) =>
+      t.status === 'coded' && needsEntity(t) && !t.entity_qbo_id).length;
+    if (noEntity) {
+      blockers.push(`${noEntity} row${noEntity === 1 ? '' : 's'} on a receivable or payable `
+        + `account ${noEntity === 1 ? 'has' : 'have'} no entity — QuickBooks requires one`);
+    }
+    if (!balanced) blockers.push('the entry does not balance');
+    if (!state.batch.entry_date) blockers.push('no entry date is set');
+    if (state.dirty.size) blockers.push('there are unsaved coding changes');
+
+    const posted = state.batch.status === 'posted';
+    const approved = state.batch.status === 'approved';
+    el('btnVoid').hidden = !posted;
+    el('btnApprove').disabled = posted || blockers.length > 0;
+    el('btnPost').disabled = posted || !approved || blockers.length > 0
+      || !e.src?.posting_enabled;
+
+    el('entryStatus').textContent = posted
+      ? `Posted as JE ${state.batch.qbo_doc_number || state.batch.qbo_journal_entry_id || ''}.`
+        + ' If it was deleted in QuickBooks, mark it unposted so it can be posted again.'
+      : blockers.length ? `Blocked: ${blockers.join('; ')}.`
+      : !approved ? 'Ready to approve.'
+      : !e.src?.posting_enabled ? 'Approved. Posting is off for this card — turn it on in the Cards tab.'
+      : 'Approved and ready to post.';
+  }
+
+  el('entryGroup').addEventListener('change', renderEntry);
+
+  // Their existing uploader template, so this works today whether or not the
+  // direct post is switched on.
+  function entryCsv() {
+    const e = buildEntry();
+    if (!e) return;
+    const date = state.batch.entry_date || '';
+    const memo = `${state.batch.source_name} ${state.batch.label || ''}`.trim();
+    const rows = [['Journal No', 'Journal Date', 'Memo', 'Account', 'Amount (Credit or Debit)',
+                   'Description', 'Name', 'Location']];
+    for (const l of [...e.lines, e.creditLine]) {
+      rows.push(['', date, memo, l.account_name || '',
+        (l.debit ? l.debit : -l.credit).toFixed(2),
+        l.description, l.entity_name || l.vendor_name || '', l.location_name || '']);
+    }
+    const csv = rows.map((r) => r.map((v) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(',')).join('\n');
+
+    const a = document.createElement('a');
+    // Excel does not sniff UTF-8. Without a BOM it falls back to the legacy
+    // codepage, so the middle dot in "2026-08-29 · APPLE.COM/BILL" (UTF-8
+    // bytes C2 B7) renders as "Â·" -- and so would every accented vendor name
+    // and the ® in "The Plum Card®". The BOM is what tells Excel the encoding.
+    a.href = URL.createObjectURL(
+      new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `${memo.replace(/\s+/g, '-').toLowerCase()}-je.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  el('btnEntryCsv').addEventListener('click', entryCsv);
+
+  el('btnApprove').addEventListener('click', async () => {
+    if (!state.batch) return;
+    const { error } = await sb.from('card_import_batches').update({
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+      approved_by: (await sb.auth.getUser()).data.user?.id || null,
+    }).eq('id', state.batch.id);
+    if (error) return setStatus(`Approve failed — ${error.message}`, 'neg', 8000);
+    await loadBatches();
+    state.batch = state.batches.find((b) => b.id === state.batch.id);
+    renderBatches();
+    renderEntry();
+    setStatus('Approved.', 'pos', 4000);
+  });
+
+  // Deleting an entry in QuickBooks is ordinary. Until this existed, doing so
+  // left SILO claiming a batch was posted to an entry that no longer existed --
+  // and the double-post guard then refused to ever post that batch again.
+  el('btnVoid').addEventListener('click', async () => {
+    if (!state.batch) return;
+    const je = state.batch.qbo_doc_number || state.batch.qbo_journal_entry_id || 'the entry';
+
+    const reason = prompt(
+      `Mark this batch unposted?\n\n`
+      + `This does NOT delete anything in QuickBooks. Delete ${je} there first, `
+      + `or you will post it twice.\n\n`
+      + `SILO will return the batch to Approved so it can be posted again.\n\n`
+      + `Why?`, '');
+    if (reason === null) return;
+    if (!reason.trim()) return setStatus('A reason is required to void a posting.', 'neg', 5000);
+
+    el('btnVoid').disabled = true;
+    try {
+      const { data, error } = await sb.rpc('void_card_posting', {
+        p_batch_id: state.batch.id, p_reason: reason.trim(),
+      });
+      if (error) throw new Error(error.message);
+      await loadBatches();
+      state.batch = state.batches.find((b) => b.id === state.batch.id);
+      renderBatches();
+      renderEntry();
+      setStatus(
+        `Marked unposted. Journal entry ${data?.qbo_journal_entry_id || ''} must be deleted in `
+        + 'QuickBooks if it still exists there.', 'pos', 12000);
+    } catch (e) {
+      setStatus(`Could not void — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('btnVoid').disabled = false;
+    }
+  });
+
+  el('btnPost').addEventListener('click', async () => {
+    const e = buildEntry();
+    if (!e || !state.batch) return;
+    const all = [...e.lines, e.creditLine];
+    const dr = all.reduce((n, l) => n + l.debit, 0);
+    if (!confirm(
+      `Post to QuickBooks?\n\n`
+      + `${state.batch.source_name} — ${state.batch.label || ''}\n`
+      + `Date: ${state.batch.entry_date}\n`
+      + `${all.length} lines, ${money(dr)} each side.\n`
+      + `Credit: ${e.creditLine.account_name}\n\n`
+      + `This writes a journal entry to the live books.`)) return;
+
+    el('btnPost').disabled = true;
+    el('entryStatus').textContent = 'Posting…';
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/quickbooks-post-journal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ batch_id: state.batch.id }),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+      await loadBatches();
+      state.batch = state.batches.find((b) => b.id === state.batch.id);
+      renderBatches();
+      renderEntry();
+      setStatus(`Posted as journal entry ${out.doc_number || out.qbo_journal_entry_id}.`, 'pos', 9000);
+    } catch (err) {
+      setStatus(`Post failed — ${err.message}`, 'neg', 12000);
+      renderEntry();
+    }
+  });
+
+  // -------------------------------------------------------------- rules
+
+  function renderRules() {
+    el('rulesCount').textContent = `${state.rules.length} rules`;
+
+    if (!el('ruleAccount').options.length) {
+      el('ruleAccount').innerHTML = `<option value="">Account…</option>${_acctOptions}`;
+      el('ruleEntity').innerHTML = `<option value="">Entity (AR/AP only)…</option>${_entityOptions}`;
+      el('ruleLocation').innerHTML = `<option value="">Location…</option>${_locOptions}`;
+    }
+
+    if (!state.rules.length) {
+      el('tblRules').innerHTML =
+        '<tr><td class="cc-empty">No rules yet. Add one above, or code a batch and hit “Learn rules”.</td></tr>';
+      return;
+    }
+
+    el('tblRules').innerHTML = `<thead><tr>
+        <th>Matches on</th><th>Pattern</th><th style="min-width:220px">Account</th>
+        <th style="min-width:150px">Entity</th><th style="min-width:150px">Location</th>
+        <th>Card</th><th class="num">Used</th><th></th>
+      </tr></thead><tbody>` + state.rules.map((r) => `<tr data-rule="${esc(r.id)}">
+        <td><span class="cc-chip ${r.match_field === 'card_name' ? 'cc-chip--ai' : 'cc-chip--rule'}">${
+          r.match_field === 'card_name' ? 'card name' : 'merchant'}</span>
+          <div class="cc-note">${esc(r.match_type)}</div></td>
+        <td class="cc-mono">${esc(r.pattern)}</td>
+        <td data-rcell="account">${cellButton(r.qbo_account_name, 'account')}</td>
+        <td data-rcell="entity">${cellButton(r.entity_name, 'entity')}</td>
+        <td data-rcell="location">${cellButton(r.qbo_location_name, 'location')}</td>
+        <td class="cc-note">${esc(state.sources.find((x) => x.id === r.source_id)?.display_name || 'any')}</td>
+        <td class="num">${r.hit_count || 0}</td>
+        <td><button class="bcn-btn" data-del-rule>Delete</button></td>
+      </tr>`).join('') + '</tbody>';
+  }
+
+  async function addRule() {
+    const pattern = el('rulePattern').value.trim();
+    const accountId = el('ruleAccount').value;
+    if (!pattern) return setStatus('Give the rule something to match on.', 'neg', 5000);
+    if (!accountId) return setStatus('Pick an account for the rule.', 'neg', 5000);
+
+    const field = el('ruleField').value;
+    const [entType, entId] = (el('ruleEntity').value || '').split(':');
+    const locId = el('ruleLocation').value || null;
+
+    // A merchant pattern is stored the way a merchant key is built, or it can
+    // never match: 'Sugar Hill' typed by hand has to become 'sugar hill'.
+    const stored = field === 'merchant' && el('ruleMatch').value === 'normalized'
+      ? normalizeMerchant(pattern) : pattern.toLowerCase();
+
+    const row = {
+      company_entity_id: _co.id,
+      source_id: null,
+      match_field: field,
+      match_type: field === 'card_name' && el('ruleMatch').value === 'normalized'
+        ? 'exact' : el('ruleMatch').value,
+      pattern: stored,
+      priority: field === 'card_name' ? 50 : 100,
+      qbo_account_id: accountId,
+      qbo_account_name: acctName(accountId),
+      qbo_location_id: locId,
+      qbo_location_name: locName(locId),
+      entity_qbo_id: entId || null,
+      entity_name: entId
+        ? (state.entities.find((x) => x.id === entId && x.type === entType)?.name || null) : null,
+      entity_type: entId ? entType : null,
+      note: 'Added by hand',
+    };
+
+    const { error } = await sb.from('card_coding_rules').upsert(row);
+    if (error) return setStatus(`Could not add rule — ${error.message}`, 'neg', 8000);
+
+    el('rulePattern').value = '';
+    await loadRules();
+    renderRules();
+    setStatus(`Rule added: ${stored} → ${row.qbo_account_name}.`, 'pos', 5000);
+  }
+
+  el('btnAddRule').addEventListener('click', addRule);
+  el('rulePattern').addEventListener('keydown', (e) => { if (e.key === 'Enter') addRule(); });
+
+  // Editing a rule in place, same click-to-edit as the coding table.
+  el('tblRules').addEventListener('click', (e) => {
+    const edit = e.target.closest('[data-edit]');
+    if (!edit) return;
+    const tr = e.target.closest('[data-rule]');
+    const r = state.rules.find((x) => x.id === tr.dataset.rule);
+    if (!r) return;
+    openEditor(edit.closest('td'), {
+      qbo_account_id: r.qbo_account_id, qbo_account_name: r.qbo_account_name,
+      qbo_location_id: r.qbo_location_id, qbo_location_name: r.qbo_location_name,
+      entity_qbo_id: r.entity_qbo_id, entity_name: r.entity_name, entity_type: r.entity_type,
+    }, edit.dataset.edit);
+  });
+
+  el('tblRules').addEventListener('change', async (e) => {
+    const tr = e.target.closest('[data-rule]');
+    if (!tr || !e.target.dataset.field) return;
+    const r = state.rules.find((x) => x.id === tr.dataset.rule);
+    if (!r) return;
+
+    const patch = {};
+    if (e.target.dataset.field === 'account') {
+      patch.qbo_account_id = e.target.value || null;
+      patch.qbo_account_name = acctName(patch.qbo_account_id);
+    } else if (e.target.dataset.field === 'location') {
+      patch.qbo_location_id = e.target.value || null;
+      patch.qbo_location_name = locName(patch.qbo_location_id);
+    } else {
+      const [type, id] = (e.target.value || '').split(':');
+      patch.entity_qbo_id = id || null;
+      patch.entity_type = id ? type : null;
+      patch.entity_name = id
+        ? (state.entities.find((x) => x.id === id && x.type === type)?.name || null) : null;
+    }
+
+    const { error } = await sb.from('card_coding_rules')
+      .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', r.id);
+    if (error) return setStatus(`Could not update rule — ${error.message}`, 'neg', 8000);
+    Object.assign(r, patch);
+    renderRules();
+    setStatus('Rule updated.', 'pos', 3000);
+  });
+
+  el('tblRules').addEventListener('click', async (e) => {
+    if (!e.target.closest('[data-del-rule]')) return;
+    const id = e.target.closest('[data-rule]').dataset.rule;
+    const r = state.rules.find((x) => x.id === id);
+    if (!confirm(`Delete the rule for "${r?.pattern}"?`)) return;
+    const { error } = await sb.from('card_coding_rules').delete().eq('id', id);
+    if (error) return setStatus(`Delete failed — ${error.message}`, 'neg', 6000);
+    await loadRules();
+    renderRules();
+  });
+
+  // -------------------------------------------------------------- cards
+
+  // QuickBooks wants a VENDOR on an Accounts Payable line and a CUSTOMER on an
+  // Accounts Receivable one -- picking the wrong kind is rejected. So the list
+  // is scoped by what the chosen balancing account actually accepts, rather
+  // than offering both and failing at post time.
+  function entitiesFor(accountType) {
+    if (/Accounts Payable/i.test(accountType || '')) {
+      return { kind: 'Vendor', list: state.entities.filter((e) => e.type === 'Vendor') };
+    }
+    if (/Accounts Receivable/i.test(accountType || '')) {
+      return { kind: 'Customer', list: state.entities.filter((e) => e.type === 'Customer') };
+    }
+    return { kind: null, list: [] };
+  }
+
+  function vendorPicker(s) {
+    const { kind, list } = entitiesFor(s.credit_qbo_account_type);
+    if (!kind) {
+      return '<span class="cc-note">not needed</span>'
+        + (s.credit_vendor_name
+          ? `<div class="cc-note">stored: ${esc(s.credit_vendor_name)}</div>` : '');
+    }
+
+    const selected = s.credit_vendor_qbo_id || '';
+    const opts = list
+      .map((e) => `<option value="${esc(e.id)}"${e.id === selected ? ' selected' : ''}>${esc(e.name)}</option>`)
+      .join('');
+
+    // A name typed before this was a picker cannot be posted -- QuickBooks
+    // needs the id, not the string -- so it is shown as unresolved rather than
+    // silently dropped.
+    const stale = !selected && s.credit_vendor_name
+      ? `<div class="cc-note" style="color:var(--bcn-neg)">“${esc(s.credit_vendor_name)}” was typed, not picked — choose it from the list</div>`
+      : '';
+
+    return `<select class="bcn-field bcn-field--mono" data-card-field="vendor">
+        <option value="">— pick a ${kind.toLowerCase()} —</option>${opts}
+      </select>${stale}`;
+  }
+
+  function renderCards() {
+    el('tblCards').innerHTML = `<thead><tr>
+        <th>Card</th><th>Balancing account</th><th>Entity on the balancing line</th>
+        <th>Default location</th><th>Posting</th><th>In use</th><th></th>
+      </tr></thead><tbody>` + state.sources.map((s) => {
+      const isAp = /Accounts (Payable|Receivable)/i.test(s.credit_qbo_account_type || '');
+      return `<tr data-card="${esc(s.id)}">
+        <td><b>${esc(s.display_name)}</b>${s.notes ? `<div class="cc-note">${esc(s.notes)}</div>` : ''}</td>
+        <td><select class="bcn-field bcn-field--mono" data-card-field="credit"
+              data-selected="${esc(s.credit_qbo_account_id || '')}"
+              data-selected-label="${esc(s.credit_qbo_account_name || '')}">
+              <option value="">— not set —</option>${_allAcctOptions}</select></td>
+        <td data-vendor-cell>${vendorPicker(s)}</td>
+        <td><select class="bcn-field bcn-field--mono" data-card-field="location"
+              data-selected="${esc(s.default_qbo_location_id || '')}"
+              data-selected-label="${esc(s.default_qbo_location_name || '')}">
+              <option value="">— none —</option>${_locOptions}</select></td>
+        <td><label class="cc-note" style="display:flex;gap:6px;align-items:center">
+              <input type="checkbox" data-card-field="posting" ${s.posting_enabled ? 'checked' : ''} />
+              ${s.posting_enabled ? 'on' : 'off'}</label></td>
+        <td><label class="cc-note" style="display:flex;gap:6px;align-items:center">
+              <input type="checkbox" data-card-field="active" ${s.is_active ? 'checked' : ''} />
+              ${s.is_active ? 'yes' : 'retired'}</label></td>
+        <td><button class="bcn-btn" data-del-card="${esc(s.id)}">Delete</button></td>
+      </tr>`;
+    }).join('') + '</tbody>';
+    applySelections(el('tblCards'));
+
+    // Checks the id, which is what the post and the Approve blocker require.
+    // Checking the name told you a card was ready while Approve stayed blocked.
+    const apNoVendor = state.sources.filter((s) =>
+      /Accounts (Payable|Receivable)/i.test(s.credit_qbo_account_type || '')
+      && !s.credit_vendor_qbo_id);
+    const unset = state.sources.filter((s) => !s.credit_qbo_account_id);
+
+    el('cardsHint').innerHTML = [
+      unset.length
+        ? `<b>${unset.length} card${unset.length === 1 ? ' has' : 's have'} no balancing account:</b> `
+          + esc(unset.map((s) => s.display_name).join(', ')) + '. An entry cannot be built without it.'
+        : '',
+      apNoVendor.length
+        ? `<b>Needs a vendor:</b> ${esc(apNoVendor.map((s) => s.display_name).join(', '))}. `
+          + 'QuickBooks rejects a journal entry line on an Accounts Payable account unless the line '
+          + 'names a vendor, so the post would fail without one.'
+        : '',
+      'Posting stays off for a card until you turn it on here — a new card cannot reach the ledger by accident.',
+    ].filter(Boolean).join('<br /><br />');
+  }
+
+  async function saveCards() {
+    el('btnSaveCards').disabled = true;
+    try {
+      const rows = [...el('tblCards').querySelectorAll('[data-card]')].map((tr) => {
+        const s = state.sources.find((x) => x.id === tr.dataset.card);
+        const get = (f) => tr.querySelector(`[data-card-field="${f}"]`);
+        const creditId = get('credit').value || null;
+        const acct = state.allAccounts.find((a) => a.id === creditId);
+        const vendorField = get('vendor');
+        const vendorId = vendorField && vendorField.tagName === 'SELECT'
+          ? (vendorField.value || null) : null;
+        const locId = get('location').value || null;
+        return {
+          ...s,
+          credit_qbo_account_id: creditId,
+          credit_qbo_account_name: acct?.name || null,
+          credit_qbo_account_type: acct?.type || null,
+          credit_vendor_qbo_id: vendorId || null,
+          credit_vendor_name: vendorId
+            ? (state.entities.find((x) => x.id === vendorId)?.name || null)
+            : null,
+          default_qbo_location_id: locId,
+          default_qbo_location_name: locName(locId),
+          posting_enabled: get('posting').checked,
+          is_active: get('active').checked,
+          updated_at: new Date().toISOString(),
+        };
+      });
+      const { error } = await sb.from('card_sources').upsert(rows);
+      if (error) throw new Error(error.message);
+      await loadReference();
+      buildOptionCache();
+      renderCards();
+      renderEntry();
+      setStatus('Cards saved.', 'pos', 4000);
+    } catch (e) {
+      setStatus(`Save failed — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('btnSaveCards').disabled = false;
+    }
+  }
+
+  // A card key has to be stable and unique per company, but nobody should have
+  // to invent one: it is derived from the name and de-duplicated.
+  function slugKey(name) {
+    const base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '').slice(0, 40) || 'card';
+    if (!state.sources.some((s) => s.source_key === base)) return base;
+    for (let i = 2; i < 100; i++) {
+      const k = `${base}_${i}`;
+      if (!state.sources.some((s) => s.source_key === k)) return k;
+    }
+    return `${base}_${Date.now()}`;
+  }
+
+  async function addCard() {
+    const name = el('newCardName').value.trim();
+    if (!name) return setStatus('Give the card a name.', 'neg', 4000);
+    if (!_co?.id) return setStatus('No active company resolved — reload the page.', 'neg', 6000);
+    if (state.sources.some((s) => s.display_name.toLowerCase() === name.toLowerCase())) {
+      return setStatus(`There is already a card called ${name}.`, 'neg', 5000);
+    }
+
+    el('btnAddCard').disabled = true;
+    try {
+      const { error } = await sb.from('card_sources').insert({
+        company_entity_id: _co.id,
+        source_key: slugKey(name),
+        display_name: name,
+      });
+      if (error) throw new Error(error.message);
+
+      el('newCardName').value = '';
+      await loadReference();
+      buildOptionCache();
+      renderSourceSelect();
+      renderCards();
+      setStatus(`Added ${name}. Set its balancing account before importing.`, 'pos', 6000);
+    } catch (e) {
+      setStatus(`Could not add card — ${e.message}`, 'neg', 8000);
+    } finally {
+      el('btnAddCard').disabled = false;
+    }
+  }
+
+  el('btnAddCard').addEventListener('click', addCard);
+  el('newCardName').addEventListener('keydown', (e) => { if (e.key === 'Enter') addCard(); });
+
+  // Delete only while a card has no history. A card with batches behind it is
+  // deactivated instead: deleting it would cascade the imports and the journal
+  // entries they produced, and "we stopped using that card" is not a reason to
+  // lose what it posted.
+  el('tblCards').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-del-card]');
+    if (!btn) return;
+    const id = btn.dataset.delCard;
+    const src = state.sources.find((x) => x.id === id);
+    if (!src) return;
+
+    const { count } = await sb.from('card_import_batches')
+      .select('id', { count: 'exact', head: true }).eq('source_id', id);
+
+    if (count) {
+      setStatus(
+        `${src.display_name} has ${count} import${count === 1 ? '' : 's'} behind it, so it cannot `
+        + 'be deleted without losing them. Untick “In use” and save to retire it instead.',
+        'neg', 10000);
+      return;
+    }
+
+    if (!confirm(`Delete ${src.display_name}? It has no imports, so nothing is lost.`)) return;
+
+    const { error } = await sb.from('card_sources').delete().eq('id', id);
+    if (error) return setStatus(`Delete failed — ${error.message}`, 'neg', 8000);
+
+    await loadReference();
+    buildOptionCache();
+    renderSourceSelect();
+    renderCards();
+    setStatus(`${src.display_name} deleted.`, 'pos', 4000);
+  });
+
+  // The account decides which entity list is valid, so the cell is rebuilt as
+  // soon as the account changes rather than after a save-and-reload.
+  el('tblCards').addEventListener('change', (e) => {
+    if (e.target.dataset.cardField !== 'credit') return;
+    const tr = e.target.closest('[data-card]');
+    const acct = state.allAccounts.find((a) => a.id === e.target.value);
+    const src = state.sources.find((x) => x.id === tr.dataset.card);
+    if (!src) return;
+    src.credit_qbo_account_type = acct?.type || null;
+    tr.querySelector('[data-vendor-cell]').innerHTML = vendorPicker(src);
+  });
+
+  el('btnSaveCards').addEventListener('click', saveCards);
+  el('btnRefresh').addEventListener('click', () => boot());
+
+  // --------------------------------------------------------------- boot
+
+  async function boot() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { window.location.href = '/pages/login.html'; return; }
+
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+
+    const { data: profile } = await sb.from('profiles')
+      .select('name, email, role, department').eq('id', session.user.id).maybeSingle();
+
+    window.SiloChrome?.mount({
+      appEl: '#silo-app',
+      active: 'finance/card-coding',
+      user: { email: profile?.email || session.user.email, role: profile?.role },
+      crumbs: ['Finance', 'Card Coding'],
+      supabaseClient: sb,
+    });
+
+    await loadReference();
+    buildOptionCache();
+    await Promise.all([loadBatches(), loadRules()]);
+
+    renderSourceSelect();
+    renderBatches();
+    renderRules();
+    renderCards();
+    renderCoding();
+    renderEntry();
+    renderMeta();
+
+    if (!el('impPeriod').value) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 1);
+      el('impPeriod').value = d.toISOString().slice(0, 7);
+    }
+
+    let saved = null;
+    try { saved = sessionStorage.getItem(PANE_KEY); } catch { /* private mode */ }
+    showPane(saved || 'import');
+
+    if (!state.allAccounts.length) {
+      setStatus('No QuickBooks accounts pulled yet — connect and pull in Integrations first.', 'neg', 0);
+    }
+  }
+
+  boot().catch((err) => {
+    console.error(err);
+    setStatus(`Could not load: ${err.message}`, 'neg', 0);
+  });
+})();
+</script>
+</body>
+</html>

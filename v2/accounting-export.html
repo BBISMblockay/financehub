@@ -32,10 +32,15 @@
       border-bottom: 1px solid var(--bcn-border);
     }
 
+    /* The page itself does not scroll. One tab is visible at a time and its
+       table is the only scroll region, so the filter row, the tab bar and the
+       Save button all stay put instead of being 3,000px apart. */
     .ax-page {
       flex: 1;
       min-height: 0;
-      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       background: var(--bcn-bg);
     }
 
@@ -47,47 +52,61 @@
       align-items: flex-end;
       gap: 12px;
       flex-wrap: wrap;
-      position: sticky;
-      top: 62px;
-      z-index: 25;
+      flex: none;
     }
 
-    .ax-status {
-      font-size: 11px;
-      color: var(--bcn-ink-3);
-      font-family: var(--bcn-mono);
-      margin-left: auto;
-      white-space: nowrap;
+    /* .bcn-tab is styled for links; these are buttons. */
+    .ax-tabbar .bcn-tab {
+      background: none;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      font: inherit;
+      cursor: pointer;
     }
+
+    .ax-page > .bcn-status { flex: none; margin: 10px 18px 0; }
 
     .ax-content {
-      padding: 14px 18px 28px;
-      display: grid;
-      grid-template-columns: minmax(0, 1.25fr) minmax(360px, .75fr);
-      gap: 14px;
-      align-items: start;
+      flex: 1;
+      min-height: 0;
+      padding: 14px 18px;
+      display: flex;
     }
 
-    @media(max-width: 1180px) {
-      .ax-content {
-        grid-template-columns: 1fr;
-      }
+    .ax-pane {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
     }
 
-    .ax-wide {
-      grid-column: 1 / -1;
-    }
+    .ax-pane[hidden] { display: none; }
+
+    /* Narrow tables read badly stretched across a wide monitor: three columns
+       spread over 2,000px puts the debit column nowhere near its account. */
+    .ax-pane[data-pane="journal"] .ax-card { max-width: 940px; }
+    .ax-pane[data-pane="fees"] .ax-card { max-width: 1100px; }
+
+    /* Centred rather than left-aligned: on a wide monitor a capped card pinned
+       left leaves a void the eye keeps checking for content. */
+    .ax-pane[data-pane="journal"] .ax-card,
+    .ax-pane[data-pane="fees"] .ax-card { margin-inline: auto; }
 
     .ax-card {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       background: var(--bcn-panel);
       border: 1px solid var(--bcn-border);
       border-radius: 12px;
       box-shadow: var(--ax-shadow);
       overflow: hidden;
-      min-width: 0;
     }
 
     .ax-card-header {
+      flex: none;
       min-height: 42px;
       padding: 10px 12px;
       display: flex;
@@ -117,27 +136,20 @@
       min-width: 0;
     }
 
-    .ax-pad {
-      padding: 12px;
-    }
-
+    /* Grows to whatever height the tab has left, rather than a fixed 470px
+       that left dead space on a tall screen and clipped on a short one. */
     .ax-scroll {
-      max-height: 500px;
-      overflow: auto;
+      flex: 1;
+      min-height: 0;
       min-width: 0;
-    }
-
-    .ax-scroll--journal {
-      max-height: 470px;
-    }
-
-    .ax-scroll--register {
-      max-height: 520px;
-    }
-
-    .ax-table-wrap {
-      width: 100%;
       overflow: auto;
+    }
+
+    .ax-card-foot {
+      flex: none;
+      padding: 10px 12px;
+      border-top: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
     }
 
     .ax-tbl {
@@ -245,44 +257,27 @@
       white-space: nowrap;
     }
 
-    .ax-map-grid {
-      display: grid;
-      grid-template-columns: minmax(165px, 230px) minmax(260px, 1fr);
-      gap: 8px 12px;
-      align-items: center;
-      padding: 2px 0;
-    }
-
-    @media(max-width: 720px) {
-      .ax-map-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .ax-map-key {
-      font-family: var(--bcn-mono);
-      font-size: 10.5px;
-      color: var(--bcn-ink-3);
-      white-space: nowrap;
-    }
-
-    .ax-loc-scroll { overflow-x: auto; }
-
     .ax-loc-table {
       width: 100%;
+      min-width: 980px;
       border-collapse: collapse;
       font-size: 12px;
     }
 
     .ax-loc-table th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: var(--bcn-sunken);
       text-align: left;
       font-family: var(--bcn-mono);
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: .04em;
       color: var(--bcn-ink-3);
-      padding: 0 8px 6px 0;
+      padding: 9px 8px 7px 0;
       white-space: nowrap;
+      border-bottom: 1px solid var(--bcn-border-strong);
     }
 
     .ax-loc-table td {
@@ -291,9 +286,31 @@
       border-top: 1px solid var(--bcn-border);
     }
 
+    /* The table is flush to the card edge now that the padded wrapper is gone. */
+    .ax-loc-table th:first-child,
+    .ax-loc-table td:first-child { padding-left: 12px; }
+    .ax-loc-table th:last-child,
+    .ax-loc-table td:last-child { padding-right: 12px; }
+
     .ax-loc-table select { width: 100%; min-width: 190px; font-size: 11px; }
 
     .ax-loc-name { font-weight: 600; white-space: nowrap; }
+
+    /* Section band inside the one mapping table. The two halves differ in
+       shape (per-location vs company-wide), so they are labelled rather than
+       silently run together. */
+    .ax-map-section td {
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--bcn-ink-3);
+      background: var(--bcn-surface-2, rgba(0,0,0,.03));
+      padding: 6px 8px 5px 0;
+      border-top: 1px solid var(--bcn-border);
+    }
+
+    .ax-loc-table input { width: 100%; min-width: 190px; font-size: 11px; }
 
     .ax-map-note {
       font-family: var(--bcn-mono);
@@ -306,21 +323,22 @@
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-      margin-top: 12px;
     }
 
     .ax-hint {
       font-size: 11px;
       color: var(--bcn-ink-3);
-      margin-top: 10px;
+      margin-top: 8px;
       line-height: 1.5;
       background: var(--bcn-sunken);
       border: 1px solid var(--bcn-border);
       border-radius: 10px;
       padding: 10px;
+      max-width: 118ch;
     }
 
     .ax-summary-grid {
+      flex: none;
       display: grid;
       grid-template-columns: repeat(4, minmax(160px, 1fr));
       gap: 10px;
@@ -404,6 +422,7 @@
         <div class="bcn-header-sub" id="subTitle">Journal-ready Shopify sales and payout entries</div>
       </div>
       <div class="bcn-header-actions">
+        <button class="bcn-btn" id="btnPostAdjustment">Post adjustment</button>
         <button class="bcn-btn" id="btnExportRegister">Deposit register CSV</button>
         <button class="bcn-btn bcn-btn--primary" id="btnExportJournal">Journal CSV</button>
       </div>
@@ -415,7 +434,7 @@
         <div class="bcn-kpi-value" id="kpiTotal">—</div>
       </div>
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Shopify clearing</div>
+        <div class="bcn-kpi-label">Receivable / clearing</div>
         <div class="bcn-kpi-value" id="kpiAr">—</div>
       </div>
       <div class="bcn-kpi">
@@ -435,44 +454,53 @@
           <input type="month" id="month" class="bcn-field bcn-field--mono" />
         </div>
         <button class="bcn-btn bcn-btn--dark" id="btnRun">Generate</button>
-        <div class="ax-status" id="axStatus">Pick a month and hit Generate.</div>
       </div>
+
+      <nav class="bcn-tabs ax-tabbar" id="axTabs" role="tablist">
+        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="journal">Sales journal</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="fees">Processing fees</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="register">Deposit register</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="mapping">Account mapping</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="adjustments">Adjustments</button>
+        <span class="bcn-tabs-meta" id="axPaneMeta"></span>
+      </nav>
 
       <div class="bcn-status" id="status" hidden></div>
 
       <div class="ax-content">
-        <div class="ax-card ax-wide">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Sales journal — by location</div>
-              <div class="ax-card-sub">Summary JE: gross revenue, shipping, refunds, discounts, sales tax, and Shopify clearing</div>
+        <section class="ax-pane" data-pane="journal">
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Sales journal — by location</div>
+                <div class="ax-card-sub">Summary JE: gross revenue, shipping, refunds, discounts, sales tax and the receivable leg</div>
+              </div>
+              <div class="ax-right-actions">
+                <span class="ax-chip" id="journalBalanceChip">Balanced: —</span>
+                <button class="bcn-btn bcn-btn--dark" id="btnBuildJournal">Build &amp; post journal entry</button>
+              </div>
             </div>
-            <div class="ax-right-actions">
-              <span class="ax-chip" id="journalBalanceChip">Balanced: —</span>
-            </div>
-          </div>
 
-          <div class="ax-summary-grid">
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Journal DR</div>
-              <div class="ax-mini-value" id="sumDr">—</div>
+            <div class="ax-summary-grid">
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Journal DR</div>
+                <div class="ax-mini-value" id="sumDr">—</div>
+              </div>
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Journal CR</div>
+                <div class="ax-mini-value" id="sumCr">—</div>
+              </div>
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Difference</div>
+                <div class="ax-mini-value" id="sumDiff">—</div>
+              </div>
+              <div class="ax-mini-kpi">
+                <div class="ax-mini-label">Locations</div>
+                <div class="ax-mini-value" id="sumLocations">—</div>
+              </div>
             </div>
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Journal CR</div>
-              <div class="ax-mini-value" id="sumCr">—</div>
-            </div>
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Difference</div>
-              <div class="ax-mini-value" id="sumDiff">—</div>
-            </div>
-            <div class="ax-mini-kpi">
-              <div class="ax-mini-label">Locations</div>
-              <div class="ax-mini-value" id="sumLocations">—</div>
-            </div>
-          </div>
 
-          <div class="ax-card-body ax-scroll ax-scroll--journal">
-            <div class="ax-table-wrap">
+            <div class="ax-card-body ax-scroll">
               <table class="ax-tbl" id="tblSales">
                 <thead>
                   <tr>
@@ -487,17 +515,17 @@
               </table>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="ax-card">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Processing fees — by store</div>
-              <div class="ax-card-sub">Fee JE clears against Shopify clearing</div>
+        <section class="ax-pane" data-pane="fees" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Processing fees — by store</div>
+                <div class="ax-card-sub">Fee JE clears against the receivable leg</div>
+              </div>
             </div>
-          </div>
-          <div class="ax-card-body ax-scroll">
-            <div class="ax-table-wrap">
+            <div class="ax-card-body ax-scroll">
               <table class="ax-tbl ax-tbl--compact" id="tblFees">
                 <thead>
                   <tr>
@@ -514,62 +542,20 @@
               </table>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="ax-card">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Chart of accounts mapping</div>
-              <div class="ax-card-sub">Used by the table and CSV export</div>
+        <section class="ax-pane" data-pane="register" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Deposit register — bank reconciliation</div>
+                <div class="ax-card-sub">Payout-level detail to tie Shopify deposits to bank activity</div>
+              </div>
+              <div class="ax-right-actions">
+                <span class="ax-chip" id="registerChip">Payouts: —</span>
+              </div>
             </div>
-          </div>
-          <div class="ax-card-body ax-pad">
-            <div class="ax-map-grid" id="mapGrid"></div>
-            <div class="ax-map-actions">
-              <button class="bcn-btn bcn-btn--primary" id="btnSaveMap">Save mapping</button>
-              <button class="bcn-btn" id="btnRecommendedMap">Apply recommended names</button>
-            </div>
-            <div class="ax-hint">
-              <b>Accounting note:</b> discounts are contra-revenue, sales tax payable is a liability,
-              and Shopify deposits should clear through a Shopify clearing account instead of generic AR.
-              Use <code>{location}</code> in a template to insert the location name.
-              <br /><br />
-              Connect QuickBooks in <a href="/v2/integrations.html">Integrations</a> to pick real QBO
-              accounts here instead of typing names. Per-location revenue and refund accounts stay
-              free text — one QBO account cannot cover every location — and are matched by name.
-            </div>
-          </div>
-        </div>
-
-        <div class="ax-card">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">QuickBooks location mapping</div>
-              <div class="ax-card-sub">Which QBO location each sales location posts to</div>
-            </div>
-          </div>
-          <div class="ax-card-body ax-pad">
-            <div class="ax-loc-scroll"><table class="ax-loc-table" id="locationMapGrid"></table></div>
-            <div class="ax-map-actions">
-              <button class="bcn-btn bcn-btn--primary" id="btnSaveLocationMap">Save locations</button>
-              <button class="bcn-btn" id="btnAutoMatchLocations">Auto-match by name</button>
-            </div>
-            <div class="ax-hint" id="locationHint"></div>
-          </div>
-        </div>
-
-        <div class="ax-card ax-wide">
-          <div class="ax-card-header">
-            <div>
-              <div class="ax-card-title">Deposit register — bank reconciliation</div>
-              <div class="ax-card-sub">Payout-level detail to tie Shopify deposits to bank activity</div>
-            </div>
-            <div class="ax-right-actions">
-              <span class="ax-chip" id="registerChip">Payouts: —</span>
-            </div>
-          </div>
-          <div class="ax-card-body ax-scroll ax-scroll--register">
-            <div class="ax-table-wrap">
+            <div class="ax-card-body ax-scroll">
               <table class="ax-tbl" id="tblRegister">
                 <thead>
                   <tr>
@@ -589,7 +575,55 @@
               </table>
             </div>
           </div>
-        </div>
+        </section>
+
+        <section class="ax-pane" data-pane="mapping" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Account mapping</div>
+                <div class="ax-card-sub">Where each journal line posts in QuickBooks</div>
+              </div>
+              <div class="ax-card-sub" id="mapCount"></div>
+            </div>
+            <div class="ax-card-body ax-scroll">
+              <table class="ax-loc-table" id="mapGrid"></table>
+            </div>
+            <!-- Save sits in a pinned foot, not after the last row: with 30-odd
+                 locations it was a scroll away from every edit. -->
+            <div class="ax-card-foot">
+              <div class="ax-map-actions">
+                <button class="bcn-btn bcn-btn--primary" id="btnSaveMap">Save mapping</button>
+                <button class="bcn-btn" id="btnAutoMatchLocations">Auto-match by name</button>
+              </div>
+              <div class="ax-hint" id="locationHint"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ax-pane" data-pane="adjustments" hidden>
+          <div class="ax-card">
+            <div class="ax-card-header">
+              <div>
+                <div class="ax-card-title">Journal adjustments</div>
+                <div class="ax-card-sub">A hand-written entry, raised from whatever this export turned up.
+                  Staged entries live here until approved and posted &mdash; nothing reaches QuickBooks
+                  until then.</div>
+              </div>
+              <div class="ax-right-actions">
+                <button class="bcn-btn bcn-btn--primary" id="btnNewAdjustment">New adjustment</button>
+              </div>
+            </div>
+            <div class="ax-card-body ax-scroll">
+              <table class="ax-tbl" id="tblAdjustments">
+                <thead>
+                  <tr><th>Date</th><th>Memo</th><th class="num">Amount</th><th>Entry</th><th></th></tr>
+                </thead>
+                <tbody><tr><td colspan="5" class="ax-empty">No adjustments yet.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
 
       </div>
     </div>
@@ -597,6 +631,7 @@
 </div>
 
 <script src="../pages/config.js"></script>
+<script src="je-composer.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="dept-guard.js" data-departments="exec,finance"></script>
 <script src="nav-config.js"></script>
@@ -625,18 +660,17 @@
   const el = {
     month: document.getElementById('month'),
     btnRun: document.getElementById('btnRun'),
-    axStatus: document.getElementById('axStatus'),
     subTitle: document.getElementById('subTitle'),
     tblSales: document.querySelector('#tblSales tbody'),
     tblFees: document.querySelector('#tblFees tbody'),
     tblRegister: document.querySelector('#tblRegister tbody'),
     mapGrid: document.getElementById('mapGrid'),
-    locationMapGrid: document.getElementById('locationMapGrid'),
-    btnSaveLocationMap: document.getElementById('btnSaveLocationMap'),
     btnAutoMatchLocations: document.getElementById('btnAutoMatchLocations'),
     locationHint: document.getElementById('locationHint'),
+    axTabs: document.getElementById('axTabs'),
+    axPaneMeta: document.getElementById('axPaneMeta'),
     btnSaveMap: document.getElementById('btnSaveMap'),
-    btnRecommendedMap: document.getElementById('btnRecommendedMap'),
+    mapCount: document.getElementById('mapCount'),
     btnExportJournal: document.getElementById('btnExportJournal'),
     btnExportRegister: document.getElementById('btnExportRegister'),
     kpiTotal: document.getElementById('kpiTotal'),
@@ -649,6 +683,10 @@
     sumLocations: document.getElementById('sumLocations'),
     journalBalanceChip: document.getElementById('journalBalanceChip'),
     registerChip: document.getElementById('registerChip'),
+    btnPostAdjustment: document.getElementById('btnPostAdjustment'),
+    btnNewAdjustment: document.getElementById('btnNewAdjustment'),
+    btnBuildJournal: document.getElementById('btnBuildJournal'),
+    tblAdjustments: document.querySelector('#tblAdjustments tbody'),
   };
 
   function setStatus(msg, type = 'info', ms = 0) {
@@ -671,37 +709,21 @@
   };
 
   const MAP_KEYS = [
-    ['revenue_template',    'Revenue per location'],
     ['freight',             'Shipping income'],
-    ['refunds_template',    'Refunds per location'],
-    ['discounts',           'Discounts / contra revenue'],
+    ['discounts',           'Discounts'],
     ['tax_liability',       'Sales tax clearing DR'],
     ['tax_payable',         'Sales tax payable CR'],
     ['tax_income_all',      'Sales tax income (pass-through wash, per location)'],
-    ['accounts_receivable', 'Shopify clearing'],
+    ['accounts_receivable', 'Receivable / clearing leg'],
     ['processing_fees',     'Processing fees'],
   ];
 
-  const MAP_DEFAULTS = {
-    revenue_template: 'Retail Revenue - Shopify ({location})',
-    freight: 'Shipping Revenue - Shopify',
-    refunds_template: 'Sales Refunds - Shopify ({location})',
-    discounts: 'Sales Discounts - Shopify',
-    tax_liability: 'Sales Tax Clearing',
-    tax_payable: 'Sales Tax Payable',
-    tax_income_all: 'Sales Tax Income',
-    accounts_receivable: 'Shopify Clearing',
-    processing_fees: 'Shopify Processing Fees',
-  };
 
-  // Keys whose account name is per-location ({location} is substituted at
-  // journal time), so a single QBO account cannot express them. They stay
-  // free text and are matched to QBO by name -- see the note in the mapping
-  // card and TEMPLATE_KEYS' use in renderMap().
-  const TEMPLATE_KEYS = new Set(['revenue_template', 'refunds_template']);
 
   const state = {
-    coa: { ...MAP_DEFAULTS },
+    // map_key -> account name, loaded from accounting_coa_map. No seeded
+    // defaults: an unmapped key must read as unmapped.
+    coa: {},
     // map_key -> QBO Account.Id, the authority for posting once a QuickBooks
     // connection exists. Empty when no connection is set up.
     qboIds: {},
@@ -730,9 +752,38 @@
     }[m]));
   }
 
-  function coa(key, location) {
-    const raw = state.coa[key] || MAP_DEFAULTS[key] || key;
-    return raw.replace('{location}', location || '');
+  // Resolves a journal line's account from the QuickBooks mappings.
+  //
+  // The {location} name template it replaces could not work: the chart of
+  // accounts carries at least three conventions for store revenue ("In Store
+  // Retail Revenue - Shopify (X)", "In Store Retail Sales Revenue - Shopify
+  // (X)", and a parens-misplaced variant), so a single expansion resolved for
+  // only 13 of 21 locations -- about $2.6M of 2026 revenue pointing at account
+  // names that do not exist.
+  //
+  // Per-location revenue and refunds now come from accounting_location_map,
+  // chosen explicitly; every other key comes from accounting_coa_map bound to a
+  // QBO account id.
+  //
+  // An unmapped account returns a VISIBLE marker rather than a plausible
+  // guess. A journal line naming an account that does not exist is caught on
+  // import; one naming the wrong real account is not.
+  function coa(key, bucket) {
+    const tag = typeof bucket === 'string' ? bucket : bucket?.location_tag;
+
+    if (key === 'revenue_template' || key === 'refunds_template') {
+      const acct = state.locationAccounts[tag] || {};
+      const name = key === 'revenue_template' ? acct.revenue_name : acct.refunds_name;
+      const id = key === 'revenue_template' ? acct.revenue_id : acct.refunds_id;
+      const label = key === 'revenue_template' ? 'revenue' : 'refunds';
+      return name
+        ? { name, id: id || null }
+        : { name: `** UNMAPPED ${label}: ${tag || 'no location'} **`, id: null, unmapped: true };
+    }
+
+    return state.coa[key]
+      ? { name: state.coa[key], id: state.qboIds[key] || null }
+      : { name: `** UNMAPPED: ${key} **`, id: null, unmapped: true };
   }
 
   function prettyStore(domain) {
@@ -765,18 +816,23 @@
     // include tax, so it picks up the +taxes term instead.
     const ar = gross - discounts - refunds + shipping + taxes;
 
+    const line = (key, dr, cr) => {
+      const a = coa(key, b);
+      return { account: a.name, qboAccountId: a.id, unmapped: !!a.unmapped, dr, cr };
+    };
+
     return [
-      { account: coa('revenue_template', loc), dr: 0, cr: gross },
+      line('revenue_template', 0, gross),
       // Sales tax pass-through wash: offsets the Sales Tax Expense debit
       // below on the P&L so the tax collected nets to zero as income,
       // not a bare expense. Scoped per location so this card ties out.
-      { account: coa('tax_income_all'), dr: 0, cr: taxes },
-      { account: coa('freight'), dr: 0, cr: shipping },
-      { account: coa('refunds_template', loc), dr: refunds, cr: 0 },
-      { account: coa('discounts'), dr: discounts, cr: 0 },
-      { account: coa('tax_liability'), dr: taxes, cr: 0 },
-      { account: coa('tax_payable'), dr: 0, cr: taxes },
-      { account: coa('accounts_receivable'), dr: ar, cr: 0 },
+      line('tax_income_all', 0, taxes),
+      line('freight', 0, shipping),
+      line('refunds_template', refunds, 0),
+      line('discounts', discounts, 0),
+      line('tax_liability', taxes, 0),
+      line('tax_payable', 0, taxes),
+      line('accounts_receivable', ar, 0),
     ];
   }
 
@@ -808,7 +864,7 @@
         salesDr += Number(l.dr || 0);
         salesCr += Number(l.cr || 0);
       }
-      const clearing = lines.find(l => l.account === coa('accounts_receivable', b.location_name || b.location_tag));
+      const clearing = lines.find(l => l.account === coa('accounts_receivable', b).name);
       clearingTotal += Number(clearing?.dr || 0);
     }
 
@@ -828,6 +884,90 @@
       journalCr: salesCr + feeCr,
       diff: round2((salesDr + feeDr) - (salesCr + feeCr)),
     };
+  }
+
+  // Builds the SAME lines the Sales Journal card and the Journal CSV already
+  // compute -- salesEntryLines() per location bucket, feeRowsByStore() per
+  // payout store -- and stages them as one journal entry through the
+  // composer, instead of leaving the accountant to retype 20+ rows by hand
+  // from what this page already knows. This is the actual computed entry,
+  // not a blank form: "Post adjustment" stays for a genuine ad-hoc
+  // correction someone spots while looking at the numbers.
+  function buildJournalLines() {
+    const lines = [];
+    const unmapped = [];
+
+    for (const b of state.buckets) {
+      const loc = b.location_name || b.location_tag;
+      const locId = state.locationMap[b.location_tag] || '';
+      for (const l of salesEntryLines(b)) {
+        if (!l.dr && !l.cr) continue;
+        if (l.unmapped) { unmapped.push(`${l.account} (${loc})`); continue; }
+        lines.push({
+          accountId: l.qboAccountId,
+          postingType: l.dr ? 'Debit' : 'Credit',
+          amount: l.dr || l.cr,
+          locationId: locId,
+          description: `Shopify Sales Summary — ${loc}`,
+        });
+      }
+    }
+
+    for (const [domain, v] of feeRowsByStore()) {
+      if (!v.fees) continue;
+      const fee = coa('processing_fees');
+      const clr = coa('accounts_receivable');
+      if (fee.unmapped) unmapped.push(`${fee.name} (${prettyStore(domain)} fees)`);
+      if (clr.unmapped) unmapped.push(`${clr.name} (${prettyStore(domain)} fees)`);
+      if (!fee.unmapped && !clr.unmapped) {
+        const desc = `Shopify Payout Fees — ${prettyStore(domain)}`;
+        lines.push({ accountId: fee.id, postingType: 'Debit', amount: v.fees, description: desc });
+        lines.push({ accountId: clr.id, postingType: 'Credit', amount: v.fees, description: desc });
+      }
+    }
+
+    return { lines, unmapped };
+  }
+
+  function buildAndPostJournal() {
+    if (!state.period) { setStatus('Generate a period first.', 'info', 3000); return; }
+
+    const { lines, unmapped } = buildJournalLines();
+
+    if (unmapped.length) {
+      setStatus(`Can't build the entry — ${unmapped.length} account`
+        + `${unmapped.length === 1 ? '' : 's'} unmapped: ${unmapped.slice(0, 4).join(', ')}`
+        + `${unmapped.length > 4 ? ', …' : ''}. Map them on the Account mapping tab first.`,
+        'neg', 15000);
+      return;
+    }
+    if (!lines.length) {
+      setStatus('Nothing to post — every line for this period is zero.', 'info', 6000);
+      return;
+    }
+
+    // Accounts Receivable is an AR-typed account today (not a plain clearing
+    // account), and QuickBooks refuses a journal-entry line on an AR/AP
+    // account with no Entity. Aggregate Shopify revenue has no single real
+    // customer to assign, so every line hitting it WILL block at the review
+    // step until someone picks one -- said up front, with the real count,
+    // rather than left as a silent surprise two clicks later.
+    const clr = coa('accounts_receivable');
+    if (!clr.unmapped) {
+      const arLines = lines.filter((l) => l.accountId === clr.id).length;
+      if (arLines) {
+        setStatus(`${clr.name} is an Accounts Receivable-type account — QuickBooks requires a `
+          + `customer on every line that hits it. ${arLines} of ${lines.length} lines do. Fix the `
+          + 'mapping to a non-AR clearing account, or assign a customer to each on the review step.',
+          'info', 15000);
+      }
+    }
+
+    openComposer({
+      entryDate: periodEntryDate(),
+      memo: `Shopify sales & payout fees — ${state.period}`,
+      lines,
+    });
   }
 
   function render() {
@@ -933,25 +1073,22 @@
     el.journalBalanceChip.style.color = balanced ? 'var(--ax-green)' : 'var(--ax-red)';
 
     el.registerChip.textContent = `${state.payouts.length} payouts`;
-    el.axStatus.textContent = `${state.buckets.length} locations · ${state.payouts.length} payouts · ${state.period || 'no period'}`;
+    renderPaneMeta();
   }
 
-  function renderMap() {
+  // The company-wide half of the mapping table: keys that resolve to ONE
+  // account no matter which store the sale came from.
+  function companyRows() {
     const hasQbo = state.qboAccounts.length > 0;
 
-    el.mapGrid.innerHTML = MAP_KEYS.map(([key, label]) => {
-      const keyCell = `<div class="ax-map-key">${esc(label)}</div>`;
+    return MAP_KEYS.map(([key, label]) => {
+      const nameCell = `<td class="ax-loc-name">${esc(label)}<div class="ax-map-note">every location</div></td>`;
 
-      // A {location} template expands to a different account per location, so
-      // one QBO account cannot represent it. Left as free text; posting will
-      // resolve it by name (see docs/ops/quickbooks-integration.md).
-      if (!hasQbo || TEMPLATE_KEYS.has(key)) {
-        const note = hasQbo
-          ? `<div class="ax-map-note">Per-location — matched to QuickBooks by name</div>`
-          : '';
-        return keyCell +
-          `<div><input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}"
-             data-kind="text" value="${esc(state.coa[key] || '')}" />${note}</div>`;
+      if (!hasQbo) {
+        return `<tr>${nameCell}<td class="ax-map-note">—</td>
+          <td><input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}"
+             data-kind="text" value="${esc(state.coa[key] || '')}" /></td>
+          <td class="ax-map-note">—</td></tr>`;
       }
 
       const selectedId = state.qboIds[key] || '';
@@ -972,19 +1109,13 @@
         ? `<option value="${esc(selectedId)}" selected>⚠ ${esc(state.coa[key] || selectedId)} — not in QuickBooks</option>`
         : '';
 
-      return keyCell +
-        `<select class="bcn-field bcn-field--mono" data-map-key="${esc(key)}" data-kind="qbo">
+      return `<tr>${nameCell}<td class="ax-map-note">—</td>
+        <td><select class="bcn-field bcn-field--mono" data-map-key="${esc(key)}" data-kind="qbo">
            <option value=""${selectedId ? '' : ' selected'}>— not mapped —</option>
            ${missingOpt}${options}
-         </select>`;
+         </select></td>
+        <td class="ax-map-note">—</td></tr>`;
     }).join('');
-  }
-
-  function applyRecommendedMap() {
-    state.coa = { ...MAP_DEFAULTS };
-    renderMap();
-    render();
-    setStatus('Recommended account names applied — click Save mapping to persist them.', 'info', 6000);
   }
 
   function csvEscape(v) {
@@ -1007,17 +1138,26 @@
       return;
     }
 
-    const rows = [['Period', 'Entry', 'Location', 'Account', 'Debit', 'Credit']];
+    const rows = [[
+      'Period', 'Entry', 'Location', 'QBO Location ID',
+      'Account', 'QBO Account ID', 'Debit', 'Credit',
+    ]];
+
+    let unmapped = 0;
 
     for (const b of state.buckets) {
       const loc = b.location_name || b.location_tag;
+      const locId = state.locationMap[b.location_tag] || '';
       for (const l of salesEntryLines(b)) {
         if (!l.dr && !l.cr) continue;
+        if (l.unmapped) unmapped++;
         rows.push([
           state.period,
           'Shopify Sales Summary',
           loc,
+          locId,
           l.account,
+          l.qboAccountId || '',
           l.dr ? Number(l.dr).toFixed(2) : '',
           l.cr ? Number(l.cr).toFixed(2) : '',
         ]);
@@ -1026,11 +1166,27 @@
 
     for (const [domain, v] of feeRowsByStore()) {
       if (!v.fees) continue;
-      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('processing_fees'), Number(v.fees).toFixed(2), '']);
-      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('accounts_receivable'), '', Number(v.fees).toFixed(2)]);
+      const fee = coa('processing_fees');
+      const clr = coa('accounts_receivable');
+      if (fee.unmapped) unmapped++;
+      if (clr.unmapped) unmapped++;
+      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), '',
+        fee.name, fee.id || '', Number(v.fees).toFixed(2), '']);
+      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), '',
+        clr.name, clr.id || '', '', Number(v.fees).toFixed(2)]);
     }
 
     downloadCsv(`silo-journal-${state.period}.csv`, rows);
+
+    // Say it plainly rather than letting someone import a file with
+    // "** UNMAPPED **" sitting in the account column.
+    if (unmapped) {
+      setStatus(`Exported, but ${unmapped} line${unmapped === 1 ? '' : 's'} have no QuickBooks `
+        + 'account mapped and are marked ** UNMAPPED ** in the file. Map them before importing.',
+        'neg', 12000);
+    } else {
+      setStatus('Exported. Every line carries a QuickBooks account id.', 'pos', 5000);
+    }
   }
 
   function exportRegister() {
@@ -1219,28 +1375,34 @@
   // Applies the stored selections after innerHTML, since the option markup
   // above deliberately carries no `selected` attribute.
   function applyStoredSelections() {
-    for (const f of el.locationMapGrid.querySelectorAll('[data-selected]')) {
+    for (const f of el.mapGrid.querySelectorAll('[data-selected]')) {
       if (f.dataset.selected) f.value = f.dataset.selected;
     }
   }
 
-  function renderLocationMap() {
+  // ONE mapping table. Two sections, because the rows genuinely differ in
+  // shape -- a company-wide key resolves to a single account, a sales location
+  // resolves to a QBO location plus its own revenue and refunds accounts --
+  // but they are the same decision ("where does this line post?") and the same
+  // Save, so splitting them across two cards only made you hunt.
+  function renderMap() {
     const rows = locationRows();
     const hasLocations = state.qboLocations.length > 0;
     const hasAccounts = state.qboAccounts.length > 0;
 
-    if (!rows.length) {
-      el.locationMapGrid.innerHTML =
-        '<tr><td class="ax-map-note">No sales locations in this period.</td></tr>';
-    } else {
-      const head = `<thead><tr>
-          <th>Sales location</th>
-          <th>QuickBooks location</th>
-          <th>Revenue account</th>
-          <th>Refunds account</th>
-        </tr></thead>`;
+    const head = `<thead><tr>
+        <th>Posts to</th>
+        <th>QuickBooks location</th>
+        <th>Account</th>
+        <th>Refunds account</th>
+      </tr></thead>`;
 
-      const body = rows.map(([tag, name]) => {
+    const section = (label) =>
+      `<tr class="ax-map-section"><td colspan="4">${esc(label)}</td></tr>`;
+
+    const locBody = !rows.length
+      ? '<tr><td colspan="4" class="ax-map-note">No sales locations in this period.</td></tr>'
+      : rows.map(([tag, name]) => {
         const selected = state.locationMap[tag] || '';
         const acct = state.locationAccounts[tag] || {};
         const locName = state.qboLocations
@@ -1280,13 +1442,21 @@
         </tr>`;
       }).join('');
 
-      el.locationMapGrid.innerHTML = head + `<tbody>${body}</tbody>`;
-      applyStoredSelections();
-    }
+    el.mapGrid.innerHTML = head + '<tbody>'
+      + section('Per sales location')
+      + locBody
+      + section('Company-wide')
+      + companyRows()
+      + '</tbody>';
+    applyStoredSelections();
 
     const mappedLoc = rows.filter(([t]) => state.locationMap[t]).length;
     const mappedRev = rows.filter(([t]) => state.locationAccounts[t]?.revenue_id).length;
     const mappedRef = rows.filter(([t]) => state.locationAccounts[t]?.refunds_id).length;
+    const mappedCoa = MAP_KEYS.filter(([k]) => state.coa[k]).length;
+
+    el.mapCount.textContent =
+      `${mappedLoc + mappedRev + mappedRef + mappedCoa}/${rows.length * 3 + MAP_KEYS.length} mapped`;
 
     let hint;
     if (state.locationTracking === false) {
@@ -1297,11 +1467,13 @@
       hint = 'No QuickBooks locations found. Connect QuickBooks in '
         + '<a href="/v2/integrations.html">Integrations</a> and click Pull accounts.';
     } else {
-      hint = `${mappedLoc}/${rows.length} locations · ${mappedRev}/${rows.length} revenue accounts · `
-        + `${mappedRef}/${rows.length} refund accounts mapped. `
-        + 'Each location posts to its own revenue and refund account, chosen here rather than '
-        + 'derived from a name pattern — the chart of accounts uses several naming conventions, '
-        + 'so a pattern would miss real accounts. "Suggested" lists accounts naming that location.';
+      hint = `${mappedLoc}/${rows.length} locations · ${mappedRev}/${rows.length} revenue · `
+        + `${mappedRef}/${rows.length} refunds · ${mappedCoa}/${MAP_KEYS.length} company-wide. `
+        + 'Every row binds to QuickBooks by id, so renaming an account there keeps it working. '
+        + 'Revenue and refunds are chosen per location rather than derived from a name pattern — '
+        + 'the chart of accounts uses several naming conventions, so a pattern would miss real '
+        + 'accounts. "Suggested" lists accounts naming that location. Anything left unmapped '
+        + 'exports as <code>** UNMAPPED **</code> rather than a guess.';
     }
     el.locationHint.innerHTML = hint;
   }
@@ -1328,7 +1500,7 @@
     }
 
     // Location selects only -- the account selects share data-location-tag.
-    const fields = [...el.locationMapGrid.querySelectorAll(
+    const fields = [...el.mapGrid.querySelectorAll(
       '[data-location-tag]:not([data-loc-account])')];
     let matched = 0;
     let ambiguous = 0;
@@ -1352,7 +1524,7 @@
     // fill it; anything else stays for a person. Same rule as locations.
     let acctMatched = 0;
     let acctLeft = 0;
-    for (const f of el.locationMapGrid.querySelectorAll('[data-loc-account]')) {
+    for (const f of el.mapGrid.querySelectorAll('[data-loc-account]')) {
       if (f.value) continue;
       const group = f.querySelector('optgroup[label^="Suggested"]');
       const opts = group ? [...group.querySelectorAll('option')] : [];
@@ -1383,20 +1555,16 @@
       (matched || acctMatched) ? 'pos' : 'info', 12000);
   }
 
-  async function saveLocationMap() {
-    if (!_co?.id) {
-      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
-      return;
-    }
-
+  // Returns a one-line summary, or throws with a message the caller shows.
+  async function persistLocationMap() {
     // Three selects share data-location-tag; the account ones are additionally
     // marked data-loc-account, so the location select is the one WITHOUT it.
-    const locFields = [...el.locationMapGrid.querySelectorAll(
+    const locFields = [...el.mapGrid.querySelectorAll(
       '[data-location-tag]:not([data-loc-account])')];
-    if (!locFields.length) return;
+    if (!locFields.length) return null;
 
     const acctValue = (tag, kind) => {
-      const f = el.locationMapGrid.querySelector(
+      const f = el.mapGrid.querySelector(
         `[data-loc-account="${kind}"][data-location-tag="${CSS.escape(tag)}"]`);
       if (!f || !f.value) return { id: null, name: null };
       const a = state.qboAccounts.find(x => x.qbo_account_id === f.value);
@@ -1428,10 +1596,7 @@
       .from('accounting_location_map')
       .upsert(rows, { onConflict: 'company_entity_id,location_tag' });
 
-    if (error) {
-      setStatus(`Location save failed: ${error.message}`, 'neg', 6000);
-      return;
-    }
+    if (error) throw new Error(`locations: ${error.message}`);
 
     for (const r of rows) {
       if (r.qbo_location_id) state.locationMap[r.location_tag] = r.qbo_location_id;
@@ -1446,19 +1611,10 @@
 
     const complete = rows.filter(r =>
       r.qbo_location_id && r.qbo_revenue_account_id && r.qbo_refunds_account_id).length;
-    setStatus(`Saved. ${complete} of ${rows.length} locations fully mapped `
-      + '(location, revenue and refunds).', 'pos', 5000);
-    renderLocationMap();
+    return `${complete}/${rows.length} locations fully mapped`;
   }
 
-  async function saveCoaMap() {
-    // Without a company the upsert's conflict target and the RLS check both
-    // operate on a null, so refuse rather than appear to save.
-    if (!_co?.id) {
-      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
-      return;
-    }
-
+  async function persistCoaMap() {
     const fields = [...el.mapGrid.querySelectorAll('[data-map-key]')];
 
     const rows = fields.map(f => {
@@ -1474,7 +1630,7 @@
           // export emits names, and it is the fallback if QBO is disconnected.
           account_name: acct
             ? (acct.fully_qualified_name || acct.name)
-            : (state.coa[key] || MAP_DEFAULTS[key]),
+            : (state.coa[key] || null),
           qbo_account_id: id,
           qbo_account_name: acct ? (acct.fully_qualified_name || acct.name) : null,
           updated_at: new Date().toISOString(),
@@ -1484,29 +1640,70 @@
       return {
         company_entity_id: _co.id,
         map_key: key,
-        account_name: f.value.trim() || MAP_DEFAULTS[key],
+        account_name: f.value.trim() || null,
         qbo_account_id: null,
         qbo_account_name: null,
         updated_at: new Date().toISOString(),
       };
     });
 
-    const { error } = await sb
-      .from('accounting_coa_map')
-      .upsert(rows, { onConflict: 'company_entity_id,map_key' });
+    // account_name is NOT NULL, so a key the user has cleared cannot be written
+    // as an empty row -- it is removed instead, which is what "unmapped" means.
+    const toSave = rows.filter(r => r.account_name);
+    const toClear = rows.filter(r => !r.account_name).map(r => r.map_key);
 
-    if (error) {
-      setStatus(`Save failed: ${error.message}`, 'neg', 6000);
-      return;
+    if (toSave.length) {
+      const { error } = await sb
+        .from('accounting_coa_map')
+        .upsert(toSave, { onConflict: 'company_entity_id,map_key' });
+      if (error) throw new Error(`accounts: ${error.message}`);
     }
 
-    for (const r of rows) {
+    if (toClear.length) {
+      const { error } = await sb
+        .from('accounting_coa_map')
+        .delete()
+        .eq('company_entity_id', _co.id)
+        .in('map_key', toClear);
+      if (error) throw new Error(`clearing accounts: ${error.message}`);
+    }
+
+    for (const r of toSave) {
       state.coa[r.map_key] = r.account_name;
       if (r.qbo_account_id) state.qboIds[r.map_key] = r.qbo_account_id;
       else delete state.qboIds[r.map_key];
     }
+    for (const k of toClear) {
+      delete state.coa[k];
+      delete state.qboIds[k];
+    }
 
-    setStatus('Mapping saved.', 'pos', 2500);
+    return `${toSave.length}/${rows.length} company-wide mapped`;
+  }
+
+  // One Save for the whole table. The two halves land in different tables
+  // (accounting_coa_map, accounting_location_map) but that is storage detail,
+  // not something the person mapping accounts should have to think about.
+  async function saveMapping() {
+    // Without a company the upsert's conflict target and the RLS check both
+    // operate on a null, so refuse rather than appear to save.
+    if (!_co?.id) {
+      setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
+      return;
+    }
+
+    el.btnSaveMap.disabled = true;
+    try {
+      // Sequential on purpose: if the first write fails the second must not
+      // run, or the page ends up half-saved with no way to tell which half.
+      const locMsg = await persistLocationMap();
+      const coaMsg = await persistCoaMap();
+      setStatus(`Saved. ${[locMsg, coaMsg].filter(Boolean).join(' · ')}.`, 'pos', 5000);
+    } catch (e) {
+      setStatus(`Save failed — ${e.message}`, 'neg', 8000);
+    } finally {
+      el.btnSaveMap.disabled = false;
+    }
     renderMap();
     render();
   }
@@ -1532,7 +1729,7 @@
     }
 
     const [from, to] = monthRange(val);
-    el.axStatus.textContent = 'Loading…';
+    el.axPaneMeta.textContent = 'Loading…';
     el.btnRun.disabled = true;
 
     try {
@@ -1548,13 +1745,13 @@
 
       if (bucketsRes.error) {
         setStatus(`Sales load failed: ${bucketsRes.error.message}`, 'neg', 8000);
-        el.axStatus.textContent = 'Failed.';
+        el.axPaneMeta.textContent = 'Failed.';
         return;
       }
 
       if (payoutsRes.error) {
         setStatus(`Payouts load failed: ${payoutsRes.error.message}`, 'neg', 8000);
-        el.axStatus.textContent = 'Failed.';
+        el.axPaneMeta.textContent = 'Failed.';
         return;
       }
 
@@ -1571,17 +1768,154 @@
       state.period = val;
       el.subTitle.textContent = `Journal-ready Shopify sales and payout entries — ${val}`;
       render();
-      renderLocationMap();
+      renderMap();
     } finally {
       el.btnRun.disabled = false;
     }
   }
 
+  // The composer is the same widget /v2/qbo-reports.html uses -- it stages a
+  // draft, shows it read back from the database on a review screen, and only
+  // posts to QuickBooks on Approve & post. Nothing here bypasses that.
+  function fmtMoney(n) {
+    const v = Number(n || 0);
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function periodEntryDate() {
+    // The period being reviewed, not today -- an adjustment raised while
+    // looking at July's export should default to a July date, not whatever
+    // day it happens to be opened.
+    const m = el.month.value;
+    if (!m) return undefined;
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+  }
+
+  function openComposer(prefill, adjustmentId) {
+    if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
+    if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
+    window.SiloJE.open({
+      db: sb,
+      companyId: _co.id,
+      context: `accounting-export:${el.month.value || 'no-period'}`,
+      prefill,
+      adjustmentId,
+      onStaged: loadAdjustments,
+      onPosted: async (out) => {
+        setStatus(`Posted journal entry ${out.doc_number || out.qbo_journal_entry_id}.`, 'pos', 8000);
+        await loadAdjustments();
+      },
+    });
+  }
+
+  async function loadAdjustments() {
+    let q = sb.from('journal_adjustments_v')
+      .select('*').in('status', ['draft', 'approved', 'posted'])
+      .order('entry_date', { ascending: false }).limit(25);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { console.warn('adjustments load failed', error); return; }
+
+    const rows = data || [];
+    if (!rows.length) {
+      el.tblAdjustments.innerHTML = '<tr><td colspan="5" class="ax-empty">No adjustments yet.</td></tr>';
+      return;
+    }
+
+    const staged = rows.filter((a) => a.status !== 'posted');
+    const posted = rows.filter((a) => a.status === 'posted');
+    const section = (label, list, actions) => list.length
+      ? `<tr class="ax-grand-row"><td colspan="5">${esc(label)}</td></tr>`
+        + list.map((a) => `<tr>
+            <td>${esc(a.entry_date)}</td>
+            <td>${esc(a.memo)}</td>
+            <td class="num">${fmtMoney(a.debits)}</td>
+            <td>${esc(a.qbo_doc_number || a.qbo_journal_entry_id || `${a.line_count} lines · ${a.status}`)}</td>
+            <td>${actions(a)}</td>
+          </tr>`).join('')
+      : '';
+
+    el.tblAdjustments.innerHTML =
+      section('Staged — not yet in QuickBooks', staged, (a) =>
+        `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
+        + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`)
+      + section('Posted to QuickBooks', posted, (a) =>
+        `<button class="bcn-btn" data-void="${esc(a.id)}">Void</button>`);
+  }
+
+  async function discardAdjustment(id) {
+    if (!confirm('Discard this staged adjustment? It has not been posted, so '
+      + 'nothing in QuickBooks changes.')) return;
+    const { error } = await sb.from('journal_adjustments').delete().eq('id', id);
+    if (error) { setStatus(`Could not discard: ${error.message}`, 'neg', 10000); return; }
+    setStatus('Staged adjustment discarded.', 'pos', 5000);
+    await loadAdjustments();
+  }
+
+  async function voidAdjustment(id) {
+    const reason = prompt(
+      'Why is this being voided? (Recorded against the posting.)\n\n'
+      + 'Void only after the entry has actually been deleted in QuickBooks — '
+      + 'this changes what SILO believes, not what QuickBooks holds.');
+    if (reason === null) return;
+    const { data, error } = await sb.rpc('void_journal_adjustment',
+      { p_adjustment_id: id, p_reason: reason });
+    if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
+    setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}.`
+      + ' The adjustment is back to approved and can be posted again.', 'pos', 10000);
+    await loadAdjustments();
+  }
+
+  el.tblAdjustments.addEventListener('click', (e) => {
+    const v = e.target.closest('[data-void]');
+    if (v) { voidAdjustment(v.dataset.void); return; }
+    const o = e.target.closest('[data-open]');
+    if (o) { openComposer(null, o.dataset.open); return; }
+    const d = e.target.closest('[data-drop]');
+    if (d) discardAdjustment(d.dataset.drop);
+  });
+
+  el.btnPostAdjustment.addEventListener('click', () => openComposer({ entryDate: periodEntryDate() }));
+  el.btnNewAdjustment.addEventListener('click', () => openComposer({ entryDate: periodEntryDate() }));
+  el.btnBuildJournal.addEventListener('click', buildAndPostJournal);
+
   el.btnRun.addEventListener('click', run);
-  el.btnSaveMap.addEventListener('click', saveCoaMap);
-  el.btnSaveLocationMap.addEventListener('click', saveLocationMap);
+  // Remembered per tab, not per session: coming back to this page mid-close
+  // should land where you left off, but a fresh browser opens on the journal.
+  const PANE_KEY = 'ax-active-pane';
+
+  function showPane(name) {
+    let matched = false;
+    for (const p of document.querySelectorAll('.ax-pane')) {
+      const on = p.dataset.pane === name;
+      p.hidden = !on;
+      matched = matched || on;
+    }
+    if (!matched) return showPane('journal');
+
+    for (const t of el.axTabs.querySelectorAll('.bcn-tab')) {
+      const on = t.dataset.pane === name;
+      t.classList.toggle('bcn-tab--active', on);
+      t.setAttribute('aria-selected', String(on));
+    }
+    try { sessionStorage.setItem(PANE_KEY, name); } catch { /* private mode */ }
+    renderPaneMeta();
+  }
+
+  function renderPaneMeta() {
+    el.axPaneMeta.textContent = state.period
+      ? `${state.period} · ${state.buckets.length} locations · ${state.payouts.length} payouts`
+      : 'Pick a month and hit Generate.';
+  }
+
+  el.axTabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('.bcn-tab');
+    if (tab) showPane(tab.dataset.pane);
+  });
+
+  el.btnSaveMap.addEventListener('click', saveMapping);
   el.btnAutoMatchLocations.addEventListener('click', autoMatchLocations);
-  el.btnRecommendedMap.addEventListener('click', applyRecommendedMap);
   el.btnExportJournal.addEventListener('click', exportJournal);
   el.btnExportRegister.addEventListener('click', exportRegister);
 
@@ -1617,9 +1951,12 @@
       loadQboLocations(),
       loadLocationMap(),
       loadStoreNames(),
+      loadAdjustments(),
     ]);
     renderMap();
-    renderLocationMap();
+    let saved = null;
+    try { saved = sessionStorage.getItem(PANE_KEY); } catch { /* private mode */ }
+    showPane(saved || 'journal');
     await run();
   }
 

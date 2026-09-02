@@ -1,9 +1,8 @@
 # Ask SILO (chat) setup guide
 
 `/v2/silo-chat.html` is an open-ended chat for asking natural-language
-questions about SILO's own data. Unlike the nightly Insights digest
-(`scripts/generate-insights.mjs`, a fixed set of SQL rules narrated by
-Claude), this is genuinely "ask anything" — Claude gets two tools:
+questions about SILO's own data — genuinely "ask anything", not a fixed set
+of rules. Claude gets two tools:
 `run_sql`, which writes its own read-only Postgres queries per question,
 and `save_note`, which records taught knowledge — either a specific
 correction or foundational brand context — for future questions to weigh
@@ -86,11 +85,10 @@ narrower than reading:
 ## Required: ANTHROPIC_API_KEY
 
 Configured as a Supabase edge-function secret (Dashboard → Edge Functions
-→ Secrets, or `supabase secrets set ANTHROPIC_API_KEY=...`) — it isn't a
-GitHub repo secret since edge functions don't read those. Both the chat
-and the Insights narrative (`scripts/generate-insights.mjs`) read the same
-key; without it, `silo-chat` returns a clear 503 instead of failing
-opaquely.
+→ Secrets, or `supabase secrets set ANTHROPIC_API_KEY=...`) — a GitHub repo
+secret would not reach it; edge functions and GitHub Actions read from
+separate secret stores. Without it, `silo-chat` returns a clear 503 instead
+of failing opaquely.
 
 Optional: `CHAT_MODEL` (defaults to `claude-sonnet-5`, matching the
 Insights script's own default).

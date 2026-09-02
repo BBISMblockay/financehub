@@ -27,10 +27,23 @@ const ONLY_COMPANY_ID = process.env.ADS_ONLY_COMPANY_ID || '';
 const ONLY_PLATFORM = (process.env.ADS_ONLY_PLATFORM || '').toLowerCase();
 const ONLY_CONNECTION_ID = process.env.ADS_ONLY_CONNECTION_ID || '';
 const DAYS_BACK = process.env.ADS_DAYS_BACK ? Number(process.env.ADS_DAYS_BACK) : null;
+// Instagram history is walked post-by-post, not by date window, so it needs
+// its own knob -- ADS_DAYS_BACK has no effect on it. Each post costs an extra
+// insights request, hence opt-in rather than a raised default.
+const IG_POST_LIMIT = process.env.ADS_IG_POST_LIMIT ? Number(process.env.ADS_IG_POST_LIMIT) : null;
+// The hourly refresh exists to keep SPEND current. Organic is the expensive
+// half -- one insights request per Instagram post, 50 by default -- and post
+// engagement does not need hourly resolution, so the hourly cron skips it and
+// the nightly still does it in full.
+const SKIP_ORGANIC = String(process.env.ADS_SKIP_ORGANIC || '').toLowerCase() === 'true';
 
 const BATCH_ID =
   process.env.ADS_SYNC_BATCH_ID ||
   `ad-platforms-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+
+// Sentinel for "skipped on purpose", so the existing non-fatal catch around
+// the organic sync can tell it apart from a real failure.
+class SkipOrganic extends Error {}
 
 const JOB_TYPES = {
   google_ads: 'google_ads_kpis',
@@ -129,14 +142,28 @@ async function syncConnection(connection) {
       // connection (needs new Meta permissions marketing hasn't granted
       // yet). Same non-fatal wrapping as ad-level above.
       try {
-        const organicResult = await runMetaOrganicSync(supabase, connection, { daysBackOverride: DAYS_BACK });
+        if (SKIP_ORGANIC) {
+          result.organic = { skipped: 'ADS_SKIP_ORGANIC' };
+          throw new SkipOrganic();
+        }
+        const organicResult = await runMetaOrganicSync(supabase, connection, {
+          daysBackOverride: DAYS_BACK, igPostLimit: IG_POST_LIMIT,
+        });
         result.organic = organicResult;
         if (organicResult.configured) {
           console.log(`[ok] ${label}: organic ${organicResult.media_upserted} posts, ${organicResult.page_days_upserted} page-days`);
+          // A fetch that stops exactly on the cap means there is more history
+          // behind it -- say so, rather than letting a truncated walk look complete.
+          if (IG_POST_LIMIT && organicResult.media_fetched >= IG_POST_LIMIT) {
+            console.log(`[note] ${label}: Instagram stopped at the ${IG_POST_LIMIT}-post cap — raise ig_post_limit for more history`);
+          }
         }
       } catch (err) {
-        result.organic = { error: String(err?.message || err) };
-        console.error(`[warn] ${label}: organic sync failed: ${result.organic.error}`);
+        // A deliberate skip is not a failure and must not be logged as one.
+        if (!(err instanceof SkipOrganic)) {
+          result.organic = { error: String(err?.message || err) };
+          console.error(`[warn] ${label}: organic sync failed: ${result.organic.error}`);
+        }
       }
     }
 

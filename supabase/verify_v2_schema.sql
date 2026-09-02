@@ -497,18 +497,23 @@ select
     else 'MISSING — run 20260709010000_shopify_payouts_accounting.sql'
   end as shopify_payouts_accounting;
 
+-- Action Items & Insights was retired 2026-09-01 (20260901030000) --
+-- compute_silo_insights() and silo_insights_digest are gone on purpose. This
+-- checks the RETIREMENT held, not that the feature exists: either object
+-- reappearing means something (a bad merge, a stale branch re-applying old
+-- migrations) resurrected a module that was deliberately removed.
 select
   case
-    when exists (
-      select 1 from information_schema.tables
-      where table_schema = 'public' and table_name = 'silo_insights_digest'
-    ) and exists (
-      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname = 'compute_silo_insights'
-    ) and not has_function_privilege('authenticated', 'public.compute_silo_insights(uuid)', 'EXECUTE')
-    then 'ok'
-    else 'MISSING — run 20260709050000_silo_insights_engine.sql'
-  end as silo_insights_engine;
+    when exists (select 1 from information_schema.tables
+                  where table_schema = 'public' and table_name = 'silo_insights_digest')
+      then 'UNEXPECTED — silo_insights_digest exists; Action Items was retired 2026-09-01, '
+        || 'see 20260901030000_retire_silo_insights.sql'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'compute_silo_insights')
+      then 'UNEXPECTED — compute_silo_insights() exists; Action Items was retired 2026-09-01, '
+        || 'see 20260901030000_retire_silo_insights.sql'
+    else 'ok'
+  end as silo_insights_retired;
 
 select
   case
@@ -1436,10 +1441,19 @@ select
                      where n.nspname='public' and p.proname='wow_report'
                        and pg_get_functiondef(p.oid) like '%distinct on (variant_sku)%')
       then 'MISSING — inventory de-duplication dropped; the matview has duplicate sku/location rows and a naive sum overstates online units by ~5%'
+    -- The 364-day rule moved into wow_window (20260901120000) when the report
+    -- gained day/month/YTD grains, so it is checked there rather than in
+    -- wow_report's own text. It still has to hold: 365 lands the comparison
+    -- window on different weekdays, which moves a 7-day number more than real
+    -- demand does.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_window'
+                       and pg_get_functiondef(p.oid) like '%364%')
+      then 'MISSING — wow_window last-year offset is not 364 days; 365 misaligns the weekdays'
     when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
                      where n.nspname='public' and p.proname='wow_report'
-                       and pg_get_functiondef(p.oid) like '%364%')
-      then 'MISSING — last-year window is not 364 days; 365 misaligns the weekdays'
+                       and pg_get_functiondef(p.oid) like '%wow_window(p_report_date, p_grain)%')
+      then 'MISSING — wow_report no longer delegates its window to wow_window; the grain selector would move the headline and nothing else'
     else 'ok'
   end as wow_report_rpc;
 
@@ -1459,6 +1473,186 @@ select
       then 'MISSING — wow_report reads the matview directly; authenticated has no grant on it and it is not company-scoped. Use inventory_on_hand_current_v'
     else 'ok'
   end as wow_report_entries;
+
+-- ── Week over Week period grains (20260901120000) ─────────────────────
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_window')
+      then 'MISSING — run 20260901120000_wow_grain_windows.sql'
+    -- ROWS 1 is not cosmetic. A set-returning function defaults to an estimate
+    -- of 1000 rows and every report RPC joins this one as `cross join w`, so
+    -- losing it multiplies every downstream row estimate by 1000 and the
+    -- report starts timing out rather than returning a wrong answer.
+    when (select prorows from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+          where n.nspname='public' and p.proname='wow_window') <> 1
+      then 'MISSING — wow_window lost ROWS 1; the planner will estimate 1000 rows per cross join w and the report RPCs will time out'
+    -- Every report RPC must take the grain AND actually delegate its window to
+    -- wow_window. One that quietly kept its own hand-typed 7-day CTE would
+    -- render under a "Month to date" heading while measuring a week.
+    when exists (select 1 from unnest(array['wow_report','wow_kpi_compare','wow_funnel','wow_landing_pages',
+                                            'wow_discount_codes','wow_paid_media','wow_paid_media_not_synced',
+                                            'wow_paid_media_reality']) fn
+                 where not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                                   where n.nspname='public' and p.proname=fn
+                                     and pg_get_function_identity_arguments(p.oid) like '%p_grain%'
+                                     and pg_get_functiondef(p.oid) like '%wow_window(p_report_date, p_grain)%'))
+      then 'MISSING — a wow_* report RPC is not on wow_window; its window would disagree with the rest of the report'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='wow_report_entries' and column_name='grain')
+      then 'MISSING — wow_report_entries.grain; notes for a day and a week on the same date would overwrite each other'
+    when not exists (select 1 from pg_indexes where schemaname='public'
+                       and tablename='wow_report_entries'
+                       and indexdef like '%(company_entity_id, report_date, grain)%')
+      then 'MISSING — the (company, report_date, grain) unique index; the page upserts on that conflict target'
+    else 'ok'
+  end as wow_report_grains;
+
+-- ── Week over Week sbd column list (20260901130000) ───────────────────
+-- Not a style check. `select s.*` in these CTEs materialises ~30 columns of a
+-- 1.1M-row table when eight are read, and at YTD that alone was the difference
+-- between 3.67s and 0.83s over the same rows -- enough to push wow_report past
+-- the 8s statement_timeout `authenticated` carries and fail the page outright.
+-- A migration that rebuilds either function from the older repo text would
+-- reintroduce it, and the symptom (only the widest grain fails, only for real
+-- users, never for a superuser connection) is expensive to rediscover.
+select
+  case
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname in ('wow_report','wow_kpi_compare')
+                   and pg_get_functiondef(p.oid) like '%select s.* from public.sales_by_day s%')
+      then 'MISSING — a wow_* sbd CTE is back to select s.*; YTD will exceed the 8s authenticated statement_timeout. Run 20260901130000_wow_narrow_sbd_cte.sql'
+    else 'ok'
+  end as wow_sbd_narrow;
+
+-- ── Week over Week sales rollup (20260901140000) ──────────────────────
+-- The report reads its sales figures from a rollup because seven RPCs firing
+-- in parallel over sales_by_day blew the 8s authenticated statement_timeout on
+-- all of them at once at YTD. Four things have to stay true or that returns,
+-- or worse.
+select
+  case
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='wow_sales_daily_type_mv' and c.relkind='m')
+      then 'MISSING — run 20260901140000_wow_sales_daily_rollup.sql'
+    -- Without a unique index the nightly REFRESH cannot run CONCURRENTLY and
+    -- takes an AccessExclusiveLock, blocking every reader while it rebuilds.
+    when not exists (select 1 from pg_indexes where schemaname='public'
+                       and tablename='wow_sales_daily_type_mv'
+                       and indexdef like '%UNIQUE%')
+      then 'MISSING — wow_sales_daily_type_mv has no unique index; CONCURRENTLY refresh is impossible and the nightly refresh will lock out readers'
+    -- security_invoker MUST stay false. The matview carries no RLS and
+    -- authenticated holds no grant on it, so an invoker view would fail at
+    -- runtime -- and if the grant were then "fixed", it would serve every
+    -- company's sales to every caller.
+    when coalesce((select option_value from pg_class c
+                     join pg_namespace n on n.oid=c.relnamespace,
+                   lateral pg_options_to_table(c.reloptions)
+                   where n.nspname='public' and c.relname='wow_sales_daily_type_v'
+                     and option_name='security_invoker'), 'true') <> 'false'
+      then 'MISSING — wow_sales_daily_type_v is not security_invoker=false; it reads a matview that has no RLS'
+    when (select count(*) from information_schema.role_table_grants
+          where table_schema='public' and table_name='wow_sales_daily_type_mv'
+            and grantee in ('anon','authenticated')) > 0
+      then 'MISSING — the wow rollup matview is granted to anon/authenticated; it carries no RLS and no company filter. Read it through wow_sales_daily_type_v'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='refresh_wow_sales_daily_mv' and p.prosecdef)
+      then 'MISSING — refresh_wow_sales_daily_mv() absent or not SECURITY DEFINER; the nightly sync cannot refresh the rollup and the report would serve stale sales'
+    when exists (select 1 from unnest(array['wow_report','wow_kpi_compare']) fn
+                 where not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                                   where n.nspname='public' and p.proname=fn
+                                     and pg_get_functiondef(p.oid) like '%wow_sales_daily_type_v%'))
+      then 'MISSING — wow_report or wow_kpi_compare is back on sales_by_day directly; YTD will exceed the 8s statement_timeout under the page''s parallel load'
+    else 'ok'
+  end as wow_sales_rollup;
+
+-- ── Week over Week organic posts (20260901150000) ─────────────────────
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts')
+      then 'MISSING — run 20260901150000_wow_organic_posts.sql'
+    -- SECURITY INVOKER or instagram_media_insights' RLS stops scoping it to
+    -- the caller's company, exactly as for wow_report.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_organic_posts' and p.prosecdef)
+      then 'MISSING — wow_organic_posts became SECURITY DEFINER; it must stay INVOKER so RLS scopes it'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts'
+                       and pg_get_functiondef(p.oid) like '%wow_window(p_report_date, p_grain)%')
+      then 'MISSING — wow_organic_posts does not delegate its window to wow_window; organic would describe a different period than the rest of the report'
+    -- history_starts is what lets the page mark a window partial. Organic data
+    -- begins 2026-05-21, so a YTD window asks for January and gets May onward;
+    -- without this the card prints a confident total that is most of a year short.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts'
+                       and pg_get_functiondef(p.oid) like '%history_starts%')
+      then 'MISSING — wow_organic_posts no longer returns history_starts; a YTD organic total silently short by months would render as complete'
+    -- engagement_rate must divide by reach (people), never views (plays).
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_organic_posts'
+                       and pg_get_functiondef(p.oid) like '%engagement::numeric/reach%')
+      then 'MISSING — engagement_rate no longer divides by reach; dividing by views measures plays, not people, and understates every post'
+    else 'ok'
+  end as wow_organic_posts;
+
+-- ── Meta objectives + ad-level creatives (20260901160000/170000) ──────
+select
+  case
+    -- Followers must stay its own objective, matched BEFORE subscribers. A
+    -- follower buy reports follows, never leads, so folding it back into
+    -- subscribers makes that group's cost-per-lead meaningless -- which is why
+    -- the code carried a spend_without_leads workaround before the split.
+    when public.meta_campaign_group('Instagram Followers 12/30 Activation') <> 'followers'
+      then 'MISSING — followers are grouped as subscribers again; run 20260901160000_meta_followers_group.sql'
+    when public.meta_campaign_group('Subscribers') <> 'subscribers'
+      then 'MISSING — the followers branch is swallowing subscriber campaigns'
+    -- Thruplay is matched first on purpose: a video-views campaign with
+    -- "followers" in its name is a thruplay buy.
+    when public.meta_campaign_group('Max Thru Plays Brand Promotion - Upper Funnel') <> 'thruplay'
+      then 'MISSING — thruplay no longer matched first'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_creatives')
+      then 'MISSING — run 20260901170000_wow_creatives.sql'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_creatives' and p.prosecdef)
+      then 'MISSING — wow_creatives became SECURITY DEFINER; it must stay INVOKER so RLS scopes it'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='wow_creatives'
+                       and pg_get_functiondef(p.oid) like '%wow_window(p_report_date, p_grain)%')
+      then 'MISSING — wow_creatives does not delegate its window to wow_window'
+    -- "Live in the period" is spend > 0, never effective_status: status is the
+    -- ad's state NOW, so filtering on it deletes ads retroactively as they are
+    -- paused and quietly shrinks last week's report every day.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='wow_creatives'
+                   and pg_get_functiondef(p.oid) ~ 'where[^;]*effective_status[[:space:]]*=')
+      then 'MISSING — wow_creatives filters on effective_status; that drops every ad that ran in the window and has since been paused'
+    else 'ok'
+  end as wow_creatives;
+
+-- ── Storefront status on products_master (20260901180000) ─────────────
+-- Sammie asked "is this product live on the website" six different ways in the
+-- Ask SILO log and the honest answer was no: is_active is true on all 24,056
+-- rows, is_discontinued has never been set, lifecycle_status only carries PO
+-- states, and created_at is a bulk-load date on 98% of rows. These two columns
+-- are the answer, and the catalog note is what stops the next person repeating
+-- those six rounds.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='products_master'
+                       and column_name='shopify_status')
+      then 'MISSING — run 20260901180000_products_shopify_status.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='products_master'
+                       and column_name='online_published_at')
+      then 'MISSING — products_master.online_published_at; "live on the site" needs the publication date as well as the status'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='products_master' and description like '%shopify_status%')
+      then 'MISSING — the products_master catalog note does not mention shopify_status; Ask SILO will keep answering "no such field" and steer people to is_active, which is true on every row'
+    else 'ok'
+  end as products_storefront_status;
 
 -- ── Shopify sessions / funnel (20260826150000) ────────────────────────
 select
@@ -1547,6 +1741,215 @@ select
     else 'ok'
   end as review_scale_1_4_and_goal_dates;
 
+-- ---------------------------------------------------------------------------
+-- Card coding (20260831180000_card_coding.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_sources')
+      then 'MISSING — card_sources absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_import_batches')
+      then 'MISSING — card_import_batches absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_transactions')
+      then 'MISSING — card_transactions absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='card_coding_rules')
+      then 'MISSING — card_coding_rules absent; run 20260831180000_card_coding.sql'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                      where n.nspname='public' and p.proname='can_manage_journal_entries')
+      then 'MISSING — can_manage_journal_entries() absent; card coding RLS would deny everyone'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                      where n.nspname='public' and p.proname='normalize_merchant')
+      then 'MISSING — normalize_merchant() absent; coding rules cannot match'
+    -- The browser mirrors this function. If the two disagree, rules stop
+    -- matching silently, so the behaviour is asserted rather than assumed.
+    when public.normalize_merchant('AMZN Mktp US*2A4XY9') is distinct from 'amzn mktp us'
+      then 'MISSING — normalize_merchant() no longer strips a *reference code; every Amazon charge becomes its own merchant and no rule matches twice'
+    when public.normalize_merchant('SQ *BLUE BOTTLE 0421') is distinct from 'blue bottle'
+      then 'MISSING — normalize_merchant() no longer strips the SQ * processor prefix'
+    when public.normalize_merchant('ADOBE  *ACROPRO SUBS') is distinct from 'adobe acropro subs'
+      then 'MISSING — normalize_merchant() is over-stripping; a product name after * must survive'
+    when not exists (select 1 from pg_views where schemaname='public' and viewname='card_transactions_v')
+      then 'MISSING — card_transactions_v absent'
+    when not exists (select 1 from pg_views where schemaname='public' and viewname='card_import_batches_v')
+      then 'MISSING — card_import_batches_v absent'
+    when not exists (select 1 from pg_policies
+                      where schemaname='public' and tablename='card_transactions'
+                        and policyname='card_transactions_write'
+                        and qual like '%status <> ''posted''%')
+      then 'MISSING — card_transactions_write no longer blocks edits to a posted batch'
+    else 'ok'
+  end as card_coding;
+
+-- ---------------------------------------------------------------------------
+-- Card name / cardholder (20260831190000_card_name_and_holder.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='card_name')
+      then 'MISSING — card_transactions.card_name absent; run 20260831190000_card_name_and_holder.sql'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='clean_merchant')
+      then 'MISSING — card_transactions.clean_merchant absent'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_coding_rules'
+                        and column_name='match_field')
+      then 'MISSING — card_coding_rules.match_field absent; card-name rules cannot be stored'
+    -- The view must prefer the issuer's cleaned name, or a rule learned on a
+    -- Divvy row keyed 'amazon' silently stops matching.
+    when (select pg_get_viewdef('public.card_transactions_v'::regclass)) not like '%clean_merchant%'
+      then 'MISSING — card_transactions_v no longer keys merchant_norm off clean_merchant'
+    else 'ok'
+  end as card_name_and_holder;
+
+-- ---------------------------------------------------------------------------
+-- QBO entities / per-line entity (20260831200000_qbo_entities_and_line_entity.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='quickbooks_customers')
+      then 'MISSING — quickbooks_customers absent; intercompany receivable lines have no entity to name'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='quickbooks_vendors')
+      then 'MISSING — quickbooks_vendors absent'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='entity_qbo_id')
+      then 'MISSING — card_transactions.entity_qbo_id absent'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_coding_rules'
+                        and column_name='entity_qbo_id')
+      then 'MISSING — card_coding_rules.entity_qbo_id absent; a learned rule loses its entity'
+    when public.qbo_account_needs_entity('Accounts Receivable') is not true
+      then 'MISSING — qbo_account_needs_entity() no longer flags AR; QuickBooks would reject the entry'
+    when public.qbo_account_needs_entity('Expense') is not false
+      then 'MISSING — qbo_account_needs_entity() flags plain expenses; every row would demand an entity'
+    else 'ok'
+  end as qbo_entities_and_line_entity;
+
+-- ---------------------------------------------------------------------------
+-- Card coding save path (20260831210000_apply_card_coding_rpc.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                      where n.nspname='public' and p.proname='apply_card_coding')
+      then 'MISSING — apply_card_coding() absent; the coding page cannot save'
+    -- SECURITY DEFINER here would bypass card_transactions_write entirely,
+    -- including its refusal to touch a posted batch.
+    when (select p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname='public' and p.proname='apply_card_coding')
+      then 'MISSING — apply_card_coding() is SECURITY DEFINER; it must run as the caller so RLS still applies'
+    else 'ok'
+  end as apply_card_coding;
+
+-- ---------------------------------------------------------------------------
+-- Voiding a posted card batch (20260831220000_void_card_posting.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                      where n.nspname='public' and p.proname='void_card_posting')
+      then 'MISSING — void_card_posting() absent; an entry deleted in QuickBooks leaves the batch '
+        || 'permanently unpostable, because the double-post index only releases on a non-posted row'
+    -- quickbooks_journal_postings must stay closed to client writes: this
+    -- function is the only sanctioned way in, and it can only void.
+    when exists (select 1 from pg_policies
+                  where schemaname='public' and tablename='quickbooks_journal_postings'
+                    and cmd in ('ALL','UPDATE','INSERT','DELETE'))
+      then 'MISSING — quickbooks_journal_postings has a client write policy; what SILO believes it '
+        || 'sent to Intuit must not be rewritable from a browser'
+    else 'ok'
+  end as void_card_posting;
+
+-- ---------------------------------------------------------------------------
+-- Rule hits and card-vs-merchant conflicts (20260831230000)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='card_transactions'
+                        and column_name='coding_conflict')
+      then 'MISSING — card_transactions.coding_conflict absent; a row whose card and merchant '
+        || 'disagree would be auto-coded from the merchant instead of held back'
+    when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+           where n.nspname='public' and p.proname='apply_card_coding') not like '%hit_count%'
+      then 'MISSING — apply_card_coding() no longer bumps hit_count; the Used column on the '
+        || 'Rules tab reverts to always reading 0'
+    else 'ok'
+  end as rule_hits_and_conflicts;
+
+-- ---------------------------------------------------------------------------
+-- Journal adjustments (20260901000000, 20260901010000, 20260901020000)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='journal_adjustments')
+      then 'MISSING — journal_adjustments absent; run 20260901000000_journal_adjustments.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='journal_adjustment_lines')
+      then 'MISSING — journal_adjustment_lines absent'
+    when not exists (select 1 from pg_views
+                      where schemaname='public' and viewname='journal_adjustments_v')
+      then 'MISSING — journal_adjustments_v absent; the Adjustments card on '
+        || '/v2/qbo-reports.html renders from it'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                      where n.nspname='public' and p.proname='void_journal_adjustment')
+      then 'MISSING — void_journal_adjustment() absent; an adjustment whose entry was deleted in '
+        || 'QuickBooks becomes permanently unpostable, exactly as card batches did before '
+        || 'void_card_posting existed'
+    -- The half-guard that shipped first: USING alone refuses to EDIT a posted
+    -- row but says nothing about the row being WRITTEN, so a draft could be
+    -- moved straight to 'posted' from a browser and SILO would then claim an
+    -- entry Intuit never received. Both halves must carry the status clause.
+    when exists (
+      select 1 from pg_policies
+       where schemaname='public'
+         and tablename in ('journal_adjustments','card_import_batches')
+         and cmd = 'ALL'
+         and with_check not like '%posted%')
+      then 'MISSING — a posting-status WITH CHECK is absent; a finance user could mark an entry '
+        || 'posted from the browser without it ever reaching QuickBooks'
+    else 'ok'
+  end as journal_adjustments;
+
+-- ---------------------------------------------------------------------------
+-- Fixed assets (20260902030000_fixed_assets.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='fixed_assets')
+      then 'MISSING — fixed_assets absent; run 20260902030000_fixed_assets.sql'
+    when not exists (select 1 from pg_views
+                      where schemaname='public' and viewname='fixed_asset_depreciation_v')
+      then 'MISSING — fixed_asset_depreciation_v absent; /v2/fixed-assets.html has nothing to post'
+    when not exists (select 1 from pg_views
+                      where schemaname='public' and viewname='fixed_asset_balances_v')
+      then 'MISSING — fixed_asset_balances_v absent; the asset register cannot show net book value'
+    -- The divisor bug caught before this shipped: an early disposal must
+    -- never force-recognise the remaining depreciable base in the months
+    -- actually served (a 24-month/$24,000 asset disposed after 6 months
+    -- was recognising the full $24,000 in those 6 months instead of
+    -- $6,000). Structural only -- this file stays read-only, so it checks
+    -- the view still divides by useful_life_months rather than re-deriving
+    -- a period count, not the live arithmetic.
+    when (select pg_get_viewdef('public.fixed_asset_depreciation_v'::regclass))
+         not like '%nominal_months%'
+      then 'MISSING — fixed_asset_depreciation_v no longer names nominal_months as its own concept; '
+        || 'check it still divides by useful_life_months rather than the disposal-shortened period '
+        || 'count (verified directly against synthetic assets when this view was built: a 24mo/'
+        || '$24,000 asset disposed after 6mo must recognise $6,000, not $24,000)'
+    else 'ok'
+  end as fixed_assets;
 select
   case
     when not exists (select 1 from information_schema.tables

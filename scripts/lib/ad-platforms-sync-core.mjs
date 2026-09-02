@@ -34,10 +34,34 @@ export const GOOGLE_ADS_API_VERSION = 'v24';
 export const META_API_VERSION = 'v25.0';
 export const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3';
 
+/** The business day is PACIFIC, not UTC, and the difference is not cosmetic.
+ * isoDateOnly() is UTC, so between 5pm and midnight Pacific (00:00-07:00 UTC
+ * the next day) a UTC "today" is already tomorrow -- and the window would then
+ * treat the still-running Pacific day as a finished past day and write it as
+ * complete. That is exactly how 2026-08-30 was recorded: a self-heal run at
+ * 01:1x UTC on 08-31 (6:1x pm Pacific on the 30th) wrote the 30th as closed
+ * with six hours of selling still to go, and nothing corrected it until the
+ * next morning.
+ *
+ * check-sales-freshness.mjs already reasons in Pacific and says so in its own
+ * comments; this is the sync finally agreeing with the alarm about what day it
+ * is. With the [startDate, endDate) clamp in fetchFacebookPageInsights, an
+ * endDate of Pacific-today means the newest day written is always Pacific
+ * YESTERDAY -- a genuinely complete day -- no matter what hour the run fires.
+ * That is what makes a late or extra cron harmless instead of corrupting. */
+export function pacificDateOnly(d = new Date()) {
+  // en-CA formats as YYYY-MM-DD, which is the shape every day_date uses.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
 export function computeWindow(now, daysBack) {
+  const endDate = pacificDateOnly(new Date(now));
   return {
-    startDate: isoDateOnly(addDays(new Date(now), -Number(daysBack || 30))),
-    endDate: isoDateOnly(new Date(now)),
+    startDate: isoDateOnly(addDays(new Date(`${endDate}T00:00:00Z`), -Number(daysBack || 30))),
+    endDate,
   };
 }
 
@@ -373,23 +397,45 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
   const acct = String(connection.meta_ad_account_id);
   const rows = [];
   const endAll = new Date(`${window.endDate}T00:00:00Z`);
+  // Ad level now DOES request thruplays. The old comment here said it
+  // deliberately did not, because the table had no column and the creative
+  // card was purchase-only -- both stopped being true when the card grew a
+  // Thruplays/Subscribers/Followers split, which cannot judge a video buy on
+  // a metric nobody fetched. Leads need no new field at all: they come out of
+  // the `actions` array this request already asks for.
+  //
+  // Same guard as campaign level: Meta rejects the ENTIRE insights request on
+  // one bad field name, so this is dropped and retried once rather than taking
+  // ad-level spend down with it.
+  let withThruplays = true;
 
   for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
     const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
-    let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
+    const buildUrl = () => `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
       level: 'ad',
       time_increment: '1',
       time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
-      // Ad level deliberately does NOT request thruplays: meta_ad_performance_daily
-      // has no column for them, and the creative table is scoped to purchase
-      // campaigns, which are judged on ROAS. Requesting an unused field here
-      // would risk the whole ad-level request for nothing.
-      fields: 'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
+      fields: metaInsightFields(
+        'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
+        withThruplays,
+      ),
       limit: '500',
       access_token: token,
     }).toString();
+    let url = buildUrl();
     while (url) {
-      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta ad-level insights');
+      let data;
+      try {
+        data = await fetchMetaJsonOrThrow(url, {}, 'Meta ad-level insights');
+      } catch (err) {
+        if (withThruplays && isMetaUnknownFieldError(err)) {
+          console.warn('[warn] Meta rejected video_thruplay_watched_actions at ad level, retrying without it:', err.message);
+          withThruplays = false;
+          url = buildUrl();
+          continue;
+        }
+        throw err;
+      }
       for (const r of data.data ?? []) {
         const purchases = pickAction(r.actions, 'purchase');
         const purchaseValue = pickAction(r.action_values, 'purchase');
@@ -405,6 +451,11 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
           viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
           addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
           initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
+          // null, never 0, exactly as at campaign level: an ad that does not
+          // report the metric has not scored zero on it, and 0 would make a
+          // video ad look like it failed at the thing it was bought for.
+          thruplays: pickThruplays(r),
+          leads: pickActionAny(r.actions, LEAD_ACTION_TYPES),
         });
       }
       url = data.paging?.next ?? null;
@@ -418,15 +469,38 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
  * ad ids — the ads that actually have performance rows in the window. The
  * account-wide /ads listing spans the account's ENTIRE ad history and trips
  * Meta's request-size limits (observed live), and the lighter ?ids= syntax is
- * deprecated, so this uses the Graph batch API: 50 GETs per POST. Dynamic-
- * creative ads may carry copy in asset feeds rather than body/title; we store
- * whatever the creative exposes. */
+ * deprecated, so this uses the Graph batch API: 50 GETs per POST.
+ *
+ * COPY COMES FROM THREE PLACES, and creative.body alone misses most of it.
+ * Measured over ads that spent since 2026-06-01:
+ *
+ *   VIDEO    39 ads, $127,185 spend -- 39 of 39 have creative.body
+ *   PHOTO     1 ad                  --  1 of 1
+ *   SHARE   271 ads, $1,630,566     -- only 32 of 271. $1,159,168 of spend
+ *                                      with no readable copy.
+ *
+ * A SHARE creative is an ad pointing at an EXISTING PAGE POST rather than
+ * carrying its own creative, so creative.body is legitimately empty -- the
+ * words live on the post. (This is not the Dynamic-Creative/asset_feed_spec
+ * case an earlier comment here guessed at: 100% coverage on VIDEO and PHOTO is
+ * not what dynamic-creative fragmentation looks like.)
+ *
+ * So we ask for object_story_spec too -- which carries the message inline for
+ * ads built in place -- and effective_object_story_id, which is the handle for
+ * the SHARE case. Posts are then fetched in one extra batch and matched back.
+ * bodySource records which path produced the text, so a future reader can see
+ * whether the post lookup is earning its request rather than guessing again. */
 export async function fetchMetaAdCreatives(connection, adIds) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   const ids = [...new Set((adIds || []).map(String))];
-  const fields = encodeURIComponent('id,name,effective_status,campaign_id,adset_id,creative{id,thumbnail_url,body,title,object_type}');
+  const fields = encodeURIComponent(
+    'id,name,effective_status,campaign_id,adset_id,'
+    + 'creative{id,thumbnail_url,body,title,object_type,'
+    + 'effective_object_story_id,object_story_spec}');
   const out = [];
+  // ad ids still needing copy, keyed by the post that holds it
+  const needPost = new Map();
 
   for (let i = 0; i < ids.length; i += 50) {
     const batch = ids.slice(i, i + 50).map((id) => ({
@@ -443,7 +517,16 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       let a;
       try { a = JSON.parse(item.body); } catch { continue; }
       if (!a?.id) continue;
-      out.push({
+      // Inline copy, wherever Meta put it for this ad format. link_data covers
+      // link/carousel ads, video_data a video ad, photo_data a photo ad.
+      const spec = a.creative?.object_story_spec || {};
+      const inline = spec.link_data?.message
+        ?? spec.video_data?.message
+        ?? spec.photo_data?.caption
+        ?? null;
+      const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+      const row = {
         adId: a.id,
         adName: a.name ?? null,
         campaignId: a.campaign_id ?? null,
@@ -451,12 +534,93 @@ export async function fetchMetaAdCreatives(connection, adIds) {
         effectiveStatus: a.effective_status ?? null,
         creativeId: a.creative?.id ?? null,
         thumbnailUrl: a.creative?.thumbnail_url ?? null,
-        body: a.creative?.body ?? null,
+        body: clean(a.creative?.body) ?? clean(inline),
         title: a.creative?.title ?? null,
         objectType: a.creative?.object_type ?? null,
-      });
+        bodySource: clean(a.creative?.body) ? 'creative_body'
+                  : clean(inline) ? 'object_story_spec' : null,
+      };
+      out.push(row);
+
+      // Still nothing, but the ad names a post that has it.
+      const storyId = a.creative?.effective_object_story_id;
+      if (!row.body && storyId) {
+        if (!needPost.has(storyId)) needPost.set(storyId, []);
+        needPost.get(storyId).push(row);
+      }
     }
   }
+
+  // One extra batched pass for the SHARE case. Skipped entirely when nothing
+  // needs it, so an account whose ads all carry inline copy pays nothing.
+  const storyIds = [...needPost.keys()];
+  // A PAGE token, not the ad-account token. A page post is a Page node, and
+  // reading one authenticates as the Page -- the same reason Facebook Page
+  // insights derive a token here rather than reusing connection.access_token.
+  // The first cut of this pass used the ad token, every per-item read came
+  // back non-200, and because those were skipped silently it looked like the
+  // posts simply had no message: 113 SHARE ads, all still blank, no warning.
+  const postToken = storyIds.length
+    ? ((await fetchFacebookPageAccessToken(connection)) || token)
+    : token;
+  let postItemErr = 0;
+  for (let i = 0; i < storyIds.length; i += 50) {
+    const slice = storyIds.slice(i, i + 50);
+    const batch = slice.map((id) => ({
+      // message ONLY. Asking for `description` alongside it failed the whole
+      // request -- Meta returns "(#12) deprecate_post_aggregated_fields_for_
+      // attachement is deprecated for versions v3.3 and higher" and drops
+      // `message` with it, so 100 of 113 post reads came back 400. It was
+      // added as a harmless-looking fallback and was the thing that broke the
+      // call.
+      method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=message`,
+    }));
+    let data;
+    try {
+      data = await fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ access_token: postToken, batch: JSON.stringify(batch) }).toString(),
+      }, 'Meta post copy batch');
+    } catch (err) {
+      // Copy is an enrichment, not the point of this sync. A page-post read
+      // that fails on scope or a deleted post must not lose the creative rows
+      // already collected -- those ads simply keep a null body, exactly as
+      // before this pass existed.
+      console.warn(`[warn] meta post copy batch: ${err.message || err}`);
+      break;
+    }
+    if (!Array.isArray(data)) break;
+    if (i + 50 >= storyIds.length && postItemErr) {
+      console.warn(`[warn] meta post copy: ${postItemErr} of ${storyIds.length} post reads failed`);
+    }
+    slice.forEach((storyId, n) => {
+      const item = data[n];
+      // Surface the FIRST per-item failure. Skipping these silently is what
+      // made a wrong token look like posts with no text -- a batch call can
+      // return 200 while every request inside it failed.
+      if (!item || item.code !== 200) {
+        if (postItemErr++ === 0) {
+          let why = item?.body || '(no body)';
+          try { why = JSON.parse(item.body)?.error?.message || why; } catch { /* keep raw */ }
+          console.warn(`[warn] meta post copy: ${item?.code ?? '?'} on ${storyId} — ${String(why).slice(0, 200)}`);
+        }
+        return;
+      }
+      if (!item.body) return;
+      let post;
+      try { post = JSON.parse(item.body); } catch { return; }
+      const msg = typeof post?.message === 'string' && post.message.trim()
+        ? post.message.trim()
+        : null;
+      if (!msg) return;
+      for (const r of needPost.get(storyId) || []) {
+        r.body = msg;
+        r.bodySource = 'page_post';
+      }
+    });
+  }
+
   return out;
 }
 
@@ -493,6 +657,15 @@ export async function runMetaAdLevelSync(supabase, connection, {
       view_content: Math.round(Number(String(r.viewContent ?? '').replace(/[,$\s]/g, '')) || 0),
       add_to_cart: Math.round(Number(String(r.addToCart ?? '').replace(/[,$\s]/g, '')) || 0),
       initiate_checkout: Math.round(Number(String(r.initiateCheckout ?? '').replace(/[,$\s]/g, '')) || 0),
+      // Null-preserving, unlike the three above: those default to 0 because
+      // every ad can report them, whereas a video buy that reports no leads
+      // and a lead buy that reports no thruplays are both "not measured here",
+      // and 0 would rank them as the worst performer on a metric they were
+      // never bought on.
+      thruplays: r.thruplays == null ? null
+        : Math.round(Number(String(r.thruplays).replace(/[,$\s]/g, '')) || 0),
+      leads: r.leads == null ? null
+        : Math.round(Number(String(r.leads).replace(/[,$\s]/g, '')) || 0),
       // Identity only, like marketing_kpis_daily — restatements upsert in place.
       row_hash: hashRow([connection.company_entity_id, 'meta_ads_ad', r.accountId, r.adId, r.day]),
       source: PLATFORM_SOURCES.meta_ads,
@@ -513,6 +686,7 @@ export async function runMetaAdLevelSync(supabase, connection, {
     creative_id: c.creativeId != null ? String(c.creativeId) : null,
     thumbnail_url: c.thumbnailUrl,
     body: c.body,
+    body_source: c.bodySource ?? null,
     title: c.title,
     object_type: c.objectType,
     synced_at: syncedAt,
@@ -543,7 +717,16 @@ export async function runMetaAdLevelSync(supabase, connection, {
  * counters, not a daily series). `views` unifies what used to be separate
  * impressions/video_views metrics — Meta deprecated per-type impressions on
  * IG media insights in 2024. */
-export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {}) {
+/** `max` is the TOTAL number of posts to walk back through; `pageSize` is how
+ * many the media list returns per request. These were one number before, which
+ * silently made the nightly cap (50) double as the page size -- so asking for a
+ * year of history would also have asked Meta for a single page of that size,
+ * which it caps anyway. Instagram history is NOT bounded by days_back: media
+ * insights are lifetime cumulative counters with no date window, so reaching
+ * further back means walking more posts, not widening a date range. Each post
+ * costs one extra insights request, so the nightly default stays at 50 and a
+ * deeper walk is opt-in via ADS_IG_POST_LIMIT. */
+export async function fetchInstagramMediaInsights(connection, { max = 50, pageSize = 50 } = {}) {
   const token = connection.access_token;
   const igId = connection.instagram_business_account_id;
   if (!token || !igId) return [];
@@ -551,13 +734,17 @@ export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {
   const out = [];
   let url = `https://graph.facebook.com/${META_API_VERSION}/${igId}/media?` + new URLSearchParams({
     fields: 'id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count',
-    limit: String(limit),
+    limit: String(Math.min(pageSize, 100)),
     access_token: token,
   }).toString();
 
-  while (url && out.length < limit) {
+  while (url && out.length < max) {
     const data = await fetchJsonOrThrow(url, {}, 'Instagram media list');
     for (const m of data.data ?? []) {
+      // Stop mid-page rather than finishing it: every post costs its own
+      // insights request, so overshooting the cap by up to a page is real
+      // wasted API budget against a rate limit this account already trips.
+      if (out.length >= max) break;
       let insights = {};
       try {
         const insData = await fetchJsonOrThrow(
@@ -589,45 +776,216 @@ export async function fetchInstagramMediaInsights(connection, { limit = 50 } = {
         saved: insights.saved ?? null,
       });
     }
-    url = out.length < limit ? (data.paging?.next ?? null) : null;
+    url = out.length < max ? (data.paging?.next ?? null) : null;
   }
   return out;
 }
 
-/** Page-level daily rollup — a genuine time series, unlike media insights. */
-export async function fetchFacebookPageInsights(connection, window) {
+/** Meta retires Page Insights metrics between Graph versions, and the error
+ * it returns — "(#100) The value must be a valid insights metric" — does NOT
+ * name the offending metric. Requesting all four in one call therefore means
+ * one retired name costs every Page metric: that is exactly what happened on
+ * 2026-08-28, the first run after facebook_page_id was set, which logged this
+ * error and wrote 0 rows while Instagram in the same run wrote 50. So probe
+ * individually on that specific error, keep whatever this version still
+ * serves, and report what was dropped rather than failing the half. */
+// Meta's own deprecation table maps the retired names to replacements, so
+// these are the documented successors rather than guesses:
+//   page_impressions        (retired 2025-11-15) → page_media_view
+//   page_impressions_unique (retired 2025-06-15) → page_total_media_view_unique
+//   page_engaged_users      (retired 2024-03-14) → NOTHING. No replacement is
+//     listed, so page_engaged_users is simply not requested any more and its
+//     column stays null; it is omitted from the row payload rather than
+//     written as 0, because "Meta stopped measuring this" is not zero.
+// A media view is not the same measurement as an impression, and a unique
+// media view is not the same as reach -- these start a NEW series rather than
+// continuing the old one. Nothing here has old values to be confused with
+// (the table was empty until 2026-08-28), but do not splice them onto
+// historical impression/reach numbers from any other source.
+const PAGE_INSIGHT_METRICS = [
+  { metric: 'page_media_view', field: 'impressions' },
+  { metric: 'page_total_media_view_unique', field: 'reach' },
+  { metric: 'page_post_engagements', field: 'postEngagements' },
+];
+
+function isMetaInvalidMetricError(err) {
+  const msg = String(err?.message || '');
+  return msg.includes('(#100)') && /valid insights metric/i.test(msg);
+}
+
+function pageInsightsUrl(pageId, token, metrics, window) {
+  return `https://graph.facebook.com/${META_API_VERSION}/${pageId}/insights?` + new URLSearchParams({
+    metric: metrics.join(','),
+    period: 'day',
+    since: window.startDate,
+    until: window.endDate,
+    access_token: token,
+  }).toString();
+}
+
+/** One metric-set request, chunked and paged.
+ *
+ * Both halves matter for a backfill and neither did anything at 30 days, which
+ * is why their absence went unnoticed: a single un-paged request returns only
+ * the first page, so a long window would have come back QUIETLY TRUNCATED --
+ * fewer days than asked for, with no error to notice. Chunking keeps each
+ * request inside the range Meta will serve; following paging.next collects the
+ * whole of each chunk. */
+async function fetchPageInsightSeries(pageId, token, metrics, window, chunkDays) {
+  const series = [];
+  const endAll = new Date(`${window.endDate}T00:00:00Z`);
+  for (let start = new Date(`${window.startDate}T00:00:00Z`); start <= endAll;) {
+    const end = new Date(Math.min(start.getTime() + chunkDays * 86400000, endAll.getTime()));
+    const chunkUntil = isoDateOnly(end);
+    let url = pageInsightsUrl(pageId, token, metrics,
+      { startDate: isoDateOnly(start), endDate: chunkUntil });
+    while (url) {
+      const data = await fetchJsonOrThrow(url, {}, `Facebook Page insights (${metrics.join(',')})`);
+      const page = data.data ?? [];
+      series.push(...page);
+      // paging.next on Page Insights walks the time window FORWARD rather than
+      // ending at the `until` that was asked for, so following it blindly keeps
+      // marching past the window into buckets that have not happened yet. On
+      // 2026-08-28 that wrote 90 future-dated rows (08-29..11-26) full of
+      // ZEROES -- which is worse than missing data, because a zero reads as a
+      // measured value and would have dragged every average down. Stop as soon
+      // as a page reaches past the end of this chunk.
+      const overshot = page.some((sv) => (sv.values ?? []).some(
+        (pt) => String(pt.end_time || '').slice(0, 10) > chunkUntil));
+      url = overshot ? null : (data.paging?.next ?? null);
+    }
+    if (end >= endAll) break;
+    start = new Date(end.getTime() + 86400000);
+  }
+  return series;
+}
+
+/** Page Insights will not accept the System User token the ads pull uses:
+ * it answers "(#190) This method must be called with a Page Access Token".
+ * A Page token is derived from the user token by reading it off the Page node
+ * itself, and is only issued when the System User actually has the Page
+ * assigned as an asset (Business settings → System Users → Assign Assets) —
+ * so a null here means the asset assignment is missing, not that the metric
+ * or the token is wrong. Instagram is unaffected: media insights authenticate
+ * as the IG business account and work with the user token directly, which is
+ * why Instagram was landing 50 rows while Page insights returned nothing. */
+export async function fetchFacebookPageAccessToken(connection) {
   const token = connection.access_token;
   const pageId = connection.facebook_page_id;
-  if (!token || !pageId) return [];
+  if (!token || !pageId) return null;
+  try {
+    const data = await fetchJsonOrThrow(
+      `https://graph.facebook.com/${META_API_VERSION}/${pageId}?` + new URLSearchParams({
+        fields: 'access_token', access_token: token,
+      }).toString(), {}, 'Facebook Page access token',
+    );
+    return data?.access_token || null;
+  } catch (err) {
+    console.warn('[warn] Could not derive a Page access token — is the System User assigned to the Page?', err.message);
+    return null;
+  }
+}
 
-  const metrics = ['page_impressions', 'page_impressions_unique', 'page_engaged_users', 'page_post_engagements'];
-  const data = await fetchJsonOrThrow(
-    `https://graph.facebook.com/${META_API_VERSION}/${pageId}/insights?` + new URLSearchParams({
-      metric: metrics.join(','),
-      period: 'day',
-      since: window.startDate,
-      until: window.endDate,
-      access_token: token,
-    }).toString(),
-    {}, 'Facebook Page insights',
-  );
+/** Page-level daily rollup — a genuine time series, unlike media insights.
+ * Returns { days, droppedMetrics } so the caller can record which metrics
+ * this Graph version no longer serves instead of silently reporting nulls. */
+export async function fetchFacebookPageInsights(connection, window, { chunkDays = 90 } = {}) {
+  const pageId = connection.facebook_page_id;
+  if (!connection.access_token || !pageId) return { days: [], droppedMetrics: [] };
 
-  const byDay = new Map();
-  for (const series of data.data ?? []) {
-    for (const point of series.values ?? []) {
-      const day = String(point.end_time || '').slice(0, 10);
-      if (!day) continue;
-      if (!byDay.has(day)) byDay.set(day, { day });
-      byDay.get(day)[series.name] = point.value;
+  // Fall back to the user token rather than bailing: if Meta ever stops
+  // requiring the exchange, the pull keeps working unchanged.
+  const token = (await fetchFacebookPageAccessToken(connection)) || connection.access_token;
+
+  const series = [];
+  const droppedMetrics = [];
+
+  try {
+    series.push(...await fetchPageInsightSeries(
+      pageId, token, PAGE_INSIGHT_METRICS.map((m) => m.metric), window, chunkDays));
+  } catch (err) {
+    if (!isMetaInvalidMetricError(err)) throw err;
+    console.warn('[warn] Facebook Page insights rejected the metric set — probing each metric individually');
+    for (const { metric } of PAGE_INSIGHT_METRICS) {
+      try {
+        series.push(...await fetchPageInsightSeries(pageId, token, [metric], window, chunkDays));
+      } catch (metricErr) {
+        if (!isMetaInvalidMetricError(metricErr)) {
+          // Carry what the probe already established out with the error —
+          // otherwise a later metric failing for an unrelated reason (a token
+          // problem, say) discards the record of which earlier metrics are
+          // genuinely retired, and the next run has to rediscover it.
+          metricErr.droppedMetrics = [...droppedMetrics];
+          throw metricErr;
+        }
+        droppedMetrics.push(metric);
+      }
+    }
+    if (droppedMetrics.length) {
+      console.warn(`[warn] Facebook Page insights: Graph ${META_API_VERSION} no longer serves ${droppedMetrics.join(', ')} — skipped`);
     }
   }
-  return [...byDay.values()].map((d) => ({
-    day: d.day,
-    impressions: d.page_impressions ?? null,
-    reach: d.page_impressions_unique ?? null,
-    engagedUsers: d.page_engaged_users ?? null,
-    postEngagements: d.page_post_engagements ?? null,
-  }));
+
+  const byDay = new Map();
+  for (const s of series) {
+    for (const point of s.values ?? []) {
+      // Meta's day-period end_time is the END of the bucket -- midnight at the
+      // START of the next day in the Page's timezone -- so each value
+      // describes the day BEFORE its end_time. Labelling rows with end_time's
+      // own date shifts the entire series one day late.
+      //
+      // Confirmed structurally on 2026-08-28: a request for since=2026-07-29
+      // until=2026-08-28 came back with 30 buckets stamped 07-30..08-28. The
+      // first is 07-30, not the 07-29 that was asked for, which only happens
+      // if the stamp marks the end of each bucket. It also explains why the
+      // newest row held the highest media views of the window rather than the
+      // fraction of a day it would hold if it really were today.
+      const endDay = String(point.end_time || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(endDay)) continue;
+      const day = isoDateOnly(addDays(new Date(`${endDay}T00:00:00Z`), -1));
+      if (!day) continue;
+      // Belt to the paging guard's braces: keep only days the caller actually
+      // asked for. The upper bound is EXCLUSIVE of endDate because endDate is
+      // today and today is still in progress -- a bucket stamped endDate would
+      // shift to endDate-1, so [startDate, endDate) is exactly the set of
+      // COMPLETE days in the window. Guarding here as well as at the paging
+      // loop means a stray datapoint can never become a row again, whatever
+      // Meta returns.
+      if (day < window.startDate || day >= window.endDate) continue;
+      if (!byDay.has(day)) byDay.set(day, { day });
+      byDay.get(day)[s.name] = point.value;
+    }
+  }
+  const days = [...byDay.values()].map((d) => {
+    const out = { day: d.day };
+    for (const { metric, field } of PAGE_INSIGHT_METRICS) out[field] = d[metric] ?? null;
+    return out;
+  });
+  return { days, droppedMetrics };
+}
+
+/** Follower count lives on the Page node, not the insights edge — which is
+ * why facebook_page_insights_daily.page_fan_count existed since the table was
+ * created and was never written by anything. It is a CURRENT snapshot, not a
+ * series, so the caller stamps it on the newest day only; older days keep a
+ * null we cannot honestly backfill, and each nightly run adds one more day. */
+export async function fetchFacebookPageFanCount(connection) {
+  const token = connection.access_token;
+  const pageId = connection.facebook_page_id;
+  if (!token || !pageId) return null;
+  try {
+    const data = await fetchJsonOrThrow(
+      `https://graph.facebook.com/${META_API_VERSION}/${pageId}?` + new URLSearchParams({
+        fields: 'fan_count', access_token: token,
+      }).toString(), {}, 'Facebook Page fan_count',
+    );
+    return data?.fan_count == null ? null : Math.round(num(data.fan_count));
+  } catch (err) {
+    // A follower count is the least important thing here — never let it cost
+    // the daily series that did come back.
+    console.warn('[warn] Facebook Page fan_count unavailable:', err.message);
+    return null;
+  }
 }
 
 /** Sync organic Instagram + Facebook data for one meta_ads connection.
@@ -637,11 +995,13 @@ export async function fetchFacebookPageInsights(connection, window) {
 export async function runMetaOrganicSync(supabase, connection, {
   now = new Date(),
   daysBackOverride = null,
+  igPostLimit = null,
 } = {}) {
   const window = computeWindow(now, daysBackOverride ?? connection.days_back ?? 30);
   const syncedAt = new Date().toISOString();
 
-  const media = await fetchInstagramMediaInsights(connection);
+  const media = await fetchInstagramMediaInsights(connection,
+    igPostLimit ? { max: Number(igPostLimit) } : {});
   const mediaRows = media.map((m) => ({
     company_entity_id: connection.company_entity_id,
     media_id: String(m.mediaId),
@@ -662,25 +1022,77 @@ export async function runMetaOrganicSync(supabase, connection, {
     ? await upsertInChunks(supabase, 'instagram_media_insights', mediaRows, 'company_entity_id,media_id')
     : 0;
 
-  const pageDays = await fetchFacebookPageInsights(connection, window);
-  const pageRows = pageDays.map((d) => ({
-    company_entity_id: connection.company_entity_id,
-    day_date: d.day,
-    page_impressions: d.impressions == null ? null : Math.round(num(d.impressions)),
-    page_reach: d.reach == null ? null : Math.round(num(d.reach)),
-    page_engaged_users: d.engagedUsers == null ? null : Math.round(num(d.engagedUsers)),
-    page_post_engagements: d.postEngagements == null ? null : Math.round(num(d.postEngagements)),
-    row_hash: hashRow([connection.company_entity_id, 'facebook_page', d.day]),
-    synced_at: syncedAt,
-  }));
-  const pageUpserted = pageRows.length
-    ? await upsertInChunks(supabase, 'facebook_page_insights_daily', pageRows, 'row_hash')
-    : 0;
+  // The Facebook half gets its own try/catch so its failure cannot erase the
+  // Instagram result: on 2026-08-28 a Page-metric error propagated out of
+  // here and the whole organic summary became {error: ...}, hiding the 50
+  // Instagram rows that had already been written two statements above.
+  let pageUpserted = 0;
+  let pageError = null;
+  let droppedMetrics = [];
+  let fanCount = null;
+  try {
+    const { days: pageDays, droppedMetrics: dropped } = await fetchFacebookPageInsights(connection, window);
+    droppedMetrics = dropped;
+
+    // page_fan_count is deliberately NOT a column on these rows. It is a
+    // current snapshot, not a series, so it only belongs on the newest day —
+    // and since each night re-upserts a trailing window, carrying the column
+    // here at all would rewrite every previously-stamped day back to null and
+    // the series could never accumulate. Omitting the key entirely leaves
+    // whatever an earlier run stored intact (PostgREST only updates the
+    // columns actually present in the payload); the newest day is then
+    // stamped by the targeted update below.
+    const pageRows = pageDays.map((d) => ({
+      company_entity_id: connection.company_entity_id,
+      day_date: d.day,
+      page_impressions: d.impressions == null ? null : Math.round(num(d.impressions)),
+      page_reach: d.reach == null ? null : Math.round(num(d.reach)),
+      page_post_engagements: d.postEngagements == null ? null : Math.round(num(d.postEngagements)),
+      row_hash: hashRow([connection.company_entity_id, 'facebook_page', d.day]),
+      synced_at: syncedAt,
+    }));
+    pageUpserted = pageRows.length
+      ? await upsertInChunks(supabase, 'facebook_page_insights_daily', pageRows, 'row_hash')
+      : 0;
+
+    fanCount = await fetchFacebookPageFanCount(connection);
+    if (fanCount != null) {
+      // Followers are a snapshot read just now, so they belong on the day
+      // currently IN PROGRESS -- one past the last complete day Meta reports --
+      // not on the newest finished day, which would date today's count to
+      // yesterday. Tomorrow's run fills that same row's engagement columns, so
+      // the row converges rather than staying a followers-only orphan.
+      const latestDay = pageDays.reduce((mx, d) => (d.day > mx ? d.day : mx), '');
+      const fanDay = latestDay
+        ? isoDateOnly(addDays(new Date(`${latestDay}T00:00:00Z`), 1))
+        : isoDateOnly(new Date());
+      // Upsert rather than update: on the first run of a day that row does not
+      // exist yet, and an update would silently match nothing. Neither payload
+      // carries the other's columns, so the two writes cannot blank each other.
+      const { error } = await supabase.from('facebook_page_insights_daily').upsert({
+        company_entity_id: connection.company_entity_id,
+        day_date: fanDay,
+        page_fan_count: fanCount,
+        row_hash: hashRow([connection.company_entity_id, 'facebook_page', fanDay]),
+        synced_at: syncedAt,
+      }, { onConflict: 'row_hash' });
+      if (error) console.warn('[warn] Facebook Page fan_count not stamped:', error.message);
+    }
+  } catch (err) {
+    pageError = String(err?.message || err);
+    if (Array.isArray(err?.droppedMetrics)) droppedMetrics = err.droppedMetrics;
+  }
 
   return {
     configured: Boolean(connection.instagram_business_account_id || connection.facebook_page_id),
+    media_fetched: media.length,
     media_upserted: mediaUpserted,
     page_days_upserted: pageUpserted,
+    // Present only when there is something to say, so a clean run's summary
+    // stays as small as it was before.
+    ...(pageError ? { page_error: pageError } : {}),
+    ...(droppedMetrics.length ? { page_metrics_dropped: droppedMetrics } : {}),
+    ...(fanCount == null ? {} : { page_fan_count: fanCount }),
     synced_at: syncedAt,
   };
 }

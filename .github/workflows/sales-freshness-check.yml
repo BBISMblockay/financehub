@@ -38,6 +38,12 @@ on:
         default: 'true'
   schedule:
     - cron: "0 11 * * *"
+    # 14:00 UTC = 7am PT, deliberately the LAST look before the morning
+    # check-in. The 11:00 pass can itself arrive late (GitHub has been
+    # delivering crons hours behind since 2026-08-27), so this is a second
+    # chance to catch and heal a partial yesterday while there is still an
+    # hour of slack before anyone opens a report at 8.
+    - cron: "0 14 * * *"
     - cron: "0 17 * * *"
     - cron: "0 23 * * *"
 

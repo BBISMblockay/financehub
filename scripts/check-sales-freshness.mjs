@@ -57,6 +57,39 @@ function pacificToday() {
   return parts; // en-CA formats as YYYY-MM-DD
 }
 
+// A day being PRESENT is not the same as a day being COMPLETE, and the gap
+// between those two is what let 2026-08-30 pass this check twice while missing
+// six hours of sales and ~$19k of Meta spend. day_date 08-30 existed, lag was
+// 1, everything read healthy -- but every row had been captured at 12:23pm
+// Pacific ON the 30th, mid-day, and no later run corrected it.
+//
+// A day is only complete once it has been captured AFTER that Pacific day
+// ended. Comparing the newest synced_at for the day against Pacific midnight
+// that follows it is the whole test.
+function pacificOffsetMs(instant) {
+  const name = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles', timeZoneName: 'shortOffset',
+  }).formatToParts(instant).find((p) => p.type === 'timeZoneName')?.value || 'GMT-8';
+  const m = /GMT([+-]?\d{1,2})(?::(\d{2}))?/.exec(name);
+  if (!m) return -8 * 3600000;
+  const hours = Number(m[1]);
+  const mins = Number(m[2] || 0) * Math.sign(hours || 1);
+  return (hours * 60 + mins) * 60000;
+}
+
+/** Midnight at the START of isoDay, Pacific, as a UTC instant. The offset is
+ * read at ~noon that day so a 2am DST transition cannot pick the wrong side. */
+function pacificMidnightUtc(isoDay) {
+  const noonish = new Date(`${isoDay}T20:00:00Z`);
+  return new Date(Date.parse(`${isoDay}T00:00:00Z`) - pacificOffsetMs(noonish));
+}
+
+function addDaysIso(iso, n) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 function daysBetween(isoA, isoB) {
   const a = Date.parse(`${isoA}T00:00:00Z`);
   const b = Date.parse(`${isoB}T00:00:00Z`);
@@ -116,13 +149,38 @@ async function main() {
 
       const maxDay = data?.[0]?.day_date || null;
       const lag = maxDay ? daysBetween(today, maxDay) : null;
-      const ok = lag !== null && lag <= MAX_LAG_DAYS;
+      const lagOk = lag !== null && lag <= MAX_LAG_DAYS;
       checked++;
 
+      // Completeness of the last COMPLETE Pacific day -- yesterday. This is the
+      // day someone checking in at 8am expects to be finished.
+      const required = addDaysIso(today, -1);
+      let partial = false;
+      let capturedAt = null;
+      if (lagOk) {
+        const { data: cap, error: capErr } = await db
+          .from(feed.table)
+          .select('synced_at')
+          .eq('company_entity_id', companyId)
+          .eq('day_date', required)
+          .order('synced_at', { ascending: false })
+          .limit(1);
+        if (capErr) throw new Error(`${feed.table} capture probe failed for ${companyId}: ${capErr.message}`);
+        capturedAt = cap?.[0]?.synced_at || null;
+        // No capture timestamp at all (older rows predate synced_at) is not
+        // evidence of a partial day -- do not manufacture an alarm from it.
+        if (capturedAt) {
+          partial = new Date(capturedAt) < pacificMidnightUtc(today);
+        }
+      }
+
+      const ok = lagOk && !partial;
+      const verdict = !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
       console.log(
-        `[freshness] ${feed.label.padEnd(9)} ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}  ${ok ? 'ok' : 'STALE'}`,
+        `[freshness] ${feed.label.padEnd(9)} ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}`
+        + `  ${required} captured=${capturedAt || 'n/a'}  ${verdict}`,
       );
-      if (!ok) stale.push({ feed, companyId, maxDay, lag });
+      if (!ok) stale.push({ feed, companyId, maxDay, lag, partial, required, capturedAt });
     }
   }
 
@@ -134,7 +192,9 @@ async function main() {
     console.error('');
     console.error(`[freshness] STALE — Pacific today is ${today}, max allowed lag is ${MAX_LAG_DAYS}d`);
     for (const s of stale) {
-      console.error(`  [${s.feed.label}] ${s.companyId}: latest ${s.maxDay || 'NONE'} (${s.lag === null ? 'no rows' : `${s.lag}d behind`})`);
+      console.error(s.partial
+        ? `  [${s.feed.label}] ${s.companyId}: ${s.required} is PARTIAL — captured ${s.capturedAt}, before that Pacific day ended`
+        : `  [${s.feed.label}] ${s.companyId}: latest ${s.maxDay || 'NONE'} (${s.lag === null ? 'no rows' : `${s.lag}d behind`})`);
     }
     console.error('');
     console.error('The nightly sync behind that feed has probably not run. Check:');

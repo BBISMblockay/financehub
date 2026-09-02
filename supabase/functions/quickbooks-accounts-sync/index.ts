@@ -94,6 +94,49 @@ type Conn = {
   refresh_token_expires_at: string | null;
 };
 
+// Intuit's query endpoint occasionally answers a well-formed query with a bare
+// 5xx ("stream timeout" on a 504 is the one seen in the wild) that clears on a
+// second try -- it is Intuit's engine, not our query, since the same page
+// re-requested seconds later succeeds. Retry only 5xx: a 4xx (bad query, dead
+// token) will not fix itself by asking again.
+//
+// A "stream timeout" is Intuit holding the connection open for MINUTES before
+// finally answering 504, not a quick error -- one observed failure took 2m48s
+// end to end with no retry at all. Retrying that unbounded, as the first cut
+// of this function did, multiplies a multi-minute hang by up to 3 and blows
+// past this function's own execution ceiling: the platform kills the whole
+// invocation with no response ever sent and nothing written to
+// quickbooks_connections, which reads as total silence rather than an error.
+// Each attempt is now capped at 25s via AbortController -- a hang is treated
+// the same as a 5xx (retryable, same backoff), so the worst case across 3
+// attempts is bounded (~80s) instead of open-ended.
+const ACCOUNT_FETCH_TIMEOUT_MS = 25_000;
+
+async function fetchWithRetry(url: string, token: string): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const killer = setTimeout(() => controller.abort(), ACCOUNT_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (res.ok || res.status < 500 || attempt >= 2) return res;
+    } catch (e) {
+      if (attempt >= 2) {
+        throw new Error(
+          e instanceof Error && e.name === 'AbortError'
+            ? `stream_timeout_after_${ACCOUNT_FETCH_TIMEOUT_MS / 1000}s`
+            : (e instanceof Error ? e.message : String(e)),
+        );
+      }
+    } finally {
+      clearTimeout(killer);
+    }
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+  }
+}
+
 // QBO caps a query at 1000 rows and offers no cursor, only STARTPOSITION
 // (1-indexed). `Active in (true, false)` is required to see archived rows at
 // all -- the default query returns active ones only, and an archived row still
@@ -112,9 +155,9 @@ async function qboQueryAll(
   for (;;) {
     const query = `select * from ${entity} where Active in (true, false) ` +
       `startposition ${startPosition} maxresults ${PAGE}`;
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `${base}/v3/company/${realm}/query?query=${encodeURIComponent(query)}&minorversion=75`,
-      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+      token,
     );
 
     if (!res.ok) {
@@ -398,13 +441,59 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Customers and vendors. Needed because QuickBooks refuses a JournalEntry
+  // line on an Accounts Receivable or Accounts Payable account unless the line
+  // names an Entity -- and Baseballism codes card spend to ~26 intercompany
+  // receivables, every one of which is an AR account. Secondary like locations:
+  // a failure here must not fail a run that already pulled the chart.
+  let customerCount = 0;
+  let vendorCount = 0;
+  let entityError: string | null = null;
+
+  for (const [entity, table, idCol, counter] of [
+    ['Customer', 'quickbooks_customers', 'qbo_customer_id', 'customer'],
+    ['Vendor', 'quickbooks_vendors', 'qbo_vendor_id', 'vendor'],
+  ] as const) {
+    try {
+      const records = await qboQueryAll(base, conn.realm_id, accessToken, entity);
+      if (counter === 'customer') customerCount = records.length;
+      else vendorCount = records.length;
+
+      if (records.length) {
+        const rows = records.map((r) => ({
+          connection_id: conn.id,
+          company_entity_id: conn.company_entity_id,
+          [idCol]: String(r.Id),
+          display_name: r.DisplayName ?? r.CompanyName ?? String(r.Id),
+          company_name: r.CompanyName ?? null,
+          email: r.PrimaryEmailAddr?.Address ?? null,
+          is_active: r.Active !== false,
+          raw: r,
+          synced_at: runStartedAt,
+        }));
+
+        for (let i = 0; i < rows.length; i += 500) {
+          const { error } = await supabase.from(table)
+            .upsert(rows.slice(i, i + 500), { onConflict: `company_entity_id,${idCol}` });
+          if (error) throw new Error(`${counter}_upsert_failed: ${error.message}`);
+        }
+
+        await supabase.from(table).delete()
+          .eq('connection_id', conn.id).lt('synced_at', runStartedAt);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      entityError = entityError ? `${entityError}; ${msg}` : msg;
+    }
+  }
+
   await supabase.from('quickbooks_connections').update({
     accounts_synced_at: runStartedAt,
     location_tracking_enabled: trackLocations,
     last_tested_at: runStartedAt,
     last_test_status: 'ok',
     last_test_success: true,
-    last_test_error: locationError,
+    last_test_error: [locationError, entityError].filter(Boolean).join('; ') || null,
     updated_at: runStartedAt,
   }).eq('id', conn.id);
 
@@ -412,7 +501,10 @@ Deno.serve(async (req) => {
     ok: true,
     accounts: accounts.length,
     locations: locationCount,
+    customers: customerCount,
+    vendors: vendorCount,
     location_tracking_enabled: trackLocations,
     location_error: locationError,
+    entity_error: entityError,
   });
 });
