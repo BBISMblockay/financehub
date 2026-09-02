@@ -52,7 +52,20 @@ on:
 jobs:
   ad-platforms-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 60 was set when this job was campaign-KPIs-only and finished in under a
+    # minute. Ad-level backfill is a different workload: it fetches DAY BY DAY
+    # (chunkDays=1, forced by Meta's "reduce the amount of data" error on
+    # 7-day chunks) and holds every row in memory until one upsert at the end.
+    # A days_back=400 backfill was killed at exactly 60 minutes on 2026-09-02
+    # and wrote NOTHING -- the fetch had not reached its upsert, so an hour of
+    # API calls was discarded rather than partially saved.
+    #
+    # 240 because that run was still going cleanly at the cut -- no rate
+    # limiting, no field rejection, purely wall clock. Only manual backfills
+    # come near this; the nightly and 2-hourly runs finish in ~5 minutes and
+    # never notice the ceiling. shopify-sync.yml carries 330 for the same
+    # reason.
+    timeout-minutes: 240
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
