@@ -331,6 +331,7 @@ supabase/
     20260901010000_void_journal_adjustment.sql
     20260901020000_posted_status_not_client_writable.sql
     20260901030000_retire_silo_insights.sql
+    20260902030000_fixed_assets.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

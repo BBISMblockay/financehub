@@ -15139,3 +15139,16 @@ create index if not exists idx_schedule_items_payment_request
 -- 20260902000000 and 20260902010000, which add the underlying columns.
 -- ---------------------------------------------------------------------------
 \i migrations/20260902020000_meta_ad_performance_v_thruplays.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260902030000_fixed_assets.sql
+-- Fixed asset depreciation subledger, same posture as schedule_items for
+-- prepaids: SILO computes the straight-line schedule and preps the monthly
+-- entry (debit depreciation expense, credit accumulated depreciation -- never
+-- the asset account itself), a human reviews and posts it, QuickBooks stays
+-- the system of record. Separate table from schedule_items on purpose: a
+-- fixed asset has a cost that never changes, a salvage value, and posts to a
+-- third account (accumulated depreciation) that schedule_items' two-account
+-- shape has no room for.
+-- ---------------------------------------------------------------------------
+\i migrations/20260902030000_fixed_assets.sql
