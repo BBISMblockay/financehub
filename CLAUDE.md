@@ -313,7 +313,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `revenue_projections` | Monthly revenue plan by location + type |
 | `revenue_projection_history` | Version history |
 | `locations` | Sales channels/locations |
-| `products_master` | Product catalog |
+| `products_master` | Product catalog. **`is_active` is TRUE on all 24,056 rows and `is_discontinued` on none — neither says anything.** `lifecycle_status` only carries `Idea`/`Ready for PO` (the PO pipeline, not the storefront), and `created_at` is a LOAD date: 98% of rows carry one of two bulk-import stamps (2026-04-28, 2026-07-20), so "products created recently" returns the backfill. **Live on the website is `shopify_status = 'active'` AND `online_published_at is not null`** — both written by the Shopify catalog sync from product objects it already fetches, and deliberately SYNC-owned so the nightly never reverses a merchandiser's edit to `is_active`. Verified 9/9 against Shopify (2026-09-02): 3,818 SKUs live, against the 24,056 `is_active` claimed. Note one row per `(company_entity_id, sku)`, NOT per store, so `shop_domain` is whichever of the 19 stores synced that SKU last |
 | `product_tags` | Product tagging |
 | `access_requests` | Pending team access requests |
 | `org_invites` | Org invite tokens (sha256-hashed, RLS deny-all, RPC-only) |
@@ -362,7 +362,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `redo_connections` | Per-company Redo (returns/exchanges) API + webhook credentials. Client-side SELECT is `is_admin_user()`-gated — the row carries `webhook_secret` / `api_secret` |
 | `redo_returns` | Redo return/exchange records (webhook + REST backfill). Covers only a recent slice of Shopify refund volume — see the nav-config note on `/v2/returns-overview.html` |
 | `redo_return_items` | Line items per Redo return |
-| `meta_ad_creatives` / `meta_ad_performance_daily` | Meta ad-level creative metadata + daily performance |
+| `meta_ad_creatives` / `meta_ad_performance_daily` | Meta ad-level creative metadata + daily performance. `thruplays`/`leads` are per-ad and **nullable on purpose**, unlike `view_content`/`add_to_cart`/`initiate_checkout` beside them which default to 0: a video buy has no leads and a lead buy has no thruplays, and a 0 would rank an ad worst on a metric it was never bought on. Leads come out of the `actions` array the request already fetches; thruplays add `video_thruplay_watched_actions` behind a drop-and-retry guard, because **Meta rejects an ENTIRE insights request over one bad field name**. `meta_ad_creatives.body` is resolved in three steps — `creative.body`, then `object_story_spec`, then the page post named by `effective_object_story_id` — with `body_source` recording which won. That third step matters: **`object_type = 'SHARE'` ads point at an existing Page post and carry no `body` of their own** (271 spending ads, $1.63M, only 32 with copy before the fix). The post read needs a PAGE token (`fetchFacebookPageAccessToken`), not the ad-account token, and must request `message` ALONE — asking for `description` alongside it fails the whole call as deprecated since v3.3 |
 | `facebook_page_insights_daily` / `instagram_media_insights` | Meta organic insights |
 | `mail_items` | Mailroom queue (subject, sender, priority, assignee, status: open/done/archived) |
 | `mail_item_files` | Attachments per mail item (`mail-item-files` storage bucket) |
@@ -385,6 +385,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `sales_by_day_verification_v` | View: backs `/v2/sales-verification.html` |
 | `v_po_incoming_lines` / `v_po_incoming_summary` | Views: incoming PO lines/rollup |
 | `v_marketing_mer_daily` | View: daily marketing efficiency ratio (spend vs revenue) |
+| `wow_sales_daily_type_mv` / `_v` | Materialized rollup of `sales_by_day` to (company, normalised location, day, product_type) — 137k rows against 1.14M. Exists because the Week over Week page fires seven RPCs in parallel and a YTD window over the base table blew the 8s `authenticated` statement_timeout on all of them at once. Every measure is a SUM so re-summing partials is exact. **Read through `wow_sales_daily_type_v`, never the matview** — same layering as `inventory_on_hand_current_v`: no RLS on a matview, no grant to anon/authenticated, tenant filter in a `security_invoker = false` wrapper. Refreshed by `refresh_wow_sales_daily_mv()` at the end of the Shopify sync |
 | `silo_chat_notes_v` / `silo_chat_managers_v` | Views: Ask SILO notes and access grants with names |
 | `shopify_orders_v` | View: `shopify_orders` with `resolved_channel_name` joined in from `shopify_channel_map` (falls back to raw `source_name` when unmapped) |
 | `launch_actuals_v` | View: what each launch actually sold vs. what it planned. Measures BOTH launch shapes — a **period** (`launch_end_date` set, e.g. a Back To School or Labor Day sale) via `units_in_period`, and a **point drop** via 30/60/90/365-day tails from `launch_date`; `units_preview` covers `[preview_start_date, launch_date)`. Resolves SKUs **only** through `linked_po_id` → `po_lines.sku_snapshot` — `launch_calendar.product_sku` is PRODUCT-level and does not match `sales_by_day`'s size-prefixed variant SKUs (0 of 2 match), so a fallback would silently report 0 units for a launch that sold well. `sku_source = null` means NOT MEASURABLE, never "sold nothing". Two caveats it documents: `pct_of_po_units_sold` is only valid for `is_new_product_po` (a restock mixes in units from earlier POs and can exceed 100% — measured 141% on one), and `expected_arrival_date` is a warehouse date, not a selling start |
@@ -580,6 +581,21 @@ than this section.
   live slots and mail via the `security_invoker` `calendar_events_v` union
 - **Task Manager** (`/v2/tasks.html`), **TikTok Live schedule** (`/v2/live-schedule.html`),
   **Products** (`/v2/products.html`, replacing the old product-manager pages)
+- **Marketing Report** (`/v2/wow-report.html`, formerly "Week over Week") — reads at four grains
+  via `wow_window(report_date, grain)`, which **all eight `wow_*` RPCs delegate to** so a grain
+  cannot mean one thing in the KPI band and another in the funnel. Month and YTD are TO-DATE (a
+  partial month against a complete one reads as a collapse every time); YTD's "previous" is the
+  equal-length window ending Dec 31, not last year's YTD, which the LY column already holds.
+  `wow_window` is marked **ROWS 1** — as a set-returning function the planner assumes 1000 and
+  every RPC joins it `cross join w`, which took `wow_kpi_compare` from sub-second to timing out.
+  Ad-level creatives (`wow_creatives`) group by campaign objective and **each objective is judged
+  on the metric it was bought on** — ROAS/CPA only under Purchases; a Subscribers "CPA" is cost
+  per PURCHASE on a lead campaign and misleads harder than a blank. Organic posts
+  (`wow_organic_posts`) rank by views and divide engagement by REACH, never views. Notes are keyed
+  `(company, report_date, grain)`. **The three Marketing pages do not share a revenue definition:**
+  the Report and Performance read actual Shopify online sales, Explorer reads platform-CLAIMED
+  `conversion_value` (~75c claimed per real $1). `wow_paid_media_reality()` computes the gap
+  (`claim_ratio`, `mer_online` vs `mer_blended`) and is surfaced nowhere yet
 - **Marketing** — direct ad-platform APIs (Google/Meta/TikTok/GA4) into `marketing_kpis_daily`,
   surfaced by `/v2/marketing-overview.html`; Supermetrics was dropped before it went live
 - **Integrations** (`/v2/integrations.html`) — admin-only connection management for Shopify, ad
