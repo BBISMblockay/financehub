@@ -269,6 +269,43 @@ Two rules make a multi-measure chart honest:
 The acceptance case is one flat query — `day_date, online_net_sales,
 ad_spend, roas`, one row per day — plotted as three series on two axes.
 
+## The matrix visual
+
+Every other visual reduces a result to one dimension and one measure. A
+financial statement is not that shape: a P&L is **lines down, months
+across**, and rendered long it is 160 correct rows that read as nothing.
+Same for sales by category by month, or units by size by location.
+
+```
+row_field   the dimension down the side
+x_field     the dimension across the top
+y_field     the measure in the cells
+aggregate   how to combine when a (row, column) pair has several source rows
+```
+
+Two rules worth keeping:
+
+**Row and column order come from the QUERY**, in order of first appearance,
+not sorted. That is the whole reason a P&L comes out right — Income, COGS,
+Gross Profit, Expenses, Net Income is a meaningful sequence that
+alphabetical order destroys, and the report's own `ORDER BY` already put
+them in it. Dates are the one exception; a month column reads
+chronologically whatever order it arrived in.
+
+**An absent cell is empty, never zero.** "No row for August" and "August was
+zero" are different facts, and printing `0` for both is the same class of
+lie as a coalesced velocity.
+
+### One CSS trap, recorded because it cost four attempts
+
+Beacon declares `table.bcn-table { table-layout: fixed }` — **element +
+class**, which outranks a bare `.dw-matrix` rule. The matrix carries both
+classes, so every one-class override silently lost and the table kept fixed
+layout, which divides width equally across all columns and ignores content:
+20 months got ~60px each and the row labels painted straight over January.
+The fix is `table.dw-matrix`, matching the specificity. Anything overriding
+a Beacon table needs the element selector too.
+
 ## Link and image cells
 
 Two semantics that say how to DRAW a cell rather than how to measure it, so

@@ -254,6 +254,8 @@
 
       if (widget.visual_type === 'table') {
         body.innerHTML = window.SiloChart.tableHtml(rows, cfg, semantics);
+      } else if (widget.visual_type === 'matrix') {
+        body.innerHTML = window.SiloChart.matrixHtml(rows, cfg, semantics);
       } else if (widget.visual_type === 'kpi') {
         body.innerHTML = window.SiloChart.kpiHtml(rows, cfg, semantics);
       } else {
