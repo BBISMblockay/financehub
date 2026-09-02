@@ -94,6 +94,20 @@ type Conn = {
   refresh_token_expires_at: string | null;
 };
 
+// Intuit's query endpoint occasionally answers a well-formed query with a bare
+// 5xx ("stream timeout" on a 504 is the one seen in the wild) that clears on a
+// second try -- it is Intuit's engine, not our query, since the same page
+// re-requested seconds later succeeds. Retry only 5xx: a 4xx (bad query, dead
+// token) will not fix itself by asking again.
+async function fetchWithRetry(url: string, token: string): Promise<Response> {
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    if (res.ok || res.status < 500 || attempt >= 2) return res;
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+  }
+}
+
 // QBO caps a query at 1000 rows and offers no cursor, only STARTPOSITION
 // (1-indexed). `Active in (true, false)` is required to see archived rows at
 // all -- the default query returns active ones only, and an archived row still
@@ -112,9 +126,9 @@ async function qboQueryAll(
   for (;;) {
     const query = `select * from ${entity} where Active in (true, false) ` +
       `startposition ${startPosition} maxresults ${PAGE}`;
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `${base}/v3/company/${realm}/query?query=${encodeURIComponent(query)}&minorversion=75`,
-      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+      token,
     );
 
     if (!res.ok) {
