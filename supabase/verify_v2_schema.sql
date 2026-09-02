@@ -2076,3 +2076,16 @@ select
       then 'MISSING — nothing is marked reportable; the report builder rail will be empty'
     else 'ok'
   end as report_builder_reportable;
+
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_schema_catalog'
+                       and column_name='report_priority')
+      then 'MISSING — run 20260902120000_report_builder_start_here.sql'
+    when (select count(*) from public.silo_chat_schema_catalog where report_priority = 1) = 0
+      then 'MISSING — nothing is marked "Start here"; the report builder rail opens on an undifferentiated alphabetical list'
+    when exists (select 1 from public.silo_chat_schema_catalog where report_priority = 1 and not reportable)
+      then 'MISSING — an object is starred but not reportable, so it is promoted into a rail it never appears in'
+    else 'ok'
+  end as report_builder_start_here;

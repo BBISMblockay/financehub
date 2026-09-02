@@ -18,6 +18,40 @@ silo_chat_saved_reports    dashboard_widgets.query_index    .visual_type/.visual
 Switching a tile from a table to a bar chart is a one-field update and a
 re-render. It is not a new page, not an LLM call, and not a deploy.
 
+## What the workbench offers, and why it is not everything
+
+Two catalog columns curate `/v3/report-builder.html`, and **neither touches
+Ask SILO** — it filters on `is_hidden`, which is a different question
+("keep this out of the model's index"). Ask SILO still sees all 189 objects,
+including payroll, AR and comp, because it is legitimately asked about them.
+
+| Column | Meaning | Default |
+|---|---|---|
+| `reportable` | Offer it in the rail at all | **false** — an allowlist |
+| `report_priority` | `1` = "Start here" | `0` — still listed, just below |
+
+`reportable` defaults to **false** on purpose. A denylist means the next
+finance table someone adds appears in the workbench on its own and nobody
+notices until it is on a dashboard; an allowlist makes the failure mode "a
+useful table is missing", which someone reports. 74 objects are offered:
+sales, Shopify order/session/funnel detail, marketing paid and organic,
+product, inventory, launches, purchasing and landed cost, returns.
+
+`report_priority` is soft — it orders the shelf, it does not lock a cupboard.
+The 20 starred sources are the ones whose own curated descriptions say to
+prefer them ("the grain buying decisions are made at", "Use this rather than
+raw sales_by_day"), because an analyst opening on eight interchangeable-
+looking sales rollups cannot choose between them.
+
+**Both are curation, not a boundary.** RLS is still the boundary. The SQL tab
+can name any object, and someone who types `comp_adjustment_requests` gets
+exactly the rows their policies allow — for most people, none.
+
+Plumbing columns (`id`, `company_entity_id`, `row_hash`, `synced_at`, uuid
+foreign keys) are hidden in the build pane behind a "show all" toggle, and
+the business columns are pre-selected rather than emitting `select *` — the
+point of hiding them is that the *preview* stops being full of ids.
+
 ## Three authoring surfaces, one engine
 
 | Surface | Writes | Where |

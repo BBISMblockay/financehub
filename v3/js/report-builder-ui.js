@@ -32,6 +32,7 @@
   let catalog = [];          // [{relname, relkind, columns:[{name,type}], description}]
   let source = null;         // the selected catalog row
   let tab = 'build';
+  let showAllColumns = false;
   let lastRun = null;        // { sql, rows }
   const cfg = {
     columns: [], summarise: false, dimensions: [], measures: [],
@@ -48,20 +49,29 @@
       el('srcList').innerHTML = `<div class="v3-empty">Nothing matches “${esc(q)}”.</div>`;
       return;
     }
-    const group = (kind, label) => {
-      const rows = visible.filter((r) => r.relkind === kind);
-      if (!rows.length) return '';
-      return `<div class="rb-group-label">${label} · ${rows.length}</div>` + rows.map((r) => `
+    const card = (r) => `
         <button type="button" class="rb-src${source && source.relname === r.relname ? ' is-active' : ''}"
                 data-rel="${esc(r.relname)}">
           <span class="rb-src-name">${esc(r.relname)}</span>
           ${r.description ? `<span class="rb-src-desc">${esc(r.description)}</span>` : ''}
-          <span class="rb-src-kind">${esc(r.relkind)} · ${(r.columns || []).length} cols</span>
-        </button>`).join('');
-    };
-    // Views first: they are the curated, join-resolved objects, and are what
-    // someone building a report almost always wants over a raw table.
-    el('srcList').innerHTML = group('view', 'Views') + group('table', 'Tables') + group('matview', 'Materialized')
+          <span class="rb-src-kind">${esc(r.relkind)} · ${window.SiloReportBuilder.businessColumns(r.columns).length} cols</span>
+        </button>`;
+    const section = (label, rows) => rows.length
+      ? `<div class="rb-group-label">${label} · ${rows.length}</div>` + rows.map(card).join('')
+      : '';
+
+    // "Start here" first. Eight sales rollups alphabetised together is a
+    // choice nobody can make; these are the ones whose own descriptions say
+    // to prefer them. Everything else is still listed below and searchable.
+    const starred = visible.filter((r) => r.report_priority === 1);
+    const rest = visible.filter((r) => r.report_priority !== 1);
+    const byKind = (kind) => rest.filter((r) => r.relkind === kind);
+
+    el('srcList').innerHTML =
+      section('Start here', starred)
+      + section('More views', byKind('view'))
+      + section('Tables', byKind('table'))
+      + section('Materialized', byKind('matview'))
       + `<div class="rb-rail-foot">Sales, product, inventory, marketing, launches and purchasing.
            Finance and HR tables are deliberately not offered here.</div>`;
   }
@@ -71,16 +81,25 @@
     cfg.columns = []; cfg.dimensions = []; cfg.measures = [];
     cfg.dateColumn = ''; cfg.dateRange = ''; cfg.filters = [];
     cfg.sortColumn = ''; cfg.summarise = false;
-    const dateCol = (source.columns || []).find((c) => RB.DATEISH_PG.test(c.type));
+    const dateCol = usableCols().find((c) => RB.DATEISH_PG.test(c.type));
     if (dateCol) { cfg.dateColumn = dateCol.name; cfg.dateRange = '30'; }
+    // Pre-select the business columns rather than emitting `select *`: the
+    // point of hiding plumbing is that the PREVIEW stops being full of ids.
+    cfg.columns = RB.businessColumns(source.columns).map((c) => c.name);
     renderSourceList();
     renderBuild();
     if (tab === 'sql') el('sqlText').value = RB.buildSql(source, cfg) || '';
   }
 
   // ── Build pane ───────────────────────────────────────────────────────
-  const numericCols = () => (source.columns || []).filter((c) => RB.NUMERIC_PG.test(c.type));
-  const dateCols = () => (source.columns || []).filter((c) => RB.DATEISH_PG.test(c.type));
+  // Plumbing is hidden unless asked for. Everything below works off this,
+  // so the chips, the dropdowns and the sort list all stay consistent.
+  const usableCols = () => showAllColumns
+    ? (source.columns || [])
+    : RB.businessColumns(source.columns);
+  const hiddenCount = () => (source.columns || []).length - RB.businessColumns(source.columns).length;
+  const numericCols = () => usableCols().filter((c) => RB.NUMERIC_PG.test(c.type));
+  const dateCols = () => usableCols().filter((c) => RB.DATEISH_PG.test(c.type));
 
   function opts(list, sel, blank) {
     return (blank ? `<option value="">${esc(blank)}</option>` : '')
@@ -89,7 +108,7 @@
 
   function renderBuild() {
     if (!source) return;
-    const cols = source.columns || [];
+    const cols = usableCols();
     const aliasList = cfg.measures.map((m) => m.alias || `${m.agg}_${m.column}`);
 
     const colChips = cols.map((c) => `
@@ -163,6 +182,11 @@
       <div class="rb-section">
         <span class="rb-section-title">Columns · ${cfg.columns.length ? cfg.columns.length + ' selected' : 'all'}</span>
         <div class="rb-cols">${colChips}</div>
+        ${hiddenCount() ? `<button type="button" class="rb-linkbtn" id="btnToggleCols">
+            ${showAllColumns
+              ? `Hide ${hiddenCount()} technical column${hiddenCount() === 1 ? '' : 's'}`
+              : `Show ${hiddenCount()} technical column${hiddenCount() === 1 ? '' : 's'} (ids, sync stamps)`}
+          </button>` : ''}
       </div>`}
 
       ${dateCols().length ? `
@@ -365,6 +389,16 @@
   });
 
   el('buildBody').addEventListener('click', (e) => {
+    if (e.target.closest('#btnToggleCols')) {
+      showAllColumns = !showAllColumns;
+      // Keep only selections that still exist in the visible set, so hiding
+      // plumbing cannot silently leave a hidden column in the query.
+      const allowed = new Set(usableCols().map((c) => c.name));
+      cfg.columns = cfg.columns.filter((c) => allowed.has(c));
+      if (!cfg.columns.length) cfg.columns = usableCols().map((c) => c.name);
+      renderBuild();
+      return;
+    }
     if (e.target.closest('#btnAddFilter')) {
       cfg.filters.push({ column: '', op: 'eq', value: '' }); renderBuild(); return;
     }
@@ -410,7 +444,7 @@
     // headcount questions -- the workbench does not. It is an allowlist, so
     // a newly synced table stays out until someone opts it in.
     const { data, error } = await sb.from('silo_chat_schema_catalog')
-      .select('relname, relkind, columns, description')
+      .select('relname, relkind, columns, description, report_priority')
       .eq('reportable', true)
       .order('relname');
     if (error) { setStatus('Could not load the schema catalog: ' + error.message, 'neg'); return; }

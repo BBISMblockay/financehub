@@ -169,7 +169,36 @@
     return Object.keys(out).length ? out : null;
   }
 
+  // ── Plumbing columns ─────────────────────────────────────────────────
+  // Every synced table carries the same scaffolding: a surrogate key, the
+  // tenant id, sync bookkeeping, audit stamps. The build pane was showing
+  // `id, company_entity_id, connection_id, row_hash` before it showed
+  // `spend`, which is the wrong first impression of a reporting tool.
+  //
+  // Hidden by default, never removed -- a "Show all columns" toggle brings
+  // them back, because occasionally you do want to group by a foreign key
+  // or check synced_at.
+  const PLUMBING_NAMES = new Set([
+    'id', 'company_entity_id', 'row_hash', 'sync_batch_id', 'synced_at',
+    'created_at', 'updated_at', 'created_by', 'changed_by', 'updated_by',
+    'deleted_at', 'ds_id', 'connection_id', 'shop_domain',
+  ]);
+
+  /**
+   * A uuid ending in _id is a join key, and the guided builder cannot join,
+   * so it is noise here. A TEXT id is usually meaningful (account_id on an
+   * ad platform, media_id on an Instagram post) and stays.
+   */
+  function isPlumbing(col) {
+    if (!col || !col.name) return false;
+    if (PLUMBING_NAMES.has(col.name)) return true;
+    return /_id$/.test(col.name) && /^uuid/i.test(col.type || '');
+  }
+
+  const businessColumns = (cols) => (cols || []).filter((c) => !isPlumbing(c));
+
   global.SiloReportBuilder = {
+    isPlumbing, businessColumns, PLUMBING_NAMES,
     buildSql, checkRawSqlScope, metadataFromCatalog,
     AGGREGATES, OPERATORS, DATE_RANGES, qIdent, qLit,
     NUMERIC_PG, DATEISH_PG,
