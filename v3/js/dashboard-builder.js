@@ -387,7 +387,13 @@
         percent: 'Percentage (%)', date: 'Date', category: 'Category', boolean: 'True/false',
       };
       const semantics = rows ? runtime.semanticsFor(w, rows) : {};
-      const measureSemantic = activeY ? semantics[activeY] : null;
+      // cfg.measures is the multi-measure form; cfg.y_field is what every
+      // widget built before it used. Treat the single field as a one-item
+      // list so both shapes drive the same UI.
+      const activeMeasures = (Array.isArray(cfg.measures) && cfg.measures.length
+        ? cfg.measures
+        : [activeY]).filter(Boolean);
+      const measureSemantic = activeMeasures[0] ? semantics[activeMeasures[0]] : null;
       const aggNow = window.SiloChart.AGGREGATES.includes(cfg.aggregate)
         ? cfg.aggregate
         : window.SiloChart.defaultAggregate(measureSemantic);
@@ -400,7 +406,21 @@
           <label class="bcn-label" for="inspX">Dimension</label>
           <select class="bcn-field" id="inspX">${options(dims.length ? dims : prof, activeX)}</select>
         </div>` : ''}
-        ${(isChart || w.visual_type === 'kpi' || w.visual_type === 'table') ? `
+        ${isChart ? `
+        <div class="bcn-field-group">
+          <span class="bcn-label">Measures</span>
+          <div class="v3-measures">
+            ${(meas.length ? meas : prof).map((c) => `
+              <label class="rb-col${activeMeasures.includes(c.name) ? ' is-on' : ''}">
+                <input type="checkbox" data-measure="${esc(c.name)}" ${activeMeasures.includes(c.name) ? 'checked' : ''} />
+                ${esc(c.name)}
+              </label>`).join('')}
+          </div>
+          <span class="v3-insp-hint">${activeMeasures.length > 1
+            ? 'Plotted together. A measure that means something different, or sits on a wildly different scale, gets its own axis on the right automatically — and is drawn as a line over bars.'
+            : 'Pick more than one to compare them on the same chart.'}</span>
+        </div>` : ''}
+        ${(w.visual_type === 'kpi' || w.visual_type === 'table') ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspY">${w.visual_type === 'table' ? 'Sort by (measure)' : 'Measure'}</label>
           <select class="bcn-field" id="inspY">
@@ -419,9 +439,9 @@
             ? 'Rows sharing a dimension value are rolled up before sorting and limiting. Leave on sum unless the query already aggregated.'
             : `${rows.length} row${rows.length === 1 ? '' : 's'} in this dataset.`}</span>
         </div>` : ''}
-        ${activeY ? `
+        ${activeMeasures[0] ? `
         <div class="bcn-field-group">
-          <label class="bcn-label" for="inspSemantic">"${esc(activeY)}" means</label>
+          <label class="bcn-label" for="inspSemantic">"${esc(activeMeasures[0])}" means</label>
           <select class="bcn-field" id="inspSemantic">
             ${window.SiloFieldSemantics.SEMANTICS.map((sem) =>
               `<option value="${sem}"${measureSemantic === sem ? ' selected' : ''}>${SEMANTIC_LABEL[sem] || sem}</option>`).join('')}
@@ -611,6 +631,20 @@
           runtime.rerenderWidget(w.id).then(renderInspector);
           return;
         }
+        if (t.dataset.measure !== undefined) {
+          const cur = Array.isArray(w.visual_config?.measures) && w.visual_config.measures.length
+            ? w.visual_config.measures.slice()
+            : [w.visual_config?.y_field].filter(Boolean);
+          const name = t.dataset.measure;
+          let next = cur.includes(name) ? cur.filter((x) => x !== name) : cur.concat(name);
+          // Never leave a chart with nothing to draw.
+          if (!next.length) next = [name];
+          // y_field stays in step with the first measure so KPI, donut and
+          // the table path keep working if the visual is switched later.
+          patchConfig({ measures: next, y_field: next[0] });
+          renderInspector();
+          return;
+        }
         if (t.id === 'inspX') patchConfig({ x_field: t.value });
         // Changing the measure can change what aggregation makes sense
         // (sum for dollars, avg for a rate), so re-render the inspector too.
@@ -619,9 +653,9 @@
         else if (t.id === 'inspSort') patchConfig({ sort: t.value });
         else if (t.id === 'inspLimit') patchConfig({ limit: Math.max(0, Number(t.value) || 0) });
         else if (t.id === 'inspSemantic') {
-          const rows = runtime.rowsFor(w.id);
-          const field = (window.SiloChart.shape(rows, w.visual_config || {}, runtime.semanticsFor(w, rows)) || {}).yField
-            || (w.visual_config || {}).y_field;
+          const cfgNow = w.visual_config || {};
+          const field = (Array.isArray(cfgNow.measures) && cfgNow.measures[0]) || cfgNow.y_field
+            || (window.SiloChart.shape(runtime.rowsFor(w.id), cfgNow, runtime.semanticsFor(w, runtime.rowsFor(w.id))) || {}).yField;
           if (field) setFieldSemantic(w, field, t.value);
         }
         else if (t.id === 'inspQueryIndex') changeQueryIndex(w, Number(t.value));

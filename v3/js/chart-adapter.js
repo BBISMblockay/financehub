@@ -245,6 +245,38 @@
    * per product answers a different question than summing per product and
    * then taking the top 10.
    */
+  /**
+   * How far apart two measures have to sit before they need separate axes.
+   * ROAS averages 3.3 while online sales average $38,000 -- on one axis the
+   * ROAS line is flat on the floor and tells you nothing. 25x is well past
+   * anything that still reads on a shared scale, and comfortably below the
+   * gap between a ratio and a currency.
+   */
+  const SECOND_AXIS_RATIO = 25;
+
+  function medianAbs(nums) {
+    const v = nums.filter((n) => n !== null && Number.isFinite(n)).map(Math.abs).sort((a, b) => a - b);
+    if (!v.length) return 0;
+    return v[Math.floor(v.length / 2)];
+  }
+
+  /**
+   * Apply the widget's dimension/measures/aggregate/sort/limit to the raw
+   * rows. Returns null when the config does not name usable fields --
+   * callers render a "pick a dimension and a measure" prompt rather than an
+   * empty chart, so a half-configured widget says so.
+   *
+   * Grouping happens BEFORE sort and limit, which is the only order that
+   * gives the right answer: taking the top 10 rows and then summing them
+   * per product answers a different question than summing per product and
+   * then taking the top 10.
+   *
+   * MEASURES, plural. cfg.measures is an array of column names; cfg.y_field
+   * is the single-measure form every widget built before this used, and is
+   * still honoured -- a stored widget must keep drawing exactly what it drew
+   * yesterday. points[].value stays the FIRST measure so KPI, donut and the
+   * table path are unaffected.
+   */
   function shape(rows, config, semantics) {
     const cfg = config || {};
     if (!Array.isArray(rows) || !rows.length) return null;
@@ -252,16 +284,25 @@
     const has = (f) => f && prof.some((c) => c.name === f);
 
     const xField = has(cfg.x_field) ? cfg.x_field : (dimensionsOf(prof)[0] || {}).name;
-    const yField = has(cfg.y_field) ? cfg.y_field : (measuresOf(prof)[0] || {}).name;
-    if (!xField || !yField) return null;
+    const declared = Array.isArray(cfg.measures) && cfg.measures.length ? cfg.measures : [cfg.y_field];
+    const fields = declared.filter(has);
+    if (!fields.length) {
+      const fallback = (measuresOf(prof)[0] || {}).name;
+      if (fallback) fields.push(fallback);
+    }
+    if (!xField || !fields.length) return null;
 
+    const yField = fields[0];
     const semantic = semanticOf(yField, semantics, prof);
     const agg = AGGREGATES.includes(cfg.aggregate) ? cfg.aggregate : defaultAggregate(semantic);
 
     let points;
     let aggregatedFrom = 0;
     if (agg === 'none') {
-      points = rows.map((r) => ({ label: r[xField], value: toNumber(r[yField]), row: r }));
+      points = rows.map((r) => ({
+        label: r[xField], row: r,
+        values: Object.fromEntries(fields.map((f) => [f, toNumber(r[f])])),
+      }));
     } else {
       // Map keyed on the STRING label, but the first row's original label is
       // kept for display -- two rows whose dimension is null and '' must not
@@ -269,17 +310,32 @@
       const groups = new Map();
       for (const r of rows) {
         const key = r[xField] === null || r[xField] === undefined ? '\u0000null' : String(r[xField]);
-        if (!groups.has(key)) groups.set(key, { label: r[xField], nums: [], rows: [] });
+        if (!groups.has(key)) {
+          groups.set(key, { label: r[xField], rows: [], nums: Object.fromEntries(fields.map((f) => [f, []])) });
+        }
         const g = groups.get(key);
-        const n = toNumber(r[yField]);
-        if (n !== null) g.nums.push(n);
+        for (const f of fields) {
+          const n = toNumber(r[f]);
+          if (n !== null) g.nums[f].push(n);
+        }
         g.rows.push(r);
       }
       aggregatedFrom = rows.length;
       points = Array.from(groups.values()).map((g) => ({
-        label: g.label, value: aggregateValues(g.nums, agg), row: g.rows[0], rowCount: g.rows.length,
+        label: g.label, row: g.rows[0], rowCount: g.rows.length,
+        // Each measure is aggregated with the aggregate that suits ITS OWN
+        // semantic, not the widget's -- summing a ratio next to summing
+        // dollars is how a ROAS column becomes 99 instead of 3.3.
+        values: Object.fromEntries(fields.map((f) => {
+          const sem = semanticOf(f, semantics, prof);
+          const perField = AGGREGATES.includes(cfg.aggregate) && fields.length === 1
+            ? cfg.aggregate : defaultAggregate(sem);
+          return [f, aggregateValues(g.nums[f], perField)];
+        })),
       }));
     }
+    // Back-compat: every caller written before multi-measure reads .value.
+    for (const p of points) p.value = p.values[yField];
 
     const sort = cfg.sort || 'desc';
     if (sort === 'desc') points.sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity));
@@ -292,15 +348,45 @@
     const totalRows = points.length;
     const limit = Number(cfg.limit) || 0;
     const truncated = limit > 0 && points.length > limit;
-    if (truncated) points = points.slice(0, limit);
+    // Keep what gets cut. A ranking can honestly show its top 10 and stop,
+    // but a DONUT that drops slices stops being a part-of-whole chart: the
+    // percentages it prints are computed over what it was handed, so
+    // "Top 10 of 12" silently inflates every one of them. donutOption adds
+    // this back as an "Other" slice.
+    let dropped = [];
+    if (truncated) { dropped = points.slice(limit); points = points.slice(0, limit); }
+    const remainder = dropped.length
+      ? Object.fromEntries(fields.map((f) => [f, dropped.reduce((a, p) => a + (p.values[f] ?? 0), 0)]))
+      : null;
+
+    // Axis assignment. The first measure owns the left axis; a later one
+    // moves right when it means something different (a ratio beside money)
+    // or when its typical magnitude is so far off that it would flatten.
+    const primarySemantic = semanticOf(yField, semantics, prof);
+    const primaryMag = medianAbs(points.map((p) => p.values[yField]));
+    const series = fields.map((f, i) => {
+      const sem = semanticOf(f, semantics, prof);
+      const data = points.map((p) => p.values[f]);
+      let axis = 0;
+      if (i > 0) {
+        const mag = medianAbs(data);
+        const differentMeaning = sem !== primarySemantic;
+        const differentScale = primaryMag > 0 && mag > 0
+          && (primaryMag / mag > SECOND_AXIS_RATIO || mag / primaryMag > SECOND_AXIS_RATIO);
+        if (differentMeaning || differentScale) axis = 1;
+      }
+      return { field: f, semantic: sem, data, axis };
+    });
 
     return {
-      xField, yField, points, truncated, totalRows,
+      xField, yField, fields, points, series, truncated, totalRows,
+      droppedCount: dropped.length, remainder,
       aggregate: agg,
       // Non-zero only when grouping actually collapsed rows -- the foot uses
       // this to say "10 of 46 products (from 1,204 rows)" instead of
       // implying the chart shows every row it was given.
       aggregatedFrom: aggregatedFrom > totalRows ? aggregatedFrom : 0,
+      hasSecondAxis: series.some((sr) => sr.axis === 1),
       semantic,
       // Legacy alias: the option builders and older call sites read .format.
       format: semantic,
@@ -326,8 +412,10 @@
 
   function axisChartOption(kind, shaped, t) {
     const labels = shaped.points.map((p) => (p.label === null || p.label === undefined ? '—' : String(p.label)));
-    const values = shaped.points.map((p) => p.value);
-    const horizontal = kind === 'bar' && labels.some((l) => l.length > 14);
+    const multi = shaped.series.length > 1;
+    // Horizontal bars are for long category names, and only make sense with
+    // a single series -- a grouped horizontal bar with two axes is a mess.
+    const horizontal = kind === 'bar' && !multi && labels.some((l) => l.length > 14);
 
     const catAxis = {
       type: 'category',
@@ -342,41 +430,80 @@
       axisLine: { lineStyle: { color: t.grid } },
       axisTick: { show: false },
     };
-    const valAxis = {
-      type: 'value',
-      axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace', formatter: (v) => compact(v, shaped.format) },
-      splitLine: { lineStyle: { color: t.grid, type: 'dashed' } },
-      axisLine: { show: false },
-    };
 
-    const series = {
-      type: kind === 'line' ? 'line' : 'bar',
-      data: horizontal ? values.slice().reverse() : values,
-      barMaxWidth: 34,
-      itemStyle: { borderRadius: kind === 'bar' ? (horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0]) : 0 },
-      smooth: kind === 'line' ? 0.2 : false,
-      showSymbol: kind === 'line' && shaped.points.length <= 40,
-      symbolSize: 5,
-      lineStyle: kind === 'line' ? { width: 2 } : undefined,
-      areaStyle: kind === 'line' ? { opacity: t.dark ? 0.14 : 0.08 } : undefined,
+    // One value axis per side. The right-hand one exists only when a measure
+    // genuinely needs it -- see SECOND_AXIS_RATIO.
+    const axisFor = (side) => {
+      const own = shaped.series.filter((sr) => sr.axis === side);
+      const sem = own.length ? own[0].semantic : shaped.semantic;
+      return {
+        type: 'value',
+        position: side === 1 ? 'right' : 'left',
+        alignTicks: true,
+        axisLabel: {
+          color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace',
+          formatter: (v) => compact(v, sem),
+        },
+        splitLine: { show: side === 0, lineStyle: { color: t.grid, type: 'dashed' } },
+        axisLine: { show: false },
+      };
     };
+    const valueAxes = shaped.hasSecondAxis ? [axisFor(0), axisFor(1)] : [axisFor(0)];
+
+    const series = shaped.series.map((sr, i) => {
+      // A secondary-axis measure is drawn as a line even in a bar chart:
+      // that is the conventional combo, and a ratio rendered as a bar next
+      // to dollar bars invites reading them as comparable heights.
+      const asLine = kind === 'line' || (multi && sr.axis === 1);
+      const data = horizontal ? sr.data.slice().reverse() : sr.data;
+      return {
+        name: sr.field,
+        type: asLine ? 'line' : 'bar',
+        yAxisIndex: horizontal ? undefined : sr.axis,
+        xAxisIndex: horizontal ? sr.axis : undefined,
+        data,
+        barMaxWidth: 34,
+        itemStyle: { borderRadius: !asLine ? (horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0]) : 0 },
+        smooth: asLine ? 0.2 : false,
+        showSymbol: asLine && shaped.points.length <= 40,
+        symbolSize: 5,
+        lineStyle: asLine ? { width: 2 } : undefined,
+        // Only fill under a single line. Stacked translucent fills across
+        // several series read as one muddy shape.
+        areaStyle: (asLine && !multi) ? { opacity: t.dark ? 0.14 : 0.08 } : undefined,
+        z: asLine ? 3 : 2,
+      };
+    });
+
+    const semanticByField = Object.fromEntries(shaped.series.map((sr) => [sr.field, sr.semantic]));
 
     return {
       ...baseOption(t),
       tooltip: {
         ...baseOption(t).tooltip,
         trigger: 'axis',
-        axisPointer: { type: kind === 'line' ? 'line' : 'shadow' },
+        axisPointer: { type: series.some((sr) => sr.type === 'bar') ? 'shadow' : 'line' },
         formatter: (params) => {
-          const p = Array.isArray(params) ? params[0] : params;
-          return `<div style="font-size:11px;opacity:.7">${p.name}</div>
-                  <div style="font-weight:700">${formatValue(p.value, shaped.format)}</div>`;
+          const arr = Array.isArray(params) ? params : [params];
+          if (!arr.length) return '';
+          const head = `<div style="font-size:11px;opacity:.7">${arr[0].name}</div>`;
+          // Every series at that x, each formatted by its OWN semantic --
+          // dollars as dollars and a ratio as a ratio, in one tooltip.
+          return head + arr.map((p) => `<div style="display:flex;gap:8px;justify-content:space-between">
+              <span>${p.marker || ''}${multi ? esc(p.seriesName) : ''}</span>
+              <span style="font-weight:700">${formatValue(p.value, semanticByField[p.seriesName] || shaped.semantic)}</span>
+            </div>`).join('');
         },
       },
-      grid: { left: 8, right: 14, top: 14, bottom: 4, containLabel: true },
-      xAxis: horizontal ? valAxis : catAxis,
-      yAxis: horizontal ? catAxis : valAxis,
-      series: [series],
+      legend: multi ? {
+        type: 'scroll', top: 0, left: 'center',
+        textStyle: { color: t.ink2, fontSize: 10.5, fontFamily: '"IBM Plex Mono", monospace' },
+        itemWidth: 12, itemHeight: 8,
+      } : undefined,
+      grid: { left: 8, right: shaped.hasSecondAxis ? 12 : 14, top: multi ? 30 : 14, bottom: 4, containLabel: true },
+      xAxis: horizontal ? valueAxes : catAxis,
+      yAxis: horizontal ? catAxis : valueAxes,
+      series,
     };
   }
 
@@ -403,7 +530,13 @@
         data: shaped.points.map((p) => ({
           name: p.label === null || p.label === undefined ? '—' : String(p.label),
           value: p.value,
-        })),
+        })).concat(shaped.remainder ? [{
+          // Without this the donut's own percentages are wrong -- ECharts
+          // computes them over the slices it was given, not the real total.
+          name: `Other (${shaped.droppedCount})`,
+          value: shaped.remainder[shaped.yField],
+          itemStyle: { color: t.dark ? '#6b7a8f' : '#9aa9bd' },
+        }] : []),
       }],
     };
   }

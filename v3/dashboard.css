@@ -404,3 +404,7 @@
   cursor: pointer; font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
   letter-spacing: .05em; color: var(--bcn-ink-3);
 }
+
+/* Inspector: measure multi-select */
+.v3-measures { display: flex; flex-wrap: wrap; gap: 5px; }
+.v3-measures .rb-col { font-size: 11px; }
