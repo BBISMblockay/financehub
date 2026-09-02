@@ -442,15 +442,38 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
  * ad ids — the ads that actually have performance rows in the window. The
  * account-wide /ads listing spans the account's ENTIRE ad history and trips
  * Meta's request-size limits (observed live), and the lighter ?ids= syntax is
- * deprecated, so this uses the Graph batch API: 50 GETs per POST. Dynamic-
- * creative ads may carry copy in asset feeds rather than body/title; we store
- * whatever the creative exposes. */
+ * deprecated, so this uses the Graph batch API: 50 GETs per POST.
+ *
+ * COPY COMES FROM THREE PLACES, and creative.body alone misses most of it.
+ * Measured over ads that spent since 2026-06-01:
+ *
+ *   VIDEO    39 ads, $127,185 spend -- 39 of 39 have creative.body
+ *   PHOTO     1 ad                  --  1 of 1
+ *   SHARE   271 ads, $1,630,566     -- only 32 of 271. $1,159,168 of spend
+ *                                      with no readable copy.
+ *
+ * A SHARE creative is an ad pointing at an EXISTING PAGE POST rather than
+ * carrying its own creative, so creative.body is legitimately empty -- the
+ * words live on the post. (This is not the Dynamic-Creative/asset_feed_spec
+ * case an earlier comment here guessed at: 100% coverage on VIDEO and PHOTO is
+ * not what dynamic-creative fragmentation looks like.)
+ *
+ * So we ask for object_story_spec too -- which carries the message inline for
+ * ads built in place -- and effective_object_story_id, which is the handle for
+ * the SHARE case. Posts are then fetched in one extra batch and matched back.
+ * bodySource records which path produced the text, so a future reader can see
+ * whether the post lookup is earning its request rather than guessing again. */
 export async function fetchMetaAdCreatives(connection, adIds) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   const ids = [...new Set((adIds || []).map(String))];
-  const fields = encodeURIComponent('id,name,effective_status,campaign_id,adset_id,creative{id,thumbnail_url,body,title,object_type}');
+  const fields = encodeURIComponent(
+    'id,name,effective_status,campaign_id,adset_id,'
+    + 'creative{id,thumbnail_url,body,title,object_type,'
+    + 'effective_object_story_id,object_story_spec}');
   const out = [];
+  // ad ids still needing copy, keyed by the post that holds it
+  const needPost = new Map();
 
   for (let i = 0; i < ids.length; i += 50) {
     const batch = ids.slice(i, i + 50).map((id) => ({
@@ -467,7 +490,16 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       let a;
       try { a = JSON.parse(item.body); } catch { continue; }
       if (!a?.id) continue;
-      out.push({
+      // Inline copy, wherever Meta put it for this ad format. link_data covers
+      // link/carousel ads, video_data a video ad, photo_data a photo ad.
+      const spec = a.creative?.object_story_spec || {};
+      const inline = spec.link_data?.message
+        ?? spec.video_data?.message
+        ?? spec.photo_data?.caption
+        ?? null;
+      const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+      const row = {
         adId: a.id,
         adName: a.name ?? null,
         campaignId: a.campaign_id ?? null,
@@ -475,12 +507,64 @@ export async function fetchMetaAdCreatives(connection, adIds) {
         effectiveStatus: a.effective_status ?? null,
         creativeId: a.creative?.id ?? null,
         thumbnailUrl: a.creative?.thumbnail_url ?? null,
-        body: a.creative?.body ?? null,
+        body: clean(a.creative?.body) ?? clean(inline),
         title: a.creative?.title ?? null,
         objectType: a.creative?.object_type ?? null,
-      });
+        bodySource: clean(a.creative?.body) ? 'creative_body'
+                  : clean(inline) ? 'object_story_spec' : null,
+      };
+      out.push(row);
+
+      // Still nothing, but the ad names a post that has it.
+      const storyId = a.creative?.effective_object_story_id;
+      if (!row.body && storyId) {
+        if (!needPost.has(storyId)) needPost.set(storyId, []);
+        needPost.get(storyId).push(row);
+      }
     }
   }
+
+  // One extra batched pass for the SHARE case. Skipped entirely when nothing
+  // needs it, so an account whose ads all carry inline copy pays nothing.
+  const storyIds = [...needPost.keys()];
+  for (let i = 0; i < storyIds.length; i += 50) {
+    const slice = storyIds.slice(i, i + 50);
+    const batch = slice.map((id) => ({
+      method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=message,description`,
+    }));
+    let data;
+    try {
+      data = await fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ access_token: token, batch: JSON.stringify(batch) }).toString(),
+      }, 'Meta post copy batch');
+    } catch (err) {
+      // Copy is an enrichment, not the point of this sync. A page-post read
+      // that fails on scope or a deleted post must not lose the creative rows
+      // already collected -- those ads simply keep a null body, exactly as
+      // before this pass existed.
+      console.warn(`[warn] meta post copy batch: ${err.message || err}`);
+      break;
+    }
+    if (!Array.isArray(data)) break;
+    slice.forEach((storyId, n) => {
+      const item = data[n];
+      if (!item || item.code !== 200 || !item.body) return;
+      let post;
+      try { post = JSON.parse(item.body); } catch { return; }
+      const msg = typeof post?.message === 'string' && post.message.trim()
+        ? post.message.trim()
+        : (typeof post?.description === 'string' && post.description.trim()
+            ? post.description.trim() : null);
+      if (!msg) return;
+      for (const r of needPost.get(storyId) || []) {
+        r.body = msg;
+        r.bodySource = 'page_post';
+      }
+    });
+  }
+
   return out;
 }
 
@@ -537,6 +621,7 @@ export async function runMetaAdLevelSync(supabase, connection, {
     creative_id: c.creativeId != null ? String(c.creativeId) : null,
     thumbnail_url: c.thumbnailUrl,
     body: c.body,
+    body_source: c.bodySource ?? null,
     title: c.title,
     object_type: c.objectType,
     synced_at: syncedAt,

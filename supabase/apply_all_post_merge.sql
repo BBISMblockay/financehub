@@ -15117,3 +15117,10 @@ create index if not exists idx_schedule_items_payment_request
 -- fills them from product objects it already fetches.
 -- ---------------------------------------------------------------------------
 \i migrations/20260901180000_products_shopify_status.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260902000000_meta_creative_body_source.sql
+-- Records which of the three sources produced an ad's copy, so a coverage
+-- change is attributable rather than guessed at.
+-- ---------------------------------------------------------------------------
+\i migrations/20260902000000_meta_creative_body_source.sql
