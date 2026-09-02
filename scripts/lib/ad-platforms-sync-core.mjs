@@ -397,23 +397,45 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
   const acct = String(connection.meta_ad_account_id);
   const rows = [];
   const endAll = new Date(`${window.endDate}T00:00:00Z`);
+  // Ad level now DOES request thruplays. The old comment here said it
+  // deliberately did not, because the table had no column and the creative
+  // card was purchase-only -- both stopped being true when the card grew a
+  // Thruplays/Subscribers/Followers split, which cannot judge a video buy on
+  // a metric nobody fetched. Leads need no new field at all: they come out of
+  // the `actions` array this request already asks for.
+  //
+  // Same guard as campaign level: Meta rejects the ENTIRE insights request on
+  // one bad field name, so this is dropped and retried once rather than taking
+  // ad-level spend down with it.
+  let withThruplays = true;
 
   for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
     const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
-    let url = `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
+    const buildUrl = () => `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
       level: 'ad',
       time_increment: '1',
       time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
-      // Ad level deliberately does NOT request thruplays: meta_ad_performance_daily
-      // has no column for them, and the creative table is scoped to purchase
-      // campaigns, which are judged on ROAS. Requesting an unused field here
-      // would risk the whole ad-level request for nothing.
-      fields: 'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
+      fields: metaInsightFields(
+        'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
+        withThruplays,
+      ),
       limit: '500',
       access_token: token,
     }).toString();
+    let url = buildUrl();
     while (url) {
-      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta ad-level insights');
+      let data;
+      try {
+        data = await fetchMetaJsonOrThrow(url, {}, 'Meta ad-level insights');
+      } catch (err) {
+        if (withThruplays && isMetaUnknownFieldError(err)) {
+          console.warn('[warn] Meta rejected video_thruplay_watched_actions at ad level, retrying without it:', err.message);
+          withThruplays = false;
+          url = buildUrl();
+          continue;
+        }
+        throw err;
+      }
       for (const r of data.data ?? []) {
         const purchases = pickAction(r.actions, 'purchase');
         const purchaseValue = pickAction(r.action_values, 'purchase');
@@ -429,6 +451,11 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
           viewContent: pickAction(r.actions, 'view_content')?.value ?? 0,
           addToCart: pickAction(r.actions, 'add_to_cart')?.value ?? 0,
           initiateCheckout: pickAction(r.actions, 'initiate_checkout')?.value ?? 0,
+          // null, never 0, exactly as at campaign level: an ad that does not
+          // report the metric has not scored zero on it, and 0 would make a
+          // video ad look like it failed at the thing it was bought for.
+          thruplays: pickThruplays(r),
+          leads: pickActionAny(r.actions, LEAD_ACTION_TYPES),
         });
       }
       url = data.paging?.next ?? null;
@@ -630,6 +657,15 @@ export async function runMetaAdLevelSync(supabase, connection, {
       view_content: Math.round(Number(String(r.viewContent ?? '').replace(/[,$\s]/g, '')) || 0),
       add_to_cart: Math.round(Number(String(r.addToCart ?? '').replace(/[,$\s]/g, '')) || 0),
       initiate_checkout: Math.round(Number(String(r.initiateCheckout ?? '').replace(/[,$\s]/g, '')) || 0),
+      // Null-preserving, unlike the three above: those default to 0 because
+      // every ad can report them, whereas a video buy that reports no leads
+      // and a lead buy that reports no thruplays are both "not measured here",
+      // and 0 would rank them as the worst performer on a metric they were
+      // never bought on.
+      thruplays: r.thruplays == null ? null
+        : Math.round(Number(String(r.thruplays).replace(/[,$\s]/g, '')) || 0),
+      leads: r.leads == null ? null
+        : Math.round(Number(String(r.leads).replace(/[,$\s]/g, '')) || 0),
       // Identity only, like marketing_kpis_daily — restatements upsert in place.
       row_hash: hashRow([connection.company_entity_id, 'meta_ads_ad', r.accountId, r.adId, r.day]),
       source: PLATFORM_SOURCES.meta_ads,

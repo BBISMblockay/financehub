@@ -318,6 +318,7 @@ supabase/
     20260901170000_wow_creatives.sql
     20260901180000_products_shopify_status.sql
     20260902000000_meta_creative_body_source.sql
+    20260902010000_ad_level_thruplays_leads.sql
     20260827200000_review_scale_1_4_and_goal_dates.sql
     20260831180000_card_coding.sql
     20260831190000_card_name_and_holder.sql
