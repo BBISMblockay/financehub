@@ -2050,5 +2050,9 @@ select
     when exists (select 1 from public.silo_chat_saved_reports
                   where source = 'system' and coalesce(array_length(queries_run, 1), 0) = 0)
       then 'MISSING — a system report has no SQL to run'
+    when not exists (select 1 from public.silo_chat_saved_reports
+                      where id = '5110de50-0000-4000-a000-000000000002'
+                        and queries_run[1] like '%x-redo%')
+      then 'MISSING — Top Products no longer excludes x-redo; Redo''s Package Protection line item is not merchandise and outranks every real product (8,209 units when this was found). See 20260902100000_fix_top_products_redo_filter.sql'
     else 'ok'
   end as seed_system_reports;
