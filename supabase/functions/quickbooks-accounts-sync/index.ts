@@ -99,11 +99,40 @@ type Conn = {
 // second try -- it is Intuit's engine, not our query, since the same page
 // re-requested seconds later succeeds. Retry only 5xx: a 4xx (bad query, dead
 // token) will not fix itself by asking again.
+//
+// A "stream timeout" is Intuit holding the connection open for MINUTES before
+// finally answering 504, not a quick error -- one observed failure took 2m48s
+// end to end with no retry at all. Retrying that unbounded, as the first cut
+// of this function did, multiplies a multi-minute hang by up to 3 and blows
+// past this function's own execution ceiling: the platform kills the whole
+// invocation with no response ever sent and nothing written to
+// quickbooks_connections, which reads as total silence rather than an error.
+// Each attempt is now capped at 25s via AbortController -- a hang is treated
+// the same as a 5xx (retryable, same backoff), so the worst case across 3
+// attempts is bounded (~80s) instead of open-ended.
+const ACCOUNT_FETCH_TIMEOUT_MS = 25_000;
+
 async function fetchWithRetry(url: string, token: string): Promise<Response> {
-  let res: Response;
   for (let attempt = 0; ; attempt++) {
-    res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
-    if (res.ok || res.status < 500 || attempt >= 2) return res;
+    const controller = new AbortController();
+    const killer = setTimeout(() => controller.abort(), ACCOUNT_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (res.ok || res.status < 500 || attempt >= 2) return res;
+    } catch (e) {
+      if (attempt >= 2) {
+        throw new Error(
+          e instanceof Error && e.name === 'AbortError'
+            ? `stream_timeout_after_${ACCOUNT_FETCH_TIMEOUT_MS / 1000}s`
+            : (e instanceof Error ? e.message : String(e)),
+        );
+      }
+    } finally {
+      clearTimeout(killer);
+    }
     await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
   }
 }
