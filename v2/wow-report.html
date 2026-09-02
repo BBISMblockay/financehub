@@ -1520,18 +1520,35 @@
   // blank column is not mistaken for a dead campaign.
   const CRE_COLS = {
     purchase:    [['spend','Spend'],['roas','ROAS'],['cpa','CPA'],['conversions','Conv.'],['clicks','Clicks']],
-    thruplay:    [['spend','Spend'],['impressions','Impressions'],['clicks','Clicks'],['cpm','CPM'],['cpc','CPC']],
-    subscribers: [['spend','Spend'],['clicks','Clicks'],['cpc','CPC'],['impressions','Impressions'],['cpm','CPM']],
-    followers:   [['spend','Spend'],['impressions','Impressions'],['clicks','Clicks'],['cpc','CPC'],['cpm','CPM']],
+    // Each objective is judged on the metric it was BOUGHT on, per ad --
+    // thruplays and leads now land at ad level, so these no longer fall back
+    // to click cost. Followers reads on thruplays because that is what the
+    // buy actually reports; follows themselves are not synced.
+    thruplay:    [['spend','Spend'],['thruplays','Thruplays'],['cost_per_thruplay','Cost / thruplay'],['impressions','Impressions'],['clicks','Clicks']],
+    subscribers: [['spend','Spend'],['leads','Leads'],['cost_per_lead','Cost / lead'],['clicks','Clicks'],['cpc','CPC']],
+    followers:   [['spend','Spend'],['thruplays','Thruplays'],['cost_per_thruplay','Cost / thruplay'],['clicks','Clicks'],['cpc','CPC']],
     traffic:     [['spend','Spend'],['clicks','Clicks'],['cpc','CPC'],['impressions','Impressions'],['cpm','CPM']],
     other:       [['spend','Spend'],['clicks','Clicks'],['impressions','Impressions'],['cpc','CPC'],['cpm','CPM']],
   };
   // Named per objective so nobody reads the gap as a data fault.
-  const CRE_FOOT = {
-    thruplay:    'Thruplay counts are not synced per ad, so cost per thruplay is only available at campaign level above. Judged here on reach and click cost.',
-    subscribers: 'Leads are not synced per ad, so there is no cost per lead here — and the conversions Meta does report against these ads are purchases, not sign-ups. Judged on click cost.',
-    followers:   'Follows are not synced, so there is no cost per follow. Judged on reach and click cost.',
-  };
+  // Derived from the data, not hardcoded. The old fixed strings said
+  // "not synced per ad" and would have kept saying it once the sync started
+  // carrying the metric -- a note that lies in the other direction. A group
+  // only gets a caveat when its own headline metric really is absent.
+  function creFoot(g) {
+    if (g.group === 'followers') {
+      return 'Follows are not synced, so there is no cost per follow — these ads read on thruplays, which the buy does report.';
+    }
+    if (g.group === 'subscribers') {
+      return g.leads == null
+        ? 'Leads have not synced for these ads yet — they fill in on the next ad-platforms sync. The conversions Meta reports against them are purchases, not sign-ups.'
+        : 'The conversions Meta reports against these ads are purchases, not sign-ups — cost per lead is the number to read.';
+    }
+    if (g.group === 'thruplay' && g.thruplays == null) {
+      return 'Thruplays have not synced for these ads yet — they fill in on the next ad-platforms sync.';
+    }
+    return null;
+  }
   // Derived rather than stored: spend, clicks and impressions are already in the
   // payload, so CPC and CPM need no round trip. Null over zero clicks — dividing
   // by nothing is not a cost of nothing.
@@ -1548,8 +1565,11 @@
     // ad (2 impressions, seen live) rendered as $0. Show what it actually was.
     if (k === 'spend') return Math.abs(Number(v)) < 1 ? money2(v) : money(v);
     if (k === 'roas')  return xFmt(v);
-    if (k === 'cpa' || k === 'cpm') return money2(v);
+    if (k === 'cpa' || k === 'cpm' || k === 'cost_per_lead') return money2(v);
     if (k === 'cpc')   return `$${Number(v).toFixed(2)}`;
+    // Fractions of a cent are normal here — a thruplay ran $0.0059 in the week
+    // to 31 Aug, and money2 would flatten every one of them to $0.01.
+    if (k === 'cost_per_thruplay') return `$${Number(v).toFixed(4)}`;
     return intFmt(v);
   };
   function renderCreatives(){
@@ -1610,6 +1630,10 @@
       // printing 0.00x against it reads as failure rather than as not-the-point.
       const headline = key === 'purchase'
         ? `${money(g.spend)} · ${g.roas == null ? '—' : xFmt(g.roas)} ROAS · ${g.cpa == null ? 'no CPA' : money2(g.cpa) + ' CPA'}`
+        : g.cost_per_lead != null
+        ? `${money(g.spend)} · ${intFmt(g.leads)} leads · ${money2(g.cost_per_lead)} / lead`
+        : g.cost_per_thruplay != null
+        ? `${money(g.spend)} · ${intFmt(g.thruplays)} thruplays · $${Number(g.cost_per_thruplay).toFixed(4)} each`
         : `${money(g.spend)} · ${total} ad${total === 1 ? '' : 's'}`;
       const gchg = g.spend_wow == null ? ''
         : `<span class="${g.spend_wow >= 0 ? 'pos' : 'neg'}" style="font-size:10.5px">${g.spend_wow >= 0 ? '+' : ''}${Number(g.spend_wow).toFixed(0)}% ${esc(G().prevAbbr)}</span>`;
@@ -1623,7 +1647,7 @@
                 : ''}>${lbl}</th>`).join('')}
               <th>Spend ${esc(G().prevAbbr)}</th></tr></thead>
             <tbody>${rows}</tbody></table></div>${
-              CRE_FOOT[key] ? `<div class="wow-grp-foot">${esc(CRE_FOOT[key])}</div>` : ''}${more}
+              (() => { const f = creFoot(g); return f ? `<div class="wow-grp-foot">${esc(f)}</div>` : ''; })()}${more}
         </div>`;
     }).join('');
   }

@@ -15124,3 +15124,10 @@ create index if not exists idx_schedule_items_payment_request
 -- change is attributable rather than guessed at.
 -- ---------------------------------------------------------------------------
 \i migrations/20260902000000_meta_creative_body_source.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260902010000_ad_level_thruplays_leads.sql
+-- Per-ad thruplays and leads, so the creative card can judge each objective on
+-- the metric it was bought on rather than falling back to click cost.
+-- ---------------------------------------------------------------------------
+\i migrations/20260902010000_ad_level_thruplays_leads.sql
