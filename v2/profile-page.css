@@ -342,12 +342,51 @@ body.profile-page .profile-layout__main .bcn-card {
 
 .profile-feed-group__label {
   margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--bcn-mono);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--bcn-ink-3);
+}
+
+.profile-feed-group__count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--bcn-sunken);
+  color: var(--bcn-ink-3);
+  font-size: 9px;
+  letter-spacing: 0;
+}
+
+/* "For you" is personal-assignment, not org backlog — set it apart with an
+   accent rule and a tinted label so it reads as "yours" at a glance. */
+.profile-feed-group--personal {
+  padding: 10px 10px 2px;
+  margin: 0 -10px 2px;
+  border-radius: 10px;
+  background: var(--bcn-accent-soft);
+  border: 1px dashed var(--bcn-accent-border);
+}
+
+.profile-feed-group--personal .profile-feed-group__label {
+  color: var(--bcn-accent);
+}
+
+.profile-feed-group--personal .profile-feed-group__count {
+  background: var(--bcn-surface);
+  color: var(--bcn-accent);
+}
+
+.profile-feed-group--personal .profile-feed-card {
+  background: var(--bcn-surface);
 }
 
 .profile-feed-group__list {
@@ -418,6 +457,16 @@ body.profile-page .profile-layout__main .bcn-card {
 .profile-feed-card__icon--rocket {
   color: #ea580c;
   background: #fff7ed;
+}
+
+.profile-feed-card__icon--mailbox {
+  color: #0369a1;
+  background: #f0f9ff;
+}
+
+.profile-feed-card__icon--camera {
+  color: #be185d;
+  background: #fdf2f8;
 }
 
 .profile-feed-card__icon--chart {
