@@ -24,6 +24,34 @@
         description: null, source: 'ask_silo', company_entity_id: 'C1',
         visibility: 'company', created_by_name: 'Blake', created_at: '2026-08-25T00:00:00Z',
         queries_run: ['select product_title, total_units, net_sales, conversion_rate from sales'] },
+      // ── Edit-path fixtures ──
+      // Guided: carries builder_config, so opening it must restore the BUILD
+      // tab rather than dumping SQL on someone who never wrote any.
+      { id: 'R10', title: 'Spend by platform', question: null,
+        description: 'Guided report', source: 'manual', company_entity_id: 'C1',
+        visibility: 'company', created_by: 'U1', created_by_name: 'Blake',
+        created_at: '2026-09-01T00:00:00Z',
+        queries_run: ['select "platform", sum("spend") as "sum_spend" from "meta_ad_performance_daily" group by 1'],
+        columns_metadata: { sum_spend: { semantic: 'currency' } },
+        parameters: [{ key: 'date_from', type: 'date', label: 'From', default: 'today-27d' }],
+        builder_config: { relname: 'meta_ad_performance_daily',
+          cfg: { columns: ['platform', 'spend'], summarise: true, dimensions: ['platform'],
+                 measures: [{ column: 'spend', agg: 'sum' }], dateColumn: 'day_date',
+                 dateRange: '30', filters: [], sortColumn: '', sortDir: 'desc', limit: 100 } } },
+      // Someone else's. Readable (company-visible) but not writable: the
+      // page must say so up front and offer a copy, never a dead Save.
+      { id: 'R11', title: "Jon's launch recap", question: 'How did the launch do?',
+        description: null, source: 'ask_silo', company_entity_id: 'C1',
+        visibility: 'company', created_by: 'U9', created_by_name: 'Jon Loomis',
+        created_at: '2026-09-01T00:00:00Z',
+        queries_run: ['select day_date, net_sales from t1'] },
+      // A central SILO definition: global, and RLS refuses every client
+      // write to it, so the editor must be read-only from the start.
+      { id: 'R12', title: 'SILO · Net sales by channel', question: null,
+        description: 'A central definition', source: 'system', company_entity_id: null,
+        visibility: 'company', created_by: null, created_by_name: null,
+        created_at: '2026-08-28T00:00:00Z',
+        queries_run: ['select day_date, net_sales from t1'] },
       // Saved before queries_run was reliably populated: real rows like this
       // exist, and the picker must hide them rather than offer a dead tile.
       { id: 'R4', title: 'Old report, no SQL', question: 'An old question',
@@ -181,6 +209,10 @@
       sessionStorage.setItem('__FAKE_DB_STATE__', JSON.stringify({
         dashboards: db.dashboards, dashboard_widgets: db.dashboard_widgets,
         silo_chat_saved_reports: db.silo_chat_saved_reports,
+        // profiles too: the edit path branches on the viewer's ROLE (an
+        // owner may edit a colleague's report, an admin may not), so a suite
+        // has to be able to change role and reload.
+        profiles: db.profiles,
       }));
     } catch { /* ignore */ }
   }
@@ -224,7 +256,12 @@
         return { data: out, error: null };
       }
       if (op === 'insert') {
-        const row = { id: 'D' + (db.dashboards.length + 1), created_by: 'U1', created_by_name: 'Blake',
+        // Saved reports get an R id so a new one is not mistaken for a
+        // dashboard; dashboards keep D<n>, which suites assert on by URL.
+        const newId = base(table) === 'silo_chat_saved_reports'
+          ? 'R' + (db.silo_chat_saved_reports.length + 100)
+          : 'D' + (db.dashboards.length + 1);
+        const row = { id: newId, created_by: 'U1', created_by_name: 'Blake',
           company_entity_id: 'C1', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           description: null, visibility: 'company', ...payload };
         db[base(table)].push(row);
@@ -234,6 +271,16 @@
       if (op === 'update') {
         let out = db[base(table)];
         for (const f of filters) if (f.k === 'eq') out = out.filter((r) => String(r[f.c]) === String(f.v));
+        // silo_chat_saved_reports_update, in miniature: creator only (this
+        // stub's user is not exec), never a global `system` row. Modelled
+        // because "RLS matched nothing" is a SUCCESS with zero rows, not an
+        // error, and the page has to handle that shape specifically.
+        if (base(table) === 'silo_chat_saved_reports') {
+          const me = db.profiles.find((x) => x.id === 'U1') || {};
+          const exec = ['owner', 'executive'].includes(me.role);
+          out = out.filter((r) => r.company_entity_id && r.source !== 'system'
+            && (r.created_by === 'U1' || exec));
+        }
         out.forEach((r) => Object.assign(r, payload, { updated_at: new Date().toISOString() }));
         persist();
         return { data: out, error: null };
@@ -284,6 +331,24 @@
         from: (t) => builder(t),
         rpc: async (name, args) => {
           window.__FAKE_DB__.rpcCalls.push({ name, args });
+          if (name === 'saved_report_usage') {
+            const ws = db.dashboard_widgets.filter((w) => w.report_id === args.p_report_id);
+            const cols = new Set();
+            for (const w of ws) {
+              const vc = w.visual_config || {};
+              for (const k of ['x_field', 'y_field', 'row_field', 'compare_field']) if (vc[k]) cols.add(vc[k]);
+              for (const k of ['measures', 'columns']) if (Array.isArray(vc[k])) vc[k].forEach((c) => cols.add(c));
+            }
+            const boards = new Set(ws.map((w) => w.dashboard_id));
+            const supplied = new Set();
+            for (const d of db.dashboards) {
+              if (!boards.has(d.id)) continue;
+              Object.keys(d.filter_state || {}).forEach((k) => supplied.add(k));
+            }
+            return { data: [{ widget_count: ws.length, dashboard_count: boards.size,
+              max_query_index: ws.reduce((m, w) => Math.max(m, w.query_index || 0), 0),
+              referenced_columns: [...cols].sort(), supplied_parameters: [...supplied].sort() }], error: null };
+          }
           if (name !== 'chat_run_readonly_query') return { data: null, error: null };
           const rows = QUERY_ROWS[args.query];
           if (rows) return { data: rows, error: null };

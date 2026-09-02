@@ -1991,6 +1991,19 @@ select
                      where conrelid='public.dashboard_widgets'::regclass
                        and conname='dashboard_widgets_section_has_title')
       then 'MISSING — dashboard_widgets_section_has_title; an untitled section is an invisible tile that still takes grid space'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='builder_config')
+      then 'MISSING — silo_chat_saved_reports.builder_config; every guided report would reopen as raw SQL'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='saved_report_usage')
+      then 'MISSING — saved_report_usage(); the report editor would save with no idea how many tiles it changes'
+    -- SECURITY DEFINER is the whole point of that function: dashboard_widgets
+    -- RLS hides widgets on dashboards the caller cannot see, and an
+    -- undercount in a blast-radius warning reads as safety.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='saved_report_usage' and p.prosecdef)
+      then 'BROKEN — saved_report_usage() is not SECURITY DEFINER; it would undercount widgets on dashboards the caller cannot see'
     else 'ok'
   end as v3_dashboards;
 

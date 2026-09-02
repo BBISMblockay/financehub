@@ -570,6 +570,15 @@
         <div class="v3-insp-source">
           <span class="bcn-label">Source report</span>
           <div class="v3-insp-source-name">${esc(w.report_title || '(report unavailable)')}</div>
+          ${w.report_id ? `
+            <!-- The tile is where you NOTICE a report is wrong -- a column
+                 labelled with its raw alias, a figure formatted as the wrong
+                 type, a hardcoded date. Editing it from here is what stops
+                 the fix being "save a second report". Opens the workbench;
+                 whether it saves over the original or forks is decided
+                 there, by RLS. -->
+            <a class="v3-insp-source-edit" href="/v3/report-builder.html?id=${esc(w.report_id)}">
+              Edit this report →</a>` : ''}
           ${w.report_query_count > 1 ? `
             <label class="bcn-label" for="inspQueryIndex" style="margin-top:8px">Query</label>
             <select class="bcn-field" id="inspQueryIndex">
