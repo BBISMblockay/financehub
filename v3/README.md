@@ -18,6 +18,31 @@ silo_chat_saved_reports    dashboard_widgets.query_index    .visual_type/.visual
 Switching a tile from a table to a bar chart is a one-field update and a
 re-render. It is not a new page, not an LLM call, and not a deploy.
 
+## Three authoring surfaces, one engine
+
+| Surface | Writes | Where |
+|---|---|---|
+| Ask SILO | `source = 'ask_silo'` | `/v2/silo-chat.html` — Save report |
+| Report builder | `source = 'manual'` | `/v3/report-builder.html` |
+| Migrations | `source = 'system'` | seeded, global |
+
+The report builder has two tabs over one preview. **Build** picks a table or
+view from `silo_chat_schema_catalog` (which already exists to feed Ask SILO
+and works just as well as a picker), then columns, group-and-total, a date
+window, filters, sort and limit. **SQL** is a plain editor with the same
+schema browser. Both compose one `SELECT`, both run through
+`chat_run_readonly_query`, and neither can save without previewing first — a
+report nobody has run is how a broken tile gets shared.
+
+**The one rule the database cannot enforce for us:** Postgres does not apply
+RLS to materialized views. So the Build tab force-adds
+`company_entity_id = active_company_id()` to any matview source and says so;
+the SQL tab cannot force anything, so it warns instead when it sees a matview
+referenced without a company predicate.
+
+Column semantics come from the catalog's real pg types at save time, so a
+hand-built report is grounded from birth rather than guessed at.
+
 ## Where a report comes from
 
 The renderer does not know and must not care. A widget points at a row in

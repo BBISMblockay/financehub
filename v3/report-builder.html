@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · New report</title>
+  <link rel="stylesheet" href="../v2/beacon.css" />
+  <link rel="stylesheet" href="../v2/silo-brand.css" />
+  <link rel="stylesheet" href="dashboard.css" />
+  <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="../v2/v2-mobile.css" />
+  <script src="../v2/v2-shell.js" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div class="bcn-header-title">
+        <h1>New report</h1>
+        <span class="bcn-header-sub">Build one from any table or view · In testing</span>
+      </div>
+      <div class="bcn-header-actions">
+        <a class="bcn-btn bcn-btn--ghost" href="/v3/dashboards.html">Dashboards</a>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnPreview">Preview</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnSave">Save report</button>
+      </div>
+    </header>
+
+    <section class="bcn-filter-bar">
+      <div class="bcn-tabs">
+        <button type="button" class="bcn-tab bcn-tab--active" data-tab="build">Build</button>
+        <button type="button" class="bcn-tab" data-tab="sql">SQL</button>
+      </div>
+    </section>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="rb-layout">
+      <!-- Source browser: silo_chat_schema_catalog, which already exists to
+           feed Ask SILO and works just as well as a picker. -->
+      <aside class="rb-rail">
+        <div class="rb-rail-head">
+          <input class="bcn-field" id="srcSearch" type="search" placeholder="Search tables and views…" />
+        </div>
+        <div class="rb-rail-list" id="srcList"></div>
+      </aside>
+
+      <div class="rb-main">
+        <div class="rb-panes">
+          <!-- ── Build ─────────────────────────────────────────────── -->
+          <div class="rb-pane" id="paneBuild">
+            <div id="buildBody"><div class="v3-empty">Pick a table or view on the left to start.</div></div>
+          </div>
+
+          <!-- ── SQL ───────────────────────────────────────────────── -->
+          <div class="rb-pane" id="paneSql" hidden>
+            <div class="rb-section">
+              <span class="rb-section-title">SQL</span>
+              <p class="rb-note">
+                One <code>SELECT</code> or <code>WITH</code>. It runs through the same read-only engine as
+                everything else — your own row-level security applies, results cap at 500 rows and 30 seconds.
+                Click a table on the left to insert its name.
+              </p>
+              <textarea class="rb-sql" id="sqlText" spellcheck="false"
+                placeholder="select day_date, sum(net_sales) as net_sales&#10;  from sales_by_product_title_daily_v&#10; where day_date >= current_date - 30&#10; group by 1&#10; order by 1"></textarea>
+              <div id="sqlWarn"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shared preview: both tabs run the same engine, so they share one
+             result panel. Seeing real rows before saving is the whole point. -->
+        <section class="rb-preview">
+          <div class="rb-preview-head">
+            <span class="rb-preview-title" id="previewTitle">Preview</span>
+            <span class="rb-preview-title" id="previewMeta"></span>
+          </div>
+          <div class="rb-preview-body" id="previewBody">
+            <div class="v3-empty">Nothing run yet — hit <strong>Preview</strong> to see real rows.</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Save dialog -->
+<div class="v3-backdrop" id="saveBackdrop">
+  <div class="v3-modal" role="dialog" aria-modal="true" aria-labelledby="saveTitle" style="width:min(480px,100%)">
+    <div class="v3-modal-head">
+      <h3 id="saveTitle">Save report</h3>
+      <button type="button" class="v3-close" id="btnCloseSave" aria-label="Close">✕</button>
+    </div>
+    <div class="v3-modal-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="saveName">Report name</label>
+        <input class="bcn-field" id="saveName" type="text" autocomplete="off" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="saveDesc">Description</label>
+        <input class="bcn-field" id="saveDesc" type="text" autocomplete="off" placeholder="What question does this answer?" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="saveVis">Visibility</label>
+        <select class="bcn-field" id="saveVis">
+          <option value="company">Company — anyone here can use it</option>
+          <option value="private">Only me</option>
+        </select>
+      </div>
+      <p class="rb-note" style="margin-top:8px">
+        Saved reports are available to every dashboard. The SQL runs as whoever opens it, so a
+        colleague sees their own company's rows, never yours.
+      </p>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCancelSave">Cancel</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnConfirmSave">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../v2/nav-config.js"></script>
+<script src="../v2/avatar.js"></script>
+<script src="../v2/silo-chrome.js"></script>
+<script src="js/field-semantics.js"></script>
+<script src="js/chart-adapter.js"></script>
+<script src="js/report-builder.js"></script>
+<script src="js/report-builder-ui.js"></script>
+</body>
+</html>
