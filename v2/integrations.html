@@ -34,17 +34,139 @@
       -webkit-overflow-scrolling: touch;
       scrollbar-gutter: stable;
     }
-    .int-section-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--bcn-ink-3);
-      margin: 0 0 10px;
-    }
-    .int-stores-grid {
-      display: block;
+
+    /* ── Summary band ── */
+    .int-summary-band {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
       margin-bottom: 24px;
+    }
+    .int-summary-tile {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--bcn-surface, #fff);
+      border: 1px solid var(--bcn-border, #e5e7eb);
+      border-radius: 12px;
+    }
+    .int-summary-icon {
+      flex-shrink: 0;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+    }
+    .int-summary-icon svg { width: 18px; height: 18px; }
+    .int-summary-icon--pos  { background: #dcfce7; color: #16a34a; }
+    .int-summary-icon--warn { background: #fef3c7; color: #d97706; }
+    .int-summary-icon--info { background: #dbeafe; color: #2563eb; }
+    .int-summary-icon--ro   { background: #ede9fe; color: #7c3aed; }
+    .int-summary-value {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.1;
+      color: var(--bcn-ink);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .int-summary-label {
+      font-size: 12px;
+      color: var(--bcn-ink-3);
+      margin-top: 2px;
+    }
+
+    /* ── Section cards ── */
+    .int-card {
+      background: var(--bcn-surface, #fff);
+      border: 1px solid var(--bcn-border, #e5e7eb);
+      border-radius: 12px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .int-card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 18px;
+    }
+    .int-card-icon {
+      flex-shrink: 0;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+    }
+    .int-card-icon svg { width: 17px; height: 17px; }
+    .int-card-icon--shopify { background: #95bf47; }
+    .int-card-icon--ads     { background: #2563eb; }
+    .int-card-icon--redo    { background: #ef4444; }
+    .int-card-icon--qbo     { background: #2ca01c; }
+    .int-card-header-text { min-width: 0; flex: 1; }
+    .int-card-header-text h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--bcn-ink);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .int-card-header-text p {
+      margin: 3px 0 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--bcn-ink-3);
+      max-width: 760px;
+    }
+    .int-card-header-text p a { color: var(--bcn-accent, #2563eb); }
+    .int-card-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 99px;
+      background: #ede9fe;
+      color: #7c3aed;
+    }
+    .int-card-body { padding: 0 18px 18px; }
+    .int-backfill-banner-slot { padding: 0 18px; }
+
+    /* ── Card collapse ── */
+    .int-card-collapse-btn {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      border: 1px solid transparent;
+      background: none;
+      color: var(--bcn-ink-3);
+      cursor: pointer;
+      margin-left: auto;
+    }
+    .int-card-collapse-btn:hover { background: var(--bcn-surface-2, #f3f4f6); color: var(--bcn-ink-2); }
+    .int-card-collapse-btn svg { width: 15px; height: 15px; transition: transform 0.15s; }
+    .int-card--collapsed .int-card-collapse-btn svg { transform: rotate(-90deg); }
+    .int-card--collapsed .int-card-body,
+    .int-card--collapsed .int-backfill-banner-slot {
+      display: none;
+    }
+    .int-card--collapsed .int-card-header { padding-bottom: 16px; }
+
+    /* Shopify row count is unbounded (a company can connect many stores) —
+       cap the table's height and let it scroll internally rather than
+       stretching the whole page. The sticky thead keeps working since it's
+       sticky relative to this scroll container. */
+    .int-table-wrap--scroll {
+      max-height: 480px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     /* ── Store table ── */
@@ -54,8 +176,8 @@
       border-radius: 10px;
       overflow-x: auto;
       overflow-y: visible;
-      margin-bottom: 16px;
     }
+    .int-card-body > .int-table-wrap { margin-bottom: 0; }
     .int-table {
       width: 100%;
       border-collapse: collapse;
@@ -84,7 +206,7 @@
     .int-table tbody tr:last-child { border-bottom: none; }
     .int-table tbody tr:hover { background: #fafafa; }
     .int-table td {
-      padding: 10px 12px;
+      padding: 12px;
       vertical-align: middle;
       white-space: nowrap;
     }
@@ -96,23 +218,68 @@
       display: inline-block;
       background: #d1d5db;
       flex-shrink: 0;
+      box-shadow: 0 0 0 3px transparent;
     }
-    .int-dot--ok  { background: #22c55e; }
-    .int-dot--err { background: #ef4444; }
+    .int-dot--ok  { background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
+    .int-dot--err { background: #ef4444; box-shadow: 0 0 0 3px #fee2e2; }
 
     /* store name cell */
     .int-store-name { font-weight: 600; color: var(--bcn-ink); font-size: 13px; }
     .int-store-domain { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--bcn-ink-3); margin-top: 1px; }
 
-    /* nightly toggle */
+    /* pill (mirrors bcn-pill but scoped here so existing bcn-pill usage
+       elsewhere in the app is untouched) */
+    .int-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 99px;
+      background: var(--bcn-surface-2, #f3f4f6);
+      color: var(--bcn-ink-2);
+      white-space: nowrap;
+    }
+    .int-pill--pos { background: #dcfce7; color: #166534; }
+    .int-pill--neg { background: #fee2e2; color: #991b1b; }
+    .int-pill--accent { background: #dbeafe; color: #1d4ed8; }
+
+    /* nightly toggle — restyle the existing checkbox into a track/thumb
+       switch purely with CSS; markup + onchange handler untouched */
     .int-nightly-toggle {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       cursor: pointer;
       font-size: 12px;
       color: var(--bcn-ink-2);
     }
+    .int-table input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 34px;
+      height: 20px;
+      border-radius: 99px;
+      background: #d1d5db;
+      position: relative;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s;
+      margin: 0;
+    }
+    .int-table input[type="checkbox"]::after {
+      content: '';
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+      transition: transform 0.15s;
+    }
+    .int-table input[type="checkbox"]:checked { background: var(--bcn-accent, #2563eb); }
+    .int-table input[type="checkbox"]:checked::after { transform: translateX(14px); }
     .int-nightly-badge {
       font-size: 10px;
       font-weight: 700;
@@ -128,28 +295,28 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 26px;
-      padding: 0 9px;
-      border-radius: 5px;
+      height: 27px;
+      padding: 0 10px;
+      border-radius: 6px;
       font-size: 11px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
       border: 1px solid transparent;
       background: none;
-      transition: background 0.1s, border-color 0.1s;
+      transition: background 0.1s, border-color 0.1s, opacity 0.1s;
       white-space: nowrap;
       font-family: inherit;
     }
-    .int-btn--ghost { border-color: var(--bcn-border, #e5e7eb); color: var(--bcn-ink-2); background: #fff; }
-    .int-btn--ghost:hover { background: #f3f4f6; }
-    .int-btn--ghost:disabled { opacity: 0.4; cursor: default; }
+    .int-btn--ghost { border-color: #bfdbfe; color: var(--bcn-accent, #2563eb); background: #fff; }
+    .int-btn--ghost:hover { background: #eff6ff; }
+    .int-btn--ghost:disabled { opacity: 0.4; cursor: default; background: #fff; }
     .int-btn--primary { background: var(--bcn-accent, #2563eb); color: #fff; border-color: var(--bcn-accent, #2563eb); }
     .int-btn--primary:hover { opacity: 0.88; }
-    .int-btn--danger { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
-    .int-btn--danger:hover { background: #fee2e2; }
+    .int-btn--danger { background: none; color: #dc2626; border-color: transparent; }
+    .int-btn--danger:hover { background: #fef2f2; border-color: #fecaca; }
     .int-btn--warn { background: #fffbeb; color: #92400e; border-color: #fde68a; }
     .int-btn--warn:hover { background: #fef3c7; }
-    .int-btn-group { display: flex; gap: 3px; align-items: center; }
+    .int-btn-group { display: flex; gap: 4px; align-items: center; }
 
     /* status / progress inline */
     .int-sync-status {
@@ -161,29 +328,40 @@
     .int-sync-status--ok { color: #166534; }
     .int-sync-status--running { color: var(--bcn-accent, #2563eb); }
 
-    /* progress bar row (spans full table width) */
+    /* progress bar row (spans full table width) — restyled to read as a
+       two-column "Import progress" panel, matching the location-mapper
+       panel next to it, when both are open on the same store */
     .int-progress-tr td {
-      padding: 0 12px 10px;
+      padding: 0 12px 12px;
       white-space: normal;
     }
     .int-progress {
       display: none;
-      padding: 8px 10px;
+      padding: 12px 14px;
       background: var(--bcn-surface-2, #f8f9fa);
-      border-radius: 6px;
+      border-radius: 8px;
       border: 1px solid var(--bcn-border, #e5e7eb);
       font-size: 11px;
       font-family: 'IBM Plex Mono', monospace;
       color: var(--bcn-ink-2);
     }
     .int-progress.active { display: block; }
-    .int-progress-bar { height: 3px; background: #e5e7eb; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+    .int-progress::before {
+      content: 'Import progress';
+      display: block;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--bcn-ink-2);
+      margin-bottom: 6px;
+    }
+    .int-progress-bar { height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 8px; overflow: hidden; }
     .int-progress-bar > span { display: block; height: 100%; background: var(--bcn-accent, #2563eb); transition: width 0.25s ease; }
 
     /* location mapper row */
     .int-loc-tr td { padding: 0; white-space: normal; }
     .int-loc-panel {
-      padding: 12px 16px;
+      padding: 14px 16px;
       background: var(--bcn-surface-2, #f9fafb);
       border-top: 1px solid var(--bcn-border, #e5e7eb);
     }
@@ -195,7 +373,7 @@
     }
     .int-loc-panel[hidden] { display: none !important; }
     .int-loc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .int-loc-summary { font-size: 12px; font-weight: 500; color: var(--bcn-ink-2); }
+    .int-loc-summary { font-size: 12px; font-weight: 700; color: var(--bcn-ink-2); }
     .int-loc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .int-loc-table th {
       text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
@@ -213,10 +391,10 @@
 
     /* scope warning */
     .int-scope-warn {
-      padding: 6px 10px;
+      padding: 8px 10px;
       background: #fffbeb;
       border: 1px solid #fde68a;
-      border-radius: 5px;
+      border-radius: 6px;
       font-size: 11px;
       color: #92400e;
       line-height: 1.4;
@@ -264,22 +442,23 @@
       font-size: 12px;
       color: var(--bcn-ink-3);
       line-height: 1.5;
-      margin: -4px 0 12px;
+      margin: 0;
       max-width: 720px;
     }
 
     /* add store row */
-    .int-add-row td { padding: 10px 12px; }
+    .int-add-row td { padding: 12px; }
     .int-add-trigger {
       display: inline-flex;
       align-items: center;
       gap: 7px;
       font-size: 13px;
-      color: var(--bcn-ink-3);
+      font-weight: 500;
+      color: var(--bcn-accent, #2563eb);
       cursor: pointer;
       padding: 4px 0;
     }
-    .int-add-trigger:hover { color: var(--bcn-accent, #2563eb); }
+    .int-add-trigger:hover { opacity: 0.8; }
     .int-add-form {
       display: none;
       padding: 12px 0 4px;
@@ -326,10 +505,39 @@
       <div class="bcn-status" id="status" hidden></div>
 
       <div class="int-page">
-        <p class="int-section-label">Shopify stores</p>
-        <p class="int-onboarding-note">After connecting: map locations → enable nightly sync → import sales history (365d or 730d). <strong>Keep this tab open</strong> during import; if progress stops, click <strong>Resume</strong> until complete.</p>
-        <div class="int-backfill-banner" id="backfill-banner" hidden></div>
-        <div class="int-table-wrap">
+        <div class="int-summary-band" id="int-summary-band">
+          <div class="int-summary-tile">
+            <span class="int-summary-icon int-summary-icon--pos" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+            <div><div class="int-summary-value" id="sum-connected">0</div><div class="int-summary-label">Connected</div></div>
+          </div>
+          <div class="int-summary-tile">
+            <span class="int-summary-icon int-summary-icon--warn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+            <div><div class="int-summary-value" id="sum-attention">0</div><div class="int-summary-label">Needs attention</div></div>
+          </div>
+          <div class="int-summary-tile">
+            <span class="int-summary-icon int-summary-icon--info" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></span>
+            <div><div class="int-summary-value" id="sum-running">0</div><div class="int-summary-label">Imports running</div></div>
+          </div>
+          <div class="int-summary-tile">
+            <span class="int-summary-icon int-summary-icon--ro" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            <div><div class="int-summary-value" id="sum-readonly">0</div><div class="int-summary-label">Read-only connection</div></div>
+          </div>
+        </div>
+
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--shopify" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 10a4 4 0 0 1-8 0"/><path d="M3.5 8.5 5 3h14l1.5 5.5v11a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1z"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Shopify stores</h2>
+              <p>After connecting: map locations → enable nightly sync → import sales history (365d or 730d). <strong>Keep this tab open</strong> during import; if progress stops, click <strong>Resume</strong> until complete.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="shopify" aria-label="Collapse Shopify stores">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-backfill-banner-slot"><div class="int-backfill-banner" id="backfill-banner" hidden></div></div>
+          <div class="int-card-body">
+        <div class="int-table-wrap int-table-wrap--scroll">
           <table class="int-table">
             <thead>
               <tr>
@@ -374,9 +582,21 @@
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
 
-        <p class="int-section-label" style="margin-top:28px;">Ad platforms</p>
-        <p class="int-onboarding-note">Direct API connections for marketing KPIs (Google Ads, Meta Ads, TikTok Ads, GA4) → nightly sync into the <a href="/v2/marketing-overview.html">Marketing overview</a>. After connecting, set the account/property ID, test, then enable sync.</p>
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--ads" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11v3a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M17 8a5 5 0 0 1 0 8"/><path d="M20 5a9 9 0 0 1 0 14"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Ad platforms</h2>
+              <p>Direct API connections for marketing KPIs (Google Ads, Meta Ads, TikTok Ads, GA4) → nightly sync into the <a href="/v2/marketing-overview.html">Marketing overview</a>. After connecting, set the account/property ID, test, then enable sync.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="ads" aria-label="Collapse ad platforms">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -422,9 +642,21 @@
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
 
-        <p class="int-section-label" style="margin-top:28px;">Redo returns</p>
-        <p class="int-onboarding-note">Webhook-driven ingestion of Redo return data (refund / exchange / store-credit amounts) for BI reconciliation — see <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/redo-integration.md">docs/ops/redo-integration.md</a>. Connect below, copy the webhook URL + secret into Redo's dashboard (Merchant Admin → Webhooks → Return event).</p>
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--redo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 1 2.64 6.36"/><path d="M3 21v-6h6"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Redo returns</h2>
+              <p>Webhook-driven ingestion of Redo return data (refund / exchange / store-credit amounts) for BI reconciliation — see <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/redo-integration.md">docs/ops/redo-integration.md</a>. Connect below, copy the webhook URL + secret into Redo's dashboard (Merchant Admin → Webhooks → Return event).</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="redo" aria-label="Collapse Redo returns">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -450,9 +682,21 @@
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
 
-        <p class="int-section-label" style="margin-top:28px;">QuickBooks Online</p>
-        <p class="int-onboarding-note">Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed. Which environment you connect to is set by the Intuit keys configured for SILO, not chosen here — switching to production means swapping those keys and registering the redirect URI on Intuit's Production tab.</p>
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--qbo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M8 9.5a2.5 2.5 0 0 1 0 5h1M16 14.5a2.5 2.5 0 0 0 0-5h-1"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>QuickBooks Online <span class="int-card-badge">Read only</span></h2>
+              <p>Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed. Which environment you connect to is set by the Intuit keys configured for SILO, not chosen here — switching to production means swapping those keys and registering the redirect URI on Intuit's Production tab.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="qbo" aria-label="Collapse QuickBooks Online">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -478,6 +722,8 @@
             </tfoot>
           </table>
         </div>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -503,6 +749,52 @@
       el.hidden = false;
       if (ms) setTimeout(() => { el.hidden = true; }, ms);
     }
+
+    // ── Summary band ────────────────────────────────────────────────
+    // Purely presentational: tallies rows each load* function already
+    // fetched (no extra queries) into the four tiles at the top of the
+    // page. Each load* function stores its own rows here and re-derives
+    // the whole band — never reads the DOM back, so it can't drift from
+    // what's actually loaded.
+    const _summaryState = { shopify: [], ad: [], redo: null, qbo: null };
+
+    function updateSummaryBand() {
+      const s = _summaryState;
+      const connected =
+        s.shopify.filter((r) => r.last_test_status === 'ok').length
+        + s.ad.filter((r) => r.last_test_success === true).length
+        + (s.redo?.is_active ? 1 : 0)
+        + (s.qbo?.last_test_success ? 1 : 0);
+
+      const needsAttention =
+        s.shopify.filter((r) => r.last_test_status === 'error'
+          || (Array.isArray(r.scopes_missing) && r.scopes_missing.length > 0)).length
+        + s.ad.filter((r) => r.last_test_success === false).length
+        + (s.qbo && (s.qbo.last_test_success === false
+            || (s.qbo.refresh_token_expires_at && new Date(s.qbo.refresh_token_expires_at) < new Date())) ? 1 : 0);
+
+      const importsRunning = s.shopify.filter((r) => r?.meta?.history_backfill?.status === 'running').length;
+      const readOnly = s.qbo ? 1 : 0;
+
+      const setVal = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = String(n); };
+      setVal('sum-connected', connected);
+      setVal('sum-attention', needsAttention);
+      setVal('sum-running', importsRunning);
+      setVal('sum-readonly', readOnly);
+    }
+
+    // ── Card collapse (per-browser preference, purely presentational) ─
+    document.querySelectorAll('.int-card-collapse-btn').forEach((btn) => {
+      const card = btn.closest('.int-card');
+      const key = `int-card-collapsed:${btn.dataset.card}`;
+      let startCollapsed = false;
+      try { startCollapsed = localStorage.getItem(key) === '1'; } catch { /* ignore */ }
+      if (startCollapsed) card.classList.add('int-card--collapsed');
+      btn.addEventListener('click', () => {
+        const collapsed = card.classList.toggle('int-card--collapsed');
+        try { localStorage.setItem(key, collapsed ? '1' : '0'); } catch { /* ignore */ }
+      });
+    });
 
     // ── Auth + Chrome ──────────────────────────────────────────────
     let _session = null;
@@ -569,6 +861,8 @@
       if (error) { setStatus('Failed to load connections: ' + error.message, 'neg'); return; }
       renderConnections(data || []);
       syncBackfillPolling(data || []);
+      _summaryState.shopify = data || [];
+      updateSummaryBand();
     }
 
     function syncBackfillPolling(rows) {
@@ -1543,6 +1837,8 @@
         .order('platform').order('created_at');
       if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
       renderAdConnections(data || []);
+      _summaryState.ad = data || [];
+      updateSummaryBand();
     }
 
     function escAttr(s) {
@@ -1818,6 +2114,8 @@
         .maybeSingle();
       if (error) { setStatus('Failed to load Redo connection: ' + error.message, 'neg'); return; }
       renderRedoConnection(data || null);
+      _summaryState.redo = data || null;
+      updateSummaryBand();
     }
 
     function renderRedoConnection(row) {
@@ -1912,6 +2210,8 @@
       _qboRow = (data || [])[0] || null;
       if (_qboRow) await refreshQboAccountCount();
       renderQboConnection(_qboRow);
+      _summaryState.qbo = _qboRow;
+      updateSummaryBand();
     }
 
     let _qboLocationCount = null;
