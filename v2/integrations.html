@@ -1930,6 +1930,24 @@
       _qboLocationCount = loc.count ?? null;
     }
 
+    // A raw error string like "account_query_failed_504: stream timeout
+    // [intuit_tid: ...]" reads as "this app is broken" even when it is Intuit's
+    // own API having an outage -- confirmed against status.quickbooks.intuit.com
+    // during a real incident (2026-09-01/02) where every symptom traced back to
+    // Intuit, not SILO. A 5xx / stream-timeout / intuit_tid signature gets its
+    // own reassuring message pointing at their status page instead of the raw
+    // string, same as refreshDead already gets its own message below rather
+    // than generic error text.
+    function qboFriendlyError(msg) {
+      if (!msg) return null;
+      if (/_query_failed_5\d\d|stream_timeout|intuit_tid/i.test(msg)) {
+        return 'QuickBooks Online is having connectivity issues on Intuit’s end '
+          + 'right now, not your connection. Check status.quickbooks.intuit.com '
+          + 'and try again once it clears.';
+      }
+      return null;
+    }
+
     function renderQboConnection(row) {
       const tbody = document.getElementById('qbo-connections-list');
       const connectBtn = document.getElementById('btn-connect-qbo');
@@ -1957,13 +1975,16 @@
       // generic error text.
       const refreshDead = row.refresh_token_expires_at
         && new Date(row.refresh_token_expires_at) < new Date();
+      const qboOutage = row.last_test_success === false ? qboFriendlyError(row.last_test_error) : null;
       const status = refreshDead
         ? '<span class="bcn-pill bcn-pill--neg">Authorization expired — reconnect</span>'
-        : row.last_test_success === false
-          ? `<span class="bcn-pill bcn-pill--neg">${escHtml(row.last_test_error || 'Error')}</span>`
-          : row.last_test_success
-            ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
-            : '<span class="bcn-pill">Untested</span>';
+        : qboOutage
+          ? `<span class="bcn-pill">QuickBooks outage — not us</span> <span style="opacity:.7;font-size:12px;">${escHtml(qboOutage)}</span>`
+          : row.last_test_success === false
+            ? `<span class="bcn-pill bcn-pill--neg">${escHtml(row.last_test_error || 'Error')}</span>`
+            : row.last_test_success
+              ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
+              : '<span class="bcn-pill">Untested</span>';
 
       tbody.innerHTML = `<tr>
         <td>
@@ -2019,7 +2040,8 @@
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setStatus('Account pull failed: ' + (body.error || res.status), 'neg', 10000);
+        const outage = qboFriendlyError(body.error);
+        setStatus(outage || ('Account pull failed: ' + (body.error || res.status)), 'neg', 12000);
         await loadQboConnection();
         return;
       }
