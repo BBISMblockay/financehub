@@ -269,6 +269,33 @@ Two rules make a multi-measure chart honest:
 The acceptance case is one flat query — `day_date, online_net_sales,
 ad_spend, roas`, one row per day — plotted as three series on two axes.
 
+## Presentation defaults are module-wide
+
+Everything in this section lives in `chart-adapter.js`, the one file every
+tile on every dashboard renders through. **No report SQL is involved.** That
+is the point: improving a default here improves every tile that already
+exists, including reports nobody has opened since and anything anyone builds
+tomorrow. A per-report fix would drift dashboard to dashboard.
+
+| Default | What it does |
+|---|---|
+| **Column labels** | `qty_arriving_by_cutoff` → "Qty Arriving By Cutoff", `platform_roas` → "Platform ROAS", `product_type_snapshot` → "Product Type". The real column name stays on the header's `title` |
+| **Date column headers** | A matrix whose date columns are all the first of a month reads `Jan 2025`, not `2025-01-01`. Any other set of dates keeps ISO, which is unambiguous |
+| **Negative emphasis** | A negative `currency`, `number` or `percent` is coloured. Never a `count` — a negative count is not a loss — and never a date |
+| **KPI delta** | Compares to a named column or to the previous row, with an arrow, a percentage, **and the direction in words**: colour alone is not readable for everyone, and an arrow alone does not survive being pasted into Slack |
+| **Abbreviation** | `$36.4M` instead of `$36,393,571`, with the full value on hover |
+
+### Where an override lives, and why
+
+| Override | Belongs to | Because |
+|---|---|---|
+| Column **label** | the **report** (`columns_metadata[col].label`) | `net_sales` should read the same wherever it appears. One correction fixes every widget built on it — exactly like semantics |
+| **Display** choices (`abbreviate`, compare) | the **widget** (`visual_config`) | The same measure wants `$36.4M` in a narrow tile and full precision in a wide one. Two tiles can legitimately differ |
+
+That split is the rule for anything added here: if two tiles could
+reasonably disagree it is a widget setting; if they could not, it belongs to
+the report and should only ever be stated once.
+
 ## The matrix visual
 
 Every other visual reduces a result to one dimension and one measure. A

@@ -453,6 +453,19 @@
             ${options(meas.length ? meas : prof, activeY)}
           </select>
         </div>` : ''}
+        ${w.visual_type === 'kpi' ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspCompare">Compare against</label>
+          <select class="bcn-field" id="inspCompare">
+            <option value="">Nothing — just the number</option>
+            <option value="__prev"${cfg.compare === 'previous_row' ? ' selected' : ''}>The previous row (last vs the one before)</option>
+            ${(meas.length ? meas : prof).map((c) => `<option value="${esc(c.name)}"${cfg.compare_field === c.name ? ' selected' : ''}>${esc(window.SiloChart.columnLabel(c.name))}</option>`).join('')}
+          </select>
+        </div>
+        <label class="rb-col${cfg.abbreviate ? ' is-on' : ''}" style="align-self:flex-start">
+          <input type="checkbox" id="inspAbbrev" ${cfg.abbreviate ? 'checked' : ''} />
+          Abbreviate the number ($36.4M instead of $36,393,571)
+        </label>` : ''}
         ${(isChart || w.visual_type === 'kpi') ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspAgg">Aggregation</label>
@@ -733,7 +746,13 @@
           renderInspector();
           return;
         }
-        if (t.id === 'inspRow') patchConfig({ row_field: t.value });
+        if (t.id === 'inspAbbrev') patchConfig({ abbreviate: t.checked || undefined });
+        else if (t.id === 'inspCompare') {
+          patchConfig(t.value === '__prev'
+            ? { compare: 'previous_row', compare_field: undefined }
+            : { compare: undefined, compare_field: t.value || undefined });
+        }
+        else if (t.id === 'inspRow') patchConfig({ row_field: t.value });
         else if (t.id === 'inspX') patchConfig({ x_field: t.value });
         // Changing the measure can change what aggregation makes sense
         // (sum for dollars, avg for a rate), so re-render the inspector too.

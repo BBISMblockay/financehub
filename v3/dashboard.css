@@ -657,3 +657,29 @@ table.dw-matrix {
 .dw-matrix td.dw-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dw-matrix thead th { border-bottom: 1px solid var(--bcn-line, rgba(0,0,0,0.12)); }
 .dw-matrix tbody tr:nth-child(even) { background: var(--bcn-surface-2, rgba(0, 0, 0, 0.02)); }
+
+/* A negative figure is what a reader scans for on a statement. Semantic-
+   driven, so it applies to currency, number and percent but never to a
+   count or a category -- and never to a date, which cannot be negative. */
+.dw-num.dw-neg { color: var(--bcn-neg); }
+
+/* KPI delta. Direction is carried by a word as well as the colour and the
+   arrow: colour alone is not readable for everyone, and an arrow alone does
+   not survive being pasted into Slack. */
+.dw-kpi-delta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+.dw-kpi-delta--up { color: var(--bcn-pos); }
+.dw-kpi-delta--down { color: var(--bcn-neg); }
+.dw-kpi-delta-note {
+  font-family: var(--bcn-font, inherit);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--bcn-ink-3);
+}
