@@ -453,8 +453,16 @@
     // assigned. products.html carries no dept-guard, so the personal
     // "assigned to you" card is safe to show every active user, same as
     // My Tasks.
+    //
+    // Stage counts, not status flags: photo_status is 'pending' on every
+    // single sample today (nobody has marked one photographed yet) and
+    // assigned_to is null on ~90% of rows, so "needs photo"/"unassigned"
+    // fire on almost everything and tell you nothing. sample_status is the
+    // signal that actually discriminates. One consolidated card, not one
+    // per stage — a pipeline count reads better as a breakdown than as a
+    // stack of near-identical severity cards.
     async function loadSampleAttention(items, access) {
-      const READY_FOR_PHOTO = ['warehouse_ready', 'picked_up', 'pps_received', 'full_run_received'];
+      const NEW_IN_HAND = ['received', 'pps_received', 'full_run_received'];
       const [assignedMeRes] = await Promise.all([
         safeCount('product_samples', q => { let _q = q.eq('assigned_to', authUser?.id).eq('live_status', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
       ]);
@@ -463,15 +471,27 @@
       }
 
       if (!access.logistics) return;
-      const [unassignedRes, needsPhotoRes] = await Promise.all([
-        safeCount('product_samples', q => { let _q = q.is('assigned_to', null).eq('live_status', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
-        safeCount('product_samples', q => { let _q = q.eq('photo_status', 'pending').in('sample_status', READY_FOR_PHOTO); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+      const [newInHandRes, warehouseReadyRes] = await Promise.all([
+        safeCount('product_samples', q => { let _q = q.in('sample_status', NEW_IN_HAND).eq('live_status', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('product_samples', q => { let _q = q.eq('sample_status', 'warehouse_ready').eq('live_status', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
       ]);
-      if (unassignedRes.ok && unassignedRes.count > 0) {
-        pushFeedItem(items, { kind: 'sample_unassigned', title: `${unassignedRes.count} sample${unassignedRes.count === 1 ? '' : 's'} unassigned`, detail: 'In progress with nobody assigned.', href: '/v2/products.html?tab=pipeline', severity: 'warn', count: unassignedRes.count });
-      }
-      if (needsPhotoRes.ok && needsPhotoRes.count > 0) {
-        pushFeedItem(items, { kind: 'sample_needs_photo', title: `${needsPhotoRes.count} sample${needsPhotoRes.count === 1 ? '' : 's'} need photos`, detail: 'In hand and waiting on photography.', href: '/v2/products.html?tab=pipeline', severity: needsPhotoRes.count > 5 ? 'warn' : 'info', count: needsPhotoRes.count });
+      const newCount = newInHandRes.ok ? newInHandRes.count : 0;
+      const readyCount = warehouseReadyRes.ok ? warehouseReadyRes.count : 0;
+      if (newCount > 0 || readyCount > 0) {
+        // The headline is the new/ready breakdown itself, not a combined
+        // tally — a single "N samples" number would hide which stage is
+        // actually backed up. No count badge either, for the same reason:
+        // there's no one number here that means anything on its own.
+        const parts = [];
+        if (newCount > 0) parts.push(`${newCount} new`);
+        if (readyCount > 0) parts.push(`${readyCount} warehouse ready`);
+        pushFeedItem(items, {
+          kind: 'sample_pipeline',
+          title: parts.join(' · '),
+          detail: 'Review the sample pipeline in Products.',
+          href: '/v2/products.html?tab=pipeline',
+          severity: readyCount > 5 ? 'warn' : 'info',
+        });
       }
     }
 
@@ -560,8 +580,7 @@
       mail_overdue: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
       mail_unassigned: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
       mail_due_soon: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
-      sample_unassigned: { domain: 'Samples', workspace: 'Products', icon: 'camera' },
-      sample_needs_photo: { domain: 'Samples', workspace: 'Products', icon: 'camera' },
+      sample_pipeline: { domain: 'Samples', workspace: 'Products', icon: 'camera' },
       admin_access: { domain: 'Admin', workspace: 'Backend hub', icon: 'shield' },
     };
 
