@@ -527,6 +527,16 @@ export async function fetchMetaAdCreatives(connection, adIds) {
   // One extra batched pass for the SHARE case. Skipped entirely when nothing
   // needs it, so an account whose ads all carry inline copy pays nothing.
   const storyIds = [...needPost.keys()];
+  // A PAGE token, not the ad-account token. A page post is a Page node, and
+  // reading one authenticates as the Page -- the same reason Facebook Page
+  // insights derive a token here rather than reusing connection.access_token.
+  // The first cut of this pass used the ad token, every per-item read came
+  // back non-200, and because those were skipped silently it looked like the
+  // posts simply had no message: 113 SHARE ads, all still blank, no warning.
+  const postToken = storyIds.length
+    ? ((await fetchFacebookPageAccessToken(connection)) || token)
+    : token;
+  let postItemErr = 0;
   for (let i = 0; i < storyIds.length; i += 50) {
     const slice = storyIds.slice(i, i + 50);
     const batch = slice.map((id) => ({
@@ -537,7 +547,7 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       data = await fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ access_token: token, batch: JSON.stringify(batch) }).toString(),
+        body: new URLSearchParams({ access_token: postToken, batch: JSON.stringify(batch) }).toString(),
       }, 'Meta post copy batch');
     } catch (err) {
       // Copy is an enrichment, not the point of this sync. A page-post read
@@ -548,9 +558,23 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       break;
     }
     if (!Array.isArray(data)) break;
+    if (i + 50 >= storyIds.length && postItemErr) {
+      console.warn(`[warn] meta post copy: ${postItemErr} of ${storyIds.length} post reads failed`);
+    }
     slice.forEach((storyId, n) => {
       const item = data[n];
-      if (!item || item.code !== 200 || !item.body) return;
+      // Surface the FIRST per-item failure. Skipping these silently is what
+      // made a wrong token look like posts with no text -- a batch call can
+      // return 200 while every request inside it failed.
+      if (!item || item.code !== 200) {
+        if (postItemErr++ === 0) {
+          let why = item?.body || '(no body)';
+          try { why = JSON.parse(item.body)?.error?.message || why; } catch { /* keep raw */ }
+          console.warn(`[warn] meta post copy: ${item?.code ?? '?'} on ${storyId} — ${String(why).slice(0, 200)}`);
+        }
+        return;
+      }
+      if (!item.body) return;
       let post;
       try { post = JSON.parse(item.body); } catch { return; }
       const msg = typeof post?.message === 'string' && post.message.trim()
