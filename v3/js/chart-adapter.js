@@ -595,6 +595,89 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 
+  /**
+   * A matrix: one dimension down, another across, a measure in the cells.
+   *
+   * The shape a table cannot express. A P&L is LINES down and MONTHS across;
+   * rendered long it is 160 correct rows that read as nothing. Same for
+   * sales by category by month, units by size by location.
+   *
+   * ROW AND COLUMN ORDER COME FROM THE QUERY, in order of first appearance,
+   * rather than being sorted. That is the whole reason a P&L comes out
+   * right: Income, COGS, Gross Profit, Expenses, Net Income is a meaningful
+   * sequence that alphabetical order destroys, and the report already put
+   * them in that sequence with its ORDER BY. Sorting here would be this
+   * file second-guessing the query. Dates are the one exception -- a month
+   * column reads left-to-right chronologically whatever order it arrived in.
+   *
+   * Cells aggregate because a (row, column) pair can hold several source
+   * rows. `aggregate: 'none'` takes the single value and is right when the
+   * query already produced one row per cell.
+   */
+  function matrixHtml(rows, config, semantics) {
+    if (!Array.isArray(rows) || !rows.length) return '<div class="dw-empty">0 rows</div>';
+    const prof = profileColumns(rows);
+    const cfg = config || {};
+    const dims = dimensionsOf(prof);
+    const rowField = cfg.row_field || (dims[0] && dims[0].name);
+    const colField = cfg.x_field
+      || (dims.find((d) => d.name !== rowField) || {}).name;
+    const valField = cfg.y_field || (measuresOf(prof)[0] || {}).name;
+
+    if (!rowField || !colField || !valField || rowField === colField) {
+      return '<div class="dw-empty">A matrix needs a row field, a column field and a measure.</div>';
+    }
+
+    const agg = AGGREGATES.includes(cfg.aggregate) ? cfg.aggregate : 'sum';
+    const sem = semanticOf(valField, semantics, prof);
+    const colType = (prof.find((c) => c.name === colField) || {}).type;
+
+    // First-appearance order, then chronological for a date column.
+    const rowKeys = [];
+    const colKeys = [];
+    const cells = new Map();                       // "row\u0000col" -> [values]
+    for (const r of rows) {
+      const rk = r[rowField] === null || r[rowField] === undefined ? '—' : String(r[rowField]);
+      const ck = r[colField] === null || r[colField] === undefined ? '—' : String(r[colField]);
+      if (!rowKeys.includes(rk)) rowKeys.push(rk);
+      if (!colKeys.includes(ck)) colKeys.push(ck);
+      const k = rk + '\u0000' + ck;
+      const n = toNumber(r[valField]);
+      if (n === null) continue;
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(n);
+    }
+    if (colType === 'date') colKeys.sort();
+
+    const cap = Number(cfg.limit) || 0;
+    const truncated = cap > 0 && rowKeys.length > cap;
+    const shownRows = truncated ? rowKeys.slice(0, cap) : rowKeys;
+
+    // The label sits in a block child rather than directly in the cell: a
+    // table cell does not reliably honour width/min-width, and a sticky one
+    // with nowrap and no width overflows on top of the first data column.
+    const head = `<tr><th class="dw-matrix-corner"><span class="dw-matrix-label">${esc(rowField)}</span></th>`
+      + colKeys.map((c) => `<th class="dw-num">${esc(c)}</th>`).join('') + '</tr>';
+
+    const body = shownRows.map((rk) => {
+      const tds = colKeys.map((ck) => {
+        const vals = cells.get(rk + '\u0000' + ck);
+        const v = vals ? aggregateValues(vals, agg) : null;
+        // An absent cell is EMPTY, not zero. "No row for August" and
+        // "August was zero" are different facts and a matrix that prints
+        // 0 for both is the same class of lie as a coalesced velocity.
+        return `<td class="dw-num">${v === null ? '' : esc(formatValue(v, sem))}</td>`;
+      }).join('');
+      return `<tr><th class="dw-matrix-row"><span class="dw-matrix-label" title="${esc(rk)}">${esc(rk)}</span></th>${tds}</tr>`;
+    }).join('');
+
+    const note = truncated
+      ? `<div class="dw-foot-note">Showing ${shownRows.length} of ${rowKeys.length} rows</div>` : '';
+    return `<div class="bcn-matrix-scroll dw-matrix-wrap">
+        <table class="bcn-table dw-matrix"><thead>${head}</thead><tbody>${body}</tbody></table>
+      </div>${note}`;
+  }
+
   function tableHtml(rows, config, semantics) {
     if (!Array.isArray(rows) || !rows.length) return '<div class="dw-empty">0 rows</div>';
     const prof = profileColumns(rows);
@@ -682,7 +765,7 @@
     VISUAL_TYPES: ['table', 'kpi', 'bar', 'line', 'donut'],
     profileColumns, dimensionsOf, measuresOf,
     recommend, shape, optionFor,
-    tableHtml, kpiHtml,
+    tableHtml, matrixHtml, kpiHtml,
     AGGREGATES, defaultAggregate, semanticOf,
     formatValue, inferFormat, theme, isDark, esc,
   };

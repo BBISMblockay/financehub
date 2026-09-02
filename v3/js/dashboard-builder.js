@@ -40,6 +40,7 @@
     { id: 'bar',   label: 'Bar',   hint: 'Compare categories' },
     { id: 'line',  label: 'Line',  hint: 'Change over time' },
     { id: 'donut', label: 'Donut', hint: 'Parts of a whole' },
+    { id: 'matrix', label: 'Matrix', hint: 'One thing down, another across' },
   ];
 
   const SORTS = [
@@ -372,6 +373,10 @@
       const dims = window.SiloChart.dimensionsOf(prof);
       const meas = window.SiloChart.measuresOf(prof);
       const isChart = ['bar', 'line', 'donut'].includes(w.visual_type);
+      // A matrix needs a SECOND dimension -- one down, one across -- which
+      // no other visual has. Everything else about it (measure, aggregate,
+      // limit) reuses the existing controls.
+      const isMatrix = w.visual_type === 'matrix';
 
       const visualOpts = VISUALS.map((v) => `
         <label class="v3-visual-opt${w.visual_type === v.id ? ' is-active' : ''}">
@@ -411,6 +416,21 @@
           <label class="bcn-label" for="inspX">Dimension</label>
           <select class="bcn-field" id="inspX">${options(dims.length ? dims : prof, activeX)}</select>
         </div>` : ''}
+        ${isMatrix ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspRow">Rows (down)</label>
+          <select class="bcn-field" id="inspRow">${options(dims.length ? dims : prof, cfg.row_field || (dims[0] || {}).name)}</select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspX">Columns (across)</label>
+          <select class="bcn-field" id="inspX">${options(dims.length ? dims : prof, cfg.x_field)}</select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspY">Cell value</label>
+          <select class="bcn-field" id="inspY">${options(meas.length ? meas : prof, cfg.y_field)}</select>
+        </div>
+        <p class="v3-insp-hint">Rows and columns keep the order the query returned them in, so a
+          statement stays in statement order. An empty cell means no row for that pair — not zero.</p>` : ''}
         ${isChart ? `
         <div class="bcn-field-group">
           <span class="bcn-label">Measures</span>
@@ -713,7 +733,8 @@
           renderInspector();
           return;
         }
-        if (t.id === 'inspX') patchConfig({ x_field: t.value });
+        if (t.id === 'inspRow') patchConfig({ row_field: t.value });
+        else if (t.id === 'inspX') patchConfig({ x_field: t.value });
         // Changing the measure can change what aggregation makes sense
         // (sum for dollars, avg for a rate), so re-render the inspector too.
         else if (t.id === 'inspY') { patchConfig({ y_field: t.value || undefined }); renderInspector(); }

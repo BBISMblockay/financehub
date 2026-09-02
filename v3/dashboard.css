@@ -594,3 +594,66 @@
   white-space: nowrap;
   vertical-align: bottom;
 }
+
+/* ── Matrix ───────────────────────────────────────────────────────────
+   One dimension down, another across. The row header is sticky on both
+   axes because a P&L is read by tracking a line across many months, and
+   losing the line name at column six makes the whole thing unreadable. */
+.dw-matrix-wrap { max-height: 100%; overflow: auto; }
+/* table-layout: AUTO, overriding .bcn-table's `fixed`. That was the real
+   cause of the row labels painting over the first data column: fixed layout
+   divides the available width equally across every column and ignores
+   content, so 20 months got ~60px each and everything overflowed. Auto
+   sizes to content; max-content lets the table exceed its container and
+   scroll horizontally instead of cramming. */
+/* `table.dw-matrix`, not `.dw-matrix`: Beacon declares `table.bcn-table`
+   (element + class), which outranks a bare class selector. The matrix
+   carries both classes, so a one-class rule silently lost and the table
+   kept Beacon's `table-layout: fixed` and `border-collapse: collapse` --
+   which is what actually made the row labels paint over January. */
+table.dw-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
+}
+.dw-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bcn-surface, #fff);
+  white-space: nowrap;
+}
+.dw-matrix .dw-matrix-corner,
+.dw-matrix .dw-matrix-row {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bcn-surface, #fff);
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 600;
+  /* A definite width is required, not cosmetic. A sticky cell is painted
+     out of flow, so with `white-space: nowrap` and no width the label
+     overflows on top of the first data column -- "Total Cost of Goods
+     Sold" landing across its own January figure. */
+  border-right: 1px solid var(--bcn-line, rgba(0, 0, 0, 0.12));
+}
+/* The corner sits at both edges, so it has to outrank both. */
+.dw-matrix .dw-matrix-corner { z-index: 3; }
+.dw-matrix td, .dw-matrix th { padding: 6px 14px; }
+/* The width lives HERE, on a block child, because a table cell does not
+   reliably honour width or min-width -- the label column collapsed to the
+   width of its header and the row labels painted over January. */
+.dw-matrix-label {
+  display: block;
+  width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Figures line up column to column only with tabular digits. */
+.dw-matrix td.dw-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dw-matrix thead th { border-bottom: 1px solid var(--bcn-line, rgba(0,0,0,0.12)); }
+.dw-matrix tbody tr:nth-child(even) { background: var(--bcn-surface-2, rgba(0, 0, 0, 0.02)); }
