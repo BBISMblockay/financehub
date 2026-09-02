@@ -284,6 +284,9 @@ tomorrow. A per-report fix would drift dashboard to dashboard.
 | **Negative emphasis** | A negative `currency`, `number` or `percent` is coloured. Never a `count` — a negative count is not a loss — and never a date |
 | **KPI delta** | Compares to a named column or to the previous row, with an arrow, a percentage, **and the direction in words**: colour alone is not readable for everyone, and an arrow alone does not survive being pasted into Slack |
 | **Abbreviation** | `$36.4M` instead of `$36,393,571`, with the full value on hover |
+| **Totals** | Off by default. On, they sum only what can be summed: a `currency`, `count` or `number` column. A **rate is left blank**, never summed and never averaged — see below |
+| **Column selection** | A widget can hide columns and reorder them without touching the report's SQL. A column the query stopped returning simply drops out |
+| **Value labels / stacking** | Off by default on bar and line charts. Labels suppress themselves past ~24 points, where they collide; stacking refuses across mixed semantics |
 
 ### Where an override lives, and why
 
@@ -295,6 +298,58 @@ tomorrow. A per-report fix would drift dashboard to dashboard.
 That split is the rule for anything added here: if two tiles could
 reasonably disagree it is a widget setting; if they could not, it belongs to
 the report and should only ever be stated once.
+
+## Totals, and the ones that are refused
+
+`visual_config.totals` is `row` on a table, and `row` / `column` / `both` on
+a matrix. It is **off by default**, because a total is a claim and most
+tables are not lists of things that add up.
+
+What it will not do matters more than what it does:
+
+- **A rate is left blank.** Summing two conversion rates gives a number that
+  does not exist, and averaging them is a different (usually wrong) number
+  than the pooled rate. Neither is printed. The cell is empty and, on a
+  matrix, the tile says why.
+- **A truncated table says so.** When `limit` cut the rows, the footer reads
+  "the total covers the rows shown" — a total under twenty of two hundred
+  rows otherwise reads as the total.
+- **Negatives are coloured like anywhere else**, through the same
+  `signClass()` every cell uses.
+
+A matrix grand total is the arithmetic sum of the cells. On a P&L that
+double-counts by construction (Income + COGS + Gross Profit), which is
+exactly why totals are opt-in rather than the default.
+
+## Column selection
+
+`visual_config.columns` is an ordered list of column names. It both **hides**
+(anything not listed) and **reorders** (the list's own order wins). An empty
+or absent list means "everything, in query order" — never "hide everything",
+which would be a blank tile from a config that looks unset.
+
+It lives on the widget, not the report, under the same rule as the rest of
+the override table above: two tiles built on one report can legitimately want
+different columns, and the report's job is to return the data.
+
+A listed column the query no longer returns is dropped rather than rendered
+as an empty column — a report edited to stop selecting something should not
+leave a permanent blank stripe on every widget built from it.
+
+## Section headings
+
+A section is a `visual_type = 'section'` widget with **no report**. It takes
+grid space, drags and resizes like any other tile, and needs no new table and
+no special case in the save buffer — `report_id` was already nullable.
+
+It exists because a fourteen-tile board is a wall. "Act on this" over the
+first four tiles and "What already happened" over the rest is the difference
+between a page that is read and a page that is scrolled past.
+
+Two constraints in the migration are deliberate: the `visual_type` CHECK is
+the only part of a visual that ever needs a migration, and
+`dashboard_widgets_section_has_title` refuses an untitled section, which
+would otherwise be an invisible tile that still occupies the grid.
 
 ## The matrix visual
 
@@ -527,12 +582,12 @@ node v3/tests/run.js --unit      # needs nothing installed
 node v3/tests/run.js             # everything
 ```
 
-Ten suites, ~310 checks, in `v3/tests/` — see its
+Fourteen suites, ~350 checks, in `v3/tests/` — see its
 [README](tests/README.md). `.github/workflows/v3-tests.yml` runs them on any
 push or PR touching `v3/`, with no secrets, because nothing there talks to a
 real database.
 
-Five unit suites cover the pure modules. Five browser suites drive the real
+Nine unit suites cover the pure modules. Five browser suites drive the real
 pages in Chromium against a stubbed Supabase — **the pages are served
 unmodified from the repo**, so the real `dashboard.html` runs the real
 `dashboard-renderer.js` and only the outside world is faked.

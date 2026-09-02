@@ -1978,6 +1978,19 @@ select
                      where n.nspname='public' and c.relname='dashboard_widgets_v'
                        and c.reloptions::text like '%security_invoker%')
       then 'MISSING — dashboard_widgets_v is not security_invoker; it would hand a private report''s SQL to every viewer'
+    -- The visual_type CHECK is the ONE part of a visual that needs a
+    -- migration; a stale one rejects every save of a board using a newer
+    -- visual, and the page reports it as a failed save with no clue why.
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.dashboard_widgets'::regclass
+                       and conname='dashboard_widgets_visual_type_check'
+                       and pg_get_constraintdef(oid) like '%matrix%'
+                       and pg_get_constraintdef(oid) like '%section%')
+      then 'MISSING — dashboard_widgets.visual_type CHECK does not admit matrix/section; run 20260903200000 and 20260903210000'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.dashboard_widgets'::regclass
+                       and conname='dashboard_widgets_section_has_title')
+      then 'MISSING — dashboard_widgets_section_has_title; an untitled section is an invisible tile that still takes grid space'
     else 'ok'
   end as v3_dashboards;
 
