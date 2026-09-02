@@ -188,13 +188,18 @@
     function renderQueryPicker(report) {
       pickedReport = report;
       const queries = report.queries_run || [];
+      const suggested = window.SiloReportBuilder.defaultQueryIndex(queries);
       const items = queries.map((sql, i) => {
         const h = queryHeadline(sql);
+        const probe = window.SiloReportBuilder.isSchemaProbe(sql);
         return `
-        <div class="v3-query-card v3-query-card--static" data-qi="${i}">
+        <div class="v3-query-card v3-query-card--static${probe ? ' v3-query-card--probe' : ''}" data-qi="${i}">
           <div class="v3-query-head">
             <span class="v3-query-label">Query ${i + 1}</span>
             <span class="v3-query-from">from ${esc(h.from)}</span>
+            ${probe ? '<span class="v3-query-badge v3-query-badge--probe">schema lookup — not an answer</span>'
+                    : (i === suggested && queries.length > 1
+                       ? '<span class="v3-query-badge">likely the answer</span>' : '')}
           </div>
           <div class="v3-query-cols">${esc(h.cols)}</div>
           <div class="v3-query-result" data-result="${i}"></div>
@@ -736,11 +741,17 @@
         setStatus(`"${report.title}" has no stored SQL, so there is nothing for a widget to run.`, 'neg', 6000);
         return false;
       }
-      await addWidgetFromReport(report, 0);
+      // Not 0: for a multi-query answer the closing query is the answer and
+      // an opening information_schema lookup is not. See defaultQueryIndex.
+      await addWidgetFromReport(report, window.SiloReportBuilder.defaultQueryIndex(report.queries_run));
       const saved = await save();
       if (saved && (report.queries_run || []).length > 1) {
+        // Name WHICH query is showing. "the first is showing" was true when
+        // this always took index 0; it no longer does, and a status line that
+        // quietly lies about which dataset is on screen is worse than none.
+        const shown = window.SiloReportBuilder.defaultQueryIndex(report.queries_run) + 1;
         setStatus(`Added "${report.title}" and saved. It ran ${report.queries_run.length} queries — `
-          + `the first is showing; switch with the Query dropdown in the panel.`, 'info', 9000);
+          + `query ${shown} is showing; switch with the Query dropdown in the panel.`, 'info', 9000);
       }
       return saved;
     }

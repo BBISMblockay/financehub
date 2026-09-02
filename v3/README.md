@@ -269,6 +269,55 @@ Two rules make a multi-measure chart honest:
 The acceptance case is one flat query — `day_date, online_net_sales,
 ad_spend, roas`, one row per day — plotted as three series on two axes.
 
+## Calculated measures
+
+A measure over two aggregates rather than one. ROAS is `sum(sales) /
+sum(spend)` and no column anywhere holds it; without this, an analyst who
+wants a rate has to leave for the SQL tab, which is the moment the guided
+builder stops being self-serve.
+
+| Calculation | SQL | Produces |
+|---|---|---|
+| A ÷ B | `round((sum(a) / nullif(sum(b), 0))::numeric, 4)` | `number` |
+| A as % of B | `round((sum(a) / nullif(sum(b), 0) * 100)::numeric, 2)` | `percent` |
+| A − B | `(sum(a) - sum(b))` | inherits A's meaning |
+
+Two rules that are load-bearing:
+
+**Every division goes through `nullif(x, 0)`.** A zero denominator is
+ordinary in real data — a platform with clicks and no spend, a day with no
+orders — and it has to produce an empty cell, not a failed query that takes
+the whole tile down.
+
+**The calculation declares its own semantic.** This is where the four-layer
+typing would otherwise fall through: a calculated column exists in no
+catalog, so the grounded layer that stops `total_units` printing as currency
+has nothing to say about it, and name heuristics get
+`net_sales_pct_of_total` wrong — "sales" reads as money, so 12.4% would
+print as $12.40. `metadataForMeasures()` stamps it at save time and it
+overlays `metadataFromCatalog()`.
+
+Half a calculation is **dropped**, never emitted as its left half. A measure
+showing `sum(sales)` where someone asked for `sales / spend` looks like it
+works and is wrong, which is the worst of the three outcomes.
+
+## Which query of a saved answer to draw
+
+An Ask SILO answer's `queries_run` is a **transcript, not a dataset list**.
+The first entry is very often `select column_name from information_schema…`
+— the model orienting itself before it can write the real query. A widget
+defaulting to index 0 then renders a list of column names, and it looks like
+a working tile because it has rows and headers.
+
+That is not hypothetical: "Open payment requests by vendor" shipped onto a
+dashboard twice showing exactly that, with the real query at index 1.
+
+So `defaultQueryIndex()` picks the **last non-probe** query — in a tool loop
+the closing query is the answer and the earlier ones are the model working
+up to it — and the picker badges probes as "schema lookup — not an answer".
+Dimmed, not hidden: they stay previewable, and hiding one would make the
+numbering lie about the transcript.
+
 ## Parameters and slicers
 
 A report declares what it needs; the dashboard supplies it; the runner

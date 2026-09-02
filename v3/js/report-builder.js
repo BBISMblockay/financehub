@@ -43,6 +43,50 @@
   const DATEISH_PG = /^(date|timestamp)/i;
 
   const AGGREGATES = ['sum', 'avg', 'min', 'max', 'count'];
+
+  // ── Calculated measures ──────────────────────────────────────────────
+  // A measure over two aggregates rather than one: ROAS is sum(sales) /
+  // sum(spend), and there is no column anywhere that holds it. Without this
+  // an analyst who wants a rate has to leave for the SQL tab, which is the
+  // moment the guided builder stops being self-serve.
+  //
+  // Every one divides through nullif(x, 0). A zero denominator is ordinary
+  // in real data -- a platform with clicks and no spend, a day with no
+  // orders -- and it must produce an empty cell, not a failed query that
+  // takes the whole tile down.
+  //
+  // `semantic` matters more here than anywhere else: a calculated column
+  // exists in no catalog, so the grounded layer that stops `total_units`
+  // being printed as currency has nothing to say about it. Name heuristics
+  // are all that is left, and they get `net_sales_pct_of_total` wrong --
+  // "sales" reads as money and it would print as $12.40 instead of 12.4%.
+  // So the calculation declares what it produces.
+  const CALCS = [
+    { id: 'ratio', label: 'divided by', symbol: '÷', semantic: 'number',
+      sql: (a, b) => `round((${a} / nullif(${b}, 0))::numeric, 4)`,
+      alias: (m) => `${m.column}_per_${m.column2}` },
+    { id: 'pct', label: 'as % of', symbol: '%', semantic: 'percent',
+      sql: (a, b) => `round((${a} / nullif(${b}, 0) * 100)::numeric, 2)`,
+      alias: (m) => `${m.column}_pct_of_${m.column2}` },
+    // No declared semantic: currency minus currency is currency, units minus
+    // units is a count. It inherits from its left operand rather than
+    // claiming a type it cannot know.
+    { id: 'diff', label: 'minus', symbol: '−', semantic: null,
+      sql: (a, b) => `(${a} - ${b})`,
+      alias: (m) => `${m.column}_less_${m.column2}` },
+  ];
+
+  const calcFor = (m) => (m && m.calc) ? CALCS.find((c) => c.id === m.calc) || null : null;
+
+  /** The column name a measure produces. Aliases are user-editable; this is
+      the fallback, and it is also what ORDER BY and the chart pickers use. */
+  function measureAlias(m) {
+    if (!m) return '';
+    if (m.alias) return m.alias;
+    const calc = calcFor(m);
+    return calc ? calc.alias(m) : `${m.agg}_${m.column}`;
+  }
+
   const OPERATORS = [
     { id: 'eq', label: 'is', sql: (c, v) => `${c} = ${v}` },
     { id: 'ne', label: 'is not', sql: (c, v) => `${c} <> ${v}` },
@@ -128,11 +172,24 @@
     let groupBy = '';
     if (cfg.summarise) {
       const dims = (cfg.dimensions || []).filter(ok);
-      const measures = (cfg.measures || []).filter((m) => ok(m.column) && AGGREGATES.includes(m.agg));
+      // A calculated measure needs BOTH operands to be real columns with
+      // real aggregates. Half a calculation is dropped rather than emitted
+      // as its left half, which would look like a working measure showing
+      // the wrong number -- the worst of the three outcomes.
+      const measures = (cfg.measures || []).filter((m) => {
+        if (!ok(m.column) || !AGGREGATES.includes(m.agg)) return false;
+        const calc = calcFor(m);
+        if (!calc) return true;
+        return ok(m.column2) && AGGREGATES.includes(m.agg2);
+      });
       if (!measures.length) return null;
       const dimSql = dims.map(col);
-      const measureSql = measures.map((m) =>
-        `${m.agg}(${col(m.column)}) as ${qIdent(m.alias || `${m.agg}_${m.column}`)}`);
+      const measureSql = measures.map((m) => {
+        const calc = calcFor(m);
+        const left = `${m.agg}(${col(m.column)})`;
+        const expr = calc ? calc.sql(left, `${m.agg2}(${col(m.column2)})`) : left;
+        return `${expr} as ${qIdent(measureAlias(m))}`;
+      });
       selectList = dimSql.concat(measureSql).join(',\n       ');
       if (dims.length) groupBy = `\n group by ${dims.map((_, i) => i + 1).join(', ')}`;
     } else {
@@ -148,7 +205,7 @@
       // Sorting by an aggregate alias is legal in Postgres' ORDER BY, and is
       // what someone means by "top sellers", so aliases are allowed here
       // alongside real columns.
-      const aliases = (cfg.measures || []).map((m) => m.alias || `${m.agg}_${m.column}`);
+      const aliases = (cfg.measures || []).map(measureAlias);
       if (ok(cfg.sortColumn) || aliases.includes(cfg.sortColumn)) {
         sql += `\n order by ${qIdent(cfg.sortColumn)} ${cfg.sortDir === 'asc' ? 'asc' : 'desc'} nulls last`;
       }
@@ -220,19 +277,83 @@
     return { errors, warnings };
   }
 
+  /** One column's semantic, from its pg type in the catalog. Null if the
+      catalog does not know the column -- which is always true of a
+      calculated measure, hence metadataForMeasures below. */
+  function semanticForColumn(source, name) {
+    const known = new Map((source && source.columns || []).map((c) => [c.name, c.type]));
+    const pg = known.get(name);
+    if (!pg) return null;
+    return window.SiloFieldSemantics.resolve(
+      name,
+      DATEISH_PG.test(pg) ? 'date' : NUMERIC_PG.test(pg) ? 'number' : 'string',
+      { catalogIndex: new Map([[name, window.SiloFieldSemantics.pgKind(pg)]]) }).semantic;
+  }
+
   /** Semantics straight from the catalog's pg types — grounded, not guessed. */
   function metadataFromCatalog(source, sql, rows) {
-    const known = new Map((source && source.columns || []).map((c) => [c.name, c.type]));
     const out = {};
     for (const name of Object.keys((rows && rows[0]) || {})) {
-      const pg = known.get(name);
-      const semantic = pg
-        ? window.SiloFieldSemantics.resolve(name, DATEISH_PG.test(pg) ? 'date' : NUMERIC_PG.test(pg) ? 'number' : 'string',
-            { catalogIndex: new Map([[name, window.SiloFieldSemantics.pgKind(pg)]]) }).semantic
-        : null;
+      const semantic = semanticForColumn(source, name);
       if (semantic) out[name] = { semantic, source: 'catalog' };
     }
     return Object.keys(out).length ? out : null;
+  }
+
+  /**
+   * Semantics for CALCULATED measures, which no catalog can supply.
+   *
+   * This is the layer that stops a rate being printed as money. A ratio is a
+   * number, a percentage is a percent, and a difference means whatever its
+   * left operand meant. Overlay this on metadataFromCatalog -- the
+   * calculation is more authoritative about its own output than any
+   * inference over the returned rows.
+   */
+  function metadataForMeasures(source, measures) {
+    const out = {};
+    for (const m of measures || []) {
+      const calc = calcFor(m);
+      if (!calc) continue;
+      const semantic = calc.semantic || semanticForColumn(source, m.column);
+      if (semantic) out[measureAlias(m)] = { semantic, source: 'calculation' };
+    }
+    return out;
+  }
+
+  // ── Schema probes ────────────────────────────────────────────────────
+  /**
+   * Is this query the model looking up column names rather than answering?
+   *
+   * An agentic answer's queries_run is a TRANSCRIPT, not a dataset list. The
+   * first entry is very often `select column_name from information_schema
+   * ...` -- Ask SILO orienting itself before it can write the real query.
+   * A widget defaulting to index 0 then renders a list of column names, and
+   * it looks like a working tile because it has rows and headers.
+   *
+   * That is not hypothetical: "Open payment requests by vendor" shipped onto
+   * a dashboard twice showing exactly that, and the real query was sitting
+   * at index 1.
+   */
+  function isSchemaProbe(sql) {
+    const s = String(sql || '').toLowerCase();
+    return /\b(information_schema\.|pg_catalog\.|pg_class\b|pg_attribute\b|pg_matviews\b|pg_policies\b|pg_proc\b|pg_indexes\b)/.test(s);
+  }
+
+  /**
+   * Which query of a saved answer a widget should default to.
+   *
+   * The LAST non-probe query, not the first. In a tool loop the closing
+   * query is the one that produced the answer; the earlier ones are the
+   * model working up to it. Falls back to the last query, then to 0, so
+   * this always returns a usable index.
+   */
+  function defaultQueryIndex(queriesRun) {
+    const queries = Array.isArray(queriesRun) ? queriesRun : [];
+    if (!queries.length) return 0;
+    for (let i = queries.length - 1; i >= 0; i -= 1) {
+      if (queries[i] && !isSchemaProbe(queries[i])) return i;
+    }
+    return queries.length - 1;
   }
 
   // ── Plumbing columns ─────────────────────────────────────────────────
@@ -264,8 +385,9 @@
   const businessColumns = (cols) => (cols || []).filter((c) => !isPlumbing(c));
 
   global.SiloReportBuilder = {
-    isPlumbing, businessColumns, PLUMBING_NAMES,
+    isPlumbing, businessColumns, PLUMBING_NAMES, isSchemaProbe, defaultQueryIndex,
     buildSql, checkRawSqlScope, metadataFromCatalog, validateParameters,
+    metadataForMeasures, semanticForColumn, measureAlias, calcFor, CALCS,
     AGGREGATES, OPERATORS, DATE_RANGES, qIdent, qLit,
     NUMERIC_PG, DATEISH_PG,
   };

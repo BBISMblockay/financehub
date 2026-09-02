@@ -10,6 +10,16 @@ is the authority on what is still to do.
 
 ## Now (stability)
 
+- **A materialized view behind `sales_by_product_title_daily_v`.** It resolves
+  `sales_by_day.sku → products_master.sku → product_title` on every query, and a
+  30-day product rollup measures ~3s (it was ~9-12s before the Commercial overview
+  tiles that did not need the join were pointed elsewhere). It is now the slowest
+  tile on any dashboard and the floor on a board refresh. The fix is the pattern
+  already used by `wow_sales_daily_type_mv` and `inventory_on_hand_current_mv`:
+  materialize it, wrap it in a `security_invoker` view carrying the
+  `active_company_id()` filter (Postgres does NOT apply RLS to a matview), and
+  refresh at the end of the Shopify sync. Measured 2026-09-03.
+
 - [x] **`silo-chat` prompt drift: repo is ahead of prod.** Closed 2026-08-26 —
       deployed as version 56; the deployed source was diffed against `main`
       and matches. The `silo_chat_notes` stopgap row from 06:55 that day

@@ -117,7 +117,7 @@
   function renderBuild() {
     if (!source) return;
     const cols = usableCols();
-    const aliasList = cfg.measures.map((m) => m.alias || `${m.agg}_${m.column}`);
+    const aliasList = cfg.measures.map(RB.measureAlias).filter(Boolean);
 
     const colChips = cols.map((c) => `
       <label class="rb-col${cfg.columns.includes(c.name) ? ' is-on' : ''}">
@@ -131,16 +131,30 @@
         ${esc(c.name)}<span class="rb-col-type">${esc(c.type)}</span>
       </label>`).join('');
 
-    const measureRows = cfg.measures.map((m, i) => `
-      <div class="rb-rule">
+    // A plain total is [agg] of [column]. A calculation is the same twice
+    // with an operator between -- rendered as one row rather than a
+    // different section, because it IS a measure and belongs in the list
+    // whose order becomes the select list.
+    const measureRows = cfg.measures.map((m, i) => {
+      const calc = RB.calcFor(m);
+      return `
+      <div class="rb-rule${calc ? ' rb-rule--calc' : ''}">
         <select class="bcn-field" data-m-agg="${i}">${opts(RB.AGGREGATES, m.agg)}</select>
         <span class="rb-note">of</span>
         <select class="bcn-field" data-m-col="${i}">${opts(numericCols(), m.column)}</select>
+        ${calc ? `
+        <select class="bcn-field rb-calc-op" data-m-calc="${i}">
+          ${RB.CALCS.map((c) => `<option value="${c.id}"${c.id === m.calc ? ' selected' : ''}>${c.symbol} ${esc(c.label)}</option>`).join('')}
+        </select>
+        <select class="bcn-field" data-m-agg2="${i}">${opts(RB.AGGREGATES, m.agg2)}</select>
+        <span class="rb-note">of</span>
+        <select class="bcn-field" data-m-col2="${i}">${opts(numericCols(), m.column2)}</select>` : ''}
         <span class="rb-note">as</span>
         <input class="bcn-field bcn-field--mono" data-m-alias="${i}" value="${esc(m.alias || '')}"
-               placeholder="${esc(m.agg + '_' + m.column)}" />
+               placeholder="${esc(RB.measureAlias(Object.assign({}, m, { alias: '' })))}" />
         <button type="button" class="rb-x" data-m-del="${i}" aria-label="Remove">✕</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     const filterRows = cfg.filters.map((f, i) => {
       const op = RB.OPERATORS.find((o) => o.id === f.op) || RB.OPERATORS[0];
@@ -186,7 +200,12 @@
       <div class="rb-section">
         <span class="rb-section-title">Totals</span>
         ${measureRows || '<p class="rb-note">No totals yet — add one.</p>'}
-        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure" style="align-self:flex-start">+ Add a total</button>
+        <div class="rb-row">
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure">+ Add a total</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddCalc">+ Add a calculation</button>
+        </div>
+        <p class="rb-note">A calculation is one total over another — ROAS is sales ÷ spend, and no column holds it.
+          Division is guarded, so a zero denominator leaves the cell empty rather than failing the query.</p>
       </div>` : `
       <div class="rb-section">
         <span class="rb-section-title">Columns · ${cfg.columns.length ? cfg.columns.length + ' selected' : 'all'}</span>
@@ -348,8 +367,7 @@
       + (usedParams ? ` · ran with default ${usedParams === 1 ? 'parameter' : 'parameters'}` : '')
       + (rows.length >= 500 ? ' · hit the 500-row cap' : '');
     el('previewBody').innerHTML = rows.length
-      ? window.SiloChart.tableHtml(rows, { limit: 50 },
-          source ? mapSemantics(RB.metadataFromCatalog(source, resolved.sql, rows)) : null)
+      ? window.SiloChart.tableHtml(rows, { limit: 50 }, mapSemantics(currentMetadata(rows)))
       : '<div class="dw-empty">Ran fine — 0 rows.</div>';
   }
 
@@ -359,6 +377,22 @@
     const out = {};
     for (const [k, v] of Object.entries(md)) out[k] = v.semantic;
     return out;
+  }
+
+  /**
+   * What this report's columns mean, catalog first and CALCULATIONS on top.
+   *
+   * The order matters. A calculated column exists in no catalog, so the
+   * grounded layer has nothing to say about it and inference over the
+   * returned rows would fall back to reading its name -- which gets
+   * `net_sales_pct_of_total` wrong, printing 12.4% as $12.40. The
+   * calculation knows what it produced, so it wins.
+   */
+  function currentMetadata(rows) {
+    if (!source) return null;
+    const md = RB.metadataFromCatalog(source, null, rows) || {};
+    Object.assign(md, RB.metadataForMeasures(source, cfg.summarise ? cfg.measures : []));
+    return Object.keys(md).length ? md : null;
   }
 
   // ── Saving ───────────────────────────────────────────────────────────
@@ -374,7 +408,7 @@
     const title = (el('saveName').value || '').trim();
     if (!title) { el('saveName').focus(); return; }
     el('btnConfirmSave').disabled = true;
-    const md = source ? RB.metadataFromCatalog(source, lastRun.resolvedSql, lastRun.rows) : null;
+    const md = currentMetadata(lastRun.rows);
     const { data, error } = await sb.from('silo_chat_saved_reports').insert({
       // source='manual' has been allowed for clients since 20260828130000 --
       // company-scoped, never global. Nothing new was needed for this page.
@@ -512,6 +546,9 @@
     else if (t.id === 'selSortDir') cfg.sortDir = t.value;
     else if (t.dataset.mAgg !== undefined) cfg.measures[+t.dataset.mAgg].agg = t.value;
     else if (t.dataset.mCol !== undefined) cfg.measures[+t.dataset.mCol].column = t.value;
+    else if (t.dataset.mCalc !== undefined) cfg.measures[+t.dataset.mCalc].calc = t.value;
+    else if (t.dataset.mAgg2 !== undefined) cfg.measures[+t.dataset.mAgg2].agg2 = t.value;
+    else if (t.dataset.mCol2 !== undefined) cfg.measures[+t.dataset.mCol2].column2 = t.value;
     else if (t.dataset.fCol !== undefined) cfg.filters[+t.dataset.fCol].column = t.value;
     else if (t.dataset.fOp !== undefined) cfg.filters[+t.dataset.fOp].op = t.value;
     else return;
@@ -546,6 +583,17 @@
     if (e.target.closest('#btnAddMeasure')) {
       const n = numericCols()[0];
       cfg.measures.push({ column: n ? n.name : '', agg: 'sum', alias: '' }); renderBuild(); return;
+    }
+    if (e.target.closest('#btnAddCalc')) {
+      // Seed with two DIFFERENT columns where possible: a ratio of a column
+      // to itself is always 1, which reads as a broken feature.
+      const nums = numericCols();
+      cfg.measures.push({
+        calc: 'ratio', agg: 'sum', column: nums[0] ? nums[0].name : '',
+        agg2: 'sum', column2: (nums[1] || nums[0] || {}).name || '', alias: '',
+      });
+      renderBuild();
+      return;
     }
     const fd = e.target.closest('[data-f-del]');
     if (fd) { cfg.filters.splice(+fd.dataset.fDel, 1); renderBuild(); return; }
