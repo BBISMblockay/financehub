@@ -413,3 +413,9 @@
   padding: 12px 10px 16px; font-size: 10.5px; line-height: 1.5;
   color: var(--bcn-ink-4); border-top: 1px solid var(--bcn-border); margin-top: 8px;
 }
+
+.rb-linkbtn {
+  align-self: flex-start; border: none; background: transparent; padding: 2px 0;
+  color: var(--bcn-accent); font: inherit; font-size: 11px; cursor: pointer;
+}
+.rb-linkbtn:hover { text-decoration: underline; }
