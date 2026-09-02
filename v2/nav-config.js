@@ -133,11 +133,21 @@
     { id: 'reports/product-search', section: 'Sales', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-report', section: 'Sales', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
 
-    // Week over Week sits under Marketing: its KPI band is sales-shaped, but
-    // it is a marketing report, read by and built for marketing.
-    { id: 'reports/wow-report', section: 'Marketing', label: 'Week over Week', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
-    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Marketing Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
-    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Marketing Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
+    // Three Marketing entries, ordered by how they are used rather than
+    // alphabetically: the report you produce, the dashboard you watch, the
+    // tool you dig with.
+    //
+    // 'Week over Week' was renamed to 'Marketing Report' because the page
+    // stopped being weekly -- it reads day / week / month-to-date / year-to-
+    // date -- and its own <h1> already said Marketing Report. A nav label that
+    // disagrees with the page heading makes people think they clicked wrong.
+    //
+    // The other two drop their 'Marketing' prefix: the section header above
+    // them already says MARKETING, so repeating it three times crowded out the
+    // word that actually distinguishes each one.
+    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
 
     // Deliberately left in its own 'Reports' section by the Sales/Marketing
     // split above, not moved and not promoted, because it is still in soft
