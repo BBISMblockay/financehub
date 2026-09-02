@@ -1979,7 +1979,7 @@
       const status = refreshDead
         ? '<span class="bcn-pill bcn-pill--neg">Authorization expired — reconnect</span>'
         : qboOutage
-          ? `<span class="bcn-pill">QuickBooks outage — not us</span> <span style="opacity:.7;font-size:12px;">${escHtml(qboOutage)}</span>`
+          ? `<span class="bcn-pill">QuickBooks Online outage</span> <span style="opacity:.7;font-size:12px;">${escHtml(qboOutage)}</span>`
           : row.last_test_success === false
             ? `<span class="bcn-pill bcn-pill--neg">${escHtml(row.last_test_error || 'Error')}</span>`
             : row.last_test_success
