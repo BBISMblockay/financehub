@@ -24,6 +24,7 @@
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost" href="/v2/silo-chat.html">Ask SILO</a>
+        <a class="bcn-btn bcn-btn--ghost" href="/v3/report-builder.html">+ New report</a>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnNew">+ New dashboard</button>
       </div>
     </header>
@@ -111,7 +112,8 @@
     if (!rows.length) {
       el('listBody').innerHTML = `<div class="v3-empty">
         No dashboards yet. Create one, then drop any saved report onto the canvas — an answer pinned from
-        <a href="/v2/silo-chat.html">Ask SILO</a>, or a central SILO report definition.
+        <a href="/v2/silo-chat.html">Ask SILO</a>, a central SILO definition, or one you
+        <a href="/v3/report-builder.html">build from any table or view</a>.
       </div>`;
       return;
     }

@@ -117,13 +117,15 @@
         <div class="v3-picker-toolbar">
           <input type="search" class="bcn-field" id="reportSearch" placeholder="Filter saved reports…" value="${esc(reportFilter)}" />
           <span class="v3-picker-count">${visible.length} of ${usable.length}</span>
+          <a class="bcn-btn bcn-btn--ghost" href="/v3/report-builder.html">+ New report</a>
         </div>`;
 
       if (!usable.length) {
         el('addBody').innerHTML = toolbar + `<div class="v3-empty">
           No saved report has stored SQL yet. A widget can be built on any saved report —
           an answer pinned from <a href="/v2/silo-chat.html">Ask SILO</a> (ask a question, then
-          <strong>Save report</strong> under the answer) or a central SILO report definition.
+          <strong>Save report</strong> under the answer), a central SILO definition, or one you
+          <a href="/v3/report-builder.html">build from any table or view</a>.
         </div>`;
         return;
       }
@@ -167,22 +169,80 @@
     // widget draws exactly one dataset, so when there is a choice the user
     // makes it -- silently taking queries_run[0] is wrong roughly as often
     // as it is right.
+    //
+    // Showing raw SQL made that choice unmakeable for anyone who does not
+    // read SQL, which is most of the people this is for. So each query can
+    // be RUN here, in place: you pick by the columns and rows it actually
+    // returns. Lazily, one at a time -- a report with five queries should
+    // not fire five 30-second statements the moment a modal opens.
+    function queryHeadline(sql) {
+      const from = /\bfrom\s+([a-z0-9_."]+)/i.exec(sql);
+      const cols = /select\s+([\s\S]*?)\s+from\b/i.exec(sql);
+      const list = cols ? cols[1].replace(/\s+/g, ' ').trim() : '';
+      return {
+        from: from ? from[1].replace(/"/g, '') : '(subquery)',
+        cols: list.length > 90 ? list.slice(0, 88) + '…' : (list || '…'),
+      };
+    }
+
     function renderQueryPicker(report) {
       pickedReport = report;
       const queries = report.queries_run || [];
-      const items = queries.map((sql, i) => `
-        <button type="button" class="v3-query-card" data-query-index="${i}">
-          <span class="v3-query-label">Query ${i + 1}</span>
-          <pre class="v3-query-sql">${esc(sql.length > 400 ? sql.slice(0, 400) + '…' : sql)}</pre>
-        </button>`).join('');
+      const items = queries.map((sql, i) => {
+        const h = queryHeadline(sql);
+        return `
+        <div class="v3-query-card v3-query-card--static" data-qi="${i}">
+          <div class="v3-query-head">
+            <span class="v3-query-label">Query ${i + 1}</span>
+            <span class="v3-query-from">from ${esc(h.from)}</span>
+          </div>
+          <div class="v3-query-cols">${esc(h.cols)}</div>
+          <div class="v3-query-result" data-result="${i}"></div>
+          <div class="v3-query-actions">
+            <button type="button" class="bcn-btn bcn-btn--ghost" data-run="${i}">Preview</button>
+            <button type="button" class="bcn-btn bcn-btn--primary" data-query-index="${i}">Use this one</button>
+            <button type="button" class="bcn-btn bcn-btn--ghost" data-refine="${i}">Refine in report builder</button>
+          </div>
+          <details class="v3-query-sql-wrap"><summary>SQL</summary><pre class="v3-query-sql">${esc(sql)}</pre></details>
+        </div>`;
+      }).join('');
       el('addBody').innerHTML = `
         <button type="button" class="v3-back" data-act="back">← All reports</button>
         <div class="v3-picker-head">
           <div class="v3-report-title">${esc(report.title)}</div>
           <div class="v3-report-question">${esc(reportSubtitle(report))}</div>
         </div>
-        <div class="v3-picker-note">This report ran ${queries.length} queries. Pick the dataset this widget should draw.</div>
+        <div class="v3-picker-note">${queries.length > 3 ? `
+          <strong>This answer was an analysis, not a dataset.</strong> It took ${queries.length} queries, and the
+          written answer is a synthesis across all of them — so no single query reproduces it, and a widget can
+          only ever draw one. <strong>Preview</strong> to find the query carrying the number you actually want to
+          track, then either use it directly or <strong>Refine in report builder</strong> to turn it into a clean
+          report of its own.` : `
+          This report ran ${queries.length} queries. A widget draws one dataset — <strong>Preview</strong> them to
+          see what each returns, then pick. If none is right on its own, <strong>Refine in report builder</strong>
+          opens it as editable SQL you can save as its own report.`}
+        </div>
         <div class="v3-query-list">${items}</div>`;
+    }
+
+    /** Run one of a report's queries in place, so the choice is informed. */
+    async function previewQuery(index) {
+      const sql = (pickedReport.queries_run || [])[index];
+      const out = el('addBody').querySelector(`[data-result="${index}"]`);
+      if (!sql || !out) return;
+      out.innerHTML = `<span class="v3-query-running">Running…</span>`;
+      const { data, error } = await sb.rpc('chat_run_readonly_query', { query: sql });
+      if (error) {
+        out.innerHTML = `<span class="v3-query-err">Failed: ${esc(error.message)}</span>`;
+        return;
+      }
+      const rows = Array.isArray(data) ? data : [];
+      if (!rows.length) { out.innerHTML = `<span class="v3-query-err">Ran fine — 0 rows, so it would draw an empty tile.</span>`; return; }
+      const cols = Object.keys(rows[0]);
+      out.innerHTML = `
+        <div class="v3-query-meta">${rows.length} row${rows.length === 1 ? '' : 's'} · ${cols.length} column${cols.length === 1 ? '' : 's'}</div>
+        <div class="v3-query-chips">${cols.map((c) => `<span class="bcn-pill">${esc(c)}</span>`).join('')}</div>
+        ${window.SiloChart.tableHtml(rows.slice(0, 3), {})}`;
     }
 
     async function addWidgetFromReport(report, queryIndex) {
@@ -492,6 +552,15 @@
           if (!report) return;
           if ((report.queries_run || []).length === 1) addWidgetFromReport(report, 0);
           else renderQueryPicker(report);
+          return;
+        }
+        const run = e.target.closest('[data-run]');
+        if (run && pickedReport) { previewQuery(Number(run.dataset.run)); return; }
+        const refine = e.target.closest('[data-refine]');
+        if (refine && pickedReport) {
+          const sql = (pickedReport.queries_run || [])[Number(refine.dataset.refine)] || '';
+          window.location.href = '/v3/report-builder.html?sql=' + encodeURIComponent(sql)
+            + '&from=' + encodeURIComponent(pickedReport.title);
           return;
         }
         const q = e.target.closest('[data-query-index]');
