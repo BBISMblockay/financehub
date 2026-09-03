@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Cash Flow Forecast</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-panel); border-bottom: 1px solid var(--bcn-border); }
+    .cf-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+
+    .cf-card { background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+    .cf-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .cf-title { font-weight: 650; font-size: 14px; }
+    .cf-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+
+    .cf-scroll { overflow: auto; max-height: 52vh; }
+    .cf-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 12px; }
+    .cf-table th { position: sticky; top: 0; z-index: 2; background: var(--bcn-sunken);
+      text-align: left; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
+    .cf-table td { padding: 6px 10px; border-bottom: 1px solid var(--bcn-border);
+      vertical-align: top; line-height: 1.45; }
+    .cf-table tbody tr:nth-child(even) td { background: rgba(15,23,42,.015); }
+    .cf-num { text-align: right; font-family: var(--bcn-mono);
+      white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .cf-neg { color: var(--bcn-neg); }
+    .cf-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    .cf-link {
+      background: none; border: 0; padding: 0 0 0 8px; cursor: pointer;
+      color: var(--bcn-accent); font-size: 11px; text-decoration: underline;
+    }
+    .cf-link:hover { opacity: .75; }
+    .cf-tag { font-family: var(--bcn-mono); font-size: 9px; text-transform: uppercase;
+      letter-spacing: .03em; padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
+    .cf-tag--planned { background: var(--bcn-pos-soft); color: var(--bcn-pos); }
+    .cf-tag--trend { background: var(--bcn-warn-soft, rgba(217,119,6,.12)); color: var(--bcn-warn, #b45309); }
+
+    /* The cash-low callout is the point of the page, same treatment as the
+       tie-out banner on Schedules -- it reads as a verdict, not a KPI tile. */
+    .cf-low { display: flex; gap: 22px; flex-wrap: wrap; align-items: center;
+      border: 1px solid var(--bcn-border); border-radius: 12px;
+      padding: 12px 16px; margin-bottom: 14px; background: var(--bcn-panel); }
+    .cf-low--ok  { border-color: var(--bcn-pos-border); background: var(--bcn-pos-soft); }
+    .cf-low--warn { border-color: var(--bcn-neg-border); background: var(--bcn-neg-soft); }
+    .cf-low-item { display: flex; flex-direction: column; gap: 2px; }
+    .cf-low-label { font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .cf-low-value { font-family: var(--bcn-mono); font-size: 17px; font-weight: 650; }
+    .cf-low-note { font-size: 12px; }
+
+    dialog { border: 1px solid var(--bcn-border); border-radius: 14px;
+      padding: 0; max-width: 460px; width: 92vw; }
+    .cf-dlg-head { padding: 14px 16px; border-bottom: 1px solid var(--bcn-border); font-weight: 650; }
+    .cf-dlg-body { padding: 16px; display: grid; gap: 12px; }
+    .cf-dlg-foot { padding: 12px 16px; border-top: 1px solid var(--bcn-border);
+      display: flex; justify-content: flex-end; gap: 8px; }
+    .cf-field { display: flex; flex-direction: column; gap: 4px; }
+    .cf-field label { font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Cash Flow Forecast</div>
+          <div class="bcn-header-sub">A 13-week liquidity planner — actual cash and available credit, blended with what's owed, what's planned, and what nothing else in SILO knows about yet.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn" id="btnRefreshCash">Refresh cash balance</button>
+        </div>
+      </header>
+
+      <div class="cf-page">
+        <div class="bcn-status" id="status" hidden></div>
+
+        <div class="cf-low" id="cashLow" hidden>
+          <div class="cf-low-item">
+            <div class="cf-low-label">Total liquidity today</div>
+            <div class="cf-low-value" id="lowLiquidity">—</div>
+          </div>
+          <div class="cf-low-item">
+            <div class="cf-low-label">Lowest projected cash (13 weeks)</div>
+            <div class="cf-low-value" id="lowValue">—</div>
+          </div>
+          <div class="cf-low-item">
+            <div class="cf-low-label">When</div>
+            <div class="cf-low-value" id="lowWeek">—</div>
+          </div>
+          <div class="cf-low-note" id="lowNote"></div>
+        </div>
+
+        <div class="cf-card">
+          <div class="cf-card-head">
+            <div>
+              <div class="cf-title">Liquidity stack</div>
+              <div class="cf-sub" id="liquidityAsOf">Cash accounts and available credit — click Refresh cash balance above to pull current balances from QuickBooks.</div>
+            </div>
+            <button class="bcn-btn" id="btnAddFacility">Add credit facility</button>
+          </div>
+          <div class="cf-scroll" style="max-height:34vh;">
+            <table class="cf-table" id="tblLiquidity">
+              <tbody><tr><td class="cf-empty">Click Refresh cash balance to load bank accounts and credit facility balances.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="cf-card">
+          <div class="cf-card-head">
+            <div>
+              <div class="cf-title">13-week forecast</div>
+              <div class="cf-sub">Confirmed AP from Request Manager, revenue (planned where set, trend otherwise), and your planning items below — running balance week over week.</div>
+            </div>
+            <div class="cf-sub" id="unscheduledAp"></div>
+          </div>
+          <div class="cf-scroll">
+            <table class="cf-table" id="tblForecast">
+              <tbody><tr><td class="cf-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="cf-card">
+          <div class="cf-card-head">
+            <div>
+              <div class="cf-title">Planning items</div>
+              <div class="cf-sub">Recurring fixed costs (Rent, Payroll, ad spend) and one-time inputs (a loan draw, a known one-off payment) not captured anywhere else in SILO.</div>
+            </div>
+            <button class="bcn-btn bcn-btn--primary" id="btnAddItem">Add item</button>
+          </div>
+          <div class="cf-scroll" style="max-height:34vh;">
+            <table class="cf-table" id="tblItems">
+              <tbody><tr><td class="cf-empty">No planning items yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="dlgFacility">
+    <form method="dialog">
+      <div class="cf-dlg-head">Add credit facility</div>
+      <div class="cf-dlg-body">
+        <div class="cf-field">
+          <label for="dlgFLabel">Label</label>
+          <input class="bcn-field" id="dlgFLabel" placeholder="Working Capital line" />
+        </div>
+        <div class="cf-field">
+          <label for="dlgFType">Type</label>
+          <select class="bcn-field" id="dlgFType">
+            <option value="credit_card">Credit card</option>
+            <option value="line_of_credit" selected>Line of credit</option>
+            <option value="term_loan">Term loan</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="cf-field">
+          <label for="dlgFLimit">Credit limit</label>
+          <input class="bcn-field bcn-field--mono" id="dlgFLimit" type="number" min="0.01" step="0.01" />
+        </div>
+        <div class="cf-field">
+          <label for="dlgFAccount">QuickBooks account carrying the balance owed (optional)</label>
+          <select class="bcn-field bcn-field--mono" id="dlgFAccount">
+            <option value="">— not linked yet —</option>
+          </select>
+        </div>
+        <div class="cf-field">
+          <label for="dlgFNotes">Notes (optional)</label>
+          <input class="bcn-field" id="dlgFNotes" />
+        </div>
+      </div>
+      <div class="cf-dlg-foot">
+        <button class="bcn-btn" value="cancel">Cancel</button>
+        <button class="bcn-btn bcn-btn--primary" id="dlgFSave" value="save">Add facility</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgItem">
+    <form method="dialog">
+      <div class="cf-dlg-head">Add planning item</div>
+      <div class="cf-dlg-body">
+        <div class="cf-field">
+          <label for="dlgILabel">Label</label>
+          <input class="bcn-field" id="dlgILabel" placeholder="Rent, META ad spend, loan draw…" />
+        </div>
+        <div class="cf-field">
+          <label for="dlgICategory">Category (optional)</label>
+          <input class="bcn-field" id="dlgICategory" placeholder="Rent, Payroll, Marketing…" />
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="cf-field" style="flex:1">
+            <label for="dlgIKind">Kind</label>
+            <select class="bcn-field" id="dlgIKind">
+              <option value="recurring">Recurring</option>
+              <option value="one_time">One-time</option>
+            </select>
+          </div>
+          <div class="cf-field" style="flex:1">
+            <label for="dlgICadence">Cadence</label>
+            <select class="bcn-field" id="dlgICadence">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annual">Annual</option>
+            </select>
+          </div>
+        </div>
+        <div class="cf-field">
+          <label for="dlgIAmount">Amount (positive = inflow, negative = outflow)</label>
+          <input class="bcn-field bcn-field--mono" id="dlgIAmount" type="number" step="0.01" placeholder="-8500 for a cost, 50000 for an inflow" />
+        </div>
+        <div style="display:flex;gap:10px;">
+          <div class="cf-field" style="flex:1">
+            <label for="dlgIStart" id="dlgIStartLabel">Start date</label>
+            <input class="bcn-field" id="dlgIStart" type="date" />
+          </div>
+          <div class="cf-field" style="flex:1">
+            <label for="dlgIEnd">End date (optional, recurring only)</label>
+            <input class="bcn-field" id="dlgIEnd" type="date" />
+          </div>
+        </div>
+        <div class="cf-field">
+          <label for="dlgINotes">Notes (optional)</label>
+          <input class="bcn-field" id="dlgINotes" />
+        </div>
+      </div>
+      <div class="cf-dlg-foot">
+        <button class="bcn-btn" value="cancel">Cancel</button>
+        <button class="bcn-btn bcn-btn--primary" id="dlgISave" value="save">Add item</button>
+      </div>
+    </form>
+  </dialog>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const FUNCTIONS_URL = SUPABASE_URL.replace('/rest/v1', '') + '/functions/v1';
+
+  let _co = null;
+  let bankAccountOpts = '';        // Fixed by nothing -- Bank-type quickbooks_accounts, for reference only
+  let liabilityAccountOpts = '';   // account_type not 'Bank' -- what a credit facility can link to
+  let liquidity = { asOf: null, bankAccounts: [], facilities: [] };
+
+  const el = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (n) => (n < 0 ? '-' : '') + '$'
+    + Math.abs(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const dfmt = (d) => d.toISOString().slice(0, 10);
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  // ---------------------------------------------------------------------
+  // Week buckets: 13 rolling 7-day weeks starting today, not calendar weeks
+  // -- "look out 30/60/90 days" means a window starting NOW, and aligning to
+  // Monday would just add an edge case for no benefit here.
+  // ---------------------------------------------------------------------
+  function weekBuckets() {
+    const today = new Date(new Date().toDateString());
+    const weeks = [];
+    for (let i = 0; i < 13; i++) {
+      const start = new Date(today); start.setDate(start.getDate() + i * 7);
+      const end = new Date(start); end.setDate(end.getDate() + 6);
+      weeks.push({ start, end, startStr: dfmt(start), endStr: dfmt(end) });
+    }
+    return weeks;
+  }
+
+  // ---------------------------------------------------------------------
+  // Liquidity: one live BalanceSheet fetch gives both bank balances (asset
+  // side) and credit-facility balances owed (liability side) in one call --
+  // no need for two separate QBO round trips.
+  // ---------------------------------------------------------------------
+  function flatten(node, depth = 0, out = []) {
+    const rows = node?.Rows?.Row ?? node?.Row ?? null;
+    if (Array.isArray(rows)) {
+      for (const r of rows) {
+        if (r.ColData) out.push(r.ColData);
+        if (r.Rows) flatten(r, depth + 1, out);
+      }
+    }
+    return out;
+  }
+
+  async function loadAccountOptions() {
+    let q = sb.from('quickbooks_accounts')
+      .select('qbo_account_id, name, fully_qualified_name, account_type')
+      .eq('is_active', true)
+      .order('fully_qualified_name');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data } = await q;
+    const rows = data || [];
+
+    const bank = rows.filter((a) => a.account_type === 'Bank');
+    bankAccountOpts = bank.map((a) => a.qbo_account_id);
+
+    const liab = rows.filter((a) => a.account_type !== 'Bank');
+    liabilityAccountOpts = liab.map((a) =>
+      `<option value="${esc(a.qbo_account_id)}" data-name="${esc(a.fully_qualified_name || a.name)}">`
+      + `${esc(a.fully_qualified_name || a.name)} · ${esc(a.account_type)}</option>`).join('');
+    el('dlgFAccount').innerHTML = '<option value="">— not linked yet —</option>' + liabilityAccountOpts;
+  }
+
+  // Cached from the last live BalanceSheet fetch, keyed by QBO account id.
+  // Adding or removing a credit_facilities row only needs to re-map against
+  // this -- it does not need a fresh, slow, rate-limited QBO round trip.
+  // Empty until the first Refresh cash balance click.
+  let lastBalanceById = new Map();
+
+  async function refreshCashBalance() {
+    if (!_co?.id) { setStatus('No active company resolved.', 'neg', 5000); return; }
+    el('btnRefreshCash').disabled = true;
+    setStatus('Fetching balance sheet from QuickBooks…', 'info');
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/quickbooks-report`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report_name: 'BalanceSheet',
+          params: { end_date: dfmt(new Date()), accounting_method: 'Accrual' },
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setStatus('Fetch failed: ' + (body.error || res.status), 'neg', 10000); return; }
+
+      const rows = flatten(body.report);
+      const byId = new Map();
+      for (const cells of rows) {
+        const id = cells?.[0]?.id;
+        const val = Number(String(cells?.[1]?.value ?? '').replace(/[^0-9.-]/g, ''));
+        if (id && Number.isFinite(val)) byId.set(String(id), val);
+      }
+      lastBalanceById = byId;
+
+      liquidity.asOf = new Date();
+      liquidity.bankAccounts = bankAccountOpts
+        .map((id) => ({ id, balance: byId.get(String(id)) }))
+        .filter((r) => r.balance !== undefined);
+      await annotateBankNames();
+      await recomputeFacilities();
+
+      renderLiquidity();
+      setStatus('Cash balance refreshed.', 'pos', 4000);
+    } catch (e) {
+      setStatus('Unexpected error: ' + (e?.message || e), 'neg', 9000);
+    } finally {
+      el('btnRefreshCash').disabled = false;
+    }
+  }
+
+  function totalCash() {
+    return liquidity.bankAccounts.reduce((s, a) => s + a.balance, 0);
+  }
+  function totalAvailableCredit() {
+    return liquidity.facilities.reduce((s, f) => s + f.available, 0);
+  }
+
+  function renderLiquidity() {
+    const t = el('tblLiquidity');
+    if (!liquidity.asOf) return;
+    el('liquidityAsOf').textContent = `As of ${liquidity.asOf.toLocaleString()}`;
+
+    let rowsHtml = '<thead><tr><th>Account</th><th>Type</th><th class="cf-num">Balance</th><th class="cf-num">Limit</th><th class="cf-num">Available</th><th></th></tr></thead><tbody>';
+    for (const a of liquidity.bankAccounts) {
+      rowsHtml += `<tr><td>${esc(a.name || a.id)}</td><td class="cf-sub">Bank</td>`
+        + `<td class="cf-num">${money(a.balance)}</td><td class="cf-num">—</td><td class="cf-num">—</td><td></td></tr>`;
+    }
+    for (const f of liquidity.facilities) {
+      const unlinked = f.qbo_account_id ? '' : ' <span class="cf-sub">(not linked to QBO — showing full limit)</span>';
+      rowsHtml += `<tr><td>${esc(f.label)}${unlinked}</td><td class="cf-sub">${esc(f.facility_type.replace(/_/g, ' '))}</td>`
+        + `<td class="cf-num">${f.balanceOwed == null ? '—' : money(f.balanceOwed)}</td>`
+        + `<td class="cf-num">${money(f.credit_limit)}</td><td class="cf-num">${money(f.available)}</td>`
+        + `<td><button class="cf-link" data-drop-facility="${esc(f.id)}">remove</button></td></tr>`;
+    }
+    rowsHtml += `<tr class="cf-sub"><td colspan="2"><b>Totals</b></td><td></td><td></td>`
+      + `<td class="cf-num"><b>Cash ${money(totalCash())} · Credit ${money(totalAvailableCredit())}</b></td><td></td></tr>`;
+    rowsHtml += '</tbody>';
+    t.innerHTML = rowsHtml;
+
+    t.querySelectorAll('[data-drop-facility]').forEach((b) =>
+      b.addEventListener('click', () => removeFacility(b.dataset.dropFacility)));
+
+    renderCashLow();
+  }
+
+  // Bank account names aren't stored on the balance rows -- fetched once per
+  // refresh and annotated in place.
+  async function annotateBankNames() {
+    if (!liquidity.bankAccounts.length) return;
+    let q = sb.from('quickbooks_accounts')
+      .select('qbo_account_id, name, fully_qualified_name')
+      .in('qbo_account_id', liquidity.bankAccounts.map((a) => a.id));
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data } = await q;
+    const map = new Map((data || []).map((a) => [a.qbo_account_id, a.fully_qualified_name || a.name]));
+    for (const a of liquidity.bankAccounts) a.name = map.get(a.id) || a.id;
+  }
+
+  // Re-reads credit_facilities and maps each against the CACHED balance map
+  // from the last live fetch -- never a fresh QBO call. If nothing has been
+  // fetched yet (lastBalanceById empty), every facility shows balanceOwed
+  // null and available = full limit, same as an explicitly unlinked one.
+  async function recomputeFacilities() {
+    let q = sb.from('credit_facilities').select('*').eq('is_active', true).order('label');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data: facilities } = await q;
+    liquidity.facilities = (facilities || []).map((f) => {
+      const owed = f.qbo_account_id ? (lastBalanceById.get(String(f.qbo_account_id)) ?? null) : null;
+      return { ...f, balanceOwed: owed, available: owed == null ? f.credit_limit : (f.credit_limit - owed) };
+    });
+  }
+
+  async function removeFacility(id) {
+    if (!window.confirm('Remove this credit facility from the liquidity stack?')) return;
+    const { error } = await sb.from('credit_facilities').update({ is_active: false }).eq('id', id);
+    if (error) { setStatus('Could not remove: ' + error.message, 'neg', 8000); return; }
+    await recomputeFacilities();
+    renderLiquidity();
+  }
+
+  async function saveFacility() {
+    const label = el('dlgFLabel').value.trim();
+    const limit = Number(el('dlgFLimit').value || 0);
+    if (!label || !limit) { setStatus('Label and credit limit are required.', 'neg', 5000); return; }
+    if (!_co?.id) { setStatus('No active company resolved.', 'neg', 5000); return; }
+
+    const accSel = el('dlgFAccount');
+    const { error } = await sb.from('credit_facilities').insert({
+      company_entity_id: _co.id,
+      label,
+      facility_type: el('dlgFType').value,
+      credit_limit: limit,
+      qbo_account_id: accSel.value || null,
+      qbo_account_name: accSel.value ? (accSel.selectedOptions[0]?.dataset.name || null) : null,
+      notes: el('dlgFNotes').value.trim() || null,
+    });
+    if (error) { setStatus('Could not add facility: ' + error.message, 'neg', 8000); return; }
+    setStatus(`Added “${label}”.`, 'pos', 4000);
+    await recomputeFacilities();
+    if (liquidity.asOf) renderLiquidity();
+  }
+
+  // ---------------------------------------------------------------------
+  // 13-week forecast: AP outflows (Request Manager), revenue (planned from
+  // revenue_projections, trend from trailing Shopify payouts where no plan
+  // exists), and planning items (recurring + one-time).
+  // ---------------------------------------------------------------------
+  async function loadOutflows(weeks) {
+    // Filtered client-side, not `.eq('completed', false)': a legacy row with
+    // completed left null would be excluded by that filter (SQL null=false
+    // is not true), while request_manager.html's own `!r.completed` reads a
+    // null the same as false -- still open, still needs cash. Matching that
+    // exact semantics rather than a query filter that quietly disagrees.
+    let q = sb.from('payment_requests').select('amount_due, due_date, completed');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Could not load Request Manager: ' + error.message, 'neg', 8000); return { byWeek: weeks.map(() => 0), noDueDate: 0 }; }
+
+    const byWeek = weeks.map(() => 0);
+    let noDueDate = 0;
+    let overdue = 0;
+    for (const r of (data || []).filter((r) => !r.completed)) {
+      const amt = Number(r.amount_due || 0);
+      if (!r.due_date) { noDueDate += amt; continue; }
+      // Overdue (before the window starts) still needs cash -- it lands in
+      // week 0 rather than being dropped, since it is, if anything, more
+      // urgent than anything actually due this week.
+      if (r.due_date < weeks[0].startStr) { overdue += amt; continue; }
+      const idx = weeks.findIndex((w) => r.due_date >= w.startStr && r.due_date <= w.endStr);
+      if (idx >= 0) byWeek[idx] += amt;
+    }
+    byWeek[0] += overdue;
+    return { byWeek, noDueDate, overdue };
+  }
+
+  async function loadRevenue(weeks) {
+    let q = sb.from('revenue_projections')
+      .select('projection_date, projected_sales')
+      .eq('scenario', 'active')
+      .gte('projection_date', weeks[0].startStr)
+      .lte('projection_date', weeks[weeks.length - 1].endStr);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data: planned } = await q;
+
+    const byWeek = weeks.map(() => ({ amount: 0, source: null }));
+    for (const r of (planned || [])) {
+      const idx = weeks.findIndex((w) => r.projection_date >= w.startStr && r.projection_date <= w.endStr);
+      if (idx >= 0) { byWeek[idx].amount += Number(r.projected_sales || 0); byWeek[idx].source = 'planned'; }
+    }
+
+    // Trend fallback: trailing 30 days of actual Shopify payouts (real cash
+    // landed, not gross sales) for any week with no plan at all.
+    const trendStart = dfmt(new Date(Date.now() - 30 * 86400000));
+    let tq = sb.from('shopify_payouts')
+      .select('amount_net, payout_date')
+      .eq('status', 'paid')
+      .gte('payout_date', trendStart);
+    if (_co?.id) tq = tq.eq('company_entity_id', _co.id);
+    const { data: payouts } = await tq;
+    const trailingTotal = (payouts || []).reduce((s, p) => s + Number(p.amount_net || 0), 0);
+    const trailingDays = (payouts || []).length
+      ? Math.max(1, Math.round((Date.now() - new Date(trendStart).getTime()) / 86400000))
+      : 30;
+    const weeklyTrend = (trailingTotal / trailingDays) * 7;
+
+    for (const w of byWeek) {
+      if (w.source === null) { w.amount = weeklyTrend; w.source = 'trend'; }
+    }
+    return byWeek;
+  }
+
+  function addInterval(date, cadence) {
+    const d = new Date(date);
+    if (cadence === 'weekly') d.setDate(d.getDate() + 7);
+    else if (cadence === 'biweekly') d.setDate(d.getDate() + 14);
+    else if (cadence === 'monthly') d.setMonth(d.getMonth() + 1);
+    else if (cadence === 'quarterly') d.setMonth(d.getMonth() + 3);
+    else if (cadence === 'annual') d.setFullYear(d.getFullYear() + 1);
+    return d;
+  }
+
+  async function loadPlanningItems(weeks) {
+    let q = sb.from('cash_forecast_items').select('*').eq('is_active', true);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Could not load planning items: ' + error.message, 'neg', 8000); return weeks.map(() => 0); }
+
+    const byWeek = weeks.map(() => 0);
+    const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
+
+    for (const item of (data || [])) {
+      const amt = Number(item.amount || 0);
+      if (item.kind === 'one_time') {
+        const d = item.start_date;
+        const idx = weeks.findIndex((w) => d >= w.startStr && d <= w.endStr);
+        if (idx >= 0) byWeek[idx] += amt;
+        continue;
+      }
+      // Recurring: step forward from start_date to the first occurrence on
+      // or after the window, then keep stepping until past the window or
+      // end_date, capped generously against a runaway loop.
+      let occ = new Date(item.start_date + 'T00:00:00');
+      let guard = 0;
+      while (occ < windowStart && guard < 2000) { occ = addInterval(occ, item.cadence); guard++; }
+      while (occ <= windowEnd && guard < 2000) {
+        if (item.end_date && dfmt(occ) > item.end_date) break;
+        const dStr = dfmt(occ);
+        const idx = weeks.findIndex((w) => dStr >= w.startStr && dStr <= w.endStr);
+        if (idx >= 0) byWeek[idx] += amt;
+        occ = addInterval(occ, item.cadence);
+        guard++;
+      }
+    }
+    return byWeek;
+  }
+
+  let forecastState = null;
+
+  async function buildForecast() {
+    const weeks = weekBuckets();
+    const [outflows, revenue, items] = await Promise.all([
+      loadOutflows(weeks), loadRevenue(weeks), loadPlanningItems(weeks),
+    ]);
+
+    const startingCash = liquidity.asOf ? totalCash() : null;
+    let running = startingCash;
+    const rows = weeks.map((w, i) => {
+      const out = outflows.byWeek[i];
+      const rev = revenue[i];
+      const itemsNet = items[i];
+      const net = rev.amount - out + itemsNet;
+      const startBal = running;
+      running = running == null ? null : running + net;
+      return { week: w, out, rev, itemsNet, net, startBal, endBal: running };
+    });
+
+    forecastState = { weeks, outflows, revenue, items, rows };
+    renderForecast();
+  }
+
+  function renderForecast() {
+    if (!forecastState) return;
+    const { rows, outflows } = forecastState;
+    const t = el('tblForecast');
+
+    el('unscheduledAp').textContent = outflows.noDueDate > 0.005
+      ? `${money(outflows.noDueDate)} in open requests have no due date — not in any week below`
+      : '';
+
+    if (!liquidity.asOf) {
+      t.innerHTML = '<tbody><tr><td class="cf-empty">Click Refresh cash balance above to set the starting balance.</td></tr></tbody>';
+      return;
+    }
+
+    t.innerHTML = `<thead><tr>
+        <th>Week</th><th class="cf-num">Starting</th><th class="cf-num">AP due</th>
+        <th class="cf-num">Revenue</th><th class="cf-num">Planning items</th>
+        <th class="cf-num">Net</th><th class="cf-num">Ending</th>
+      </tr></thead><tbody>` + rows.map((r) => `<tr>
+        <td class="cf-sub">${esc(r.week.startStr)} → ${esc(r.week.endStr)}</td>
+        <td class="cf-num">${money(r.startBal)}</td>
+        <td class="cf-num${r.out > 0 ? ' cf-neg' : ''}">${money(-r.out)}</td>
+        <td class="cf-num">${money(r.rev.amount)}<span class="cf-tag cf-tag--${r.rev.source}">${r.rev.source}</span></td>
+        <td class="cf-num${r.itemsNet < 0 ? ' cf-neg' : ''}">${money(r.itemsNet)}</td>
+        <td class="cf-num${r.net < 0 ? ' cf-neg' : ''}">${money(r.net)}</td>
+        <td class="cf-num"><b>${money(r.endBal)}</b></td>
+      </tr>`).join('') + '</tbody>';
+  }
+
+  function renderCashLow() {
+    if (!forecastState && !liquidity.asOf) return;
+    const box = el('cashLow');
+    box.hidden = false;
+    el('lowLiquidity').textContent = money(totalCash() + totalAvailableCredit());
+
+    if (!forecastState) { box.hidden = true; return; }
+    const rows = forecastState.rows;
+    let min = rows[0]?.endBal ?? 0, minIdx = 0;
+    rows.forEach((r, i) => { if (r.endBal != null && r.endBal < min) { min = r.endBal; minIdx = i; } });
+
+    el('lowValue').textContent = money(min);
+    el('lowWeek').textContent = rows[minIdx] ? `Week of ${rows[minIdx].week.startStr}` : '—';
+    box.className = 'cf-low ' + (min < 0 ? 'cf-low--warn' : 'cf-low--ok');
+    el('lowNote').textContent = min < 0
+      ? 'Projected cash goes negative in this window at current trends — a real gap, not a rounding artifact.'
+      : 'Cash stays positive across the full 13-week window at current trends.';
+  }
+
+  // ---------------------------------------------------------------------
+  // Planning items register
+  // ---------------------------------------------------------------------
+  async function loadItems() {
+    let q = sb.from('cash_forecast_items').select('*').eq('is_active', true).order('start_date');
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Could not load items: ' + error.message, 'neg', 8000); return; }
+    renderItems(data || []);
+  }
+
+  function renderItems(rows) {
+    const t = el('tblItems');
+    if (!rows.length) {
+      t.innerHTML = '<tbody><tr><td class="cf-empty">No planning items yet.</td></tr></tbody>';
+      return;
+    }
+    t.innerHTML = `<thead><tr>
+        <th>Label</th><th>Category</th><th>Kind</th><th class="cf-num">Amount</th>
+        <th>Start</th><th>End</th><th></th>
+      </tr></thead><tbody>` + rows.map((r) => `<tr>
+        <td>${esc(r.label)}${r.notes ? `<div class="cf-sub">${esc(r.notes)}</div>` : ''}</td>
+        <td class="cf-sub">${esc(r.category || '—')}</td>
+        <td class="cf-sub">${r.kind === 'recurring' ? esc(r.cadence) : 'one-time'}</td>
+        <td class="cf-num${r.amount < 0 ? ' cf-neg' : ''}">${money(r.amount)}</td>
+        <td class="cf-sub">${esc(r.start_date)}</td>
+        <td class="cf-sub">${esc(r.end_date || '—')}</td>
+        <td><button class="cf-link" data-drop-item="${esc(r.id)}">remove</button></td>
+      </tr>`).join('') + '</tbody>';
+
+    t.querySelectorAll('[data-drop-item]').forEach((b) =>
+      b.addEventListener('click', () => removeItem(b.dataset.dropItem)));
+  }
+
+  async function removeItem(id) {
+    if (!window.confirm('Remove this planning item?')) return;
+    const { error } = await sb.from('cash_forecast_items').update({ is_active: false }).eq('id', id);
+    if (error) { setStatus('Could not remove: ' + error.message, 'neg', 8000); return; }
+    await loadItems();
+    await buildForecast();
+  }
+
+  function openAddItem() {
+    el('dlgILabel').value = '';
+    el('dlgICategory').value = '';
+    el('dlgIKind').value = 'recurring';
+    el('dlgICadence').value = 'monthly';
+    el('dlgICadence').disabled = false;
+    el('dlgIStartLabel').textContent = 'Start date';
+    el('dlgIAmount').value = '';
+    el('dlgIStart').value = dfmt(new Date());
+    el('dlgIEnd').value = '';
+    el('dlgINotes').value = '';
+    el('dlgItem').showModal();
+  }
+
+  async function saveItem() {
+    const label = el('dlgILabel').value.trim();
+    const kind = el('dlgIKind').value;
+    const amount = Number(el('dlgIAmount').value || 0);
+    const start = el('dlgIStart').value;
+    const end = el('dlgIEnd').value || null;
+
+    if (!label || !amount || !start) { setStatus('Label, amount, and a start date are required.', 'neg', 5000); return; }
+    if (!_co?.id) { setStatus('No active company resolved.', 'neg', 5000); return; }
+
+    const { error } = await sb.from('cash_forecast_items').insert({
+      company_entity_id: _co.id,
+      label,
+      category: el('dlgICategory').value.trim() || null,
+      amount,
+      kind,
+      cadence: kind === 'recurring' ? el('dlgICadence').value : null,
+      start_date: start,
+      end_date: kind === 'recurring' ? end : null,
+      notes: el('dlgINotes').value.trim() || null,
+    });
+    if (error) { setStatus('Could not add item: ' + error.message, 'neg', 8000); return; }
+    setStatus(`Added “${label}”.`, 'pos', 4000);
+    await loadItems();
+    await buildForecast();
+  }
+
+  function openAddFacility() {
+    el('dlgFLabel').value = '';
+    el('dlgFType').value = 'line_of_credit';
+    el('dlgFLimit').value = '';
+    el('dlgFAccount').value = '';
+    el('dlgFNotes').value = '';
+    el('dlgFacility').showModal();
+  }
+
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app', active: 'finance/cash-forecast',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Accounting', 'Cash Flow Forecast'], supabaseClient: sb,
+      });
+    }
+
+    await loadAccountOptions();
+    await loadItems();
+    await buildForecast();
+
+    el('btnRefreshCash').addEventListener('click', async () => {
+      await refreshCashBalance();
+      await buildForecast();
+    });
+    el('btnAddFacility').addEventListener('click', openAddFacility);
+    el('btnAddItem').addEventListener('click', openAddItem);
+    el('dlgFacility').addEventListener('close', () => {
+      if (el('dlgFacility').returnValue === 'save') saveFacility();
+    });
+    el('dlgItem').addEventListener('close', () => {
+      if (el('dlgItem').returnValue === 'save') saveItem();
+    });
+    el('dlgIKind').addEventListener('change', (e) => {
+      const recurring = e.target.value === 'recurring';
+      el('dlgICadence').disabled = !recurring;
+      el('dlgIStartLabel').textContent = recurring ? 'Start date' : 'Date';
+    });
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

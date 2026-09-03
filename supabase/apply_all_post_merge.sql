@@ -15906,6 +15906,18 @@ on conflict (id) do nothing;
 -- shape has no room for.
 -- ---------------------------------------------------------------------------
 \i migrations/20260902030000_fixed_assets.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260904310000_cash_flow_forecast.sql
+-- 13-week liquidity planner: credit_facilities (a manually-entered limit
+-- paired to the QBO liability account carrying the balance owed -- QBO
+-- tracks the balance, never the limit) and cash_forecast_items (recurring
+-- fixed costs and one-time planning inputs Request Manager and revenue
+-- projections don't capture). No edge function changes; the forecast page
+-- pulls a live QBO Balance Sheet fetch for bank/credit balances and blends
+-- it with payment_requests, revenue_projections, and shopify_payouts.
+-- ---------------------------------------------------------------------------
+\i migrations/20260904310000_cash_flow_forecast.sql
 -- =====================================================
 
 -- ============================================================
