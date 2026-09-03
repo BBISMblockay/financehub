@@ -2674,11 +2674,14 @@
       renderTrackerKPIs();
       renderTrackerTable();
 
-      // Deep links: ?tab=pipeline|samples|catalog, ?item=<tracker id>, ?sample=<sample id>
+      // Deep links: ?tab=pipeline|samples|catalog, ?item=<tracker id>, ?sample=<sample id>,
+      // ?photo=<pending|complete|na> (pipeline tab's existing photo-status filter)
       const qp=new URLSearchParams(location.search);
       const tabParam=qp.get('tab');
       if(tabParam==='samples'||tabParam==='catalog') switchTab(tabParam);
       else if(tabParam==='pipeline') switchTab('tracker');
+      const photoParam=qp.get('photo');
+      if(photoParam && tabParam==='pipeline'){ $('ptPhotoFilter').value=photoParam; renderTrackerTable(); }
       const itemId=qp.get('item'), sampleId=qp.get('sample');
       if(itemId){
         const t=allTrackerItems.find(x=>x.id===itemId);

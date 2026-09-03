@@ -313,13 +313,13 @@
       ]);
       if (!openRes.ok && !newRes.ok) return;
       if (newRes.ok && newRes.count > 0) {
-        pushFeedItem(items, { kind: 'ap_new', title: `${newRes.count} new payment request${newRes.count === 1 ? '' : 's'}`, detail: 'Fresh submissions in Request Manager.', href: '/v2/request_manager.html', severity: 'high', count: newRes.count });
+        pushFeedItem(items, { kind: 'ap_new', title: `${newRes.count} new payment request${newRes.count === 1 ? '' : 's'}`, detail: 'Fresh submissions in Request Manager.', href: '/v2/request_manager.html?queue=new', severity: 'high', count: newRes.count });
       }
       if (needsRes.ok && needsRes.count > 0) {
-        pushFeedItem(items, { kind: 'ap_needs_info', title: `${needsRes.count} need more info`, detail: 'Waiting on follow-up before payment.', href: '/v2/request_manager.html', severity: 'warn', count: needsRes.count });
+        pushFeedItem(items, { kind: 'ap_needs_info', title: `${needsRes.count} need more info`, detail: 'Waiting on follow-up before payment.', href: '/v2/request_manager.html?queue=needs_info', severity: 'warn', count: needsRes.count });
       }
       if (overdueRes.ok && overdueRes.count > 0) {
-        pushFeedItem(items, { kind: 'ap_overdue', title: `${overdueRes.count} overdue AP request${overdueRes.count === 1 ? '' : 's'}`, detail: 'Due date is before today.', href: '/v2/request_manager.html', severity: 'high', count: overdueRes.count });
+        pushFeedItem(items, { kind: 'ap_overdue', title: `${overdueRes.count} overdue AP request${overdueRes.count === 1 ? '' : 's'}`, detail: 'Due date is before today.', href: '/v2/request_manager.html?queue=overdue', severity: 'high', count: overdueRes.count });
       }
       if (openRes.ok && openRes.count > 0) {
         pushFeedItem(items, { kind: 'ap_open', title: `${openRes.count} open payment request${openRes.count === 1 ? '' : 's'}`, detail: 'Non-completed items in the queue.', href: '/v2/request_manager.html', severity: openRes.count > 5 ? 'warn' : 'info', count: openRes.count });
@@ -348,7 +348,7 @@
         pushFeedItem(items, { kind: 'po_open', title: `${open.length} open incoming PO${open.length === 1 ? '' : 's'}`, detail: 'Review receiving on PO Report.', href: '/v2/po-report.html', severity: open.length > 8 ? 'warn' : 'info', count: open.length });
       }
       if (arriving.length > 0) {
-        pushFeedItem(items, { kind: 'po_arriving', title: `${arriving.length} arriving in 7 days`, detail: 'Expected arrival this week.', href: '/v2/po-report.html', severity: 'warn', count: arriving.length });
+        pushFeedItem(items, { kind: 'po_arriving', title: `${arriving.length} arriving in 7 days`, detail: 'Expected arrival this week.', href: `/v2/po-report.html?arrivalFrom=${today}&arrivalTo=${weekEnd}`, severity: 'warn', count: arriving.length });
       }
     }
 
@@ -367,7 +367,7 @@
       const todayLaunches = launches.filter(l => l.launch_date === today);
       if (todayLaunches.length > 0) {
         const names = todayLaunches.slice(0, 3).map(l => l.title || 'Untitled').join(', ');
-        pushFeedItem(items, { kind: 'launch_today', title: `${todayLaunches.length} launch${todayLaunches.length === 1 ? '' : 'es'} today`, detail: names + (todayLaunches.length > 3 ? '…' : ''), href: '/v2/launch-calendar.html', severity: 'high', count: todayLaunches.length });
+        pushFeedItem(items, { kind: 'launch_today', title: `${todayLaunches.length} launch${todayLaunches.length === 1 ? '' : 'es'} today`, detail: names + (todayLaunches.length > 3 ? '…' : ''), href: `/v2/launch-calendar.html?from=${today}&to=${today}`, severity: 'high', count: todayLaunches.length });
       }
       const notReady = launches.filter(l => { const r = String(l.launch_readiness || '').toLowerCase(); return r && r !== 'ready'; });
       if (notReady.length > 0) {
@@ -396,7 +396,7 @@
           pushFeedItem(items, { kind: 'my_tasks_overdue', title: `${overdueTasksRes.count} of your tasks overdue`, detail: 'Assigned to you, past due date.', href: '/v2/tasks.html', severity: 'high', count: overdueTasksRes.count });
         }
         if (myTasksRes.ok && myTasksRes.count > 0) {
-          pushFeedItem(items, { kind: 'my_tasks_open', title: `${myTasksRes.count} open task${myTasksRes.count === 1 ? '' : 's'} assigned to you`, detail: 'Your current task queue.', href: '/v2/tasks.html', severity: 'info', count: myTasksRes.count });
+          pushFeedItem(items, { kind: 'my_tasks_open', title: `${myTasksRes.count} open task${myTasksRes.count === 1 ? '' : 's'} assigned to you`, detail: 'Your current task queue.', href: '/v2/tasks.html?assignee=me', severity: 'info', count: myTasksRes.count });
         }
       } catch (e) { /* optional */ }
     }
@@ -413,7 +413,7 @@
           safeCount('product_tracker', q => { let _q = q.is('launch_id', null).gte('created_at', sevenDaysAgo); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
         ]);
         if (photoRes.ok && photoRes.count > 0) {
-          pushFeedItem(items, { kind: 'tracker_photo_pending', title: `${photoRes.count} product${photoRes.count === 1 ? '' : 's'} need photos`, detail: 'Photo status is pending in Products.', href: '/v2/products.html?tab=pipeline', severity: photoRes.count > 5 ? 'warn' : 'info', count: photoRes.count });
+          pushFeedItem(items, { kind: 'tracker_photo_pending', title: `${photoRes.count} product${photoRes.count === 1 ? '' : 's'} need photos`, detail: 'Photo status is pending in Products.', href: '/v2/products.html?tab=pipeline&photo=pending', severity: photoRes.count > 5 ? 'warn' : 'info', count: photoRes.count });
         }
         if (readyRes.ok && readyRes.count > 0) {
           pushFeedItem(items, { kind: 'tracker_ready_not_live', title: `${readyRes.count} product${readyRes.count === 1 ? '' : 's'} ready but not live`, detail: 'Photo + copy done — waiting to go live.', href: '/v2/products.html?tab=pipeline', severity: 'warn', count: readyRes.count });

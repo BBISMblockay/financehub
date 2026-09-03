@@ -1786,6 +1786,16 @@
         }
       }
 
+      // Deep link: ?arrivalFrom=&arrivalTo= seed the existing arrival
+      // date-range inputs (matchesDateRange reads el.arrivalFrom/arrivalTo
+      // directly) — combined with the default "Open incoming" scope this
+      // reproduces "open POs arriving in the next 7 days" without a new
+      // filter control.
+      const qp = new URLSearchParams(location.search);
+      const qFrom = qp.get('arrivalFrom'), qTo = qp.get('arrivalTo');
+      if (qFrom) el.arrivalFrom.value = qFrom;
+      if (qTo) el.arrivalTo.value = qTo;
+
       await loadData();
     }
 

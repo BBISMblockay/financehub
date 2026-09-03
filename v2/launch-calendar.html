@@ -1088,6 +1088,18 @@ async function boot(){
   }
 
   try { bind(); } catch (e) { console.error('Launch Workbench bind failed:', e); setStatus('UI error: ' + (e.message || e), 'neg', 8000); }
+
+  // Deep link: ?from=&to= seed the existing date-range filter (F.from/F.to,
+  // read by applyFilters) — set before loadAll() so its own applyFilters()
+  // call already reflects it, same fields the fromFilter/toFilter inputs
+  // and resetBtn already read and write.
+  {
+    const qp = new URLSearchParams(location.search);
+    const qFrom = qp.get('from'), qTo = qp.get('to');
+    if (qFrom) { F.from = qFrom; $('fromFilter').value = qFrom; }
+    if (qTo)   { F.to = qTo;     $('toFilter').value = qTo; }
+  }
+
   try {
     await loadAll();
     setStatus('Ready.','pos',1400);

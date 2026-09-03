@@ -2690,6 +2690,14 @@
           return;
         }
         wireEvents();
+
+        // Deep link: ?queue=<key> pre-selects one of the existing queue
+        // cards (open|new|needs_info|overdue|due7|unassigned|paid|all) —
+        // same values the cards themselves write to state.queueFilter on
+        // click (renderSummaryCards) and applyFilters already reads.
+        const qQueue = new URLSearchParams(location.search).get("queue");
+        if (qQueue) state.queueFilter = qQueue;
+
         await loadData();
       } catch (err) {
         console.error(err);
