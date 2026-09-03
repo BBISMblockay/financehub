@@ -51,6 +51,9 @@
     .fa-acct-btn.fa-acct-unset { color: var(--bcn-ink-3); font-style: italic; }
     .fa-acct-label { font-size: 9px; text-transform: uppercase; letter-spacing: .03em;
       color: var(--bcn-ink-3); font-family: var(--bcn-mono); }
+    .fa-th-sort { cursor: pointer; user-select: none; }
+    .fa-th-sort:hover { color: var(--bcn-ink); }
+    .sort-mark { display: inline-block; width: 10px; font-size: 9px; }
 
     dialog { border: 1px solid var(--bcn-border); border-radius: 14px;
       padding: 0; max-width: 520px; width: 92vw; }
@@ -190,6 +193,10 @@
 
   let _co = null;
   let _lastAssets = [];   // cached rows, re-filtered client-side by the filter box
+  // Default to newest-in-service-first -- the previous fixed `.order('label')`
+  // sorted alphabetically by asset label, which is meaningless on a register
+  // of imported AssetGuru rows and reads as no real order at all.
+  let _sort = { field: 'in_service_date', dir: 'desc' };
   let assetAccountOpts = '';       // Fixed Asset-typed accounts -- offered for BOTH the
                                     // asset account and the accumulated-depreciation account,
                                     // since QBO types both as "Fixed Asset" (distinguished by
@@ -233,9 +240,10 @@
   }
 
   async function loadAssets() {
+    // No .order() here -- the register is always sorted client-side by
+    // whichever column the header sort points at (see _sort / sortItems).
     let q = sb.from('fixed_asset_balances_v')
-      .select('fixed_asset_id, label, qbo_asset_account_id, qbo_asset_account_name, status, cost, depreciable_base, accumulated_depreciation, net_book_value, months, periods_elapsed, depreciation_start, depreciation_end')
-      .order('label');
+      .select('fixed_asset_id, label, qbo_asset_account_id, qbo_asset_account_name, status, cost, depreciable_base, accumulated_depreciation, net_book_value, months, periods_elapsed, depreciation_start, depreciation_end');
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
     if (error) { setStatus('Asset load failed: ' + error.message, 'neg', 8000); return []; }
@@ -295,6 +303,24 @@
     return `${items.length} asset${items.length === 1 ? '' : 's'} · ${money(cost)} cost`;
   }
 
+  function sortValue(item, field) {
+    if (field === 'progress') return item.months ? item.periods_elapsed / item.months : 0;
+    if (field === 'label') return (item.label || '').toLowerCase();
+    if (field === 'in_service_date') return item.in_service_date || '';
+    return Number(item[field]) || 0;
+  }
+
+  function sortItems(items) {
+    const { field, dir } = _sort;
+    const sign = dir === 'asc' ? 1 : -1;
+    return [...items].sort((a, b) => {
+      const av = sortValue(a, field), bv = sortValue(b, field);
+      if (av < bv) return -sign;
+      if (av > bv) return sign;
+      return 0;
+    });
+  }
+
   function renderAssets(items) {
     const t = el('tblAssets');
     if (!items.length) {
@@ -303,8 +329,9 @@
       return;
     }
 
+    const sorted = sortItems(items);
     const byStatus = new Map();
-    for (const i of items) {
+    for (const i of sorted) {
       if (!byStatus.has(i.status)) byStatus.set(i.status, []);
       byStatus.get(i.status).push(i);
     }
@@ -331,13 +358,25 @@
         </tr>`).join('');
     }
 
+    const th = (field, label, extraClass) => `<th class="fa-th-sort${extraClass ? ' ' + extraClass : ''}" data-sort="${field}">${label} <span class="sort-mark" data-sort-mark="${field}"></span></th>`;
     t.innerHTML = `<thead><tr>
-        <th>Asset</th><th>In service</th><th class="fa-num">Cost</th>
-        <th class="fa-num">Accum. depr.</th><th class="fa-num">Net book value</th>
-        <th>Progress</th><th style="min-width:170px">Accounts</th><th></th>
+        ${th('label', 'Asset')}${th('in_service_date', 'In service')}${th('cost', 'Cost', 'fa-num')}
+        ${th('accumulated_depreciation', 'Accum. depr.', 'fa-num')}${th('net_book_value', 'Net book value', 'fa-num')}
+        ${th('progress', 'Progress')}<th style="min-width:170px">Accounts</th><th></th>
       </tr></thead><tbody>` + body + '</tbody>';
 
     el('assetCount').textContent = `${items.length} assets`;
+    t.querySelectorAll('[data-sort-mark]').forEach((node) => {
+      const field = node.getAttribute('data-sort-mark');
+      node.textContent = _sort.field === field ? (_sort.dir === 'asc' ? '▲' : '▼') : '';
+    });
+    t.querySelectorAll('[data-sort]').forEach((h) =>
+      h.addEventListener('click', () => {
+        const field = h.dataset.sort;
+        if (_sort.field === field) _sort.dir = _sort.dir === 'asc' ? 'desc' : 'asc';
+        else _sort = { field, dir: field === 'label' ? 'asc' : 'desc' };
+        applyFilter();
+      }));
 
     t.querySelectorAll('[data-acct-kind]').forEach((btn) =>
       btn.addEventListener('click', () => openAcctEditor(btn)));
