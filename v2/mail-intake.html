@@ -361,7 +361,6 @@
     setSubmitting(true);
     try {
       const itemId = crypto.randomUUID();
-      const uploadedFiles = await uploadFiles(els.mailFile.files, itemId);
 
       const payload = {
         id: itemId,
@@ -380,12 +379,49 @@
         updated_by: currentUser?.id || null
       };
 
+      // The mail item row has to exist BEFORE any file upload: the
+      // mail-item-files storage bucket's own RLS policy only accepts an
+      // object into a "<item id>/..." path once a mail_items row with that
+      // id already exists (same shape as "payment request files writable
+      // with the request"). Uploading first (the old order) raced that
+      // check and could fail with "new row violates row-level security
+      // policy" -- same root cause fixed in purchase_request.html
+      // (2026-09-03), hit here too.
       const { error: insertError } = await supabaseClient.from("mail_items").insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})});
       if (insertError) throw insertError;
 
-      if (uploadedFiles.length) {
-        const { error: fileRowsError } = await supabaseClient.from("mail_item_files").insert(uploadedFiles);
-        if (fileRowsError) throw fileRowsError;
+      let uploadedFiles = [];
+      try {
+        uploadedFiles = await uploadFiles(els.mailFile.files, itemId);
+        if (uploadedFiles.length) {
+          const { error: fileRowsError } = await supabaseClient.from("mail_item_files").insert(uploadedFiles);
+          if (fileRowsError) throw fileRowsError;
+        }
+      } catch (attachError) {
+        // The mail item itself is already saved -- say so plainly instead
+        // of a generic failure, which would read as "nothing happened" and
+        // invite a duplicate submission.
+        console.error(attachError);
+        try {
+          await logActivity({
+            itemId,
+            activityType: "submitted",
+            message: `Logged by ${currentUser.email || "a team member"} -- attachment failed to upload.`
+          });
+        } catch (activityErr) {
+          console.error("Failed to log submitted activity", activityErr);
+        }
+        if (payload.assigned_to) {
+          supabaseClient.functions.invoke("mail-item-notify", {
+            body: { mail_item_id: itemId, kind: "assigned" }
+          }).catch(err => console.error("Assignment notification failed", err));
+        }
+        els.successItemId.textContent = itemId;
+        els.successFileName.textContent = "Logged, but the attachment failed to upload — add it from Mailroom or resend it.";
+        els.appCard.classList.add("hidden");
+        els.successCard.classList.remove("hidden");
+        showStatus("Logged, but the attachment failed: " + (attachError?.message || "unknown error"), "error");
+        return;
       }
 
       try {
