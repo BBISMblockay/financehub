@@ -604,8 +604,6 @@
     setSubmitting(true);
     try {
       const requestId = crypto.randomUUID();
-      const uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
-      const primaryFile = uploadedFiles[0] || { file_name: null, file_path: null, file_url: null };
 
       const payload = {
         id: requestId,
@@ -623,34 +621,73 @@
         requester_email_norm: normalizeEmail(requesterEmail),
         location_name: els.locationName.value.trim() || null,
         notes_comments: els.notesComments.value.trim() || null,
-        file_name: primaryFile.file_name,
-        file_path: primaryFile.file_path,
-        file_url: primaryFile.file_url,
+        // Left null on purpose -- see the comment above the insert below.
+        file_name: null,
+        file_path: null,
+        file_url: null,
         workflow_status: "new",
         completed: false,
         created_by: currentUser?.id || null,
         updated_by: currentUser?.id || null
       };
 
+      // The request row has to exist BEFORE any file upload: the
+      // payment-request-files storage bucket's own RLS policy only accepts
+      // an object into a "<request id>/..." path once a payment_requests
+      // row with that id already exists. Uploading first (the old order)
+      // raced that check and could fail with "new row violates row-level
+      // security policy" -- confirmed as the cause of a real failure for a
+      // non-finance submitter (2026-09-03).
+      //
+      // file_name/file_path/file_url stay null on this row rather than
+      // getting backfilled after upload, because a submitter who isn't
+      // finance/exec can't UPDATE their own request afterward (that RLS
+      // policy is finance-only) -- so there's no safe later step to set
+      // them. request_manager.html already treats payment_request_files as
+      // the real source of truth and only falls back to these columns when
+      // no rows exist there, so leaving them null here doesn't hide the
+      // attachment.
       const { error: insertError } = await supabaseClient.from("payment_requests").insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})});
       if (insertError) throw insertError;
 
-      if (uploadedFiles.length) {
-        const { error: fileRowsError } = await supabaseClient.from("payment_request_files").insert(uploadedFiles);
-        if (fileRowsError) throw fileRowsError;
+      const finish = (fileMessage, statusMsg, statusType) => {
+        els.successRequestId.textContent = requestId;
+        els.successFileName.textContent = fileMessage;
+        els.appCard.classList.add("hidden");
+        els.successCard.classList.remove("hidden");
+        showStatus(statusMsg, statusType);
+        supabaseClient.functions.invoke("payment-request-submitted-notify", {
+          body: { payment_request_id: requestId }
+        }).catch(err => console.error("submission notification failed", err));
+      };
+
+      let uploadedFiles = [];
+      try {
+        uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
+        if (uploadedFiles.length) {
+          const { error: fileRowsError } = await supabaseClient.from("payment_request_files").insert(uploadedFiles);
+          if (fileRowsError) throw fileRowsError;
+        }
+      } catch (attachError) {
+        // The request itself is already saved at this point -- tell the
+        // user that plainly instead of showing a generic failure, which
+        // would read as "nothing happened" and invite a duplicate retry.
+        console.error(attachError);
+        finish(
+          "Request saved, but the attachment failed to upload — add it from Request Manager or resend it to AP.",
+          "Request saved, but the attachment failed: " + (attachError?.message || "unknown error"),
+          "error",
+        );
+        return;
       }
 
-      els.successRequestId.textContent = requestId;
-      els.successFileName.textContent = uploadedFiles.length
-        ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
-        : "No files attached";
-      els.appCard.classList.add("hidden");
-      els.successCard.classList.remove("hidden");
-      showStatus("Your request was sent to AP.", "success");
-
-      supabaseClient.functions.invoke("payment-request-submitted-notify", {
-        body: { payment_request_id: requestId }
-      }).catch(err => console.error("submission notification failed", err));
+      finish(
+        uploadedFiles.length
+          ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
+          : "No files attached",
+        "Your request was sent to AP.",
+        "success",
+      );
     } catch (error) {
       console.error(error);
       showStatus(error?.message || "Something went wrong while saving. Please try again.", "error");
