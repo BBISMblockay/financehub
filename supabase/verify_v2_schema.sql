@@ -1948,6 +1948,19 @@ select
         || 'check it still divides by useful_life_months rather than the disposal-shortened period '
         || 'count (verified directly against synthetic assets when this view was built: a 24mo/'
         || '$24,000 asset disposed after 6mo must recognise $6,000, not $24,000)'
+    -- 20260903190000: a landlord TI reimbursement is its own contra-asset,
+    -- amortizing to zero on the same straight-line schedule as any other
+    -- asset -- not netted against a specific positive row. That needs
+    -- cost <> 0 (was > 0); a cost = 0 constraint violation here means the
+    -- widening migration never ran and an AssetGuru-style import will fail.
+    when exists (select 1 from pg_constraint
+                 where conrelid = 'public.fixed_assets'::regclass
+                   and conname = 'fixed_assets_cost_check'
+                   and pg_get_constraintdef(oid) not like '%cost <> 0%'
+                   and pg_get_constraintdef(oid) not like '%cost <> (0)%')
+      then 'MISSING — fixed_assets_cost_check still reads cost > 0; '
+        || 'run 20260903190000_fixed_assets_negative_cost.sql so a negative-cost '
+        || 'contra-asset (e.g. a landlord TI reimbursement) can be inserted'
     else 'ok'
   end as fixed_assets;
 -- ── Storage isolation ────────────────────────────────────────────────
