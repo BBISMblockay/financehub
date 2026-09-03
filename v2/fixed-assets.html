@@ -508,11 +508,16 @@
     await refresh();
   }
 
-  // Depreciation posting -- same shape as Schedules' amortization posting:
-  // one line per asset (debit expense, credit accumulated depreciation),
-  // never netted, so a reviewer sees which asset produced which dollar.
-  // Scoped to no method filter since only straight_line exists; the view
-  // itself has nothing else to compute.
+  // Depreciation posting -- summarized, not one line per asset. At 400+
+  // active assets a per-asset line pair is an 800+ line journal entry
+  // that is unusable in QuickBooks; the per-asset detail already lives in
+  // fixed_asset_depreciation_v (and the asset register itself), so the
+  // posted entry only needs one debit per distinct expense account and
+  // one credit per distinct accumulated-depreciation account -- for
+  // Baseballism's register that's a straight 2-line entry (PP&E
+  // depreciation expense vs. accumulated depreciation) since every asset
+  // shares the same two accounts. Scoped to no method filter since only
+  // straight_line exists; the view itself has nothing else to compute.
   function lastFullMonth() {
     const now = new Date();
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
@@ -533,19 +538,41 @@
     const { data, error } = await q;
     if (error) throw new Error(error.message);
 
-    const lines = [];
     const unmapped = [];
+    let assetCount = 0;
+    // account id -> running total, summed at asset-level 2-decimal
+    // precision so the running sum never accumulates float noise.
+    const debitTotals = new Map();
+    const creditTotals = new Map();
     for (const r of (data || [])) {
-      const amt = Number(r.period_amount || 0);
-      if (amt <= 0.004) continue;
+      const amt = Math.round(Number(r.period_amount || 0) * 100) / 100;
+      // Pre-existing bug carried forward from the per-asset-line version:
+      // `amt <= 0.004` silently drops every NEGATIVE period_amount, which
+      // is every contra-asset month (a landlord TI reimbursement's
+      // amortization is a negative period_amount by design) -- meaning
+      // this builder never actually included the negative-asset schedule
+      // in a posted entry. Skip only true near-zero amounts, in either
+      // direction.
+      if (Math.abs(amt) <= 0.004) continue;
       if (!r.qbo_depreciation_expense_account_id || !r.qbo_accum_depreciation_account_id) {
         unmapped.push(r.label);
         continue;
       }
-      const desc = `${r.label} — ${monthStr}`;
-      lines.push({ accountId: r.qbo_depreciation_expense_account_id, postingType: 'Debit', amount: amt, description: desc });
-      lines.push({ accountId: r.qbo_accum_depreciation_account_id, postingType: 'Credit', amount: amt, description: desc });
+      assetCount++;
+      debitTotals.set(r.qbo_depreciation_expense_account_id,
+        (debitTotals.get(r.qbo_depreciation_expense_account_id) || 0) + amt);
+      creditTotals.set(r.qbo_accum_depreciation_account_id,
+        (creditTotals.get(r.qbo_accum_depreciation_account_id) || 0) + amt);
     }
+
+    const desc = `Depreciation — ${monthStr} (${assetCount} asset${assetCount === 1 ? '' : 's'})`;
+    const round2 = (n) => Math.round(n * 100) / 100;
+    const lines = [
+      ...[...debitTotals].map(([accountId, amount]) =>
+        ({ accountId, postingType: 'Debit', amount: round2(amount), description: desc })),
+      ...[...creditTotals].map(([accountId, amount]) =>
+        ({ accountId, postingType: 'Credit', amount: round2(amount), description: desc })),
+    ];
     return { lines, unmapped };
   }
 
