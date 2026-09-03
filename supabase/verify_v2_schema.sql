@@ -2271,7 +2271,8 @@ select
                       or relname like 'quickbooks%' or relname like 'review%'
                       or relname like 'employee%' or relname like 'silo\_chat%'
                       or relname like 'fixed\_asset%' or relname like 'card\_%'
-                      or relname like 'accounting\_%' or relname like 'schedule\_%'))
+                      or relname like 'accounting\_%' or relname like 'schedule\_%'
+                      or relname like 'credit\_facilit%' or relname like 'cash\_forecast%'))
       then 'MISSING — a finance or HR object is offered in the report builder rail; the workbench is for commercial reporting only (RLS is still the boundary, but it should not be OFFERED)'
     when (select count(*) from public.silo_chat_schema_catalog where reportable) = 0
       then 'MISSING — nothing is marked reportable; the report builder rail will be empty'
@@ -2290,3 +2291,23 @@ select
       then 'MISSING — an object is starred but not reportable, so it is promoted into a rail it never appears in'
     else 'ok'
   end as report_builder_start_here;
+
+-- ---------------------------------------------------------------------------
+-- Cash flow forecast (20260904310000_cash_flow_forecast.sql)
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='credit_facilities')
+      then 'MISSING — credit_facilities absent; run 20260904310000_cash_flow_forecast.sql'
+    when not exists (select 1 from information_schema.tables
+                      where table_schema='public' and table_name='cash_forecast_items')
+      then 'MISSING — cash_forecast_items absent'
+    when not exists (select 1 from information_schema.check_constraints
+                      where constraint_schema = 'public'
+                        and constraint_name = 'cash_forecast_items_cadence_matches_kind')
+      then 'MISSING — the kind/cadence CHECK is absent; a recurring item could be saved with no '
+        || 'cadence (never generates an occurrence) or a one-time item with one (never used, but '
+        || 'confusing on the register)'
+    else 'ok'
+  end as cash_flow_forecast;

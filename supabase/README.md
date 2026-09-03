@@ -355,6 +355,7 @@ supabase/
     20260904260000_ownership_dashboard.sql
     20260904280000_business_timezone_and_channel_revenue.sql
     20260904300000_report_tieouts.sql
+    20260904310000_cash_flow_forecast.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
