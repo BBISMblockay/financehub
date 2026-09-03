@@ -15908,6 +15908,16 @@ on conflict (id) do nothing;
 \i migrations/20260902030000_fixed_assets.sql
 
 -- ---------------------------------------------------------------------------
+-- 20260903190000_fixed_assets_negative_cost.sql
+-- Widens fixed_assets.cost from > 0 to <> 0 (salvage_value forced to 0 for a
+-- negative-cost row) so a landlord tenant-improvement reimbursement can be
+-- imported as its own contra-asset, amortizing to zero on the same
+-- straight-line schedule as any other asset, rather than needing a specific
+-- positive row to net against.
+-- ---------------------------------------------------------------------------
+\i migrations/20260903190000_fixed_assets_negative_cost.sql
+
+-- ---------------------------------------------------------------------------
 -- 20260904310000_cash_flow_forecast.sql
 -- 13-week liquidity planner: credit_facilities (a manually-entered limit
 -- paired to the QBO liability account carrying the balance owed -- QBO

@@ -38,6 +38,20 @@
     }
     .fa-link:hover { opacity: .75; }
 
+    .fa-group-row td { background: var(--bcn-sunken) !important; font-family: var(--bcn-mono);
+      font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 6px 10px; position: sticky; top: 27px; z-index: 1; }
+    .fa-filter { width: 220px; }
+    .fa-acct-btn {
+      display: block; width: 100%; text-align: left; background: none; border: 0;
+      padding: 1px 0; cursor: pointer; font-size: 11px; font-family: var(--bcn-mono);
+      color: var(--bcn-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .fa-acct-btn:hover { color: var(--bcn-accent); text-decoration: underline; }
+    .fa-acct-btn.fa-acct-unset { color: var(--bcn-ink-3); font-style: italic; }
+    .fa-acct-label { font-size: 9px; text-transform: uppercase; letter-spacing: .03em;
+      color: var(--bcn-ink-3); font-family: var(--bcn-mono); }
+
     dialog { border: 1px solid var(--bcn-border); border-radius: 14px;
       padding: 0; max-width: 520px; width: 92vw; }
     .fa-dlg-head { padding: 14px 16px; border-bottom: 1px solid var(--bcn-border); font-weight: 650; }
@@ -80,9 +94,13 @@
           <div class="fa-card-head">
             <div>
               <div class="fa-title">Asset register</div>
-              <div class="fa-sub">Straight-line only. Pick the expense and accumulated-depreciation accounts before posting a period.</div>
+              <div class="fa-sub">Straight-line only. Grouped by status — click an account name to change it.</div>
             </div>
-            <div class="fa-sub" id="assetCount"></div>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <input class="bcn-field fa-filter" id="assetFilter" type="search"
+                placeholder="Filter by label or vendor…" />
+              <div class="fa-sub" id="assetCount"></div>
+            </div>
           </div>
           <div class="fa-scroll">
             <table class="fa-table" id="tblAssets">
@@ -171,6 +189,7 @@
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let _co = null;
+  let _lastAssets = [];   // cached rows, re-filtered client-side by the filter box
   let assetAccountOpts = '';       // Fixed Asset-typed accounts -- offered for BOTH the
                                     // asset account and the accumulated-depreciation account,
                                     // since QBO types both as "Fixed Asset" (distinguished by
@@ -228,82 +247,152 @@
     // second lean query rather than widening a view several callers could
     // read, same reasoning as Schedules' expense-account merge.
     const { data: extra } = await sb.from('fixed_assets')
-      .select('id, qbo_depreciation_expense_account_id, qbo_accum_depreciation_account_id, disposal_date, in_service_date, useful_life_months, salvage_value, vendor_name')
+      .select(`id, qbo_depreciation_expense_account_id, qbo_depreciation_expense_account_name,
+        qbo_accum_depreciation_account_id, qbo_accum_depreciation_account_name,
+        disposal_date, in_service_date, useful_life_months, salvage_value, vendor_name`)
       .in('id', rows.map((r) => r.fixed_asset_id));
     const map = new Map((extra || []).map((r) => [r.id, r]));
     for (const r of rows) {
       const e = map.get(r.fixed_asset_id) || {};
       r.qbo_depreciation_expense_account_id = e.qbo_depreciation_expense_account_id || '';
+      r.qbo_depreciation_expense_account_name = e.qbo_depreciation_expense_account_name || '';
       r.qbo_accum_depreciation_account_id = e.qbo_accum_depreciation_account_id || '';
+      r.qbo_accum_depreciation_account_name = e.qbo_accum_depreciation_account_name || '';
       r.disposal_date = e.disposal_date || null;
       r.in_service_date = e.in_service_date || '';
       r.useful_life_months = e.useful_life_months || 0;
       r.salvage_value = e.salvage_value || 0;
+      r.vendor_name = e.vendor_name || '';
     }
     return rows;
+  }
+
+  // Grouped by status (active / disposed / closed) rather than one flat
+  // list -- with 497 imported assets a single undifferentiated table is
+  // exactly the register a status-driven decision (which of these are
+  // still really depreciating vs. frozen/closed out) gets lost in.
+  const STATUS_GROUPS = [
+    { key: 'active', label: 'Active' },
+    { key: 'disposed', label: 'Disposed' },
+    { key: 'closed', label: 'Closed' },
+  ];
+
+  function acctCell(kind, assetId, label, currentId, currentName) {
+    // Click-to-edit, not an always-live <select> per row: at ~500 rows two
+    // fully-populated selects each (assetAccountOpts/expenseAccountOpts can
+    // run to hundreds of <option>s) is the exact per-row-select cost Card
+    // Coding and the Accounting Export composer hit at this same scale --
+    // seconds to render a batch vs. tens of milliseconds click-to-edit.
+    const shown = currentName || '— pick —';
+    return `<div class="fa-acct-label">${label}</div>
+      <button type="button" class="fa-acct-btn${currentName ? '' : ' fa-acct-unset'}"
+        data-acct-kind="${kind}" data-acct-asset="${esc(assetId)}"
+        data-acct-current="${esc(currentId || '')}">${esc(shown)}</button>`;
+  }
+
+  function groupSubtotal(items) {
+    const cost = items.reduce((s, i) => s + Number(i.cost || 0), 0);
+    return `${items.length} asset${items.length === 1 ? '' : 's'} · ${money(cost)} cost`;
   }
 
   function renderAssets(items) {
     const t = el('tblAssets');
     if (!items.length) {
-      t.innerHTML = '<tbody><tr><td class="fa-empty">No assets yet — click Add asset.</td></tr></tbody>';
+      t.innerHTML = '<tbody><tr><td class="fa-empty">No assets match.</td></tr></tbody>';
       el('assetCount').textContent = '';
       return;
     }
+
+    const byStatus = new Map();
+    for (const i of items) {
+      if (!byStatus.has(i.status)) byStatus.set(i.status, []);
+      byStatus.get(i.status).push(i);
+    }
+
+    let body = '';
+    for (const g of STATUS_GROUPS) {
+      const rows = byStatus.get(g.key);
+      if (!rows || !rows.length) continue;
+      body += `<tr class="fa-group-row"><td colspan="8">${esc(g.label)} — ${groupSubtotal(rows)}</td></tr>`;
+      body += rows.map((i) => `<tr class="${i.status === 'disposed' ? 'fa-disposed' : ''}">
+          <td>${esc(i.label)}<div class="fa-sub">${esc(i.qbo_asset_account_name || i.qbo_asset_account_id)}</div></td>
+          <td class="fa-sub">${esc(i.in_service_date)}${i.disposal_date ? `<br />disposed ${esc(i.disposal_date)}` : ''}</td>
+          <td class="fa-num">${money(i.cost)}</td>
+          <td class="fa-num">${money(i.accumulated_depreciation)}</td>
+          <td class="fa-num">${money(i.net_book_value)}</td>
+          <td class="fa-sub">${i.periods_elapsed}/${i.months} months</td>
+          <td style="min-width:170px">
+            ${acctCell('expense', i.fixed_asset_id, 'Expense', i.qbo_depreciation_expense_account_id, i.qbo_depreciation_expense_account_name)}
+            ${acctCell('accum', i.fixed_asset_id, 'Accum. depr.', i.qbo_accum_depreciation_account_id, i.qbo_accum_depreciation_account_name)}
+          </td>
+          <td style="white-space:nowrap;">
+            ${i.status === 'disposed' ? '' : `<button class="fa-link" data-dispose="${esc(i.fixed_asset_id)}">dispose</button>`}
+          </td>
+        </tr>`).join('');
+    }
+
     t.innerHTML = `<thead><tr>
         <th>Asset</th><th>In service</th><th class="fa-num">Cost</th>
         <th class="fa-num">Accum. depr.</th><th class="fa-num">Net book value</th>
-        <th>Progress</th><th style="min-width:190px">Depreciation expense</th>
-        <th style="min-width:190px">Accumulated depreciation</th><th></th>
-      </tr></thead><tbody>` + items.map((i) => `<tr class="${i.status === 'disposed' ? 'fa-disposed' : ''}">
-        <td>${esc(i.label)}<div class="fa-sub">${esc(i.qbo_asset_account_name || i.qbo_asset_account_id)}</div></td>
-        <td class="fa-sub">${esc(i.in_service_date)}${i.disposal_date ? `<br />disposed ${esc(i.disposal_date)}` : ''}</td>
-        <td class="fa-num">${money(i.cost)}</td>
-        <td class="fa-num">${money(i.accumulated_depreciation)}</td>
-        <td class="fa-num">${money(i.net_book_value)}</td>
-        <td class="fa-sub">${i.periods_elapsed}/${i.months} months</td>
-        <td><select class="bcn-field bcn-field--mono" style="font-size:11px;min-width:180px"
-              data-expense-for="${esc(i.fixed_asset_id)}">
-            <option value="">— pick, needed to post —</option>
-            ${expenseAccountOpts}
-          </select></td>
-        <td><select class="bcn-field bcn-field--mono" style="font-size:11px;min-width:180px"
-              data-accum-for="${esc(i.fixed_asset_id)}">
-            <option value="">— pick, needed to post —</option>
-            ${assetAccountOpts}
-          </select></td>
-        <td style="white-space:nowrap;">
-          ${i.status === 'disposed' ? '' : `<button class="fa-link" data-dispose="${esc(i.fixed_asset_id)}">dispose</button>`}
-        </td>
-      </tr>`).join('') + '</tbody>';
+        <th>Progress</th><th style="min-width:170px">Accounts</th><th></th>
+      </tr></thead><tbody>` + body + '</tbody>';
 
-    for (const i of items) {
-      const es = t.querySelector(`[data-expense-for="${CSS.escape(i.fixed_asset_id)}"]`);
-      if (es) es.value = i.qbo_depreciation_expense_account_id || '';
-      const as = t.querySelector(`[data-accum-for="${CSS.escape(i.fixed_asset_id)}"]`);
-      if (as) as.value = i.qbo_accum_depreciation_account_id || '';
-    }
     el('assetCount').textContent = `${items.length} assets`;
 
-    t.querySelectorAll('[data-expense-for]').forEach((sel) =>
-      sel.addEventListener('change', () => setAssetAccount(sel.dataset.expenseFor,
-        'qbo_depreciation_expense_account_id', 'qbo_depreciation_expense_account_name', sel)));
-    t.querySelectorAll('[data-accum-for]').forEach((sel) =>
-      sel.addEventListener('change', () => setAssetAccount(sel.dataset.accumFor,
-        'qbo_accum_depreciation_account_id', 'qbo_accum_depreciation_account_name', sel)));
+    t.querySelectorAll('[data-acct-kind]').forEach((btn) =>
+      btn.addEventListener('click', () => openAcctEditor(btn)));
     t.querySelectorAll('[data-dispose]').forEach((b) =>
       b.addEventListener('click', () => disposeAsset(b.dataset.dispose)));
   }
 
-  async function setAssetAccount(assetId, idCol, nameCol, sel) {
-    const accountId = sel.value;
-    const name = sel.selectedOptions[0]?.dataset.name || null;
-    const { error } = await sb.from('fixed_assets').update({
-      [idCol]: accountId || null,
-      [nameCol]: accountId ? name : null,
-    }).eq('id', assetId);
-    if (error) { setStatus('Could not save account: ' + error.message, 'neg', 8000); return; }
-    setStatus(accountId ? 'Account saved.' : 'Account cleared.', 'pos', 3000);
+  // Swaps one account button for a <select> in place, scoped to that cell
+  // only -- so opening one asset's account picker never builds the other
+  // 496 rows' option lists.
+  function openAcctEditor(btn) {
+    const kind = btn.dataset.acctKind;
+    const assetId = btn.dataset.acctAsset;
+    const currentId = btn.dataset.acctCurrent;
+    const opts = kind === 'expense' ? expenseAccountOpts : assetAccountOpts;
+    const sel = document.createElement('select');
+    sel.className = 'bcn-field bcn-field--mono';
+    sel.style.cssText = 'font-size:11px;width:100%;';
+    sel.innerHTML = '<option value="">— pick, needed to post —</option>' + opts;
+    sel.value = currentId || '';
+    btn.replaceWith(sel);
+    sel.focus();
+    if (sel.showPicker) { try { sel.showPicker(); } catch { /* not all browsers */ } }
+
+    const idCol = kind === 'expense' ? 'qbo_depreciation_expense_account_id' : 'qbo_accum_depreciation_account_id';
+    const nameCol = kind === 'expense' ? 'qbo_depreciation_expense_account_name' : 'qbo_accum_depreciation_account_name';
+
+    let settled = false;
+    const revert = (name) => {
+      if (settled) return;
+      settled = true;
+      const next = document.createElement('button');
+      next.type = 'button';
+      next.className = `fa-acct-btn${name ? '' : ' fa-acct-unset'}`;
+      next.dataset.acctKind = kind;
+      next.dataset.acctAsset = assetId;
+      next.dataset.acctCurrent = sel.value;
+      next.textContent = name || '— pick —';
+      next.addEventListener('click', () => openAcctEditor(next));
+      sel.replaceWith(next);
+    };
+    sel.addEventListener('blur', () => revert(sel.selectedOptions[0]?.dataset.name || btn.textContent));
+    sel.addEventListener('change', async () => {
+      const name = sel.selectedOptions[0]?.dataset.name || null;
+      const { error } = await sb.from('fixed_assets').update({
+        [idCol]: sel.value || null,
+        [nameCol]: sel.value ? name : null,
+      }).eq('id', assetId);
+      if (error) { setStatus('Could not save account: ' + error.message, 'neg', 8000); revert(null); return; }
+      // keep _lastAssets in sync so a re-render (e.g. the filter box) shows it
+      const cached = _lastAssets.find((r) => r.fixed_asset_id === assetId);
+      if (cached) { cached[idCol] = sel.value || ''; cached[nameCol] = sel.value ? name : ''; }
+      setStatus('Account saved.', 'pos', 3000);
+      revert(name);
+    });
   }
 
   async function disposeAsset(assetId) {
@@ -539,9 +628,16 @@
     }).join('') + '</tbody>';
   }
 
+  function applyFilter() {
+    const q = el('assetFilter').value.trim().toLowerCase();
+    if (!q) { renderAssets(_lastAssets); return; }
+    renderAssets(_lastAssets.filter((i) =>
+      (i.label || '').toLowerCase().includes(q) || (i.vendor_name || '').toLowerCase().includes(q)));
+  }
+
   async function refresh() {
-    const items = await loadAssets();
-    renderAssets(items);
+    _lastAssets = await loadAssets();
+    applyFilter();
   }
 
   (async function boot() {
@@ -568,6 +664,7 @@
     await refresh();
     await loadDepAdjustments();
 
+    el('assetFilter').addEventListener('input', applyFilter);
     el('btnAddAsset').addEventListener('click', openAddAsset);
     el('btnBuildDep').addEventListener('click', buildAndPostDepreciation);
     el('dlgCost').addEventListener('input', updateSpread);
