@@ -73,6 +73,10 @@ const ALLOWED_REPORTS = new Set([
   'GeneralLedger',
   'TransactionList',
   'TrialBalance',
+  // Same shape as BalanceSheet/ProfitAndLoss (account rows QBO stamps an id
+  // on, supports summarize_column_by) -- the generic renderer and row-click
+  // drilldown in v2/qbo-reports.html need no report-specific code for it.
+  'CashFlow',
 ]);
 
 // Only parameters QBO documents for these reports. Anything else is dropped

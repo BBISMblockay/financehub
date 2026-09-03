@@ -155,6 +155,7 @@
               <option value="ProfitAndLoss">Profit &amp; Loss</option>
               <option value="ProfitAndLossDetail">P&amp;L Detail</option>
               <option value="TrialBalance">Trial Balance</option>
+              <option value="CashFlow">Cash Flow</option>
             </select>
           </div>
 
@@ -535,7 +536,7 @@
   // Reports QBO can actually break into monthly columns. The detail reports
   // (GeneralLedger, TransactionList, ProfitAndLossDetail) are already
   // transaction-level -- summarize_column_by doesn't apply to them.
-  const SUMMARY_REPORTS = ['BalanceSheet', 'ProfitAndLoss', 'TrialBalance'];
+  const SUMMARY_REPORTS = ['BalanceSheet', 'ProfitAndLoss', 'TrialBalance', 'CashFlow'];
 
   async function run() {
     const report = el('report').value;
