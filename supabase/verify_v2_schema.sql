@@ -2093,6 +2093,56 @@ select
     else 'ok'
   end as reports_runnable;
 
+-- ── Every system report ties out ─────────────────────────────────────
+-- A `system` report carries SILO's name, sits on everyone's screen, and
+-- nobody re-derives it -- so the first wrong number there costs more trust
+-- than ten missing features. Three boards shipped in one day and all three
+-- needed correcting after the fact, every time because someone looked
+-- rather than because a check ran.
+--
+-- A tie-out is a SECOND, INDEPENDENT path to a number the report publishes.
+-- This asserts that every system report has at least one, and that at least
+-- one of them is a real reconciliation rather than a structural sanity
+-- check -- re-running a report's own SQL and comparing it to itself proves
+-- nothing.
+--
+-- Run `select * from run_report_tieouts()` to see the numbers themselves.
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='silo_report_tieouts')
+      then 'MISSING — silo_report_tieouts; system reports have no second path to their numbers'
+    when exists (select 1 from pg_policies
+                  where schemaname='public' and tablename='silo_report_tieouts'
+                    and cmd in ('INSERT','UPDATE','ALL'))
+      then 'BROKEN — silo_report_tieouts has a client write policy; the runner EXECUTEs what is stored there, so it must be migration-only'
+    when (select count(*) from public.silo_chat_saved_reports r
+           where r.source = 'system'
+             and not exists (select 1 from public.silo_report_tieouts o
+                              where o.report_id = r.id and o.enabled)) > 0
+      then 'MISSING — ' || (select count(*)::text from public.silo_chat_saved_reports r
+                             where r.source = 'system'
+                               and not exists (select 1 from public.silo_report_tieouts o
+                                                where o.report_id = r.id and o.enabled))
+           || ' system report(s) have no tie-out: '
+           || (select string_agg(r.title, '; ') from public.silo_chat_saved_reports r
+                where r.source = 'system'
+                  and not exists (select 1 from public.silo_report_tieouts o
+                                   where o.report_id = r.id and o.enabled))
+    when (select count(*) from public.silo_chat_saved_reports r
+           where r.source = 'system'
+             and not exists (select 1 from public.silo_report_tieouts o
+                              where o.report_id = r.id and o.enabled
+                                and o.kind = 'reconciliation')) > 0
+      then 'WEAK — ' || (select string_agg(r.title, '; ') from public.silo_chat_saved_reports r
+                          where r.source = 'system'
+                            and not exists (select 1 from public.silo_report_tieouts o
+                                             where o.report_id = r.id and o.enabled
+                                               and o.kind = 'reconciliation'))
+           || ' have only sanity checks, no independent reconciliation'
+    else 'ok'
+  end as system_reports_tie_out;
+
 select
   case
     when not exists (select 1 from information_schema.columns
