@@ -2055,12 +2055,24 @@ select
                      where conrelid='public.dashboard_widgets'::regclass
                        and conname='dashboard_widgets_visual_type_check'
                        and pg_get_constraintdef(oid) like '%matrix%'
-                       and pg_get_constraintdef(oid) like '%section%')
-      then 'MISSING — dashboard_widgets.visual_type CHECK does not admit matrix/section; run 20260903200000 and 20260903210000'
+                       and pg_get_constraintdef(oid) like '%section%'
+                       and pg_get_constraintdef(oid) like '%answer%')
+      then 'MISSING — dashboard_widgets.visual_type CHECK does not admit matrix/section/answer; run 20260903200000, 20260903210000 and 20260904340000'
     when not exists (select 1 from pg_constraint
                      where conrelid='public.dashboard_widgets'::regclass
                        and conname='dashboard_widgets_section_has_title')
       then 'MISSING — dashboard_widgets_section_has_title; an untitled section is an invisible tile that still takes grid space'
+    -- The inverse guard: an answer widget with no report has no text to
+    -- render at all, an empty tile that looks broken rather than an
+    -- intentional heading the way an untitled section would.
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.dashboard_widgets'::regclass
+                       and conname='dashboard_widgets_answer_has_report')
+      then 'MISSING — dashboard_widgets_answer_has_report; an answer widget with no report_id renders nothing'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='dashboard_widgets_v'
+                       and column_name='report_answer')
+      then 'MISSING — dashboard_widgets_v.report_answer; the answer widget would have no text to render. Run 20260904340000_answer_widget.sql'
     when not exists (select 1 from information_schema.columns
                      where table_schema='public' and table_name='silo_chat_saved_reports'
                        and column_name='builder_config')

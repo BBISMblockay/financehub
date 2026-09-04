@@ -21,6 +21,11 @@
    honest about the fact that the query runner caps every result at 1000
    rows per page (dashboard-renderer.js pages a table widget past that;
    see its header for why charts don't).
+
+   One visual has no rows at all: answerHtml() renders a saved report's
+   ANSWER text (prose, not a dataset) as sanitized markdown. It is here
+   alongside tableHtml/matrixHtml/kpiHtml because this file is already "how
+   is a widget body rendered", not because markdown parsing is ECharts.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -981,11 +986,39 @@
     </div>`;
   }
 
+  // ── Answer widget ────────────────────────────────────────────────────
+  // The one visual with no query and no rows: it renders a saved report's
+  // ANSWER text (an Ask SILO synthesis) as markdown, for the case a chart or
+  // table can never cover -- a genuinely open-ended question that took many
+  // queries and never reduced to one dataset. Same rendering Ask SILO's own
+  // chat bubbles and saved-report detail view already use (marked +
+  // DOMPurify), so an answer reads identically wherever it is shown.
+  let delTokenizerPatched = false;
+  function answerHtml(text) {
+    if (!text) return '<div class="dw-empty">No answer text saved.</div>';
+    if (!(global.marked && global.DOMPurify)) {
+      // Libraries failed to load (offline CDN, ad blocker). Still readable,
+      // just as plain text -- never silently blank.
+      return `<div class="dw-answer">${esc(text)}</div>`;
+    }
+    // Answers write "~$24K" for approximations, and marked's GFM `del` rule
+    // pairs single tildes across a sentence into strikethrough. Answers
+    // never intentionally use strikethrough, so disable it once -- same fix
+    // silo-chat.html applies to the identical text. Returning undefined from
+    // the tokenizer means "no match here," so the tildes fall through as
+    // literal text instead.
+    if (!delTokenizerPatched && global.marked.use) {
+      global.marked.use({ tokenizer: { del: () => undefined } });
+      delTokenizerPatched = true;
+    }
+    return `<div class="dw-answer">${global.DOMPurify.sanitize(global.marked.parse(text))}</div>`;
+  }
+
   global.SiloChart = {
     VISUAL_TYPES: ['table', 'kpi', 'bar', 'line', 'donut'],
     profileColumns, dimensionsOf, measuresOf,
     recommend, shape, optionFor,
-    tableHtml, matrixHtml, kpiHtml, columnLabel,
+    tableHtml, matrixHtml, kpiHtml, answerHtml, columnLabel,
     AGGREGATES, defaultAggregate, semanticOf,
     formatValue, inferFormat, theme, isDark, esc,
   };

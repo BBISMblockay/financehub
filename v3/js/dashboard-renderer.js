@@ -293,6 +293,14 @@
         body.innerHTML = cfg.note ? `<p class="dw-section-note">${esc(cfg.note)}</p>` : '';
         return;
       }
+      if (widget.visual_type === 'answer') {
+        // No query, no rows -- the widget's content is the report's saved
+        // answer TEXT, not anything queries_run returned. loadWidget() never
+        // fetches for this type; it either got here with report_answer set
+        // or with a notice already rendered, so this is the only path left.
+        body.innerHTML = window.SiloChart.answerHtml(widget.report_answer);
+        return;
+      }
       if (!rows.length) { body.innerHTML = '<div class="dw-empty">Query returned 0 rows.</div>'; return; }
 
       const semantics = semanticsFor(widget, rows);
@@ -371,6 +379,30 @@
       // report check below -- otherwise the "no saved report attached"
       // notice would fire on a tile that correctly has none.
       if (widget.visual_type === 'section') { renderBody(widget, { rows: [] }); return; }
+      // An answer widget needs report_answer, never query_sql -- it has to
+      // short-circuit before the query_sql check below, which would
+      // otherwise fire "no stored SQL to run" on a widget that was never
+      // supposed to run one.
+      if (widget.visual_type === 'answer') {
+        if (!widget.report_id) {
+          renderBody(widget, { notice: 'No saved report attached to this widget.' });
+          return;
+        }
+        if (!widget.report_answer) {
+          // Same ambiguity as the query_sql check below: dashboard_widgets_v
+          // is security_invoker, so a private report belonging to someone
+          // else yields null here too -- and a manual/system report never
+          // had answer text to begin with. Both read identically from here.
+          renderBody(widget, {
+            notice: widget.report_title
+              ? `"${widget.report_title}" has no saved answer text — it may be private to someone else, or it was built as a manual/system report rather than asked in chat.`
+              : 'The source report was deleted, or it is private to someone else.',
+          });
+          return;
+        }
+        renderBody(widget, { rows: [] });
+        return;
+      }
       if (!widget.report_id) {
         renderBody(widget, { notice: 'No saved report attached to this widget.' });
         return;

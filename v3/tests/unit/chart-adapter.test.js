@@ -209,5 +209,18 @@ ok('a BAR chart still just shows its top N, no Other', barOpt.series[0].data.len
 const untrunc=C.shape(locs,{x_field:'loc',y_field:'net_sales',limit:0},{net_sales:'currency'});
 ok('an untruncated donut gets no Other slice', C.optionFor('donut',untrunc).series[0].data.length===12);
 
+// ── answer widget: markdown rendering with no marked/DOMPurify loaded ──
+// The unit harness has no DOM, so window.marked/window.DOMPurify are
+// undefined here -- exactly the "libraries failed to load" path a real
+// browser hits offline or behind an ad blocker. That path must still be
+// readable, never blank.
+ok('no saved answer renders a stated empty state, not a blank tile',
+   /no answer text saved/i.test(C.answerHtml('')));
+ok('null is treated the same as empty', /no answer text saved/i.test(C.answerHtml(null)));
+ok('without marked/DOMPurify, falls back to escaped plain text',
+   C.answerHtml('Net sales <b>up</b> 61%').includes('&lt;b&gt;up&lt;/b&gt;'));
+ok('...wrapped in the same .dw-answer container the styled path uses',
+   /^<div class="dw-answer">/.test(C.answerHtml('plain text')));
+
 console.log(fails? `\n${fails} FAILURES`:'\nall passed');
 process.exit(fails?1:0);
