@@ -24,8 +24,9 @@ Postgres row-level security itself:
 - Defense in depth beyond RLS: only a single `SELECT`/`WITH` statement is
   accepted, no semicolons (blocks multi-statement injection — the query is
   also wrapped as a subquery expression, which is a hard Postgres syntax
-  error if it contains a second statement), rows capped at 500, and a 10s
-  statement timeout.
+  error if it contains a second statement), rows capped at 1000 per page
+  (an optional `p_offset` argument pages through more; a plain call with no
+  offset behaves as it always did), and a 30s statement timeout.
 
 Net effect: a user can never see through this chat anything they couldn't
 already see by hand-querying from the browser with their own login.

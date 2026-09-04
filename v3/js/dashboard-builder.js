@@ -558,7 +558,7 @@
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspLimit">Limit</label>
           <input class="bcn-field bcn-field--mono" id="inspLimit" type="number" min="0" step="1" value="${Number(cfg.limit) || 0}" />
-          <span class="v3-insp-hint">0 shows everything the query returned. Sorting and limiting happen on the returned rows, not in SQL — the source query is still capped at 500 rows.</span>
+          <span class="v3-insp-hint">0 shows everything the query returned. Sorting and limiting happen on the returned rows, not in SQL — the source query is still capped at 1,000 rows per page (a table widget offers "Load more" past that; other visuals do not).</span>
         </div>` : ''}`;
 
       el('inspectorBody').innerHTML = `

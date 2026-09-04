@@ -14,9 +14,19 @@
 
    Data comes from chat_run_readonly_query which, despite the name, is a
    generic read-only SQL runner (SECURITY INVOKER, single SELECT/WITH,
-   500-row cap, 30s timeout) -- the same engine Ask SILO's "Refresh data"
-   button uses. Zero LLM involvement, and a viewer can never see through a
-   dashboard anything their own RLS would not already show them.
+   1000-row cap per page, 30s timeout) -- the same engine Ask SILO's
+   "Refresh data" button uses. Zero LLM involvement, and a viewer can never
+   see through a dashboard anything their own RLS would not already show
+   them.
+
+   Pagination (table widgets only): a query that fills a page is re-run with
+   p_offset advanced by the page size, and the new rows are appended to what
+   is already drawn -- never a fresh render, since that would lose scroll
+   position and any in-progress reading. A chart draws once and does not
+   offer "load more": a bar/line/donut/KPI/matrix is a computed shape over
+   whatever page it got, and re-shaping it live while someone is looking at
+   it would move the thing they were reading. The cap-hit note on those
+   visuals still says to aggregate in the report itself.
 
    This file has no idea where a widget's report was authored. It reads
    `query_sql` and draws the result, so an Ask SILO save, a central SILO
@@ -36,6 +46,8 @@
   'use strict';
 
   const esc = (s) => window.SiloChart.esc(s);
+  // Must match chat_run_readonly_query's per-page cap (20260904320000).
+  const PAGE_CAP = 1000;
 
   // ── Reusable inner markup ────────────────────────────────────────────
   function headActionsHtml(widget, editable) {
@@ -105,6 +117,12 @@
         same parameterised report still share a fetch while a slicer change
         naturally misses the cache instead of needing manual invalidation. */
     let dataCache = new Map();
+    /** widget id -> { sql, rows, hasMore, loading }. Tracks pagination state
+        for TABLE widgets only -- see the file header for why charts don't
+        page. `rows` here is the full accumulated set across every page
+        loaded so far; dataCache above holds one entry per individual page
+        fetch, which is what actually dedupes two tiles sharing a report. */
+    const pageState = new Map();
     /** Current slicer values, keyed by parameter key. Dashboard-level: one
         value per key, applied to every widget declaring it. */
     let paramValues = Object.assign({}, options.paramValues || {});
@@ -204,16 +222,22 @@
     }
 
     // ── Data ───────────────────────────────────────────────────────────
-    async function fetchQuery(sql) {
-      if (dataCache.has(sql)) return dataCache.get(sql);
+    /** offset 0 is the common case and keys the cache exactly as before
+        pagination existed, so an unparameterised, single-page dashboard
+        costs nothing extra and shares its cache entry the same way it
+        always has. Later pages get their own key -- they are a different
+        query result, not a variant of the first page. */
+    async function fetchQuery(sql, offset) {
+      const key = offset ? `${sql} offset=${offset}` : sql;
+      if (dataCache.has(key)) return dataCache.get(key);
       let entry;
       try {
-        const { data, error } = await sb.rpc('chat_run_readonly_query', { query: sql });
+        const { data, error } = await sb.rpc('chat_run_readonly_query', { query: sql, p_offset: offset || 0 });
         entry = error ? { error: error.message } : { rows: Array.isArray(data) ? data : [] };
       } catch (err) {
         entry = { error: err.message || String(err) };
       }
-      dataCache.set(sql, entry);
+      dataCache.set(key, entry);
       return entry;
     }
 
@@ -275,6 +299,22 @@
 
       if (widget.visual_type === 'table') {
         body.innerHTML = window.SiloChart.tableHtml(rows, cfg, semantics);
+        // Pagination lives here, not in the cap-message block below: a table
+        // is the one visual where "more" is just more rows in the same
+        // shape, so it is the one visual that can offer to fetch them.
+        const page = pageState.get(widget.id);
+        if (page && page.hasMore) {
+          foot.innerHTML = `<div class="dw-loadmore">
+              <button type="button" class="bcn-btn bcn-btn--ghost" data-act="loadmore"
+                      ${page.loading ? 'disabled' : ''}>${page.loading ? 'Loading…' : `Load next ${PAGE_CAP} rows`}</button>
+              <span>${rows.length.toLocaleString()} loaded so far</span>
+            </div>`;
+        } else if (page && page.rows.length > PAGE_CAP) {
+          // Pagination ran to completion. Say so once rather than the
+          // footer just going quiet after two "loaded so far" updates,
+          // which reads as broken -- did it stop, or is that everything?
+          foot.textContent = `${rows.length.toLocaleString()} rows loaded — that's everything.`;
+        }
       } else if (widget.visual_type === 'matrix') {
         body.innerHTML = window.SiloChart.matrixHtml(rows, cfg, semantics);
       } else if (widget.visual_type === 'kpi') {
@@ -316,11 +356,12 @@
         foot.textContent = parts.join(' · ');
       }
 
-      // 500 is the query runner's hard cap. A tile silently drawing
-      // the first 500 of a larger result would be a quiet lie, so say it.
-      if (rows.length >= 500) {
+      // PAGE_CAP is the query runner's hard cap per page. A chart cannot
+      // page (see the file header), so it still just says so; a table gets
+      // the Load more control above instead of this note.
+      if (widget.visual_type !== 'table' && rows.length >= PAGE_CAP) {
         foot.textContent = (foot.textContent ? foot.textContent + ' · ' : '')
-          + 'Source query hit the 500-row cap — aggregate in the report itself for a complete picture.';
+          + `Source query hit the ${PAGE_CAP}-row cap — aggregate in the report itself for a complete picture.`;
       }
       if (resizeObserver) resizeObserver.observe(body);
     }
@@ -356,8 +397,44 @@
         return;
       }
       renderBody(widget, { loading: true });
-      const [entry] = await Promise.all([fetchQuery(resolved.sql), catalogIndexPromise]);
+      const [entry] = await Promise.all([fetchQuery(resolved.sql, 0), catalogIndexPromise]);
+      // Every fresh load starts pagination over at page 1 -- a stale
+      // "load more" from a previous slicer value or refresh would otherwise
+      // point at an offset that no longer matches this query.
+      if (entry.error) {
+        pageState.delete(widget.id);
+      } else {
+        pageState.set(widget.id, {
+          sql: resolved.sql, rows: entry.rows || [], hasMore: (entry.rows || []).length >= PAGE_CAP, loading: false,
+        });
+      }
       renderBody(widget, entry);
+    }
+
+    /**
+     * Fetch the next page for a TABLE widget already showing a full page,
+     * and append it. Table-only: see the file header for why charts do not
+     * get this. Appends rather than re-rendering from scratch so a reader
+     * mid-scroll does not lose their place.
+     */
+    async function loadMoreWidget(id) {
+      const widget = widgets.find((w) => w.id === id);
+      const page = pageState.get(id);
+      if (!widget || !page || !page.hasMore || page.loading) return;
+      page.loading = true;
+      renderBody(widget, { rows: page.rows });
+      const entry = await fetchQuery(page.sql, page.rows.length);
+      page.loading = false;
+      if (entry.error) {
+        // Keep what is already shown; the button just goes back to its
+        // normal state so the reader can retry rather than losing the page.
+        renderBody(widget, { rows: page.rows });
+        return;
+      }
+      const newRows = entry.rows || [];
+      page.rows = page.rows.concat(newRows);
+      page.hasMore = newRows.length >= PAGE_CAP;
+      renderBody(widget, { rows: page.rows });
     }
 
     // ── Public surface ─────────────────────────────────────────────────
@@ -418,6 +495,7 @@
 
     function removeWidget(id) {
       disposeChart(id);
+      pageState.delete(id);
       const el = tileEl(id);
       if (el) grid.removeWidget(el, true);
       widgets = widgets.filter((w) => w.id !== id);
@@ -550,7 +628,7 @@
     }
 
     return {
-      setWidgets, addWidget, removeWidget, rerenderWidget, refresh, refreshWidget,
+      setWidgets, addWidget, removeWidget, rerenderWidget, refresh, refreshWidget, loadMoreWidget,
       layout, getWidgets, updateWidget, retheme, rowsFor, setEditable, semanticsFor,
       parameterDeclarations, getParamValues, setParamValues, resolveSql,
       get grid() { return grid; },

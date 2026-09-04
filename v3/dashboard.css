@@ -395,6 +395,9 @@
 }
 .rb-preview-title { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-3); }
 .rb-preview-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 18px 14px; }
+.rb-preview-more { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; }
+
+.dw-loadmore { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; }
 
 @media (max-width: 860px) {
   .rb-layout { flex-direction: column; }

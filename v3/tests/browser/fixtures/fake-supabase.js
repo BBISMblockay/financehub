@@ -195,6 +195,10 @@
       day_date: `2026-08-${String(i + 1).padStart(2, '0')}`, net_sales: 8000 + i * 210 })),
     'select day_date, units from t2': Array.from({ length: 14 }, (_, i) => ({
       day_date: `2026-08-${String(i + 1).padStart(2, '0')}`, units: 300 + i * 7 })),
+    // Pagination fixture: 2,500 rows, more than two full 1000-row pages and
+    // a partial third, so a suite can assert on the whole lifecycle (full
+    // page, full page, partial page that ends it) rather than just page 1.
+    'select n, val from big_series': Array.from({ length: 2500 }, (_, i) => ({ n: i + 1, val: (i + 1) * 10 })),
   };
 
   if (PERSIST) {
@@ -351,7 +355,14 @@
           }
           if (name !== 'chat_run_readonly_query') return { data: null, error: null };
           const rows = QUERY_ROWS[args.query];
-          if (rows) return { data: rows, error: null };
+          if (rows) {
+            // Mirrors chat_run_readonly_query's real pagination (20260904320000):
+            // a 1000-row page per call, offset by p_offset. Every fixture but
+            // the pagination one is under 1000 rows, so this is a no-op there
+            // at the default offset 0 -- existing suites see no behaviour change.
+            const offset = Math.max(Number(args.p_offset) || 0, 0);
+            return { data: rows.slice(offset, offset + 1000), error: null };
+          }
           // Unknown SQL: the real RPC would run it. Fail only for the
           // deliberately-broken marker the tests use, otherwise return
           // plausible rows so the preview path is exercised.

@@ -211,7 +211,7 @@
       }
     }
     const limit = Number(cfg.limit) || 0;
-    if (limit > 0) sql += `\n limit ${Math.min(limit, 500)}`;
+    if (limit > 0) sql += `\n limit ${Math.min(limit, 1000)}`;
     return sql;
   }
 
