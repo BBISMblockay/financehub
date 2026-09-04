@@ -341,6 +341,32 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('every other visual still needs two rows to draw in',
      rest.length > 0 && rest.every((m) => m.min === 2));
 
+  // ── Mobile: the meta-bar must not clip its own wrapped rows ──────────
+  // Found live (2026-09-04) on a real phone screenshot: .v3-meta-bar also
+  // carries beacon.css's .bcn-filter-bar class, which hardcodes a 36px
+  // single-row height for what is really a wrapping Name/Description/
+  // Visibility form. On a narrow viewport the Visibility field wraps to a
+  // third row, but the box stayed clamped to 36px -- so that row painted
+  // outside its own container, on top of the blank-state message below it.
+  // clientHeight < scrollHeight is exactly that: content the box claims not
+  // to contain.
+  const mobileCtx = await suite.newContext({ viewport: { width: 390, height: 844 } });
+  const pMobile = await mobileCtx.newPage();
+  await pMobile.goto(`${BASE}/v3/dashboard.html?id=D1&edit=1`);
+  await pMobile.waitForSelector('#btnAddWidget:not([hidden])', { timeout: 10000 });
+  await pMobile.waitForTimeout(300);
+  const metaBarBox = await pMobile.evaluate(() => {
+    const el = document.getElementById('metaBar');
+    return { clientHeight: el.clientHeight, scrollHeight: el.scrollHeight };
+  });
+  ok(`meta-bar is tall enough to contain its own wrapped fields (client ${metaBarBox.clientHeight} vs scroll ${metaBarBox.scrollHeight})`,
+     metaBarBox.clientHeight >= metaBarBox.scrollHeight);
+  const overlap = await pMobile.evaluate(() => {
+    const meta = document.getElementById('metaBar').getBoundingClientRect();
+    const blank = document.getElementById('blank').getBoundingClientRect();
+    return meta.bottom > blank.top; // any vertical overlap at all
+  });
+  ok('...and does not visually overlap the blank-state message below it', !overlap);
 
   await suite.close();
   console.log(`\n${checks - fails}/${checks} checks passed`);
