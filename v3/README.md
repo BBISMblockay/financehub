@@ -194,7 +194,7 @@ change ships and nobody sees it until they hard-refresh.
 | `dashboard.css` | Tile chrome, inspector, picker. Beacon tokens only — no new CSS variables |
 | `js/report-params.js` | Turns a report's declared parameters plus a dashboard's slicer values into runnable SQL. The **only** place a UI value becomes part of a query — every literal is produced by type, never concatenated. No DOM, no ECharts, pure and unit-tested |
 | `js/field-semantics.js` | What a column *means* (currency / count / percent / date / category), resolved from four layers. No ECharts, no DOM |
-| `js/chart-adapter.js` | The only file that talks to ECharts. Profiles rows, recommends a visual, groups/sorts/limits, builds options, renders table/KPI HTML |
+| `js/chart-adapter.js` | The only file that talks to ECharts. Profiles rows, recommends a visual, groups/sorts/limits, builds options, renders table/KPI/**answer** HTML |
 | `js/dashboard-renderer.js` | Owns the GridStack instance and draws widgets from config. Used unchanged in view **and** edit mode |
 | `js/dashboard-builder.js` | Edit mode only: report picker, inspector, buffered save |
 | `report-builder.html`, `js/report-builder.js`, `js/report-builder-ui.js` | The workbench: build a report from a table/view or write SQL, declare parameters, preview, save. Composition and every safety rule live in `report-builder.js`, which is pure and unit-tested; the `-ui` file only turns clicks into config |
@@ -463,6 +463,53 @@ the only part of a visual that ever needs a migration, and
 `dashboard_widgets_section_has_title` refuses an untitled section, which
 would otherwise be an invisible tile that still occupies the grid.
 
+## The Answer widget
+
+`visual_type = 'answer'` is section's inverse: it **requires** `report_id`
+(`dashboard_widgets_answer_has_report`, `20260904340000`) and renders that
+report's saved `answer` text as sanitized markdown — no `query_index`, no
+rows, nothing for `chart-adapter.js`'s profiling/recommendation code to do.
+
+It exists because `queries_run` is a transcript (see "Which query of a saved
+answer to draw" below), and a genuinely open-ended question — "tell me about
+the business and suggest action items" — can take 20+ queries and never
+reduce to one dataset. Found live 2026-09-04: a 25-query answer on the
+Ownership dashboard got added as a table pointed at the transcript's last
+query, which returned 0 rows — correctly, since the written answer's own
+finding was "no PO in the pipeline for this SKU," but a bare 0-row table
+carries none of that context. The actual deliverable was five paragraphs of
+synthesis that no query, and therefore no table/chart/KPI/matrix, could show.
+
+**Where it's offered, and where it isn't:**
+- The **"+ Add widget" picker**, when a report has answer text: a
+  `v3-answer-cta` button sits above the per-query list, pitched hardest
+  ("analysis, not a dataset") once a report ran more than 3 queries. It
+  skips query selection entirely — no Preview, no picking, just the text.
+- The **inspector's Visualization picker**, but only when the widget's
+  `report_answer` is non-empty — a manual/system report never has one
+  (`answer` is chat-specific), and offering a choice that would render
+  nothing is worse than not offering it.
+
+**Switching is non-destructive.** An existing table/chart widget stuck on a
+useless query can be switched to Answer from its own inspector — same
+report, same `report_id`, just a different `visual_type` — no delete and
+re-add. The reverse works too: `addAnswerWidgetFromReport()` still resolves
+a real `query_index`/`query_sql` at creation time (via the same
+`defaultQueryIndex()` heuristic the per-query picker uses), even though an
+answer widget ignores both while it stays an answer widget — so switching
+back to Table later lands on a sensible dataset instead of a blank tile.
+
+**Rendering** is `chart-adapter.js`'s `answerHtml()`, deliberately living
+next to `tableHtml`/`matrixHtml`/`kpiHtml` rather than in its own file —
+this file is already "how is a widget body rendered," and markdown parsing
+belongs there on that logic even though it never touches ECharts. It reuses
+exactly the pipeline `v2/silo-chat.html` uses for chat bubbles and the
+saved-reports detail view (`marked` + `DOMPurify`, both CDN-loaded on
+`dashboard.html` only — no other v3 page needs them), including the same
+`del` tokenizer patch: answers write `"~$24K"` for an approximation, and
+marked's GFM strikethrough rule pairs single tildes across a sentence
+without it.
+
 ## The matrix visual
 
 Every other visual reduces a result to one dimension and one measure. A
@@ -694,15 +741,20 @@ node v3/tests/run.js --unit      # needs nothing installed
 node v3/tests/run.js             # everything
 ```
 
-Fifteen suites, ~390 checks, in `v3/tests/` — see its
-[README](tests/README.md). `.github/workflows/v3-tests.yml` runs them on any
-push or PR touching `v3/`, with no secrets, because nothing there talks to a
-real database.
+Seventeen suites in `v3/tests/` — see its [README](tests/README.md).
+`.github/workflows/v3-tests.yml` runs them on any push or PR touching `v3/`,
+with no secrets, because nothing there talks to a real database.
 
-Nine unit suites cover the pure modules. Six browser suites drive the real
+Nine unit suites cover the pure modules. Eight browser suites drive the real
 pages in Chromium against a stubbed Supabase — **the pages are served
 unmodified from the repo**, so the real `dashboard.html` runs the real
-`dashboard-renderer.js` and only the outside world is faked.
+`dashboard-renderer.js` and only the outside world is faked. The browser
+harness also vendors `marked`/`dompurify` locally (`v3/tests/node_modules`,
+routed over the same CDN URLs the pages request) for the same reason
+`echarts`/`gridstack` already were — a sandboxed CI runner has no real
+internet egress, so a genuine CDN fetch just hangs or fails, and the answer
+widget's markdown rendering needs both libraries to test anything beyond its
+plain-text fallback.
 
 Two things worth preserving if you change how any of this is tested:
 

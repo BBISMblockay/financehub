@@ -43,6 +43,11 @@
     { id: 'matrix', label: 'Matrix', hint: 'One thing down, another across' },
   ];
 
+  // Offered only when the widget's report actually has answer text -- an
+  // Ask SILO save always does; a manual/system report built from a table or
+  // view never does, so this option would silently render nothing there.
+  const ANSWER_VISUAL = { id: 'answer', label: 'Answer', hint: 'The written synthesis, as text' };
+
   const SORTS = [
     { id: 'desc',   label: 'Measure: highest → lowest' },
     { id: 'asc',    label: 'Measure: lowest → highest' },
@@ -92,7 +97,7 @@
       // filters to source='ask_silo'; this one must not.
       const { data, error } = await sb
         .from('silo_chat_saved_reports_v')
-        .select('id, title, description, question, queries_run, visibility, source, company_entity_id, created_by_name, created_at')
+        .select('id, title, description, question, answer, queries_run, visibility, source, company_entity_id, created_by_name, created_at')
         .order('created_at', { ascending: false });
       if (error) {
         el('addBody').innerHTML = `<div class="v3-empty">Couldn't load reports: ${esc(error.message)}</div>`;
@@ -212,6 +217,19 @@
           <details class="v3-query-sql-wrap"><summary>SQL</summary><pre class="v3-query-sql">${esc(sql)}</pre></details>
         </div>`;
       }).join('');
+      // Offered whenever the report has answer text, but pitched hardest for
+      // a many-query analysis: that is exactly the case where no single
+      // query below reproduces what was asked, because the actual answer is
+      // the synthesis across all of them, not any one dataset.
+      const answerCta = report.answer ? `
+        <div class="v3-answer-cta">
+          <div class="v3-answer-cta-text">
+            <strong>${queries.length > 3 ? 'Show the written answer instead' : 'Or show the written answer'}</strong>
+            <p>Renders the synthesis Ask SILO wrote, as text — no query, no rows, nothing to pick.</p>
+          </div>
+          <button type="button" class="bcn-btn bcn-btn--primary" data-act="use-answer">Add as Answer widget</button>
+        </div>` : '';
+
       el('addBody').innerHTML = `
         <button type="button" class="v3-back" data-act="back">← All reports</button>
         <div class="v3-picker-head">
@@ -220,14 +238,15 @@
         </div>
         <div class="v3-picker-note">${queries.length > 3 ? `
           <strong>This answer was an analysis, not a dataset.</strong> It took ${queries.length} queries, and the
-          written answer is a synthesis across all of them — so no single query reproduces it, and a widget can
-          only ever draw one. <strong>Preview</strong> to find the query carrying the number you actually want to
-          track, then either use it directly or <strong>Refine in report builder</strong> to turn it into a clean
-          report of its own.` : `
+          written answer is a synthesis across all of them — so no single query reproduces it, and a table widget
+          can only ever draw one. <strong>Preview</strong> below to find the query carrying one number you want to
+          track on its own, <strong>Refine in report builder</strong> to turn it into a clean report, or use the
+          written answer as-is.` : `
           This report ran ${queries.length} queries. A widget draws one dataset — <strong>Preview</strong> them to
           see what each returns, then pick. If none is right on its own, <strong>Refine in report builder</strong>
           opens it as editable SQL you can save as its own report.`}
         </div>
+        ${answerCta}
         <div class="v3-query-list">${items}</div>`;
     }
 
@@ -318,6 +337,51 @@
       openInspector(widget.id);
     }
 
+    /**
+     * The other door onto a saved report: no query, no rows, just the
+     * written synthesis rendered as text. Exists because a genuinely
+     * open-ended Ask SILO question -- "tell me about the business and
+     * suggest action items" -- can take 20+ queries and never reduce to one
+     * dataset; the answer text is the actual deliverable, and until this
+     * widget existed the only way onto a dashboard was picking one of those
+     * queries and hoping it stood on its own.
+     */
+    async function addAnswerWidgetFromReport(report) {
+      closeAddWidget();
+      // An answer widget ignores query_sql entirely while it IS an answer
+      // widget (see loadWidget's answer branch) -- but the Visualization
+      // picker still offers Table/Bar/etc, and switching to one of those
+      // needs a real dataset underneath, not null. Populate it the same way
+      // addWidgetFromReport does, using the same "last non-probe query"
+      // heuristic the picker already uses to suggest one -- so switching
+      // away from Answer lands on a sensible query rather than a blank tile.
+      const queries = report.queries_run || [];
+      const queryIndex = queries.length ? window.SiloReportBuilder.defaultQueryIndex(queries) : 0;
+      const widget = {
+        id: uid(),
+        dashboard_id: dashboard.id,
+        report_id: report.id,
+        query_index: queryIndex,
+        title: report.title,
+        visual_type: 'answer',
+        visual_config: {},
+        layout: { w: 6, h: 5 },
+        sort_order: runtime.getWidgets().length,
+        report_title: report.title,
+        report_question: report.question,
+        report_visibility: report.visibility,
+        report_query_count: queries.length,
+        report_answer: report.answer,
+        query_sql: queries[queryIndex] || null,
+        _new: true,
+      };
+      markDirty();
+      await runtime.addWidget(widget);
+      onWidgetsChange();
+      setStatus(`Added "${report.title}" as the written answer.`, 'info', 4000);
+      openInspector(widget.id);
+    }
+
     // ── Column semantics ─────────────────────────────────────────────────
     /**
      * First time a widget is built on a report, write the grounded column
@@ -398,12 +462,17 @@
       const meas = window.SiloChart.measuresOf(prof);
       const isChart = ['bar', 'line', 'donut'].includes(w.visual_type);
       const isSection = w.visual_type === 'section';
+      const isAnswer = w.visual_type === 'answer';
       // A matrix needs a SECOND dimension -- one down, one across -- which
       // no other visual has. Everything else about it (measure, aggregate,
       // limit) reuses the existing controls.
       const isMatrix = w.visual_type === 'matrix';
 
-      const visualOpts = VISUALS.map((v) => `
+      // Answer is offered only when THIS widget's report actually has
+      // answer text -- a manual/system report never does, and offering a
+      // choice that renders nothing is worse than not offering it.
+      const visualChoices = w.report_answer ? VISUALS.concat(ANSWER_VISUAL) : VISUALS;
+      const visualOpts = visualChoices.map((v) => `
         <label class="v3-visual-opt${w.visual_type === v.id ? ' is-active' : ''}">
           <input type="radio" name="visualType" value="${v.id}" ${w.visual_type === v.id ? 'checked' : ''} />
           <span class="v3-visual-label">${v.label}</span>
@@ -433,7 +502,15 @@
         ? cfg.aggregate
         : window.SiloChart.defaultAggregate(measureSemantic);
 
-      const fieldsBlock = !rows
+      // No link to "edit this report" here on purpose: the report builder
+      // edits SQL/guided config, not a saved answer's prose -- there is
+      // nowhere today that lets you correct the wording of a saved answer.
+      // Asking Ask SILO again and saving a fresh report is the real fix.
+      const fieldsBlock = isAnswer
+        ? `<div class="v3-insp-note">This widget renders the report's saved answer text — no query, no columns,
+             nothing to configure here. The wording isn't editable once saved; ask Ask SILO the question again
+             and save a fresh report if it needs correcting.</div>`
+        : !rows
         ? `<div class="v3-insp-note">No data loaded for this widget, so there are no fields to configure yet.</div>`
         : `
         ${isChart ? `
@@ -579,7 +656,7 @@
                  there, by RLS. -->
             <a class="v3-insp-source-edit" href="/v3/report-builder.html?id=${esc(w.report_id)}">
               Edit this report →</a>` : ''}
-          ${w.report_query_count > 1 ? `
+          ${(!isAnswer && w.report_query_count > 1) ? `
             <label class="bcn-label" for="inspQueryIndex" style="margin-top:8px">Query</label>
             <select class="bcn-field" id="inspQueryIndex">
               ${Array.from({ length: w.report_query_count }, (_, i) =>
@@ -756,6 +833,8 @@
         }
         const q = e.target.closest('[data-query-index]');
         if (q && pickedReport) addWidgetFromReport(pickedReport, Number(q.dataset.queryIndex));
+        const useAnswer = e.target.closest('[data-act="use-answer"]');
+        if (useAnswer && pickedReport) addAnswerWidgetFromReport(pickedReport);
       });
       el('addBackdrop').addEventListener('input', (e) => {
         if (e.target.id !== 'reportSearch') return;

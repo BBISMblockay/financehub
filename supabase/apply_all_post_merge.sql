@@ -15946,6 +15946,15 @@ on conflict (id) do nothing;
 -- created function. Re-closes it and verify_v2_schema.sql now checks for it.
 -- ---------------------------------------------------------------------------
 \i migrations/20260904330000_readonly_query_revoke_anon.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260904340000_answer_widget.sql
+-- A seventh dashboard visual_type, 'answer' -- section's inverse. Requires
+-- report_id and renders that report's saved answer text as markdown, for a
+-- multi-query Ask SILO analysis that never reduces to one dataset. No new
+-- table: silo_chat_saved_reports.answer already holds the text.
+-- ---------------------------------------------------------------------------
+\i migrations/20260904340000_answer_widget.sql
 -- =====================================================
 
 -- ============================================================

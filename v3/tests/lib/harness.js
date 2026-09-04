@@ -116,6 +116,12 @@ async function startSuite(options = {}) {
     await context.route('**/echarts**', (r) => r.fulfill(serve(vendored('echarts/dist/echarts.min.js'), 'text/javascript')));
     await context.route('**/gridstack-all.js', (r) => r.fulfill(serve(vendored('gridstack/dist/gridstack-all.js'), 'text/javascript')));
     await context.route('**/gridstack.min.css', (r) => r.fulfill(serve(vendored('gridstack/dist/gridstack.min.css'), 'text/css')));
+    // Answer widget only (dashboard.html). marked ships no .min.js -- its UMD
+    // build is unminified but is the same global-defining bundle the CDN
+    // serves under that name, so the page's window.marked/window.DOMPurify
+    // contract is unaffected.
+    await context.route('**/marked**', (r) => r.fulfill(serve(vendored('marked/lib/marked.umd.js'), 'text/javascript')));
+    await context.route('**/purify.min.js', (r) => r.fulfill(serve(vendored('dompurify/dist/purify.min.js'), 'text/javascript')));
     await context.route('**/fonts.googleapis.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
     for (const [pattern, body] of Object.entries(options.extraRoutes || {})) {
       await context.route(pattern, (r) => r.fulfill({

@@ -57,15 +57,19 @@ stub at load time, add it in `load.js` so every suite sees one environment.
 | `report-edit` | Editing a saved report: guided reopens guided, the blast-radius warnings, save-vs-fork by role, and hand-edited SQL dropping the guided scaffolding |
 | `ask-silo-hop` | Save an answer as a report and land on a canvas with it added |
 | `dashboards-list` | The index, and a missing id explaining itself |
+| `pagination` | Report builder Preview and a table widget both paging past the 1000-row cap, against a real 2,500-row fixture (full page, full page, partial page that ends it) |
+| `answer-widget` | The Answer visual: the picker's CTA on a many-query analysis, markdown rendering (headings/bold/lists, the `~$` tilde survives), switching to/from Table non-destructively, and that a report with no answer text never offers it |
 
 **The pages are served unmodified from the repo.** The real `dashboard.html`
 runs the real `dashboard-renderer.js`; only the outside world is faked. If a
 suite passes, that code path works.
 
 `lib/harness.js` starts a static server over the repo, launches Chromium, and
-stubs six routes — config, the Supabase client, ECharts, GridStack, and Google
-Fonts. That setup used to be copy-pasted across five files, which is how the
-hardcoded Chromium path in each would have gone stale one at a time.
+stubs routes for everything the pages would otherwise fetch over a real
+network the sandbox doesn't have: config, the Supabase client, ECharts,
+GridStack, `marked`/`DOMPurify` (answer widget only), and Google Fonts. That
+setup used to be copy-pasted across five files, which is how the hardcoded
+Chromium path in each would have gone stale one at a time.
 
 ### Assert on what reached the RPC, not just on pixels
 

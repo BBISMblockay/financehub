@@ -64,7 +64,13 @@
         description: null, source: 'ask_silo', company_entity_id: 'C1',
         visibility: 'company', created_by_name: 'Blake', created_at: '2026-08-30T00:00:00Z',
         queries_run: Array.from({length: 7}, (_, i) =>
-          `select day_date, sum(net_sales) as net_sales from sales_by_day where q = ${i} group by 1`) },
+          `select day_date, sum(net_sales) as net_sales from sales_by_day where q = ${i} group by 1`),
+        // Real shape: a genuinely open-ended ask that never reduces to one
+        // dataset -- the answer widget's whole reason to exist. The tilde
+        // in "~$24K" exercises the del-tokenizer fix (marked's GFM strikethrough
+        // rule would otherwise pair it with something later in the text).
+        answer: '## Past 7 Days\n\n**Net sales +61% week-over-week**, ~$24K driven mostly by one launch.\n\n'
+          + '- Two SKUs are already sold out\n- Retail dipped while online spiked\n\nWant the inventory detail?' },
       // The real "Ad spend vs Online Sales" shape: one row, three jsonb
       // columns from json_agg/row_to_json. Reads fine in prose, charts not
       // at all, and used to render as [object Object].
@@ -239,6 +245,7 @@
           report_description: r ? r.description : null,
           report_columns_metadata: r ? (r.columns_metadata || null) : null,
           report_parameters: r ? (r.parameters || null) : null,
+          report_answer: r ? (r.answer ?? null) : null,
           query_sql: r ? (r.queries_run[w.query_index] ?? null) : null,
           report_query_count: r ? r.queries_run.length : 0 };
       });
