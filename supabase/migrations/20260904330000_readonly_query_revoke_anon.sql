@@ -1,0 +1,30 @@
+-- chat_run_readonly_query was reachable by `anon`. Found live 2026-09-04,
+-- immediately after applying 20260904320000_readonly_query_pagination.sql,
+-- by checking has_function_privilege('anon', ...) rather than assuming the
+-- migration's `revoke all ... from public` was sufficient.
+--
+-- It was not. `public` is a pseudo-role meaning "every role with no explicit
+-- grant" -- revoking from it does NOT touch a role's own EXPLICIT grant, and
+-- Supabase's default privileges on the `public` schema grant EXECUTE on
+-- every newly created function to both `anon` and `authenticated` at CREATE
+-- time. The ORIGINAL migration (20260813171926_silo_chat_readonly_query)
+-- knew this and revoked from `public, anon` explicitly. Every migration
+-- since that recreated this function via drop+create --
+-- 20260825030904_chat_readonly_query_whitespace_fix,
+-- 20260826151230_chat_query_timeout_30s,
+-- 20260902225226_readonly_query_preserve_column_order, and this session's
+-- own 20260904320000 -- revoked only from `public`, so each drop+create
+-- silently reopened the hole the first migration had closed. It sat open
+-- from whichever of those actually ran in this project until now.
+--
+-- This function executes arbitrary read-only SQL as SECURITY INVOKER. Most
+-- RLS policies deny an anon caller rows outright (auth.uid() is null), but
+-- this function should never depend on that alone to keep an unauthenticated
+-- caller out -- an authorization boundary that only holds because every
+-- downstream policy happens to be airtight is not a boundary, it is luck.
+--
+-- verify_v2_schema.sql now asserts anon has no EXECUTE grant on this
+-- function, so a future drop+create that repeats this mistake fails loud
+-- instead of sitting open until someone thinks to check.
+revoke all on function public.chat_run_readonly_query(text, integer) from public, anon;
+grant execute on function public.chat_run_readonly_query(text, integer) to authenticated;

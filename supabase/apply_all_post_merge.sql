@@ -15937,6 +15937,15 @@ on conflict (id) do nothing;
 -- (single SELECT/WITH, no semicolon, 30s timeout, SECURITY INVOKER) unchanged.
 -- ---------------------------------------------------------------------------
 \i migrations/20260904320000_readonly_query_pagination.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260904330000_readonly_query_revoke_anon.sql
+-- chat_run_readonly_query was reachable by anon -- every drop+create of this
+-- function since 20260825030904 revoked EXECUTE from `public` only, which
+-- does not touch anon's own explicit default-privilege grant on a newly
+-- created function. Re-closes it and verify_v2_schema.sql now checks for it.
+-- ---------------------------------------------------------------------------
+\i migrations/20260904330000_readonly_query_revoke_anon.sql
 -- =====================================================
 
 -- ============================================================

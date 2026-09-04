@@ -1396,6 +1396,19 @@ select
                      where n.nspname='public' and p.proname='chat_run_readonly_query'
                        and p.pronargs = 2)
       then 'MISSING — chat_run_readonly_query(text) has not been replaced by the (text, p_offset) pagination overload'
+    -- Caught live 2026-09-04 applying 20260904320000: every migration since
+    -- 20260825030904 that recreated this function via drop+create revoked
+    -- EXECUTE only from `public`, never from `anon` by name -- and Supabase's
+    -- default privileges on the public schema grant EXECUTE to anon on every
+    -- newly created function, so each drop+create silently reopened a hole
+    -- the original migration (20260813171926) had explicitly closed
+    -- (`revoke ... from public, anon`). This function runs arbitrary
+    -- read-only SQL as SECURITY INVOKER; it must never depend on RLS alone
+    -- to keep an unauthenticated caller out.
+    when exists (select 1 from information_schema.routine_privileges
+                 where routine_schema='public' and routine_name='chat_run_readonly_query'
+                   and grantee='anon')
+      then 'MISSING — anon can EXECUTE chat_run_readonly_query. Run: revoke all on function public.chat_run_readonly_query(text, integer) from public, anon;'
     else 'ok'
   end as chat_query_timeout;
 
