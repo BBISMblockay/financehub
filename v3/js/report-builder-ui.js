@@ -33,7 +33,8 @@
   let source = null;         // the selected catalog row
   let tab = 'build';
   let showAllColumns = false;
-  let lastRun = null;        // { sql, rows }
+  let lastRun = null;        // { sql, resolvedSql, rows, offset }
+  const PAGE_CAP = 1000;     // must match chat_run_readonly_query's per-page cap
   // Edit mode. Null on /v3/report-builder.html with no ?id=, which is the
   // create path and behaves exactly as it always has.
   let editing = null;        // { id, source, createdBy, canWrite, usage, declaredKeys }
@@ -266,7 +267,7 @@
           </div>
           <div class="bcn-field-group">
             <label class="bcn-label" for="inpLimit">Limit</label>
-            <input class="bcn-field bcn-field--mono" id="inpLimit" type="number" min="0" max="500" value="${Number(cfg.limit) || 0}" />
+            <input class="bcn-field bcn-field--mono" id="inpLimit" type="number" min="0" max="1000" value="${Number(cfg.limit) || 0}" />
           </div>
         </div>
       </div>
@@ -342,6 +343,25 @@
     return source ? RB.buildSql(source, cfg) : null;
   }
 
+  /** Re-render the preview table + meta line from lastRun's accumulated rows. */
+  function renderPreview(ms, opts) {
+    const rows = lastRun.rows;
+    const usedParams = P.tokensIn(lastRun.sql).length;
+    const hasMore = rows.length > 0 && rows.length % PAGE_CAP === 0 && !(opts && opts.exhausted);
+    el('previewMeta').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'}`
+      + (ms != null ? ` · ${ms}ms` : '')
+      + (usedParams ? ` · ran with default ${usedParams === 1 ? 'parameter' : 'parameters'}` : '');
+    el('previewBody').innerHTML = rows.length
+      ? window.SiloChart.tableHtml(rows, { limit: 50 }, mapSemantics(currentMetadata(rows)))
+        + (hasMore
+            ? `<div class="rb-preview-more">
+                 <button type="button" class="bcn-btn bcn-btn--ghost" id="btnLoadMorePreview">Load next ${PAGE_CAP} rows</button>
+                 <span class="rb-note">Fetched in pages of ${PAGE_CAP} — each page is its own query against live data.</span>
+               </div>`
+            : '')
+      : '<div class="dw-empty">Ran fine — 0 rows.</div>';
+  }
+
   async function preview() {
     const sql = currentSql();
     if (!sql) { setStatus('Nothing to run yet — pick a source, or type some SQL.', 'neg', 4000); return; }
@@ -357,7 +377,7 @@
     el('previewBody').innerHTML = '<div class="dw-loading">Running…</div>';
     el('previewMeta').textContent = '';
     const t0 = performance.now();
-    const { data, error } = await sb.rpc('chat_run_readonly_query', { query: resolved.sql });
+    const { data, error } = await sb.rpc('chat_run_readonly_query', { query: resolved.sql, p_offset: 0 });
     const ms = Math.round(performance.now() - t0);
     if (error) {
       lastRun = null;
@@ -369,14 +389,33 @@
     }
     const rows = Array.isArray(data) ? data : [];
     // `sql` is the template that gets saved; `resolved.sql` is what just ran.
+    // Every fresh Preview restarts pagination at page 1 -- a stale second
+    // page from a prior query would otherwise linger onto a new one.
     lastRun = { sql, resolvedSql: resolved.sql, rows };
-    const usedParams = P.tokensIn(sql).length;
-    el('previewMeta').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} · ${ms}ms`
-      + (usedParams ? ` · ran with default ${usedParams === 1 ? 'parameter' : 'parameters'}` : '')
-      + (rows.length >= 500 ? ' · hit the 500-row cap' : '');
-    el('previewBody').innerHTML = rows.length
-      ? window.SiloChart.tableHtml(rows, { limit: 50 }, mapSemantics(currentMetadata(rows)))
-      : '<div class="dw-empty">Ran fine — 0 rows.</div>';
+    renderPreview(ms);
+  }
+
+  /**
+   * Fetch the next page of the CURRENT preview and append it. Uses the
+   * already-resolved SQL from the last Preview run, not a fresh substitution
+   * -- Load more continues the same query, it does not re-evaluate defaults.
+   */
+  async function loadMorePreview() {
+    if (!lastRun || !lastRun.resolvedSql) return;
+    const btn = el('btnLoadMorePreview');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+    const t0 = performance.now();
+    const { data, error } = await sb.rpc('chat_run_readonly_query',
+      { query: lastRun.resolvedSql, p_offset: lastRun.rows.length });
+    const ms = Math.round(performance.now() - t0);
+    if (error) {
+      setStatus(`Could not load the next page: ${error.message}`, 'neg', 6000);
+      if (btn) { btn.disabled = false; btn.textContent = `Load next ${PAGE_CAP} rows`; }
+      return;
+    }
+    const newRows = Array.isArray(data) ? data : [];
+    lastRun.rows = lastRun.rows.concat(newRows);
+    renderPreview(ms, { exhausted: newRows.length < PAGE_CAP });
   }
 
   // metadataFromCatalog returns {col:{semantic}}; the adapter wants {col:semantic}.
@@ -812,7 +851,7 @@
 
   el('buildBody').addEventListener('input', (e) => {
     const t = e.target;
-    if (t.id === 'inpLimit') cfg.limit = Math.max(0, Math.min(500, Number(t.value) || 0));
+    if (t.id === 'inpLimit') cfg.limit = Math.max(0, Math.min(1000, Number(t.value) || 0));
     else if (t.dataset.mAlias !== undefined) cfg.measures[+t.dataset.mAlias].alias = t.value;
     else if (t.dataset.fVal !== undefined) cfg.filters[+t.dataset.fVal].value = t.value;
     else return;
@@ -857,6 +896,11 @@
   });
 
   el('btnPreview').addEventListener('click', preview);
+  // Delegated: the button is injected into previewBody's innerHTML fresh on
+  // every render, so a direct listener would be thrown away with it.
+  el('previewBody').addEventListener('click', (e) => {
+    if (e.target.closest('#btnLoadMorePreview')) loadMorePreview();
+  });
   el('btnSave').addEventListener('click', openSave);
   el('btnConfirmSave').addEventListener('click', confirmSave);
   el('btnSaveCopy').addEventListener('click', saveAsCopy);

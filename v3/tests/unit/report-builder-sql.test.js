@@ -58,7 +58,7 @@ ok('a normal view does NOT (RLS already does it)', !/active_company_id/.test(s),
 s=R.buildSql(mvNoCo,{columns:['x']});
 ok('a matview without the column gets no bogus predicate', !/active_company_id/.test(s),s);
 
-ok('limit is capped at 500', /limit 500/.test(R.buildSql(view,{columns:['net_sales'],limit:99999})));
+ok('limit is capped at 1000', /limit 1000/.test(R.buildSql(view,{columns:['net_sales'],limit:99999})));
 ok('limit 0 means no limit clause', !/limit/.test(R.buildSql(view,{columns:['net_sales'],limit:0})));
 
 // raw-SQL warning

@@ -112,8 +112,13 @@ produces and split refresh behaviour across two code paths.
 
 `chat_run_readonly_query` is `SECURITY INVOKER`, so every widget query is
 scoped by the viewer's own RLS. **A dashboard can never show someone data they
-could not already query themselves.** It also caps results at 500 rows and
-statements at 30s — both surface in the UI rather than being silently absorbed.
+could not already query themselves.** It also caps results at 1000 rows per
+page and statements at 30s — both surface in the UI rather than being
+silently absorbed. A table widget past the cap offers **Load more**, which
+re-runs the query with `p_offset` advanced and appends the next page; a
+chart does not, since a bar/line/donut/KPI/matrix is a computed shape over
+whatever page it drew, and reshaping it live under someone reading it would
+move what they were looking at — see `dashboard-renderer.js`'s header.
 
 ## What a column means
 
@@ -230,8 +235,10 @@ inherited from the parent dashboard via an `EXISTS`.
   serialise a collapsed grid — saving from a phone would otherwise overwrite
   the real 12-column layout with the phone's, for everyone.
 - **Sort / limit are applied to returned rows, not pushed into SQL.** The widget
-  does not rewrite its report's query, and the UI says so. A tile whose query
-  hit the 500-row cap says that too — a silently truncated chart is a quiet lie.
+  does not rewrite its report's query, and the UI says so. A chart tile whose
+  query hit the 1000-row page cap says that too — a silently truncated chart
+  is a quiet lie. A table tile offers **Load more** instead of a warning,
+  since it can actually fetch the rest.
 - **`recommend()` prefers bar over donut.** Few rows is not evidence of a
   composition: a top-4-products query has few rows and is a *ranking*. Donut is
   suggested only when the dimension's name says composition (channel, location,
@@ -398,6 +405,48 @@ different columns, and the report's job is to return the data.
 A listed column the query no longer returns is dropped rather than rendered
 as an empty column — a report edited to stop selecting something should not
 leave a permanent blank stripe on every widget built from it.
+
+## Pagination
+
+`chat_run_readonly_query` caps every call at 1000 rows (raised from 500 in
+`20260904320000`) and takes an optional `p_offset` (default 0). A caller that
+never passes it — most of Ask SILO's tool loop, the report builder's
+generated preview call before this shipped — behaves exactly as before:
+page 1, up to 1000 rows, one call.
+
+Two surfaces page past that cap, both append-only (never a fresh re-render,
+which would lose scroll position mid-read):
+
+- **Report builder preview** (`report-builder-ui.js`): a **Load next 1000
+  rows** control appears under the preview table whenever the last page
+  fetched came back exactly full. It re-runs the same *resolved* SQL (the
+  one that already ran, not a fresh parameter substitution) at
+  `p_offset = rows fetched so far`, and the newly saved report's
+  `columns_metadata` is inferred from every row loaded, not just page 1.
+- **Table widgets** (`dashboard-renderer.js`): the same **Load more** pattern,
+  tracked per widget in a `pageState` map (`{sql, rows, hasMore, loading}`)
+  kept separate from the per-page `dataCache`, because the widget's rendered
+  rows are the union of every page loaded while a single cache entry is one
+  page. A widget's pagination state resets to page 1 on every fresh
+  `loadWidget` — a slicer change, a refresh, first load — so **Load more**
+  never points at an offset left over from a different query.
+
+**Charts do not page**, on purpose. A bar/line/donut/KPI/matrix is a computed
+shape (grouped, sorted, top-N'd) over whatever rows it got; fetching more
+mid-read would reshape the chart under someone looking at it, which is a
+worse experience than the existing "hit the cap, aggregate in the report
+itself" note those visuals keep showing instead. If a chart's source data is
+genuinely larger than 1000 rows, the fix is to make the report itself
+aggregate coarser (see `visual_config.measures` / group-and-total on the
+Build tab), not to page the chart.
+
+**Why 1000, and why a hard cap at all.** A page bigger than 1000 risks a
+single call creeping toward the 30s statement timeout on an unfiltered
+table; a cap this small existing at all is what keeps a runaway guided
+report or a hand-written `select *` from ever returning a million rows to a
+browser tab. Pagination does not remove the cap — it removes the
+"everything past row 500/1000 is silently gone" failure mode, one bounded
+page at a time.
 
 ## Section headings
 

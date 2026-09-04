@@ -1390,8 +1390,12 @@ select
       then 'MISSING — chat_run_readonly_query became SECURITY DEFINER; it must stay INVOKER so RLS scopes every read'
     when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
                      where n.nspname='public' and p.proname='chat_run_readonly_query'
-                       and pg_get_functiondef(p.oid) like '%limit 500%')
-      then 'MISSING — the 500-row cap was dropped'
+                       and pg_get_functiondef(p.oid) like '%limit 1000%')
+      then 'MISSING — run 20260904320000_readonly_query_pagination.sql (still on the old 500-row cap, or the cap was dropped)'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='chat_run_readonly_query'
+                       and p.pronargs = 2)
+      then 'MISSING — chat_run_readonly_query(text) has not been replaced by the (text, p_offset) pagination overload'
     else 'ok'
   end as chat_query_timeout;
 

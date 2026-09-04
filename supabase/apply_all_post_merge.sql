@@ -15928,6 +15928,15 @@ on conflict (id) do nothing;
 -- it with payment_requests, revenue_projections, and shopify_payouts.
 -- ---------------------------------------------------------------------------
 \i migrations/20260904310000_cash_flow_forecast.sql
+
+-- ---------------------------------------------------------------------------
+-- 20260904320000_readonly_query_pagination.sql
+-- chat_run_readonly_query: row cap 500 -> 1000, plus a p_offset parameter
+-- (default 0) so a caller can page through anything larger rather than
+-- losing everything past the cap. Return shape and every existing guard
+-- (single SELECT/WITH, no semicolon, 30s timeout, SECURITY INVOKER) unchanged.
+-- ---------------------------------------------------------------------------
+\i migrations/20260904320000_readonly_query_pagination.sql
 -- =====================================================
 
 -- ============================================================

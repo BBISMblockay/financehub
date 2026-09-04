@@ -18,8 +18,9 @@
    Deliberately not here: anything that rewrites SQL. A widget's dataset is
    whatever its saved report's query returned. Sort/limit/top-N and
    aggregation are applied to those returned rows, client side, which is
-   honest about the fact that the query runner caps every result at 500
-   rows.
+   honest about the fact that the query runner caps every result at 1000
+   rows per page (dashboard-renderer.js pages a table widget past that;
+   see its header for why charts don't).
    ========================================================================== */
 (function (global) {
   'use strict';
