@@ -282,7 +282,25 @@
 .v3-dash-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .v3-dash-meta { font-family: var(--bcn-mono); font-size: 9.5px; color: var(--bcn-ink-4); }
 
-.v3-meta-bar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+/* height: auto overrides `.bcn-filter-bar { height: 36px }` (beacon.css),
+   the OTHER class this element carries in the HTML
+   (`class="bcn-filter-bar v3-meta-bar"`). That class is built for a
+   single-row, non-wrapping strip of filter chips, and its fixed height wins
+   the cascade here (same specificity, loads first) on every property this
+   rule does not explicitly override. It doesn't override height -- so on a
+   narrow viewport, where the Name/Description/Visibility fields wrap onto a
+   second and third row (declared 170px of real content), the box stayed
+   clamped to 36px while the wrapped rows kept painting past that clamp,
+   landing on top of the canvas below. Verified via getBoundingClientRect():
+   #metaBar reported height 36 with scrollHeight 170. Confirmed live on the
+   Ownership dashboard screenshot (mobile Safari) that motivated this fix.
+   flex-shrink: 0 is the second, independent half of the fix: .silo-main is
+   a flex COLUMN with a hard 100vh cap (beacon.css) and a flex:1 sibling
+   (.v3-canvas), so even with height:auto restored, this item could still be
+   compressed under space pressure without it -- the same reason
+   .bcn-header already carries flex-shrink:0. This bar and .v3-slicer-bar
+   were the two places in v3 it got missed. */
+.v3-meta-bar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; flex-shrink: 0; height: auto; }
 /* .bcn-filter-bar sets `display: flex`, which beats the UA's `[hidden]`
    rule -- without this the edit-mode settings bar stays on screen in view
    mode. Same trap beacon.css already documents for .bcn-status. */
@@ -461,6 +479,13 @@
   align-items: flex-start;
   gap: 12px;
   flex-wrap: wrap;
+  /* Preventative, not a fix for an observed bug: this element does not
+     carry .bcn-filter-bar (unlike .v3-meta-bar, see its comment) so it has
+     no inherited fixed height to fight -- but it is the same shape
+     (flex-wrap in a height-capped flex column with a flex:1 sibling), and
+     enough active slicers wrapping to two rows would hit the identical
+     compression once it did. Cheap to rule out now. */
+  flex-shrink: 0;
   padding: 10px 14px;
   margin-bottom: 12px;
   border: 1px solid var(--bcn-line, rgba(0, 0, 0, 0.1));
