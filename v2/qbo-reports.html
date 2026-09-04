@@ -211,9 +211,11 @@
           <div class="qr-card-head">
             <div>
               <div class="qr-title">Adjustments</div>
-              <div class="qr-sub">Staged entries live here until posted — nothing reaches
-                QuickBooks until you approve one. Deleting an entry in QuickBooks does not
-                tell SILO, so void a posted one here to correct and re-post it.</div>
+              <div class="qr-sub">Every close-process source that posts to QuickBooks through
+                SILO — Card Coding, Fixed Assets, Schedules, Accounting Export, and hand-written
+                adjustments — in one list, so checking the close doesn't mean visiting each
+                page. Deleting an entry in QuickBooks does not tell SILO, so void a posted one
+                here to correct and re-post it.</div>
             </div>
             <div class="qr-sub" id="adjCount"></div>
           </div>
@@ -617,15 +619,50 @@
   // Staged drafts are listed alongside posted entries on purpose: a draft you
   // cannot find again is an orphan, and staging would just be a way to lose
   // work. This is where you come back to one.
+  // Two independent posting paths feed quickbooks_journal_postings today --
+  // a hand-written adjustment (journal_adjustments, covers Fixed Assets,
+  // Schedules, Accounting Export, and adjustments composed from this page)
+  // and a coded card batch (card_import_batches, one per card source --
+  // Divvy, Amex, Parker, Shopify CC...). Neither table knows about the
+  // other, so "everything posted this close" only exists if this page
+  // queries both and merges them -- otherwise Card Coding is invisible
+  // here even though it posts through the exact same quickbooks-post-journal
+  // function and the exact same quickbooks_journal_postings log.
+  function normalizeAdjustmentRow(a) {
+    return {
+      kind: 'adjustment', id: a.id, date: a.entry_date, memo: a.memo,
+      amount: Number(a.debits || 0), status: a.status,
+      qbo_doc_number: a.qbo_doc_number, qbo_journal_entry_id: a.qbo_journal_entry_id,
+      detail: `${a.line_count} line${a.line_count === 1 ? '' : 's'} · ${a.status}`,
+    };
+  }
+  function normalizeCardBatchRow(b) {
+    return {
+      kind: 'card_import', id: b.id, date: b.entry_date || b.period_end,
+      memo: `${b.source_name} — ${b.label || b.file_name || 'card import'}`,
+      amount: Number(b.total_amount || 0), status: b.status,
+      qbo_doc_number: b.qbo_doc_number, qbo_journal_entry_id: b.qbo_journal_entry_id,
+      detail: `${b.txn_count} txn${b.txn_count === 1 ? '' : 's'} · ${b.status}`,
+    };
+  }
+
   async function loadAdjustments() {
-    let q = sb.from('journal_adjustments_v')
+    let aq = sb.from('journal_adjustments_v')
       .select('*').in('status', ['draft', 'approved', 'posted'])
       .order('entry_date', { ascending: false }).limit(25);
-    if (_co?.id) q = q.eq('company_entity_id', _co.id);
-    const { data, error } = await q;
-    if (error) { console.warn('adjustments load failed', error); return; }
+    let cq = sb.from('card_import_batches_v')
+      .select('*').in('status', ['draft', 'categorized', 'approved', 'posted'])
+      .order('entry_date', { ascending: false }).limit(25);
+    if (_co?.id) { aq = aq.eq('company_entity_id', _co.id); cq = cq.eq('company_entity_id', _co.id); }
+    const [{ data: adj, error: aErr }, { data: batches, error: cErr }] = await Promise.all([aq, cq]);
+    if (aErr) console.warn('adjustments load failed', aErr);
+    if (cErr) console.warn('card batches load failed', cErr);
 
-    const rows = data || [];
+    const rows = [
+      ...(adj || []).map(normalizeAdjustmentRow),
+      ...(batches || []).map(normalizeCardBatchRow),
+    ].sort((x, y) => (y.date || '').localeCompare(x.date || ''));
+
     el('adjCard').hidden = rows.length === 0;
     if (!rows.length) return;
 
@@ -634,26 +671,28 @@
     el('adjCount').textContent =
       `${staged.length} staged · ${posted.length} posted`;
 
+    const KIND_LABEL = { adjustment: 'Adjustment', card_import: 'Card Coding' };
     const section = (label, list, actions) => list.length
-      ? `<tr class="qr-summary"><td colspan="5">${esc(label)}</td></tr>`
+      ? `<tr class="qr-summary"><td colspan="6">${esc(label)}</td></tr>`
         + list.map((a) => `<tr>
-            <td class="bcn-mono">${esc(a.entry_date)}</td>
+            <td class="bcn-mono">${esc(a.date)}</td>
+            <td class="qr-sub">${esc(KIND_LABEL[a.kind])}</td>
             <td>${esc(a.memo)}</td>
-            <td class="qr-num">${esc(fmtMoney(a.debits))}</td>
-            <td class="bcn-mono">${esc(a.qbo_doc_number || a.qbo_journal_entry_id
-              || `${a.line_count} lines · ${a.status}`)}</td>
+            <td class="qr-num">${esc(fmtMoney(a.amount))}</td>
+            <td class="bcn-mono">${esc(a.qbo_doc_number || a.qbo_journal_entry_id || a.detail)}</td>
             <td>${actions(a)}</td>
           </tr>`).join('')
       : '';
 
     el('adjTbl').innerHTML =
-      '<thead><tr><th>Date</th><th>Memo</th><th class="qr-num">Amount</th>'
+      '<thead><tr><th>Date</th><th>Source</th><th>Memo</th><th class="qr-num">Amount</th>'
       + '<th>Entry</th><th></th></tr></thead><tbody>'
-      + section('Staged — not yet in QuickBooks', staged, (a) =>
-        `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
-        + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`)
+      + section('Staged — not yet in QuickBooks', staged, (a) => a.kind === 'adjustment'
+        ? `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
+          + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`
+        : `<a class="bcn-btn" href="/v2/card-coding.html">Review in Card Coding</a>`)
       + section('Posted to QuickBooks', posted, (a) =>
-        `<button class="bcn-btn" data-void="${esc(a.id)}">Void</button>`)
+        `<button class="bcn-btn" data-void="${esc(a.id)}" data-void-kind="${esc(a.kind)}">Void</button>`)
       + '</tbody>';
   }
 
@@ -672,17 +711,20 @@
     return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  async function voidAdjustment(id) {
+  async function voidAdjustment(id, kind) {
     const reason = prompt(
       'Why is this being voided? (Recorded against the posting.)\n\n'
       + 'Void only after the entry has actually been deleted in QuickBooks — '
       + 'this changes what SILO believes, not what QuickBooks holds.');
     if (reason === null) return;
-    const { data, error } = await sb.rpc('void_journal_adjustment',
-      { p_adjustment_id: id, p_reason: reason });
+    const isCardBatch = kind === 'card_import';
+    const { data, error } = await sb.rpc(
+      isCardBatch ? 'void_card_posting' : 'void_journal_adjustment',
+      isCardBatch ? { p_batch_id: id, p_reason: reason } : { p_adjustment_id: id, p_reason: reason });
     if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
     setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}.`
-      + ' The adjustment is back to approved and can be posted again.', 'pos', 10000);
+      + ` The ${isCardBatch ? 'batch' : 'adjustment'} is back to approved and can be posted again.`,
+      'pos', 10000);
     await loadAdjustments();
   }
 
@@ -776,7 +818,7 @@
 
     el('adjTbl').addEventListener('click', (e) => {
       const v = e.target.closest('[data-void]');
-      if (v) { voidAdjustment(v.dataset.void); return; }
+      if (v) { voidAdjustment(v.dataset.void, v.dataset.voidKind); return; }
       const o = e.target.closest('[data-open]');
       if (o) { openComposer(null, o.dataset.open); return; }
       const d = e.target.closest('[data-drop]');
