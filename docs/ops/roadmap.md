@@ -31,10 +31,16 @@ is the authority on what is still to do.
       and matches. The `silo_chat_notes` stopgap row from 06:55 that day
       ("supersedes older guidance in the system prompt") is now redundant with
       the function itself and should be deleted, or it becomes the next drift.
-      **Re-drifted, found 2026-09-07:** prod still runs version 57 (deployed
-      2026-08-26) while `1fb74a7` (2026-09-04) changed the system prompt's row
-      cap from 500 to 1000 to match `chat_run_readonly_query`. One deploy
-      closes it; until then the model is told a cap that is no longer true
+      **Re-drifted and re-closed 2026-09-07:** prod sat on version 57
+      (deployed 2026-08-26) while `1fb74a7` (2026-09-04) changed the system
+      prompt's row cap from 500 to 1000 to match `chat_run_readonly_query`, so
+      the model was being told a cap that was no longer true. Deployed as
+      **version 58** via the `Deploy Edge Function` workflow — the deployed
+      source is now byte-identical to `main`, verified by sha256
+      (`b345a7ee…`, 118,463 bytes both sides), `verify_jwt` still true.
+      Deploy it that way, not by transmitting the file through an API client:
+      that is what truncated two deploys and took Ask SILO down on 2026-08-25,
+      and the workflow exists specifically to remove the failure mode
 - [ ] **Launch capture discipline.** 43 of 61 launches cannot be measured
       because nobody attached products or linked a PO, and nothing in the UI
       asks. This is unrecoverable after the fact — launches overlap heavily,
