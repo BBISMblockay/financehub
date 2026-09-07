@@ -10,21 +10,31 @@ is the authority on what is still to do.
 
 ## Now (stability)
 
-- **A materialized view behind `sales_by_product_title_daily_v`.** It resolves
-  `sales_by_day.sku → products_master.sku → product_title` on every query, and a
-  30-day product rollup measures ~3s (it was ~9-12s before the Commercial overview
-  tiles that did not need the join were pointed elsewhere). It is now the slowest
-  tile on any dashboard and the floor on a board refresh. The fix is the pattern
-  already used by `wow_sales_daily_type_mv` and `inventory_on_hand_current_mv`:
-  materialize it, wrap it in a `security_invoker` view carrying the
-  `active_company_id()` filter (Postgres does NOT apply RLS to a matview), and
-  refresh at the end of the Shopify sync. Measured 2026-09-03.
+- [x] **A materialized view behind `sales_by_product_title_daily_v`.** Done
+      2026-09-07 (`20260907120000`), but the reason recorded here was stale and
+      the item is closed against a corrected one. This said a 30-day product
+      rollup measures ~3s; re-measured through the real view with RLS applied
+      the day it was built, that read is **229ms** — `is_admin_user()` going
+      SECURITY DEFINER (`20260904220000`, the day after this note was written)
+      took 50x off every policy evaluation underneath it. What was actually
+      slow is the UNBOUNDED read: `select max(day_date)` over the view was
+      **6,890ms**, building all 700k groups and spilling 127MB to disk to
+      return one date — and the `Top products by units` report runs precisely
+      that as a correlated subquery on every execution. Now 1.5ms; the 30-day
+      rollup 22ms. Built as the established layering (matview + `security_invoker
+      = false` wrapper carrying `active_company_id()`, no grant on the matview,
+      refreshed at the end of the Shopify sync), proven row-exact against the
+      view it replaced and reconciled by all four tie-outs.
 
 - [x] **`silo-chat` prompt drift: repo is ahead of prod.** Closed 2026-08-26 —
       deployed as version 56; the deployed source was diffed against `main`
       and matches. The `silo_chat_notes` stopgap row from 06:55 that day
       ("supersedes older guidance in the system prompt") is now redundant with
-      the function itself and should be deleted, or it becomes the next drift
+      the function itself and should be deleted, or it becomes the next drift.
+      **Re-drifted, found 2026-09-07:** prod still runs version 57 (deployed
+      2026-08-26) while `1fb74a7` (2026-09-04) changed the system prompt's row
+      cap from 500 to 1000 to match `chat_run_readonly_query`. One deploy
+      closes it; until then the model is told a cap that is no longer true
 - [ ] **Launch capture discipline.** 43 of 61 launches cannot be measured
       because nobody attached products or linked a PO, and nothing in the UI
       asks. This is unrecoverable after the fact — launches overlap heavily,

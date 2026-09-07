@@ -30,6 +30,14 @@
 -- product_title on only 83.6% of matched rows, so grouping by it splits
 -- one product across several spellings.
 --
+-- SUPERSEDED 2026-09-07 by 20260907120000_sales_by_product_title_daily_mv.sql,
+-- which materializes this and moves the tenant filter into a definer wrapper.
+-- The paragraph below was right about the trade-off and wrong about which
+-- side won: the staleness it avoids is nil (sales_by_day only changes during
+-- a sync, and the refresh runs at the end of it), while the cost it accepted
+-- was 6,890ms on any unbounded read. Left as written -- migrations are the
+-- record of what was decided when, not a place to rewrite the decision.
+--
 -- Plain view, not a materialized one, on purpose: security_invoker keeps
 -- RLS scoping every read to the caller's active company (matviews cannot
 -- do that -- see the open roadmap item), and there is no refresh to wire
