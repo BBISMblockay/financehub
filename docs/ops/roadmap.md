@@ -122,10 +122,19 @@ What remains is coverage and one missing branch.
       place the difference exists. Store-visit attribution is modelled, not
       measured, so the honest first step is establishing what CAN be tied to
       POS before any retail ROAS is published
-- [ ] Surface `wow_paid_media_reality()` — spend / claimed / actual / claim
-      ratio / MER online vs blended / NCAC. Built, grain-aware, displayed
-      nowhere. Would stop anyone carrying an Explorer ROAS into a revenue
-      conversation without having to remember which page means what
+- [x] Surface `wow_paid_media_reality()` — done 2026-09-07 as the **Reality
+      check** card on `/v2/wow-report.html`, placed ABOVE the platform
+      sections rather than below them, because a reader who meets the claimed
+      numbers first has already formed the figure they carry into the next
+      meeting. Shows nCAC, MER online and MER blended (the measures that
+      cannot double-count) next to platform-claimed revenue and the claim
+      ratio. What it surfaced immediately: **YTD 2026 the platforms claim
+      $15,905,329 against $15,952,535 of actual online net sales — 99.7% of
+      every online dollar.** The claim ratio is rendered as a diagnostic and
+      deliberately not scored or colour-graded against a threshold; the
+      "per-platform ROAS cannot be summed" caveat is unconditional because it
+      is unconditionally true, and only the >= 100% case is called out, since
+      that is a definable contradiction rather than a judgement
 - [ ] Cost per thruplay and cost per lead exist per ad only from 2026-08-02 —
       the columns are new and Meta must be re-pulled for history. A
       `days_back=400` backfill needs the 240-minute timeout raised in #580;
@@ -147,11 +156,14 @@ What remains is coverage and one missing branch.
       was already fixed separately by a `silo_chat_notes` row (2026-08-25)
       telling the model to use title grain — this removes the hand-built join,
       not a wrong answer
-- [ ] FB / Instagram organic. Tables exist, 0 rows. Blocked on Meta, not on us:
-      the token needs `pages_read_engagement` / `instagram_basic` /
-      `instagram_manage_insights`, the System User needs admin or analyst on
-      the Page, then set `facebook_page_id` + `instagram_business_account_id`
-      on the Meta connection in Integrations
+- [x] FB / Instagram organic. **Listed here as "tables exist, 0 rows,
+      blocked on Meta" until 2026-09-07 — it had been working for weeks and
+      nobody updated this file.** Measured: `facebook_page_insights_daily`
+      407 rows spanning 2025-07-28 → 2026-09-07, `instagram_media_insights`
+      211 posts through 2026-09-05, last synced the day this was checked. The
+      token scopes and Page role that blocked it were granted at some point
+      and the sync started working on its own. `/v2/wow-report.html`'s
+      Instagram organic card already reads it
 - [ ] TikTok Ads has never synced — in the platform list, zero rows
 - [ ] Google Ads has no ad-group or ad-level detail; Meta is the only platform
       with sub-campaign depth, and only from 2026-07-08
