@@ -114,6 +114,19 @@
        contributes no text nodes, so it can't change what gets saved there. */
     .wow-brand-icon { width:13px; height:13px; vertical-align:-2px; margin-right:5px; flex-shrink:0; }
     .wow-jump a .wow-brand-icon { margin-right:4px; }
+    /* Reality check. A stat grid rather than a table: these are six unrelated
+       measures over one window, not rows of a series -- a table would imply a
+       comparison down the column that does not exist. */
+    .wow-rc { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px;
+              background:var(--bcn-border); border-bottom:1px solid var(--bcn-border); }
+    .wow-rc-cell { background:var(--bcn-surface); padding:10px 12px 11px; }
+    .wow-rc-k { font-family:var(--bcn-mono); font-size:9.5px; letter-spacing:.08em;
+                text-transform:uppercase; color:var(--bcn-ink-3); }
+    .wow-rc-v { font-family:var(--bcn-mono); font-size:18px; color:var(--bcn-ink); margin-top:3px; }
+    .wow-rc-s { font-size:10.5px; color:var(--bcn-ink-3); margin-top:2px; }
+    .wow-rc-note { padding:10px 12px 12px; font-size:11.5px; line-height:1.5; color:var(--bcn-ink-2); }
+    .wow-rc-note b { font-family:var(--bcn-mono); }
+    .wow-rc-warn { border-top:1px dashed var(--bcn-border); }
     .wow-grp-foot {
       padding:7px 12px 10px; font-size:11px; color:var(--bcn-ink-3);
       border-top:1px dashed var(--bcn-border);
@@ -268,7 +281,7 @@
 
       <div class="wow-period" id="periodBar"></div>
       <nav class="wow-jump" aria-label="Jump to section">
-        <a href="#sec_website"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#95BF47" d="M15.337 23.979l7.216-1.561s-2.604-17.613-2.625-17.73c-.018-.116-.114-.192-.211-.192s-1.929-.136-1.929-.136-1.275-1.274-1.439-1.411c-.045-.037-.075-.057-.121-.074l-.914 21.104h.023zM11.71 11.305s-.81-.424-1.774-.424c-1.447 0-1.504.906-1.504 1.141 0 1.232 3.24 1.715 3.24 4.629 0 2.295-1.44 3.76-3.406 3.76-2.354 0-3.54-1.465-3.54-1.465l.646-2.086s1.245 1.066 2.28 1.066c.675 0 .975-.545.975-.932 0-1.619-2.654-1.694-2.654-4.359-.034-2.237 1.571-4.416 4.827-4.416 1.257 0 1.875.361 1.875.361l-.945 2.715-.02.01zM11.17.83c.136 0 .271.038.405.135-.984.465-2.064 1.639-2.508 3.992-.656.213-1.293.405-1.889.578C7.697 3.75 8.951.84 11.17.84V.83zm1.235 2.949v.135c-.754.232-1.583.484-2.394.736.466-1.777 1.333-2.645 2.085-2.971.193.501.309 1.176.309 2.1zm.539-2.234c.694.074 1.141.867 1.429 1.755-.349.114-.735.231-1.158.366v-.252c0-.752-.096-1.371-.271-1.871v.002zm2.992 1.289c-.02 0-.06.021-.078.021s-.289.075-.714.21c-.423-1.233-1.176-2.37-2.508-2.37h-.115C12.135.209 11.669 0 11.265 0 8.159 0 6.675 3.877 6.21 5.846c-1.194.365-2.063.636-2.16.674-.675.213-.694.232-.772.87-.075.462-1.83 14.063-1.83 14.063L15.009 24l.927-21.166z"/></svg>Website</a><a href="#sec_kimonix">Kimonix</a><a href="#sec_meta"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0467DF" d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg>Meta</a><a href="#sec_google"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M3.9998 22.9291C1.7908 22.9291 0 21.1383 0 18.9293s1.7908-3.9998 3.9998-3.9998 3.9998 1.7908 3.9998 3.9998-1.7908 3.9998-3.9998 3.9998zm19.4643-6.0004L15.4632 3.072C14.3586 1.1587 11.9121.5028 9.9988 1.6074S7.4295 5.1585 8.5341 7.0718l8.0009 13.8567c1.1046 1.9133 3.5511 2.5679 5.4644 1.4646 1.9134-1.1046 2.568-3.5511 1.4647-5.4644zM7.5137 4.8438L1.5645 15.1484A4.5 4.5 0 0 1 4 14.4297c2.5597-.0075 4.6248 2.1585 4.4941 4.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z"/></svg>Google</a><a href="#sec_tiktok"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#000" d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok</a><a href="#sec_affiliate">Affiliate</a><a href="#sec_competition">Competition</a><a href="#sec_redo">Redo</a>
+        <a href="#sec_website"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#95BF47" d="M15.337 23.979l7.216-1.561s-2.604-17.613-2.625-17.73c-.018-.116-.114-.192-.211-.192s-1.929-.136-1.929-.136-1.275-1.274-1.439-1.411c-.045-.037-.075-.057-.121-.074l-.914 21.104h.023zM11.71 11.305s-.81-.424-1.774-.424c-1.447 0-1.504.906-1.504 1.141 0 1.232 3.24 1.715 3.24 4.629 0 2.295-1.44 3.76-3.406 3.76-2.354 0-3.54-1.465-3.54-1.465l.646-2.086s1.245 1.066 2.28 1.066c.675 0 .975-.545.975-.932 0-1.619-2.654-1.694-2.654-4.359-.034-2.237 1.571-4.416 4.827-4.416 1.257 0 1.875.361 1.875.361l-.945 2.715-.02.01zM11.17.83c.136 0 .271.038.405.135-.984.465-2.064 1.639-2.508 3.992-.656.213-1.293.405-1.889.578C7.697 3.75 8.951.84 11.17.84V.83zm1.235 2.949v.135c-.754.232-1.583.484-2.394.736.466-1.777 1.333-2.645 2.085-2.971.193.501.309 1.176.309 2.1zm.539-2.234c.694.074 1.141.867 1.429 1.755-.349.114-.735.231-1.158.366v-.252c0-.752-.096-1.371-.271-1.871v.002zm2.992 1.289c-.02 0-.06.021-.078.021s-.289.075-.714.21c-.423-1.233-1.176-2.37-2.508-2.37h-.115C12.135.209 11.669 0 11.265 0 8.159 0 6.675 3.877 6.21 5.846c-1.194.365-2.063.636-2.16.674-.675.213-.694.232-.772.87-.075.462-1.83 14.063-1.83 14.063L15.009 24l.927-21.166z"/></svg>Website</a><a href="#sec_kimonix">Kimonix</a><a href="#sec_reality">Reality check</a><a href="#sec_meta"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0467DF" d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg>Meta</a><a href="#sec_google"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M3.9998 22.9291C1.7908 22.9291 0 21.1383 0 18.9293s1.7908-3.9998 3.9998-3.9998 3.9998 1.7908 3.9998 3.9998-1.7908 3.9998-3.9998 3.9998zm19.4643-6.0004L15.4632 3.072C14.3586 1.1587 11.9121.5028 9.9988 1.6074S7.4295 5.1585 8.5341 7.0718l8.0009 13.8567c1.1046 1.9133 3.5511 2.5679 5.4644 1.4646 1.9134-1.1046 2.568-3.5511 1.4647-5.4644zM7.5137 4.8438L1.5645 15.1484A4.5 4.5 0 0 1 4 14.4297c2.5597-.0075 4.6248 2.1585 4.4941 4.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z"/></svg>Google</a><a href="#sec_tiktok"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#000" d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok</a><a href="#sec_affiliate">Affiliate</a><a href="#sec_competition">Competition</a><a href="#sec_redo">Redo</a>
         <button type="button" class="wow-jump-all" id="btnCollapseAll">Collapse all</button>
       </nav>
 
@@ -362,6 +375,21 @@
       <div class="wow-sec" id="sec_kimonix"><span class="wow-sec-n">Kimonix</span><span class="wow-sec-sub">no connector — manual for now</span></div>
 
       <div id="man_kimonix"></div>
+
+      <!-- Placed BEFORE the platform sections on purpose. Everything below
+           this point reports what each platform CLAIMS it drove; this card is
+           the only place the claim is set against revenue that actually
+           landed. A reader who meets the claims first has already formed the
+           number they will carry into the next meeting. -->
+      <div class="wow-sec" id="sec_reality"><span class="wow-sec-n">Paid media — reality check</span><span class="wow-sec-sub">what cannot double-count, next to what the platforms claim</span></div>
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Reality check</h2><span class="bcn-card-meta" id="rcMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="wow-rc" id="rcGrid"></div>
+          <div class="wow-rc-note" id="rcNote"></div>
+          <div class="wow-rc-note wow-rc-warn" id="rcWarn" hidden></div>
+        </div>
+      </div>
 
       <div class="wow-sec" id="sec_meta"><span class="wow-sec-n"><svg class="wow-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0467DF" d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg>Paid Media — Meta</span><span class="wow-sec-sub">by objective · creative · organic</span></div>
 <div class="bcn-card">
@@ -795,6 +823,7 @@
 
   let FUNNEL = null;
   let PAID = null;
+  let REALITY = null;
   let LANDING = null;
   let CODES = null;
   let COHORTS = null;
@@ -1211,9 +1240,11 @@
         sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
       ]);
-      const [funnel, paid, landing, codes, cohorts, organic, creatives] = await Promise.all([
+      const [funnel, paid, reality, landing, codes, cohorts, organic, creatives] = await Promise.all([
         sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
+        // Sub-second: six date-bounded aggregates over one window.
+        sb.rpc('wow_paid_media_reality', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_landing_pages', { p_report_date: d, p_limit: 15, p_grain: gr }),
         sb.rpc('wow_discount_codes', { p_report_date: d, p_limit: 20, p_grain: gr }),
         // Cohorts are monthly by construction -- a retention curve has its own
@@ -1235,6 +1266,9 @@
       PAID = paid.error ? null : (paid.data || null);
       if (paid.error) FAILED.add('paid');
       if (paid.error) console.warn('paid media unavailable:', paid.error.message);
+      REALITY = reality.error ? null : (reality.data || null);
+      if (reality.error) FAILED.add('reality');
+      if (reality.error) console.warn('reality check unavailable:', reality.error.message);
       LANDING = landing.error ? null : (landing.data || null);
       if (landing.error) FAILED.add('landing');
       if (landing.error) console.warn('landing pages unavailable:', landing.error.message);
@@ -1338,6 +1372,7 @@
       <td>${esc(k.channel)}</td><td>${money(k.sales)}</td><td>${k.pct == null ? '—' : k.pct + '%'}</td>
     </tr>`).join('') || `<tr><td class="wow-empty" colspan="3">No data.</td></tr>`;
 
+    renderReality();
     renderPaid();
     renderOrganic();
   }
@@ -1433,6 +1468,107 @@
     if (kind === 'x')      return xFmt(v);
     return intFmt(v);
   };
+
+  // The reality check.
+  //
+  // Every other paid-media card on this page reports conversion_value as
+  // "revenue". It is not revenue -- it is what each platform claims it drove,
+  // inside its own attribution window, and no platform subtracts another. Sum
+  // them and you can exceed the company's actual sales. This card is the only
+  // place that gap is visible, and it is why the card sits ABOVE the platform
+  // sections rather than below them.
+  //
+  // It re-attributes nothing. Modelling incrementality here would produce a
+  // confidently wrong number, which is worse than a blank -- the same stance
+  // as launch_actuals_v's sku_source = null. It reports the measures that
+  // cannot double-count (nCAC, MER) next to the claim, and names both.
+  //
+  // Every ratio is null rather than 0 when its denominator is empty, and this
+  // renderer must preserve that: "nothing spent" and "spent and got nothing"
+  // are different facts and an em dash is the honest rendering of the first.
+  function renderReality(){
+    const r = REALITY;
+    const grid = el('rcGrid'), note = el('rcNote'), warn = el('rcWarn');
+
+    if (!r) {
+      el('rcMeta').textContent = '';
+      grid.innerHTML = '';
+      note.innerHTML = FAILED.has('reality')
+        ? 'Could not load the reality check — try Refresh.'
+        : 'No paid media data in this window.';
+      warn.hidden = true;
+      return;
+    }
+
+    const cell = (k, v, sub) =>
+      `<div class="wow-rc-cell"><div class="wow-rc-k">${k}</div>` +
+      `<div class="wow-rc-v">${v}</div>` +
+      `<div class="wow-rc-s">${sub}</div></div>`;
+
+    grid.innerHTML = [
+      cell('Paid spend', money(r.paid_spend), 'Meta + Google + TikTok · excludes GA4'),
+      cell('nCAC', money2(r.ncac), `spend ÷ ${intFmt(r.new_customers)} new customers`),
+      cell('MER online', xFmt(r.mer_online), 'online net sales ÷ spend'),
+      cell('MER blended', xFmt(r.mer_blended), 'all locations ÷ spend'),
+      cell('Actual online net', money(r.online_net_sales), 'what the storefront banked'),
+      cell('Platforms claimed', money(r.platform_claimed_revenue),
+           `${intFmt(r.platform_claimed_conversions)} claimed conversions`),
+    ].join('');
+
+    el('rcMeta').textContent = `${r.window_start} → ${r.window_end}`;
+
+    // The claim ratio is a DIAGNOSTIC, not a KPI, and is deliberately not
+    // scored good/bad or coloured against a threshold -- inventing one would
+    // imply a precision this does not have. The caveat under it is
+    // unconditional because it is unconditionally true: per-platform ROAS
+    // cannot be summed at any ratio. Only the >= 1.0 case gets called out,
+    // and that is a definable event rather than a judgement -- the platforms
+    // claiming more than the storefront took in total is a contradiction on
+    // its face, not a bad score.
+    const cr = r.claim_ratio;
+    if (cr == null) {
+      note.innerHTML = 'No online net sales in this window, so there is nothing to measure the platforms\' claims against.';
+    } else {
+      // Never let rounding carry the number across 100%. YTD 2026 sits at
+      // 0.997 -- as a plain toFixed(0) that prints "100% of every online
+      // dollar" while the >= 1.0 contradiction warning below correctly
+      // stays silent, so the card contradicts itself. One decimal is added
+      // only in the band where the integer would lie.
+      const raw = Number(cr) * 100;
+      const pct = (raw < 100 && raw >= 99.5) ? raw.toFixed(1) : raw.toFixed(0);
+      note.innerHTML =
+        `Between them the platforms claim <b>${money(r.platform_claimed_revenue)}</b> of the ` +
+        `<b>${money(r.online_net_sales)}</b> the online store actually netted — <b>${pct}%</b> of every online dollar. ` +
+        `They each count every sale they touched and none of them subtract each other, so <b>per-platform ROAS ` +
+        `cannot be added up, and is not a measure of incremental revenue.</b> ` +
+        `nCAC and MER above are the two figures here that cannot double-count. ` +
+        `<a href="/v2/marketing-explorer.html">Marketing Explorer</a>'s ROAS is built on the claimed number; ` +
+        `this page's sales figures are not.`;
+    }
+
+    // A configured platform that wrote nothing all window is a broken sync,
+    // not a quiet week -- and it silently deflates spend, which inflates
+    // every ratio on this card. The list comes from the company's own
+    // connections, so a platform nobody connected never appears.
+    const missing = r.platforms_not_synced || [];
+    if (missing.length || Number(cr) >= 1) {
+      const bits = [];
+      if (missing.length) {
+        bits.push(`<span class="neg"><b>${missing.map(esc).join(' & ')} reported nothing in this window.</b></span> ` +
+                  `That platform is connected and enabled, so this is a sync gap rather than a pause — ` +
+                  `its spend is missing from the figures above, which makes every ratio here look better than it is.`);
+      }
+      if (Number(cr) >= 1) {
+        bits.push(`<span class="neg"><b>The platforms are claiming more revenue than the online store took in total.</b></span> ` +
+                  `That cannot all be incremental; treat the claimed column as directional only.`);
+      }
+      warn.innerHTML = bits.join('<br>');
+      warn.hidden = false;
+    } else {
+      warn.hidden = true;
+      warn.innerHTML = '';
+    }
+  }
 
   function renderPaid(){
     const pm = PAID || {};
