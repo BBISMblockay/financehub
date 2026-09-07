@@ -356,6 +356,10 @@ supabase/
     20260904280000_business_timezone_and_channel_revenue.sql
     20260904300000_report_tieouts.sql
     20260904310000_cash_flow_forecast.sql
+    20260904320000_readonly_query_pagination.sql
+    20260904330000_readonly_query_revoke_anon.sql
+    20260904340000_answer_widget.sql
+    20260907120000_sales_by_product_title_daily_mv.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

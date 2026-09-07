@@ -374,6 +374,18 @@ async function main() {
       console.error(`[error] wow sales daily mv refresh: ${wowRollupError.message}`);
     }
 
+    // The product-title rollup. Materialized 20260907120000 because the
+    // unbounded reads over it (max(day_date) inside the Top products report,
+    // an open-ended date_from on the Logistics tile) had to build the whole
+    // 700k-group rollup to answer -- 6.9s before a single displayed row.
+    // Without this refresh those tiles report the previous sync's numbers, so
+    // a failure here is a real error, not a warning.
+    const { error: titleRollupError } = await supabase.rpc('refresh_sales_by_product_title_mv');
+    if (titleRollupError) {
+      hadError = true;
+      console.error(`[error] product title mv refresh: ${titleRollupError.message}`);
+    }
+
     // The retired Sheets sync used to refresh this after its inventory
     // import — with Shopify as the sole inventory source, it happens here.
     if (!SKIP_INVENTORY) {

@@ -1428,20 +1428,48 @@ select
     else 'ok'
   end as top_sellers_type_variance;
 
--- ── Product-title sales rollup (20260826230000) ───────────────────────
+-- ── Product-title sales rollup (20260826230000, materialized 20260907120000)
+-- The view kept its name and columns; what changed underneath is that it now
+-- reads a matview, so the tenant boundary moved from RLS to an explicit filter
+-- in a definer wrapper. Both halves are asserted here, because either one
+-- missing is a cross-company leak rather than a slow page:
+--   * security_invoker MUST be false -- a security_invoker view over a matview
+--     RAISES 42501 for every authenticated user (the demand_coverage_by_type_v
+--     failure), it does not merely return fewer rows;
+--   * the active_company_id() filter MUST be present -- without it the view
+--     hands every company's sales to every user, since a matview has no RLS;
+--   * the matview MUST NOT be granted to authenticated or anon (the global
+--     `reports_runnable` check below catches the authenticated case for every
+--     matview at once; this names the one this migration created).
 select
   case
     when not exists (select 1 from information_schema.views
                      where table_schema='public' and table_name='sales_by_product_title_daily_v')
       then 'MISSING — run 20260826230000_sales_by_product_title_daily.sql'
     when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
-                     where n.nspname='public' and c.relname='sales_by_product_title_daily_v'
-                       and c.reloptions::text like '%security_invoker=true%')
-      then 'MISSING — sales_by_product_title_daily_v is not security_invoker; RLS would stop scoping it to the active company'
+                     where n.nspname='public' and c.relname='sales_by_product_title_daily_mv'
+                       and c.relkind='m')
+      then 'MISSING — sales_by_product_title_daily_mv; run 20260907120000_sales_by_product_title_daily_mv.sql. '
+        || 'Unmaterialized, max(day_date) over this view costs ~6.9s and the Top products report pays it on every run'
+    when coalesce((select option_value from pg_options_to_table(
+                     (select c.reloptions from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                       where n.nspname='public' and c.relname='sales_by_product_title_daily_v'))
+                   where option_name='security_invoker'), 'true') <> 'false'
+      then 'BROKEN — sales_by_product_title_daily_v is not security_invoker=false; it reads a matview, and as an invoker view it raises 42501 for every user'
+    when not exists (select 1 from pg_views v
+                     where v.schemaname='public' and v.viewname='sales_by_product_title_daily_v'
+                       and v.definition like '%active_company_id()%')
+      then 'BROKEN — sales_by_product_title_daily_v lost its active_company_id() filter; a matview has no RLS, so it is now showing every company''s sales to every user'
+    when has_table_privilege('anon', 'public.sales_by_product_title_daily_mv', 'SELECT')
+      or has_table_privilege('authenticated', 'public.sales_by_product_title_daily_mv', 'SELECT')
+      then 'BROKEN — sales_by_product_title_daily_mv is granted to anon or authenticated; the matview carries no RLS, so that is every company''s sales'
     when not exists (select 1 from information_schema.columns
                      where table_schema='public' and table_name='sales_by_product_title_daily_v'
                        and column_name='title_source')
       then 'MISSING — title_source dropped; unmatched SKUs would become indistinguishable from resolved ones'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='refresh_sales_by_product_title_mv')
+      then 'MISSING — refresh_sales_by_product_title_mv(); the rollup would freeze at whatever the migration populated'
     else 'ok'
   end as sales_by_product_title_daily_v;
 

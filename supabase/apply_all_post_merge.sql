@@ -18329,3 +18329,19 @@ $c$select (select count(*) from v_po_header_summary
           where company_entity_id = active_company_id()
             and coalesce(status,'') not in ('Received','Closed','Cancelled'))$c$,
  0,null);
+
+
+-- ---------------------------------------------------------------------------
+-- 20260907120000_sales_by_product_title_daily_mv.sql
+-- Materializes the product-title rollup defined earlier in this file. Must run
+-- AFTER that definition, since it drops and replaces the view: the view keeps
+-- its name, columns and column order, but now reads
+-- sales_by_product_title_daily_mv through a definer wrapper carrying an
+-- explicit company_entity_id = active_company_id() filter (a matview has no
+-- RLS, so the tenant boundary cannot stay implicit). Unbounded reads over the
+-- old view -- max(day_date), which the Top products report runs on every
+-- execution -- had to build the whole 700k-group rollup: 6,890ms -> 1.5ms.
+-- Refreshed by refresh_sales_by_product_title_mv() at the end of the Shopify
+-- sync.
+-- ---------------------------------------------------------------------------
+\i migrations/20260907120000_sales_by_product_title_daily_mv.sql
