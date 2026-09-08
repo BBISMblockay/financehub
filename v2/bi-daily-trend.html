@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
+  <script src="daily-trend-kpis.js"></script>
   <style>
     .bcn-kpi-band { flex-wrap:wrap; }
 
@@ -89,6 +90,8 @@
     .dt-tbl .dt-var-pos { color:var(--bcn-pos, #16a34a); font-weight:600; }
     .dt-tbl .dt-var-neg { color:var(--bcn-neg, #dc2626); font-weight:600; }
     .dt-tbl .dt-day-sub { color:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); margin-left:6px; }
+    .dt-tbl .dt-day-partial { margin-left:8px; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:700; letter-spacing:.05em; font-family:var(--bcn-mono); background:var(--bcn-warn); color:#fff; }
+    .dt-tbl tr.dt-row-partial td { background:oklch(0.97 0.04 85); }
     .dt-tbl tr.dt-total-row td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:1px solid var(--bcn-border-strong); position:sticky; top:29px; z-index:1; }
     .dt-tbl tr.dt-total-row td:first-child { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em; }
     .dt-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
@@ -104,7 +107,9 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Daily Sales Trend</h1>
-        <div class="bcn-header-sub">Net sales / units over time, current period vs. same days last year. Prior-year values align by day offset, not calendar date.</div>
+        <div class="bcn-header-sub">Net sales / units over time, current period vs. the same dates last year.</div>
+        <div id="comparisonNote" class="bcn-header-sub" style="font-size:10.5px;color:var(--bcn-ink-3)"></div>
+        <div id="incompleteNote" class="bcn-header-sub" style="font-size:10.5px;color:var(--bcn-warn);font-weight:600" hidden></div>
       </div>
       <div class="bcn-header-actions">
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
@@ -112,9 +117,9 @@
     </header>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Period Net</div><div id="kpiPeriodNet" class="bcn-kpi-value">—</div><div id="kpiPeriodVar" class="bcn-kpi-delta">vs LY —</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Period Units</div><div id="kpiPeriodQty" class="bcn-kpi-value">—</div><div id="kpiPeriodQtyVar" class="bcn-kpi-delta">vs LY —</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Best Day</div><div id="kpiBestDay" class="bcn-kpi-value" style="font-size:14px">—</div><div id="kpiBestDayVal" class="bcn-kpi-delta">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label" id="kpiPeriodNetLabel">Period Net Sales</div><div id="kpiPeriodNet" class="bcn-kpi-value">—</div><div id="kpiPeriodVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label" id="kpiPeriodQtyLabel">Period Units</div><div id="kpiPeriodQty" class="bcn-kpi-value">—</div><div id="kpiPeriodQtyVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label" id="kpiBestDayLabel">Best Day</div><div id="kpiBestDay" class="bcn-kpi-value" style="font-size:14px">—</div><div id="kpiBestDayVal" class="bcn-kpi-delta">—</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Days</div><div id="kpiDayCount" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">In range</div></div>
     </div>
 
@@ -134,12 +139,13 @@
           </div>
         </div>
         <div>
-          <label class="bcn-label">Metric</label>
-          <select id="metricMode" class="bcn-field">
+          <label class="bcn-label" for="metricMode" title="Changes what the chart and detail table plot. The headline cards above always show net sales and units.">Chart metric</label>
+          <select id="metricMode" class="bcn-field" aria-describedby="metricScopeNote">
             <option value="sales" selected>Net Sales</option>
             <option value="units">Units</option>
             <option value="discounts">Discounts</option>
           </select>
+          <p id="metricScopeNote" style="margin:4px 0 0;font-size:10px;color:var(--bcn-ink-3);max-width:190px;line-height:1.4">Chart and table only — the headline cards keep their own metric.</p>
         </div>
         <div>
           <label class="bcn-label">Store group</label>
@@ -243,7 +249,12 @@
     kpiBestDay: document.getElementById('kpiBestDay'),
     kpiBestDayVal: document.getElementById('kpiBestDayVal'),
     kpiDayCount: document.getElementById('kpiDayCount'),
+    kpiBestDayLabel: document.getElementById('kpiBestDayLabel'),
+    comparisonNote: document.getElementById('comparisonNote'),
+    incompleteNote: document.getElementById('incompleteNote'),
   };
+
+  const K = window.SiloDailyTrendKpis;
 
   const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
   const moneyW = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
@@ -400,25 +411,46 @@
   const fmtVal = v => el.metricMode.value==='units' ? numFmt(v) : money(v);
   const fmtValW = v => el.metricMode.value==='units' ? numFmt(v) : moneyW(v);
 
+  /* Headline cards are computed by SiloDailyTrendKpis from the day rows ALONE.
+   * The chart metric is deliberately not passed in: it used to drive the
+   * cards' formatting and their year-over-year figure, so charting Units
+   * stripped the currency off net sales and put the units growth rate under
+   * it -- and the units card never computed its own variance at all, it
+   * copied the net card's string. See daily-trend-kpis.js. */
   function renderKpis(){
-    const k=metricKey(), days=state.days;
-    if (!days.length){
-      [el.kpiPeriodNet,el.kpiPeriodQty,el.kpiBestDay,el.kpiBestDayVal,el.kpiDayCount].forEach(e=>e.textContent='—');
-      return;
+    const days = state.days;
+    const cards = K.headlineCards(days);
+    const net = cards[0], units = cards[1];
+
+    el.kpiPeriodNet.textContent = net.text;
+    el.kpiPeriodNet.title = net.hint;
+    el.kpiPeriodVar.textContent = net.varianceText;
+    el.kpiPeriodVar.className = `bcn-kpi-delta bcn-kpi-delta--${net.direction === 'neg' ? 'neg' : 'pos'}`;
+
+    el.kpiPeriodQty.textContent = units.text;
+    el.kpiPeriodQty.title = units.hint;
+    el.kpiPeriodQtyVar.textContent = units.varianceText;
+    el.kpiPeriodQtyVar.className = `bcn-kpi-delta bcn-kpi-delta--${units.direction === 'neg' ? 'neg' : 'pos'}`;
+
+    // Best Day legitimately follows the chart metric -- and now says which.
+    const best = K.bestDay(days, el.metricMode.value);
+    if (el.kpiBestDayLabel) el.kpiBestDayLabel.textContent = best ? `Best Day · ${best.metricLabel}` : 'Best Day';
+    el.kpiBestDay.textContent = best ? best.day : '—';
+    el.kpiBestDayVal.textContent = best ? best.text : '—';
+    el.kpiDayCount.textContent = days.length ? numFmt(days.length) : '—';
+  }
+
+  /* Disclosure: which dates the "vs LY" figures actually compare against, and
+   * whether any day in range is still filling up. */
+  function renderNotes(){
+    const cmp = K.comparisonNote(el.dateFrom.value, el.dateTo.value);
+    if (el.comparisonNote) el.comparisonNote.textContent = cmp.text;
+
+    const note = K.completenessNote(state.days);
+    if (el.incompleteNote){
+      el.incompleteNote.hidden = !note;
+      if (note) el.incompleteNote.textContent = note.text;
     }
-    const sumCur=days.reduce((a,d)=>a+d[k.cur],0), sumPy=days.reduce((a,d)=>a+d[k.py],0);
-    const varPct = sumPy ? ((sumCur-sumPy)/Math.abs(sumPy))*100 : null;
-    el.kpiPeriodNet.textContent = fmtVal(days.reduce((a,d)=>a+d.net,0));
-    el.kpiPeriodQty.textContent = numFmt(days.reduce((a,d)=>a+d.qty,0));
-    const varStr = varPct==null?'—':`${varPct>0?'+':''}${varPct.toFixed(1)}%`;
-    el.kpiPeriodVar.textContent = `vs LY ${varStr}`;
-    el.kpiPeriodVar.className = `bcn-kpi-delta ${varPct>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
-    el.kpiPeriodQtyVar.textContent = el.kpiPeriodVar.textContent;
-    el.kpiPeriodQtyVar.className = el.kpiPeriodVar.className;
-    const best = days.reduce((a,d)=>d[k.cur]>a[k.cur]?d:a, days[0]);
-    el.kpiBestDay.textContent = best.day;
-    el.kpiBestDayVal.textContent = fmtVal(best[k.cur]);
-    el.kpiDayCount.textContent = numFmt(days.length);
   }
 
   const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -437,7 +469,11 @@
       const cur=d[k.cur], py=d[k.py];
       const v = py ? ((cur-py)/Math.abs(py))*100 : null;
       const dow = WEEKDAYS[new Date(`${d.day}T00:00:00`).getDay()];
-      return `<tr><td>${d.day}<span class="dt-day-sub">${dow}</span></td><td>${fmtVal(cur)}</td><td>${fmtVal(py)}</td><td>${varCell(v)}</td></tr>`;
+      // A partial day is not comparable to a complete one, and it does not
+      // look partial on its own -- it just looks like a weak day.
+      const partial = K.isIncompleteDay(d.day)
+        ? `<span class="dt-day-partial" title="Still in progress. Sales are complete only through the previous Pacific day, so this day is not comparable to the ones below it.">IN PROGRESS</span>` : '';
+      return `<tr${partial?' class="dt-row-partial"':''}><td>${d.day}<span class="dt-day-sub">${dow}</span>${partial}</td><td>${fmtVal(cur)}</td><td>${fmtVal(py)}</td><td>${varCell(v)}</td></tr>`;
     }).join('');
     el.tableBody.innerHTML = totalRow + rows;
   }
@@ -588,7 +624,7 @@
     downloadCsv(`daily-trend-${el.metricMode.value}.csv`, headers, rows);
   }
 
-  function renderAll(){ renderKpis(); renderChart(); renderTable(); }
+  function renderAll(){ renderKpis(); renderNotes(); renderChart(); renderTable(); }
 
   el.btnRefresh.addEventListener('click', runLoad);
   el.btnExport.addEventListener('click', exportTrendCsv);

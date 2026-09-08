@@ -59,24 +59,56 @@ function fakeSupabaseScript() {
   return `
 window.__QUERIES__ = [];
 (function () {
+  // A thenable query builder. Pages await .select(...) directly (no .range),
+  // and also chain .gte/.lte/.order/.range, so the builder has to be both a
+  // chainable object and a promise.
   function builder(table) {
-    var q = { table: table, columns: null, order: null, range: null, _op: 'select' };
+    var q = { table: table, columns: null, order: null, range: null, filters: [], _op: 'select' };
+
+    function rows() {
+      var all = (window.__FIXTURE_TABLES__ || {})[table] || [];
+      // Apply the gte/lte/eq filters the pages use, so a suite can assert on
+      // what a date or scope change actually fetched.
+      //
+      // A filter on a column NO fixture row carries is skipped rather than
+      // matching nothing. That is almost entirely for company_entity_id: the
+      // pages add .eq('company_entity_id', ...) via scopeQ(), but tenancy is
+      // enforced by RLS on the real database, not by the fixture -- so
+      // honouring it here would silently empty every table and every suite
+      // would assert against a blank page.
+      q.filters.forEach(function (f) {
+        var present = all.some(function (r) { return Object.prototype.hasOwnProperty.call(r, f.col); });
+        if (!present) return;
+        all = all.filter(function (r) {
+          var v = r[f.col];
+          if (f.op === 'gte') return String(v) >= String(f.val);
+          if (f.op === 'lte') return String(v) <= String(f.val);
+          if (f.op === 'eq')  return String(v) === String(f.val);
+          return true;
+        });
+      });
+      if (q.range) all = all.slice(q.range[0], q.range[1] + 1);
+      return all;
+    }
+
     var api = {
       select: function (cols) { q.columns = cols; window.__QUERIES__.push(q); return api; },
-      order: function (col, opts) { q.order = { col: col, opts: opts }; return api; },
-      eq: function () { return api; },
-      insert: function (rows) { q._op = 'insert'; q.rows = rows; window.__QUERIES__.push(q); return Promise.resolve({ data: rows, error: null }); },
+      order:  function (col, opts) { q.order = { col: col, opts: opts }; return api; },
+      eq:     function (col, val) { q.filters.push({ op: 'eq',  col: col, val: val }); return api; },
+      gte:    function (col, val) { q.filters.push({ op: 'gte', col: col, val: val }); return api; },
+      lte:    function (col, val) { q.filters.push({ op: 'lte', col: col, val: val }); return api; },
+      in:     function () { return api; },
+      limit:  function () { return api; },
+      range:  function (from, to) { q.range = [from, to]; return api; },
+      insert: function (r) { q._op = 'insert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
       update: function (patch) { q._op = 'update'; q.patch = patch; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
-      range: function (from, to) {
-        q.range = [from, to];
-        var all = (table === 'product_tags')
-          ? (window.__FIXTURE_TAGS__ || [])
-          : (window.__FIXTURE_ROWS__ || []);
-        return Promise.resolve({ data: all.slice(from, to + 1), error: null });
-      }
+      upsert: function (r) { q._op = 'upsert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
+      delete: function () { q._op = 'delete'; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
+      then:   function (res, rej) { return Promise.resolve({ data: rows(), error: null }).then(res, rej); }
     };
     return api;
   }
+
   window.supabase = {
     createClient: function () {
       return {
@@ -84,10 +116,16 @@ window.__QUERIES__ = [];
           getSession: function () {
             return Promise.resolve({ data: { session: { user: { email: 'test@baseballism.com' } } }, error: null });
           },
+          getUser: function () {
+            return Promise.resolve({ data: { user: { id: 'test-user', email: 'test@baseballism.com' } }, error: null });
+          },
           signOut: function () { return Promise.resolve({ error: null }); }
         },
         from: builder,
-        rpc: function () { return Promise.resolve({ data: null, error: null }); }
+        rpc: function (name, args) {
+          window.__QUERIES__.push({ table: 'rpc:' + name, args: args, _op: 'rpc' });
+          return Promise.resolve({ data: (window.__FIXTURE_RPC__ || {})[name] || null, error: null });
+        }
       };
     }
   };
@@ -132,18 +170,33 @@ async function startSuite(options = {}) {
   await context.route('**/fonts.googleapis.com/**', (route) =>
     route.fulfill({ contentType: 'text/css', body: '' }));
 
-  async function open(rows, tags) {
+  /**
+   * Open a page with a table -> rows fixture map.
+   *   open('/v2/bi-daily-trend.html', { locations: [...], sales_by_day_verification_v: [...] })
+   * `ready` is a predicate evaluated in the page; defaults to the inventory
+   * page's status line for backwards compatibility with the existing suite.
+   */
+  async function open(pathOrRows, tablesOrTags, opts) {
+    // Back-compat: the inventory suite calls open(rows, tags).
+    let path = '/v2/inventory.html';
+    let tables = {};
+    let ready = () => {
+      const n = document.getElementById('statusLine');
+      return n && /location rows|failed/.test(n.textContent);
+    };
+    if (typeof pathOrRows === 'string') {
+      path = pathOrRows;
+      tables = tablesOrTags || {};
+      if (opts && opts.ready) ready = opts.ready;
+    } else {
+      tables = { inventory_workboard_v: pathOrRows || [], product_tags: tablesOrTags || [] };
+    }
+
     const page = await context.newPage();
     page.on('pageerror', (e) => { console.log('  [pageerror] ' + e.message); });
-    await page.addInitScript(({ r, t }) => {
-      window.__FIXTURE_ROWS__ = r;
-      window.__FIXTURE_TAGS__ = t;
-    }, { r: rows || [], t: tags || [] });
-    await page.goto(`${base}/v2/inventory.html`, { waitUntil: 'domcontentloaded' });
-    // The page is ready once its status line reports a load.
-    await page.waitForFunction(
-      () => { const n = document.getElementById('statusLine'); return n && /location rows|failed/.test(n.textContent); },
-      { timeout: 20000 });
+    await page.addInitScript((t) => { window.__FIXTURE_TABLES__ = t; }, tables);
+    await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(ready, { timeout: 20000 });
     return page;
   }
 
