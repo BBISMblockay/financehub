@@ -66,8 +66,100 @@ test('a zero denominator empties the cell rather than dividing by zero', () => {
   eq(r.value, null);
   truthy(r.refused);
 });
-test('an explicit avg is honoured -- the author asked for it', () =>
+test('an explicit avg is honoured on a QUANTITY -- the author asked for it', () =>
   eq(M.aggregate(money, 'net_sales', 'currency', { aggregate: 'avg' }).value, 400 / 3));
+
+// ── Two gaps found in review, 2026-09-08 ──────────────────────────────
+// Both are the same root cause: "is this a ratio" was decided from the
+// SEMANTIC, and only after the requested aggregate had already been
+// honoured. So an explicit avg skipped the ratio branch entirely, and every
+// ratio that is not a percentage never reached it at all.
+console.log('\n── ratios are ratios however they are asked for ──');
+
+// This is not a hypothetical setting: chart-adapter's defaultAggregate()
+// returns 'avg' for a percent, so the inspector's Aggregation dropdown
+// SHOWS avg on a rate. Touching anything else in that panel writes it to
+// visual_config, and the tile silently stopped pooling from that moment on.
+test('an explicit avg on a RATE still pools -- it does not average', () => {
+  const r = M.aggregate(rates, 'conversion_rate', 'percent', { aggregate: 'avg' });
+  truthy(Math.abs(r.value - 9.9207920792) < 1e-6, `got ${r.value}`);
+  has(r.method, 'pooled from orders');
+});
+test('...and says the requested aggregate was overridden, rather than doing it quietly', () => {
+  const r = M.aggregate(rates, 'conversion_rate', 'percent', { aggregate: 'avg' });
+  eq(r.overrode, 'avg');
+});
+test('an explicit SUM on a rate pools too', () => {
+  const r = M.aggregate(rates, 'conversion_rate', 'percent', { aggregate: 'sum' });
+  truthy(Math.abs(r.value - 9.9207920792) < 1e-6, `got ${r.value}`);
+});
+
+// A ratio is a ratio whatever its unit. AOV is dollars, ROAS is a plain
+// number, and neither is a percentage -- so both took the summable path.
+const aovRows = [
+  { aov: 10, net_sales: 100, orders: 10 },
+  { aov: 100, net_sales: 100, orders: 1 },
+];
+test('AOV is pooled from net_sales ÷ orders, not summed', () => {
+  const r = M.aggregate(aovRows, 'aov', 'currency', {});
+  truthy(Math.abs(r.value - 200 / 11) < 1e-9, `got ${r.value}`);
+  has(r.method, 'pooled from net_sales ÷ orders');
+});
+test('...and $110 is what summing it used to give', () =>
+  truthy(M.aggregate(aovRows, 'aov', 'currency', {}).value !== 110));
+
+const roasRows = [
+  { roas: 2, online_net_sales: 200, ad_spend: 100 },
+  { roas: 8, online_net_sales: 800, ad_spend: 100 },
+];
+test('ROAS is pooled, not summed to 10', () => {
+  const r = M.aggregate(roasRows, 'roas', 'number', {});
+  eq(r.value, 5);
+  has(r.method, 'pooled from online_net_sales ÷ ad_spend');
+});
+test('MER is the same shape and gets the same treatment', () => {
+  const r = M.aggregate(
+    [{ mer: 4, net_sales: 400, ad_spend: 100 }, { mer: 2, net_sales: 200, ad_spend: 100 }],
+    'mer', 'number', {});
+  eq(r.value, 3);
+});
+
+// A non-percentage ratio with no parts cannot be summed either -- $110 of
+// AOV is not a quantity. Refused, for the same reason a rate is.
+test('a non-percentage ratio with no parts in the result is REFUSED, not summed', () => {
+  const r = M.aggregate([{ aov: 10 }, { aov: 100 }], 'aov', 'currency', {});
+  eq(r.value, null);
+  truthy(r.refused);
+  has(r.note, 'net_sales');
+  has(r.note, 'orders');
+});
+test('one row is still just the value, for a non-percentage ratio too', () =>
+  eq(M.aggregate([{ aov: 42 }], 'aov', 'currency', {}).value, 42));
+
+// first/last/min/max/count SELECT a row's value; they do not combine
+// several into a new ratio, so there is nothing to protect against.
+test('min/max/first/last pick a value and are honoured on a ratio', () => {
+  eq(M.aggregate(roasRows, 'roas', 'number', { aggregate: 'max' }).value, 8);
+  eq(M.aggregate(roasRows, 'roas', 'number', { aggregate: 'min' }).value, 2);
+  eq(M.aggregate(roasRows, 'roas', 'number', { aggregate: 'first' }).value, 2);
+  eq(M.aggregate(roasRows, 'roas', 'number', { aggregate: 'last' }).value, 8);
+});
+test('count on a ratio counts rows, as it says', () =>
+  eq(M.aggregate(roasRows, 'roas', 'number', { aggregate: 'count' }).value, 2));
+
+// A column that merely LOOKS like money keeps summing. The protection is a
+// lookup, not a guess -- widening it to "anything with a slash in its
+// meaning" would start refusing ordinary totals.
+test('an ordinary currency column is untouched by any of this', () =>
+  eq(M.aggregate(money, 'net_sales', 'currency', {}).value, 400));
+test('an ordinary count column is untouched too', () =>
+  eq(M.aggregate([{ units: 3 }, { units: 4 }], 'units', 'count', {}).value, 7));
+test('isRatio names what is protected, so a reader can check the list', () => {
+  truthy(M.isRatio('aov', 'currency'));
+  truthy(M.isRatio('roas', 'number'));
+  truthy(M.isRatio('anything_at_all', 'percent'));
+  truthy(!M.isRatio('net_sales', 'currency'));
+});
 test('a category does not add up', () =>
   truthy(M.aggregate([{ a: 'x' }], 'a', 'category', {}).value === null));
 

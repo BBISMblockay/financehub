@@ -177,6 +177,54 @@ test('...and without naming one, combo is just bars', () => {
   eq(opt.series.map((s) => s.type), ['bar', 'bar']);
 });
 
+// ── Ratios in the chart path ──────────────────────────────────────────
+// Same defect as the metric layer's, in the file that draws instead of the
+// one that totals. Left alone, a bar chart of ROAS by platform would sum
+// 2 and 8 into 10 while the KPI beside it pools them into 5 -- two numbers
+// on one board that cannot both be right.
+console.log('\n── ratios when a chart groups ──');
+
+const byPlatform = [
+  { platform: 'meta', roas: 2, online_net_sales: 200, ad_spend: 100 },
+  { platform: 'meta', roas: 8, online_net_sales: 800, ad_spend: 100 },
+  { platform: 'google', roas: 4, online_net_sales: 400, ad_spend: 100 },
+];
+test('a grouped ratio is POOLED from its parts, not summed', () => {
+  const s = C.shape(byPlatform, { x_field: 'platform', y_field: 'roas' }, {});
+  eq(s.points.find((p) => p.label === 'meta').value, 5);
+});
+test('...which is the same answer the KPI gives for the same rows', () =>
+  eq(C.shape(byPlatform, { x_field: 'platform', y_field: 'roas' }, {})
+    .points.find((p) => p.label === 'meta').value,
+    g.SiloMetrics.aggregate(byPlatform.filter((r) => r.platform === 'meta'), 'roas', 'number', {}).value));
+test('a group of one is untouched', () =>
+  eq(C.shape(byPlatform, { x_field: 'platform', y_field: 'roas' }, {})
+    .points.find((p) => p.label === 'google').value, 4));
+test('nothing to disclose when it pooled cleanly', () =>
+  eq(C.shape(byPlatform, { x_field: 'platform', y_field: 'roas' }, {}).ratioNote, null));
+
+// A chart discloses where a KPI refuses: blanking forty bars destroys far
+// more than the mis-weighting costs. It is never SUMMED either way.
+const noParts = [{ p: 'Tee', roas: 2 }, { p: 'Tee', roas: 8 }];
+test('a ratio with no parts falls back to the mean, never a sum', () => {
+  const s = C.shape(noParts, { x_field: 'p', y_field: 'roas' }, {});
+  eq(s.points[0].value, 5);
+  truthy(s.points[0].value !== 10, 'summing 2 and 8 would be 10');
+});
+test('...and the shape carries a note the tile prints', () => {
+  const s = C.shape(noParts, { x_field: 'p', y_field: 'roas' }, {});
+  has(s.ratioNote, 'roas averaged across rows');
+  has(s.ratioNote, 'cannot be pooled');
+});
+test('min/max still pick a row on a ratio, as asked', () => {
+  const s = C.shape(byPlatform, { x_field: 'platform', y_field: 'roas', aggregate: 'max' }, {});
+  eq(s.points.find((p) => p.label === 'meta').value, 8);
+});
+test('an ordinary currency measure still sums when grouped', () => {
+  const s = C.shape(byPlatform, { x_field: 'platform', y_field: 'online_net_sales' }, {});
+  eq(s.points.find((p) => p.label === 'meta').value, 1000);
+});
+
 // ── Axis label and legend ─────────────────────────────────────────────
 console.log('\n── axis label / legend ──');
 

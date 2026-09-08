@@ -103,12 +103,45 @@
   }
 
   /**
+   * Is this column a ratio -- one number over another?
+   *
+   * Two ways to be one, and the ORDER these are asked in was the bug. A
+   * `percent` semantic is the obvious case. But AOV is dollars and ROAS is
+   * a plain number, and neither is a percentage, so asking only the
+   * semantic left both on the summable path: AOV of $10 and $100 summed to
+   * $110, and ROAS of 2 and 8 summed to 10.
+   *
+   * `RATIOS` is a lookup, deliberately, not a heuristic over names. A guess
+   * here would start refusing ordinary totals, which is a worse failure
+   * than the one it fixes.
+   */
+  function isRatio(field, semantic) {
+    return !!ratioFor(field) || isRate(semantic);
+  }
+
+  /* first/last/min/max/count SELECT one row's value. They do not combine
+     several into a new ratio, so there is nothing to protect against and
+     they are honoured on anything. `sum` and `avg` are the two that
+     manufacture a number, and they are the two a ratio has to intercept. */
+  const PICKS_A_ROW = new Set(['first', 'last', 'min', 'max', 'count']);
+
+  /**
    * Roll a column up across rows, honestly.
    *
    * Returns { value, method, note } or { value: null, refused, note }.
    * `method` names what was actually done, so a caller can print it --
-   * "pooled from orders / sessions" is a materially different claim from
-   * "sum", and a tile that says which one it did is auditable.
+   * "pooled from orders ÷ sessions" is a materially different claim from
+   * "sum", and a tile that says which one it did is auditable. `overrode`
+   * is set when the author asked for something a ratio cannot honour.
+   *
+   * ── Order of operations, which is the whole fix ──────────────────────
+   * The requested aggregate used to be honoured FIRST. That let an explicit
+   * `avg` skip the ratio branch entirely -- and chart-adapter's
+   * defaultAggregate() returns 'avg' for a percent, so the inspector shows
+   * avg on every rate and writes it to visual_config the moment anything
+   * else in that panel is touched. A tile silently stopped pooling from
+   * that point on, which is exactly the number this module exists to
+   * refuse. Ratio-ness is now decided before anything else that combines.
    */
   function aggregate(rows, field, semantic, options) {
     const opts = options || {};
@@ -119,42 +152,57 @@
     const nums = list.map((r) => num(r[field])).filter((n) => n !== null);
     if (!nums.length) return { value: null, note: 'no numeric values' };
 
-    // An explicit non-sum choice is the author's, and is honoured as asked.
-    if (requested && requested !== 'sum' && requested !== 'auto') {
+    // Picking a row is a different question from combining rows, and it is
+    // answerable for every kind of column.
+    if (requested && PICKS_A_ROW.has(requested)) {
       if (requested === 'first') return { value: nums[0], method: 'first' };
       if (requested === 'last') return { value: nums[nums.length - 1], method: 'last' };
-      if (requested === 'avg') return { value: nums.reduce((a, b) => a + b, 0) / nums.length, method: 'avg' };
       if (requested === 'min') return { value: Math.min(...nums), method: 'min' };
       if (requested === 'max') return { value: Math.max(...nums), method: 'max' };
-      if (requested === 'count') return { value: nums.length, method: 'count' };
+      return { value: nums.length, method: 'count' };
     }
 
-    if (isRate(semantic)) {
+    if (isRatio(field, semantic)) {
       // One row is not an aggregation -- it is the value.
       if (list.length === 1) return { value: nums[0], method: 'single row' };
+
       const def = ratioFor(field);
       const cols = list[0] ? Object.keys(list[0]) : [];
       if (def && cols.includes(def.numerator) && cols.includes(def.denominator)) {
         const n = sumOf(list, def.numerator);
         const d = sumOf(list, def.denominator);
         if (n !== null && d) {
-          return {
+          const out = {
             value: (n / d) * (def.scale || 1),
             method: `pooled from ${def.numerator} ÷ ${def.denominator}`,
           };
+          // Say when the author asked for something else. Overriding a
+          // stated choice silently is its own kind of wrong, even when the
+          // override is right.
+          if (requested && requested !== 'auto') out.overrode = requested;
+          return out;
         }
         if (d === 0) return { value: null, refused: true, note: `${def.denominator} totals zero` };
       }
-      // No parts in the result: refuse rather than average. An average of
-      // rates is a number, just not the one anybody wanted.
+
+      // No parts in the result: refuse rather than combine. An average of
+      // rates is a number, just not the one anybody wanted, and a SUM of
+      // ratios -- $110 of AOV, a ROAS of 10 -- is not a quantity at all.
+      // A KPI or a total is one headline figure with nowhere to hide a
+      // caveat, so the honest output is a blank and the reason.
       return {
         value: null,
         refused: true,
-        note: `a rate cannot be summed, and averaging ${list.length} of them is not the pooled rate`
+        note: `${isRate(semantic) ? 'a rate' : 'a ratio'} cannot be summed, and `
+          + `${isRate(semantic) ? `averaging ${list.length} of them is not the pooled rate` : 'averaging it is not the pooled value'}`
           + (def ? ` — add ${def.numerator} and ${def.denominator} to this report to pool it correctly` : ''),
       };
     }
 
+    // Not a ratio. An explicit non-sum choice is the author's, as asked.
+    if (requested === 'avg') {
+      return { value: nums.reduce((a, b) => a + b, 0) / nums.length, method: 'avg' };
+    }
     if (SUMMABLE.has(semantic) || semantic === undefined) {
       return { value: nums.reduce((a, b) => a + b, 0), method: 'sum' };
     }
@@ -268,7 +316,7 @@
 
   global.SiloMetrics = {
     LABELS, RATIOS, SUMMABLE,
-    label, isRate, ratioFor, aggregate, change,
+    label, isRate, isRatio, ratioFor, aggregate, change,
     inclusiveDays, priorPeriod, priorYear, canCompare,
     _num: num, _iso: iso, _parse: parse,
   };
