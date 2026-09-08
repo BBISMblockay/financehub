@@ -18356,3 +18356,19 @@ $c$select (select count(*) from v_po_header_summary
 -- Additive, no policy change: `system` rows stay unwritable by any client.
 -- ---------------------------------------------------------------------------
 \i migrations/20260907140000_report_row_estimate.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260908120000_drop_retired_better_reports_inventory.sql
+-- Removes the 3,400,748-row Better Reports inventory archive (2026-04-22 to
+-- 2026-07-08, ~4.9 GB of a 5,271 MB table) from inventory_on_hand. That
+-- pipeline was retired 2026-07-08; the Shopify sync that replaced it purges
+-- and replaces on every run, so it keeps no history and nothing reads the old
+-- rows -- zero rows in inventory_on_hand_current_mv depend on them, which the
+-- migration re-asserts before deleting. Also drops two sync_batch_id indexes
+-- with 0 scans across a stats window covering the whole Shopify-sync era.
+-- DELETE does not return disk: run VACUUM (FULL, ANALYZE) public.inventory_on_hand
+-- separately afterwards, outside the 08:30/14:30 UTC sync windows.
+-- ---------------------------------------------------------------------------
+\i migrations/20260908120000_drop_retired_better_reports_inventory.sql
+

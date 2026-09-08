@@ -2426,3 +2426,31 @@ select
         || 'confusing on the register)'
     else 'ok'
   end as cash_flow_forecast;
+
+-- ---------------------------------------------------------------------------
+-- Retired Better Reports inventory archive
+-- (20260908120000_drop_retired_better_reports_inventory.sql)
+--
+-- inventory_on_hand should hold ONLY the current snapshot. The Shopify sync
+-- purges and replaces on every run, so anything from a retired source is an
+-- archive nothing reads -- it was 3,400,748 rows and ~4.9 GB before it was
+-- removed. A non-zero count here means either the migration has not run or a
+-- retired pipeline has started writing again.
+-- ---------------------------------------------------------------------------
+select
+  case
+    when (select count(*) from public.inventory_on_hand
+           where source = 'better_reports') > 0
+      then 'MISSING — better_reports rows still present ('
+        || (select to_char(count(*),'FM999,999,999') from public.inventory_on_hand
+             where source = 'better_reports')
+        || ' rows); run 20260908120000_drop_retired_better_reports_inventory.sql'
+    when exists (select 1 from pg_indexes
+                  where schemaname='public' and tablename='inventory_on_hand'
+                    and indexname in ('inventory_on_hand_loc_sku_batch_idx',
+                                      'inventory_on_hand_batch_idx'))
+      then 'MISSING — the two unused sync_batch_id indexes are back; nothing '
+        || 'queries sync_batch_id and every sync run pays to maintain them'
+    else 'ok'
+  end as inventory_archive_removed;
+
