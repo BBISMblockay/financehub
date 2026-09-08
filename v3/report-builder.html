@@ -164,6 +164,10 @@
 <script src="../v2/silo-chrome.js"></script>
 <script src="js/report-params.js?v=20260908a"></script>
 <script src="js/field-semantics.js?v=20260908a"></script>
+<!-- chart-adapter calls SiloMetrics for every roll-up and comparison. It
+     falls back without it, which is worse than failing: the preview here
+     would total a column differently from the tile the report becomes. -->
+<script src="js/metrics.js?v=20260908a"></script>
 <script src="js/chart-adapter.js?v=20260908a"></script>
 <script src="js/report-builder.js?v=20260908a"></script>
 <script src="js/report-builder-ui.js?v=20260908a"></script>

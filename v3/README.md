@@ -772,6 +772,43 @@ parts. It is a lookup, not a heuristic: a `conversion_rate` in a result
 carrying neither sessions nor orders cannot be pooled, and inventing a
 denominator would be worse than an empty cell.
 
+**Two things decide whether that protection applies, and getting either
+wrong was a real bug (fixed 2026-09-08):**
+
+*A ratio is a ratio however it is asked for.* The requested aggregate used
+to be honoured before ratio-ness was even considered, so an explicit `avg`
+skipped the whole branch. That is not a hypothetical setting:
+`defaultAggregate('percent')` returns `avg`, so the inspector's Aggregation
+dropdown SHOWS avg on every rate, and touching anything else in that panel
+writes it to `visual_config` — from which point the tile silently stopped
+pooling and a conversion rate read 6% where the pooled answer is 9.92%.
+Ratio-ness is now decided first. `first`/`last`/`min`/`max`/`count` are
+still honoured, because they *select* a row's value rather than combining
+several into a new ratio; only `sum` and `avg` are overridden, and the
+result says so in `overrode`.
+
+*A ratio is a ratio whatever its unit.* Ratio-ness was read off the
+`percent` semantic alone, so AOV (dollars) and ROAS/MER (plain numbers)
+never reached it and took the summable path — AOV of $10 and $100 summed to
+**$110** where the pooled answer is $200 ÷ 11 = $18.18, and ROAS of 2 and 8
+summed to **10** where it is 5. `isRatio(field, semantic)` now asks the
+`RATIOS` lookup *or* the semantic. A non-percentage ratio with no parts is
+refused for the same reason a rate is: $110 of AOV is not a quantity.
+
+### Where a chart differs, and why
+
+`chart-adapter.js`'s `shape()` pools through the same function when it
+groups rows — otherwise a bar chart of ROAS by platform would sum 2 and 8
+into 10 while the KPI beside it pools them into 5, which is two numbers on
+one board that cannot both be right.
+
+It parts company in exactly one case. When the parts are **not** in the
+result, a KPI refuses: one headline figure has nowhere to put a caveat, so
+a blank and a reason is the honest output. A chart falls back to the
+unweighted mean and **says so in its footer** (`shaped.ratioNote`), because
+blanking forty bars destroys far more than the mis-weighting costs. Neither
+ever sums.
+
 Measured on real data while this shipped — Baseballism, 1–6 Sep 2026, all
 stores, Total Sales, `sku ilike '%mlb%'`:
 

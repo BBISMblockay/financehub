@@ -336,6 +336,7 @@
 
     let points;
     let aggregatedFrom = 0;
+    let ratioNote = null;
     if (agg === 'none') {
       points = rows.map((r) => ({
         label: r[xField], row: r,
@@ -359,6 +360,10 @@
         g.rows.push(r);
       }
       aggregatedFrom = rows.length;
+      /* Measures that had to be averaged because the report does not return
+         the parts they are a ratio OF. Surfaced in the tile's footer -- see
+         below for why a chart discloses where a KPI refuses. */
+      const unpooled = new Set();
       points = Array.from(groups.values()).map((g) => ({
         label: g.label, row: g.rows[0], rowCount: g.rows.length,
         // Each measure is aggregated with the aggregate that suits ITS OWN
@@ -368,9 +373,35 @@
           const sem = semanticOf(f, semantics, prof);
           const perField = AGGREGATES.includes(cfg.aggregate) && fields.length === 1
             ? cfg.aggregate : defaultAggregate(sem);
+
+          /* A RATIO is pooled from its numerator and denominator here for
+             the same reason a KPI pools it, and through the same function:
+             a bar chart of ROAS by platform summing 2 and 8 into 10 while
+             the KPI beside it pools them into 5 puts two numbers on one
+             board that cannot both be right.
+             `perField` is passed through so min/max/first/last still pick a
+             row as asked; only sum and avg -- the two that manufacture a
+             new ratio -- are overridden. */
+          const M = global.SiloMetrics;
+          if (M && M.isRatio(f, sem) && g.rows.length > 1) {
+            const rolled = M.aggregate(g.rows, f, sem, { aggregate: perField });
+            if (rolled.value !== null && rolled.value !== undefined) return [f, rolled.value];
+            /* No parts in the result, so it cannot be pooled. A KPI REFUSES
+               here, because one headline number has nowhere to put a
+               caveat. A chart is a shape over forty bars and blanking it
+               destroys far more than the mis-weighting costs -- so it falls
+               back to the unweighted mean, NEVER a sum (a $110 AOV is not a
+               quantity at all), and the footer says so. */
+            unpooled.add(f);
+            return [f, aggregateValues(g.nums[f], 'avg')];
+          }
           return [f, aggregateValues(g.nums[f], perField)];
         })),
       }));
+      if (unpooled.size) {
+        ratioNote = `${Array.from(unpooled).join(', ')} averaged across rows — `
+          + 'this report does not return the columns it is a ratio of, so it cannot be pooled';
+      }
     }
     // Back-compat: every caller written before multi-measure reads .value.
     for (const p of points) p.value = p.values[yField];
@@ -420,6 +451,10 @@
       xField, yField, fields, points, series, truncated, totalRows,
       droppedCount: dropped.length, remainder,
       aggregate: agg,
+      // Set only when a ratio measure had to be averaged rather than pooled.
+      // The tile prints it; a mis-weighted number that does not say it is
+      // mis-weighted is the thing this whole layer exists to prevent.
+      ratioNote,
       // Non-zero only when grouping actually collapsed rows -- the foot uses
       // this to say "10 of 46 products (from 1,204 rows)" instead of
       // implying the chart shows every row it was given.

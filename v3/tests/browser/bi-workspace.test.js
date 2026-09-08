@@ -152,6 +152,11 @@ const ok = (n, c, extra) => {
     (await page.locator('.dw[data-widget-id="WB"] .dw-nofilter').count()) === 1);
   ok('...and the marker names the parameter it ignores',
     /\{\{store\}\}/.test(await page.getAttribute('.dw[data-widget-id="WB"] .dw-nofilter', 'title')));
+  // The count belongs in the header too: "this drives 1 of 2 tiles" is the
+  // honest sentence, and it is what stops a reader assuming all of them moved.
+  ok('the filter chip says how many tiles the control actually drives',
+    (await page.textContent('#filterChips')).includes('1 of 2 tiles'),
+    await page.textContent('#filterChips'));
 
   // A filter change must not silently leave the unfiltered tile looking
   // like it moved with everything else.

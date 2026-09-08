@@ -513,7 +513,11 @@
    on one line and lets the hint hang below without moving anything. */
 .v3-slicer-fields { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; flex: 1; }
 .v3-slicer-field { min-width: 150px; }
-.v3-slicer-reset { align-self: flex-start; margin-top: 15px; }
+/* The reset button used to sit directly in .v3-slicer-fields and needed its
+   own label-height offset. It now lives in .v3-slicer-actions, which carries
+   that offset for the whole group -- keeping it here too pushed Reset a row
+   lower than the controls beside it. */
+.v3-slicer-reset { align-self: center; }
 
 /* Preset select and the custom-date input sit on one line; the input is
    hidden until "Specific date…" is chosen. */

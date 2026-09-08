@@ -548,6 +548,10 @@
         if (shaped.aggregatedFrom) {
           parts.push(`${shaped.aggregate} of ${shaped.yField} over ${shaped.aggregatedFrom.toLocaleString()} rows`);
         }
+        // A ratio that had to be averaged rather than pooled says so. A
+        // mis-weighted number that does not admit it is mis-weighted is the
+        // thing the metric layer exists to prevent.
+        if (shaped.ratioNote) parts.push(shaped.ratioNote);
         foot.textContent = parts.join(' · ');
       }
 
