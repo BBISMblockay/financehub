@@ -113,8 +113,18 @@ window.__QUERIES__ = [];
     createClient: function () {
       return {
         auth: {
+          // Resolved on a MACROTASK, not a microtask. A real getSession() is a
+          // network round trip, and pages rely on that: planning-scenarios.html
+          // awaits it in one <script> and defines its boot function in the
+          // NEXT one. An instantly-resolved promise runs the continuation
+          // before the parser reaches that second block, so the page silently
+          // never boots -- a race no real client can lose.
           getSession: function () {
-            return Promise.resolve({ data: { session: { user: { email: 'test@baseballism.com' } } }, error: null });
+            return new Promise(function (res) {
+              setTimeout(function () {
+                res({ data: { session: { user: { email: 'test@baseballism.com' } } }, error: null });
+              }, 0);
+            });
           },
           getUser: function () {
             return Promise.resolve({ data: { user: { id: 'test-user', email: 'test@baseballism.com' } }, error: null });
@@ -158,10 +168,28 @@ async function startSuite(options = {}) {
     res.end(fs.readFileSync(file));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const port = server.address().port;
+  const base = `http://silo.test:${port}`;
 
-  const browser = await chromium.launch({ executablePath: chromiumPath() });
+  // Some pages (projections.html) switch themselves into a built-in DEMO mode
+  // when the hostname looks like localhost -- which a test server always does.
+  // Map a neutral hostname onto the loopback server so the page runs its REAL
+  // Supabase path against the fixtures, rather than its demo seed data.
+  const browser = await chromium.launch({
+    executablePath: chromiumPath(),
+    args: ['--host-resolver-rules=MAP silo.test 127.0.0.1'],
+  });
   const context = await browser.newContext({ viewport });
+
+  // Registered FIRST on purpose: Playwright matches the most recently added
+  // route first, so every specific stub below overrides this. Anything
+  // external that nothing else claims resolves to an empty 200 rather than
+  // hanging the page on an unreachable host.
+  await context.route('**://**', (route) => {
+    const url = route.request().url();
+    if (url.startsWith(base)) return route.continue();
+    return route.fulfill({ status: 200, contentType: 'text/plain', body: '' });
+  });
 
   await context.route('**/pages/config.js', (route) =>
     route.fulfill({ contentType: 'text/javascript', body: CONFIG_STUB }));
@@ -169,6 +197,15 @@ async function startSuite(options = {}) {
     route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript() }));
   await context.route('**/fonts.googleapis.com/**', (route) =>
     route.fulfill({ contentType: 'text/css', body: '' }));
+  // planning-scenarios.html pulls Tailwind from a CDN. It is a BLOCKING
+  // script, so an unreachable CDN stalls parsing and the page never boots --
+  // which looks exactly like a page bug. Stub it, and catch anything else
+  // external the same way so one unstubbed host cannot hang a suite.
+  await context.route('**/cdn.tailwindcss.com/**', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: 'window.tailwind={config:{}};' }));
+  await context.route('https://cdn.tailwindcss.com', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: 'window.tailwind={config:{}};' }));
+
 
   /**
    * Open a page with a table -> rows fixture map.

@@ -155,6 +155,68 @@
     /* gap cell: empty in a partially-filled row */
     .td-cell--gap { background:oklch(0.55 0.15 45 / 0.08) !important; }
 
+    /* --- Wide-matrix ergonomics -------------------------------------------
+       30 locations were rendered as 30 unconstrained <col>s, so every column
+       collapsed to ~30px and the whole grid became unreadable. Columns now
+       have a readable floor and the identity columns stay put while the rest
+       scrolls horizontally inside the card. */
+    #matrix-table { table-layout:fixed; }
+    #matrix-table th, #matrix-table td { min-width:92px; }
+    #matrix-table th.pj-sticky, #matrix-table td.pj-sticky {
+      position:sticky; z-index:3; background:var(--bcn-surface);
+      box-shadow:1px 0 0 var(--bcn-border);
+    }
+    #matrix-table thead th.pj-sticky { z-index:5; background:var(--bcn-sunken); }
+    #matrix-table .pj-sticky-1 { left:0; min-width:104px; width:104px; }
+    #matrix-table .pj-sticky-2 { left:104px; min-width:180px; width:180px; }
+    #matrix-table tbody tr:hover td.pj-sticky { background:var(--bcn-sunken); }
+    #matrix-table tfoot td.pj-sticky { background:var(--bcn-band); color:var(--bcn-band-ink); }
+
+    /* --- Value states -----------------------------------------------------
+       A projection for a date that has already passed is a historical
+       assumption, not a forecast, and it read identically to a future one. */
+    .td-cell--past { color:var(--bcn-ink-3); }
+    .td-cell--past .pj-val { text-decoration:underline dotted var(--bcn-border-strong); text-underline-offset:3px; }
+    .td-cell[data-editable="1"]:hover { outline:1px dashed var(--bcn-accent); outline-offset:-2px; }
+    .pj-legend { display:flex; flex-wrap:wrap; gap:14px; align-items:center; padding:6px 12px;
+      border-top:1px solid var(--bcn-border); font-size:10.5px; color:var(--bcn-ink-3); }
+    .pj-legend-item { display:flex; align-items:center; gap:5px; }
+    .pj-swatch { width:12px; height:12px; border-radius:3px; border:1px solid var(--bcn-border); display:inline-block; }
+    .pj-swatch--proj { background:oklch(0.55 0.20 245 / 0.28); }
+    .pj-swatch--gap  { background:oklch(0.55 0.15 45 / 0.08); }
+    .pj-swatch--past { background:var(--bcn-surface); border-style:dotted; }
+
+    /* --- Filter chips ------------------------------------------------------ */
+    .pj-chipbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px;
+      padding:6px 12px; border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken); font-size:11px; }
+    .pj-chipbar[hidden] { display:none; }
+    /* .bcn-pill sets display:inline-flex, which overrides the `hidden`
+       attribute -- a hidden count badge still rendered as "0". */
+    #more-filters-count[hidden] { display:none !important; }
+    .pj-chip { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--bcn-border);
+      border-radius:999px; background:var(--bcn-surface); padding:2px 4px 2px 9px; font-weight:600; }
+    .pj-chip button { border:none; background:none; cursor:pointer; padding:0 3px; color:var(--bcn-ink-3);
+      font-size:13px; line-height:1; font-weight:700; border-radius:999px; }
+    .pj-chip button:hover { background:var(--bcn-sunken); color:var(--bcn-neg); }
+    .pj-chip-count { color:var(--bcn-ink-3); font-weight:600; margin-right:2px; }
+    .pj-reset { border:none; background:none; cursor:pointer; padding:2px 6px; color:var(--bcn-accent);
+      font-size:11px; font-weight:700; text-decoration:underline; text-underline-offset:2px; }
+
+    /* --- Advanced filters, collapsed until wanted -------------------------- */
+    .pj-more { border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); background:var(--bcn-surface); }
+    .pj-more > summary { cursor:pointer; padding:6px 10px; font-size:11px; font-weight:700;
+      color:var(--bcn-ink-2); list-style:none; user-select:none; font-family:var(--bcn-mono); }
+    .pj-more > summary::-webkit-details-marker { display:none; }
+    .pj-more[open] > summary { border-bottom:1px solid var(--bcn-border); }
+    .pj-more-body { padding:10px; display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
+
+    /* --- Location picker --------------------------------------------------- */
+    .pj-loc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:4px;
+      max-height:190px; overflow:auto; padding:8px; border:1px solid var(--bcn-border);
+      border-radius:var(--bcn-radius); background:var(--bcn-surface); }
+    .pj-loc-grid label { display:flex; align-items:center; gap:6px; font-size:11px; cursor:pointer; }
+    .pj-loc-actions { display:flex; gap:8px; align-items:center; margin-top:6px; }
+
     /* monthly view row */
     .tr-month .td-date { font-weight:700; }
     .coverage-chip {
@@ -193,7 +255,77 @@
 
     <div class="bcn-status" id="page-status" hidden></div>
 
-    <!-- KPI band — 3 tiles: sales, launches, avg/day -->
+    <!-- SCOPE FIRST. The page used to open with a summary, then the controls
+         that decide what the summary covers. Scope and date range now come
+         first, then the summary of that scope, then the detail. -->
+    <section class="bcn-filter-bar" aria-label="Scope and date range">
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">FROM</span>
+        <input type="date" id="filter-from" />
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">TO</span>
+        <input type="date" id="filter-to" />
+      </div>
+      <div class="bcn-range-segmented" role="group" aria-label="Quick range">
+        <button type="button" data-range="7"   aria-pressed="false">7D</button>
+        <button type="button" data-range="14"  aria-pressed="false">14D</button>
+        <button type="button" data-range="30"  aria-pressed="false">30D</button>
+        <button type="button" data-range="all" aria-pressed="true">ALL</button>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">LOC</span>
+        <select id="filter-location"><option value="">ALL</option></select>
+      </div>
+      <div style="flex:1"></div>
+      <button type="button" id="btn-more-filters" class="bcn-btn bcn-btn--ghost bcn-btn--mono" aria-expanded="false" aria-controls="more-filters">
+        MORE FILTERS<span id="more-filters-count" class="bcn-pill bcn-pill--accent" style="margin-left:6px" hidden>0</span>
+      </button>
+      <div class="bcn-filter-meta">
+        <span data-meta="rows">— ROWS</span> · <b data-meta="grand">$—</b>
+      </div>
+    </section>
+
+    <!-- Advanced filters stay collapsed until wanted. -->
+    <details class="pj-more" id="more-filters" style="margin:8px 12px 0">
+      <summary>ADVANCED FILTERS &amp; VISIBLE LOCATIONS</summary>
+      <div class="pj-more-body">
+        <div class="bcn-filter">
+          <span class="bcn-filter-k">SOURCE</span>
+          <select id="filter-source"><option value="">ALL</option></select>
+        </div>
+        <div class="bcn-filter">
+          <span class="bcn-filter-k">LAUNCH TYPE</span>
+          <select id="filter-launch-type"><option value="">ALL</option></select>
+        </div>
+        <div class="bcn-filter">
+          <span class="bcn-filter-k">SEARCH</span>
+          <input type="text" id="filter-search" placeholder="notes · launch · location" style="min-width:170px;" />
+        </div>
+      </div>
+      <div class="pj-more-body" style="border-top:1px solid var(--bcn-border);flex-direction:column;align-items:stretch">
+        <div>
+          <span class="bcn-label">VISIBLE LOCATION COLUMNS</span>
+          <p style="margin:2px 0 6px;font-size:10.5px;color:var(--bcn-ink-3);line-height:1.45">
+            Columns keep a readable width and the grid scrolls sideways — Date and Launch stay pinned.
+            Untick locations you are not planning to shorten the scroll. This changes which columns are
+            <em>shown</em>; it does not change the totals, which always cover the filtered rows.
+          </p>
+          <div class="pj-loc-grid" id="loc-picker"></div>
+          <div class="pj-loc-actions">
+            <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-loc-pick="all">SELECT ALL</button>
+            <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-loc-pick="none">CLEAR</button>
+            <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-loc-pick="filled">ONLY WITH DATA</button>
+            <span id="loc-picker-count" style="font-size:10.5px;color:var(--bcn-ink-3)"></span>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Applied conditions, each removable, with one obvious reset. -->
+    <section class="pj-chipbar" id="filter-chips" aria-label="Active filters" aria-live="polite" hidden></section>
+
+    <!-- SUMMARY of the scope chosen above -->
     <section class="bcn-kpi-band" aria-label="Key metrics">
       <div class="bcn-kpi">
         <div class="bcn-kpi-label">PROJ SALES</div>
@@ -209,43 +341,6 @@
         <div class="bcn-kpi-label">AVG / DAY</div>
         <div class="bcn-kpi-value bcn-mono" data-kpi="avg">$—</div>
         <div class="bcn-kpi-delta bcn-mono" data-kpi="avg-sub">—</div>
-      </div>
-    </section>
-
-    <!-- filter bar — ranges are forward-looking -->
-    <section class="bcn-filter-bar" aria-label="Filters">
-      <div class="bcn-filter">
-        <span class="bcn-filter-k">FROM</span>
-        <input type="date" id="filter-from" />
-      </div>
-      <div class="bcn-filter">
-        <span class="bcn-filter-k">TO</span>
-        <input type="date" id="filter-to" />
-      </div>
-      <div class="bcn-filter">
-        <span class="bcn-filter-k">LOC</span>
-        <select id="filter-location"><option value="">ALL</option></select>
-      </div>
-      <div class="bcn-filter">
-        <span class="bcn-filter-k">SOURCE</span>
-        <select id="filter-source"><option value="">ALL</option></select>
-      </div>
-      <div class="bcn-filter">
-        <span class="bcn-filter-k">LAUNCH TYPE</span>
-        <select id="filter-launch-type"><option value="">ALL</option></select>
-      </div>
-      <div class="bcn-filter">
-        <span class="bcn-filter-k">SEARCH</span>
-        <input type="text" id="filter-search" placeholder="notes · launch · location" style="min-width:140px;" />
-      </div>
-      <div class="bcn-range-segmented" role="group" aria-label="Quick range">
-        <button type="button" data-range="7"   aria-pressed="false">7D</button>
-        <button type="button" data-range="14"  aria-pressed="false">14D</button>
-        <button type="button" data-range="30"  aria-pressed="false">30D</button>
-        <button type="button" data-range="all" aria-pressed="true">ALL</button>
-      </div>
-      <div class="bcn-filter-meta">
-        <span data-meta="rows">— ROWS</span> · <b data-meta="grand">$—</b>
       </div>
     </section>
 
@@ -289,6 +384,12 @@
             </tbody>
             <tfoot id="matrix-foot"></tfoot>
           </table>
+        </div>
+        <div class="pj-legend">
+          <span class="pj-legend-item"><span class="pj-swatch pj-swatch--proj"></span>Projected — click to edit</span>
+          <span class="pj-legend-item"><span class="pj-swatch pj-swatch--gap"></span>No projection on a date that has others</span>
+          <span class="pj-legend-item"><span class="pj-swatch pj-swatch--past"></span>Date already passed — a recorded assumption, not a forecast</span>
+          <span class="pj-legend-item" style="margin-left:auto;color:var(--bcn-ink-4)">Actual sales are not overlaid here — see Daily Sales Trend</span>
         </div>
       </section>
     </div>
@@ -363,6 +464,7 @@
   </div>
 </div>
 
+<script src="report-filters.js"></script>
 <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
 <script>
@@ -532,9 +634,11 @@ async function boot() {
 
   wireEvents();
   restoreFilters();
+  restoreVisibleLocs();
   try {
     await Promise.all([loadLocations(), loadProjections()]);
     await loadCalendarEvents();
+    renderLocPicker();
     applyFiltersAndRender();
     setStatus('Ready.', 'pos', 1400);
   } catch (e) {
@@ -555,6 +659,12 @@ function cacheEls() {
   els.fSrc        = document.getElementById('filter-source');
   els.fLaunchType = document.getElementById('filter-launch-type');
   els.fSearch     = document.getElementById('filter-search');
+  els.filterChips = document.getElementById('filter-chips');
+  els.moreFilters = document.getElementById('more-filters');
+  els.moreFiltersBtn = document.getElementById('btn-more-filters');
+  els.moreFiltersCount = document.getElementById('more-filters-count');
+  els.locPicker   = document.getElementById('loc-picker');
+  els.locPickerCount = document.getElementById('loc-picker-count');
   els.edPanel     = document.getElementById('ed-panel');
   els.edOverlay   = document.getElementById('ed-overlay');
   els.formDate    = document.getElementById('form-date');
@@ -637,6 +747,29 @@ function wireEvents() {
   document.querySelectorAll('.pg-tab').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
+  els.moreFiltersBtn?.addEventListener('click', () => {
+    const open = !els.moreFilters.open;
+    els.moreFilters.open = open;
+    els.moreFiltersBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  els.moreFilters?.addEventListener('toggle', () => {
+    els.moreFiltersBtn?.setAttribute('aria-expanded', els.moreFilters.open ? 'true' : 'false');
+  });
+
+  document.querySelectorAll('[data-loc-pick]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-loc-pick');
+      if (mode === 'all') state.visibleLocIds = new Set();
+      else if (mode === 'none') state.visibleLocIds = new Set(state.locations.slice(0,1).map(l=>String(l.id)));
+      else if (mode === 'filled') {
+        const withData = new Set(state.projections.map(r => String(r.location_id)));
+        const keep = state.locations.filter(l => withData.has(String(l.id))).map(l => String(l.id));
+        state.visibleLocIds = new Set(keep.length ? keep : state.locations.map(l=>String(l.id)));
+      }
+      saveVisibleLocs(); renderLocPicker(); renderMatrix();
+    });
+  });
+
   document.getElementById('reload-history').addEventListener('click', async () => {
     await loadFullHistory(); renderAuditPane();
   });
@@ -882,7 +1015,129 @@ function applyFiltersAndRender() {
   state.visibleDates = Array.from(new Set(state.filtered.map(r=>r.projection_date))).sort();
   renderKpis();
   renderFilterMeta();
+  renderFilterChips();
   renderMatrix();
+  updateLocPickerCount();
+}
+
+/* ---- active filter chips & location columns --------------------------- */
+
+const RF = window.SiloReportFilters;
+
+/* The filters this page owns. `format` turns stored ids into what the user
+ * picked, so a chip reads "Location: HQ" and not "Location: 17". */
+function filterDefs() {
+  return [
+    { key:'from',       label:'From' },
+    { key:'to',         label:'To' },
+    { key:'locationId', label:'Location', format: v => locCode(v) || locName(v) || v },
+    { key:'source',     label:'Source' },
+    { key:'launchType', label:'Launch type' },
+    { key:'search',     label:'Search' },
+  ];
+}
+
+function renderFilterChips() {
+  const defs = filterDefs();
+  const list = RF.chips(state.filters, defs);
+  const bar = els.filterChips;
+  if (!bar) return;
+
+  // The badge counts only what is hidden inside the collapsed panel, so it
+  // means "conditions you cannot see from here".
+  const hiddenKeys = ['source','launchType','search'];
+  const hidden = list.filter(c => hiddenKeys.includes(c.key)).length;
+  if (els.moreFiltersCount){
+    els.moreFiltersCount.hidden = hidden === 0;
+    els.moreFiltersCount.textContent = String(hidden);
+  }
+
+  if (!list.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML =
+    `<span class="pj-chip-count">${state.filtered.length.toLocaleString()} of ${state.projections.length.toLocaleString()} rows</span>` +
+    list.map(c => `<span class="pj-chip"><span>${esc(c.text)}</span>`
+      + `<button type="button" data-chip-clear="${esc(c.key)}" aria-label="Remove ${esc(c.label)} filter">×</button></span>`).join('') +
+    `<button type="button" class="pj-reset" id="btn-reset-filters">Reset all</button>`;
+
+  bar.querySelectorAll('[data-chip-clear]').forEach(b => {
+    b.addEventListener('click', () => clearOneFilter(b.getAttribute('data-chip-clear')));
+  });
+  document.getElementById('btn-reset-filters').addEventListener('click', resetAllFilters);
+}
+
+function clearOneFilter(key) {
+  state.filters = RF.clearField(state.filters, filterDefs(), key);
+  if (key === 'from' || key === 'to') state.filters.range = '';
+  writeFiltersToDom();
+  saveFilters();
+  applyFiltersAndRender();
+}
+
+function resetAllFilters() {
+  state.filters = Object.assign(RF.resetAll(state.filters, filterDefs()), { range:'all' });
+  setRangePressed('all');
+  writeFiltersToDom();
+  saveFilters();
+  applyFiltersAndRender();
+}
+
+/* Push state back into the controls after a chip removal or a reset. */
+function writeFiltersToDom() {
+  els.fFrom.value = state.filters.from || '';
+  els.fTo.value = state.filters.to || '';
+  els.fLoc.value = state.filters.locationId || '';
+  els.fSrc.value = state.filters.source || '';
+  els.fLaunchType.value = state.filters.launchType || '';
+  els.fSearch.value = state.filters.search || '';
+}
+
+/* --- which locations get a column ------------------------------------- */
+
+const LOC_COLS_KEY = 'silo_projections_visible_locs_v1';
+
+function restoreVisibleLocs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LOC_COLS_KEY) || '[]');
+    state.visibleLocIds = new Set(Array.isArray(raw) ? raw.map(String) : []);
+  } catch(_) { state.visibleLocIds = new Set(); }
+}
+function saveVisibleLocs() {
+  try { localStorage.setItem(LOC_COLS_KEY, JSON.stringify([...state.visibleLocIds])); } catch(_) {}
+}
+
+function renderLocPicker() {
+  const box = els.locPicker;
+  if (!box) return;
+  const withData = new Set(state.projections.map(r => String(r.location_id)));
+  box.innerHTML = state.locations.map(l => {
+    const id = String(l.id);
+    const on = !state.visibleLocIds.size || state.visibleLocIds.has(id);
+    return `<label title="${esc(l.location_name||'')}">`
+      + `<input type="checkbox" data-loc-col="${esc(id)}" ${on?'checked':''} />`
+      + `<span>${esc(l.location_code || l.location_name || id)}</span>`
+      + (withData.has(id) ? '' : '<span style="color:var(--bcn-ink-4);font-size:10px">(no data)</span>')
+      + `</label>`;
+  }).join('');
+  box.querySelectorAll('[data-loc-col]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      // An empty set means "all" -- so the first untick has to seed the set
+      // with everything else, or unticking one would blank the grid.
+      if (!state.visibleLocIds.size) state.visibleLocIds = new Set(state.locations.map(l => String(l.id)));
+      const id = cb.getAttribute('data-loc-col');
+      if (cb.checked) state.visibleLocIds.add(id); else state.visibleLocIds.delete(id);
+      saveVisibleLocs(); updateLocPickerCount(); renderMatrix();
+    });
+  });
+  updateLocPickerCount();
+}
+
+function updateLocPickerCount() {
+  if (!els.locPickerCount) return;
+  const shown = visibleLocations().length, total = state.locations.length;
+  els.locPickerCount.textContent = shown === total
+    ? `Showing all ${total} locations`
+    : `Showing ${shown} of ${total} locations`;
 }
 
 /* ---- KPIs — 3 tiles --------------------------------------------------- */
@@ -909,19 +1164,42 @@ function renderFilterMeta() {
 
 /* ---- matrix ----------------------------------------------------------- */
 
+/* Which locations get a COLUMN.
+ *
+ * This used to be state.locations unconditionally -- all 30 -- so picking one
+ * location in the filter narrowed the rows but still drew 30 columns, 29 of
+ * them empty, and every column collapsed to about 30px. Column choice is now:
+ *   1. the single location filter, when one is set;
+ *   2. otherwise the user's ticked set, when they have narrowed it;
+ *   3. otherwise all of them, at a readable width with horizontal scroll.
+ * None of this changes which ROWS are summed -- totals always cover the
+ * filtered set, which is why the picker says so. */
+function visibleLocations() {
+  const all = state.locations;
+  if (state.filters.locationId) {
+    const one = all.filter(l => String(l.id) === String(state.filters.locationId));
+    if (one.length) return one;
+  }
+  if (state.visibleLocIds && state.visibleLocIds.size) {
+    const picked = all.filter(l => state.visibleLocIds.has(String(l.id)));
+    if (picked.length) return picked;
+  }
+  return all;
+}
+
 function renderMatrix() {
   if (state.viewMode === 'monthly') { renderMatrixMonthly(); return; }
 
-  const locs=state.locations, dates=state.visibleDates;
+  const locs=visibleLocations(), dates=state.visibleDates;
 
   els.matrixCols.innerHTML =
-    '<col style="width:104px"/><col style="width:200px"/>' +
-    locs.map(()=>'<col/>').join('') + '<col style="width:90px"/>';
+    '<col style="width:104px"/><col style="width:180px"/>' +
+    locs.map(()=>'<col style="width:92px"/>').join('') + '<col style="width:96px"/>';
 
   els.matrixHead.innerHTML = `
-    <th class="bcn-th-left">DATE</th>
-    <th class="bcn-th-left">LAUNCH</th>
-    ${locs.map(l=>`<th><div class="loc-code">${esc(l.location_code||(l.location_name||'').slice(0,3).toUpperCase())}</div><div class="loc-name">${esc(l.location_name||'')}</div></th>`).join('')}
+    <th class="bcn-th-left pj-sticky pj-sticky-1">DATE</th>
+    <th class="bcn-th-left pj-sticky pj-sticky-2">LAUNCH</th>
+    ${locs.map(l=>`<th title="${esc(l.location_name||'')}"><div class="loc-code">${esc(l.location_code||(l.location_name||'').slice(0,3).toUpperCase())}</div><div class="loc-name">${esc(l.location_name||'')}</div></th>`).join('')}
     <th>TOTAL</th>`;
 
   if (!dates.length) {
@@ -934,6 +1212,7 @@ function renderMatrix() {
 
   const allVals = state.filtered.map(r=>Number(r.projected_sales||0)).filter(v=>v>0);
   const max = Math.max(1,...allVals);
+  const todayIso = isoDate(new Date());
 
   const rows = dates.map(d => {
     const launches = state.calendar.filter(e=>e.date===d);
@@ -959,8 +1238,8 @@ function renderMatrix() {
     const isRowSel = state.selectedKey && state.selectedKey.startsWith(r.date+'|');
     const hasFilled = r.cells.some(c => c.v != null);
     return `<tr class="${isRowSel?'row-selected':''}" data-row-date="${r.date}">
-      <td class="td-date"><div>${r.date}</div><div class="dow">${r.dow}</div></td>
-      <td class="td-launch">${r.launchTitle
+      <td class="td-date pj-sticky pj-sticky-1"><div>${r.date}</div><div class="dow">${r.dow}</div></td>
+      <td class="td-launch pj-sticky pj-sticky-2">${r.launchTitle
         ? `<span class="bcn-launch-chip"><span class="bcn-dot bcn-dot--accent"></span>${esc(r.launchTitle)}</span>`
         : '<span class="bcn-launch-chip"><span class="empty">—</span></span>'
       }</td>
@@ -973,8 +1252,10 @@ function renderMatrix() {
         const a = c.v ? c.v/max : 0;
         const bg = !empty&&!isInline ? `background:oklch(0.55 0.20 245 / ${a*0.28})` : '';
         const fw = !empty&&!isInline&&a>0.7 ? 'font-weight:600;color:var(--bcn-accent)' : '';
-        return `<td class="td-cell${sel?' td-cell--selected':''}${empty?' td-cell--empty':''}${isGap?' td-cell--gap':''}"
-              data-key="${key}" data-date="${r.date}" data-loc="${c.locId}"
+        const isPast = r.date < todayIso;
+        return `<td class="td-cell${sel?' td-cell--selected':''}${empty?' td-cell--empty':''}${isGap?' td-cell--gap':''}${isPast?' td-cell--past':''}"
+              data-key="${key}" data-date="${r.date}" data-loc="${c.locId}" data-editable="${empty?'0':'1'}"
+              title="${empty?'No projection':(isPast?'Recorded assumption for a date that has passed — click to edit':'Projected — click to edit')}"
               style="${bg};${fw}">
           ${isInline
             ? `<div class="cell-inline">
@@ -984,7 +1265,7 @@ function renderMatrix() {
                </div>`
             : empty
               ? `<span style="color:${isGap?'var(--bcn-ink-3)':'var(--bcn-ink-4)'}">—</span>`
-              : `<div>${fmtUSD(c.v,{compact:true})}</div>`
+              : `<div class="pj-val">${fmtUSD(c.v,{compact:true})}</div>`
           }
         </td>`;
       }).join('')}
@@ -994,7 +1275,7 @@ function renderMatrix() {
 
   els.matrixFoot.innerHTML = `
     <tr class="row-totals">
-      <td class="td-totals-label" colspan="2">COLUMN TOTALS</td>
+      <td class="td-totals-label pj-sticky pj-sticky-1" colspan="2">COLUMN TOTALS</td>
       ${colTotals.map(c=>`<td>${fmtUSD(c,{compact:true})}</td>`).join('')}
       <td class="td-grand-total">${fmtUSD(grand,{compact:true})}</td>
     </tr>`;
@@ -1003,14 +1284,16 @@ function renderMatrix() {
 /* ---- monthly rollup view ---------------------------------------------- */
 
 function renderMatrixMonthly() {
-  const locs = state.locations;
+  // Same column choice as daily, so switching views never silently changes
+  // which locations you are looking at.
+  const locs = visibleLocations();
 
   els.matrixCols.innerHTML =
     '<col style="width:120px"/>' +
-    locs.map(()=>'<col/>').join('') + '<col style="width:100px"/>';
+    locs.map(()=>'<col style="width:92px"/>').join('') + '<col style="width:100px"/>';
 
   els.matrixHead.innerHTML = `
-    <th class="bcn-th-left">MONTH</th>
+    <th class="bcn-th-left pj-sticky pj-sticky-1">MONTH</th>
     ${locs.map(l=>`<th><div class="loc-code">${esc(l.location_code||(l.location_name||'').slice(0,3).toUpperCase())}</div><div class="loc-name">${esc(l.location_name||'')}</div></th>`).join('')}
     <th>TOTAL</th>`;
 
@@ -1040,7 +1323,7 @@ function renderMatrixMonthly() {
   els.matrixBody.innerHTML = sorted.map(m => {
     const rowTotal = locs.reduce((s,l)=>s+(m.byLoc[l.id]||0),0);
     return `<tr class="tr-month">
-      <td class="td-date"><div>${fmtMonth(m.month)}</div><div class="dow">${m.dayCount.size}D</div></td>
+      <td class="td-date pj-sticky pj-sticky-1"><div>${fmtMonth(m.month)}</div><div class="dow">${m.dayCount.size}D</div></td>
       ${locs.map(l => {
         const v = m.byLoc[l.id]||0;
         const a = v/max;
@@ -1056,7 +1339,7 @@ function renderMatrixMonthly() {
 
   els.matrixFoot.innerHTML = `
     <tr class="row-totals">
-      <td class="td-totals-label">TOTALS</td>
+      <td class="td-totals-label pj-sticky pj-sticky-1">TOTALS</td>
       ${colTotals.map(c=>`<td>${fmtUSD(c,{compact:true})}</td>`).join('')}
       <td class="td-grand-total">${fmtUSD(grand,{compact:true})}</td>
     </tr>`;

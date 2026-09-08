@@ -401,6 +401,45 @@
       .bcn-card, .ps-kpi-card, .ps-assump-card { box-shadow: none; break-inside: avoid; }
       .thin-scroll { overflow: visible !important; }
     }
+
+    /* --- Stepped setup ----------------------------------------------------
+       Scope, the one assumption most runs change, and everything else. The
+       card previously presented all of it at once, which is what made the
+       page unusable without already knowing every input. */
+    .ps-step { display:flex; align-items:center; gap:8px; padding:10px 0 2px; }
+    .ps-step-n {
+      width:18px; height:18px; border-radius:50%; flex:0 0 18px;
+      background:var(--bcn-band); color:var(--bcn-band-ink);
+      font-size:10px; font-weight:800; display:grid; place-items:center;
+      font-family:var(--bcn-mono);
+    }
+    .ps-step-t { font-size:12px; font-weight:700; color:var(--bcn-ink); }
+    .ps-help { display:block; margin-top:3px; font-size:10px; color:var(--bcn-ink-3); line-height:1.4; max-width:230px; }
+    .ps-unit { color:var(--bcn-ink-3); font-weight:600; font-size:9.5px; }
+
+    .ps-advanced { border-top:1px solid var(--bcn-border); margin-top:8px; }
+    .ps-advanced > summary {
+      display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 0 8px;
+      list-style:none; user-select:none;
+    }
+    .ps-advanced > summary::-webkit-details-marker { display:none; }
+    .ps-advanced > summary::after { content:'▾'; margin-left:6px; color:var(--bcn-ink-3); font-size:11px; }
+    .ps-advanced[open] > summary::after { content:'▴'; }
+    .ps-adv-sub { font-size:10.5px; color:var(--bcn-ink-3); }
+
+    /* Plan inputs live only in this tab until exported -- say so rather than
+       let someone lose an afternoon of typing to a refresh. */
+    /* .bcn-pill sets display:inline-flex, which beats the `hidden` attribute's
+       UA display:none -- so a hidden pill still rendered. Both of these were
+       showing ("UNSAVED EDITS" before any edit, and a "0" advanced badge). */
+    #dirtyChip[hidden], #advancedCount[hidden] { display:none !important; }
+    .ps-draft-note {
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      margin:8px 12px 0; padding:6px 10px; border-radius:var(--bcn-radius);
+      background:oklch(0.97 0.04 85); border:1px solid var(--bcn-warn);
+      font-size:11px; color:var(--bcn-ink-2);
+    }
+    .ps-draft-note[hidden] { display:none; }
   </style>
 </head>
 <body>
@@ -429,24 +468,32 @@
         <header class="bcn-card-header">
           <span class="bcn-pill bcn-pill--dark">SETUP</span>
           <h2>Scope &amp; assumptions</h2>
-          <span class="bcn-card-meta">Filters scope sales / inventory / families. Assumptions drive scenario math.</span>
+          <span id="activeScenarioChip" class="bcn-pill bcn-pill--accent" title="The scenario currently being modelled: the lift applied on top of the plan.">Baseline</span>
+          <span id="dirtyChip" class="bcn-pill bcn-pill--neg" hidden title="You have edited plan inputs that are not stored anywhere. They live in this browser tab until you export.">UNSAVED EDITS</span>
           <div style="margin-left:auto;display:flex;gap:6px;">
             <button id="btnApply" type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono">RUN</button>
             <button id="btnReset" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RESET</button>
           </div>
         </header>
+
         <div class="ps-cmd">
-          <!-- Row 1: scope filters -->
+          <!-- STEP 1 — what the scenario is about. Everything here changes
+               which history and inventory the model reads. -->
+          <div class="ps-step">
+            <span class="ps-step-n">1</span>
+            <span class="ps-step-t">Scope — what are you planning?</span>
+          </div>
           <div class="ps-cmd-row">
-            <div class="ps-field-group" style="min-width:140px;">
+            <div class="ps-field-group" style="min-width:150px;">
               <label class="bcn-label" for="selPlanMode">Mode</label>
               <select id="selPlanMode" class="bcn-field">
                 <option value="historical">Historical Lift</option>
                 <option value="revenue_plan" selected>Revenue Plan</option>
               </select>
+              <span class="ps-help" id="planModeHelp">Revenue Plan builds from the monthly plan you enter. Historical Lift grows last year's actuals.</span>
             </div>
             <div class="ps-field-group" style="min-width:300px;">
-              <label class="bcn-label">Period</label>
+              <label class="bcn-label">Period <span class="ps-unit">months</span></label>
               <div class="ps-field-inline">
                 <input id="dateFrom" type="month" class="bcn-field bcn-field--mono" />
                 <span class="ps-arrow">→</span>
@@ -468,39 +515,22 @@
                 <option value="wholesale">Wholesale / Faire</option>
               </select>
             </div>
-            <span id="locWrap" class="ps-loc-wrap hidden">
-              <div class="ps-field-group" style="min-width:150px;">
-                <label class="bcn-label" for="selLocation">Projection location</label>
-                <select id="selLocation" class="bcn-field"><option value="">All locations</option></select>
-              </div>
-              <div class="ps-field-group" style="min-width:110px;">
-                <label class="bcn-label" for="selProjScenario">Projection scenario</label>
-                <select id="selProjScenario" class="bcn-field">
-                  <option value="active" selected>active</option>
-                  <option value="draft">draft</option>
-                  <option value="archived">archived</option>
-                </select>
-              </div>
-            </span>
-            <div class="ps-field-group" style="flex:1;min-width:200px;">
-              <label class="bcn-label" for="txtProductSearch">Search</label>
-              <input id="txtProductSearch" class="bcn-field" placeholder="Product family optional..." />
+            <div class="ps-field-group" style="flex:1;min-width:190px;">
+              <label class="bcn-label" for="txtProductSearch">Product family</label>
+              <input id="txtProductSearch" class="bcn-field" placeholder="optional — narrows to matching families" />
             </div>
-            <label class="ps-check-row">
-              <input id="chkShowUnits" type="checkbox" checked />Show units
-            </label>
           </div>
 
           <div class="ps-cmd-divider"></div>
 
-          <!-- Row 2: assumption controls (revenue plan overrides / scenario preset) -->
+          <!-- STEP 2 — the one assumption most runs only need. -->
+          <div class="ps-step">
+            <span class="ps-step-n">2</span>
+            <span class="ps-step-t">Scenario — how much growth are you testing?</span>
+          </div>
           <div class="ps-cmd-row">
             <div class="ps-field-group" style="min-width:170px;">
-              <label class="bcn-label">Total revenue override</label>
-              <input id="numTotalRevenueOverride" type="number" step="1000" class="bcn-field bcn-field--mono" placeholder="Historical mode only" />
-            </div>
-            <div class="ps-field-group" style="min-width:150px;">
-              <label class="bcn-label" for="selScenario">Scenario preset</label>
+              <label class="bcn-label" for="selScenario">Growth scenario</label>
               <select id="selScenario" class="bcn-field">
                 <option value="0">Plan / Baseline</option>
                 <option value="10">+10%</option>
@@ -510,20 +540,57 @@
                 <option value="100">+100%</option>
                 <option value="custom">Custom</option>
               </select>
+              <span class="ps-help">Applied on top of the plan. Every scenario is still shown side by side below.</span>
             </div>
-            <div class="ps-field-group" style="min-width:90px;">
-              <label class="bcn-label">Custom lift %</label>
+            <div class="ps-field-group" style="min-width:110px;">
+              <label class="bcn-label" for="numCustomLift">Custom lift <span class="ps-unit">%</span></label>
               <input id="numCustomLift" type="number" step="1" value="25" class="bcn-field bcn-field--mono" />
             </div>
-            <div class="ps-field-group" style="min-width:90px;">
-              <label class="bcn-label">Safety / buffer %</label>
-              <input id="numSafetyPct" type="number" step="1" value="10" class="bcn-field bcn-field--mono" />
-            </div>
             <div class="ps-field-group" style="flex:1;min-width:200px;">
-              <label class="bcn-label">Scenario name</label>
+              <label class="bcn-label" for="txtScenarioName">Scenario name</label>
               <input id="txtScenarioName" class="bcn-field" placeholder="ex: Loomis Youth Shorts" />
+              <span class="ps-help">A label for the export. It is not saved to the database.</span>
             </div>
+            <label class="ps-check-row">
+              <input id="chkShowUnits" type="checkbox" checked />Show units
+            </label>
           </div>
+
+          <!-- STEP 3 — everything most runs leave alone, collapsed by default. -->
+          <details class="ps-advanced" id="advancedAssumptions">
+            <summary>
+              <span class="ps-step-n">3</span>
+              <span class="ps-step-t">Advanced assumptions</span>
+              <span class="ps-adv-sub">buffer, revenue override, projection source</span>
+              <span id="advancedCount" class="bcn-pill bcn-pill--accent" hidden>0</span>
+            </summary>
+            <div class="ps-cmd-row" style="padding-top:10px;">
+              <div class="ps-field-group" style="min-width:130px;">
+                <label class="bcn-label" for="numSafetyPct">Safety buffer <span class="ps-unit">%</span></label>
+                <input id="numSafetyPct" type="number" step="1" value="10" class="bcn-field bcn-field--mono" />
+                <span class="ps-help">Extra cover added on top of scenario demand.</span>
+              </div>
+              <div class="ps-field-group" style="min-width:190px;">
+                <label class="bcn-label" for="numTotalRevenueOverride">Total revenue override <span class="ps-unit">$</span></label>
+                <input id="numTotalRevenueOverride" type="number" step="1000" class="bcn-field bcn-field--mono" placeholder="Historical mode only" />
+                <span class="ps-help">Historical Lift mode only. Leave blank to use actuals.</span>
+              </div>
+              <span id="locWrap" class="ps-loc-wrap hidden">
+                <div class="ps-field-group" style="min-width:150px;">
+                  <label class="bcn-label" for="selLocation">Projection location</label>
+                  <select id="selLocation" class="bcn-field"><option value="">All locations</option></select>
+                </div>
+                <div class="ps-field-group" style="min-width:120px;">
+                  <label class="bcn-label" for="selProjScenario">Projection scenario</label>
+                  <select id="selProjScenario" class="bcn-field">
+                    <option value="active" selected>active</option>
+                    <option value="draft">draft</option>
+                    <option value="archived">archived</option>
+                  </select>
+                </div>
+              </span>
+            </div>
+          </details>
 
           <!-- Historical-mode-only channel assumption strips -->
           <div id="historicalAssumptionWrap" class="thin-scroll" style="overflow:auto;">
@@ -538,6 +605,16 @@
       <div id="projNote" class="ps-proj-note hidden">
         <span class="bcn-pill bcn-pill--accent">PROJECTION SEED</span>
         <span>Projection seed uses <b>revenue_projections</b> monthly totals (company-wide). Mix, ASP, units, and inventory gaps still use filtered historical demand for the active product type.</span>
+      </div>
+
+      <!-- Plan inputs are typed into this tab and stored nowhere else. Say so,
+           and offer back whatever the last session left behind. -->
+      <div class="ps-draft-note" id="draftNote" hidden>
+        <span class="bcn-pill bcn-pill--accent">DRAFT</span>
+        <span id="draftNoteText"></span>
+        <span style="flex:1"></span>
+        <button id="btnRestoreDraft" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RESTORE</button>
+        <button id="btnDiscardDraft" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">DISCARD</button>
       </div>
 
       <!-- Plan inputs: three cards side-by-side at desktop (v1 layout) -->
@@ -1051,6 +1128,7 @@ function run(options={}){
   buildProductFamilies();
   if(rebuildInputs){ renderRevenuePlanInputs(); renderAssumptionStrips(); }
   renderTop(); renderScenarioMatrix(); renderMonthly(); renderGapAndChannel(); renderFamilies(); renderStatus();
+  renderActiveScenarioChip(); renderAdvancedCount();
   const isRevenuePlan=getPlanMode()==="revenue_plan";
   el("planningInputs").style.display=isRevenuePlan?"":"none";
   el("historicalAssumptionWrap").style.display=isRevenuePlan?"none":"";
@@ -1259,10 +1337,110 @@ function exportCsv(){const s=selectedScenario(),rows=[];for(const r of s.rows.co
 function toCSV(rows){if(!rows.length)return"";const cols=[...new Set(rows.flatMap(r=>Object.keys(r)))],escCsv=v=>{const s=String(v??"");return/[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s};return[cols.join(","),...rows.map(r=>cols.map(c=>escCsv(r[c])).join(","))].join("\n")}
 function download(filename,content){const blob=new Blob([content],{type:"text/csv;charset=utf-8;"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),500)}
 
+/* ---- unsaved-edit protection ------------------------------------------
+ * The three plan tables (revenue / mix / ASP) are typed straight into the
+ * DOM and never persisted -- a refresh or a stray back-navigation loses the
+ * lot. There is no scenario table to save them to, so rather than invent one
+ * this keeps a per-browser draft, tells you it exists, and warns before an
+ * unload that would discard it. Restoring is explicit; nothing is silently
+ * refilled underneath you.
+ */
+const DRAFT_KEY = "silo_planning_scenario_draft_v1";
+let PLAN_DIRTY = false;
+let PENDING_DRAFT = null;
+
+function planInputIds(){
+  const ids = [];
+  for (const month of selectedMonths()){
+    ["revplan","mixplan","aspplan","note"].forEach(p => { if (el(`${p}_${month}`)) ids.push(`${p}_${month}`); });
+  }
+  return ids;
+}
+
+function collectDraft(){
+  const values = {};
+  planInputIds().forEach(id => { const n = el(id); if (n && n.value !== "") values[id] = n.value; });
+  return { savedAt: new Date().toISOString(), scenarioName: norm(el("txtScenarioName").value), values };
+}
+
+function saveDraft(){
+  try {
+    const d = collectDraft();
+    if (!Object.keys(d.values).length) { localStorage.removeItem(DRAFT_KEY); return; }
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+  } catch(_) {}
+}
+
+function readDraft(){
+  try { const raw = localStorage.getItem(DRAFT_KEY); return raw ? JSON.parse(raw) : null; } catch(_) { return null; }
+}
+
+function setDirty(on){
+  PLAN_DIRTY = !!on;
+  const chip = el("dirtyChip");
+  if (chip) chip.hidden = !PLAN_DIRTY;
+}
+
+function offerDraft(){
+  const d = readDraft();
+  const note = el("draftNote");
+  if (!note) return;
+  if (!d || !d.values || !Object.keys(d.values).length){ note.hidden = true; PENDING_DRAFT = null; return; }
+  PENDING_DRAFT = d;
+  const when = new Date(d.savedAt);
+  el("draftNoteText").textContent =
+    `Plan inputs from ${isNaN(+when) ? "an earlier session" : when.toLocaleString()}`
+    + (d.scenarioName ? ` ("${d.scenarioName}")` : "")
+    + ` are saved in this browser. They were never stored to the database.`;
+  note.hidden = false;
+}
+
+function restoreDraft(){
+  if (!PENDING_DRAFT) return;
+  Object.entries(PENDING_DRAFT.values).forEach(([id,v]) => { const n = el(id); if (n) n.value = v; });
+  if (PENDING_DRAFT.scenarioName) el("txtScenarioName").value = PENDING_DRAFT.scenarioName;
+  el("draftNote").hidden = true;
+  setDirty(true);
+  run({rebuildInputs:false});
+}
+
+function discardDraft(){
+  try { localStorage.removeItem(DRAFT_KEY); } catch(_) {}
+  PENDING_DRAFT = null;
+  el("draftNote").hidden = true;
+}
+
+/* The scenario currently being modelled, stated where it is being changed. */
+function renderActiveScenarioChip(){
+  const chip = el("activeScenarioChip");
+  if (!chip) return;
+  const lift = getSelectedLift();
+  const name = norm(el("txtScenarioName").value);
+  const label = lift === 0 ? "Baseline (at plan)" : `Plan ${lift > 0 ? "+" : ""}${Math.round(lift*100)}%`;
+  chip.textContent = name ? `${name} · ${label}` : label;
+}
+
+/* How many advanced assumptions are away from their defaults, so a collapsed
+ * panel never hides a setting that is changing the numbers. */
+function renderAdvancedCount(){
+  const badge = el("advancedCount");
+  if (!badge) return;
+  let n = 0;
+  if (num(el("numSafetyPct").value) !== 10) n++;
+  if (norm(el("numTotalRevenueOverride").value)) n++;
+  if (el("selLocation") && el("selLocation").value) n++;
+  if (el("selProjScenario") && el("selProjScenario").value !== "active") n++;
+  badge.hidden = n === 0;
+  badge.textContent = String(n);
+}
+
 function bindEvents(){
   el("btnReload").addEventListener("click",loadAll);
   el("btnApply").addEventListener("click",()=>run());
-  el("btnReset").addEventListener("click",resetControls);
+  el("btnReset").addEventListener("click",()=>{
+    if (PLAN_DIRTY && !window.confirm("Reset clears the scope, the assumptions and every plan input you have typed. Continue?")) return;
+    discardDraft(); setDirty(false); resetControls();
+  });
   el("btnPrint").addEventListener("click",()=>window.print());
   el("btnExport").addEventListener("click",exportCsv);
   el("btnSeedRevenue").addEventListener("click",seedRevenuePlan);
@@ -1271,6 +1449,22 @@ function bindEvents(){
   el("btnSeedProjections").addEventListener("click",seedRevenueFromProjections);
   ["selPlanMode","selProductType","selChannel","dateFrom","dateTo","selLocation","selProjScenario"].forEach(id=>{const n=el(id);if(!n)return;n.addEventListener("input",()=>run({rebuildInputs:true}));n.addEventListener("change",()=>run({rebuildInputs:true}))});
   ["txtProductSearch","selScenario","numCustomLift","numSafetyPct","numTotalRevenueOverride","chkShowUnits","txtScenarioName"].forEach(id=>{const n=el(id);if(!n)return;n.addEventListener("input",()=>run({rebuildInputs:false}));n.addEventListener("change",()=>run({rebuildInputs:false}))});
+  // Any edit to a plan input marks the page dirty and keeps a local draft.
+  ["revenuePlanBody","mixPlanBody","aspPlanBody"].forEach(id=>{
+    const host = el(id);
+    if (!host) return;
+    host.addEventListener("input", () => { setDirty(true); saveDraft(); });
+  });
+  el("btnRestoreDraft")?.addEventListener("click", restoreDraft);
+  el("btnDiscardDraft")?.addEventListener("click", discardDraft);
+
+  // RESET discards typed plan inputs, so confirm rather than wipe silently.
+  window.addEventListener("beforeunload", e => {
+    if (!PLAN_DIRTY) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
   document.querySelectorAll("[data-summary-metric]").forEach(btn=>btn.addEventListener("click",()=>{SUMMARY_METRIC=btn.getAttribute("data-summary-metric");document.querySelectorAll("[data-summary-metric]").forEach(b=>b.classList.toggle("active",b===btn));renderScenarioMatrix()}));
   document.querySelectorAll("[data-monthly-metric]").forEach(btn=>btn.addEventListener("click",()=>{MONTHLY_METRIC=btn.getAttribute("data-monthly-metric");document.querySelectorAll("[data-monthly-metric]").forEach(b=>b.classList.toggle("active",b===btn));renderMonthly()}));
   document.querySelectorAll("[data-family-filter]").forEach(btn=>btn.addEventListener("click",()=>{FAMILY_FILTER=btn.getAttribute("data-family-filter");document.querySelectorAll("[data-family-filter]").forEach(b=>b.classList.toggle("active",b===btn));renderFamilies()}));
@@ -1298,9 +1492,14 @@ async function loadAll(){
     renderAssumptionStrips();
     defaultAssumptionsFromHistorical();
     run();
+    // Offer back anything the last session typed, rather than restoring it
+    // underneath someone who did not ask for it.
+    offerDraft();
   }catch(err){
     console.error(err);
-    el("statusLine").innerHTML=`<span class="ps-err">Load failed:</span> ${esc(err.message||String(err))}`;
+    el("statusLine").innerHTML=`<span class="ps-err">Load failed:</span> ${esc(err.message||String(err))}`
+      + ` <button type="button" id="btnRetryLoad" class="bcn-btn bcn-btn--ghost bcn-btn--mono" style="margin-left:8px">RETRY</button>`;
+    el("btnRetryLoad")?.addEventListener("click", loadAll);
   }finally{
     el("btnReload").disabled=false;el("btnReload").textContent="RELOAD";
   }
