@@ -2496,3 +2496,37 @@ select
     else 'ok'
   end as inventory_archive_removed;
 
+
+
+-- ---------------------------------------------------------------------------
+-- Ask SILO catalog: the evidence caveats (20260908150000) are still present.
+--
+-- These are the schema-side half of the 2026-09-08 evidence-discipline fix;
+-- the other half is in the silo-chat edge function's prompt. They matter
+-- because a caveat only covers the failure it names: the previous
+-- landing-pages description warned against SUMMING the table, and that
+-- warning held -- the answer that went wrong did not sum it. It concluded
+-- eight collections "don't exist" from a top-N slice instead, which nothing
+-- warned about. Descriptions survive refresh_chat_schema_catalog() by
+-- design, so a failure here means the migration has not run or something
+-- overwrote a description by hand.
+-- ---------------------------------------------------------------------------
+select
+  case
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'shopify_landing_pages_daily'
+                        and description like '%ABSENCE IS NOT NONEXISTENCE%')
+      then 'MISSING — shopify_landing_pages_daily lost its absence-is-not-'
+        || 'nonexistence caveat; run 20260908150000_chat_catalog_evidence_caveats.sql'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'marketing_kpis_daily'
+                        and description like '%GRAIN IS OURS, NOT THE PROVIDER%')
+      then 'MISSING — marketing_kpis_daily lost the our-grain-vs-provider-'
+        || 'capability caveat; run 20260908150000_chat_catalog_evidence_caveats.sql'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'sales_by_product_title_daily_v'
+                        and description like '%RANKS SALES, NOT AVAILABILITY%')
+      then 'MISSING — sales_by_product_title_daily_v lost the availability '
+        || 'caveat; run 20260908150000_chat_catalog_evidence_caveats.sql'
+    else 'ok'
+  end as silo_chat_catalog_evidence_caveats;
