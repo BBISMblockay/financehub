@@ -31,6 +31,11 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
  await p.click('[data-pane="reports"]');
  await p.waitForTimeout(400);
  ok('the library tab shows saved reports',(await p.locator('#paneReports:not([hidden])').count())===1);
+ // .bcn-card sets `display: flex`, which beats the UA's [hidden] rule --
+ // without an explicit override the Dashboards pane stays on screen
+ // underneath. Same trap this stylesheet already documents twice.
+ ok('...and the dashboards pane is actually hidden, not merely marked',
+   await p.isHidden('#paneDashboards'));
  ok('...and every saved report is listed, whatever its source',
    (await p.locator('#reportBody .v3-report-card').count())>=1);
  ok('...each linking to the builder rather than to a dashboard',

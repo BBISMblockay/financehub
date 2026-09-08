@@ -124,6 +124,65 @@ test('a previous period needs a date range to be previous TO', () => {
 test('a column comparison needs the column to exist', () =>
   truthy(!M.canCompare('column', { hasColumn: false }).ok));
 
+// ── A real case, measured against production ──────────────────────────
+// Baseballism, 1-6 Sep 2026 inclusive, all stores, deduplicated
+// sales_by_day, Total Sales. Read out of the live database while building
+// this, and kept here as a FIXTURE rather than as an MLB feature: the
+// point is that the shared metric layer gets a known answer right.
+//
+//   MLB (sku ilike '%mlb%')   $55,463.51
+//   All sales                $637,832.00
+//   Share                          8.70%
+//
+// The daily split below is the same window, by day, read from the same
+// place. Its per-day shares AVERAGE to 11.74% -- three percentage points
+// away from the real pooled 8.70%, because 1 Sep is a third of the window's
+// sales at a below-average share and an average weights it the same as
+// 6 Sep. That gap is the exact failure mode aggregate() refuses, measured
+// rather than argued.
+console.log('\n── the MLB validation case ──');
+
+const SEP = [
+  { day_date: '2026-09-01', mlb_sales: 12309.46, all_sales: 301108.82 },
+  { day_date: '2026-09-02', mlb_sales: 6926.96, all_sales: 80329.14 },
+  { day_date: '2026-09-03', mlb_sales: 10096.95, all_sales: 77717.45 },
+  { day_date: '2026-09-04', mlb_sales: 8068.94, all_sales: 69621.75 },
+  { day_date: '2026-09-05', mlb_sales: 9271.18, all_sales: 55363.25 },
+  { day_date: '2026-09-06', mlb_sales: 8790.02, all_sales: 53691.59 },
+];
+const round2 = (n) => Math.round(n * 100) / 100;
+
+test('the numerator totals the observed MLB figure', () =>
+  eq(round2(M.aggregate(SEP, 'mlb_sales', 'currency', {}).value), 55463.51));
+test('the denominator totals the observed all-sales figure', () =>
+  eq(round2(M.aggregate(SEP, 'all_sales', 'currency', {}).value), 637832));
+test('the share, pooled from both, is the observed 8.70%', () => {
+  const n = M.aggregate(SEP, 'mlb_sales', 'currency', {}).value;
+  const d = M.aggregate(SEP, 'all_sales', 'currency', {}).value;
+  eq(Math.round((n / d) * 10000) / 100, 8.7);
+});
+// A filter change has to move BOTH sides. Halving the window on the
+// numerator alone would leave a ratio nobody can reconcile with either
+// number printed beside it.
+test('narrowing the window moves numerator and denominator together', () => {
+  const half = SEP.slice(0, 3);
+  const n = M.aggregate(half, 'mlb_sales', 'currency', {}).value;
+  const d = M.aggregate(half, 'all_sales', 'currency', {}).value;
+  const share = (n / d) * 100;
+  truthy(share > 0 && share < 100, `got ${share}`);
+  truthy(Math.abs(share - 6.39) < 0.02, `the first three days pool to 6.39%, got ${share}`);
+});
+// Measured, not asserted in the abstract: 11.74 against the real 8.70.
+test('averaging the daily shares would be 3 points wrong -- so it is refused', () => {
+  const naive = SEP.reduce((a, r) => a + (r.mlb_sales / r.all_sales) * 100, 0) / SEP.length;
+  truthy(Math.abs(naive - 11.74) < 0.05, `the naive average is ${naive}`);
+  const refused = M.aggregate(
+    SEP.map((r) => ({ mlb_share_pct: (r.mlb_sales / r.all_sales) * 100 })),
+    'mlb_share_pct', 'percent', {});
+  eq(refused.value, null);
+  truthy(refused.refused);
+});
+
 // ── Labels ────────────────────────────────────────────────────────────
 console.log('\n── labels ──');
 

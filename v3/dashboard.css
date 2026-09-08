@@ -1031,3 +1031,8 @@ body[data-density="compact"] .v3-canvas { padding-top: 4px; }
    header rather than inside a card. */
 .v3-hub-tabs { padding: 0 18px; flex-shrink: 0; }
 @media (max-width: 720px) { .v3-hub-tabs { padding: 0 8px; } }
+/* The [hidden] trap again, and the third time this file has had to write it
+   out: `.bcn-card` sets `display: flex`, which beats the UA's [hidden] rule
+   at equal specificity. Without this the Dashboards pane stays on screen
+   under the Saved reports pane. */
+.bcn-card[hidden] { display: none; }

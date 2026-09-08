@@ -192,6 +192,8 @@ change ships and nobody sees it until they hard-refresh.
 | `dashboards.html` | List / create dashboards |
 | `dashboard.html` | The canvas. `?id=<uuid>` to view, `&edit=1` to edit |
 | `dashboard.css` | Tile chrome, inspector, picker. Beacon tokens only — no new CSS variables |
+| `js/metrics.js` | How a column is COMBINED and what a change in it means: ratios pooled from their parts (never averaged), rates compared in percentage points, inclusive period arithmetic. No DOM, no ECharts, pure and unit-tested |
+| `js/filter-bar.js` | The dashboard's filter controls: built once and updated in place, typing held as a named pending state, date ranges paired and inclusive. Produces strings; `report-params.js` still turns them into SQL |
 | `js/report-params.js` | Turns a report's declared parameters plus a dashboard's slicer values into runnable SQL. The **only** place a UI value becomes part of a query — every literal is produced by type, never concatenated. No DOM, no ECharts, pure and unit-tested |
 | `js/field-semantics.js` | What a column *means* (currency / count / percent / date / category), resolved from four layers. No ECharts, no DOM |
 | `js/chart-adapter.js` | The only file that talks to ECharts. Profiles rows, recommends a visual, groups/sorts/limits, builds options, renders table/KPI/**answer** HTML |
@@ -748,6 +750,297 @@ Not a bigger cap, on purpose: a tile wanting 7,231 SKU-grain rows is asking a
 question a dashboard cannot answer, and raising the cap hides that instead of
 acting on it.
 
+## The metric layer
+
+`js/metrics.js` answers the two questions that were previously answered
+inline in four places each, and that both have a wrong answer which looks
+right: **how is this column combined**, and **what does a change in it
+mean**. `field-semantics.js` says what a column *is*; this is the layer
+above it.
+
+### A ratio is aggregated from its parts, never from itself
+
+The single most common wrong number on a dashboard is a rolled-up rate.
+Conversion of 2% over 100 sessions and 10% over 10,000 sessions is not 6%;
+it is 9.9%. Averaging is wrong and summing is not even a quantity.
+
+So a ratio is aggregated only when its **numerator and denominator are both
+in the same result** — sum both, then divide — and otherwise the aggregate
+is *refused*, with a note naming the two columns that would make it
+possible. `RATIOS` maps the rate columns SILO actually produces onto their
+parts. It is a lookup, not a heuristic: a `conversion_rate` in a result
+carrying neither sessions nor orders cannot be pooled, and inventing a
+denominator would be worse than an empty cell.
+
+Measured on real data while this shipped — Baseballism, 1–6 Sep 2026, all
+stores, Total Sales, `sku ilike '%mlb%'`:
+
+| | |
+|---|---|
+| MLB sales | $55,463.51 |
+| All sales | $637,832.00 |
+| **Pooled share** | **8.70%** |
+| Average of the six daily shares | 11.74% |
+
+Three percentage points, because 1 Sep is a third of the window's sales at
+a below-average share and an average weights it the same as 6 Sep. That
+case is `v3/tests/unit/metrics.test.js`'s fixture — kept as a *validation
+example*, not as an MLB feature.
+
+### A rate changes in percentage POINTS
+
+4% to 5% is +1pp. Calling it +25% is a true statement about a different
+quantity, and it is the one people quote when they want the bigger number.
+`change()` returns both; the KPI prints points first and the relative change
+in brackets. A zero prior prints the absolute move rather than an infinity.
+
+### Total Sales is not Net Sales
+
+They differ by discounts, returns and (per report) shipping and tax, and
+they sit side by side in SILO's own rollups. On the window above the gap is
+$75,714 — 11.9%. A tile labelled just "Sales" hides that at exactly the
+moment two tiles are being compared, so both are named in full, from
+`LABELS`, everywhere.
+
+### Comparisons are refused rather than manufactured
+
+`canCompare()` says no to a previous-row comparison over one row, and to a
+previous-period comparison with no date range to be previous *to*.
+`priorPeriod()` is the same length immediately before; `priorYear()` is the
+same calendar dates, so 29 Feb snaps back to the 28th rather than becoming
+1 March. Both return their window so the UI can print it — a comparison
+whose dates the reader cannot see is one they cannot check.
+
+## The filter bar
+
+`js/filter-bar.js`. One control per parameter key, driving every tile that
+declares it.
+
+This was ~90 lines inside `dashboard.html` that rebuilt the whole bar's
+`innerHTML` on every apply, and that is what made a **text** filter
+unusable: a `<select>` commits the moment you pick, but a text input commits
+on `change` — blur or Enter — so a value that had been typed and not
+committed sat in the DOM looking applied, changed no results, and was then
+wiped by the next re-render when some other control fired. Three symptoms,
+one cause: the control's visible state and the applied state were different
+things with nothing keeping them together.
+
+The rules now:
+
+1. **A field is built once and updated in place.** A repaint never replaces
+   a control someone is typing into, and never discards a value that has not
+   been applied.
+2. **Typing is a pending state with a name.** The field is marked, a chip
+   says "not applied yet", and it commits on Enter, on blur, or after a
+   short pause. Save flushes anything pending before writing `filter_state`.
+3. **Every applied value is a chip**, with relative dates resolved — a token
+   in a control reads as an instruction, the chip says what it means today.
+4. **A tile no filter reaches says so on its own face** (`not filtered`,
+   naming the parameter it ignores). Saying it once in the header and never
+   on the tile is how a reader concludes a stale number is a filtered one.
+
+Guarded on **pending**, never on focus: an uncommitted value must survive a
+repaint, and a committed one must always be shown. Guarding on focus is what
+left Reset displaying the value it had just reset away from.
+
+### Date ranges
+
+Two date declarations that are two ends of one window — `start_date` +
+`end_date`, `sales_from` + `sales_to` — become **one** control with presets.
+A lone `end_date` stays its own control: half a window nobody can set is
+worse than two controls.
+
+Every preset is **inclusive of both ends** and says so. "Last 7 days"
+meaning 6 days plus today is the single most common off-by-one in a
+hand-built dashboard, and the unit suite asserts the day count of each
+preset rather than trusting its name. A custom range with the ends the wrong
+way round is swapped, not run — an empty result by construction is nobody's
+intent.
+
+Presets store **tokens**, never resolved dates, for the reason the slicers
+section already gives: storing the date freezes a rolling window on its save
+day.
+
+## Saved filter views
+
+`dashboard_filter_views` (`20260908130000`). A dashboard already stores
+*one* filter position — `dashboards.filter_state`, the board's shared
+starting point, written only by an editor's Save. That is right for "what
+everyone sees when they open this" and wrong for how a board is actually
+read: the same nine tiles, looked at as last week / this month / one store,
+by six people who each keep going back to their own cut.
+
+Before this the only way to keep a cut was to duplicate the *dashboard*,
+which duplicates its widgets, which duplicates nothing useful. A view is the
+values and nothing else.
+
+**Creator-only by RLS, on purpose.** A saved cut is a working habit, not a
+publication, and a shared list of everyone's cuts is noise on every board
+within a month. Widening it later is an additive policy change; narrowing it
+afterwards would not be.
+
+The page **feature-detects the table** and hides the control on a `42P01`,
+so the page and the migration can ship in either order.
+
+## Clicking a value
+
+Two things can happen, and the widget's own config decides which.
+
+**Cross-filter** (`visual_config.cross_filter`) applies the clicked value as
+a dashboard filter, which re-runs every other tile that reads the same
+parameter. It goes through the **parameter system**, never by hiding
+already-fetched rows: each tile has its own query and its own grain, and
+filtering one client-side while another keeps its total would put two
+numbers on one screen that cannot both be right. Only parameters some report
+on the board declares are offered — filtering on anything else would change
+nothing. Clicking the selected value again clears it, and the source tile
+carries a visible selection chip.
+
+**Drill-through** (`visual_config.drill_to`) navigates to another dashboard
+carrying `f.<key>=<value>` for the clicked value **and for every filter
+currently applied here** — the destination has to show the same window, or
+the drill lands on a number that cannot be reconciled with the one just
+clicked. Only dashboards the user can already open are listed; hiding an
+unavailable destination is a courtesy, and the destination's own RLS is
+still the authorization.
+
+## The widget editor
+
+Four tabs, in the order the questions are actually asked:
+
+| Tab | |
+|---|---|
+| **Data** | which report, which query, which columns, how they roll up |
+| **Visual** | which chart, and how it is drawn |
+| **Format** | what the numbers look like and what stands out |
+| **Interactions** | what a click does, and which filters reach this tile |
+
+It was one scroll of nineteen controls where sort order sat below the column
+checkboxes and above the semantic picker. Four *fixed* tabs rather than
+per-visual sections that appear and vanish: splitting a panel only helps if
+the split is predictable.
+
+**The tile is the preview.** Every control writes config and re-renders the
+widget immediately, so the live preview is the real tile at its real size on
+the real data — not a thumbnail that can disagree with it. The tile is ringed
+and scrolled into view when the panel opens.
+
+**A visual that cannot draw this result is offered disabled, with the
+reason.** `validateVisual()` gates the picker, not only the draw: listing
+Heatmap for a one-dimension query produces a tile that says "needs two
+dimensions", which is a worse answer than not offering it — by then the
+person has committed the tile.
+
+**A KPI never guesses its measure.** `kpiField()` falls back to the first
+numeric column in exactly one case: when there *is* only one, where "first
+numeric" and "the only measure" are the same statement. With a choice to
+make it renders a prompt naming the candidates. The card's title is never
+evidence — that is the one place a wrong guess is invisible, and it is how a
+card headed "Total sales" came to print MLB sales.
+
+## Canvas
+
+- **Duplicate** copies a widget's config deeply. A shared config object would
+  make editing one silently change the other.
+- **Full screen** *moves* the tile's body into the overlay and moves it back,
+  so a chart keeps its instance and a table keeps its scroll position and
+  every page it has loaded.
+- **Collapsible sections** detach the tiles a heading introduces, so the
+  board actually gets shorter rather than leaving a hole, and expanding
+  restores the geometry captured before the first collapse — GridStack
+  compacts on removal, and re-adding alone would leave that compaction in
+  place. View mode only: entering edit mode expands everything first, so no
+  collapsed state can reach `layout()` and be saved.
+- **Size constraints are per visual** (`SIZE` in `dashboard-renderer.js`) and
+  follow the visual *type*, not the type a tile was created with. They are
+  not aesthetics: a donut in a 2×2 box is a ring of unreadable labels and a
+  matrix that narrow paints its row labels over the first data column.
+- **Density** is compact/comfortable, a per-reader `localStorage`
+  preference. It changes the row height and the gutter and **no geometry at
+  all**, so a board saved in one density reloads identically in the other.
+
+Two GridStack traps, both recorded because they cost real debugging:
+
+- `grid.update(el, {minW, minH})` treats an omitted `w`/`h` as *unset*, not
+  as "leave it alone". Applying constraints alone wiped every tile's size,
+  and `layout()` then read null and fell through to the 6×4 default.
+- The single-column collapse runs at **init, before any widget exists**, so
+  `columnChanged()` returns early with no nodes and `columnOpts.layout` never
+  applies. Each tile is then simply *added* at its 12-column `y`, and every
+  collision pushes the tile already there downward — inverting each row. A
+  section, two KPIs and a chart came out section, chart, KPI-2, KPI-1.
+  `stackForNarrowScreen()` places them explicitly in reading order after they
+  are added; that is safe precisely because `layout()` refuses to serialise
+  a collapsed grid.
+
+## Tables
+
+Search, click-to-sort headers (`aria-sort`, and a real `<button>` so the
+sort is keyboard-reachable), a sticky header, and a focusable
+`role="region"` scroller so a wide table's rightmost columns can be reached
+without a mouse.
+
+**Search and sort are reader state**, held in the runtime rather than in
+`visual_config`: looking at a table must not make a dashboard dirty or
+become everyone's saved position. They reset when a fresh query loads, so a
+search typed against last week's rows cannot hide rows the new filter
+legitimately returned.
+
+`tableRows()` is the single decision about *which rows*, and both the table
+and the CSV are built from it — two code paths deciding that is how an
+export quietly disagrees with the table above it. A capped or filtered
+export names its scope **in the file**, on a leading `#` line, because that
+is the copy that leaves the building. Values export raw, not formatted: a
+spreadsheet needs `241033.55`, and the comment line carries the context the
+formatted string was trying to.
+
+Totals go through `SiloMetrics.aggregate`, so a rate is pooled where the
+result carries its parts and left blank where it does not — never summed,
+never averaged — and the footer names the columns it refused and why.
+
+Conditional formatting (`visual_config.rules`) is a deliberately small
+vocabulary of three tones: a table where six colours mean six things has no
+highlights at all. A rule naming a column the query no longer returns is
+skipped, not an error, under the same rule as `columns`.
+
+## Three more visuals
+
+`combo`, `heatmap` and `waterfall` (`20260908140000` widens the
+`visual_type` CHECK — the only part of a visual that ever needs a
+migration). Stacked bars and the KPI sparkline arrive in the same release
+with no database change at all, because both live in `visual_config`.
+
+- **Combo** is bars plus a named reference line. It is not "a bar chart with
+  an option": `visual_config.line_measures` names which measure is the line,
+  which is what an author needs when two measures sit on a *similar* scale
+  (sales and target, spend and budget) and nothing about the numbers says
+  which is the reference.
+- **Heatmap** shares the matrix's `(row, column, cell)` shape and keeps both
+  of its rules for the same reasons: order comes from the query (dates
+  excepted), and an absent pair is drawn as a **gap**, never as the ramp's
+  zero. Rows are inverted so it reads top-down like the matrix — ECharts puts
+  category index 0 at the bottom, and without that the two visuals disagree
+  about the same data. The ramp is single-hue for a one-sign measure and
+  diverging around zero when the values cross it.
+- **Waterfall** forces the query's own row order: a bridge sorted by size is
+  not a bridge, the sequence is the explanation. A step whose label reads
+  like a total is drawn from zero rather than stacked, because drawing it as
+  another delta double-counts the whole chart. Rates are refused outright — a
+  bridge adds its steps up.
+
+## Reports discovery
+
+`/v3/dashboards.html` is the **Reports hub**: a Dashboards tab and a Saved
+reports tab over the same library the add-widget picker reads. Three nav rows
+(Dashboards, Saved reports, Report builder) under the soft-launch gate the
+hidden row already carried, so nobody who could not already reach these pages
+can now.
+
+Specialised operational pages stay where they are. Accounting Export, PO
+Builder and Planning Scenarios are workflows that contain numbers, not
+reports, and folding them into a generic canvas would cost their specialised
+behaviour for a tidier menu.
+
 ## Deliberately not built yet
 
 Named here so nobody reads their absence as an oversight:
@@ -757,8 +1050,12 @@ Named here so nobody reads their absence as an oversight:
   different date range than the header claims makes "what am I looking at"
   unanswerable, which defeats the point. Adding overrides later means a new
   column on `dashboard_widgets`, not reinterpreting `filter_state`.
-- **Cross-widget interactions** (click a bar to filter the rest), scheduled
-  email/export, and dashboard duplication.
+- **Scheduled email / export** and **dashboard duplication**. (Cross-widget
+  interaction, listed here until 2026-09-08, now exists -- see "Clicking a
+  value" above.)
+- **Per-report drill-through TARGETS.** `drill_to` names a dashboard; it
+  cannot yet open a report on its own, or a filtered detail view that is not
+  already a board.
 - **AI-authored widget config.** The natural next step — Ask SILO already
   returns `queries_run`, and `visual_config` is a small JSON object, so
   "chart that by units instead" is a field edit, not generated code. The
@@ -771,11 +1068,11 @@ node v3/tests/run.js --unit      # needs nothing installed
 node v3/tests/run.js             # everything
 ```
 
-Seventeen suites in `v3/tests/` — see its [README](tests/README.md).
+Twenty-five suites in `v3/tests/` — see its [README](tests/README.md).
 `.github/workflows/v3-tests.yml` runs them on any push or PR touching `v3/`,
 with no secrets, because nothing there talks to a real database.
 
-Nine unit suites cover the pure modules. Eight browser suites drive the real
+Fourteen unit suites cover the pure modules. Eleven browser suites drive the real
 pages in Chromium against a stubbed Supabase — **the pages are served
 unmodified from the repo**, so the real `dashboard.html` runs the real
 `dashboard-renderer.js` and only the outside world is faked. The browser

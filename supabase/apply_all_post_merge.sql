@@ -18372,3 +18372,29 @@ $c$select (select count(*) from v_po_header_summary
 -- ---------------------------------------------------------------------------
 \i migrations/20260908120000_drop_retired_better_reports_inventory.sql
 
+
+
+-- ---------------------------------------------------------------------------
+-- 20260908130000_dashboard_filter_views.sql
+-- Personal saved filter positions for a v3 dashboard: a name plus a
+-- filter_state, pointing at a board that already exists. Keeping "my cut" of
+-- a board previously meant duplicating the board AND its widgets, when only
+-- the filter values differ. Creator-only by RLS on purpose -- a saved cut is
+-- a working habit, not a publication; the shared position stays
+-- dashboards.filter_state, which only an editor's Save writes. Additive:
+-- /v3/dashboard.html feature-detects the table and hides the control when it
+-- is absent, so page and migration can ship in either order.
+-- ---------------------------------------------------------------------------
+\i migrations/20260908130000_dashboard_filter_views.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260908140000_v3_visual_types.sql
+-- Widens dashboard_widgets.visual_type to allow combo, heatmap and waterfall.
+-- The CHECK is the only part of a visual that ever needs a migration --
+-- stacked bars and the KPI sparkline ship alongside these with no database
+-- change at all, because both live in the schemaless visual_config. No
+-- existing row changes; a page deployed ahead of this simply cannot save one
+-- of the three new types.
+-- ---------------------------------------------------------------------------
+\i migrations/20260908140000_v3_visual_types.sql
