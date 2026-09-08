@@ -976,16 +976,50 @@
         <td class="num">${money(b.total_amount)}</td>
         <td><span class="cc-chip">${esc(b.status)}</span></td>
         <td class="cc-note">${b.qbo_journal_entry_id ? `JE ${esc(b.qbo_doc_number || b.qbo_journal_entry_id)}` : '—'}</td>
-        <td><button class="bcn-btn" data-open-batch="${esc(b.id)}">Open</button></td>
+        <td>
+          <button class="bcn-btn" data-open-batch="${esc(b.id)}">Open</button>
+          ${b.status !== 'posted'
+            ? `<button class="bcn-btn bcn-btn--danger" data-discard-batch="${esc(b.id)}">Discard</button>`
+            : ''}
+        </td>
       </tr>`).join('') + '</tbody>';
   }
 
   el('batchSearch').addEventListener('input', renderBatches);
 
   el('tblBatches').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-open-batch]');
-    if (b) openBatch(b.dataset.openBatch).then(() => showPane('coding'));
+    const o = e.target.closest('[data-open-batch]');
+    if (o) openBatch(o.dataset.openBatch).then(() => showPane('coding'));
+    const d = e.target.closest('[data-discard-batch]');
+    if (d) discardBatch(d.dataset.discardBatch);
   });
+
+  // A batch that never posted, or one voided back from a bad post (RLS already
+  // allows deleting anything short of 'posted' -- void_card_posting is what
+  // returns a voided batch to 'approved' in the first place), just sits here
+  // forever with no way to remove it. That is exactly the case a corrected
+  // reimport leaves behind: the bad batch is voided, the good one is a
+  // separate new batch, and the bad one is now a stale duplicate nobody wants
+  // counted or re-postable by an accidental click.
+  async function discardBatch(id) {
+    const b = state.batches.find((x) => x.id === id);
+    if (!b) return;
+    if (!confirm(
+      `Discard this ${b.source_name} batch (${b.txn_count} rows, ${money(b.total_amount)})?\n\n`
+      + (b.qbo_journal_entry_id
+        ? `It was previously posted as JE ${b.qbo_doc_number || b.qbo_journal_entry_id} and voided. `
+          + 'Make sure that entry is actually gone from QuickBooks first — this only removes the '
+          + 'record from SILO.\n\n'
+        : '')
+      + 'This cannot be undone.')) return;
+
+    const { error } = await sb.from('card_import_batches').delete().eq('id', id);
+    if (error) return setStatus(`Discard failed — ${error.message}`, 'neg', 8000);
+    if (state.batch?.id === id) state.batch = null;
+    await loadBatches();
+    renderBatches();
+    setStatus('Batch discarded.', 'pos', 5000);
+  }
 
   async function openBatch(id) {
     state.batch = state.batches.find((b) => b.id === id) || null;
