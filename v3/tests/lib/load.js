@@ -58,10 +58,17 @@ function loadV3(files) {
   return g;
 }
 
-/** The four pure modules, in dependency order. Most unit suites want all. */
+/** The pure modules, in dependency order. Most unit suites want all.
+ *
+ * metrics.js comes before chart-adapter.js because the adapter calls into
+ * SiloMetrics at DRAW time for every roll-up and every comparison -- and a
+ * suite that loads the adapter without it silently exercises the fallback
+ * arithmetic instead of the real path, which is how a KPI comparison test
+ * can pass against code that no longer runs in the browser. */
 const PURE_MODULES = [
   'report-params.js',
   'field-semantics.js',
+  'metrics.js',
   'chart-adapter.js',
   'report-builder.js',
 ];

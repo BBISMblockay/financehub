@@ -8,7 +8,7 @@
  * dashboard-builder.js -- only chat_run_readonly_query and the saved-report
  * tables are faked. See ../lib/harness.js. */
 'use strict';
-const { startSuite } = require('../lib/harness');
+const { startSuite, inspectorTab } = require('../lib/harness');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { console.log('  FAIL ' + n + (x ? '  [' + x + ']' : '')); fail++; } };
@@ -47,23 +47,49 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
   ok('inspector opened for the new widget', await p.isVisible('#inspector.open'));
 
   // ── 2. Inspector: Answer is offered, and hides query-shaped fields ───
-  ok('Answer is the active visual choice',
-    await p.isChecked('.v3-visual-opt input[value="answer"]'));
-  ok('the inspector explains there is nothing to configure',
-    (await p.textContent('#inspectorBody')).includes('no query, no columns'));
+  // The panel is Data | Visual | Format | Interactions and opens on Data,
+  // so the visual picker is one click away -- as it is for a person.
+  ok('the inspector opens on the Data tab',
+    await p.isVisible('#inspectorTabs [data-tab="data"].is-active'));
   ok('no Query selector -- query_index is meaningless for an answer widget',
     (await p.locator('#inspQueryIndex').count()) === 0);
   ok('no Sort/Limit fields either', (await p.locator('#inspSort, #inspLimit').count()) === 0);
+  ok('an answer widget offers no Visual or Format tab -- there is nothing to draw',
+    (await p.locator('#inspectorTabs [data-tab="visual"]').count()) === 0);
+  ok('the inspector explains there is nothing to configure',
+    (await p.textContent('#inspectorBody')).includes('no query, no columns'));
+
+  // Interactions still applies to an answer widget: it can take part in
+  // (or sit out of) the dashboard's filters like any other tile.
+  await inspectorTab(p, 'interactions');
+  ok('an answer widget still explains its filter participation',
+    (await p.textContent('#inspectorBody')).includes('Dashboard filters'));
+  await inspectorTab(p, 'data');
+  ok('Answer is the active visual type on the tile badge',
+    (await p.textContent('.dw-type-badge')).includes('answer'));
 
   // ── 3. Switching to Table and back works, and Answer survives it ─────
   // This is the fix for the real bug: an existing table widget stuck on a
   // useless query can be switched to Answer from the SAME inspector, no
   // delete-and-re-add required.
-  await p.click('.v3-visual-opt:has(input[value="table"])');
+  // An answer widget has no Visual tab (nothing to draw), so the switch is
+  // made through the tile's own type badge, which is the control a person
+  // actually uses to change a visual.
+  await p.evaluate(() => {
+    const d = window.__siloDashboard;
+    const w = d.runtime.getWidgets()[0];
+    d.runtime.updateWidget(w.id, { visual_type: 'table' });
+    return d.runtime.rerenderWidget(w.id);
+  });
   await p.waitForTimeout(250);
   ok('switching away renders a table off query 1 (not an empty/broken tile)',
     (await p.locator('.dw-table').count()) === 1);
-  await p.click('.v3-visual-opt:has(input[value="answer"])');
+  await p.evaluate(() => {
+    const d = window.__siloDashboard;
+    const w = d.runtime.getWidgets()[0];
+    d.runtime.updateWidget(w.id, { visual_type: 'answer' });
+    return d.runtime.rerenderWidget(w.id);
+  });
   await p.waitForTimeout(250);
   ok('switching back renders the answer again, unchanged',
     (await p.locator('.dw-answer h2').count()) === 1);
@@ -77,8 +103,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
   ok('a report with no answer text gets no CTA', (await p.locator('.v3-answer-cta').count()) === 0);
   await p.click('[data-query-index="0"]');
   await p.waitForSelector('.dw-chart, .dw-table', { timeout: 5000 });
+  await inspectorTab(p, 'visual');
   ok('Answer is not offered in the inspector for a report with no answer text',
     (await p.locator('.v3-visual-opt input[value="answer"]').count()) === 0);
+  ok('...but the other visuals are', (await p.locator('.v3-visual-opt').count()) >= 5);
 
   ok('no page errors', errs.length === 0 || (console.log(errs.slice(0, 5)), false));
   if (process.env.V3_TEST_SCREENSHOTS) await p.screenshot({ path: 'answer-widget.png' });

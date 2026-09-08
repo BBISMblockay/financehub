@@ -803,3 +803,236 @@ table.dw-matrix th.dw-total-label {
 .dw-answer th { background: var(--bcn-surface); font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
 .dw-answer code { font-family: var(--bcn-mono); font-size: 11px; background: var(--bcn-surface); padding: 1px 5px; border-radius: 4px; }
 .dw-answer pre { font-family: var(--bcn-mono); font-size: 11px; background: var(--bcn-surface); padding: 8px 10px; border-radius: 6px; overflow-x: auto; margin: 0 0 8px; }
+
+/* ==========================================================================
+   Shared BI workspace chrome (2026-09-08)
+   Beacon tokens only -- no new CSS variables, per the project rules. The two
+   traps this file already documents both apply again below:
+     * an author `display` beats the UA's [hidden] rule, so anything that
+       sets display needs its own [hidden] { display: none }
+     * `table.bcn-table` (element+class) outranks a bare class selector
+   ========================================================================== */
+
+/* ── Header ─────────────────────────────────────────────────────────────
+   The description used to sit in .bcn-header-sub beside the title and won
+   the line: a two-sentence description pushed the dashboard's NAME onto a
+   second row, and on a narrow window the actions wrapped under it. Now the
+   title row holds only identity (name, scope, unsaved state) and the
+   description lives behind the ⓘ. */
+.v3-header-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.v3-header-title h1 {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: min(48vw, 620px);
+}
+.v3-scope-pill { flex-shrink: 0; }
+.v3-scope-pill[hidden] { display: none; }
+.v3-info-btn {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  border: 1px solid var(--bcn-border); background: transparent; cursor: pointer;
+  color: var(--bcn-ink-3); font-size: 10px; font-weight: 700; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.v3-info-btn[hidden] { display: none; }
+.v3-info-btn:hover { color: var(--bcn-accent); border-color: var(--bcn-accent-border); }
+.v3-info-btn:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 1px; }
+.v3-info-btn[aria-expanded="true"] { color: var(--bcn-accent); border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
+
+.v3-dirty-pill {
+  font-family: var(--bcn-mono); font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--bcn-warn); border: 1px solid var(--bcn-warn); border-radius: 999px;
+  padding: 1px 7px; flex-shrink: 0;
+}
+.v3-dirty-pill[hidden] { display: none; }
+.bcn-btn.is-dirty { position: relative; }
+
+.v3-header-info {
+  flex-shrink: 0; padding: 8px 18px 10px; border-bottom: 1px solid var(--bcn-border);
+  background: var(--bcn-surface);
+}
+.v3-header-info[hidden] { display: none; }
+.v3-header-desc { margin: 0; font-size: 12.5px; color: var(--bcn-ink-2); line-height: 1.5; max-width: 78ch; }
+.v3-header-meta { margin: 4px 0 0; font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-4); }
+
+/* ── Filter bar ─────────────────────────────────────────────────────────
+   Not `position: sticky`: .silo-main is a flex column with a 100vh cap and
+   .v3-canvas is the element that scrolls, so this bar is already outside
+   the scroller and stays put. flex-shrink:0 is what keeps it there under
+   space pressure -- the same fix .v3-meta-bar documents above. */
+.v3-slicer-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; width: 100%; }
+.v3-slicer-actions { display: flex; align-items: center; gap: 6px; margin-top: 15px; flex-shrink: 0; }
+.v3-view-select { max-width: 190px; }
+.v3-view-select[hidden] { display: none; }
+.v3-slicer-dash { color: var(--bcn-ink-3); font-size: 11px; }
+.v3-slicer-dash[hidden] { display: none; }
+.v3-slicer-field--range .v3-slicer-date input[type="date"] { max-width: 132px; }
+.v3-slicer-error { font-size: 10px; color: var(--bcn-neg); margin-top: 2px; }
+.v3-slicer-error[hidden] { display: none; }
+.v3-slicer-pending { font-size: 10px; color: var(--bcn-warn); margin-top: 2px; }
+.v3-slicer-pending[hidden] { display: none; }
+.v3-slicer-field.is-pending .bcn-field { border-color: var(--bcn-warn); }
+
+.v3-filter-chips { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 2px; }
+.v3-filter-chips[hidden] { display: none; }
+.v3-filter-chip {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  border: 1px solid var(--bcn-border); border-radius: 999px; padding: 1px 9px;
+  font-size: 10.5px; background: var(--bcn-surface);
+}
+.v3-filter-chip-key { color: var(--bcn-ink-3); }
+.v3-filter-chip-val { color: var(--bcn-ink); font-weight: 600; }
+.v3-filter-chip-note { color: var(--bcn-ink-4); font-size: 9.5px; }
+.v3-filter-chip--pending { border-color: var(--bcn-warn); }
+.v3-filter-chip--pending .v3-filter-chip-note { color: var(--bcn-warn); }
+
+/* ── Tile states ────────────────────────────────────────────────────── */
+.dw-nofilter, .dw-selection {
+  font-family: var(--bcn-mono); font-size: 9px; letter-spacing: .03em;
+  color: var(--bcn-ink-4); border: 1px solid var(--bcn-border); border-radius: 999px;
+  padding: 0 5px; align-self: flex-start; margin-top: 2px; cursor: help;
+}
+.dw-selection { color: var(--bcn-accent); border-color: var(--bcn-accent-border); cursor: default; }
+.dw.is-selection-source { box-shadow: inset 0 0 0 1px var(--bcn-accent-border); }
+.dw.is-inspecting { box-shadow: 0 0 0 2px var(--bcn-accent-border); border-radius: 8px; }
+
+.dw-skeleton { display: flex; flex-direction: column; gap: 8px; padding: 8px 2px; }
+.dw-skeleton-bar {
+  height: 10px; border-radius: 3px; background: var(--bcn-border);
+  opacity: .55; animation: dw-pulse 1.4s ease-in-out infinite;
+}
+.dw-skeleton-bar:nth-child(2) { width: 82%; animation-delay: .15s; }
+.dw-skeleton-bar:nth-child(3) { width: 64%; animation-delay: .3s; }
+@keyframes dw-pulse { 0%, 100% { opacity: .35; } 50% { opacity: .7; } }
+/* Motion is decoration here; the text alternative carries the meaning. */
+@media (prefers-reduced-motion: reduce) { .dw-skeleton-bar { animation: none; } }
+.dw-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.dw-retry { margin-top: 8px; align-self: flex-start; }
+.dw-kpi-unset { text-align: left; }
+
+/* ── Tables ─────────────────────────────────────────────────────────── */
+.dw-table-tools { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; }
+.dw-table-search { flex: 1; min-width: 90px; height: 24px; font-size: 11px; }
+.dw-table-count { font-size: 10px; color: var(--bcn-ink-3); white-space: nowrap; }
+.dw-csv { height: 24px; padding: 0 8px; font-size: 10.5px; }
+/* A wide table's rightmost columns have to be reachable without a mouse. */
+.dw-table-wrap:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: -2px; }
+/* Sticky header inside the tile's own scroller, so the column names stay
+   readable while a hundred rows go past under them. */
+.dw-table thead th { position: sticky; top: 0; z-index: 2; background: var(--bcn-surface); }
+.dw-th-btn {
+  display: flex; align-items: center; gap: 4px; width: 100%;
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+  color: inherit; text-align: inherit;
+}
+.dw-table th.dw-num .dw-th-btn { justify-content: flex-end; }
+.dw-th-btn:hover { color: var(--bcn-accent); }
+.dw-th-btn:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 1px; }
+.dw-table th.is-sorted { color: var(--bcn-accent); }
+.dw-th-arrow { font-size: 7px; opacity: .8; }
+.dw-rule { border-radius: 3px; }
+.dw-rule--pos { background: color-mix(in srgb, var(--bcn-pos) 14%, transparent); color: var(--bcn-pos); }
+.dw-rule--neg { background: color-mix(in srgb, var(--bcn-neg) 14%, transparent); color: var(--bcn-neg); }
+.dw-rule--warn { background: color-mix(in srgb, var(--bcn-warn) 18%, transparent); color: var(--bcn-warn); }
+
+/* ── KPI ────────────────────────────────────────────────────────────── */
+.dw-kpi-spark { width: 100%; height: 26px; display: block; margin: 2px 0 1px; }
+.dw-kpi-delta { display: flex; align-items: baseline; gap: 5px; font-size: 11px; font-weight: 700; }
+.dw-kpi-delta--up { color: var(--bcn-pos); }
+.dw-kpi-delta--down { color: var(--bcn-neg); }
+.dw-kpi-delta--flat, .dw-kpi-delta--none { color: var(--bcn-ink-3); font-weight: 500; }
+.dw-kpi-delta-note { font-size: 10px; font-weight: 500; color: var(--bcn-ink-3); }
+
+/* ── Full-screen one widget ─────────────────────────────────────────── */
+.v3-fs {
+  position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column;
+  background: var(--bcn-surface);
+}
+.v3-fs[hidden] { display: none; }
+.v3-fs-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0;
+}
+.v3-fs-head h2 { margin: 0; font-size: 14px; font-weight: 700; color: var(--bcn-ink); }
+.v3-fs-body { flex: 1; min-height: 0; padding: 14px 16px 18px; display: flex; flex-direction: column; }
+.v3-fs-body > [data-role="body"] { flex: 1; min-height: 0; overflow: auto; }
+body.v3-fs-open { overflow: hidden; }
+
+/* ── Inspector tabs ─────────────────────────────────────────────────── */
+.v3-inspector-tabs {
+  display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--bcn-border);
+  flex-shrink: 0;
+}
+.v3-insp-tab {
+  background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer;
+  padding: 7px 9px; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--bcn-ink-3);
+}
+.v3-insp-tab:hover { color: var(--bcn-ink); }
+.v3-insp-tab:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: -2px; }
+.v3-insp-tab.is-active { color: var(--bcn-accent); border-bottom-color: var(--bcn-accent); }
+.v3-insp-hint--warn { color: var(--bcn-warn); }
+.v3-insp-actions { display: flex; gap: 8px; }
+.v3-insp-actions .bcn-btn { flex: 1; }
+.v3-visual-opt.is-disabled { opacity: .45; cursor: not-allowed; }
+.v3-visual-opt.is-disabled:hover { border-color: var(--bcn-border); }
+
+.v3-col-order { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.v3-col-chip {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px;
+  border: 1px solid var(--bcn-border); border-radius: 4px; padding: 1px 4px;
+}
+.v3-col-move {
+  background: none; border: 0; cursor: pointer; color: var(--bcn-ink-3); font-size: 8px; padding: 0 2px;
+}
+.v3-col-move:disabled { opacity: .3; cursor: default; }
+.v3-col-move:hover:not(:disabled) { color: var(--bcn-accent); }
+
+.v3-rules { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.v3-rule {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  border: 1px solid var(--bcn-border); border-radius: 4px; padding: 2px 4px 2px 7px; font-size: 10.5px;
+}
+.v3-rule-add { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.v3-rule-add .bcn-field { font-size: 11px; height: 26px; }
+.v3-rule-add .bcn-btn { grid-column: 1 / -1; }
+
+/* ── Density ────────────────────────────────────────────────────────────
+   One layout, two spacings. Compact does not change the grid's columns or
+   any widget's {x,y,w,h} -- only the row height, the gutter and the tile's
+   own padding -- so a board saved in one density reloads identically in the
+   other, and density stays a per-reader preference. */
+body[data-density="compact"] .dw-head { padding: 5px 8px 4px; }
+body[data-density="compact"] .dw-body { padding: 6px 8px; }
+body[data-density="compact"] .dw-title { font-size: 11.5px; }
+body[data-density="compact"] .dw-table { font-size: 11px; }
+body[data-density="compact"] .dw-table td { padding-top: 2px; padding-bottom: 2px; }
+body[data-density="compact"] .dw-kpi-value { font-size: 24px; }
+body[data-density="compact"] .v3-canvas { padding-top: 4px; }
+
+/* ── Collapsed section ──────────────────────────────────────────────── */
+.dw--section.is-collapsed .dw-section-title { opacity: .65; }
+.dw-collapse { font-size: 10px; }
+
+@media (max-width: 900px) {
+  .v3-header-title h1 { max-width: 100%; }
+  .v3-slicer-actions { margin-top: 4px; }
+}
+@media (max-width: 720px) {
+  .v3-rule-add { grid-template-columns: 1fr; }
+  .v3-inspector-tabs { padding: 0 4px; }
+  .v3-insp-tab { padding: 7px 6px; font-size: 11px; }
+  .v3-fs-head { padding: 8px 10px; }
+  .v3-fs-body { padding: 8px 10px 14px; }
+}
+
+/* The Reports hub's two tabs. .bcn-tabs is Beacon's own component; this only
+   gives it the page's gutter, since the hub places it directly under the
+   header rather than inside a card. */
+.v3-hub-tabs { padding: 0 18px; flex-shrink: 0; }
+@media (max-width: 720px) { .v3-hub-tabs { padding: 0 8px; } }
+/* The [hidden] trap again, and the third time this file has had to write it
+   out: `.bcn-card` sets `display: flex`, which beats the UA's [hidden] rule
+   at equal specificity. Without this the Dashboards pane stays on screen
+   under the Saved reports pane. */
+.bcn-card[hidden] { display: none; }

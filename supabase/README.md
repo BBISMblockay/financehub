@@ -362,6 +362,8 @@ supabase/
     20260907120000_sales_by_product_title_daily_mv.sql
     20260907140000_report_row_estimate.sql
     20260908120000_drop_retired_better_reports_inventory.sql
+    20260908130000_dashboard_filter_views.sql
+    20260908140000_v3_visual_types.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

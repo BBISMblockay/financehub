@@ -9,7 +9,7 @@
  * p_offset exactly like the real RPC, so this suite exercises the actual
  * page-1 / page-2 / partial-page-3 lifecycle rather than a mock of it. */
 'use strict';
-const { startSuite } = require('../lib/harness');
+const { startSuite, inspectorTab } = require('../lib/harness');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { console.log('  FAIL ' + n + (x ? '  [' + x + ']' : '')); fail++; } };
@@ -106,17 +106,18 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
 
     // The picker recommends a visual off the raw profile; force table since
     // pagination is table-only (see dashboard-renderer.js's header).
+    await inspectorTab(p, 'visual');
     await p.click('.v3-visual-opt:has(input[value="table"])');
     await p.waitForTimeout(250);
     ok('table tile rendered', (await p.locator('.dw-table').count()) === 1);
 
     ok('page 1 offers Load more with a running count',
       (await p.locator('[data-act="loadmore"]').count()) === 1
-      && (await p.textContent('.dw-foot')).includes('1,000 loaded so far'));
+      && /1,000 loaded/.test(await p.textContent('.dw-foot')));
 
     await p.click('[data-act="loadmore"]');
     await p.waitForFunction(
-      () => /2,000 loaded so far/.test(document.querySelector('.dw-foot')?.textContent || ''),
+      () => /2,000 loaded/.test(document.querySelector('.dw-foot')?.textContent || ''),
       null, { timeout: 10000 });
     ok('a second click appended rather than replaced the first page', true);
 

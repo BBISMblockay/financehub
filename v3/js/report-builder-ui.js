@@ -1021,9 +1021,9 @@
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', user.id).single();
     if (window.SiloChrome) {
       window.SiloChrome.mount({
-        appEl: '#silo-app', active: 'reports/dashboards',
+        appEl: '#silo-app', active: 'reports/builder',
         user: { email: profile?.email || user.email, role: profile?.role },
-        crumbs: ['Reports', 'New report'], supabaseClient: sb,
+        crumbs: ['Reports', 'Report builder'], supabaseClient: sb,
       });
     }
 

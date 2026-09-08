@@ -21,6 +21,51 @@
   // branches on these -- they are labels, not behaviour.
   const SOURCE_LABEL = { ask_silo: 'Ask SILO', system: 'SILO report', manual: 'Manual' };
 
+  /* Everything a widget needs to render BEFORE the dashboard has been saved
+     and reloaded through dashboard_widgets_v.
+
+     This list exists because it kept getting short. The picker used to
+     select nine columns and `parameters` was not among them, so a widget
+     built on a parameterised report was handed report_parameters=undefined
+     -- and substitute() correctly refuses a {{token}} nothing declares.
+     The tile therefore read "this report's SQL uses {{report_date}}, which
+     is not a declared parameter" on a report that declares it perfectly
+     well, and healed itself on the next reload because the VIEW supplies
+     the column. columns_metadata and answer had the same shape of bug,
+     quieter: a freshly added tile formatted its numbers by profiling and
+     reformatted them after a reload, and the Answer visual was missing
+     from the inspector until then.
+
+     One list, used by every read, so the next column added to the view is
+     added here once rather than in three places. */
+  const REPORT_FIELDS = [
+    'id', 'title', 'description', 'question', 'answer', 'queries_run',
+    'visibility', 'source', 'company_entity_id', 'created_by_name', 'created_at',
+    'row_estimate', 'parameters', 'columns_metadata',
+  ].join(', ');
+
+  /**
+   * The denormalised half of a widget row: the columns dashboard_widgets_v
+   * joins in from the report. Built in ONE place so a locally created
+   * widget is indistinguishable from a reloaded one -- which is the whole
+   * property "add a report and it works immediately" depends on.
+   */
+  function reportFieldsFor(report, queryIndex) {
+    const queries = (report && report.queries_run) || [];
+    return {
+      report_title: report.title,
+      report_question: report.question,
+      report_description: report.description,
+      report_source: report.source,
+      report_visibility: report.visibility,
+      report_columns_metadata: report.columns_metadata || null,
+      report_parameters: report.parameters || null,
+      report_answer: report.answer || null,
+      report_query_count: queries.length,
+      query_sql: queries[queryIndex] || null,
+    };
+  }
+
   // A system/manual report has a description; an Ask SILO save has the
   // question that produced it. Same slot, different provenance.
   const reportSubtitle = (r) => r.description || r.question || '';
@@ -59,9 +104,20 @@
     { id: 'kpi',   label: 'KPI',   hint: 'One number, big' },
     { id: 'bar',   label: 'Bar',   hint: 'Compare categories' },
     { id: 'line',  label: 'Line',  hint: 'Change over time' },
+    { id: 'combo', label: 'Combo', hint: 'Bars plus a reference line' },
     { id: 'donut', label: 'Donut', hint: 'Parts of a whole' },
     { id: 'matrix', label: 'Matrix', hint: 'One thing down, another across' },
+    { id: 'heatmap', label: 'Heatmap', hint: 'The same grid, read as a pattern' },
+    { id: 'waterfall', label: 'Waterfall', hint: 'How one number becomes another' },
   ];
+
+  /* The conditional-formatting vocabulary. Small on purpose: a table where
+     six colours mean six things has no highlights at all. */
+  const RULE_OPS = {
+    gt: 'greater than', lt: 'less than', gte: 'at least', lte: 'at most',
+    between: 'between', negative: 'is negative', positive: 'is positive',
+    empty: 'is empty', contains: 'contains',
+  };
 
   // Offered only when the widget's report actually has answer text -- an
   // Ask SILO save always does; a manual/system report built from a table or
@@ -90,6 +146,12 @@
     let reportsCache = [];
     let reportFilter = '';
     let pickedReport = null;      // report awaiting a query choice
+    /* Dashboards this user can OPEN, for the drill-through target list.
+       Read through dashboards_v, so RLS decides what is offered -- a board
+       the user cannot see is simply not in the list, and following a link
+       to one still goes through the destination's own policy. Hiding an
+       unavailable destination is a UX courtesy, never the authorization. */
+    let dashboardsForDrill = [];
     let uid = () => (crypto.randomUUID ? crypto.randomUUID()
       : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
           const r = Math.random() * 16 | 0;
@@ -117,7 +179,7 @@
       // filters to source='ask_silo'; this one must not.
       const { data, error } = await sb
         .from('silo_chat_saved_reports_v')
-        .select('id, title, description, question, answer, queries_run, visibility, source, company_entity_id, created_by_name, created_at, row_estimate')
+        .select(REPORT_FIELDS)
         .order('created_at', { ascending: false });
       if (error) {
         el('addBody').innerHTML = `<div class="v3-empty">Couldn't load reports: ${esc(error.message)}</div>`;
@@ -328,12 +390,12 @@
         layout: { w: 6, h: 4 },
         sort_order: runtime.getWidgets().length,
         // Denormalised for the renderer; dashboard_widgets_v supplies these
-        // on reload, they are not columns on the table.
-        report_title: report.title,
-        report_question: report.question,
-        report_visibility: report.visibility,
-        report_query_count: (report.queries_run || []).length,
-        query_sql: (report.queries_run || [])[queryIndex] || null,
+        // on reload, they are not columns on the table. Built through the
+        // shared helper so a just-added widget carries EVERY field a
+        // reloaded one does -- parameters above all, without which a
+        // parameterised report renders "not a declared parameter" until
+        // the page is saved and reloaded.
+        ...reportFieldsFor(report, queryIndex),
         _new: true,
       };
       markDirty();
@@ -388,12 +450,7 @@
         visual_config: {},
         layout: { w: 6, h: 5 },
         sort_order: runtime.getWidgets().length,
-        report_title: report.title,
-        report_question: report.question,
-        report_visibility: report.visibility,
-        report_query_count: queries.length,
-        report_answer: report.answer,
-        query_sql: queries[queryIndex] || null,
+        ...reportFieldsFor(report, queryIndex),
         _new: true,
       };
       markDirty();
@@ -463,14 +520,60 @@
     }
 
     // ── Inspector ────────────────────────────────────────────────────────
+    /* Four tabs, in the order the questions are actually asked:
+     *
+     *   Data          which report, which query, which columns
+     *   Visual        which chart, and how it is drawn
+     *   Format        what the numbers look like and what stands out
+     *   Interactions  what a click does, and which filters reach this tile
+     *
+     * The panel used to be one scroll of nineteen controls where the sort
+     * order sat below the column checkboxes and above the semantic picker,
+     * and finding anything meant reading all of it. Splitting it is only
+     * worth doing if the split is predictable, hence four fixed tabs rather
+     * than per-visual sections that appear and vanish.
+     *
+     * THE TILE IS THE PREVIEW. Every control here writes config and
+     * re-renders the widget immediately, so the live preview is the real
+     * tile at its real size on the real data -- not a thumbnail that can
+     * disagree with it. The tile is ringed and scrolled into view when the
+     * panel opens so it is always the thing next to the controls.
+     */
+    const TABS = [
+      { id: 'data', label: 'Data' },
+      { id: 'visual', label: 'Visual' },
+      { id: 'format', label: 'Format' },
+      { id: 'interactions', label: 'Interactions' },
+    ];
+    let activeTab = 'data';
+
     function openInspector(id) {
       inspectingId = id;
+      activeTab = 'data';
       el('inspector').classList.add('open');
       renderInspector();
+      highlightInspected();
     }
     function closeInspector() {
       inspectingId = null;
       el('inspector').classList.remove('open');
+      highlightInspected();
+    }
+
+    /** Ring the tile being edited and bring it on screen: it IS the preview. */
+    function highlightInspected() {
+      for (const tile of el('grid').querySelectorAll('.dw')) {
+        tile.classList.toggle('is-inspecting', tile.dataset.widgetId === inspectingId);
+      }
+      if (!inspectingId) return;
+      const tile = el('grid').querySelector(`.dw[data-widget-id="${CSS.escape(inspectingId)}"]`);
+      if (tile && tile.scrollIntoView) tile.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    function renderTabs(available) {
+      el('inspectorTabs').innerHTML = TABS.filter((t) => available.includes(t.id)).map((t) => `
+        <button type="button" role="tab" class="v3-insp-tab${t.id === activeTab ? ' is-active' : ''}"
+                data-tab="${t.id}" aria-selected="${t.id === activeTab}">${t.label}</button>`).join('');
     }
 
     function renderInspector() {
@@ -481,40 +584,31 @@
       const prof = rows ? window.SiloChart.profileColumns(rows) : [];
       const dims = window.SiloChart.dimensionsOf(prof);
       const meas = window.SiloChart.measuresOf(prof);
-      const isChart = ['bar', 'line', 'donut'].includes(w.visual_type);
+      const isChart = ['bar', 'line', 'donut', 'combo'].includes(w.visual_type);
       const isSection = w.visual_type === 'section';
       const isAnswer = w.visual_type === 'answer';
-      // A matrix needs a SECOND dimension -- one down, one across -- which
-      // no other visual has. Everything else about it (measure, aggregate,
-      // limit) reuses the existing controls.
-      const isMatrix = w.visual_type === 'matrix';
+      // A matrix and a heatmap both need a SECOND dimension -- one down,
+      // one across -- which no other visual has.
+      const isGrid2d = w.visual_type === 'matrix' || w.visual_type === 'heatmap';
+      const isWaterfall = w.visual_type === 'waterfall';
+      const semantics = rows ? runtime.semanticsFor(w, rows) : {};
 
-      // Answer is offered only when THIS widget's report actually has
-      // answer text -- a manual/system report never does, and offering a
-      // choice that renders nothing is worse than not offering it.
-      const visualChoices = w.report_answer ? VISUALS.concat(ANSWER_VISUAL) : VISUALS;
-      const visualOpts = visualChoices.map((v) => `
-        <label class="v3-visual-opt${w.visual_type === v.id ? ' is-active' : ''}">
-          <input type="radio" name="visualType" value="${v.id}" ${w.visual_type === v.id ? 'checked' : ''} />
-          <span class="v3-visual-label">${v.label}</span>
-          <span class="v3-visual-hint">${v.hint}</span>
-        </label>`).join('');
+      el('inspectorHeading').textContent = isSection ? 'Section' : (w.title || w.report_title || 'Widget');
+
+      // A section has no data and no format; showing four tabs where two
+      // are empty is worse than showing the two that mean something.
+      const available = isSection ? ['data']
+        : isAnswer ? ['data', 'interactions']
+        : ['data', 'visual', 'format', 'interactions'];
+      if (!available.includes(activeTab)) activeTab = available[0];
+      renderTabs(available);
 
       const options = (list, selected) => list.map((c) =>
-        `<option value="${esc(c.name)}"${c.name === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+        `<option value="${esc(c.name)}"${c.name === selected ? ' selected' : ''}>${esc(window.SiloChart.columnLabel(c.name, semantics))}</option>`).join('');
 
-      const shaped = rows ? window.SiloChart.shape(rows, cfg) : null;
+      const shaped = rows ? window.SiloChart.shape(rows, cfg, semantics) : null;
       const activeX = shaped ? shaped.xField : cfg.x_field;
       const activeY = shaped ? shaped.yField : cfg.y_field;
-
-      const SEMANTIC_LABEL = {
-        currency: 'Currency ($)', count: 'Whole count', number: 'Number',
-        percent: 'Percentage (%)', date: 'Date', category: 'Category', boolean: 'True/false',
-      };
-      const semantics = rows ? runtime.semanticsFor(w, rows) : {};
-      // cfg.measures is the multi-measure form; cfg.y_field is what every
-      // widget built before it used. Treat the single field as a one-item
-      // list so both shapes drive the same UI.
       const activeMeasures = (Array.isArray(cfg.measures) && cfg.measures.length
         ? cfg.measures
         : [activeY]).filter(Boolean);
@@ -523,23 +617,56 @@
         ? cfg.aggregate
         : window.SiloChart.defaultAggregate(measureSemantic);
 
-      // No link to "edit this report" here on purpose: the report builder
-      // edits SQL/guided config, not a saved answer's prose -- there is
-      // nowhere today that lets you correct the wording of a saved answer.
-      // Asking Ask SILO again and saving a fresh report is the real fix.
-      const fieldsBlock = isAnswer
+      const SEMANTIC_LABEL = {
+        currency: 'Currency ($)', count: 'Whole count', number: 'Number',
+        percent: 'Percentage (%)', date: 'Date', category: 'Category', boolean: 'True/false',
+        link: 'Link', image: 'Image',
+      };
+
+      // ── Data ───────────────────────────────────────────────────────────
+      const sourceBlock = `
+        <div class="v3-insp-source">
+          <span class="bcn-label">Source report</span>
+          <div class="v3-insp-source-name">${esc(w.report_title || (isSection ? 'None — a section is a heading' : '(report unavailable)'))}</div>
+          ${w.report_id ? `
+            <!-- The tile is where you NOTICE a report is wrong -- a column
+                 labelled with its raw alias, a figure formatted as the wrong
+                 type, a hardcoded date. Editing it from here is what stops
+                 the fix being "save a second report". Opens the workbench;
+                 whether it saves over the original or forks is decided
+                 there, by RLS. -->
+            <a class="v3-insp-source-edit" href="/v3/report-builder.html?id=${esc(w.report_id)}">
+              Edit this report →</a>` : ''}
+          ${(!isAnswer && w.report_query_count > 1) ? `
+            <label class="bcn-label" for="inspQueryIndex" style="margin-top:8px">Query ${w.query_index + 1} of ${w.report_query_count}</label>
+            <select class="bcn-field" id="inspQueryIndex">
+              ${Array.from({ length: w.report_query_count }, (_, i) =>
+                `<option value="${i}"${i === w.query_index ? ' selected' : ''}>Query ${i + 1}</option>`).join('')}
+            </select>
+            <span class="v3-insp-hint">This report ran ${w.report_query_count} queries and a widget draws one.
+              Switching re-reads the report — the other widgets built on its other queries are untouched.</span>` : ''}
+        </div>`;
+
+      const dataBlock = isSection
+        ? `<div class="bcn-field-group">
+             <label class="bcn-label" for="inspNote">Standfirst (optional)</label>
+             <input class="bcn-field" id="inspNote" type="text" value="${esc(cfg.note || '')}"
+                    placeholder="One line under the heading" />
+           </div>`
+        : isAnswer
         ? `<div class="v3-insp-note">This widget renders the report's saved answer text — no query, no columns,
              nothing to configure here. The wording isn't editable once saved; ask Ask SILO the question again
              and save a fresh report if it needs correcting.</div>`
         : !rows
-        ? `<div class="v3-insp-note">No data loaded for this widget, so there are no fields to configure yet.</div>`
+        ? `<div class="v3-insp-note">No data loaded for this widget yet, so there are no fields to configure.
+             If the tile shows an error, fix that first — the columns come from what the query actually returned.</div>`
         : `
-        ${isChart ? `
+        ${isChart || isWaterfall ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspX">Dimension</label>
           <select class="bcn-field" id="inspX">${options(dims.length ? dims : prof, activeX)}</select>
         </div>` : ''}
-        ${isMatrix ? `
+        ${isGrid2d ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspRow">Rows (down)</label>
           <select class="bcn-field" id="inspRow">${options(dims.length ? dims : prof, cfg.row_field || (dims[0] || {}).name)}</select>
@@ -568,74 +695,125 @@
             ? 'Plotted together. A measure that means something different, or sits on a wildly different scale, gets its own axis on the right automatically — and is drawn as a line over bars.'
             : 'Pick more than one to compare them on the same chart.'}</span>
         </div>` : ''}
+        ${w.visual_type === 'combo' && activeMeasures.length > 1 ? `
+        <div class="bcn-field-group">
+          <span class="bcn-label">Draw as a line</span>
+          <div class="v3-measures">
+            ${activeMeasures.map((m) => `
+              <label class="rb-col${(cfg.line_measures || []).includes(m) ? ' is-on' : ''}">
+                <input type="checkbox" data-line-measure="${esc(m)}" ${(cfg.line_measures || []).includes(m) ? 'checked' : ''} />
+                ${esc(m)}
+              </label>`).join('')}
+          </div>
+          <span class="v3-insp-hint">Name the measure that is the reference line — a target, a budget, a rate.
+            Without this, a measure only becomes a line when its scale forces it onto the right-hand axis.</span>
+        </div>` : ''}
         ${(w.visual_type === 'kpi' || w.visual_type === 'table') ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspY">${w.visual_type === 'table' ? 'Sort by (measure)' : 'Measure'}</label>
           <select class="bcn-field" id="inspY">
             ${w.visual_type === 'table' ? '<option value="">—</option>' : ''}
+            ${w.visual_type === 'kpi' && !cfg.y_field && meas.length > 1
+              ? '<option value="" selected>Choose a measure…</option>' : ''}
             ${options(meas.length ? meas : prof, activeY)}
           </select>
+          ${w.visual_type === 'kpi' && !cfg.y_field && meas.length > 1 ? `
+          <span class="v3-insp-hint v3-insp-hint--warn">This card has ${meas.length} numeric columns and no measure chosen,
+            so it is not showing a number. Pick the one the title claims — the title is not used to guess it.</span>` : ''}
         </div>` : ''}
-        ${w.visual_type === 'kpi' ? `
-        <div class="bcn-field-group">
-          <label class="bcn-label" for="inspCompare">Compare against</label>
-          <select class="bcn-field" id="inspCompare">
-            <option value="">Nothing — just the number</option>
-            <option value="__prev"${cfg.compare === 'previous_row' ? ' selected' : ''}>The previous row (last vs the one before)</option>
-            ${(meas.length ? meas : prof).map((c) => `<option value="${esc(c.name)}"${cfg.compare_field === c.name ? ' selected' : ''}>${esc(window.SiloChart.columnLabel(c.name))}</option>`).join('')}
-          </select>
-        </div>
-        <label class="rb-col${cfg.abbreviate ? ' is-on' : ''}" style="align-self:flex-start">
-          <input type="checkbox" id="inspAbbrev" ${cfg.abbreviate ? 'checked' : ''} />
-          Abbreviate the number ($36.4M instead of $36,393,571)
-        </label>` : ''}
-        ${(w.visual_type === 'table' || w.visual_type === 'matrix') ? `
-        <div class="bcn-field-group">
-          <label class="bcn-label" for="inspTotals">Totals</label>
-          <select class="bcn-field" id="inspTotals">
-            <option value="">None</option>
-            ${w.visual_type === 'table'
-              ? `<option value="row"${cfg.totals === 'row' ? ' selected' : ''}>A total row at the bottom</option>`
-              : `<option value="row"${cfg.totals === 'row' ? ' selected' : ''}>A total row</option>
-                 <option value="column"${cfg.totals === 'column' ? ' selected' : ''}>A total column</option>
-                 <option value="both"${cfg.totals === 'both' ? ' selected' : ''}>Both</option>`}
-          </select>
-          <span class="v3-insp-hint">Only currency, counts and plain numbers are totalled — summing a rate is not meaningful, so those cells stay blank.</span>
-        </div>` : ''}
-        ${w.visual_type === 'table' && rows ? `
-        <div class="bcn-field-group">
-          <span class="bcn-label">Columns · drag order is the query's unless you pick</span>
-          <div class="v3-measures">
-            ${prof.map((c) => {
-              const chosen = Array.isArray(cfg.columns) && cfg.columns.length
-                ? cfg.columns.includes(c.name) : true;
-              return `<label class="rb-col${chosen ? ' is-on' : ''}">
-                <input type="checkbox" data-col-show="${esc(c.name)}" ${chosen ? 'checked' : ''} />
-                ${esc(window.SiloChart.columnLabel(c.name, semantics))}</label>`;
-            }).join('')}
-          </div>
-        </div>` : ''}
-        ${isChart && w.visual_type !== 'donut' ? `
-        <label class="rb-col${cfg.show_values ? ' is-on' : ''}" style="align-self:flex-start">
-          <input type="checkbox" id="inspShowValues" ${cfg.show_values ? 'checked' : ''} />
-          Show the value on each point
-        </label>
-        ${w.visual_type === 'bar' ? `
-        <label class="rb-col${cfg.stacked ? ' is-on' : ''}" style="align-self:flex-start">
-          <input type="checkbox" id="inspStacked" ${cfg.stacked ? 'checked' : ''} />
-          Stack the bars
-        </label>` : ''}` : ''}
-        ${(isChart || w.visual_type === 'kpi') ? `
+        ${(isChart || isGrid2d || w.visual_type === 'kpi' || isWaterfall) ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspAgg">Aggregation</label>
           <select class="bcn-field" id="inspAgg">
             ${window.SiloChart.AGGREGATES.map((a) =>
-              `<option value="${a}"${aggNow === a ? ' selected' : ''}>${a === 'none' ? "none (plot every row)" : a}</option>`).join('')}
+              `<option value="${a}"${aggNow === a ? ' selected' : ''}>${a === 'none' ? 'none (plot every row)' : a}</option>`).join('')}
           </select>
-          <span class="v3-insp-hint">${isChart
+          <span class="v3-insp-hint">${isChart || isGrid2d
             ? 'Rows sharing a dimension value are rolled up before sorting and limiting. Leave on sum unless the query already aggregated.'
-            : `${rows.length} row${rows.length === 1 ? '' : 's'} in this dataset.`}</span>
+            : `${rows.length} row${rows.length === 1 ? '' : 's'} in this dataset. A rate is pooled from its numerator and denominator where the report returns them, never averaged.`}</span>
         </div>` : ''}
+        ${(w.visual_type !== 'kpi' && !isWaterfall) ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspSort">Sort</label>
+          <select class="bcn-field" id="inspSort">
+            ${SORTS.map((sOpt) => `<option value="${sOpt.id}"${(cfg.sort || 'desc') === sOpt.id ? ' selected' : ''}>${sOpt.label}</option>`).join('')}
+          </select>
+        </div>` : ''}
+        ${isWaterfall ? `
+        <p class="v3-insp-hint">A bridge keeps the query's own row order — the sequence is the explanation,
+          so there is no sort here. A step whose label reads like a total (Total, Net, Gross Profit…) is drawn
+          from zero rather than stacked.</p>` : ''}
+        ${w.visual_type !== 'kpi' ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspLimit">Limit</label>
+          <input class="bcn-field bcn-field--mono" id="inspLimit" type="number" min="0" step="1" value="${Number(cfg.limit) || 0}" />
+          <span class="v3-insp-hint">0 shows everything the query returned. Sorting and limiting happen on the returned rows, not in SQL — the source query is still capped at 1,000 rows per page (a table widget offers "Load more" past that; other visuals do not).</span>
+        </div>` : ''}`;
+
+      // ── Visual ─────────────────────────────────────────────────────────
+      // Only offer a visual that can actually draw THIS result. Listing
+      // Heatmap for a one-dimension query produces a tile that says "needs
+      // two dimensions", which is a worse answer than not offering it --
+      // by then the person has already committed the tile.
+      const visualChoices = VISUALS.concat(w.report_answer ? [ANSWER_VISUAL] : [])
+        .map((v) => {
+          const check = rows ? window.SiloChart.validateVisual(v.id, rows, cfg, semantics) : { ok: true };
+          return Object.assign({}, v, { ok: v.id === 'answer' ? true : check.ok, why: check.reason });
+        });
+      const visualOpts = visualChoices.map((v) => `
+        <label class="v3-visual-opt${w.visual_type === v.id ? ' is-active' : ''}${v.ok ? '' : ' is-disabled'}"
+               ${v.ok ? '' : `title="Not available for this result: ${esc(v.why || '')}"`}>
+          <input type="radio" name="visualType" value="${v.id}" ${w.visual_type === v.id ? 'checked' : ''} ${v.ok ? '' : 'disabled'} />
+          <span class="v3-visual-label">${v.label}</span>
+          <span class="v3-visual-hint">${v.ok ? v.hint : esc(v.why || 'not available here')}</span>
+        </label>`).join('');
+
+      const visualBlock = `
+        <div class="bcn-field-group">
+          <span class="bcn-label">Visualization</span>
+          <div class="v3-visual-opts">${visualOpts}</div>
+        </div>
+        ${(isChart || isWaterfall) && w.visual_type !== 'donut' ? `
+        <label class="rb-col${cfg.show_values ? ' is-on' : ''}">
+          <input type="checkbox" id="inspShowValues" ${cfg.show_values ? 'checked' : ''} />
+          Show the value on each point
+        </label>` : ''}
+        ${w.visual_type === 'bar' ? `
+        <label class="rb-col${cfg.stacked ? ' is-on' : ''}">
+          <input type="checkbox" id="inspStacked" ${cfg.stacked ? 'checked' : ''} />
+          Stack the bars
+        </label>
+        <span class="v3-insp-hint">Stacking is refused across measures that mean different things —
+          dollars stacked on a ratio is a bar whose height is not a quantity.</span>` : ''}
+        ${w.visual_type === 'kpi' ? `
+        <label class="rb-col${cfg.sparkline ? ' is-on' : ''}">
+          <input type="checkbox" id="inspSpark" ${cfg.sparkline ? 'checked' : ''} />
+          Show a sparkline of the rows behind the number
+        </label>
+        <span class="v3-insp-hint">Drawn in the order the query returned the rows, so it only means
+          something when that order is time.</span>` : ''}
+        ${(isChart || isWaterfall || isGrid2d) ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspAxisLabel">Value axis label</label>
+          <input class="bcn-field" id="inspAxisLabel" type="text" value="${esc(cfg.axis_label || '')}"
+                 placeholder="Blank uses the measure's own name" />
+        </div>` : ''}
+        ${isChart && activeMeasures.length > 1 ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspLegend">Legend</label>
+          <select class="bcn-field" id="inspLegend">
+            <option value=""${!cfg.legend ? ' selected' : ''}>Show (default for multiple measures)</option>
+            <option value="off"${cfg.legend === 'off' ? ' selected' : ''}>Hide</option>
+          </select>
+        </div>` : ''}`;
+
+      // ── Format ─────────────────────────────────────────────────────────
+      const rules = Array.isArray(cfg.rules) ? cfg.rules : [];
+      const formatBlock = `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspTitle">Widget title</label>
+          <input class="bcn-field" id="inspTitle" type="text" value="${esc(w.title || '')}" />
+        </div>
         ${activeMeasures[0] ? `
         <div class="bcn-field-group">
           <label class="bcn-label" for="inspSemantic">"${esc(activeMeasures[0])}" means</label>
@@ -646,55 +824,191 @@
           <span class="v3-insp-hint">Decides how the value is printed and which aggregation makes sense.
             Saved on the <strong>report</strong>, so it applies everywhere that report is used — not just here.</span>
         </div>` : ''}
-        ${w.visual_type !== 'kpi' ? `
+        ${w.visual_type === 'kpi' ? `
+        <label class="rb-col${cfg.abbreviate ? ' is-on' : ''}">
+          <input type="checkbox" id="inspAbbrev" ${cfg.abbreviate ? 'checked' : ''} />
+          Abbreviate the number ($36.4M instead of $36,393,571)
+        </label>
         <div class="bcn-field-group">
-          <label class="bcn-label" for="inspSort">Sort</label>
-          <select class="bcn-field" id="inspSort">
-            ${SORTS.map((s) => `<option value="${s.id}"${(cfg.sort || 'desc') === s.id ? ' selected' : ''}>${s.label}</option>`).join('')}
+          <label class="bcn-label" for="inspCompare">Compare against</label>
+          <select class="bcn-field" id="inspCompare">
+            <option value=""${!cfg.compare && !cfg.compare_field ? ' selected' : ''}>Nothing — just the number</option>
+            <option value="__prev"${cfg.compare === 'previous_row' ? ' selected' : ''}>The previous row (last vs the one before)</option>
+            ${(meas.length ? meas : prof).map((c) => `<option value="${esc(c.name)}"${cfg.compare_field === c.name ? ' selected' : ''}>${esc(window.SiloChart.columnLabel(c.name, semantics))}</option>`).join('')}
           </select>
-        </div>
+          <span class="v3-insp-hint">A rate's change is shown in percentage POINTS, with the relative change
+            in brackets — 4% to 5% is +1pp, not +25%. A comparison with nothing to compare to says so instead
+            of printing a number.</span>
+        </div>` : ''}
+        ${(w.visual_type === 'table' || isGrid2d) ? `
         <div class="bcn-field-group">
-          <label class="bcn-label" for="inspLimit">Limit</label>
-          <input class="bcn-field bcn-field--mono" id="inspLimit" type="number" min="0" step="1" value="${Number(cfg.limit) || 0}" />
-          <span class="v3-insp-hint">0 shows everything the query returned. Sorting and limiting happen on the returned rows, not in SQL — the source query is still capped at 1,000 rows per page (a table widget offers "Load more" past that; other visuals do not).</span>
+          <label class="bcn-label" for="inspTotals">Totals</label>
+          <select class="bcn-field" id="inspTotals">
+            <option value="">None</option>
+            ${w.visual_type === 'table'
+              ? `<option value="row"${cfg.totals === 'row' ? ' selected' : ''}>A total row at the bottom</option>`
+              : `<option value="row"${cfg.totals === 'row' ? ' selected' : ''}>A total row</option>
+                 <option value="column"${cfg.totals === 'column' ? ' selected' : ''}>A total column</option>
+                 <option value="both"${cfg.totals === 'both' ? ' selected' : ''}>Both</option>`}
+          </select>
+          <span class="v3-insp-hint">Only currency, counts and plain numbers are totalled. A rate is pooled from
+            its numerator and denominator where the report returns them, and otherwise left blank —
+            summing or averaging rates gives a number that does not exist.</span>
+        </div>` : ''}
+        ${w.visual_type === 'table' && rows ? `
+        <div class="bcn-field-group">
+          <span class="bcn-label">Columns</span>
+          <div class="v3-measures">
+            ${prof.map((c) => {
+              const chosen = Array.isArray(cfg.columns) && cfg.columns.length
+                ? cfg.columns.includes(c.name) : true;
+              return `<label class="rb-col${chosen ? ' is-on' : ''}">
+                <input type="checkbox" data-col-show="${esc(c.name)}" ${chosen ? 'checked' : ''} />
+                ${esc(window.SiloChart.columnLabel(c.name, semantics))}</label>`;
+            }).join('')}
+          </div>
+          <span class="v3-insp-hint">Unticking hides a column here only — the report still returns it, and
+            other widgets built on it are unaffected. Use the arrows to reorder.</span>
+          ${Array.isArray(cfg.columns) && cfg.columns.length > 1 ? `
+          <div class="v3-col-order">
+            ${cfg.columns.map((name, i) => `
+              <span class="v3-col-chip">
+                <button type="button" class="v3-col-move" data-col-move="${esc(name)}" data-dir="-1"
+                        ${i === 0 ? 'disabled' : ''} aria-label="Move ${esc(name)} left">◀</button>
+                ${esc(window.SiloChart.columnLabel(name, semantics))}
+                <button type="button" class="v3-col-move" data-col-move="${esc(name)}" data-dir="1"
+                        ${i === cfg.columns.length - 1 ? 'disabled' : ''} aria-label="Move ${esc(name)} right">▶</button>
+              </span>`).join('')}
+          </div>` : ''}
+        </div>` : ''}
+        ${w.visual_type === 'table' && rows ? `
+        <div class="bcn-field-group">
+          <span class="bcn-label">Conditional formatting</span>
+          ${rules.length ? `<div class="v3-rules">${rules.map((r, i) => `
+            <div class="v3-rule" data-rule="${i}">
+              <span class="v3-rule-text">${esc(window.SiloChart.columnLabel(r.col, semantics))} ${esc(RULE_OPS[r.op] || r.op)}${
+                r.op === 'between' ? ` ${esc(r.value)}–${esc(r.value2)}`
+                : (r.value !== undefined && r.value !== '' ? ` ${esc(r.value)}` : '')} → ${esc(r.tone)}</span>
+              <button type="button" class="dw-icon-btn" data-rule-remove="${i}" aria-label="Remove rule">✕</button>
+            </div>`).join('')}</div>` : '<span class="v3-insp-hint">No rules — every cell is drawn the same.</span>'}
+          <div class="v3-rule-add">
+            <select class="bcn-field" id="ruleCol">${options(prof, prof[0] && prof[0].name)}</select>
+            <select class="bcn-field" id="ruleOp">
+              ${Object.entries(RULE_OPS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}
+            </select>
+            <input class="bcn-field bcn-field--mono" id="ruleValue" type="text" placeholder="value" />
+            <select class="bcn-field" id="ruleTone">
+              <option value="pos">green</option><option value="warn">amber</option><option value="neg">red</option>
+            </select>
+            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddRule">Add</button>
+          </div>
         </div>` : ''}`;
 
+      // ── Interactions ───────────────────────────────────────────────────
+      const paramKeys = runtime.widgetParamKeys(w.id);
+      const boardKeys = runtime.parameterDeclarations().filter((d) => !d.conflict);
+      const filterable = boardKeys.filter((d) => paramKeys.includes(d.key));
+      const otherBoards = dashboardsForDrill;
+      const interactionsBlock = `
+        <div class="bcn-field-group">
+          <span class="bcn-label">Dashboard filters</span>
+          ${!boardKeys.length
+            ? '<span class="v3-insp-hint">No report on this dashboard declares a parameter, so there are no dashboard filters to take part in.</span>'
+            : filterable.length
+              ? `<span class="v3-insp-hint">This widget reads ${filterable.map((d) => `<strong>${esc(d.label)}</strong>`).join(', ')}
+                   and re-runs when ${filterable.length === 1 ? 'it changes' : 'any of them change'}.
+                   ${boardKeys.length > filterable.length
+                     ? `It ignores ${boardKeys.filter((d) => !paramKeys.includes(d.key)).map((d) => esc(d.label)).join(', ')} —
+                        its report does not declare ${boardKeys.length - filterable.length === 1 ? 'that parameter' : 'those parameters'}.` : ''}</span>`
+              : `<span class="v3-insp-hint v3-insp-hint--warn">This widget takes part in none of the dashboard's filters
+                   (${boardKeys.map((d) => esc(d.label)).join(', ')}), so it does not change when they move — the tile
+                   is marked "not filtered" for exactly that reason. Add a <code>{{token}}</code> to its report to
+                   make it participate.</span>`}
+        </div>
+        ${isAnswer || isSection ? '' : `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspCrossFilter">Clicking a value filters the dashboard by</label>
+          <select class="bcn-field" id="inspCrossFilter">
+            <option value=""${!cfg.cross_filter ? ' selected' : ''}>Nothing — clicks do not filter</option>
+            ${boardKeys.map((d) => `<option value="${esc(d.key)}"${cfg.cross_filter === d.key ? ' selected' : ''}>${esc(d.label)}</option>`).join('')}
+          </select>
+          <span class="v3-insp-hint">${boardKeys.length
+            ? 'Only parameters some report on this board declares are offered — filtering on anything else would change nothing. Clicking the selected value again clears it.'
+            : 'Nothing is offered because no report here declares a parameter. Cross-filtering re-runs the other tiles\\u2019 queries; it never hides rows in one tile while another keeps its total.'}</span>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspDrillTo">Clicking a value opens</label>
+          <select class="bcn-field" id="inspDrillTo">
+            <option value=""${!cfg.drill_to ? ' selected' : ''}>Nothing — stay here</option>
+            ${otherBoards.map((d) => `<option value="${esc(d.id)}"${cfg.drill_to === d.id ? ' selected' : ''}>${esc(d.name)}</option>`).join('')}
+          </select>
+          ${cfg.drill_to ? `
+          <label class="bcn-label" for="inspDrillKey" style="margin-top:8px">…carrying the clicked value as</label>
+          <select class="bcn-field" id="inspDrillKey">
+            <option value=""${!cfg.drill_key ? ' selected' : ''}>Just the current filters</option>
+            ${boardKeys.map((d) => `<option value="${esc(d.key)}"${cfg.drill_key === d.key ? ' selected' : ''}>${esc(d.label)}</option>`).join('')}
+          </select>` : ''}
+          <span class="v3-insp-hint">The destination gets every filter currently applied here, so the numbers
+            there reconcile with the one that was clicked. Only dashboards you can open are listed — a
+            destination you cannot see is not offered, and following a link to one still goes through its own
+            RLS.</span>
+        </div>`}`;
+
+      const bodies = {
+        data: sourceBlock + dataBlock,
+        visual: visualBlock,
+        format: formatBlock,
+        interactions: interactionsBlock,
+      };
+
       el('inspectorBody').innerHTML = `
-        <div class="bcn-field-group">
-          <label class="bcn-label" for="inspTitle">Widget title</label>
-          <input class="bcn-field" id="inspTitle" type="text" value="${esc(w.title || '')}" />
-        </div>
-
-        <div class="v3-insp-source">
-          <span class="bcn-label">Source report</span>
-          <div class="v3-insp-source-name">${esc(w.report_title || '(report unavailable)')}</div>
-          ${w.report_id ? `
-            <!-- The tile is where you NOTICE a report is wrong -- a column
-                 labelled with its raw alias, a figure formatted as the wrong
-                 type, a hardcoded date. Editing it from here is what stops
-                 the fix being "save a second report". Opens the workbench;
-                 whether it saves over the original or forks is decided
-                 there, by RLS. -->
-            <a class="v3-insp-source-edit" href="/v3/report-builder.html?id=${esc(w.report_id)}">
-              Edit this report →</a>` : ''}
-          ${(!isAnswer && w.report_query_count > 1) ? `
-            <label class="bcn-label" for="inspQueryIndex" style="margin-top:8px">Query</label>
-            <select class="bcn-field" id="inspQueryIndex">
-              ${Array.from({ length: w.report_query_count }, (_, i) =>
-                `<option value="${i}"${i === w.query_index ? ' selected' : ''}>Query ${i + 1}</option>`).join('')}
-            </select>` : ''}
-        </div>
-
-        <div class="bcn-field-group">
-          <span class="bcn-label">Visualization</span>
-          <div class="v3-visual-opts">${visualOpts}</div>
-        </div>
-
-        ${fieldsBlock}
-
+        ${bodies[activeTab] || ''}
         <div class="v3-insp-actions">
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="inspDuplicate">Duplicate</button>
           <button type="button" class="bcn-btn bcn-btn--danger" id="inspRemove">Remove widget</button>
         </div>`;
+    }
+
+    /**
+     * Copy a widget, config and all, and drop it beside the original.
+     *
+     * The common case this exists for is "the same table, one column
+     * different" and "this KPI, but for the other measure" -- both of which
+     * were previously a re-add from the picker plus retyping every setting.
+     * A new id is minted so the buffered upsert treats it as a new row; the
+     * copy is NOT saved until Save, exactly like every other edit.
+     */
+    function duplicateWidget(id) {
+      const w = runtime.getWidgets().find((x) => x.id === id);
+      if (!w) return;
+      const geo = runtime.layout().get(id) || w.layout || {};
+      const copy = Object.assign({}, w, {
+        id: uid(),
+        // Deep-copied: the two widgets must not share a config object, or
+        // editing one would silently change the other.
+        visual_config: JSON.parse(JSON.stringify(w.visual_config || {})),
+        title: w.title ? `${w.title} (copy)` : w.title,
+        // Directly below, full width of the original: GridStack finds it a
+        // real slot from there, and "below" is where a person looks for
+        // something they just duplicated.
+        layout: { x: geo.x || 0, y: (geo.y || 0) + (geo.h || 4), w: geo.w || 6, h: geo.h || 4 },
+        sort_order: runtime.getWidgets().length,
+        _new: true,
+      });
+      delete copy.created_at;
+      delete copy.updated_at;
+      markDirty();
+      runtime.addWidget(copy).then(() => {
+        onWidgetsChange();
+        openInspector(copy.id);
+        setStatus(`Duplicated "${w.title || w.report_title || 'widget'}". It is not saved until you Save.`, 'info', 5000);
+      });
+    }
+
+    /** Dashboards offered as drill-through destinations. RLS-scoped. */
+    async function loadDrillTargets() {
+      const { data } = await sb.from('dashboards_v').select('id, name').order('name');
+      dashboardsForDrill = (data || []).filter((d) => d.id !== dashboard.id);
     }
 
     function resizeTile(id, w, h) {
@@ -870,12 +1184,63 @@
         if (!tile) return;
         const id = tile.dataset.widgetId;
         if (e.target.closest('[data-act="configure"]')) openInspector(id);
+        else if (e.target.closest('[data-act="duplicate"]')) duplicateWidget(id);
         else if (e.target.closest('[data-act="remove"]')) removeWidget(id);
+      });
+
+      el('inspectorTabs').addEventListener('click', (e) => {
+        const tab = e.target.closest('[data-tab]');
+        if (!tab) return;
+        activeTab = tab.dataset.tab;
+        renderInspector();
       });
 
       el('inspector').addEventListener('click', (e) => {
         if (e.target.closest('#btnCloseInspector')) { closeInspector(); return; }
         if (e.target.closest('#inspRemove')) { removeWidget(inspectingId); return; }
+        if (e.target.closest('#inspDuplicate')) { duplicateWidget(inspectingId); return; }
+        const del = e.target.closest('[data-rule-remove]');
+        if (del) {
+          const w = runtime.getWidgets().find((x) => x.id === inspectingId);
+          const rules = (w && Array.isArray(w.visual_config?.rules) ? w.visual_config.rules : []).slice();
+          rules.splice(Number(del.dataset.ruleRemove), 1);
+          patchConfig({ rules: rules.length ? rules : undefined });
+          renderInspector();
+          return;
+        }
+        if (e.target.closest('#btnAddRule')) {
+          const col = el('ruleCol').value;
+          const op = el('ruleOp').value;
+          const raw = (el('ruleValue').value || '').trim();
+          // An operator that needs a threshold and has none would match
+          // every row or none of them; either way the rule is not what the
+          // person meant, so it is refused rather than added.
+          const needsValue = !['negative', 'positive', 'empty'].includes(op);
+          if (needsValue && raw === '') {
+            setStatus('That rule needs a value to compare against.', 'neg', 4000);
+            return;
+          }
+          const w = runtime.getWidgets().find((x) => x.id === inspectingId);
+          const rules = (w && Array.isArray(w.visual_config?.rules) ? w.visual_config.rules : []).slice();
+          const parts = raw.split(/\s*[-–,]\s*/);
+          rules.push(op === 'between'
+            ? { col, op, value: parts[0], value2: parts[1], tone: el('ruleTone').value }
+            : { col, op, value: raw, tone: el('ruleTone').value });
+          patchConfig({ rules });
+          renderInspector();
+          return;
+        }
+        const move = e.target.closest('[data-col-move]');
+        if (move) {
+          const w = runtime.getWidgets().find((x) => x.id === inspectingId);
+          const cols = (w && Array.isArray(w.visual_config?.columns) ? w.visual_config.columns : []).slice();
+          const from = cols.indexOf(move.dataset.colMove);
+          const to = from + Number(move.dataset.dir);
+          if (from < 0 || to < 0 || to >= cols.length) return;
+          cols.splice(to, 0, cols.splice(from, 1)[0]);
+          patchConfig({ columns: cols });
+          renderInspector();
+        }
       });
 
       el('inspector').addEventListener('change', (e) => {
@@ -889,11 +1254,33 @@
           const rows = runtime.rowsFor(w.id);
           const rec = rows ? window.SiloChart.recommend(rows, runtime.semanticsFor(w, rows)) : { visual_config: {} };
           const merged = { ...rec.visual_config, ...(w.visual_config || {}) };
+          // A KPI must never inherit its measure from a RECOMMENDATION.
+          // The recommendation ranks columns (money, then counts, then
+          // plain numbers) which is a fine default for a bar chart's y
+          // axis and a wrong one for a single number under a title the
+          // person wrote themselves. If the widget itself never carried a
+          // measure, the KPI starts unset and says so on the tile.
+          if (t.value === 'kpi' && !(w.visual_config || {}).y_field) delete merged.y_field;
+          // A matrix and a heatmap need TWO dimensions, and the config
+          // carried over from a one-dimension visual names only one. Fill
+          // the second in from the data rather than leaving the tile
+          // saying "needs two dimensions" over a result that has them.
+          if ((t.value === 'matrix' || t.value === 'heatmap') && rows) {
+            const dims = window.SiloChart.dimensionsOf(window.SiloChart.profileColumns(rows));
+            if (!merged.row_field) merged.row_field = (dims[0] || {}).name;
+            if (!merged.x_field || merged.x_field === merged.row_field) {
+              merged.x_field = (dims.find((d) => d.name !== merged.row_field) || {}).name;
+            }
+          }
           runtime.updateWidget(w.id, { visual_type: t.value, visual_config: merged });
           // A KPI is one number; leaving it in a full chart's footprint
           // wastes the canvas and reads as a broken chart. Only shrink a
           // tile that is still chart-sized, so a deliberately large KPI
           // stays large.
+          // Constraints follow the visual, so they have to be applied
+          // BEFORE the resize below -- a tile still carrying the table's
+          // 3-row minimum cannot be shrunk to a KPI's 2.
+          runtime.applyConstraints(runtime.getWidgets().find((x) => x.id === w.id));
           if (t.value === 'kpi') {
             const geo = runtime.layout().get(w.id) || w.layout || {};
             if ((geo.w || 6) > 4 || (geo.h || 4) > 3) resizeTile(w.id, 3, 2);
@@ -917,21 +1304,44 @@
           return;
         }
         if (t.dataset.colShow !== undefined) {
+          // `cfg` and `prof` are locals of renderInspector(), not of this
+          // handler -- reading them here threw a ReferenceError and the
+          // column checkbox silently did nothing. Read them from the widget
+          // and its live rows instead, which is what the inspector renders
+          // from anyway.
+          const cfgNow = w.visual_config || {};
+          const rowsNow = runtime.rowsFor(w.id) || [];
+          const profNow = window.SiloChart.profileColumns(rowsNow);
           // Start from what is currently shown so unticking one column does
           // not silently reorder or drop the rest.
-          const current = (Array.isArray(cfg.columns) && cfg.columns.length)
-            ? cfg.columns.slice()
-            : prof.map((c) => c.name);
+          const current = (Array.isArray(cfgNow.columns) && cfgNow.columns.length)
+            ? cfgNow.columns.slice()
+            : profNow.map((c) => c.name);
           const name = t.dataset.colShow;
           const next = t.checked
             ? (current.includes(name) ? current
-               : prof.map((c) => c.name).filter((n) => current.includes(n) || n === name))
+               : profNow.map((c) => c.name).filter((n) => current.includes(n) || n === name))
             : current.filter((n) => n !== name);
           patchConfig({ columns: next.length ? next : undefined });
           renderInspector();
           return;
         }
-        if (t.id === 'inspTotals') patchConfig({ totals: t.value || undefined });
+        if (t.dataset.lineMeasure !== undefined) {
+          const cur = Array.isArray(w.visual_config?.line_measures) ? w.visual_config.line_measures.slice() : [];
+          const name = t.dataset.lineMeasure;
+          const next = cur.includes(name) ? cur.filter((x) => x !== name) : cur.concat(name);
+          patchConfig({ line_measures: next.length ? next : undefined });
+          renderInspector();
+          return;
+        }
+        if (t.id === 'inspNote') patchConfig({ note: t.value || undefined });
+        else if (t.id === 'inspSpark') patchConfig({ sparkline: t.checked || undefined });
+        else if (t.id === 'inspAxisLabel') patchConfig({ axis_label: t.value || undefined });
+        else if (t.id === 'inspLegend') patchConfig({ legend: t.value || undefined });
+        else if (t.id === 'inspCrossFilter') patchConfig({ cross_filter: t.value || undefined });
+        else if (t.id === 'inspDrillTo') { patchConfig({ drill_to: t.value || undefined }); renderInspector(); }
+        else if (t.id === 'inspDrillKey') patchConfig({ drill_key: t.value || undefined });
+        else if (t.id === 'inspTotals') patchConfig({ totals: t.value || undefined });
         else if (t.id === 'inspShowValues') patchConfig({ show_values: t.checked || undefined });
         else if (t.id === 'inspStacked') patchConfig({ stacked: t.checked || undefined });
         else if (t.id === 'inspAbbrev') patchConfig({ abbreviate: t.checked || undefined });
@@ -961,8 +1371,12 @@
         if (e.target.id !== 'inspTitle') return;
         const w = runtime.updateWidget(inspectingId, { title: e.target.value });
         markDirty();
-        const tile = el('grid').querySelector(`.dw[data-widget-id="${CSS.escape(inspectingId)}"] .dw-title`);
-        if (tile && w) tile.textContent = w.title || w.report_title || 'Untitled';
+        const tile = el('grid').querySelector(`.dw[data-widget-id="${CSS.escape(inspectingId)}"]`);
+        // A section's heading IS its title, so it lives in a different
+        // element from an ordinary tile's.
+        const target = tile && (tile.querySelector('.dw-title') || tile.querySelector('.dw-section-title'));
+        if (target && w) target.textContent = w.title || w.report_title || 'Untitled';
+        el('inspectorHeading').textContent = w.visual_type === 'section' ? 'Section' : (w.title || w.report_title || 'Widget');
       });
 
       for (const id of ['dashName', 'dashDescription']) {
@@ -1007,7 +1421,7 @@
      */
     async function addReportById(reportId) {
       const { data: report, error } = await sb.from('silo_chat_saved_reports_v')
-        .select('id, title, description, question, queries_run, visibility, source, company_entity_id')
+        .select(REPORT_FIELDS)
         .eq('id', reportId).maybeSingle();
       if (error || !report) {
         setStatus('That report could not be found — it may have been deleted, or it is private to someone else.', 'neg', 6000);
@@ -1033,8 +1447,13 @@
     }
 
     bind();
+    // Fire and forget: the drill-through list is only read when someone
+    // opens the Interactions tab, and a dashboard that fails to load its
+    // sibling list should still be editable.
+    loadDrillTargets().catch(() => {});
     return {
       save, isDirty, openAddWidget, closeInspector, addReportById, addSection,
+      duplicateWidget,
       /** GridStack moved or resized something -- geometry is read at save
           time from grid.save(), so this only has to flip the dirty flag. */
       markLayoutDirty: () => markDirty(),

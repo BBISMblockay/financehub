@@ -162,17 +162,27 @@
     // restricting) -- this just controls who sees it in the sidebar first.
     // Widen `roles` (or drop it) once ready for the whole team.
     { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
-    // v3 dashboard runtime -- saved reports arranged on a canvas.
-    // HIDDEN FROM NAV WHILE IN TESTING, same stance as returns-overview
-    // above and as comp-requests had before its rollout. The pages work at
-    // /v3/dashboards.html for anyone with the URL, and RLS is the real
-    // boundary either way -- this row only controls who DISCOVERS it. When
-    // it ships, uncomment: 'Reports' is absent from STANDARD_SECTION_ORDER,
-    // so a standard-profile company drops the link regardless of role, and
-    // EXEC_ROLES is the soft-launch gate Ask SILO uses. Note this would be
-    // the first /v3/ page in the nav -- v3 reuses the v2 Beacon shell, it
-    // is not a separate app.
-    // { roles: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', label: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    // The v3 reporting workspace: dashboards, the saved-report library, and
+    // the report builder. Three rows rather than one because they are three
+    // different intents -- open a board, find a definition, build a new one
+    // -- and burying two of them inside the third is what made them
+    // undiscoverable while this was URL-only.
+    //
+    // The soft-launch gate is UNCHANGED from the commented-out row this
+    // replaces: EXEC_ROLES, and 'Reports' is absent from
+    // STANDARD_SECTION_ORDER so a standard-profile company drops all three
+    // regardless of role. Nobody who could not already reach these pages can
+    // now, and RLS is the real boundary either way -- these rows control who
+    // DISCOVERS them. Widening to the whole team is deleting `roles`, one
+    // edit per row, exactly as Ask SILO's row above is written.
+    //
+    // Deliberately NOT moved here: Accounting Export, PO Builder, Planning
+    // Scenarios and the rest. They are operational workflows that happen to
+    // contain numbers, not reports, and consolidating them into a generic
+    // canvas would cost their specialised behaviour for a tidier menu.
+    { roles: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', label: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    { roles: EXEC_ROLES, id: 'reports/library', section: 'Reports', label: 'Saved reports', href: '/v3/dashboards.html?tab=reports', profiles: ['grandfathered', 'standard'] },
+    { roles: EXEC_ROLES, id: 'reports/builder', section: 'Reports', label: 'Report builder', href: '/v3/report-builder.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
     // and there's no historical backfill yet). Page itself still works at

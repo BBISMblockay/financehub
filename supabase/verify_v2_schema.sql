@@ -2088,6 +2088,13 @@ select
       then 'MISSING — dashboard_widgets.visual_type CHECK does not admit matrix/section/answer; run 20260903200000, 20260903210000 and 20260904340000'
     when not exists (select 1 from pg_constraint
                      where conrelid='public.dashboard_widgets'::regclass
+                       and conname='dashboard_widgets_visual_type_check'
+                       and pg_get_constraintdef(oid) like '%heatmap%'
+                       and pg_get_constraintdef(oid) like '%waterfall%'
+                       and pg_get_constraintdef(oid) like '%combo%')
+      then 'MISSING — dashboard_widgets.visual_type CHECK does not admit combo/heatmap/waterfall; run 20260908140000'
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.dashboard_widgets'::regclass
                        and conname='dashboard_widgets_section_has_title')
       then 'MISSING — dashboard_widgets_section_has_title; an untitled section is an invisible tile that still takes grid space'
     -- The inverse guard: an answer widget with no report has no text to
@@ -2116,6 +2123,41 @@ select
       then 'BROKEN — saved_report_usage() is not SECURITY DEFINER; it would undercount widgets on dashboards the caller cannot see'
     else 'ok'
   end as v3_dashboards;
+
+-- ── Personal saved filter views (20260908130000) ─────────────────────
+-- A dashboard's own filter_state is the SHARED position. These are one
+-- person's cut of the same board, which previously required duplicating the
+-- board and its widgets.
+--
+-- The RLS check is the one that matters: the select policy has to be
+-- creator-only. A widened one would put every colleague's working filters on
+-- everyone's board, and unlike most policy drift it would look like a
+-- feature rather than a leak.
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='dashboard_filter_views')
+      then 'MISSING — run 20260908130000_dashboard_filter_views.sql (the page hides the control without it, it does not break)'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='dashboard_filter_views'
+                       and policyname='dashboard_filter_views_select'
+                       and qual like '%created_by = auth.uid()%')
+      then 'BROKEN — dashboard_filter_views_select is not creator-only; every saved cut would be visible company-wide'
+    when (select count(*) from pg_policies
+           where schemaname='public' and tablename='dashboard_filter_views') < 4
+      then 'MISSING — dashboard_filter_views is short a policy; saving or deleting a view will fail'
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.dashboard_filter_views'::regclass
+                       and tgname='stamp_company_entity_id')
+      then 'MISSING — stamp_company_entity_id on dashboard_filter_views; every insert would be refused by its own WITH CHECK'
+    -- Saving over "My stores" must REPLACE it. Without this index the upsert
+    -- has no conflict target and a list grows three entries with one name.
+    when not exists (select 1 from pg_indexes
+                     where schemaname='public' and tablename='dashboard_filter_views'
+                       and indexname='dashboard_filter_views_owner_name_idx')
+      then 'MISSING — dashboard_filter_views_owner_name_idx; saving a view over its own name would add a duplicate instead'
+    else 'ok'
+  end as v3_filter_views;
 
 -- ── How big is a report? (20260907140000) ────────────────────────────
 -- The runner pages at 1000 rows. Every surface that RENDERS a report is

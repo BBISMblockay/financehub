@@ -40,6 +40,11 @@ nobody runs.
 | `matrix-visual` | Rows down / columns across, query order preserved, an absent cell empty rather than 0 |
 | `link-image-cells` | URL detection from values, and the `javascript:` / `data:` / protocol-relative attempts the guard must reject |
 | `totals-columns` | Totals (and the rates they refuse), column hide/reorder, chart value labels and stacking |
+| `metrics` | **Mostly refusals.** Ratios pooled from their parts, rates that cannot be pooled left blank, percentage-point change, inclusive period arithmetic — plus the live MLB case as a fixture (pooled 8.70% against the 11.74% an average gives) |
+| `kpi` | A KPI never guessing its measure, honest roll-ups, comparisons refused rather than manufactured, the sparkline's text alternative |
+| `visuals` | Combo/heatmap/waterfall shaping, and `validateVisual()` refusing what a visual cannot draw honestly |
+| `table-tools` | Search, sort, conditional formatting, and a CSV that covers exactly what is on screen and names its scope in the file |
+| `filter-bar` | Which date declarations pair into one range control, and that every preset is inclusive and stores a token |
 
 `lib/load.js` evaluates `v3/js/*.js` in a node VM. Those files are IIFEs that
 hang objects off `window` — not a module format, deliberately, since the pages
@@ -58,6 +63,8 @@ stub at load time, add it in `load.js` so every suite sees one environment.
 | `ask-silo-hop` | Save an answer as a report and land on a canvas with it added |
 | `dashboards-list` | The index, and a missing id explaining itself |
 | `pagination` | Report builder Preview and a table widget both paging past the 1000-row cap, against a real 2,500-row fixture (full page, full page, partial page that ends it) |
+| `bi-workspace` | Nearly every assertion traces to something that went wrong in live testing: a parameterised report working the moment it is added, a typed filter that commits, a tile marked "not filtered", saved views, table search/sort/export, duplicate/full-screen/collapse/density, cross-filter and drill-through, and the error/empty states |
+| `responsive` | Desktop, tablet and phone — including the property that a save from a phone can never overwrite the 12-column layout, and that the collapsed stack reads in the desktop's order. Doubles as the screenshot pass (`V3_TEST_SCREENSHOTS=1`) |
 | `answer-widget` | The Answer visual: the picker's CTA on a many-query analysis, markdown rendering (headings/bold/lists, the `~$` tilde survives), switching to/from Table non-destructively, and that a report with no answer text never offers it |
 
 **The pages are served unmodified from the repo.** The real `dashboard.html`

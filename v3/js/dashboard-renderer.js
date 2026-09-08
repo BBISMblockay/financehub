@@ -50,32 +50,54 @@
   const PAGE_CAP = 1000;
 
   // ── Reusable inner markup ────────────────────────────────────────────
+  /* Full screen is offered on anything that draws -- a section is a
+     heading and there is nothing to enlarge. It is present in VIEW mode
+     too: reading one tile bigger is reading, not editing, the same stance
+     slicers and pagination already take. */
+  const canFullscreen = (w) => w.visual_type !== 'section';
+
   function headActionsHtml(widget, editable) {
     // In edit mode the visual type is the primary control, not a status
     // pill: it is a button that opens the inspector, with a caret so it
     // reads as "this changes". A plain pill next to a gear icon taught
     // people the type was informational and the gear was for "settings".
+    const fs = canFullscreen(widget)
+      ? `<button type="button" class="dw-icon-btn" data-act="fullscreen"
+                 title="View full screen" aria-label="View ${esc(widget.title || widget.report_title || 'widget')} full screen">⤢</button>`
+      : '';
     return editable
       ? `
         <button type="button" class="dw-type-badge dw-type-badge--btn" data-act="configure"
                 title="Change visualization" aria-label="Change visualization, currently ${esc(widget.visual_type)}">
           ${esc(widget.visual_type)}<span class="dw-caret" aria-hidden="true">▾</span>
         </button>
+        ${fs}
+        <button type="button" class="dw-icon-btn" data-act="duplicate" title="Duplicate widget" aria-label="Duplicate widget">⧉</button>
         <button type="button" class="dw-icon-btn" data-act="remove" title="Remove widget" aria-label="Remove widget">✕</button>`
       : `
         <span class="dw-type-badge">${esc(widget.visual_type)}</span>
+        ${fs}
         <button type="button" class="dw-icon-btn" data-act="reload" title="Refresh this widget" aria-label="Refresh this widget">↻</button>`;
   }
 
   function tileShell(widget, editable) {
     if (widget.visual_type === 'section') {
+      // The collapse control is view-mode only. Collapsing detaches tiles
+      // from the grid, and doing that while someone is dragging is how a
+      // layout gets saved in a shape nobody arranged -- entering edit mode
+      // expands everything first for exactly that reason.
+      const collapse = editable ? '' : `
+            <button type="button" class="dw-icon-btn dw-collapse" data-act="collapse"
+                    aria-expanded="true" title="Collapse this section"
+                    aria-label="Collapse ${esc(widget.title || 'section')}">▾</button>`;
       return `
       <div class="dw dw--section" data-widget-id="${esc(widget.id)}">
         <header class="dw-head dw-head--section">
           <div class="dw-head-text"><span class="dw-section-title">${esc(widget.title || '')}</span></div>
-          <div class="dw-head-actions">${editable
+          <div class="dw-head-actions">${collapse}${editable
             ? `<button type="button" class="dw-type-badge dw-type-badge--btn" data-act="configure"
                        title="Edit this section">section<span class="dw-caret" aria-hidden="true">▾</span></button>
+               <button type="button" class="dw-icon-btn" data-act="duplicate" aria-label="Duplicate section">⧉</button>
                <button type="button" class="dw-icon-btn" data-act="remove" aria-label="Remove section">✕</button>`
             : ''}</div>
         </header>
@@ -108,6 +130,10 @@
     // to gain a drag handle.
     let editable = !!options.editable;
     const onLayoutChange = options.onLayoutChange || function () {};
+    /** Called when a reader clicks a point or a dimension cell. The page
+        turns it into a filter or a drill-through; the renderer has no
+        opinion about which. */
+    const onPointClick = options.onPointClick || function () {};
 
     let grid = null;
     let widgets = [];
@@ -123,9 +149,20 @@
         loaded so far; dataCache above holds one entry per individual page
         fetch, which is what actually dedupes two tiles sharing a report. */
     const pageState = new Map();
+    /** widget id -> { search, sortCol, sortDir }. The READER's view of a
+        table, never written back to visual_config: searching or re-sorting
+        a table is reading, and an edit-mode reader should not be handed a
+        dirty dashboard for having looked. */
+    const tableView = new Map();
     /** Current slicer values, keyed by parameter key. Dashboard-level: one
         value per key, applied to every widget declaring it. */
     let paramValues = Object.assign({}, options.paramValues || {});
+    let density = options.density === 'compact' ? 'compact' : 'comfortable';
+    /** Section widget ids currently collapsed (view mode only). */
+    const collapsed = new Set();
+    /** Geometry as it was before the first collapse, so expanding restores
+        exactly rather than leaving GridStack's compaction in place. */
+    let preCollapseLayout = null;
     /** widget id -> echarts instance */
     const charts = new Map();
     let resizeObserver = null;
@@ -136,11 +173,22 @@
     let catalogIndex = new Map();
     catalogIndexPromise.then((idx) => { catalogIndex = idx; });
 
+    /* Two spacing modes, one grid. Compact is not a different layout --
+       the same 12 columns and the same {x,y,w,h} -- only a shorter row and
+       a tighter gutter, so a board saved in one density reloads identically
+       in the other. That is why density is a per-reader localStorage
+       preference and never touches `layout`. */
+    const DENSITY = {
+      comfortable: { cellHeight: 78, margin: 8 },
+      compact: { cellHeight: 58, margin: 5 },
+    };
+
     function initGrid() {
+      const d = DENSITY[density] || DENSITY.comfortable;
       grid = GridStack.init({
         column: 12,
-        cellHeight: 78,
-        margin: 8,
+        cellHeight: d.cellHeight,
+        margin: d.margin,
         float: false,
         animate: true,
         disableDrag: !editable,
@@ -149,7 +197,14 @@
         // Below 700px a 6-of-12 tile is half a phone screen: axis labels
         // overlap the plot and a KPI clips mid-number. Collapse to a single
         // column so every tile gets full width and stacks.
-        columnOpts: { breakpoints: [{ w: 700, c: 1 }] },
+        //
+        // layout: 'list' governs a LIVE resize across the breakpoint, where
+        // nodes already exist: it re-stacks them in (y, x) order instead of
+        // scaling their 12-column positions down. It does NOT cover a page
+        // LOADED narrow -- the collapse runs before any widget exists, so
+        // columnChanged() returns early with no nodes -- which is what
+        // stackForNarrowScreen() handles after the tiles are added.
+        columnOpts: { breakpoints: [{ w: 700, c: 1 }], layout: 'list' },
       }, gridEl);
 
       grid.on('change', () => { if (editable) onLayoutChange(); });
@@ -196,6 +251,58 @@
 
     function getParamValues() {
       return Object.assign({}, paramValues);
+    }
+
+    /**
+     * Give every declared parameter a value in the map, taking the report's
+     * own default where the dashboard has none.
+     *
+     * Without this the control and the query disagree the moment a
+     * parameterised report is ADDED to a board: substitute() falls back to
+     * the declaration's default, so the tile runs with (say) `today-27d`
+     * while the header control renders blank -- a filter bar showing
+     * nothing over results that are filtered. Seeding is deliberately
+     * silent (no reload): it does not CHANGE what any tile ran, it records
+     * what it ran with.
+     *
+     * @returns {boolean} true if anything was seeded.
+     */
+    function ensureParamDefaults() {
+      const seeded = window.SiloReportParams.defaultsFor(parameterDeclarations(), paramValues);
+      let changed = false;
+      for (const [k, v] of Object.entries(seeded)) {
+        if (paramValues[k] === undefined || paramValues[k] === '') { paramValues[k] = v; changed = true; }
+      }
+      return changed;
+    }
+
+    /**
+     * Which widgets read a given parameter key, split into the ones a
+     * change will actually move and the ones it will not.
+     *
+     * The filter bar needs both halves: "this control drives 6 of 9 tiles"
+     * is the honest statement, and the three that ignore it have to be
+     * marked on the tile rather than left looking stale. A section or an
+     * answer widget is neither -- it has no query at all -- so it is
+     * excluded from both counts rather than being reported as unsupported.
+     */
+    function participationFor(key) {
+      const supported = [];
+      const unsupported = [];
+      for (const w of widgets) {
+        if (w.visual_type === 'section' || w.visual_type === 'answer') continue;
+        if (!w.query_sql) continue;
+        const tokens = window.SiloReportParams.tokensIn(w.query_sql);
+        (tokens.includes(key) ? supported : unsupported).push(w.id);
+      }
+      return { supported, unsupported };
+    }
+
+    /** Every parameter key a widget's own SQL reads. */
+    function widgetParamKeys(id) {
+      const w = widgets.find((x) => x.id === id);
+      if (!w || !w.query_sql) return [];
+      return window.SiloReportParams.tokensIn(w.query_sql);
     }
 
     /**
@@ -267,7 +374,16 @@
       disposeChart(widget.id);
       foot.textContent = '';
 
-      if (state.loading) { body.innerHTML = '<div class="dw-loading">Loading…</div>'; return; }
+      // A skeleton rather than the word "Loading": a tile that keeps its
+      // shape while it fetches does not make the whole board jump when six
+      // of them land at slightly different times.
+      if (state.loading) {
+        body.innerHTML = `<div class="dw-skeleton" role="status" aria-live="polite">
+            <span class="dw-skeleton-bar"></span><span class="dw-skeleton-bar"></span>
+            <span class="dw-skeleton-bar"></span><span class="dw-sr-only">Loading…</span>
+          </div>`;
+        return;
+      }
 
       if (state.notice) {
         body.innerHTML = `<div class="dw-empty dw-empty--warn">${esc(state.notice)}</div>`;
@@ -277,9 +393,18 @@
         // Naming the likely cause matters: a saved report's SQL can stop
         // working because the schema moved under it, and "column does not
         // exist" on its own reads like a bug in the dashboard.
+        //
+        // Retry is offered because a real share of these are a 30s timeout
+        // or a dropped connection, and re-running is exactly what a person
+        // does next. It bypasses the cache, so it is a genuine retry rather
+        // than a redraw of the failure.
+        const timedOut = /timeout|canceling statement/i.test(String(state.error));
         body.innerHTML = `<div class="dw-empty dw-empty--error">
-            <strong>Query failed.</strong> ${esc(state.error)}
-            <span class="dw-empty-hint">The saved report's SQL may no longer match the schema.</span>
+            <strong>${timedOut ? 'This query ran out of time.' : 'Query failed.'}</strong> ${esc(state.error)}
+            <span class="dw-empty-hint">${timedOut
+              ? 'The runner stops a statement at 30 seconds. Narrowing the date range, or aggregating in the report itself, is usually the fix.'
+              : "The saved report's SQL may no longer match the schema."}</span>
+            <button type="button" class="bcn-btn bcn-btn--ghost dw-retry" data-act="retry">Retry</button>
           </div>`;
         return;
       }
@@ -301,21 +426,47 @@
         body.innerHTML = window.SiloChart.answerHtml(widget.report_answer);
         return;
       }
-      if (!rows.length) { body.innerHTML = '<div class="dw-empty">Query returned 0 rows.</div>'; return; }
+      if (!rows.length) {
+        // "0 rows" alone reads as broken. Naming the filters that are
+        // narrowing it is the difference between a bug report and a person
+        // widening a date range.
+        const keys = widget.query_sql ? window.SiloReportParams.tokensIn(widget.query_sql) : [];
+        const applied = keys.filter((k) => paramValues[k] !== undefined && paramValues[k] !== '')
+          .map((k) => `${k} = ${paramValues[k]}`);
+        body.innerHTML = `<div class="dw-empty">
+            <strong>No rows matched.</strong>
+            <span class="dw-empty-hint">${applied.length
+              ? `The query ran fine with ${esc(applied.join(', '))}. Widening a filter is the usual fix.`
+              : 'The query ran fine and returned nothing — this report has no data for its own window.'}</span>
+          </div>`;
+        return;
+      }
 
       const semantics = semanticsFor(widget, rows);
 
       if (widget.visual_type === 'table') {
-        body.innerHTML = window.SiloChart.tableHtml(rows, cfg, semantics);
+        // The reader's own view of the table -- search text and the column
+        // they clicked to sort by. Kept OUT of visual_config on purpose:
+        // searching a table is reading, not editing, so it must not mark
+        // the dashboard dirty or become everyone's saved position.
+        const page = pageState.get(widget.id);
+        const view = tableView.get(widget.id) || {};
+        body.innerHTML = window.SiloChart.tableHtml(rows, cfg, semantics, {
+          search: view.search || '',
+          sortCol: view.sortCol || null,
+          sortDir: view.sortDir || 'desc',
+          totalRows: widget.report_row_estimate || null,
+          hasMore: !!(page && page.hasMore),
+        });
         // Pagination lives here, not in the cap-message block below: a table
         // is the one visual where "more" is just more rows in the same
         // shape, so it is the one visual that can offer to fetch them.
-        const page = pageState.get(widget.id);
         if (page && page.hasMore) {
           foot.innerHTML = `<div class="dw-loadmore">
               <button type="button" class="bcn-btn bcn-btn--ghost" data-act="loadmore"
                       ${page.loading ? 'disabled' : ''}>${page.loading ? 'Loading…' : `Load next ${PAGE_CAP} rows`}</button>
-              <span>${rows.length.toLocaleString()} loaded so far</span>
+              <span>${rows.length.toLocaleString()} loaded${
+                widget.report_row_estimate ? ` of ${Number(widget.report_row_estimate).toLocaleString()}` : ' so far'}</span>
             </div>`;
         } else if (page && page.rows.length > PAGE_CAP) {
           // Pagination ran to completion. Say so once rather than the
@@ -327,6 +478,20 @@
         body.innerHTML = window.SiloChart.matrixHtml(rows, cfg, semantics);
       } else if (widget.visual_type === 'kpi') {
         body.innerHTML = window.SiloChart.kpiHtml(rows, cfg, semantics);
+      } else if (widget.visual_type === 'heatmap') {
+        const grid2d = window.SiloChart.grid2dOf(rows, cfg, semantics);
+        if (!grid2d) {
+          body.innerHTML = `<div class="dw-empty">A heatmap needs two dimensions and a measure. ${editable ? 'Open the type badge to pick them.' : ''}</div>`;
+          return;
+        }
+        body.innerHTML = '<div class="dw-chart" data-role="chart"></div>';
+        const host = body.querySelector('[data-role="chart"]');
+        const chart = echarts.init(host, null, { renderer: 'canvas' });
+        chart.setOption(window.SiloChart.heatmapOption(grid2d, window.SiloChart.theme(), grid2d.semantic), true);
+        charts.set(widget.id, chart);
+        const missing = grid2d.rows.length * grid2d.cols.length - grid2d.data.length;
+        foot.textContent = `${grid2d.rows.length} × ${grid2d.cols.length}`
+          + (missing > 0 ? ` · ${missing} pair${missing === 1 ? '' : 's'} had no row — drawn as gaps, not zeros` : '');
       } else {
         // A result carrying jsonb columns cannot be charted at all -- there
         // is no axis in a nested object. Ask SILO produces this shape often
@@ -343,15 +508,37 @@
             </div>`;
           return;
         }
-        const shaped = window.SiloChart.shape(rows, cfg, semantics);
+        // Refuse before drawing, and say what is missing. A waterfall over
+        // percentages or a combo with one measure produces a chart that
+        // renders and lies; "needs two numeric columns" is a better tile.
+        const valid = window.SiloChart.validateVisual(widget.visual_type, rows, cfg, semantics);
+        if (!valid.ok) {
+          body.innerHTML = `<div class="dw-empty dw-empty--warn">
+              <strong>A ${esc(widget.visual_type)} ${esc(valid.reason)}.</strong>
+              ${editable ? '<span class="dw-empty-hint">Pick a different visual from the type badge, or change the report.</span>' : ''}
+            </div>`;
+          return;
+        }
+        // A bridge is its SEQUENCE: sorting a waterfall by size destroys
+        // the one thing it is for, so the query's own order is forced here
+        // rather than left to a config that defaults to 'desc'.
+        const drawCfg = widget.visual_type === 'waterfall'
+          ? Object.assign({}, cfg, { sort: 'none' }) : cfg;
+        const shaped = window.SiloChart.shape(rows, drawCfg, semantics);
         if (!shaped) {
-          body.innerHTML = `<div class="dw-empty">This visual needs a dimension and a measure. ${editable ? 'Open ⚙ to pick them.' : ''}</div>`;
+          body.innerHTML = `<div class="dw-empty">This visual needs a dimension and a measure. ${editable ? 'Open the type badge to pick them.' : ''}</div>`;
           return;
         }
         body.innerHTML = '<div class="dw-chart" data-role="chart"></div>';
         const host = body.querySelector('[data-role="chart"]');
         const chart = echarts.init(host, null, { renderer: 'canvas' });
-        chart.setOption(window.SiloChart.optionFor(widget.visual_type, shaped, cfg), true);
+        chart.setOption(window.SiloChart.optionFor(widget.visual_type, shaped, drawCfg), true);
+        // Click-to-filter and drill-through both start here: a click on a
+        // point hands the page the dimension VALUE it was drawn from. The
+        // page decides what that means -- neither is a chart concern.
+        chart.on('click', (p) => {
+          onPointClick(widget, { field: shaped.xField, value: shaped.points[p.dataIndex] ? shaped.points[p.dataIndex].label : p.name });
+        });
         charts.set(widget.id, chart);
         // Say what the chart is actually showing. Grouping is invisible
         // otherwise: "top 10 of 46" reads very differently once you know
@@ -436,6 +623,10 @@
       if (entry.error) {
         pageState.delete(widget.id);
       } else {
+        // A search typed against last week's rows must not survive into a
+        // different query's results -- it would silently hide rows the new
+        // filter legitimately returned.
+        tableView.delete(widget.id);
         pageState.set(widget.id, {
           sql: resolved.sql, rows: entry.rows || [], hasMore: (entry.rows || []).length >= PAGE_CAP, loading: false,
         });
@@ -480,7 +671,32 @@
      * collisions reflowed it -- on the Logistics board two of the three
      * headings ended up stacked at the very bottom, under the last tile.
      */
-    const minHeightFor = (w) => (w && w.visual_type === 'section' ? 1 : 2);
+    const minHeightFor = (w) => (w && w.visual_type === 'section' ? 1 : (SIZE[w.visual_type] || SIZE._default).minH);
+
+    /**
+     * Per-visual size constraints, and the size a fresh tile is given.
+     *
+     * These are not aesthetics. A donut in a 2x2 box is a ring of unreadable
+     * labels; a matrix in one that narrow paints its row labels over the
+     * first data column (the trap dashboard.css already documents); a KPI
+     * dragged to 6x5 reads as a chart that failed to draw. The minimums are
+     * the smallest box in which each visual is still honest, and GridStack
+     * enforces them on drag as well as on load.
+     */
+    const SIZE = {
+      _default: { minW: 2, minH: 2, w: 6, h: 4 },
+      kpi: { minW: 2, minH: 2, w: 3, h: 2 },
+      section: { minW: 3, minH: 1, w: 12, h: 1 },
+      donut: { minW: 3, minH: 3, w: 4, h: 4 },
+      table: { minW: 3, minH: 3, w: 6, h: 4 },
+      matrix: { minW: 4, minH: 3, w: 8, h: 5 },
+      heatmap: { minW: 4, minH: 3, w: 8, h: 5 },
+      waterfall: { minW: 4, minH: 3, w: 8, h: 4 },
+      combo: { minW: 4, minH: 3, w: 8, h: 4 },
+      answer: { minW: 3, minH: 3, w: 6, h: 5 },
+    };
+    const sizeFor = (type) => SIZE[type] || SIZE._default;
+    const minWidthFor = (w) => sizeFor(w && w.visual_type).minW;
 
     function setWidgets(next) {
       if (!grid) initGrid();
@@ -489,7 +705,20 @@
       grid.removeAll();
       widgets = (next || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-      for (const w of widgets) {
+      /* DOM order is READING order -- top to bottom, then left to right --
+         not sort_order. On the desktop it makes no difference: every item
+         carries an explicit gs-x/gs-y. It decides two other things:
+         GridStack's single-column collapse (layout:'list' above follows the
+         DOM), and tab order, which should walk a board the way a person
+         reads it. sort_order only tracks the order tiles were ADDED and
+         drifts from the arrangement the moment anything is dragged. */
+      const inReadingOrder = widgets.slice().sort((a, b) => {
+        const la = a.layout || {}; const lb = b.layout || {};
+        return (la.y ?? 0) - (lb.y ?? 0) || (la.x ?? 0) - (lb.x ?? 0)
+          || (a.sort_order || 0) - (b.sort_order || 0);
+      });
+
+      for (const w of inReadingOrder) {
         const lay = w.layout || {};
         const el = document.createElement('div');
         el.className = 'grid-stack-item';
@@ -498,13 +727,45 @@
         el.setAttribute('gs-y', String(lay.y ?? 0));
         el.setAttribute('gs-w', String(lay.w ?? 6));
         el.setAttribute('gs-h', String(lay.h ?? 4));
-        el.setAttribute('gs-min-w', '2');
+        el.setAttribute('gs-min-w', String(minWidthFor(w)));
         el.setAttribute('gs-min-h', String(minHeightFor(w)));
         el.innerHTML = `<div class="grid-stack-item-content">${tileShell(w, editable)}</div>`;
         gridEl.appendChild(el);
         grid.makeWidget(el);
       }
+      collapsed.clear();
+      preCollapseLayout = null;
+      stackForNarrowScreen(inReadingOrder);
       return Promise.all(widgets.map(loadWidget));
+    }
+
+    /**
+     * Put a collapsed (single-column) grid into reading order.
+     *
+     * GridStack's own breakpoint collapse cannot help here: it runs at init,
+     * BEFORE any widget exists, so `columnChanged` returns early with no
+     * nodes and `columnOpts.layout` never applies. Each tile is then simply
+     * ADDED at its 12-column y, and every collision pushes the tile already
+     * there downward -- which inverts the board. Measured on a real one:
+     * a section, two KPIs and a chart on the same row came out section,
+     * chart, KPI-2, KPI-1, so the phone read the row backwards.
+     *
+     * Placing them explicitly is safe because `layout()` refuses to
+     * serialise a collapsed grid: this can move tiles on a phone and can
+     * never write that arrangement back over the 12-column one.
+     */
+    function stackForNarrowScreen(ordered) {
+      if (!grid || grid.getColumn() === 12) return;
+      grid.batchUpdate();
+      let y = 0;
+      for (const w of ordered) {
+        const item = gridItem(w.id);
+        if (!item) continue;
+        const h = Math.max((w.layout || {}).h ?? 4, minHeightFor(w));
+        grid.update(item, { x: 0, y, w: 1, h });
+        y += h;
+      }
+      grid.commit();
     }
 
     function addWidget(w) {
@@ -533,10 +794,40 @@
       widgets = widgets.filter((w) => w.id !== id);
     }
 
+    /**
+     * Push a widget's per-visual size constraints onto its grid item.
+     *
+     * Has to run on every visual-type change, not only at creation: the
+     * minimums are a property of the VISUAL, and a tile added as a table
+     * (min 3 rows) then switched to a KPI stayed unable to shrink below 3 --
+     * GridStack silently grew every 2-row KPI back, which is the same
+     * class of bug as save() omitting h.
+     */
+    function applyConstraints(w) {
+      const item = gridItem(w.id);
+      if (!item || !grid) return;
+      const minW = minWidthFor(w);
+      const minH = minHeightFor(w);
+      item.setAttribute('gs-min-w', String(minW));
+      item.setAttribute('gs-min-h', String(minH));
+      // Current geometry is passed back explicitly. grid.update() treats an
+      // omitted w/h as "unset it", not "leave it alone", so updating only
+      // the minimums wiped every tile's size -- layout() then read null and
+      // fell through to the 6x4 default on the next save.
+      const n = item.gridstackNode || {};
+      grid.update(item, {
+        minW, minH,
+        x: n.x, y: n.y,
+        w: Math.max(n.w == null ? minW : n.w, minW),
+        h: Math.max(n.h == null ? minH : n.h, minH),
+      });
+    }
+
     /** Re-draw one widget from cache after its visual_config changed. */
     function rerenderWidget(id) {
       const w = widgets.find((x) => x.id === id);
       if (!w) return Promise.resolve();
+      applyConstraints(w);
       const el = tileEl(id);
       if (el) {
         el.querySelector('.dw-title').textContent = w.title || w.report_title || 'Untitled';
@@ -612,6 +903,169 @@
 
     function getWidgets() { return widgets; }
 
+    // ── Table interaction ──────────────────────────────────────────────
+    /**
+     * Search / sort a table WITHOUT touching its config.
+     *
+     * Re-rendering from the rows already in memory, so neither costs a
+     * query. `rowsFor` is the loaded set including every page the reader
+     * pulled with Load more, which is what makes "search" mean "search what
+     * I have" rather than "search the first page".
+     */
+    function setTableView(id, patch) {
+      const w = widgets.find((x) => x.id === id);
+      if (!w || w.visual_type !== 'table') return;
+      const cur = tableView.get(id) || { search: '', sortCol: null, sortDir: 'desc' };
+      tableView.set(id, Object.assign({}, cur, patch));
+      const page = pageState.get(id);
+      const rows = page ? page.rows : (rowsFor(id) || []);
+      // Keep the caret where the reader left it: re-rendering the tile
+      // replaces the input, and a search box that loses focus per keystroke
+      // is unusable.
+      const el = tileEl(id);
+      const active = el && el.querySelector('[data-role="table-search"]');
+      const hadFocus = active && document.activeElement === active;
+      const caret = hadFocus ? active.selectionStart : null;
+      renderBody(w, { rows });
+      if (hadFocus) {
+        const next = tileEl(id) && tileEl(id).querySelector('[data-role="table-search"]');
+        if (next) { next.focus(); try { next.setSelectionRange(caret, caret); } catch (e) { /* number input */ } }
+      }
+    }
+
+    function getTableView(id) {
+      return Object.assign({ search: '', sortCol: null, sortDir: 'desc' }, tableView.get(id) || {});
+    }
+
+    /**
+     * CSV of exactly what a table tile is showing.
+     *
+     * Deliberately NOT "the whole report": the tile has 1,000 rows because
+     * that is what the runner returns per page, and an export that silently
+     * covered a different set than the screen would be the worst of both.
+     * The file's first line names the scope, and the caller is told whether
+     * more rows exist so it can say so out loud too.
+     */
+    function tableCsvFor(id) {
+      const w = widgets.find((x) => x.id === id);
+      if (!w) return null;
+      const page = pageState.get(id);
+      const rows = page ? page.rows : (rowsFor(id) || []);
+      if (!rows.length) return null;
+      const view = getTableView(id);
+      const csv = window.SiloChart.tableCsv(rows, w.visual_config || {}, semanticsFor(w, rows), {
+        search: view.search,
+        sortCol: view.sortCol,
+        sortDir: view.sortDir,
+        totalRows: w.report_row_estimate || null,
+        hasMore: !!(page && page.hasMore),
+      });
+      return {
+        csv,
+        filename: `${(w.title || w.report_title || 'widget').replace(/[^\w.-]+/g, '-').toLowerCase()}.csv`,
+        loaded: rows.length,
+        hasMore: !!(page && page.hasMore),
+        estimate: w.report_row_estimate || null,
+      };
+    }
+
+    /** Resize every live chart. Needed after a density change, a
+        full-screen open/close, or anything else that moves a tile's box
+        without GridStack noticing. */
+    function resizeCharts() {
+      for (const c of charts.values()) { try { c.resize(); } catch (e) { /* disposed */ } }
+    }
+
+    function setDensity(mode) {
+      const next = mode === 'compact' ? 'compact' : 'comfortable';
+      if (next === density) return;
+      density = next;
+      const d = DENSITY[density];
+      if (grid) { grid.cellHeight(d.cellHeight); grid.margin(d.margin); }
+      // The grid reflows on the next frame; charts have to be told after.
+      requestAnimationFrame(resizeCharts);
+    }
+
+    /**
+     * The tiles a section heading introduces: everything after it, in
+     * sort order, up to the next heading.
+     *
+     * Membership is positional rather than stored, which is the only
+     * definition that survives someone dragging a tile from under one
+     * heading to under another -- a stored section_id would go stale the
+     * moment the grid moved and would then collapse the wrong tiles.
+     */
+    function sectionMembers(id) {
+      const order = widgets.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const at = order.findIndex((w) => w.id === id);
+      if (at < 0) return [];
+      const out = [];
+      for (let i = at + 1; i < order.length; i += 1) {
+        if (order[i].visual_type === 'section') break;
+        out.push(order[i]);
+      }
+      return out;
+    }
+
+    function gridItem(id) {
+      return gridEl.querySelector(`.grid-stack-item[gs-id="${CSS.escape(id)}"]`);
+    }
+
+    /**
+     * Collapse or expand a section's tiles.
+     *
+     * A collapsed tile is DETACHED from the grid (not merely hidden), so the
+     * board actually gets shorter rather than leaving a hole where the
+     * section used to be. Expanding restores the exact geometry captured
+     * before the first collapse -- GridStack compacts on removal, and
+     * re-adding alone would leave that compaction in place, which is a
+     * layout nobody arranged.
+     *
+     * View mode only. setEditable(true) expands everything first, so no
+     * collapsed state can ever reach `layout()` and be saved.
+     */
+    function toggleSection(id) {
+      const w = widgets.find((x) => x.id === id);
+      if (!w || w.visual_type !== 'section' || !grid) return false;
+      const members = sectionMembers(id);
+      const isCollapsed = collapsed.has(id);
+      if (!isCollapsed && !preCollapseLayout) preCollapseLayout = layout();
+      for (const m of members) {
+        const item = gridItem(m.id);
+        if (!item) continue;
+        if (isCollapsed) {
+          item.hidden = false;
+          grid.makeWidget(item);
+        } else {
+          grid.removeWidget(item, false);
+          item.hidden = true;
+        }
+      }
+      if (isCollapsed) collapsed.delete(id); else collapsed.add(id);
+      if (!collapsed.size && preCollapseLayout) {
+        for (const [wid, geo] of preCollapseLayout) {
+          const item = gridItem(wid);
+          if (item && item.gridstackNode) grid.update(item, geo);
+        }
+        preCollapseLayout = null;
+      }
+      const tile = tileEl(id);
+      const btn = tile && tile.querySelector('[data-act="collapse"]');
+      if (btn) {
+        const nowCollapsed = collapsed.has(id);
+        btn.setAttribute('aria-expanded', String(!nowCollapsed));
+        btn.textContent = nowCollapsed ? '▸' : '▾';
+        btn.title = nowCollapsed ? 'Expand this section' : 'Collapse this section';
+      }
+      if (tile) tile.classList.toggle('is-collapsed', collapsed.has(id));
+      requestAnimationFrame(resizeCharts);
+      return collapsed.has(id);
+    }
+
+    function expandAllSections() {
+      for (const id of Array.from(collapsed)) toggleSection(id);
+    }
+
     /**
      * Swap between view and edit chrome in place. Only the head actions and
      * GridStack's drag/resize flags change -- the bodies (and their live
@@ -619,6 +1073,10 @@
      */
     function setEditable(next) {
       if (!!next === editable) return;
+      // Never enter edit mode with tiles detached from the grid: layout()
+      // would read geometry GridStack compacted rather than geometry a
+      // person arranged, and Save would write it.
+      if (next) expandAllSections();
       editable = !!next;
       if (grid) { grid.enableMove(editable); grid.enableResize(editable); }
       gridEl.classList.toggle('is-editing', editable);
@@ -663,6 +1121,9 @@
       setWidgets, addWidget, removeWidget, rerenderWidget, refresh, refreshWidget, loadMoreWidget,
       layout, getWidgets, updateWidget, retheme, rowsFor, setEditable, semanticsFor,
       parameterDeclarations, getParamValues, setParamValues, resolveSql,
+      ensureParamDefaults, participationFor, widgetParamKeys,
+      setDensity, resizeCharts, toggleSection, sectionMembers, expandAllSections, sizeFor,
+      setTableView, getTableView, tableCsvFor, applyConstraints,
       get grid() { return grid; },
     };
   }
