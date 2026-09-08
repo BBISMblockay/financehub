@@ -718,6 +718,36 @@ the dependency and leave two recommendation paths to keep in step.
 `add_report` is stripped from the URL on arrival, so a refresh cannot add the
 same report twice.
 
+## How big is a report?
+
+`chat_run_readonly_query` returns 1000 rows per page. Every surface that
+renders a report already says so — a table tile offers `Load next 1000 rows`
+and counts what is loaded, a chart tile that hits the cap says to aggregate in
+the report instead. What none of them did was tell the **author**, while they
+were still authoring, before the report became a tile on somebody's board.
+
+The builder now measures it. `silo_chat_saved_reports.row_estimate` /
+`row_estimate_at` store the count, the preview leads with the true total
+("2,500 rows · showing 1,000"), and the picker shows a red pill over the cap.
+
+Three rules worth keeping if this is touched:
+
+- **The count runs only when the preview came back full.** A page shorter than
+  the cap IS the whole result — counting it again is a second query to learn
+  what was just counted.
+- **A failed or absent count stays NULL, all the way to the column.** Writing
+  the page size instead would record 1,000 for a 7,231-row report, which is
+  the class of confident wrong number the column exists to catch. Null means
+  *unmeasured*, never *small*, and every reader has to render it that way.
+- **Nothing blocks a large save.** An export-shaped report is a legitimate
+  thing to build, and a builder that refuses one sends the author straight to
+  a duplicate — the behaviour the saved-report editor exists to stop. The size
+  is stated; the decision stays with the person.
+
+Not a bigger cap, on purpose: a tile wanting 7,231 SKU-grain rows is asking a
+question a dashboard cannot answer, and raising the cap hides that instead of
+acting on it.
+
 ## Deliberately not built yet
 
 Named here so nobody reads their absence as an oversight:

@@ -361,6 +361,20 @@
               referenced_columns: [...cols].sort(), supplied_parameters: [...supplied].sort() }], error: null };
           }
           if (name !== 'chat_run_readonly_query') return { data: null, error: null };
+
+          // The row-count wrapper the report builder sends when a preview
+          // comes back full (20260907140000). Answered from the SAME fixture
+          // as the query it wraps, so a test cannot pass with a count that
+          // disagrees with the rows the preview actually showed.
+          const countWrap = /^select count\(\*\) as n from \(([\s\S]+)\) z$/.exec(String(args.query || '').trim());
+          if (countWrap) {
+            const inner = QUERY_ROWS[countWrap[1].trim()];
+            if (inner) return { data: [{ n: inner.length }], error: null };
+            // Unknown inner query: the real RPC would count it. Mirror the
+            // unknown-SQL branch below, which returns two plausible rows.
+            return { data: [{ n: 2 }], error: null };
+          }
+
           const rows = QUERY_ROWS[args.query];
           if (rows) {
             // Mirrors chat_run_readonly_query's real pagination (20260904320000):

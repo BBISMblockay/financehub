@@ -27,6 +27,26 @@
 
   // A system definition is global (company_entity_id null) and reusable
   // across tenants, so "Company"/"Only you" would be a lie for it.
+  /**
+   * Flag a report whose result does not fit one page, at the moment someone
+   * is choosing it for a tile.
+   *
+   * The runner returns 1000 rows per page. A TABLE tile can page through the
+   * rest, so this is a heads-up there; on a chart or KPI it is the whole
+   * story, because those are computed from the first page and do not page.
+   * Either way the person picking is the last one who can cheaply choose a
+   * different report.
+   *
+   * A null estimate means never measured, NOT small -- every report saved
+   * before 20260907140000 is null -- so an unmeasured report shows nothing
+   * rather than a reassuring badge it has not earned.
+   */
+  function sizePill(r) {
+    const n = Number(r.row_estimate);
+    if (!Number.isFinite(n) || n <= 1000) return '';
+    return `<span class="bcn-pill bcn-pill--neg" title="This report returns ${n.toLocaleString()} rows. A tile shows 1,000 at a time -- a table can page through the rest, a chart is drawn from the first page alone.">${n.toLocaleString()} rows</span>`;
+  }
+
   function scopePill(r) {
     if (r.source === 'system' || r.company_entity_id == null) {
       return '<span class="bcn-pill bcn-pill--accent">Global</span>';
@@ -97,7 +117,7 @@
       // filters to source='ask_silo'; this one must not.
       const { data, error } = await sb
         .from('silo_chat_saved_reports_v')
-        .select('id, title, description, question, answer, queries_run, visibility, source, company_entity_id, created_by_name, created_at')
+        .select('id, title, description, question, answer, queries_run, visibility, source, company_entity_id, created_by_name, created_at, row_estimate')
         .order('created_at', { ascending: false });
       if (error) {
         el('addBody').innerHTML = `<div class="v3-empty">Couldn't load reports: ${esc(error.message)}</div>`;
@@ -145,6 +165,7 @@
             <span class="bcn-pill bcn-pill--dark">${esc(SOURCE_LABEL[r.source] || r.source || 'Report')}</span>
             ${scopePill(r)}
             <span class="bcn-pill">${n} quer${n === 1 ? 'y' : 'ies'}</span>
+            ${sizePill(r)}
             ${r.created_by_name ? `<span class="v3-report-meta">${esc(r.created_by_name)}</span>` : ''}
           </span>
         </button>`;
