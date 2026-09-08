@@ -9,6 +9,9 @@
       name: 'Monday sales review', description: 'What sold last week', visibility: 'company',
       created_at: '2026-08-28T00:00:00Z', updated_at: '2026-08-28T00:00:00Z', widget_count: 0 }],
     dashboard_widgets: [],
+    // Personal saved filter views (20260908130000). Empty by default: the
+    // page has to work with none, and a suite seeds its own.
+    dashboard_filter_views: [],
     silo_chat_saved_reports: [
       { id: 'R1', title: 'Top products 30d', question: 'What were our top products last 30 days?',
         description: null, source: 'ask_silo', company_entity_id: 'C1',
@@ -113,6 +116,32 @@
         queries_run: [
           "select column_name, data_type from information_schema.columns where table_name in ('payment_requests')",
           'select vendor, count(*) as open_requests, sum(amount_due) as total_amount_due from payment_requests_v group by 1'] },
+      // A TEXT parameter, which is the shape the live filter bug was found
+      // on: a store name typed into a box rather than picked from a list.
+      { id: 'P3', title: 'Sales by product, one store', question: null,
+        description: 'Product sales for one store', source: 'manual', company_entity_id: 'C1',
+        visibility: 'company', created_by: 'U1', created_by_name: 'Blake', created_at: '2026-09-04T00:00:00Z',
+        parameters: [
+          { key: 'store', type: 'text', label: 'Store', default: 'Portland' },
+        ],
+        queries_run: ['select product_title, net_sales from s where store = {{store}}'] },
+      // Two dimensions and a measure: a heatmap and a matrix can both draw
+      // it, a bar cannot honestly.
+      { id: 'P4', title: 'Units by size and location', question: null,
+        description: 'Size x location', source: 'manual', company_entity_id: 'C1',
+        visibility: 'company', created_by: 'U1', created_by_name: 'Blake', created_at: '2026-09-04T00:00:00Z',
+        queries_run: ['select size, location, units from grid'] },
+      // A bridge: signed steps in a meaningful order, ending on a total.
+      { id: 'P5', title: 'Cash bridge', question: null,
+        description: 'How opening became closing', source: 'manual', company_entity_id: 'C1',
+        visibility: 'company', created_by: 'U1', created_by_name: 'Blake', created_at: '2026-09-04T00:00:00Z',
+        queries_run: ['select step, delta from bridge'] },
+      // No parameters at all: the tile that a dashboard filter cannot
+      // reach, and which therefore has to say so on its own face.
+      { id: 'P6', title: 'Company-wide totals', question: null,
+        description: 'Unfiltered on purpose', source: 'manual', company_entity_id: 'C1',
+        visibility: 'company', created_by: 'U1', created_by_name: 'Blake', created_at: '2026-09-04T00:00:00Z',
+        queries_run: ['select day_date, net_sales from t1'] },
       { id: 'S1', title: 'Daily Sales', question: null,
         description: 'Net sales by day — central SILO definition', source: 'system', company_entity_id: null,
         visibility: 'company', created_by_name: null, created_at: '2026-08-20T00:00:00Z',
@@ -205,6 +234,25 @@
     // a partial third, so a suite can assert on the whole lifecycle (full
     // page, full page, partial page that ends it) rather than just page 1.
     'select n, val from big_series': Array.from({ length: 2500 }, (_, i) => ({ n: i + 1, val: (i + 1) * 10 })),
+    "select product_title, net_sales from s where store = 'Portland'": [
+      { product_title: 'Bubbles and Doubles Tee', net_sales: 4000 },
+      { product_title: 'Pin of the Month', net_sales: 900 },
+    ],
+    "select product_title, net_sales from s where store = 'Austin'": [
+      { product_title: 'Bubbles and Doubles Tee', net_sales: 1500 },
+    ],
+    'select size, location, units from grid': [
+      { size: 'S', location: 'Web', units: 300 },
+      { size: 'M', location: 'Web', units: 520 },
+      { size: 'S', location: 'Retail', units: 140 },
+      { size: 'L', location: 'Retail', units: 90 },
+    ],
+    'select step, delta from bridge': [
+      { step: 'Opening', delta: 100000 },
+      { step: 'Collections', delta: 42000 },
+      { step: 'Payroll', delta: -31000 },
+      { step: 'Closing', delta: 111000 },
+    ],
   };
 
   if (PERSIST) {
@@ -219,6 +267,7 @@
       sessionStorage.setItem('__FAKE_DB_STATE__', JSON.stringify({
         dashboards: db.dashboards, dashboard_widgets: db.dashboard_widgets,
         silo_chat_saved_reports: db.silo_chat_saved_reports,
+        dashboard_filter_views: db.dashboard_filter_views,
         // profiles too: the edit path branches on the viewer's ROLE (an
         // owner may edit a colleague's report, an admin may not), so a suite
         // has to be able to change role and reload.
@@ -297,15 +346,27 @@
         return { data: out, error: null };
       }
       if (op === 'upsert') {
-        db.upserts.push(JSON.parse(JSON.stringify(payload)));
-        persist();
-        for (const p of payload) {
-          const i = db[base(table)].findIndex((r) => r.id === p.id);
-          if (i >= 0) db[base(table)][i] = { ...db[base(table)][i], ...p };
-          else db[base(table)].push({ ...p });
+        // The real client accepts one row or many; the dashboard sends an
+        // array of widgets and the filter-view save sends a single object.
+        const list = Array.isArray(payload) ? payload : [payload];
+        db.upserts.push(JSON.parse(JSON.stringify(list)));
+        if (!db[base(table)]) db[base(table)] = [];
+        for (const p of list) {
+          // Server-side defaults the client never sends: an id from the
+          // sequence, and the stamps the BEFORE INSERT triggers apply.
+          const row = { created_by: 'U1', company_entity_id: 'C1', ...p };
+          if (!row.id) row.id = `${base(table)}-${db[base(table)].length + 1}`;
+          // The conflict target is (dashboard_id, created_by, name) for a
+          // filter view and (id) everywhere else -- modelled because saving
+          // over a view of the same name must REPLACE it, not add a second.
+          const i = db[base(table)].findIndex((r) => (p.id && r.id === p.id)
+            || (!p.id && r.dashboard_id === row.dashboard_id && r.created_by === row.created_by
+                && String(r.name).toLowerCase() === String(row.name).toLowerCase()));
+          if (i >= 0) db[base(table)][i] = { ...db[base(table)][i], ...row, id: db[base(table)][i].id };
+          else db[base(table)].push(row);
         }
         persist();
-        return { data: payload, error: null };
+        return { data: list, error: null };
       }
       if (op === 'delete') {
         let keep = db[base(table)];

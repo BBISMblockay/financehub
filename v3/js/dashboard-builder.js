@@ -1261,6 +1261,17 @@
           // person wrote themselves. If the widget itself never carried a
           // measure, the KPI starts unset and says so on the tile.
           if (t.value === 'kpi' && !(w.visual_config || {}).y_field) delete merged.y_field;
+          // A matrix and a heatmap need TWO dimensions, and the config
+          // carried over from a one-dimension visual names only one. Fill
+          // the second in from the data rather than leaving the tile
+          // saying "needs two dimensions" over a result that has them.
+          if ((t.value === 'matrix' || t.value === 'heatmap') && rows) {
+            const dims = window.SiloChart.dimensionsOf(window.SiloChart.profileColumns(rows));
+            if (!merged.row_field) merged.row_field = (dims[0] || {}).name;
+            if (!merged.x_field || merged.x_field === merged.row_field) {
+              merged.x_field = (dims.find((d) => d.name !== merged.row_field) || {}).name;
+            }
+          }
           runtime.updateWidget(w.id, { visual_type: t.value, visual_config: merged });
           // A KPI is one number; leaving it in a full chart's footprint
           // wastes the canvas and reads as a broken chart. Only shrink a

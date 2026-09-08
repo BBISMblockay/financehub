@@ -197,7 +197,14 @@
         // Below 700px a 6-of-12 tile is half a phone screen: axis labels
         // overlap the plot and a KPI clips mid-number. Collapse to a single
         // column so every tile gets full width and stacks.
-        columnOpts: { breakpoints: [{ w: 700, c: 1 }] },
+        //
+        // layout: 'list' governs a LIVE resize across the breakpoint, where
+        // nodes already exist: it re-stacks them in (y, x) order instead of
+        // scaling their 12-column positions down. It does NOT cover a page
+        // LOADED narrow -- the collapse runs before any widget exists, so
+        // columnChanged() returns early with no nodes -- which is what
+        // stackForNarrowScreen() handles after the tiles are added.
+        columnOpts: { breakpoints: [{ w: 700, c: 1 }], layout: 'list' },
       }, gridEl);
 
       grid.on('change', () => { if (editable) onLayoutChange(); });
@@ -698,7 +705,20 @@
       grid.removeAll();
       widgets = (next || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-      for (const w of widgets) {
+      /* DOM order is READING order -- top to bottom, then left to right --
+         not sort_order. On the desktop it makes no difference: every item
+         carries an explicit gs-x/gs-y. It decides two other things:
+         GridStack's single-column collapse (layout:'list' above follows the
+         DOM), and tab order, which should walk a board the way a person
+         reads it. sort_order only tracks the order tiles were ADDED and
+         drifts from the arrangement the moment anything is dragged. */
+      const inReadingOrder = widgets.slice().sort((a, b) => {
+        const la = a.layout || {}; const lb = b.layout || {};
+        return (la.y ?? 0) - (lb.y ?? 0) || (la.x ?? 0) - (lb.x ?? 0)
+          || (a.sort_order || 0) - (b.sort_order || 0);
+      });
+
+      for (const w of inReadingOrder) {
         const lay = w.layout || {};
         const el = document.createElement('div');
         el.className = 'grid-stack-item';
@@ -715,7 +735,37 @@
       }
       collapsed.clear();
       preCollapseLayout = null;
+      stackForNarrowScreen(inReadingOrder);
       return Promise.all(widgets.map(loadWidget));
+    }
+
+    /**
+     * Put a collapsed (single-column) grid into reading order.
+     *
+     * GridStack's own breakpoint collapse cannot help here: it runs at init,
+     * BEFORE any widget exists, so `columnChanged` returns early with no
+     * nodes and `columnOpts.layout` never applies. Each tile is then simply
+     * ADDED at its 12-column y, and every collision pushes the tile already
+     * there downward -- which inverts the board. Measured on a real one:
+     * a section, two KPIs and a chart on the same row came out section,
+     * chart, KPI-2, KPI-1, so the phone read the row backwards.
+     *
+     * Placing them explicitly is safe because `layout()` refuses to
+     * serialise a collapsed grid: this can move tiles on a phone and can
+     * never write that arrangement back over the 12-column one.
+     */
+    function stackForNarrowScreen(ordered) {
+      if (!grid || grid.getColumn() === 12) return;
+      grid.batchUpdate();
+      let y = 0;
+      for (const w of ordered) {
+        const item = gridItem(w.id);
+        if (!item) continue;
+        const h = Math.max((w.layout || {}).h ?? 4, minHeightFor(w));
+        grid.update(item, { x: 0, y, w: 1, h });
+        y += h;
+      }
+      grid.commit();
     }
 
     function addWidget(w) {

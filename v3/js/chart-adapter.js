@@ -656,6 +656,11 @@
       },
       yAxis: {
         type: 'category', data: grid2d.rows, splitArea: { show: true },
+        // Inverted so the FIRST row the query returned is at the top, which
+        // is how the matrix reads the identical shape. ECharts puts index 0
+        // at the bottom of a category axis, so without this the two visuals
+        // disagree about the same data and a P&L comes out upside down.
+        inverse: true,
         axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace' },
         axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
       },
@@ -793,7 +798,16 @@
     const cfg = config || {};
     const dims = dimensionsOf(prof);
     const rowField = cfg.row_field || (dims[0] && dims[0].name);
-    const colField = cfg.x_field || (dims.find((d) => d.name !== rowField) || {}).name;
+    // A config carried over from a bar chart has an x_field and NO
+    // row_field, and its x_field is very often the same column the row then
+    // falls back to. That collision is an accident of the switch, so the
+    // x_field is treated as unset. Naming the SAME column for both
+    // deliberately is a different thing and is still refused below -- there
+    // is no grid to draw, and quietly substituting a column the person did
+    // not choose would be worse than saying so.
+    const bothNamed = !!(cfg.row_field && cfg.x_field);
+    const colField = (cfg.x_field && (bothNamed || cfg.x_field !== rowField) ? cfg.x_field : null)
+      || (dims.find((d) => d.name !== rowField) || {}).name;
     const valField = cfg.y_field || (measuresOf(prof)[0] || {}).name;
     if (!rowField || !colField || !valField || rowField === colField) return null;
 
@@ -956,7 +970,11 @@
 
   const ACRONYMS = { roas: 'ROAS', aov: 'AOV', sku: 'SKU', po: 'PO', qbo: 'QBO',
                      mtd: 'MTD', ytd: 'YTD', cy: 'CY', ly: 'LY', id: 'ID',
-                     cogs: 'COGS', cac: 'CAC', cpm: 'CPM', ctr: 'CTR', pct: '%' };
+                     cogs: 'COGS', cac: 'CAC', cpm: 'CPM', ctr: 'CTR', pct: '%',
+                     // A baseball brand: MLB is a licensor, a product line
+                     // and a filter, and it reads as a typo in title case.
+                     mlb: 'MLB', dtc: 'DTC', pos: 'POS', ar: 'AR', ap: 'AP',
+                     ga4: 'GA4', tiktok: 'TikTok', mer: 'MER' };
   // Noise words a SQL alias carries that a reader does not need.
   const DROP_SUFFIX = /_(snapshot|tag)$/;
 
@@ -1035,7 +1053,11 @@
     const cfg = config || {};
     const dims = dimensionsOf(prof);
     const rowField = cfg.row_field || (dims[0] && dims[0].name);
-    const colField = cfg.x_field
+    // Same collision as the heatmap, and the same distinction: an x_field
+    // inherited from a one-dimension visual is an accident, two fields
+    // named the same on purpose is a refusal.
+    const bothNamed = !!(cfg.row_field && cfg.x_field);
+    const colField = (cfg.x_field && (bothNamed || cfg.x_field !== rowField) ? cfg.x_field : null)
       || (dims.find((d) => d.name !== rowField) || {}).name;
     const valField = cfg.y_field || (measuresOf(prof)[0] || {}).name;
 
