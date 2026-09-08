@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SILO · Dashboards</title>
+  <title>SILO · Reports</title>
   <link rel="stylesheet" href="../v2/beacon.css" />
   <link rel="stylesheet" href="../v2/silo-brand.css" />
 <!--
@@ -27,10 +27,16 @@
 <body>
 <div class="silo-app" id="silo-app">
   <main class="silo-main">
-    <header class="bcn-header">
-      <div class="bcn-header-title">
-        <h1>Dashboards</h1>
-        <span class="bcn-header-sub">Saved reports, arranged on a canvas · In testing — not in the sidebar yet</span>
+    <!-- One entry point for the three things a person means by "reports":
+         a board they open, a definition they reuse, and a new one they
+         build. All three already existed as unlinked URLs; the tabs are the
+         smallest change that makes the set discoverable without moving any
+         of them, and without pulling the specialised operational pages
+         (accounting, purchasing, planning) into a generic canvas. -->
+    <header class="bcn-header v3-header">
+      <div class="bcn-header-title v3-header-title">
+        <h1>Reports</h1>
+        <span class="bcn-pill">In testing</span>
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost" href="/v2/silo-chat.html">Ask SILO</a>
@@ -39,13 +45,34 @@
       </div>
     </header>
 
+    <div class="bcn-tabs v3-hub-tabs" role="tablist" aria-label="Reports">
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" data-pane="dashboards" aria-selected="true">Dashboards</button>
+      <button type="button" class="bcn-tab" role="tab" data-pane="reports" aria-selected="false">Saved reports</button>
+    </div>
+
     <div class="bcn-status" id="status" hidden></div>
 
     <div class="v3-list-content">
-      <div class="bcn-card">
-        <div class="bcn-card-header"><span>Your company's dashboards</span></div>
+      <div class="bcn-card" id="paneDashboards">
+        <div class="bcn-card-header"><span>Dashboards you can open</span></div>
         <div class="bcn-card-body" id="listBody">
           <div class="v3-empty">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Saved reports are the shared library every widget draws from, and
+           until now the only place to browse them was inside the add-widget
+           modal of a dashboard you had already created. Listing them is
+           read-only discovery: the rows come through the same
+           security_invoker view, so RLS decides what appears. -->
+      <div class="bcn-card" id="paneReports" hidden>
+        <div class="bcn-card-header"><span>Saved reports</span></div>
+        <div class="bcn-card-body">
+          <div class="v3-picker-toolbar">
+            <input type="search" class="bcn-field" id="reportSearch" placeholder="Filter saved reports…" aria-label="Filter saved reports" />
+            <span class="v3-picker-count" id="reportCount"></span>
+          </div>
+          <div id="reportBody"><div class="v3-empty">Loading…</div></div>
         </div>
       </div>
     </div>
@@ -90,6 +117,7 @@
 <script src="../v2/silo-chrome.js"></script>
 <script src="js/report-params.js?v=20260908a"></script>
 <script src="js/field-semantics.js?v=20260908a"></script>
+<script src="js/metrics.js?v=20260908a"></script>
 <script src="js/chart-adapter.js?v=20260908a"></script>
 <script>
 (function () {
@@ -115,6 +143,8 @@
   }
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   let userId = null;
+  let reportRows = [];
+  let reportFilter = '';
 
   async function loadList() {
     const { data, error } = await sb.from('dashboards_v').select('*').order('updated_at', { ascending: false });
@@ -140,6 +170,68 @@
       </a>`).join('')}</div>`;
   }
 
+  // ── Saved reports ──────────────────────────────────────────────────────
+  // The same library the add-widget picker reads, listed on its own so a
+  // report can be found, checked and edited without first opening a
+  // dashboard that happens to use it.
+  const SOURCE_LABEL = { ask_silo: 'Ask SILO', system: 'SILO report', manual: 'Manual' };
+
+  async function loadReports() {
+    const { data, error } = await sb.from('silo_chat_saved_reports_v')
+      .select('id, title, description, question, queries_run, visibility, source, company_entity_id, created_by_name, created_at, row_estimate')
+      .order('created_at', { ascending: false });
+    if (error) {
+      el('reportBody').innerHTML = `<div class="v3-empty">Couldn't load saved reports: ${esc(error.message)}</div>`;
+      return;
+    }
+    reportRows = data || [];
+    renderReports();
+  }
+
+  function renderReports() {
+    const q = reportFilter.trim().toLowerCase();
+    const visible = reportRows.filter((r) => !q
+      || String(r.title || '').toLowerCase().includes(q)
+      || String(r.description || '').toLowerCase().includes(q)
+      || String(r.question || '').toLowerCase().includes(q));
+    el('reportCount').textContent = `${visible.length} of ${reportRows.length}`;
+    if (!reportRows.length) {
+      el('reportBody').innerHTML = `<div class="v3-empty">
+        No saved reports yet. Ask a question in <a href="/v2/silo-chat.html">Ask SILO</a> and pin the answer, or
+        <a href="/v3/report-builder.html">build one from any table or view</a>.
+      </div>`;
+      return;
+    }
+    if (!visible.length) {
+      el('reportBody').innerHTML = `<div class="v3-empty">Nothing matches “${esc(reportFilter)}”.</div>`;
+      return;
+    }
+    el('reportBody').innerHTML = `<div class="v3-report-grid">${visible.map((r) => {
+      const n = (r.queries_run || []).length;
+      const estimate = Number(r.row_estimate);
+      // A global system definition has no company and no owner, so
+      // "Company"/"Only you" would be a lie for it.
+      const scope = (r.source === 'system' || r.company_entity_id == null)
+        ? '<span class="bcn-pill bcn-pill--accent">Global</span>'
+        : `<span class="bcn-pill${r.visibility === 'private' ? '' : ' bcn-pill--accent'}">${r.visibility === 'private' ? 'Only you' : 'Company'}</span>`;
+      // Every row links to the builder. Whether that SAVES over the
+      // original or offers a copy is decided there, by RLS -- guessing here
+      // would either hide a legitimate edit or promise one that is refused.
+      return `<a class="v3-report-card" href="/v3/report-builder.html?id=${encodeURIComponent(r.id)}">
+        <span class="v3-report-title">${esc(r.title)}</span>
+        <span class="v3-report-question">${esc(r.description || r.question || '')}</span>
+        <span class="v3-report-foot">
+          <span class="bcn-pill bcn-pill--dark">${esc(SOURCE_LABEL[r.source] || r.source || 'Report')}</span>
+          ${scope}
+          <span class="bcn-pill">${n} quer${n === 1 ? 'y' : 'ies'}</span>
+          ${Number.isFinite(estimate) && estimate > 1000
+            ? `<span class="bcn-pill bcn-pill--neg" title="A tile shows 1,000 rows at a time.">${estimate.toLocaleString()} rows</span>` : ''}
+          ${r.created_by_name ? `<span class="v3-report-meta">${esc(r.created_by_name)}</span>` : ''}
+        </span>
+      </a>`;
+    }).join('')}</div>`;
+  }
+
   async function createDashboard() {
     const name = (el('newName').value || '').trim();
     if (!name) { setStatus('Give the dashboard a name.', 'neg', 4000); el('newName').focus(); return; }
@@ -157,6 +249,24 @@
     // only useful next action is adding a widget.
     window.location.href = `/v3/dashboard.html?id=${encodeURIComponent(data.id)}&edit=1`;
   }
+
+  document.querySelector('.v3-hub-tabs').addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-pane]');
+    if (!tab) return;
+    for (const t of document.querySelectorAll('.v3-hub-tabs .bcn-tab')) {
+      const on = t === tab;
+      t.classList.toggle('bcn-tab--active', on);
+      t.setAttribute('aria-selected', String(on));
+    }
+    const pane = tab.dataset.pane;
+    el('paneDashboards').hidden = pane !== 'dashboards';
+    el('paneReports').hidden = pane !== 'reports';
+    // Loaded on first open rather than at boot: most visits are looking for
+    // a board, and the library is a second query nobody asked for.
+    if (pane === 'reports' && !reportRows.length) loadReports();
+  });
+
+  el('reportSearch').addEventListener('input', (e) => { reportFilter = e.target.value; renderReports(); });
 
   el('btnNew').addEventListener('click', () => {
     el('newName').value = '';
@@ -185,11 +295,15 @@
         appEl: '#silo-app',
         active: 'reports/dashboards',
         user: { email: profile?.email || sessRes.data.session.user.email, role: profile?.role },
-        crumbs: ['Reports', 'Dashboards'],
+        crumbs: ['Reports'],
         supabaseClient: sb,
       });
     }
     await loadList();
+    // Deep link straight to the library, so the nav can point at it.
+    if (new URLSearchParams(location.search).get('tab') === 'reports') {
+      document.querySelector('[data-pane="reports"]').click();
+    }
   }
 
   boot().catch((err) => setStatus('Something went wrong: ' + err.message, 'neg'));

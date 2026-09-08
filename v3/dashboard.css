@@ -1025,3 +1025,9 @@ body[data-density="compact"] .v3-canvas { padding-top: 4px; }
   .v3-fs-head { padding: 8px 10px; }
   .v3-fs-body { padding: 8px 10px 14px; }
 }
+
+/* The Reports hub's two tabs. .bcn-tabs is Beacon's own component; this only
+   gives it the page's gutter, since the hub places it directly under the
+   header rather than inside a card. */
+.v3-hub-tabs { padding: 0 18px; flex-shrink: 0; }
+@media (max-width: 720px) { .v3-hub-tabs { padding: 0 8px; } }

@@ -16,8 +16,33 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
  ok('lists the seeded dashboard',(await p.locator('.v3-dash-card').count())===1);
  ok('card names it',(await p.textContent('.v3-dash-name'))==='Monday sales review');
  ok('card links to the canvas',(await p.getAttribute('.v3-dash-card','href'))==='/v3/dashboard.html?id=D1');
- ok('hidden from nav while in testing',(await p.locator('.silo-sb-link[data-nav-id="reports/dashboards"]').count())===0);
- ok('...and the page still works without a nav entry',await p.isVisible('.v3-dash-card'));
+ // The Reports section is now three rows -- open a board, find a
+ // definition, build a new one -- still behind the same EXEC_ROLES
+ // soft-launch gate the previously commented-out row carried. The fake
+ // profile is an owner, so all three are visible here.
+ ok('Reports is in the nav for an exec/owner',
+   (await p.locator('.silo-sb-link[data-nav-id="reports/dashboards"]').count())===1);
+ ok('...alongside the saved-report library',
+   (await p.locator('.silo-sb-link[data-nav-id="reports/library"]').count())===1);
+ ok('...and the report builder',
+   (await p.locator('.silo-sb-link[data-nav-id="reports/builder"]').count())===1);
+ ok('the page still works either way',await p.isVisible('.v3-dash-card'));
+ // ── The saved-report library tab ─────────────────────────────────────
+ await p.click('[data-pane="reports"]');
+ await p.waitForTimeout(400);
+ ok('the library tab shows saved reports',(await p.locator('#paneReports:not([hidden])').count())===1);
+ ok('...and every saved report is listed, whatever its source',
+   (await p.locator('#reportBody .v3-report-card').count())>=1);
+ ok('...each linking to the builder rather than to a dashboard',
+   /report-builder\.html\?id=/.test(await p.getAttribute('#reportBody .v3-report-card','href')));
+ await p.fill('#reportSearch','zzzz-nothing-matches');
+ await p.waitForTimeout(200);
+ ok('filtering says so rather than showing an empty box',
+   (await p.textContent('#reportBody')).includes('Nothing matches'));
+ await p.fill('#reportSearch','');
+ await p.click('[data-pane="dashboards"]');
+ await p.waitForTimeout(200);
+
  await p.click('#btnNew'); await p.waitForTimeout(200);
  ok('new-dashboard modal opens',await p.isVisible('#newBackdrop.open'));
  await p.click('#btnCreate');
