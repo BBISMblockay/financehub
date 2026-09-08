@@ -200,10 +200,58 @@ const r = createReporter('planning-scenarios-ux');
       /not saved to the database/i.test(
         await page.evaluate(() => document.querySelector('#txtScenarioName').parentElement.textContent)));
 
-    console.log('\n── narrow screen ──');
+    console.log('\n── wide tables scroll; they are never cut off ──');
+    /* The assertion that used to live here -- "the page body does not scroll
+     * horizontally" -- PASSED while the page was clipping 636px of the
+     * scenario matrix at a 1440px window. It was checking the wrong thing:
+     * `.silo-main` is `overflow-x: hidden`, so oversized content makes the
+     * body no wider, it just disappears.
+     *
+     * What actually matters is that every oversized element sits in a
+     * container that (a) fits within the content area and (b) really scrolls.
+     * `.ps-shell` centred itself with `margin: 0 auto`, and an auto
+     * cross-axis margin disables `align-items: stretch`, so the shell sized to
+     * max-content and `.thin-scroll` never got a width to constrain against. */
+    const reachable = async () => page.evaluate(() => {
+      const main = document.querySelector('.silo-main');
+      const limit = main.getBoundingClientRect().right;
+      const unreachable = [];
+      document.querySelectorAll('.silo-main table, .silo-main .ps-bar-row, .silo-main .ps-hist-strip')
+        .forEach((n) => {
+          if (n.getBoundingClientRect().width === 0) return;
+          let p = n.parentElement, ok = false;
+          while (p && p !== document.documentElement) {
+            const st = getComputedStyle(p);
+            const box = p.getBoundingClientRect();
+            // a real scroller, sitting inside the content area
+            if ((st.overflowX === 'auto' || st.overflowX === 'scroll')
+              && p.scrollWidth > p.clientWidth + 1 && box.right <= limit + 2) { ok = true; break; }
+            // or an ancestor the element already fits inside
+            if (box.width > 0 && p.scrollWidth <= p.clientWidth + 1
+              && n.getBoundingClientRect().width <= p.clientWidth + 2) { ok = true; break; }
+            p = p.parentElement;
+          }
+          if (!ok) unreachable.push(String(n.className || '').slice(0, 40));
+        });
+      return {
+        clipped: main.scrollWidth > main.clientWidth + 2,
+        mainW: main.clientWidth,
+        unreachable,
+      };
+    });
+
+    for (const w of [1920, 1440, 1280, 1024, 768, 480]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      await page.waitForTimeout(280);
+      const st = await reachable();
+      r.ok(`at ${w}px nothing is clipped out of reach`,
+        st.clipped === false && st.unreachable.length === 0,
+        `main ${st.mainW}px, clipped=${st.clipped}, unreachable=${JSON.stringify(st.unreachable)}`);
+    }
+
     await page.setViewportSize({ width: 480, height: 900 });
     await page.waitForTimeout(300);
-    r.ok('the page body does not scroll horizontally',
+    r.ok('the page body still does not scroll horizontally',
       await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2));
 
   } catch (err) {

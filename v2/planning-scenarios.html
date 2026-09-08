@@ -378,6 +378,33 @@
     details > summary { list-style: none; cursor: pointer; }
     details > summary::-webkit-details-marker { display: none; }
 
+    /* --- Wide tables must SCROLL, not be cut off --------------------------
+       The scenario matrix carries `min-width: 1820px`, and the card holding it
+       is a flex item. A flex item's automatic minimum size is its CONTENT
+       size, so the card refused to shrink to the viewport, `.thin-scroll`
+       never got a width to constrain against, and its scrollbar never
+       appeared. `.silo-main` is `overflow-y: auto`, which computes overflow-x
+       to `hidden` -- so the excess was CLIPPED rather than scrolled.
+
+       Measured at a 1440px window: the matrix needs 1852px, the content area
+       is 1216px, and 636px of columns were unreachable by any means. It looked
+       like a page that simply ended.
+
+       `min-width: 0` down the chain lets the card shrink so the scroller
+       inside it does its job. Scoped to this page rather than added to
+       beacon.css, which every page shares.
+
+       `.ps-shell` also carries `margin: 0 auto` to centre itself, and an auto
+       cross-axis margin DISABLES `align-items: stretch` -- so in the column
+       flex container it sized to max-content (1886px) rather than to the
+       1216px available. `width: 100%` gives it a definite width again; the
+       `min-width: 0`s then let each nested flex item shrink to it. */
+    .ps-shell { width: 100%; box-sizing: border-box; }
+    .ps-shell,
+    .ps-shell .bcn-card,
+    .ps-shell .bcn-card-body { min-width: 0; }
+    .ps-shell .thin-scroll { max-width: 100%; }
+
     /* Layout for Gap + Channel row */
     .ps-gap-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; }
 

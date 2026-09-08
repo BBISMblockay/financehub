@@ -209,6 +209,9 @@
   const state = {
     groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all',
     activeMonths:6, rowsRaw:[], months:[], byType:new Map(),
+    // The exact ISO day window on screen. Null until the first load; every
+    // reader falls back rather than inventing month boundaries.
+    range:null,
   };
 
   const el = {
@@ -311,12 +314,40 @@
     return out;
   }
 
-  /* Months in scope: either the last N, or the custom range's months. */
-  function scopeMonths(){
-    if (state.activeMonths !== 'custom') return monthsBack(state.activeMonths);
-    const from = el.dateFrom.value, to = el.dateTo.value;
-    if (!from || !to) return monthsBack(6);
-    const out = []; let mk = from.slice(0,7); const end = to.slice(0,7);
+  function lastDayOf(mk){
+    const [y,m] = mk.split('-').map(Number);
+    return `${mk}-${String(new Date(y, m, 0).getDate()).padStart(2,'0')}`;
+  }
+
+  function todayIso(){
+    const K = window.SiloDailyTrendKpis;
+    return K ? K.pacificToday() : new Date().toISOString().slice(0,10);
+  }
+
+  /* THE date window, as exact ISO days. Everything reads this -- the fetch,
+     the totals, the URL and the drill-through link -- so those four cannot
+     disagree about what is on screen.
+
+     They did. A custom Aug 9 -> Sep 7 was widened to whole months at three
+     separate points: the fetch started at `months[0]-01`, `recompute()`
+     filtered on month MEMBERSHIP rather than on the day, and the drill-through
+     rebuilt its range from the month list as `Aug 1 -> Sep 30`. Measured on the
+     reproduction: 8 extra days of August in the category totals, and a
+     destination opening on a window 30 days wider than the one clicked. */
+  function scopeRange(){
+    if (state.activeMonths === 'custom'){
+      const from = el.dateFrom.value, to = el.dateTo.value;
+      if (from && to && from <= to) return { from, to };
+    }
+    const months = state.activeMonths === 'custom' ? monthsBack(6) : monthsBack(state.activeMonths);
+    // A preset ends TODAY, not at month end: there is no data past today and
+    // a link claiming Sep 30 on Sep 8 asks for three weeks that do not exist.
+    return { from: `${months[0]}-01`, to: todayIso() };
+  }
+
+  /* Which months the range touches -- the matrix columns. */
+  function monthsInRange(range){
+    const out = []; let mk = range.from.slice(0,7); const end = range.to.slice(0,7);
     while (mk <= end && out.length < 60){
       out.push(mk);
       const [y,m] = mk.split('-').map(Number);
@@ -326,22 +357,44 @@
     return out;
   }
 
-  /* A month containing today is still filling up. Resolved on Pacific, where
-     the business day is, via the same helper the daily trend uses. */
-  function isPartialMonth(mk){
-    const K = window.SiloDailyTrendKpis;
-    const today = K ? K.pacificToday() : new Date().toISOString().slice(0,10);
-    return mk >= today.slice(0,7);
+  /* A column is PARTIAL when the range does not cover the whole month --
+     whether because the month is still filling up (resolved on Pacific), or
+     because the range starts or ends inside it. Both make the column
+     non-comparable to a full month beside it, and only the first was marked:
+     an Aug 9 -> Sep 7 range printed a 23-day August under a plain "Aug 2026"
+     heading. */
+  function monthPartial(mk, range){
+    const r = range || state.range || { from:`${mk}-01`, to: lastDayOf(mk) };
+    const monthStart = `${mk}-01`, monthEnd = lastDayOf(mk);
+    if (r.from > monthStart) return { partial:true, reason:`covers ${fmtDay(r.from)} onward, not the whole month` };
+    if (r.to < monthEnd) {
+      return mk >= todayIso().slice(0,7)
+        ? { partial:true, reason:'still in progress' }
+        : { partial:true, reason:`covers through ${fmtDay(r.to)} only` };
+    }
+    return { partial:false, reason:'' };
+  }
+
+  function fmtDay(iso){
+    if (!iso) return '';
+    const [y,m,d] = iso.split('-').map(Number);
+    return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]} ${d}`;
+  }
+
+  function rangeLabel(r){
+    return `${fmtDay(r.from)} ${r.from.slice(0,4)} – ${fmtDay(r.to)} ${r.to.slice(0,4)}`;
   }
 
   function recompute(){
-    const months = scopeMonths();
-    const monthSet = new Set(months);
+    const range = state.range || scopeRange();
+    const months = monthsInRange(range);
     const byType = new Map();
     for (const r of state.rowsRaw){
       if (!inGroup(r)) continue;
-      const mk = String(r.day_date).slice(0,7);
-      if (!monthSet.has(mk)) continue;
+      const day = String(r.day_date).slice(0,10);
+      // The DAY decides, not the month it falls in.
+      if (day < range.from || day > range.to) continue;
+      const mk = day.slice(0,7);
       const type = r.product_type || 'Uncategorized';
       if (!byType.has(type)) byType.set(type, new Map());
       const byMonth = byType.get(type);
@@ -356,7 +409,7 @@
     state.months = months;
     state.byType = byType;
     renderAll();
-    setStatus(`Loaded ${state.rowsRaw.length} rows across ${months.length} month${months.length===1?'':'s'} (${monthLabel(months[0])} – ${monthLabel(months[months.length-1])}).`);
+    setStatus(`${rangeLabel(range)} · ${months.length} month column${months.length===1?'':'s'} · ${state.rowsRaw.length} rows loaded.`);
   }
 
   async function runLoad(){
@@ -369,13 +422,10 @@
       if (state.activeGroup!=='all' && !state.groups.includes(state.activeGroup)) state.activeGroup='all';
       [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
 
-      // Fetch the window the scope actually asks for, custom range included.
-      const months = scopeMonths();
-      const dateFrom = `${months[0]}-01`;
-      const dateTo = (state.activeMonths === 'custom' && el.dateTo.value)
-        ? el.dateTo.value
-        : isoDateOnly(new Date());
-      state.rowsRaw = await loadPagedRange(dateFrom, dateTo);
+      // Fetch exactly the window on screen -- no month rounding on either end.
+      const range = scopeRange();
+      state.range = range;
+      state.rowsRaw = await loadPagedRange(range.from, range.to);
       recompute();
     } catch(e){
       console.error(e);
@@ -401,7 +451,7 @@
     const { rows } = typeRows();
     const grandTotal = rows.reduce((a,r)=>a+r.total,0);
     el.kpiTotal.textContent = moneyW(grandTotal);
-    el.kpiTotalSub.textContent = `${state.months.length} month${state.months.length===1?'':'s'}`;
+    el.kpiTotalSub.textContent = state.range ? rangeLabel(state.range) : '—';
     if (rows.length){
       el.kpiTopType.textContent = rows[0].type;
       el.kpiTopTypeVal.textContent = moneyW(rows[0].total);
@@ -411,14 +461,14 @@
     }
     el.kpiTypeCount.textContent = numFmt(rows.length);
     el.kpiMonthCount.textContent = numFmt(state.months.length);
-    el.kpiMonthRange.textContent = state.months.length ? `${monthLabel(state.months[0])} – ${monthLabel(state.months[state.months.length-1])}` : '—';
+    el.kpiMonthRange.textContent = state.range ? rangeLabel(state.range) : '—';
   }
 
   function renderMatrix(){
     const { field, rows } = typeRows();
     el.matrixHead.innerHTML = `<tr><th>Product type</th>${state.months.map(mk=>{
-      const partial = isPartialMonth(mk);
-      return `<th class="${partial?'pt-month-partial':''}"${partial?' title="This month is still in progress — it is not comparable to the complete months beside it."':''}>${monthLabel(mk)}${partial?'<span class="pt-partial-tag">PARTIAL</span>':''}</th>`;
+      const p = monthPartial(mk, state.range);
+      return `<th class="${p.partial?'pt-month-partial':''}"${p.partial?` title="Not a full month: ${esc(p.reason)}. Not comparable to the complete months beside it."`:''}>${monthLabel(mk)}${p.partial?'<span class="pt-partial-tag">PARTIAL</span>':''}</th>`;
     }).join('')}<th class="total-col">Total</th></tr>`;
 
     if (!rows.length){
@@ -432,7 +482,7 @@
     // dates and the store group -- the slice you actually clicked.
     let bodyHtml = rows.map(r=>`<tr>
       <td><button type="button" class="pt-type-link" data-drill-type="${esc(r.type)}" title="Open ${esc(r.type)} in Product Search with this date range and store group">${esc(r.type)}</button></td>
-      ${r.values.map((v,i)=>`<td class="${isPartialMonth(state.months[i])?'pt-month-partial':''}">${field.fmt(v)}</td>`).join('')}
+      ${r.values.map((v,i)=>`<td class="${monthPartial(state.months[i], state.range).partial?'pt-month-partial':''}">${field.fmt(v)}</td>`).join('')}
       <td class="total-col">${field.fmt(r.total)}</td>
     </tr>`).join('');
 
@@ -440,7 +490,7 @@
     const grandTotal = monthTotals.reduce((a,v)=>a+v,0);
     bodyHtml += `<tr class="pt-total">
       <td>Total</td>
-      ${monthTotals.map((v,i)=>`<td class="${isPartialMonth(state.months[i])?'pt-month-partial':''}">${field.fmt(v)}</td>`).join('')}
+      ${monthTotals.map((v,i)=>`<td class="${monthPartial(state.months[i], state.range).partial?'pt-month-partial':''}">${field.fmt(v)}</td>`).join('')}
       <td class="total-col">${field.fmt(grandTotal)}</td>
     </tr>`;
 
@@ -449,11 +499,15 @@
 
   function exportMatrixCsv(){
     const { field, rows } = typeRows();
-    const headers = ['Product type', ...state.months.map(monthLabel), 'Total'];
+    const headers = ['Product type', ...state.months.map(mk => {
+      const p = monthPartial(mk, state.range);
+      return p.partial ? `${monthLabel(mk)} (partial: ${p.reason})` : monthLabel(mk);
+    }), 'Total'];
     const csvRows = rows.map(r=>[r.type, ...r.values, r.total]);
     const monthTotals = state.months.map((_,i)=>rows.reduce((a,r)=>a+r.values[i],0));
     csvRows.push(['Total', ...monthTotals, monthTotals.reduce((a,v)=>a+v,0)]);
-    downloadCsv(`product-types-${el.metricMode.value}.csv`, headers, csvRows);
+    const stamp = state.range ? `${state.range.from}_to_${state.range.to}` : 'range';
+    downloadCsv(`product-types-${el.metricMode.value}-${stamp}.csv`, headers, csvRows);
   }
 
   function renderAll(){ renderKpis(); renderMatrix(); syncUrl(); }
@@ -461,13 +515,11 @@
   /* The date window currently on screen, as ISO dates -- what a drill-through
      link has to carry so the destination opens on the same slice. */
   function currentRange(){
-    const months = state.months;
-    if (!months.length) return { dateFrom:'', dateTo:'' };
-    const first = months[0];
-    const last = months[months.length-1];
-    const [ly,lm] = last.split('-').map(Number);
-    const lastDay = new Date(ly, lm, 0).getDate();
-    return { dateFrom: `${first}-01`, dateTo: `${last}-${String(lastDay).padStart(2,'0')}` };
+    const r = state.range;
+    if (!r) return { dateFrom:'', dateTo:'' };
+    // The exact days on screen. Rebuilding this from the month list is what
+    // sent a drill-through to Aug 1 - Sep 30 for a range of Aug 9 - Sep 7.
+    return { dateFrom: r.from, dateTo: r.to };
   }
 
   function currentLinkState(){
