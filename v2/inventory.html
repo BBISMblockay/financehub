@@ -840,34 +840,56 @@
 
     const INVENTORY_VIEW = "inventory_workboard_v";
 
-    /* MEASURED, not guessed (2026-09-07, Baseballism, 66,745 rows).
+    /* Page size and ordering. READ THE SECOND HALF BEFORE CHANGING EITHER.
      *
-     * The page used to fetch `select("*")` in 10,000-row pages. PostgREST
-     * turns each page into LIMIT/OFFSET, and this view's plan builds its
-     * whole SKU-fallback aggregate (56,782 groups) before it can honour an
-     * OFFSET -- so every page re-ran the full join and threw away the rows it
-     * had already passed. EXPLAIN ANALYZE, as the authenticated user:
+     * The page fetches this view in 10,000-row pages with NO `order by`. Both
+     * of those are deliberate, and both were got wrong once already.
      *
-     *     offset 0      471 ms
-     *     offset 60000  2,104 ms
-     *     -> ~9.4 s of database time across the seven pages, seven round
-     *        trips, and (worse) no ORDER BY, so a row could be seen twice or
-     *        missed entirely as the pages drifted.
+     * WHAT WENT WRONG. A first pass at this replaced the seven paged requests
+     * with ONE request for all 66,745 rows, ordered by id, on the reasoning
+     * that PostgREST turns each page into LIMIT/OFFSET and this view's plan
+     * rebuilds its whole 56,782-group SKU-fallback aggregate before it can
+     * honour an offset. That reasoning is correct as far as it goes -- offset
+     * 0 costs 475ms and offset 60,000 costs ~2,000ms -- and the replacement
+     * measured 2.1s, comfortably inside the 8s `authenticated`
+     * statement_timeout. It then timed out in production on the first real
+     * page load.
      *
-     * One ordered request for the whole set: 2,139 ms. The loop stays as a
-     * safety net in case a server-side row cap is ever configured -- with the
-     * ORDER BY it is now correct to page, which it was not before.
+     * Two mistakes, both worth naming:
      *
-     * The explicit column list is the other half. `select *` returns 41
-     * columns; the page maps 25. Dropping the rest (row_hash alone is 4.2 MB
-     * across the set, plus product_image, snapshot_at, sync_batch_id,
-     * est_oos_date, variant_created_at and the pre-computed duplicates) took
-     * the planner's row width from 832 to 618 bytes, ~26% off the payload. */
-    const INVENTORY_PAGE_SIZE = 100000;
+     *   1. The 2.1s was a WARM-CACHE REPEAT. It was measured after running
+     *      the same query several times over. A page load is the cold case,
+     *      and cold it does not finish. Never accept a timing taken from a
+     *      query you have just run.
+     *   2. `order by id` is not free here. The driving index scan is on
+     *      company_entity_id, so ordering by id forces a sort of every joined
+     *      row (external merge, ~23MB to disk) before the FIRST row can be
+     *      returned. Measured cold under the real 8s cap, `order by id limit
+     *      10000` times out on its own. The same page without the order by is
+     *      474ms.
+     *
+     * SO: no `order by`. The honest cost is that LIMIT/OFFSET without an
+     * ORDER BY has no guaranteed row order, so pages could in principle
+     * repeat or skip a row. That risk is theoretical here and the timeout was
+     * not: the source is a materialized view refreshed only at the end of the
+     * nightly sync, so it is static for the whole of a page load, and the
+     * plan reads it through one index scan in a stable order. An ordering
+     * guarantee is not worth a page that does not load.
+     *
+     * WHAT DID SURVIVE from that pass, because it is a real and safe win: the
+     * explicit column list below. `select *` returns 41 columns and the page
+     * maps 25 of them. Dropping the rest (row_hash alone is 4.2MB across the
+     * set, plus product_image, snapshot_at, sync_batch_id, est_oos_date,
+     * variant_created_at and the pre-computed duplicates) takes the planner's
+     * row width from 832 to 618 bytes -- about 26% off the payload, on the
+     * same query shape that has always worked. It also adds velocity_matched
+     * and velocity_source, which the page needs to tell "no cover" apart from
+     * "unknown cover" and which it never used to request. */
+    const INVENTORY_PAGE_SIZE = 10000;
     const PRODUCT_TAG_PAGE_SIZE = 5000;
 
     const INVENTORY_COLUMNS = [
-      "id", "location_tag", "location", "location_name", "shop_domain",
+      "location_tag", "location", "location_name", "shop_domain",
       "product_title", "variant_title", "variant_sku", "variant_barcode",
       "product_type", "product_image_url", "retail_price",
       "total_available_quantity", "total_available_inventory_value",
@@ -1370,12 +1392,12 @@
 
       while (true){
         const to = from + INVENTORY_PAGE_SIZE - 1;
+        // No .order() here on purpose -- see INVENTORY_PAGE_SIZE above.
+        // Ordering this view forces a full sort before the first row and
+        // blows the 8s statement timeout on a cold cache.
         const { data, error } = await SUPABASE
           .from(INVENTORY_VIEW)
           .select(INVENTORY_COLUMNS)
-          // Without a stable order, LIMIT/OFFSET paging can repeat or skip
-          // rows between requests. Costs ~40 ms; buys a correct result set.
-          .order("id", { ascending: true })
           .range(from, to);
 
         if (error) throw error;

@@ -202,8 +202,24 @@ present('an explicit inventory column list', 'INVENTORY_COLUMNS');
 absent('a select("*") inventory fetch', '.select("*")');
 present('velocity_matched in the requested columns — the fixes depend on it',
   '"days_oos", "velocity_basis", "velocity_matched", "velocity_source"');
-present('a stable order on paged reads, so pages cannot repeat or skip rows',
-  '.order("id", { ascending: true })');
+
+r.test('the inventory fetch is NOT ordered, and pages stay at 10,000', () => {
+  // Regression guard, and the reason is the opposite of what it looks like.
+  // Ordering this view forces a sort of every joined row before the first one
+  // can be returned (external merge, ~23MB to disk); measured cold under the
+  // real 8s `authenticated` statement_timeout, `order by id limit 10000`
+  // times out on its own, where the same page unordered is 474ms. One
+  // all-rows request instead of seven pages timed out for the same reason.
+  // If you are here to "fix" the missing ORDER BY: it is load-bearing.
+  const start = html.indexOf('async function loadInventoryCurrentPaginated()');
+  if (start === -1) throw new Error('loadInventoryCurrentPaginated() not found');
+  const body = html.slice(start, html.indexOf('\n    }', start));
+  r.not(body, '.order(', 'the inventory fetch must not be ordered');
+  r.has(html, 'const INVENTORY_PAGE_SIZE = 10000;');
+});
+r.test('id is not requested, since nothing reads it any more', () => {
+  r.not(html, '"id", "location_tag"');
+});
 absent('the retained raw Supabase row', '_raw_supabase');
 absent('the per-paint rollup recompute', 'refreshAllRollupSuggestions');
 
