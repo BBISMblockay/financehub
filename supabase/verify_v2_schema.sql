@@ -2117,6 +2117,51 @@ select
     else 'ok'
   end as v3_dashboards;
 
+-- ── How big is a report? (20260907140000) ────────────────────────────
+-- The runner pages at 1000 rows. Every surface that RENDERS a report is
+-- honest about that already; nothing told the AUTHOR before the report was
+-- on somebody's dashboard. These two columns are that record.
+--
+-- The view check is the one that actually breaks silently:
+-- silo_chat_saved_reports_v carries an EXPLICIT column list, so a `create or
+-- replace` that forgets these columns does not error -- the picker just stops
+-- showing sizes and every report looks small again.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='row_estimate')
+      then 'MISSING — run 20260907140000_report_row_estimate.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports'
+                       and column_name='row_estimate_at')
+      then 'MISSING — row_estimate_at; a count with no date on it is not interpretable'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_saved_reports_v'
+                       and column_name='row_estimate')
+      then 'BROKEN — silo_chat_saved_reports_v does not expose row_estimate. The view has an '
+        || 'explicit column list, so the picker silently shows no sizes and every oversized '
+        || 'report looks small'
+    when coalesce((select option_value from pg_options_to_table(
+                     (select c.reloptions from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                       where n.nspname='public' and c.relname='silo_chat_saved_reports_v'))
+                   where option_name='security_invoker'), 'false') <> 'true'
+      then 'BROKEN — silo_chat_saved_reports_v lost security_invoker; it would hand every '
+        || 'company''s saved reports to every user'
+    when has_table_privilege('anon','public.silo_chat_saved_reports_v','SELECT')
+      then 'BROKEN — anon can select silo_chat_saved_reports_v'
+    -- A stored estimate that is not a count is worse than none: the whole
+    -- point of the column is that the number can be trusted.
+    when exists (select 1 from public.silo_chat_saved_reports
+                 where row_estimate is not null and row_estimate < 0)
+      then 'BROKEN — a negative row_estimate exists'
+    when exists (select 1 from public.silo_chat_saved_reports
+                 where (row_estimate is null) <> (row_estimate_at is null))
+      then 'BROKEN — row_estimate and row_estimate_at disagree about whether a measurement '
+        || 'exists; neither means anything without the other'
+    else 'ok'
+  end as report_row_estimate;
+
 -- ── Reports that cannot run ──────────────────────────────────────────
 -- A saved report reading a MATERIALIZED VIEW from a security_invoker view
 -- does not return fewer rows -- it RAISES 42501, because a matview has no

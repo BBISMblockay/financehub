@@ -102,6 +102,32 @@ What remains is coverage and one missing branch.
 
 ## Reporting and data grain
 
+- [x] **Report size is visible at authoring time** (`20260907140000`). Done
+      2026-09-07 after finding two dashboard tiles already over the 1000-row
+      page cap — `Inventory exposure — stock and incoming by SKU` at 7,231
+      rows showing 1,000, and `Logistics · Top products by units sold` at
+      2,049 — neither discoverable without wrapping each query in a `count(*)`
+      by hand. `row_estimate` / `row_estimate_at` on
+      `silo_chat_saved_reports`, surfaced in the builder preview, the save
+      dialog and the widget picker
+- [ ] **Tie-outs only cover `system` reports — 21 of 96.** The other 75 have
+      nothing independently checking their numbers, and that is now the
+      biggest verification gap in reporting, not the caps. A `manual` report
+      promoted to company visibility is read by the whole team with no second
+      path to any figure it publishes. Deliberately left out of the size work:
+      it is a policy change about who may write `silo_report_tieouts` (today,
+      nobody client-side — the runner EXECUTEs what is stored there, so the
+      table is code), not an authoring-UX change
+- [ ] **Push the CLAUDE.md data traps into `silo_chat_schema_catalog`.** The
+      traps that produce confidently wrong answers — summing
+      `sales_by_day.total_orders` (one row per SKU, so it counted 9,995 orders
+      on a day with 2,298), joining inventory to sales on product title,
+      `current_date` being UTC while the business is Pacific,
+      `products_master.is_active` being TRUE on all 24,056 rows — are written
+      in CLAUDE.md, which only a coding agent reads. Ask SILO and any UI-driving
+      agent read the CATALOG. Curating them there upgrades every future run
+      instead of auditing output one report at a time
+
 - [ ] **The Marketing RPCs hardcode `location_tag = 'online'`, which is a
       multi-tenant bug.** `locations` already carries `store_type` per company
       and CLAUDE.md already documents `locations.store_type = 'online'` as the
