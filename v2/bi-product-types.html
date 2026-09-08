@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
+  <script src="bi-nav.js"></script>
+  <script src="daily-trend-kpis.js"></script>
   <style>
     .bcn-kpi-band { flex-wrap:wrap; }
 
@@ -28,6 +30,21 @@
       cursor:pointer; user-select:none; font-family:var(--bcn-mono);
     }
     .pt-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .pt-daterange { display:flex; align-items:center; gap:6px; margin-top:6px; }
+    .pt-daterange[hidden] { display:none; }
+    .pt-daterange input[type="date"] { width:130px; }
+    .pt-date-sep { color:var(--bcn-ink-3); font-size:11px; }
+    .pt-linknote { flex-basis:100%; margin-top:6px; padding:5px 9px; border-radius:var(--bcn-radius);
+      background:oklch(0.97 0.04 85); border:1px solid var(--bcn-warn); font-size:11px; color:var(--bcn-ink-2); }
+    .pt-linknote[hidden] { display:none; }
+    /* A month still filling up is not comparable to a complete one, and looked
+       identical to a weak month. */
+    th.pt-month-partial, td.pt-month-partial { background:oklch(0.97 0.04 85); }
+    th.pt-month-partial .pt-partial-tag { display:block; font-size:8.5px; font-weight:700; letter-spacing:.04em;
+      color:var(--bcn-warn); font-family:var(--bcn-mono); }
+    .pt-type-link { background:none; border:none; padding:0; font:inherit; color:var(--bcn-accent);
+      cursor:pointer; text-align:left; text-decoration:underline; text-underline-offset:2px; }
+    .pt-type-link:hover { color:var(--bcn-ink); }
     .pt-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
 
     .pt-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
@@ -92,12 +109,19 @@
             <button class="pt-chip" data-months="3">3 mo</button>
             <button class="pt-chip active" data-months="6">6 mo</button>
             <button class="pt-chip" data-months="12">12 mo</button>
+            <button class="pt-chip" data-months="custom">Custom</button>
+          </div>
+          <div class="pt-daterange" id="customRange" hidden>
+            <input type="date" id="dateFrom" class="bcn-field" aria-label="From date" />
+            <span class="pt-date-sep">–</span>
+            <input type="date" id="dateTo" class="bcn-field" aria-label="To date" />
           </div>
         </div>
         <div>
           <label class="bcn-label">Metric</label>
           <select id="metricMode" class="bcn-field">
-            <option value="total" selected>Total Sales</option>
+            <option value="net" selected>Net Sales</option>
+            <option value="total">Total Sales</option>
             <option value="gross">Gross Sales</option>
             <option value="discounts">Discounts</option>
             <option value="units">Units</option>
@@ -111,6 +135,7 @@
         </div>
       </div>
       <div id="statusText" class="pt-status">Loading…</div>
+      <div id="linkNote" class="pt-linknote" hidden></div>
     </div>
 
     <div class="pt-content">
@@ -169,8 +194,12 @@
     try { sessionStorage.setItem(SHARED_FILTER_KEY, JSON.stringify({ ...loadSharedFilters(), ...patch })); } catch {}
   }
   const shared = loadSharedFilters();
+  const NAV = window.SiloBiNav;
 
   const METRIC_FIELDS = {
+    // `net` is total_net_sales -- the same column bi-daily-trend and
+    // bi-product-search already call net sales. No new revenue definition.
+    net:       { key:'net',       label:'Net $',       fmt:v=>moneyW(v) },
     total:     { key:'total',     label:'Total $',    fmt:v=>moneyW(v) },
     gross:     { key:'gross',     label:'Gross $',     fmt:v=>moneyW(v) },
     discounts: { key:'discounts', label:'Discounts $', fmt:v=>moneyW(v) },
@@ -186,6 +215,10 @@
     btnRefresh: document.getElementById('btnRefresh'),
     btnExport: document.getElementById('btnExport'),
     rangePresets: document.getElementById('rangePresets'),
+    customRange: document.getElementById('customRange'),
+    dateFrom: document.getElementById('dateFrom'),
+    dateTo: document.getElementById('dateTo'),
+    linkNote: document.getElementById('linkNote'),
     metricMode: document.getElementById('metricMode'),
     groupFilters: document.getElementById('groupFilters'),
     statusText: document.getElementById('statusText'),
@@ -265,7 +298,7 @@
     const PAGE_SIZE=10000; let from=0, out=[];
     for(;;){
       let q = sb.from('sales_by_day_verification_v')
-        .select('day_date,location_tag,product_type,total_quantity_sold,total_gross_sales,total_discounts,total_sales')
+        .select('day_date,location_tag,product_type,total_quantity_sold,total_gross_sales,total_discounts,total_sales,total_net_sales')
         .gte('day_date',dateFrom).lte('day_date',dateTo)
         .range(from,from+PAGE_SIZE-1);
       q = scopeQ(q);
@@ -278,8 +311,31 @@
     return out;
   }
 
+  /* Months in scope: either the last N, or the custom range's months. */
+  function scopeMonths(){
+    if (state.activeMonths !== 'custom') return monthsBack(state.activeMonths);
+    const from = el.dateFrom.value, to = el.dateTo.value;
+    if (!from || !to) return monthsBack(6);
+    const out = []; let mk = from.slice(0,7); const end = to.slice(0,7);
+    while (mk <= end && out.length < 60){
+      out.push(mk);
+      const [y,m] = mk.split('-').map(Number);
+      const d = new Date(y, m, 1);
+      mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    }
+    return out;
+  }
+
+  /* A month containing today is still filling up. Resolved on Pacific, where
+     the business day is, via the same helper the daily trend uses. */
+  function isPartialMonth(mk){
+    const K = window.SiloDailyTrendKpis;
+    const today = K ? K.pacificToday() : new Date().toISOString().slice(0,10);
+    return mk >= today.slice(0,7);
+  }
+
   function recompute(){
-    const months = monthsBack(state.activeMonths);
+    const months = scopeMonths();
     const monthSet = new Set(months);
     const byType = new Map();
     for (const r of state.rowsRaw){
@@ -289,11 +345,12 @@
       const type = r.product_type || 'Uncategorized';
       if (!byType.has(type)) byType.set(type, new Map());
       const byMonth = byType.get(type);
-      const cur = byMonth.get(mk) || { gross:0, discounts:0, qty:0, total:0 };
+      const cur = byMonth.get(mk) || { gross:0, discounts:0, qty:0, total:0, net:0 };
       cur.gross += Number(r.total_gross_sales||0);
       cur.discounts += Number(r.total_discounts||0);
       cur.qty += Number(r.total_quantity_sold||0);
       cur.total += Number(r.total_sales||0);
+      cur.net += Number(r.total_net_sales||0);
       byMonth.set(mk, cur);
     }
     state.months = months;
@@ -312,10 +369,13 @@
       if (state.activeGroup!=='all' && !state.groups.includes(state.activeGroup)) state.activeGroup='all';
       [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
 
-      const months = monthsBack(state.activeMonths);
+      // Fetch the window the scope actually asks for, custom range included.
+      const months = scopeMonths();
       const dateFrom = `${months[0]}-01`;
-      const today = isoDateOnly(new Date());
-      state.rowsRaw = await loadPagedRange(dateFrom, today);
+      const dateTo = (state.activeMonths === 'custom' && el.dateTo.value)
+        ? el.dateTo.value
+        : isoDateOnly(new Date());
+      state.rowsRaw = await loadPagedRange(dateFrom, dateTo);
       recompute();
     } catch(e){
       console.error(e);
@@ -356,7 +416,10 @@
 
   function renderMatrix(){
     const { field, rows } = typeRows();
-    el.matrixHead.innerHTML = `<tr><th>Product type</th>${state.months.map(mk=>`<th>${monthLabel(mk)}</th>`).join('')}<th class="total-col">Total</th></tr>`;
+    el.matrixHead.innerHTML = `<tr><th>Product type</th>${state.months.map(mk=>{
+      const partial = isPartialMonth(mk);
+      return `<th class="${partial?'pt-month-partial':''}"${partial?' title="This month is still in progress — it is not comparable to the complete months beside it."':''}>${monthLabel(mk)}${partial?'<span class="pt-partial-tag">PARTIAL</span>':''}</th>`;
+    }).join('')}<th class="total-col">Total</th></tr>`;
 
     if (!rows.length){
       el.rowCount.textContent = '0 types';
@@ -365,9 +428,11 @@
     }
     el.rowCount.textContent = `${rows.length} type${rows.length===1?'':'s'}`;
 
+    // Category rows drill into Product Search carrying the category, the
+    // dates and the store group -- the slice you actually clicked.
     let bodyHtml = rows.map(r=>`<tr>
-      <td>${esc(r.type)}</td>
-      ${r.values.map(v=>`<td>${field.fmt(v)}</td>`).join('')}
+      <td><button type="button" class="pt-type-link" data-drill-type="${esc(r.type)}" title="Open ${esc(r.type)} in Product Search with this date range and store group">${esc(r.type)}</button></td>
+      ${r.values.map((v,i)=>`<td class="${isPartialMonth(state.months[i])?'pt-month-partial':''}">${field.fmt(v)}</td>`).join('')}
       <td class="total-col">${field.fmt(r.total)}</td>
     </tr>`).join('');
 
@@ -375,7 +440,7 @@
     const grandTotal = monthTotals.reduce((a,v)=>a+v,0);
     bodyHtml += `<tr class="pt-total">
       <td>Total</td>
-      ${monthTotals.map(v=>`<td>${field.fmt(v)}</td>`).join('')}
+      ${monthTotals.map((v,i)=>`<td class="${isPartialMonth(state.months[i])?'pt-month-partial':''}">${field.fmt(v)}</td>`).join('')}
       <td class="total-col">${field.fmt(grandTotal)}</td>
     </tr>`;
 
@@ -391,14 +456,56 @@
     downloadCsv(`product-types-${el.metricMode.value}.csv`, headers, csvRows);
   }
 
-  function renderAll(){ renderKpis(); renderMatrix(); }
+  function renderAll(){ renderKpis(); renderMatrix(); syncUrl(); }
+
+  /* The date window currently on screen, as ISO dates -- what a drill-through
+     link has to carry so the destination opens on the same slice. */
+  function currentRange(){
+    const months = state.months;
+    if (!months.length) return { dateFrom:'', dateTo:'' };
+    const first = months[0];
+    const last = months[months.length-1];
+    const [ly,lm] = last.split('-').map(Number);
+    const lastDay = new Date(ly, lm, 0).getDate();
+    return { dateFrom: `${first}-01`, dateTo: `${last}-${String(lastDay).padStart(2,'0')}` };
+  }
+
+  function currentLinkState(){
+    return Object.assign({ storeGroup: state.activeGroup, metric: el.metricMode.value }, currentRange());
+  }
+
+  function syncUrl(){
+    NAV.syncUrl(currentLinkState(), NAV.supportsOf('/v2/bi-product-types.html'));
+  }
+
+  el.matrixBody.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-drill-type]'); if (!btn) return;
+    const values = Object.assign(currentLinkState(), { productType: btn.dataset.drillType });
+    // Product Search has no metric control; buildLink reports that rather
+    // than dropping it silently, and the metric is not part of the ask there.
+    const link = NAV.linkFor('/v2/bi-product-search.html', values);
+    NAV.writeShared({ dateFrom: values.dateFrom, dateTo: values.dateTo, storeGroup: values.storeGroup });
+    window.location.href = link.href;
+  });
 
   el.btnRefresh.addEventListener('click', runLoad);
   el.btnExport.addEventListener('click', exportMatrixCsv);
   el.metricMode.addEventListener('change', renderAll);
+  [ 'dateFrom','dateTo' ].forEach(id => el[id].addEventListener('change', () => {
+    if (state.activeMonths !== 'custom') return;
+    NAV.writeShared({ dateFrom: el.dateFrom.value, dateTo: el.dateTo.value });
+    runLoad();
+  }));
   el.rangePresets.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-months]'); if (!btn) return;
-    state.activeMonths = Number(btn.dataset.months);
+    const v = btn.dataset.months;
+    state.activeMonths = v === 'custom' ? 'custom' : Number(v);
+    el.customRange.hidden = state.activeMonths !== 'custom';
+    if (state.activeMonths === 'custom' && !el.dateFrom.value){
+      const m = monthsBack(6);
+      el.dateFrom.value = `${m[0]}-01`;
+      el.dateTo.value = new Date().toISOString().slice(0,10);
+    }
     [...el.rangePresets.querySelectorAll('[data-months]')].forEach(b=>b.classList.toggle('active', b===btn));
     runLoad();
   });
@@ -423,7 +530,30 @@
         supabaseClient:sb,
       });
     }
+    applyIncomingLink();
     await runLoad();
+  }
+
+  /* Open on whatever the link asked for. URL wins over the remembered
+     sessionStorage filters; anything this report cannot honour is SHOWN. */
+  function applyIncomingLink(){
+    const res = NAV.resolveIncoming(NAV.supportsOf('/v2/bi-product-types.html'), {
+      validate: { metric: v => Object.prototype.hasOwnProperty.call(METRIC_FIELDS, v) },
+    });
+    const a = res.applied;
+    if (a.storeGroup) state.activeGroup = a.storeGroup;
+    if (a.metric) el.metricMode.value = a.metric;
+    if (a.dateFrom || a.dateTo){
+      state.activeMonths = 'custom';
+      el.customRange.hidden = false;
+      if (a.dateFrom) el.dateFrom.value = a.dateFrom;
+      if (a.dateTo) el.dateTo.value = a.dateTo;
+      [...el.rangePresets.querySelectorAll('[data-months]')]
+        .forEach(b => b.classList.toggle('active', b.dataset.months === 'custom'));
+    }
+    const note = NAV.droppedNote(res.dropped);
+    el.linkNote.hidden = !note;
+    if (note) el.linkNote.textContent = note;
   }
 
   boot();

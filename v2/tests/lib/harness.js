@@ -76,7 +76,60 @@ window.__QUERIES__ = [];
       // enforced by RLS on the real database, not by the fixture -- so
       // honouring it here would silently empty every table and every suite
       // would assert against a blank page.
+      function matchIlike(v, pat) {
+        // '%' is the only wildcard these pages use; everything else is
+        // literal. Comparing lowercased substrings avoids building a regex
+        // (and the backslash escaping that goes with it) entirely.
+        var hay = String(v == null ? '' : v).toLowerCase();
+        var needle = String(pat).toLowerCase();
+        if (needle.indexOf('%') === -1) return hay === needle;
+        var segs = needle.split('%').filter(function (x) { return x.length; });
+        var pos = 0;
+        for (var si = 0; si < segs.length; si++) {
+          var at = hay.indexOf(segs[si], pos);
+          if (at === -1) return false;
+          pos = at + segs[si].length;
+        }
+        return true;
+      }
+
+      function matchOne(r, col, op, val) {
+        var v = r[col];
+        if (op === 'eq')    return String(v == null ? '' : v) === String(val);
+        if (op === 'is')    return val === 'null' ? (v === null || v === undefined) : String(v) === String(val);
+        if (op === 'ilike') return matchIlike(v, val);
+        if (op === 'neq')   return String(v) !== String(val);
+        return true;
+      }
+
       q.filters.forEach(function (f) {
+        if (f.op === 'or') {
+          // "col.op.value,col.op.value" -- any clause may match. Split on
+          // commas the page did not escape (it escapes a literal comma inside
+          // a value with a backslash).
+          var BSLASH = String.fromCharCode(92);
+          var parts = [];
+          var buf = '';
+          for (var ci = 0; ci < f.expr.length; ci++) {
+            var ch = f.expr[ci];
+            if (ch === BSLASH && f.expr[ci + 1] === ',') { buf += ','; ci++; continue; }
+            if (ch === ',') { parts.push(buf); buf = ''; continue; }
+            buf += ch;
+          }
+          parts.push(buf);
+          var clauses = parts.map(function (c) {
+            var idx1 = c.indexOf('.');
+            if (idx1 === -1) return null;
+            var idx2 = c.indexOf('.', idx1 + 1);
+            if (idx2 === -1) return null;
+            return { col: c.slice(0, idx1).trim(), op: c.slice(idx1 + 1, idx2), val: c.slice(idx2 + 1) };
+          }).filter(Boolean);
+          if (!clauses.length) return;
+          all = all.filter(function (r) {
+            return clauses.some(function (c) { return matchOne(r, c.col, c.op, c.val); });
+          });
+          return;
+        }
         var present = all.some(function (r) { return Object.prototype.hasOwnProperty.call(r, f.col); });
         if (!present) return;
         all = all.filter(function (r) {
@@ -84,6 +137,10 @@ window.__QUERIES__ = [];
           if (f.op === 'gte') return String(v) >= String(f.val);
           if (f.op === 'lte') return String(v) <= String(f.val);
           if (f.op === 'eq')  return String(v) === String(f.val);
+          if (f.op === 'neq') return String(v) !== String(f.val);
+          if (f.op === 'lt')  return Number(v) < Number(f.val);
+          if (f.op === 'gt')  return Number(v) > Number(f.val);
+          if (f.op === 'ilike') return matchIlike(v, f.val);
           return true;
         });
       });
@@ -98,6 +155,15 @@ window.__QUERIES__ = [];
       gte:    function (col, val) { q.filters.push({ op: 'gte', col: col, val: val }); return api; },
       lte:    function (col, val) { q.filters.push({ op: 'lte', col: col, val: val }); return api; },
       in:     function () { return api; },
+      lt:     function (col, val) { q.filters.push({ op: 'lt',  col: col, val: val }); return api; },
+      gt:     function (col, val) { q.filters.push({ op: 'gt',  col: col, val: val }); return api; },
+      neq:    function (col, val) { q.filters.push({ op: 'neq', col: col, val: val }); return api; },
+      ilike:  function (col, val) { q.filters.push({ op: 'ilike', col: col, val: val }); return api; },
+      // PostgREST's or() takes "col.op.value,col.op.value". Implemented for
+      // real rather than stubbed to true: the exception filters on
+      // sales-verification.html ARE an or(), and a no-op here would let a
+      // suite assert on rows the page never actually filtered.
+      or:     function (expr) { q.filters.push({ op: 'or', expr: String(expr) }); return api; },
       limit:  function () { return api; },
       range:  function (from, to) { q.range = [from, to]; return api; },
       insert: function (r) { q._op = 'insert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
@@ -132,9 +198,33 @@ window.__QUERIES__ = [];
           signOut: function () { return Promise.resolve({ error: null }); }
         },
         from: builder,
+        // RPCs are CHAINED like table queries on some pages
+        // (bi-product-search does sb.rpc(...).range(...)), so this returns
+        // the same thenable builder rather than a bare promise.
         rpc: function (name, args) {
-          window.__QUERIES__.push({ table: 'rpc:' + name, args: args, _op: 'rpc' });
-          return Promise.resolve({ data: (window.__FIXTURE_RPC__ || {})[name] || null, error: null });
+          var q = { table: 'rpc:' + name, args: args, _op: 'rpc', range: null };
+          window.__QUERIES__.push(q);
+          var rows = function () {
+            var fx = window.__FIXTURE_RPC__ || {};
+            var all = fx[name];
+            // Fall back to a table fixture of the same name so a suite does
+            // not have to restate the same rows twice.
+            if (all === undefined) all = (window.__FIXTURE_TABLES__ || {})[name];
+            if (all === undefined) all = [];
+            if (typeof all === 'function') all = all(args) || [];
+            if (q.range) all = all.slice(q.range[0], q.range[1] + 1);
+            return all;
+          };
+          var api = {
+            range: function (a, b) { q.range = [a, b]; return api; },
+            select: function () { return api; },
+            eq: function () { return api; },
+            order: function () { return api; },
+            then: function (res, rej) {
+              return Promise.resolve({ data: rows(), error: null }).then(res, rej);
+            }
+          };
+          return api;
         }
       };
     }
@@ -231,7 +321,18 @@ async function startSuite(options = {}) {
 
     const page = await context.newPage();
     page.on('pageerror', (e) => { console.log('  [pageerror] ' + e.message); });
-    await page.addInitScript((t) => { window.__FIXTURE_TABLES__ = t; }, tables);
+    // Function fixtures cannot cross the addInitScript boundary, so RPC
+    // fixtures are passed as source and rebuilt inside the page.
+    const rpcSrc = {};
+    Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
+    await page.addInitScript(({ t, rpc }) => {
+      window.__FIXTURE_TABLES__ = t;
+      window.__FIXTURE_RPC__ = {};
+      Object.entries(rpc).forEach(([k, src]) => {
+        // eslint-disable-next-line no-eval
+        window.__FIXTURE_RPC__[k] = eval('(' + src + ')');
+      });
+    }, { t: tables, rpc: rpcSrc });
     await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(ready, { timeout: 20000 });
     return page;

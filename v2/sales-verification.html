@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
+  <script src="bi-nav.js"></script>
   <style>
     /* ---- Page layout ---- */
     .sv-scroll { flex:1; overflow-y:auto; min-height:0; }
@@ -183,6 +184,8 @@
           <button class="sv-chip" data-quick="negative_net">Negative Net</button>
         </div>
       </div>
+      <section class="sv-chipbar" id="filterChips" aria-label="Active filters" aria-live="polite" hidden></section>
+      <div id="linkNote" class="sv-linknote" hidden></div>
       <div class="sv-filter-grid">
         <div>
           <label class="bcn-label">Preset Window</label>
@@ -392,6 +395,8 @@
     sortBy:        document.getElementById('sortBy'),
     lastRefreshPill:    document.getElementById('lastRefreshPill'),
     statusText:         document.getElementById('statusText'),
+    filterChips:        document.getElementById('filterChips'),
+    linkNote:           document.getElementById('linkNote'),
     progressText:       document.getElementById('progressText'),
     kpiRows:            document.getElementById('kpiRows'),
     kpiUnits:           document.getElementById('kpiUnits'),
@@ -422,6 +427,76 @@
   const fmtTs  = ts => { if(!ts) return '—'; const d=new Date(ts); return isNaN(d)?String(ts):d.toLocaleString(); };
   const today  = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   const addD   = (s,n) => { const d=new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+
+
+  const NAV = window.SiloBiNav;
+  const QUICK_LABELS = {
+    refund_discrepancy: 'Refund discrepancy',
+    blank_sku: 'Blank SKU',
+    negative_net: 'Negative net',
+  };
+
+  /* Everything narrowing the view, each removable on its own. The exception
+     filter is styled apart because it makes every figure below a SUBSET, and
+     that is the one filter you must not forget is on. */
+  function renderFilterChips(){
+    const bar = el.filterChips;
+    if (!bar) return;
+    const list = [];
+    if (state.quickFilter && state.quickFilter !== 'all'){
+      list.push({ key:'quick', label:'Exception', value:QUICK_LABELS[state.quickFilter]||state.quickFilter, exception:true });
+    }
+    if (el.locationFilter.value) list.push({ key:'location', label:'Location', value:el.locationFilter.value });
+    if (el.searchInput.value.trim()) list.push({ key:'search', label:'Search', value:el.searchInput.value.trim() });
+    if (el.dateFrom.value || el.dateTo.value){
+      list.push({ key:'dates', label:'Dates', value:`${el.dateFrom.value||'…'} → ${el.dateTo.value||'…'}` });
+    }
+    if (!list.length){ bar.hidden = true; bar.innerHTML=''; return; }
+    bar.hidden = false;
+    bar.innerHTML = list.map(f=>`<span class="sv-chip-active${f.exception?' is-exception':''}">`
+      + `<span>${esc(f.label)}: ${esc(f.value)}</span>`
+      + `<button type="button" data-clear="${esc(f.key)}" aria-label="Remove ${esc(f.label)} filter">×</button></span>`).join('')
+      + `<button type="button" class="sv-clear-all" id="svClearAll">Reset all</button>`;
+    bar.querySelectorAll('[data-clear]').forEach(b=>b.addEventListener('click',async ()=>{
+      const k=b.dataset.clear;
+      if (k==='quick'){
+        state.quickFilter='all';
+        [...document.querySelectorAll('[data-quick]')].forEach(x=>x.classList.toggle('active',x.dataset.quick==='all'));
+      }
+      else if (k==='location') el.locationFilter.value='';
+      else if (k==='search') el.searchInput.value='';
+      else if (k==='dates'){ el.presetFilter.value='90d'; applyPreset(); }
+      state.currentPage=1;
+      await runFullLoad(true);
+    }));
+    document.getElementById('svClearAll').addEventListener('click', async ()=>{ resetFilters(); await runFullLoad(true); });
+  }
+
+  function currentLinkState(){
+    return { dateFrom: el.dateFrom.value, dateTo: el.dateTo.value,
+             preset: state.quickFilter === 'all' ? '' : state.quickFilter };
+  }
+  function syncUrl(){ NAV.syncUrl(currentLinkState(), NAV.supportsOf('/v2/sales-verification.html')); }
+
+  /* Open on whatever the link asked for; anything unsupported is shown. */
+  function applyIncomingLink(){
+    const res = NAV.resolveIncoming(NAV.supportsOf('/v2/sales-verification.html'), {
+      validate: { preset: v => v === 'all' || Object.prototype.hasOwnProperty.call(QUICK_LABELS, v) },
+    });
+    const a = res.applied;
+    if (a.dateFrom || a.dateTo){
+      el.presetFilter.value = 'custom';
+      if (a.dateFrom) el.dateFrom.value = a.dateFrom;
+      if (a.dateTo) el.dateTo.value = a.dateTo;
+    }
+    if (a.preset){
+      state.quickFilter = a.preset;
+      [...document.querySelectorAll('[data-quick]')].forEach(b=>b.classList.toggle('active', b.dataset.quick===a.preset));
+    }
+    const note = NAV.droppedNote(res.dropped);
+    el.linkNote.hidden = !note;
+    if (note) el.linkNote.textContent = note;
+  }
 
   function setStatus(t){ el.statusText.textContent=t; }
   function setProgress(t){ el.progressText.textContent=t; }
@@ -650,7 +725,7 @@
     el.provisionalBanner.classList.add('hidden');
   }
 
-  function renderAll(){ renderKpis(); renderExceptions(); renderLocationSummary(); renderDetailRows(); }
+  function renderAll(){ renderKpis(); renderExceptions(); renderLocationSummary(); renderDetailRows(); renderFilterChips(); syncUrl(); }
 
   async function runFullLoad(resetPage=false){
     const f=getFilters(); if (resetPage) state.currentPage=1;
@@ -712,6 +787,8 @@
     try {
       await loadLocationOptions();
       resetFilters();
+      // A link is an explicit request, so it overrides the reset defaults.
+      applyIncomingLink();
       await runFullLoad(true);
     } catch(e){
       console.error(e); setStatus(`Initial load failed: ${e.message}`);
