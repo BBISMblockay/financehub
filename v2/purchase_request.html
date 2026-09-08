@@ -20,7 +20,86 @@
     :root { color-scheme: light; }
     .silo-main { overflow-y: auto; }
     .pr-costing-link { border-left: 3px solid var(--bcn-accent); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; }
+    /* An author `display` beats the UA's [hidden] rule, so the line above was
+       keeping this panel on screen permanently -- syncCostingPanel() has always
+       set .hidden, and it has never had any visible effect. */
+    .pr-costing-link[hidden] { display: none; }
     .pr-costing-link-text { font-size: 13px; color: var(--bcn-ink-2); }
+    .pr-costing-links { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ── Internal PO picker ──────────────────────────────────────────────
+       Same trap as above, and the reason for the blanket rule: every part of
+       this widget lays out with flex, so each one needs [hidden] restored. */
+    .pr-ms [hidden], .pr-ms-chips [hidden] { display: none; }
+
+    .pr-ms { position: relative; }
+    .pr-ms-toggle {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      width: 100%; padding: 10px 12px; text-align: left; cursor: pointer;
+      border: 1px solid var(--bcn-border); border-radius: 10px;
+      background: var(--bcn-surface); color: var(--bcn-ink);
+      font-family: var(--bcn-font); font-size: 14px;
+      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+    }
+    .pr-ms-toggle:hover { border-color: var(--bcn-border-strong); }
+    .pr-ms-toggle:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 1px; }
+    .pr-ms-toggle[aria-expanded="true"] { border-color: var(--bcn-accent); }
+    .pr-ms-toggle-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pr-ms-toggle--empty .pr-ms-toggle-text { color: var(--bcn-ink-3); }
+    .pr-ms-caret { color: var(--bcn-ink-3); font-size: 11px; }
+
+    .pr-ms-panel {
+      position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0;
+      /* Wider than its grid column, where there is room: a row carries a PO
+         number, its status AND its factory, and at column width the tail is
+         all ellipsis. Dropped again below, on one-column layouts. */
+      min-width: 340px;
+      display: flex; flex-direction: column; gap: 8px; padding: 10px;
+      background: var(--bcn-surface); border: 1px solid var(--bcn-border-strong);
+      border-radius: 10px; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+    }
+    /* On one column the field is already as wide as the card, so the extra
+       width above just hangs the panel over the card's edge. */
+    @media (max-width: 640px) { .pr-ms-panel { min-width: 0; } }
+    .pr-ms-search { border-radius: 8px; }
+    .pr-ms-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .pr-ms-bar-actions { display: flex; gap: 10px; }
+    .pr-ms-count { font-size: 12px; color: var(--bcn-ink-3); }
+    .pr-ms-link {
+      background: none; border: 0; padding: 0; cursor: pointer;
+      font-family: var(--bcn-font); font-size: 12px; font-weight: 600;
+      color: var(--bcn-accent); text-decoration: underline;
+    }
+    .pr-ms-link:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
+
+    .pr-ms-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; }
+    .pr-ms-opt {
+      display: flex; align-items: baseline; gap: 8px; padding: 7px 8px;
+      border-radius: 8px; cursor: pointer; font-size: 13px; line-height: 1.35;
+    }
+    .pr-ms-opt:hover { background: var(--bcn-surface-2, rgba(15, 23, 42, 0.04)); }
+    .pr-ms-opt:focus-within { background: var(--bcn-surface-2, rgba(15, 23, 42, 0.04)); box-shadow: inset 0 0 0 2px var(--bcn-accent); }
+    .pr-ms-opt input { margin: 0; flex: none; align-self: center; }
+    /* The PO number is the identifier and must never wrap; the factory is
+       context and is the thing allowed to truncate. min-width:0 is what lets
+       a flex child shrink far enough to ellipsis at all. */
+    .pr-ms-opt-main { font-family: var(--bcn-mono); color: var(--bcn-ink); white-space: nowrap; flex: none; }
+    .pr-ms-opt-meta { flex: 1; min-width: 0; color: var(--bcn-ink-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pr-ms-none { margin: 0; padding: 8px; font-size: 13px; color: var(--bcn-ink-3); }
+
+    .pr-ms-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .pr-ms-chips:empty { display: none; }
+    .pr-ms-chip {
+      display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 9px;
+      border: 1px solid var(--bcn-border); border-radius: 999px;
+      background: var(--bcn-surface); font-family: var(--bcn-mono); font-size: 12px;
+    }
+    .pr-ms-chip-x {
+      background: none; border: 0; padding: 0 2px; cursor: pointer; line-height: 1;
+      color: var(--bcn-ink-3); font-size: 14px;
+    }
+    .pr-ms-chip-x:hover { color: var(--bcn-neg); }
+    .pr-ms-chip-x:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 1px; }
   </style>
 </head>
 <body>
@@ -121,12 +200,33 @@
                   <input id="flexId" class="input" placeholder="Flex reference" />
                 </div>
 
-                <div>
-                  <label class="bcn-label" for="internalPoNumber">Internal PO #</label>
-                  <select id="internalPoNumber" class="select">
-                    <option value="">Loading POs…</option>
-                  </select>
-                  <div class="pr-help">Shows POs sent to factory or further along.</div>
+                <div class="pr-po-field">
+                  <span class="bcn-label" id="poPickerLabel">Internal PO #</span>
+                  <div class="pr-ms" id="poPicker">
+                    <button type="button" class="pr-ms-toggle" id="poToggle" aria-expanded="false" disabled
+                            aria-labelledby="poPickerLabel poToggleLabel">
+                      <span class="pr-ms-toggle-text" id="poToggleLabel">Loading POs…</span>
+                      <span class="pr-ms-caret" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="pr-ms-panel" id="poPanel" hidden>
+                      <input type="text" id="poSearch" class="input pr-ms-search" autocomplete="off"
+                             placeholder="Search PO, factory or status…" aria-label="Search purchase orders" />
+                      <div class="pr-ms-bar">
+                        <span class="pr-ms-count" id="poCount" aria-live="polite"></span>
+                        <span class="pr-ms-bar-actions">
+                          <button type="button" class="pr-ms-link" id="poSelectAll" hidden></button>
+                          <button type="button" class="pr-ms-link" id="poClear">Clear</button>
+                        </span>
+                      </div>
+                      <div class="pr-ms-list" id="poList" role="group" aria-labelledby="poPickerLabel"></div>
+                      <p class="pr-ms-none" id="poNone" hidden>No PO matches that search.</p>
+                    </div>
+                  </div>
+                  <input type="text" id="poManual" class="input" hidden
+                         placeholder="Type PO numbers, comma separated" aria-labelledby="poPickerLabel" />
+                  <div class="pr-ms-chips" id="poChips"></div>
+                  <div class="pr-help">Shows POs sent to factory or further along. Pick more than one if the invoice covers several.</div>
+                  <input type="hidden" id="internalPoNumber" />
                 </div>
 
                 <div>
@@ -137,8 +237,8 @@
             </div>
 
             <div id="costingPanel" class="pr-section-card pr-costing-link" hidden>
-              <span class="pr-costing-link-text">Freight selected — review or update this PO's costing record before submitting.</span>
-              <a id="costingLink" href="po-costing.html" target="_blank" class="btn btn-soft" style="white-space:nowrap;">Open PO in Costing ↗</a>
+              <span class="pr-costing-link-text" id="costingText">Freight selected — review or update this PO's costing record before submitting.</span>
+              <span class="pr-costing-links" id="costingLinks"></span>
             </div>
 
             <div class="pr-section-card">
@@ -247,8 +347,21 @@
     invoiceNumber: document.getElementById("invoiceNumber"),
     flexId: document.getElementById("flexId"),
     internalPoNumber: document.getElementById("internalPoNumber"),
+    poPicker: document.getElementById("poPicker"),
+    poToggle: document.getElementById("poToggle"),
+    poToggleLabel: document.getElementById("poToggleLabel"),
+    poPanel: document.getElementById("poPanel"),
+    poSearch: document.getElementById("poSearch"),
+    poCount: document.getElementById("poCount"),
+    poSelectAll: document.getElementById("poSelectAll"),
+    poClear: document.getElementById("poClear"),
+    poList: document.getElementById("poList"),
+    poNone: document.getElementById("poNone"),
+    poChips: document.getElementById("poChips"),
+    poManual: document.getElementById("poManual"),
     costingPanel: document.getElementById("costingPanel"),
-    costingLink: document.getElementById("costingLink"),
+    costingText: document.getElementById("costingText"),
+    costingLinks: document.getElementById("costingLinks"),
     amountDue: document.getElementById("amountDue"),
     dueDate: document.getElementById("dueDate"),
     requesterEmail: document.getElementById("requesterEmail"),
@@ -537,6 +650,11 @@
 
   function resetForm() {
     els.requestForm.reset();
+    // form.reset() clears the hidden input but not the picker's own state --
+    // without this a new request starts carrying the last one's POs.
+    poClearSelection();
+    els.poSearch.value = '';
+    poFilter();
     if (currentUser?.email) els.requesterEmail.value = currentUser.email;
     clearStatus();
     els.successCard.classList.add("hidden");
@@ -698,6 +816,206 @@
 
   const ACTIVE_PO_STATUSES = ['Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received'];
 
+  // ── Internal PO picker ────────────────────────────────────────────────
+  // Searchable, multi-select. One invoice routinely covers several POs from
+  // the same factory -- the case that prompted this was a single DHL invoice
+  // across Creytex-329-s, -330 and -331 -- and a single-value <select> forced
+  // that into three separate requests, or into a note nobody parses.
+  //
+  // What gets SUBMITTED is still one comma-joined string in
+  // internal_po_number, deliberately: Request Manager's search and detail
+  // drawer, the Melio forward email and po-costing's freight prefill all read
+  // that column as text today. A single selection therefore writes exactly
+  // what the old <select> wrote, character for character, so nothing
+  // downstream can tell the difference.
+
+  const PO_SEP = ', ';
+
+  let poRows = [];               // every PO offered, in query order
+  let poHay = [];                // one lower-cased search string per row
+  const poSelected = new Map();  // po_name -> row, in the order they were ticked
+  let poManual = false;          // the PO query failed; fall back to typed text
+
+  function poWriteValue() {
+    els.internalPoNumber.value = poManual
+      ? els.poManual.value.trim()
+      : [...poSelected.keys()].join(PO_SEP);
+  }
+
+  function poRenderToggle() {
+    const n = poSelected.size;
+    els.poToggleLabel.textContent =
+      n === 0 ? '— Select POs (optional) —'
+        : n === 1 ? [...poSelected.keys()][0]
+          : `${n} POs selected`;
+    els.poToggle.classList.toggle('pr-ms-toggle--empty', n === 0);
+  }
+
+  function poRenderChips() {
+    els.poChips.innerHTML = [...poSelected.keys()].map(name =>
+      `<span class="pr-ms-chip">${escapeAttr(name)}` +
+      `<button type="button" class="pr-ms-chip-x" data-po-remove="${escapeAttr(name)}"` +
+      ` aria-label="Remove ${escapeAttr(name)}">×</button></span>`
+    ).join('');
+  }
+
+  // One function so the hidden input, the toggle, the chips and the costing
+  // panel can never disagree about what is selected.
+  function poSync() {
+    poWriteValue();
+    poRenderToggle();
+    poRenderChips();
+    els.poList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.checked = poSelected.has(cb.value);
+    });
+    syncCostingPanel();
+  }
+
+  function poSetSelected(name, on) {
+    if (on) {
+      const row = poRows.find(r => r.po_name === name);
+      if (row) poSelected.set(name, row);
+    } else {
+      poSelected.delete(name);
+    }
+    poSync();
+  }
+
+  function poClearSelection() {
+    poSelected.clear();
+    if (els.poManual) els.poManual.value = '';
+    poSync();
+  }
+
+  function poRenderList() {
+    // The search text is kept in a parallel array rather than a data-
+    // attribute: an attribute has to be HTML-escaped, and then a factory
+    // with "&" in its name stops matching a typed "&".
+    poHay = poRows.map(r => `${r.po_name} ${r.factory_name || ''} ${r.status}`.toLowerCase());
+    els.poList.innerHTML = poRows.map(r =>
+      `<label class="pr-ms-opt">` +
+      `<input type="checkbox" value="${escapeAttr(r.po_name)}" />` +
+      `<span class="pr-ms-opt-main">${escapeAttr(r.po_name)}</span>` +
+      // Status before factory: a narrow panel truncates the tail, and the
+      // factory is mostly already in the PO name (Creytex-330), while the
+      // status is the part that decides whether this is the right PO.
+      `<span class="pr-ms-opt-meta">${escapeAttr(r.status)} · ${escapeAttr(r.factory_name || '—')}</span>` +
+      `</label>`
+    ).join('');
+  }
+
+  function poVisibleOptions() {
+    return [...els.poList.querySelectorAll('.pr-ms-opt')].filter(el => !el.hidden);
+  }
+
+  function poFilter() {
+    // Captured BEFORE anything is hidden: a browser resets document.
+    // activeElement to <body> the moment the focused element goes
+    // display:none, so asking afterwards always says <body> and the restore
+    // below never fires.
+    const hadFocus = document.activeElement;
+    const q = els.poSearch.value.trim().toLowerCase();
+    let shown = 0;
+    els.poList.querySelectorAll('.pr-ms-opt').forEach((el, i) => {
+      const hit = !q || poHay[i].includes(q);
+      el.hidden = !hit;
+      if (hit) shown++;
+    });
+    els.poNone.hidden = shown > 0;
+    // The selected count is stated in BOTH branches on purpose: the open
+    // panel covers the chips below it, so while it is open this line is the
+    // only thing on screen saying how many POs are already ticked.
+    els.poCount.textContent = q
+      ? `${shown} of ${poRows.length} POs · ${poSelected.size} selected`
+      : `${poRows.length} POs · ${poSelected.size} selected`;
+
+    // Offered only while a search is narrowing things down: "select all" over
+    // an unfiltered list of 300 POs is a mistake waiting to be clicked, but
+    // over the four POs matching "creytex" it is the whole point.
+    const unpicked = poVisibleOptions().filter(el => !poSelected.has(el.querySelector('input').value));
+    const offer = !!q && unpicked.length > 1;
+    els.poSelectAll.hidden = !offer;
+    if (offer) els.poSelectAll.textContent = `Select all ${unpicked.length} matching`;
+
+    // Hiding the element that had focus drops focus to <body>, which costs
+    // the keyboard user their place AND takes them outside the picker, where
+    // the Escape handler no longer reaches them. Both happen on the ordinary
+    // path: "Select all" hides itself the moment it is used, and typing
+    // another letter can filter away the option you were on.
+    if (hadFocus && els.poPanel.contains(hadFocus)
+        && (hadFocus.hidden || hadFocus.closest('[hidden]'))) {
+      els.poSearch.focus();
+    }
+  }
+
+  function poOpen() {
+    els.poPanel.hidden = false;
+    els.poToggle.setAttribute('aria-expanded', 'true');
+    poFilter();
+    els.poSearch.focus();
+    els.poSearch.select();
+  }
+
+  function poClose(refocus) {
+    els.poPanel.hidden = true;
+    els.poToggle.setAttribute('aria-expanded', 'false');
+    if (refocus) els.poToggle.focus();
+  }
+
+  function poBindPicker() {
+    els.poToggle.addEventListener('click', () => {
+      if (els.poPanel.hidden) poOpen(); else poClose(true);
+    });
+
+    els.poSearch.addEventListener('input', poFilter);
+
+    // The list stays OPEN while ticking -- that is the difference between
+    // picking three POs and picking one three times.
+    els.poList.addEventListener('change', (e) => {
+      const cb = e.target.closest('input[type="checkbox"]');
+      if (!cb) return;
+      poSetSelected(cb.value, cb.checked);
+      poFilter();
+    });
+
+    els.poSelectAll.addEventListener('click', () => {
+      poVisibleOptions().forEach(el => {
+        const name = el.querySelector('input').value;
+        const row = poRows.find(r => r.po_name === name);
+        if (row) poSelected.set(name, row);
+      });
+      poSync();
+      poFilter();
+    });
+
+    els.poClear.addEventListener('click', () => { poClearSelection(); poFilter(); });
+
+    els.poChips.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-po-remove]');
+      if (!btn) return;
+      poSetSelected(btn.dataset.poRemove, false);
+      poFilter();
+    });
+
+    // Arrow down out of the search box lands on the first option a search
+    // actually left showing, so filtering and keyboard use compose.
+    els.poSearch.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown') return;
+      const first = poVisibleOptions()[0];
+      if (first) { e.preventDefault(); first.querySelector('input').focus(); }
+    });
+
+    els.poPicker.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !els.poPanel.hidden) { e.stopPropagation(); poClose(true); }
+    });
+
+    document.addEventListener('mousedown', (e) => {
+      if (!els.poPanel.hidden && !els.poPicker.contains(e.target)) poClose(false);
+    });
+
+    els.poManual.addEventListener('input', poWriteValue);
+  }
+
   async function loadPoOptions() {
     try {
       const { data, error } = await supabaseClient
@@ -707,30 +1025,42 @@
         .order('created_at', { ascending: false })
         .limit(300);
       if (error) throw error;
-      const rows = data || [];
-      els.internalPoNumber.innerHTML =
-        '<option value="">— Select a PO (optional) —</option>' +
-        rows.map(r =>
-          `<option value="${escapeAttr(r.po_name)}" data-po-id="${escapeAttr(r.id)}" data-factory="${escapeAttr(r.factory_name||'')}">`+
-          `${escapeAttr(r.po_name)} · ${escapeAttr(r.factory_name||'—')} · ${escapeAttr(r.status)}`+
-          `</option>`
-        ).join('');
+      poRows = (data || []).filter(r => r.po_name);
+      els.poToggle.disabled = false;
+      poRenderList();
+      poSync();
+      poFilter();
     } catch (err) {
       console.error('PO load failed:', err);
-      els.internalPoNumber.innerHTML = '<option value="">— Type PO number manually —</option>';
+      // The old code showed "— Type PO number manually —" inside a <select>,
+      // which offered no way to type anything. Now the fallback is a real
+      // text box, so the form still works when the PO list does not.
+      poManual = true;
+      poSelected.clear();
+      els.poPicker.hidden = true;
+      els.poManual.hidden = false;
+      els.poChips.innerHTML = '';
+      poWriteValue();
+      syncCostingPanel();
     }
   }
 
   function syncCostingPanel() {
-    const selectedOpt = els.internalPoNumber.options[els.internalPoNumber.selectedIndex];
-    const poId = selectedOpt?.dataset?.poId || '';
     const isFreight = els.requestType.value === 'inventory_freight';
-    if (poId && isFreight) {
-      els.costingLink.href = `po-costing.html?po_id=${encodeURIComponent(poId)}`;
-      els.costingPanel.hidden = false;
-    } else {
-      els.costingPanel.hidden = true;
-    }
+    const withIds = [...poSelected.values()].filter(r => r.id);
+    if (!isFreight || !withIds.length) { els.costingPanel.hidden = true; return; }
+
+    // Costing is per PO, and this request carries one amount. Splitting a
+    // combined freight invoice across POs is a costing decision nobody has
+    // made, so say that rather than let one PO quietly absorb the lot.
+    els.costingText.textContent = withIds.length === 1
+      ? 'Freight selected — review or update this PO’s costing record before submitting.'
+      : `Freight selected — this invoice covers ${withIds.length} POs, and costing is per PO, so the freight has to be split across them by hand.`;
+    els.costingLinks.innerHTML = withIds.map(r =>
+      `<a class="btn btn-soft" target="_blank" rel="noopener" style="white-space:nowrap;"` +
+      ` href="po-costing.html?po_id=${encodeURIComponent(r.id)}">${escapeAttr(r.po_name)} in Costing ↗</a>`
+    ).join('');
+    els.costingPanel.hidden = false;
   }
 
   // Mount chrome synchronously — sidebar visible before any network call
@@ -746,7 +1076,7 @@
   els.requestForm.addEventListener("submit", createPaymentRequest);
   els.resetBtn.addEventListener("click", resetForm);
   els.newRequestBtn.addEventListener("click", resetForm);
-  els.internalPoNumber.addEventListener("change", syncCostingPanel);
+  poBindPicker();
   els.requestType.addEventListener("change", syncCostingPanel);
 
   // A signed-in user whose account hasn't been activated into a company yet
