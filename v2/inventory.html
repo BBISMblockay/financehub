@@ -11,6 +11,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
+  <script src="inventory-signals.js"></script>
   <style>
     :root {
       --bg: #f1f5f9;
@@ -71,10 +72,6 @@
       opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
       z-index: 55;
     }
-    body.draft-open .panel-backdrop.draft-backdrop {
-      opacity: 1; pointer-events: auto;
-    }
-
     .filter-rail-toggle {
       position: absolute; right: calc(var(--rail-w) - 12px); top: 18px; z-index: 35;
       width: 24px; height: 48px; border-radius: 8px 0 0 8px;
@@ -272,6 +269,85 @@
       border-top: 1px solid var(--bcn-border);
       flex-shrink: 0;
     }
+
+    /* —— Filter toolbar: the controls that get used on every visit —— */
+    .inv-toolbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding: 8px 12px;
+      background: var(--card);
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+    .inv-toolbar .search-wrap { flex: 1 1 260px; min-width: 200px; max-width: 420px; }
+    .inv-toolbar .field { height: 32px; }
+    .inv-toolbar select.field { max-width: 190px; }
+    .toolbar-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+    .toolbar-spacer { flex: 1 1 auto; }
+    .inv-toolbar .seg { flex: 0 0 auto; }
+    .inv-toolbar .seg button { padding: 0 10px; height: 32px; }
+
+    .btn-morefilters { position: relative; }
+    .btn-morefilters .count-badge {
+      display: inline-block; min-width: 16px; height: 16px; line-height: 16px;
+      padding: 0 4px; margin-left: 6px; border-radius: 99px;
+      background: var(--accent-deep); color: #fff;
+      font-size: 10px; font-weight: 700; text-align: center;
+    }
+
+    /* —— Active filter chips —— */
+    .inv-chipbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      padding: 6px 12px;
+      background: var(--canvas);
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+      font-size: 11px;
+    }
+    .inv-chipbar[hidden] { display: none; }
+    .inv-chipbar .chip-count { color: var(--muted); font-weight: 600; margin-right: 2px; }
+    .filter-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      border: 1px solid var(--line); border-radius: 99px;
+      background: #fff; color: var(--text);
+      padding: 2px 4px 2px 9px; font-size: 11px; font-weight: 600;
+    }
+    .filter-chip button {
+      border: none; background: none; cursor: pointer; padding: 0 3px;
+      color: var(--muted); font-size: 13px; line-height: 1; font-weight: 700;
+      border-radius: 99px;
+    }
+    .filter-chip button:hover { background: #f1f5f9; color: var(--danger); }
+    .filter-chip.chip-lens { border-color: #bfdbfe; background: #eff6ff; color: #1e3a8a; }
+    /* A filter that has no meaning at this view level still shows, struck
+       through, rather than silently returning nothing. */
+    .filter-chip.chip-inactive { opacity: 0.6; border-style: dashed; }
+    .filter-chip.chip-inactive .chip-text { text-decoration: line-through; }
+    .chip-clear-all {
+      border: none; background: none; cursor: pointer; padding: 2px 6px;
+      color: var(--accent-deep); font-size: 11px; font-weight: 700;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+
+    /* Keep the table readable while a refresh is in flight: the rows stay,
+       they just stop claiming to be current. */
+    .inv-table-card.is-updating .bcn-matrix-scroll { opacity: 0.55; transition: opacity 0.15s ease; }
+    .inv-updating-note {
+      display: none; align-items: center; gap: 6px;
+      padding: 4px 12px; font-size: 11px; font-weight: 600;
+      color: var(--accent-deep); background: #eff6ff;
+      border-bottom: 1px solid #bfdbfe; flex-shrink: 0;
+    }
+    body.inv-updating .inv-updating-note { display: flex; }
+    .inv-spinner {
+      width: 10px; height: 10px; border-radius: 99px;
+      border: 2px solid #bfdbfe; border-top-color: var(--accent-deep);
+      animation: inv-spin 0.7s linear infinite;
+    }
+    @keyframes inv-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .inv-spinner { animation: none; } }
+
+    .cell-muted { color: var(--muted); font-style: italic; }
+    .legend-note { font-size: 10px; color: var(--muted); line-height: 1.5; }
     /* Compact beacon overrides (match PO pages) */
     .bcn-header-sub { display: none; }
     .bcn-header { padding-top: 8px; padding-bottom: 8px; }
@@ -290,7 +366,9 @@
       border-spacing: 0;
       table-layout: fixed;
       width: 100%;
-      min-width: 1440px;
+      /* No fixed floor. setTableWidth() sizes this from the columns that are
+         actually visible, so opening the More filters drawer narrows the
+         workspace without pushing the Inventory column out of view. */
       font-size: 11px;
       background: #fff;
     }
@@ -322,12 +400,15 @@
       font-weight: 700;
       max-width: 100%;
     }
-    #mainTable .badge.inv-flag--buy      { color: #15803d; }
     #mainTable .badge.inv-flag--buynow   { color: #92400e; }
     #mainTable .badge.inv-flag--hold     { color: #991b1b; }
     #mainTable .badge.inv-flag--review   { color: #5b21b6; }
     #mainTable .badge.inv-flag--transfer { color: #0369a1; }
     #mainTable .badge.inv-flag--overstock{ color: #64748b; }
+    #mainTable .badge.inv-flag--oos      { color: #9f1239; }
+    #mainTable .badge.inv-flag--watch    { color: #a16207; }
+    #mainTable .badge.inv-flag--unknown  { color: #4338ca; }
+    #mainTable .badge.inv-flag--stale    { color: #475569; }
     #mainTable .badge.inv-flag--hero     { color: #15803d; }
     #mainTable .badge.inv-flag--new      { color: #3730a3; }
     #mainTable .badge.inv-flag--promo    { color: #92400e; }
@@ -350,7 +431,19 @@
     #mainTable tbody tr.row-risk td { background: #fff1f2; }
     #mainTable tbody tr.row-warn td { background: #fffbeb; }
     #mainTable tbody tr:hover td { background: rgba(59,130,246,0.04) !important; }
+    /* When the table is genuinely wider than the space (many optional columns
+       switched on), the row's identity must not be what scrolls away. */
     #mainTable [data-col="_select"] { width: 30px !important; }
+    #mainTable th[data-col="product"],
+    #mainTable td[data-col="product"] {
+      position: sticky; left: 0; z-index: 2;
+      box-shadow: 1px 0 0 var(--line);
+    }
+    #mainTable td[data-col="product"] { background: #fff; }
+    #mainTable tbody tr:nth-child(even) td[data-col="product"] { background: #fbfdff; }
+    #mainTable tbody tr.row-risk td[data-col="product"] { background: #fff1f2; }
+    #mainTable tbody tr.row-warn td[data-col="product"] { background: #fffbeb; }
+    #mainTable thead th[data-col="product"] { z-index: 4; }
     #mainTable [data-col="_details"] { width: 44px !important; }
     #mainTable [data-col="image"] { width: 38px !important; }
     #mainTable [data-col="product"] { width: 200px !important; white-space: normal !important; word-break: break-word; text-align: left !important; }
@@ -365,10 +458,7 @@
     #mainTable [data-col="indicator_group"] { width: 72px !important; }
     #mainTable [data-col="source"]          { width: 64px !important; }
     #mainTable [data-col="driver"],
-    #mainTable [data-col="action_flag"],
-    #mainTable [data-col="planner_flag"],
-    #mainTable [data-col="risk_flag"],
-    #mainTable [data-col="transfer_flag"] { width: 72px !important; }
+    #mainTable [data-col="transfer_flag"] { width: 86px !important; }
     #mainTable [data-col="last_sold_date"] { width: 68px !important; }
     #mainTable [data-col="velocity_basis"] { width: 52px !important; }
     #mainTable [data-col="products_count"],
@@ -389,63 +479,12 @@
     #mainTable [data-col="avg_day_90"],
     #mainTable [data-col="avg_day_120"],
     #mainTable [data-col="avg_day_365"],
-    #mainTable [data-col="days_oos"],
-    #mainTable [data-col="category_buy"],
-    #mainTable [data-col="mix_shortage"],
-    #mainTable [data-col="suggested_po"],
-    #mainTable [data-col="inv_value"] { width: 56px !important; }
+    #mainTable [data-col="inv_value"] { width: 72px !important; }
+    /* Days cover can now read "Unknown" / "No sales" rather than a blank, so
+       it needs room for a word. That width IS the fix being displayed. */
+    #mainTable [data-col="days_oos"] { width: 92px !important; }
+    #mainTable [data-col="inventory_signal"] { width: 108px !important; }
 
-    /* —— PO draft drawer (hidden until opened) —— */
-    .draft-drawer {
-      position: fixed; top: 0; right: 0; bottom: 0;
-      width: min(var(--dock-w), 92vw);
-      background: #fff;
-      border-left: 1px solid var(--line);
-      z-index: 70;
-      display: flex; flex-direction: column;
-      transform: translateX(105%);
-      transition: transform 0.24s ease;
-      box-shadow: -16px 0 48px rgba(15, 23, 42, 0.12);
-    }
-    body.draft-open .draft-drawer { transform: translateX(0); }
-
-    .draft-head {
-      padding: 14px 14px 10px;
-      border-bottom: 1px solid var(--line);
-      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
-    }
-    .draft-head h3 { margin: 0; font-size: 13px; font-weight: 800; }
-    .draft-head p { margin: 6px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
-    .draft-close {
-      border: 1px solid var(--line); background: #fff;
-      border-radius: 8px; width: 30px; height: 30px;
-      cursor: pointer; font-size: 16px; color: var(--muted); flex-shrink: 0;
-    }
-    .draft-body {
-      flex: 1; overflow-y: auto; padding: 12px 14px;
-      display: flex; flex-direction: column; gap: 10px;
-    }
-    .draft-body .field, .draft-body select {
-      width: 100%; height: 36px;
-      border: 1px solid var(--line); border-radius: 9px;
-      padding: 0 10px; font-size: 12px;
-      background: #fff; color: var(--text);
-    }
-    .draft-peek {
-      border: 1px solid var(--line); border-radius: 10px;
-      background: #f8fafc; padding: 10px;
-    }
-    .draft-peek-label {
-      font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
-      text-transform: uppercase; color: var(--muted);
-    }
-    #draftPeek {
-      margin: 8px 0 0; font-size: 11px; line-height: 1.45;
-      color: #334155; max-height: 200px; overflow: auto;
-    }
-    .btn-draft-fab {
-      position: relative;
-    }
     .thin-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .thin-scroll::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.15); border-radius: 99px; }
 
@@ -457,9 +496,12 @@
       font-size: 10px; font-weight: 700; white-space: nowrap;
     }
     /* Semantic flag variants — replaces Tailwind color pills */
-    .inv-flag--buy   { border-color:#bbf7d0; background:#f0fdf4; color:#14532d; }
     .inv-flag--buynow{ border-color:#fde68a; background:#fffbeb; color:#78350f; }
     .inv-flag--hold  { border-color:#fecaca; background:#fff1f2; color:#7f1d1d; }
+    .inv-flag--oos   { border-color:#fecdd3; background:#fff1f2; color:#9f1239; }
+    .inv-flag--watch { border-color:#fef08a; background:#fefce8; color:#854d0e; }
+    .inv-flag--unknown { border-color:#c7d2fe; background:#eef2ff; color:#3730a3; }
+    .inv-flag--stale { border-color:#e2e8f0; background:#f8fafc; color:#334155; }
     .inv-flag--review{ border-color:#ddd6fe; background:#f5f3ff; color:#3b0764; }
     .inv-flag--transfer { border-color:#bae6fd; background:#f0f9ff; color:#0c4a6e; }
     .inv-flag--overstock{ border-color:#e2e8f0; background:#f8fafc; color:#475569; }
@@ -537,42 +579,22 @@
       <div class="rail-brand">
         <div class="rail-brand-mark">INV</div>
         <div class="rail-brand-text">
-          <h1>Filters</h1>
-          <p>Inventory workbench</p>
+          <h1>More filters</h1>
+          <p>Tags, signals and thresholds</p>
         </div>
       </div>
       <div class="rail-scroll thin-scroll">
         <div class="filter-block">
-          <div class="filter-label">View level</div>
-          <div class="seg">
-            <button id="btnModeType" class="active" type="button">Type</button>
-            <button id="btnModeProduct" type="button">Product</button>
-            <button id="btnModeSku" type="button">SKU</button>
-            <button id="btnModeLocation" type="button">Location</button>
-          </div>
-        </div>
-
-        <div class="filter-block">
-          <div class="filter-label">Search</div>
-          <div class="search-wrap">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            <input id="txtSearch" type="text" class="field" placeholder="Type, product, SKU, barcode…" />
-          </div>
-          <p style="margin:0;font-size:10px;color:var(--muted)">Press Enter to run filters</p>
-        </div>
-
-        <div class="filter-block">
-          <div class="filter-label">Scope</div>
-          <select id="selLocation" class="field">
-            <option value="__ALL__">All locations</option>
+          <div class="filter-label">Inventory signal</div>
+          <select id="selSignalFilter" class="field" aria-label="Inventory signal">
+            <option value="__ALL__">All signals</option>
           </select>
-          <select id="selProductTypeFilter" class="field">
-            <option value="__ALL__">All product types</option>
-          </select>
+          <p class="legend-note" id="signalHelp">Pick a signal to see only rows in that state.</p>
         </div>
 
         <div class="filter-block">
           <div class="filter-label">Tags &amp; indicators</div>
+          <p class="legend-note" id="tagLevelNote" hidden>Tags are recorded per product, so they do not apply at the Product type level. They are kept and re-applied when you switch back.</p>
           <select id="selTagFilter" class="field">
             <option value="__ALL__">All tags</option>
           </select>
@@ -587,71 +609,44 @@
         <div class="filter-block">
           <div class="filter-label">Quick lenses</div>
           <div class="lens-grid">
-            <button data-chip="oos7" class="top-chip" type="button">≤ 7 days</button>
-            <button data-chip="oos14" class="top-chip" type="button">≤ 14 days</button>
-            <button data-chip="low10" class="top-chip" type="button">Qty ≤ 10</button>
-            <button data-chip="stale" class="top-chip" type="button">Stale</button>
+            <button data-lens="cover7" class="top-chip" type="button" aria-pressed="false">Cover ≤ 7 days</button>
+            <button data-lens="cover14" class="top-chip" type="button" aria-pressed="false">Cover ≤ 14 days</button>
+            <button data-lens="onhand10" class="top-chip" type="button" aria-pressed="false">On hand ≤ 10</button>
+            <button data-lens="oos" class="top-chip" type="button" aria-pressed="false">Out of stock</button>
+            <button data-lens="unknown" class="top-chip" type="button" aria-pressed="false">Unknown demand</button>
+            <button data-lens="negative" class="top-chip" type="button" aria-pressed="false">Negative inventory</button>
+            <button data-lens="stale" class="top-chip" type="button" aria-pressed="false">Stale first</button>
           </div>
-          <button data-chip="clear" class="top-chip" type="button" style="width:100%">Clear lenses</button>
+          <button id="btnClearLenses" class="top-chip" type="button" style="width:100%">Clear lenses</button>
+          <p class="legend-note">Clears only the lenses above. Your search, location and product type stay put — use <b>Reset all</b> at the bottom to clear everything.</p>
         </div>
 
         <div class="filter-block">
-          <div class="filter-label">Focus thresholds</div>
-          <div class="thresh-grid">
-            <input id="numMaxDays" type="number" min="0" step="1" placeholder="Max days" class="field mono" />
-            <input id="numMaxQty" type="number" min="0" step="1" placeholder="Max qty" class="field mono" />
-            <input id="numMinSold30" type="number" min="0" step="1" placeholder="Min 30d" class="field mono" />
+          <div class="filter-label">Thresholds</div>
+          <div>
+            <label class="lbl" for="numMaxDays">Max days of cover</label>
+            <input id="numMaxDays" type="number" min="0" step="1" placeholder="e.g. 14" class="field mono" />
+            <p class="legend-note">Rows whose cover cannot be measured are excluded — an unknown cover has not been shown to be under the limit.</p>
+          </div>
+          <div>
+            <label class="lbl" for="numMaxQty">Max units on hand</label>
+            <input id="numMaxQty" type="number" min="0" step="1" placeholder="e.g. 10" class="field mono" />
+          </div>
+          <div>
+            <label class="lbl" for="numMinSold30">Min units sold, last 30 days</label>
+            <input id="numMinSold30" type="number" min="0" step="1" placeholder="e.g. 1" class="field mono" />
+          </div>
+          <div>
+            <label class="lbl" for="numRiskDays">Low-cover threshold (days)</label>
+            <input id="numRiskDays" type="number" min="1" step="1" value="14" class="field mono" />
+            <p class="legend-note">At or under this many days of cover a row is flagged <b>Low cover</b>. Also drives the Transfer “Short here” flag.</p>
           </div>
         </div>
 
         <div class="filter-block">
           <div class="filter-label">Sort by</div>
-          <select id="selSort" class="field">
-            <option value="suggested_desc">Buy / Mix Priority (desc)</option>
-            <option value="days_asc">Days Cover / OOS (asc)</option>
-            <option value="days_desc">Days Cover / OOS (desc)</option>
-            <option value="qty_asc">On Hand (asc)</option>
-            <option value="qty_desc">On Hand (desc)</option>
-            <option value="sold7_desc">Sold 7d (desc)</option>
-            <option value="sold30_desc">Sold 30d (desc)</option>
-            <option value="sold365_desc">Sold 365d (desc)</option>
-            <option value="value_desc">Retail Value (desc)</option>
-            <option value="risk_value_desc">Retail Risk (≤ threshold + value)</option>
-            <option value="stale_desc">Stale (last sold oldest)</option>
-            <option value="name_asc">Name / SKU (A→Z)</option>
-          </select>
+          <select id="selSort" class="field" aria-label="Sort rows by"></select>
         </div>
-
-        <details class="rail-acc">
-          <summary>Planning engine <span>cover · strategy</span></summary>
-          <div class="rail-acc-body">
-            <div class="seg" style="grid-template-columns: repeat(3, 1fr);">
-              <button id="btnStratRepl" class="active" type="button">Replenish</button>
-              <button id="btnStratGrowth" type="button">Growth</button>
-              <button id="btnStratHybrid" type="button">Hybrid</button>
-            </div>
-            <label class="lbl">Target days cover</label>
-            <input id="numTargetCover" type="number" min="1" step="1" value="45" class="field mono" />
-            <div class="thresh-grid">
-              <div>
-                <label class="lbl">Safety</label>
-                <input id="numSafetyDays" type="number" min="0" step="1" value="7" class="field mono" />
-              </div>
-              <div>
-                <label class="lbl">Min reorder</label>
-                <input id="numMinReorder" type="number" min="0" step="1" value="0" class="field mono" />
-              </div>
-              <div>
-                <label class="lbl">Risk days</label>
-                <input id="numRiskDays" type="number" min="1" step="1" value="14" class="field mono" />
-              </div>
-            </div>
-            <label class="lbl">Growth uplift %</label>
-            <input id="numGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
-            <label class="lbl">Seed avg / day (new SKU)</label>
-            <input id="numSeedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
-          </div>
-        </details>
 
         <details class="rail-acc">
           <summary>Tag selected rows <span>Supabase</span></summary>
@@ -688,8 +683,8 @@
       </div>
 
       <div class="rail-foot">
-        <button id="btnClear" type="button" class="btn btn-ghost-rail">Reset</button>
-        <button id="btnApply" type="button" class="btn btn-dark">Run filters</button>
+        <button id="btnResetAll" type="button" class="btn btn-ghost-rail">Reset all</button>
+        <button id="btnFiltersDone" type="button" class="btn btn-dark">Done</button>
       </div>
       </aside>
 
@@ -699,11 +694,10 @@
           <div class="bcn-header-title"><h1>Inventory</h1></div>
           <div class="bcn-header-sub">
             <div id="statusLine">—</div>
-            <div id="modeLine" class="mono">Mode: Product Type Planning</div>
+            <div id="modeLine" class="mono">View: Product</div>
           </div>
         </div>
         <div class="bcn-header-actions">
-          <button id="btnFilterRailToggleTop" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" title="Toggle filter panel">FILTERS</button>
           <span id="authEmail" class="bcn-btn bcn-btn--ghost bcn-btn--mono" style="pointer-events:none;opacity:0.7;font-size:11px;"></span>
           <button id="btnReload" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RELOAD</button>
           <button id="btnColumns" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">COLUMNS</button>
@@ -714,21 +708,44 @@
 
       <section class="bcn-kpi-band" aria-label="Key metrics">
         <div class="bcn-kpi"><div class="bcn-kpi-label">ROWS</div><div class="bcn-kpi-value bcn-mono" id="kRows">0</div></div>
-        <div class="bcn-kpi"><div class="bcn-kpi-label">UNITS OH</div><div class="bcn-kpi-value bcn-mono" id="kUnits">0</div></div>
-        <div class="bcn-kpi"><div class="bcn-kpi-label">RETAIL OH</div><div class="bcn-kpi-value bcn-mono" id="kRetailValue">$0</div></div>
-        <div class="bcn-kpi"><div class="bcn-kpi-label">SUGGESTED</div><div class="bcn-kpi-value bcn-mono" id="kSuggested">0</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">UNITS ON HAND</div><div class="bcn-kpi-value bcn-mono" id="kUnits">0</div></div>
+        <div class="bcn-kpi" title="Retail value of the units on hand, at selling price. This is NOT inventory cost."><div class="bcn-kpi-label">RETAIL VALUE @ SELL</div><div class="bcn-kpi-value bcn-mono" id="kRetailValue">$0</div></div>
         <div class="bcn-kpi"><div class="bcn-kpi-label">SOLD 30D</div><div class="bcn-kpi-value bcn-mono" id="kSold30">0</div></div>
-        <div class="bcn-kpi"><div class="bcn-kpi-label">AVG COVER</div><div class="bcn-kpi-value bcn-mono" id="kAvgDays">—</div></div>
-        <div class="bcn-kpi"><div class="bcn-kpi-label">AT RISK $</div><div class="bcn-kpi-value bcn-mono" id="kRiskRetail">$0</div></div>
+        <div class="bcn-kpi" title="Averaged over the filtered rows whose cover can actually be measured. Rows with unknown demand are excluded rather than counted as zero."><div class="bcn-kpi-label">AVG COVER (MEASURED)</div><div class="bcn-kpi-value bcn-mono" id="kAvgDays">—</div></div>
+        <div class="bcn-kpi" title="Filtered rows whose demand could not be matched to sales history, so their cover is unknown."><div class="bcn-kpi-label">UNKNOWN DEMAND</div><div class="bcn-kpi-value bcn-mono" id="kUnknown">0</div></div>
+        <div class="bcn-kpi" title="Retail value on hand of filtered rows flagged Out of stock, Low cover or Data review."><div class="bcn-kpi-label">AT RISK @ SELL</div><div class="bcn-kpi-value bcn-mono" id="kRiskRetail">$0</div></div>
         <div class="bcn-kpi"><div class="bcn-kpi-label">SELECTED</div><div class="bcn-kpi-value bcn-mono" id="kSelected">0</div></div>
       </section>
 
+      <section class="inv-toolbar" aria-label="Inventory filters">
+        <div class="seg" role="group" aria-label="View level">
+          <button id="btnModeProduct" class="active" type="button">Product</button>
+          <button id="btnModeSku" type="button">SKU</button>
+          <button id="btnModeType" type="button">Type</button>
+          <button id="btnModeLocation" type="button">Location</button>
+        </div>
+        <div class="toolbar-sep" aria-hidden="true"></div>
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input id="txtSearch" type="search" class="field" aria-label="Search product, SKU or barcode" placeholder="Search product, SKU or barcode…" />
+        </div>
+        <select id="selLocation" class="field" aria-label="Location">
+          <option value="__ALL__">All locations</option>
+        </select>
+        <select id="selProductTypeFilter" class="field" aria-label="Product type">
+          <option value="__ALL__">All product types</option>
+        </select>
+        <div class="toolbar-spacer"></div>
+        <button id="btnMoreFilters" type="button" class="btn btn-morefilters">More filters<span class="count-badge" id="moreFiltersCount" hidden>0</span></button>
+      </section>
+
+      <section class="inv-chipbar" id="chipBar" aria-label="Active filters" aria-live="polite" hidden></section>
+
+      <div class="inv-updating-note" role="status"><span class="inv-spinner" aria-hidden="true"></span><span id="updatingText">Refreshing inventory…</span></div>
+
       <section class="bcn-filter-bar">
         <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-          <button id="btnSuggestPO" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">SUGGEST PO</button>
           <button id="btnTagSelected" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">TAG SELECTED</button>
-          <button id="btnAddSelectedToDraft" type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono">ADD → DRAFT</button>
-          <button id="btnDraftDrawerToggle" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">PO DRAFT</button>
         </div>
         <div style="display:flex;gap:6px;margin-left:auto;">
           <button id="btnExportSelected" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">EXPORT SELECTED</button>
@@ -737,7 +754,7 @@
       </section>
 
       <div class="inv-table-body">
-        <div class="bcn-card inv-table-card">
+        <div class="bcn-card inv-table-card" id="tableCard">
           <div class="bcn-matrix-scroll">
             <table id="mainTable" class="stickyHead table-compact bcn-matrix">
               <thead><tr id="theadRow"></tr></thead>
@@ -758,42 +775,6 @@
     </main>
   </div>
 
-  <aside id="draftDrawer" class="draft-drawer" aria-label="PO draft" aria-hidden="true">
-    <div class="draft-head">
-      <div>
-        <h3>PO draft</h3>
-        <p>Local batch — review SKU/size in row details before exporting.</p>
-      </div>
-      <button id="btnDraftDrawerClose" type="button" class="draft-close" aria-label="Close PO draft">×</button>
-    </div>
-    <div class="draft-body thin-scroll">
-      <div>
-        <label class="lbl-light" for="txtPoName">Batch name</label>
-        <input id="txtPoName" type="text" class="field" placeholder="PO-2026-02-17 Company" />
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div>
-          <label class="lbl-light" for="txtVendor">Vendor</label>
-          <input id="txtVendor" type="text" class="field" placeholder="optional" />
-        </div>
-        <div>
-          <label class="lbl-light" for="txtEta">ETA</label>
-          <input id="txtEta" type="date" class="field mono" />
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <button id="btnViewDraft" type="button" class="btn">View</button>
-        <button id="btnExportDraft" type="button" class="btn btn-dark">Export</button>
-      </div>
-      <button id="btnClearDraft" type="button" class="btn" style="width:100%">Clear draft</button>
-      <div class="draft-peek thin-scroll">
-        <div class="draft-peek-label">Peek</div>
-        <pre id="draftPeek">Draft empty.</pre>
-      </div>
-    </div>
-  </aside>
-  <div id="draftBackdrop" class="panel-backdrop draft-backdrop" aria-hidden="true"></div>
-
   <div id="modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
     <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" data-modal-overlay="1"></div>
     <div style="position:absolute;left:0;right:0;top:40px;margin:0 auto;max-width:80rem;padding:0 16px;">
@@ -811,46 +792,41 @@
 <script>
 (function initInvV2Chrome() {
   const body = document.body;
-  const draftDrawer = document.getElementById("draftDrawer");
-  const draftBackdrop = document.getElementById("draftBackdrop");
-  const filterToggle = document.getElementById("btnFilterRailToggle");
-  const filterToggleTop = document.getElementById("btnFilterRailToggleTop");
 
-  function setDraft(open) {
-    body.classList.toggle("draft-open", open);
-    if (draftDrawer) draftDrawer.setAttribute("aria-hidden", open ? "false" : "true");
-  }
+  // The More filters drawer is a flex sibling of the table on wide screens,
+  // so opening it narrows the table rather than covering it -- that is the
+  // "must not obscure essential columns" requirement, handled by layout
+  // rather than by z-index. It starts CLOSED so the table gets the full width
+  // on load; the controls people use every visit are in the toolbar now.
+  body.classList.add("filter-rail-collapsed");
+
   function toggleFilterRail() {
     const smallScreen = window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
     if (smallScreen) {
       body.classList.toggle("filter-rail-open");
       body.classList.remove("filter-rail-collapsed");
-      if (filterToggle) filterToggle.textContent = "›";
       return;
     }
-
     body.classList.remove("filter-rail-open");
     body.classList.toggle("filter-rail-collapsed");
     const collapsed = body.classList.contains("filter-rail-collapsed");
-    if (filterToggle) filterToggle.textContent = collapsed ? "‹" : "›";
+    const t = document.getElementById("btnFilterRailToggle");
+    if (t) t.textContent = collapsed ? "\u2039" : "\u203a";
   }
 
-  document.getElementById("btnDraftDrawerToggle")?.addEventListener("click", () => setDraft(true));
-  document.getElementById("btnDraftDrawerClose")?.addEventListener("click", () => setDraft(false));
-  draftBackdrop?.addEventListener("click", () => setDraft(false));
+  function closeFilterRail() {
+    body.classList.remove("filter-rail-open");
+    body.classList.add("filter-rail-collapsed");
+    const t = document.getElementById("btnFilterRailToggle");
+    if (t) t.textContent = "\u2039";
+  }
 
-  filterToggle?.addEventListener("click", toggleFilterRail);
-  filterToggleTop?.addEventListener("click", toggleFilterRail);
-
-  document.getElementById("btnAddSelectedToDraft")?.addEventListener("click", () => {
-    window.setTimeout(() => setDraft(true), 0);
-  }, true);
+  document.getElementById("btnFilterRailToggle")?.addEventListener("click", toggleFilterRail);
+  document.getElementById("btnMoreFilters")?.addEventListener("click", toggleFilterRail);
+  document.getElementById("btnFiltersDone")?.addEventListener("click", closeFilterRail);
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      setDraft(false);
-      body.classList.remove("filter-rail-open");
-    }
+    if (e.key === "Escape") body.classList.remove("filter-rail-open");
   });
 })();
 </script>
@@ -863,8 +839,49 @@
     const LOGIN_PATH = "/pages/login.html";
 
     const INVENTORY_VIEW = "inventory_workboard_v";
-    const INVENTORY_PAGE_SIZE = 10000;
-    const PRODUCT_TAG_PAGE_SIZE = 10000;
+
+    /* MEASURED, not guessed (2026-09-07, Baseballism, 66,745 rows).
+     *
+     * The page used to fetch `select("*")` in 10,000-row pages. PostgREST
+     * turns each page into LIMIT/OFFSET, and this view's plan builds its
+     * whole SKU-fallback aggregate (56,782 groups) before it can honour an
+     * OFFSET -- so every page re-ran the full join and threw away the rows it
+     * had already passed. EXPLAIN ANALYZE, as the authenticated user:
+     *
+     *     offset 0      471 ms
+     *     offset 60000  2,104 ms
+     *     -> ~9.4 s of database time across the seven pages, seven round
+     *        trips, and (worse) no ORDER BY, so a row could be seen twice or
+     *        missed entirely as the pages drifted.
+     *
+     * One ordered request for the whole set: 2,139 ms. The loop stays as a
+     * safety net in case a server-side row cap is ever configured -- with the
+     * ORDER BY it is now correct to page, which it was not before.
+     *
+     * The explicit column list is the other half. `select *` returns 41
+     * columns; the page maps 25. Dropping the rest (row_hash alone is 4.2 MB
+     * across the set, plus product_image, snapshot_at, sync_batch_id,
+     * est_oos_date, variant_created_at and the pre-computed duplicates) took
+     * the planner's row width from 832 to 618 bytes, ~26% off the payload. */
+    const INVENTORY_PAGE_SIZE = 100000;
+    const PRODUCT_TAG_PAGE_SIZE = 5000;
+
+    const INVENTORY_COLUMNS = [
+      "id", "location_tag", "location", "location_name", "shop_domain",
+      "product_title", "variant_title", "variant_sku", "variant_barcode",
+      "product_type", "product_image_url", "retail_price",
+      "total_available_quantity", "total_available_inventory_value",
+      "qty_7d", "sold_30", "qty_90d", "qty_120d", "qty_365d",
+      "avg_day_7", "avg_day_30", "avg_day_90", "avg_day_120", "avg_day_365",
+      // The two that make the difference between "no cover" and "unknown".
+      "days_oos", "velocity_basis", "velocity_matched", "velocity_source",
+      "last_sold_date"
+    ].join(",");
+
+    // product_tags.raw_row is 147 kB of the table's 217 kB and nothing reads it.
+    const PRODUCT_TAG_COLUMNS =
+      "id,product_title,product_title_key,product_category,collection,inline_flag," +
+      "primary_color,artwork_side,tag,sub_tag,indicator_group,notes";
 
     const SUPABASE = (SUPABASE_URL && SUPABASE_ANON_KEY)
       ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -872,7 +889,15 @@
     let SESSION = null;
     let APP_READY = false;
 
-    let MODE = "type";
+    const SIG = window.SiloInventorySignals;
+
+    const RETAIL_HELP = "Retail value of the units on hand, at selling price. This is NOT inventory cost.";
+    const COVER_HELP  = "Days of stock left at the recorded sales rate. Reads \u201cUnknown\u201d when no sales history matched the row \u2014 that is not the same as zero demand.";
+    const SIGNAL_HELP = "Stock state only. It is not a buying recommendation, and it never reports OK for a row whose demand is unknown.";
+    const BASIS_HELP  = "Which sales window the cover figure was calculated from, or \u2018none\u2019 when no sales history matched this row.";
+    const COVERAGE_HELP = "How many of the underlying location rows have matched sales history. Below 100%, cover is measured from part of the stock only.";
+
+    let MODE = "product";
     let RAW = [];
     let SKU_ROWS = [];
     let PRODUCT_ROWS = [];
@@ -882,15 +907,13 @@
     const PAGE_SIZE = 50;
 
     const SELECTED = new Set();
-    let LAST_SUGGEST = new Map();
-    let SUGGEST_ENABLED = false;
 
-    const COLS_KEY = "silo_inv_cols_v10_table_redesign";
+    const COLS_KEY = "silo_inv_cols_v12_per_level";
     let VISIBLE = null;
 
     let LOAD_SEQ = 0;
     let IS_LOADING = false;
-    let STRATEGY = "replenish";
+    let HAS_DATA = false;
     let LOCATION_OPTIONS = [];
 
     let PRODUCT_TAG_ROWS = [];
@@ -898,132 +921,104 @@
     let PRODUCT_TAGS_BY_TITLE_KEY = new Map();
     let PRODUCT_TAGS_BY_EXACT_TITLE = new Map();
 
-    const DRAFT_KEY = "silo_po_draft_v9_product_planning";
-    function loadDraft(){ try{ return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); } catch(e){ return []; } }
-    function saveDraft(lines){ localStorage.setItem(DRAFT_KEY, JSON.stringify(lines)); }
+    /* Single source of truth for the filters. The DOM mirrors it, never the
+     * other way round -- that is what lets "Clear lenses" clear exactly the
+     * lens-owned fields instead of sweeping the whole form (bug 1). */
+    let FILTERS = SIG.emptyState();
+    FILTERS.level = MODE;
 
+    function signalOpts(){
+      const v = el("numRiskDays") ? parseFloat(el("numRiskDays").value) : NaN;
+      return { lowCoverDays: Number.isFinite(v) && v > 0 ? v : SIG.DEFAULTS.lowCoverDays };
+    }
+
+    /* Column sets. `default: true` is the compact set a person should see on
+     * arrival -- what is on hand, what moved, how long it lasts, and what
+     * state it is in. Everything else stays available through Columns.
+     *
+     * `label` is BOTH the table header and the Columns picker entry. They used
+     * to differ (header "OH" from a short-label map, picker "On Hand"), so a
+     * picker entry could not be matched to the column it toggled. One label
+     * now, and `structural: true` marks the two that are page furniture rather
+     * than data and so are kept out of the picker entirely. */
     const COLS_TYPE = [
-      { key: "_select", label: "", default: true },
+      { key: "_select", label: "", structural: true, default: true },
       { key: "product_type", label: "Product Type", default: true },
       { key: "products_count", label: "Products", align: "right", default: true },
-      { key: "sku_count", label: "SKUs", align: "right", default: true },
-      { key: "locations_count", label: "Locations", align: "right", default: true },
+      { key: "sku_count", label: "SKUs", align: "right", default: false },
+      { key: "locations_count", label: "Locations", align: "right", default: false },
       { key: "avail_qty", label: "On Hand", align: "right", default: true },
-      { key: "inv_value", label: "Retail Value", align: "right", default: true },
-      { key: "qty_7d", label: "Sold 7d", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value", align: "right", default: false, help: RETAIL_HELP },
+      { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
       { key: "sold_30", label: "Sold 30d", align: "right", default: true },
       { key: "qty_90d", label: "Sold 90d", align: "right", default: false },
-      { key: "qty_365d", label: "Sold 365d", align: "right", default: true },
-      { key: "avg_day", label: "Avg/Day 30", align: "right", default: true },
-      { key: "days_oos", label: "Days Cover", align: "right", default: true },
-      { key: "risk_count", label: "Risk Items", align: "right", default: true },
-      { key: "stale_count", label: "Stale", align: "right", default: false },
-      { key: "negative_count", label: "Neg Inv", align: "right", default: false },
-      { key: "category_buy", label: "Category Buy", align: "right", default: true },
-      { key: "mix_shortage", label: "Mix Shortage", align: "right", default: true },
-      { key: "suggested_po", label: "Draft Qty", align: "right", default: false },
-      { key: "action_flag", label: "Action", default: true },
-      { key: "_details", label: "", default: true }
+      { key: "qty_365d", label: "Sold 365d", align: "right", default: false },
+      { key: "avg_day", label: "Avg/Day 30d", align: "right", default: false },
+      { key: "days_oos", label: "Days Cover", align: "right", default: true, help: COVER_HELP },
+      { key: "inventory_signal", label: "Inventory", default: true, help: SIGNAL_HELP },
+      { key: "risk_count", label: "Low Cover Items", align: "right", default: false },
+      { key: "stale_count", label: "Stale Items", align: "right", default: false },
+      { key: "unknown_count", label: "Unknown Demand Items", align: "right", default: false },
+      { key: "negative_count", label: "Negative Inv Items", align: "right", default: false },
+      { key: "_details", label: "", structural: true, default: true }
     ];
 
     const COLS_PRODUCT = [
-      { key: "_select", label: "", default: true },
+      { key: "_select", label: "", structural: true, default: true },
       { key: "image", label: "Image", default: false },
       { key: "product", label: "Product", default: true },
       { key: "product_type", label: "Type", default: true },
-      { key: "tag", label: "Tag", default: true },
+      { key: "tag", label: "Tag", default: false },
       { key: "sub_tag", label: "Sub Tag", default: false },
       { key: "indicator_group", label: "Indicator", default: false },
       { key: "collection", label: "Collection", default: false },
-      { key: "driver", label: "Driver", default: true },
+      { key: "driver", label: "Driver", default: false },
       { key: "variant_count", label: "Variants", align: "right", default: true },
       { key: "locations_count", label: "Locations", align: "right", default: true },
       { key: "avail_qty", label: "On Hand", align: "right", default: true },
-      { key: "inv_value", label: "Retail Value", align: "right", default: true },
-      { key: "qty_7d", label: "Sold 7d", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value", align: "right", default: false, help: RETAIL_HELP },
+      { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
       { key: "sold_30", label: "Sold 30d", align: "right", default: true },
       { key: "qty_90d", label: "Sold 90d", align: "right", default: false },
-      { key: "qty_365d", label: "Sold 365d", align: "right", default: true },
-      { key: "avg_day", label: "Avg/Day 30", align: "right", default: true },
-      { key: "days_oos", label: "Days Cover", align: "right", default: true },
-      { key: "last_sold_date", label: "Last Sold", default: true },
-      { key: "category_buy", label: "Product Buy", align: "right", default: true },
-      { key: "mix_shortage", label: "SKU Pressure", align: "right", default: true },
-      { key: "suggested_po", label: "Draft Qty", align: "right", default: false },
-      { key: "action_flag", label: "Action", default: true },
-      { key: "_details", label: "", default: true }
+      { key: "qty_365d", label: "Sold 365d", align: "right", default: false },
+      { key: "avg_day", label: "Avg/Day 30d", align: "right", default: false },
+      { key: "days_oos", label: "Days Cover", align: "right", default: true, help: COVER_HELP },
+      { key: "inventory_signal", label: "Inventory", default: true, help: SIGNAL_HELP },
+      { key: "demand_coverage", label: "Demand Known", align: "right", default: false, help: COVERAGE_HELP },
+      { key: "last_sold_date", label: "Last Sold", default: false },
+      { key: "_details", label: "", structural: true, default: true }
     ];
 
     const COLS_SKU = [
-      { key: "_select", label: "", default: true },
+      { key: "_select", label: "", structural: true, default: true },
       { key: "image", label: "Image", default: false },
       { key: "sku", label: "SKU", default: true },
       { key: "variant", label: "Variant", default: true },
       { key: "product", label: "Product", default: true },
       { key: "product_type", label: "Type", default: false },
-      { key: "tag", label: "Tag", default: true },
-      { key: "driver", label: "Driver", default: true },
-      { key: "locations_count", label: "Locations", align: "right", default: true },
+      { key: "tag", label: "Tag", default: false },
+      { key: "driver", label: "Driver", default: false },
+      { key: "locations_count", label: "Locations", align: "right", default: false },
       { key: "avail_qty", label: "On Hand", align: "right", default: true },
-      { key: "inv_value", label: "Retail Value", align: "right", default: true },
-      { key: "qty_7d", label: "Sold 7d", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value", align: "right", default: false, help: RETAIL_HELP },
+      { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
       { key: "sold_30", label: "Sold 30d", align: "right", default: true },
       { key: "qty_90d", label: "Sold 90d", align: "right", default: false },
       { key: "qty_120d", label: "Sold 120d", align: "right", default: false },
       { key: "qty_365d", label: "Sold 365d", align: "right", default: false },
-      { key: "avg_day_7", label: "Avg/Day 7", align: "right", default: false },
-      { key: "avg_day", label: "Avg/Day 30", align: "right", default: true },
-      { key: "avg_day_90", label: "Avg/Day 90", align: "right", default: false },
-      { key: "avg_day_365", label: "Avg/Day 365", align: "right", default: false },
-      { key: "velocity_basis", label: "Basis", default: true },
-      { key: "days_oos", label: "Days Cover", align: "right", default: true },
-      { key: "last_sold_date", label: "Last Sold", default: true },
-      { key: "suggested_po", label: "Suggested Buy", align: "right", default: true },
-      { key: "action_flag", label: "Action", default: true },
-      { key: "_details", label: "", default: true }
+      { key: "avg_day_7", label: "Avg/Day 7d", align: "right", default: false },
+      { key: "avg_day", label: "Avg/Day 30d", align: "right", default: false },
+      { key: "avg_day_90", label: "Avg/Day 90d", align: "right", default: false },
+      { key: "avg_day_365", label: "Avg/Day 365d", align: "right", default: false },
+      { key: "velocity_basis", label: "Demand Basis", default: false, help: BASIS_HELP },
+      { key: "days_oos", label: "Days Cover", align: "right", default: true, help: COVER_HELP },
+      { key: "inventory_signal", label: "Inventory", default: true, help: SIGNAL_HELP },
+      { key: "last_sold_date", label: "Last Sold", default: false },
+      { key: "_details", label: "", structural: true, default: true }
     ];
 
-    const COL_LABEL_SHORT = {
-      product_type: "Type",
-      products_count: "Prods",
-      sku_count: "SKUs",
-      variant_count: "Vars",
-      locations_count: "Locs",
-      inv_value: "Retail",
-      avail_qty: "OH",
-      qty_7d: "7d",
-      sold_30: "30d",
-      qty_90d: "90d",
-      qty_120d: "120d",
-      qty_365d: "365d",
-      avg_day: "Avg30",
-      avg_day_7: "Avg7",
-      avg_day_90: "Avg90",
-      avg_day_365: "Avg365",
-      days_oos: "Cover",
-      category_buy: "Cat buy",
-      mix_shortage: "Mix Δ",
-      suggested_po: "Sug",
-      risk_count: "Risk#",
-      stale_count: "Stale#",
-      negative_count: "Neg#",
-      last_sold_date: "Last",
-      indicator_group: "Ind",
-      velocity_basis: "Basis",
-      transfer_flag: "Xfr"
-    };
-    const COL_CLIP = new Set([
-      "product_type", "location", "sku", "barcode", "variant",
-      "tag", "sub_tag", "collection", "indicator_group", "source"
-    ]);
-    const TABLE_MIN_W = { type: 1180, product: 1520, sku: 1680, location: 1760 };
-
-    function colHeaderLabel(c){ return COL_LABEL_SHORT[c.key] || c.label; }
-    function colClipClass(key){ return COL_CLIP.has(key) ? " cell-clip" : ""; }
-    function colAlignClass(c){ return c.align === "right" ? "text-right" : "text-left"; }
-
     const COLS_LOCATION = [
-      { key: "_select", label: "", default: true },
+      { key: "_select", label: "", structural: true, default: true },
       { key: "image", label: "Image", default: false },
       { key: "location", label: "Location", default: true },
       { key: "sku", label: "SKU", default: true },
@@ -1031,27 +1026,63 @@
       { key: "variant", label: "Variant", default: false },
       { key: "product", label: "Product", default: true },
       { key: "product_type", label: "Type", default: false },
-      { key: "tag", label: "Tag", default: true },
-      { key: "driver", label: "Driver", default: true },
-      { key: "avail_qty", label: "Avail Qty", align: "right", default: true },
-      { key: "inv_value", label: "Retail Value", align: "right", default: true },
-      { key: "qty_7d", label: "Sold 7d", align: "right", default: true },
+      { key: "tag", label: "Tag", default: false },
+      { key: "driver", label: "Driver", default: false },
+      { key: "avail_qty", label: "On Hand", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value", align: "right", default: false, help: RETAIL_HELP },
+      { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
       { key: "sold_30", label: "Sold 30d", align: "right", default: true },
       { key: "qty_90d", label: "Sold 90d", align: "right", default: false },
       { key: "qty_120d", label: "Sold 120d", align: "right", default: false },
       { key: "qty_365d", label: "Sold 365d", align: "right", default: false },
-      { key: "avg_day_7", label: "Avg/Day 7", align: "right", default: false },
-      { key: "avg_day", label: "Avg/Day 30", align: "right", default: true },
-      { key: "avg_day_90", label: "Avg/Day 90", align: "right", default: false },
-      { key: "avg_day_365", label: "Avg/Day 365", align: "right", default: false },
-      { key: "velocity_basis", label: "Basis", default: true },
-      { key: "days_oos", label: "Days Cover", align: "right", default: true },
-      { key: "last_sold_date", label: "Last Sold", default: true },
-      { key: "transfer_flag", label: "Transfer", default: true },
-      { key: "suggested_po", label: "Suggested Buy", align: "right", default: true },
-      { key: "action_flag", label: "Action", default: true },
-      { key: "_details", label: "", default: true }
+      { key: "avg_day_7", label: "Avg/Day 7d", align: "right", default: false },
+      { key: "avg_day", label: "Avg/Day 30d", align: "right", default: false },
+      { key: "avg_day_90", label: "Avg/Day 90d", align: "right", default: false },
+      { key: "avg_day_365", label: "Avg/Day 365d", align: "right", default: false },
+      { key: "velocity_basis", label: "Demand Basis", default: false, help: BASIS_HELP },
+      { key: "days_oos", label: "Days Cover", align: "right", default: true, help: COVER_HELP },
+      { key: "inventory_signal", label: "Inventory", default: true, help: SIGNAL_HELP },
+      { key: "transfer_flag", label: "Transfer", default: false, help: SIG.TRANSFER_NOTE },
+      { key: "last_sold_date", label: "Last Sold", default: false },
+      { key: "_details", label: "", structural: true, default: true }
     ];
+
+    const COL_CLIP = new Set([
+      "product_type", "location", "sku", "barcode", "variant",
+      "tag", "sub_tag", "collection", "indicator_group", "source"
+    ]);
+    /* Rendered width per column, matching the CSS above. The table's minimum
+     * width is the sum of the columns actually SHOWING, not a per-mode
+     * constant -- a constant sized for the old wide column sets is what made
+     * the drawer push the Inventory column off the right edge. */
+    const COL_W = {
+      _select: 30, _details: 44, image: 38,
+      product: 200, product_type: 88, location: 72, sku: 88, barcode: 80,
+      variant: 56, tag: 72, sub_tag: 80, collection: 88, indicator_group: 72,
+      driver: 86, transfer_flag: 86, inventory_signal: 108,
+      last_sold_date: 68, velocity_basis: 90, demand_coverage: 70,
+      days_oos: 92, inv_value: 72,
+      products_count: 48, sku_count: 48, variant_count: 48, locations_count: 48,
+      risk_count: 60, stale_count: 60, unknown_count: 70, negative_count: 70
+    };
+    const COL_W_DEFAULT = 56;
+
+    function setTableWidth(){
+      const table = el("mainTable");
+      if (!table || !VISIBLE) return;
+      const vis = visibleMap();
+      const total = currentCols()
+        .filter(c => c && c.key && vis[c.key])
+        .reduce((sum, c) => sum + (COL_W[c.key] || COL_W_DEFAULT), 0);
+      // +2 for the border box; width:100% still lets it stretch when there is
+      // more room than the columns need.
+      table.style.minWidth = `${total + 2}px`;
+    }
+
+    /* The header and the Columns picker read the SAME string. */
+    function colHeaderLabel(c){ return c.label; }
+    function colClipClass(key){ return COL_CLIP.has(key) ? " cell-clip" : ""; }
+    function colAlignClass(c){ return c.align === "right" ? "text-right" : "text-left"; }
 
     const el = (id) => document.getElementById(id);
 
@@ -1154,12 +1185,6 @@
       return "none";
     }
 
-    function metaPctOverride(row){
-      const text = String(row.notes || "");
-      const m = text.match(/\+?\s*(\d{1,3})\s*%/i);
-      return m ? Number(m[1]) : null;
-    }
-
     function driverLabel(code){
       switch(code){
         case "core": return "Core";
@@ -1176,11 +1201,13 @@
       }
     }
 
-    function driverBadgeForRow(r){
+    /* `compact` is for the detail panels, where an empty "—" badge sitting
+     * beside a real status badge reads as a broken second status rather than
+     * as "no tag". In a table CELL the dash is the right placeholder. */
+    function driverBadgeForRow(r, compact){
       const driver = deriveDriverCode(r);
-      const pct = metaPctOverride(r);
       if (driver === "none"){
-        return `<span class="badge">—</span>`;
+        return compact ? "" : `<span class="badge">—</span>`;
       }
       const cls =
         driver === "hero"       ? "inv-flag--hero" :
@@ -1192,100 +1219,36 @@
         driver === "hold"       ? "inv-flag--hold" :
         driver === "review"     ? "inv-flag--review" :
         "";
-      const pctTxt = pct !== null ? ` +${pct}%` : "";
-      return `<span class="badge ${cls}">${escapeHtml(driverLabel(driver))}${pctTxt}</span>`;
+      return `<span class="badge ${cls}">${escapeHtml(driverLabel(driver))}</span>`;
     }
 
-    function negativeIsMaterial(row){
-      const neg = num(row.negative_count || 0);
-      if (num(row.avail_qty) < 0) return true;
-      if (!neg) return false;
-      const skuCount = Math.max(1, num(row.sku_count || row.variant_count || 1));
-      return neg >= Math.max(10, Math.ceil(skuCount * 0.02));
+    /* ONE badge, from the shared module. It reports STOCK STATE and nothing
+     * else: no BUY, no BUY NOW, no suggested quantity. It also never falls
+     * through to "OK" for a row it cannot measure -- that fall-through is what
+     * printed OK against two zero-stock Sonic sizes selling ~450 units a month
+     * (bug 3), because the only rule that could have fired was a transfer rule
+     * and no transfer rule matched. */
+    function signalFor(row){ return SIG.inventorySignal(row, signalOpts()); }
+
+    function signalBadge(row){
+      const sgl = signalFor(row);
+      const title = sgl.note + (sgl.partial
+        ? ` Cover here is measured from ${sgl.coverage.known} of ${sgl.coverage.total} underlying rows.`
+        : "");
+      return `<span class="badge ${sgl.cls}" title="${escapeHtml(title)}">${escapeHtml(sgl.label)}</span>`;
     }
 
-    function categoryBuyQty(row, inputs){
-      const { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay } = inputs || getStrategyInputs();
-      if (deriveDriverCode(row) === "hold") return 0;
-      const avg = effectiveAvgDay(row, seedAvgDay);
-      if (avg <= 0) return 0;
-      const factor = growthFactorForRow(row, defaultGrowthPct);
-      const coverDays = Math.max(0, targetCover) + Math.max(0, safetyDays);
-      const targetUnits = coverDays * avg * factor;
-      const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
-      if (needed < (minReorder || 0)) return 0;
-      return needed;
+    function transferBadge(row){
+      const t = SIG.transferStatus(row, signalOpts());
+      return `<span class="badge ${t.cls}" title="${escapeHtml(SIG.TRANSFER_NOTE)}">${escapeHtml(t.label)}</span>`;
     }
 
-    function actionFlag(row){
-      const avg = effectiveAvgDay(row, num(el("numSeedAvgDay")?.value || 0));
-      const days = num(row.days_oos);
-      const onhand = num(row.avail_qty);
-      const riskThr = num(el("numRiskDays")?.value || 14);
-      const lastMs = row.last_sold_ms || null;
-      const staleDays = lastMs ? daysSince(lastMs) : null;
-      const categoryBuy = num(row.category_buy ?? row.suggested_po);
-      const mixShortage = num(row.mix_shortage || 0);
-      const suggested = LAST_SUGGEST.has(row._id) ? LAST_SUGGEST.get(row._id) : num(row.suggested_po);
-      const materialNeg = negativeIsMaterial(row);
-
-      if (deriveDriverCode(row) === "hold") return { t:"HOLD", cls:"inv-flag--hold" };
-
-      if (row.level === "type"){
-        if (materialNeg) return { t:"DATA REVIEW", cls:"inv-flag--hold" };
-        if (categoryBuy > 0 && days > 0 && days <= riskThr) return { t:"BUY NOW", cls:"inv-flag--buynow" };
-        if (categoryBuy > 0) return { t:"BUY", cls:"inv-flag--buy" };
-        if (mixShortage > 0) return { t:"REVIEW MIX", cls:"inv-flag--review" };
-        if (num(row.transfer_short_count || 0) > 0 && num(row.transfer_excess_count || 0) > 0) return { t:"TRANSFER FIRST", cls:"inv-flag--transfer" };
-        if (avg > 0 && days >= 120) return { t:"OVERSTOCK", cls:"inv-flag--overstock" };
-        if (num(row.stale_count || 0) > 0) return { t:"REVIEW STALE", cls:"inv-flag--hold" };
-        return { t:"OK", cls:"" };
-      }
-
-      if (materialNeg) return { t:"DATA REVIEW", cls:"inv-flag--hold" };
-      if (suggested > 0 && days > 0 && days <= riskThr) return { t:"BUY NOW", cls:"inv-flag--buynow" };
-      if (suggested > 0) return { t:"BUY", cls:"inv-flag--buy" };
-      if (mixShortage > 0) return { t:"REVIEW MIX", cls:"inv-flag--review" };
-      if (num(row.transfer_short_count || 0) > 0 && num(row.transfer_excess_count || 0) > 0) return { t:"TRANSFER FIRST", cls:"inv-flag--transfer" };
-      if (avg > 0 && days >= 120) return { t:"OVERSTOCK", cls:"inv-flag--overstock" };
-      if (staleDays !== null && staleDays >= 90 && avg <= 0 && onhand > 0) return { t:"STALE", cls:"inv-flag--hold" };
-      if (days > 0 && days <= 30) return { t:"WATCH", cls:"inv-flag--buynow" };
-      return { t:"OK", cls:"" };
-    }
-
-    function actionBadge(row){
-      const a = actionFlag(row);
-      return `<span class="badge ${a.cls}">${escapeHtml(a.t)}</span>`;
-    }
-
-    function plannerBadge(row){
-      const avg30 = num(row.avg_day);
-      const avg7 = num(row.avg_day_7);
-      const days = num(row.days_oos);
-      const onhand = num(row.avail_qty);
-      const lastMs = row.last_sold_ms || null;
-      const staleDays = lastMs ? daysSince(lastMs) : null;
-      const avg90 = num(row.avg_day_90);
-      const seasonalRatio = (avg90 > 0) ? (avg30 / avg90) : null;
-      const tags = [];
-
-      if (row.tag) tags.push({ t:(row.tag || "").toUpperCase(), cls:"" });
-
-      const holdBlob = [row.tag,row.sub_tag,row.indicator_group,row.notes].join(" ").toLowerCase();
-      if (/\bhold\b/.test(holdBlob)) tags.push({ t:"HOLD", cls:"inv-flag--hold" });
-
-      if (avg30 <= 0 && avg7 <= 0 && onhand > 0) tags.push({ t:"NO DEMAND", cls:"" });
-      else if (days > 0 && days <= 14) tags.push({ t:"BUY NOW", cls:"inv-flag--buynow" });
-      else if (days > 0 && days <= 30) tags.push({ t:"WATCH", cls:"inv-flag--buynow" });
-
-      if (staleDays !== null && staleDays >= 90 && avg30 <= 0 && avg7 <= 0) tags.push({ t:"STALE", cls:"inv-flag--hold" });
-      if (seasonalRatio !== null){
-        if (seasonalRatio >= 1.35) tags.push({ t:"SPIKING", cls:"inv-flag--buy" });
-        else if (seasonalRatio <= 0.75) tags.push({ t:"COOLING", cls:"inv-flag--overstock" });
-      }
-
-      if (!tags.length) return `<span class="badge">OK</span>`;
-      return tags.slice(0,2).map(x => `<span class="badge ${x.cls}">${escapeHtml(x.t)}</span>`).join(" ");
+    /* Days cover renders the REASON when there is no number, never a blank.
+     * "—" for both "0 days, selling fast" and "we have no demand data" is the
+     * ambiguity bug 2 and bug 3 both came out of. */
+    function coverCell(row){
+      const d = SIG.coverDisplay(row);
+      return `<span class="${d.muted ? "cell-muted" : ""}" title="${escapeHtml(d.title)}">${escapeHtml(d.text)}</span>`;
     }
 
     function loadVisible(){
@@ -1299,20 +1262,49 @@
 
     function saveVisible(map){ localStorage.setItem(COLS_KEY, JSON.stringify(map)); }
 
-    function allCols(){ return [...COLS_TYPE, ...COLS_PRODUCT, ...COLS_SKU, ...COLS_LOCATION]; }
+    const COL_SETS = { type: COLS_TYPE, product: COLS_PRODUCT, sku: COLS_SKU, location: COLS_LOCATION };
+
+    /* Visibility is keyed BY VIEW LEVEL, not by column name alone.
+     *
+     * It used to be one flat map built by concatenating the four column sets,
+     * so a key defined in more than one set silently took the default of
+     * whichever set was listed last. `variant` defaults on at the SKU level
+     * and off at the Location level; the flat map resolved that to off, and
+     * the SKU view lost a column its own definition asks for. Same collision
+     * for product_type, locations_count, tag and driver. */
+    function defaultVisible(){
+      const out = {};
+      Object.keys(COL_SETS).forEach(level => {
+        out[level] = {};
+        COL_SETS[level].forEach(c => { if (c && c.key) out[level][c.key] = !!c.default; });
+        out[level]._select = true;
+        out[level]._details = true;
+      });
+      return out;
+    }
+
+    /** The visibility map for the level being shown. */
+    function visibleMap(){ return (VISIBLE && VISIBLE[MODE]) || {}; }
 
     function initVisible(){
-      VISIBLE = loadVisible();
-      if (!VISIBLE){
-        VISIBLE = {};
-        allCols().forEach(c => { if (c && c.key) VISIBLE[c.key] = !!c.default; });
+      const stored = loadVisible();
+      VISIBLE = defaultVisible();
+      // Merge a stored preference in per level, so a column added since the
+      // preference was saved arrives at its own default rather than hidden.
+      if (stored){
+        Object.keys(VISIBLE).forEach(level => {
+          const from = stored[level];
+          if (!from || typeof from !== "object") return;
+          Object.keys(VISIBLE[level]).forEach(key => {
+            if (typeof from[key] === "boolean") VISIBLE[level][key] = from[key];
+          });
+          // Structural only. `image` used to be force-enabled here while the
+          // picker ignored changes to it, so its checkbox was inert and the
+          // rendered header did not match the picker.
+          VISIBLE[level]._select = true;
+          VISIBLE[level]._details = true;
+        });
       }
-      allCols().forEach(c => {
-        if (c && c.key && VISIBLE[c.key] === undefined) VISIBLE[c.key] = !!c.default;
-      });
-      VISIBLE["_select"] = true;
-      VISIBLE["_details"] = true;
-      VISIBLE["image"] = true;
       saveVisible(VISIBLE);
     }
 
@@ -1380,7 +1372,10 @@
         const to = from + INVENTORY_PAGE_SIZE - 1;
         const { data, error } = await SUPABASE
           .from(INVENTORY_VIEW)
-          .select("*")
+          .select(INVENTORY_COLUMNS)
+          // Without a stable order, LIMIT/OFFSET paging can repeat or skip
+          // rows between requests. Costs ~40 ms; buys a correct result set.
+          .order("id", { ascending: true })
           .range(from, to);
 
         if (error) throw error;
@@ -1400,7 +1395,7 @@
 
       while (true){
         const to = from + PRODUCT_TAG_PAGE_SIZE - 1;
-        const { data, error } = await SUPABASE.from("product_tags").select("*").order("id", { ascending: true }).range(from, to);
+        const { data, error } = await SUPABASE.from("product_tags").select(PRODUCT_TAG_COLUMNS).order("id", { ascending: true }).range(from, to);
         if (error) throw error;
         if (!data || !data.length) break;
         out.push(...data);
@@ -1446,6 +1441,30 @@
 
       const productTypes = [...new Set(RAW.map(r => norm(r.product_type) || "Uncategorized"))].sort((a,b) => a.localeCompare(b));
       fill("selProductTypeFilter", productTypes, "All product types");
+    }
+
+    /* Static selects, filled once. */
+    function renderStaticOptions(){
+      const sortSel = el("selSort");
+      if (sortSel && !sortSel.options.length){
+        SIG.SORTS.forEach(o => {
+          const opt = document.createElement("option");
+          opt.value = o.value;
+          opt.textContent = o.label;
+          sortSel.appendChild(opt);
+        });
+        sortSel.value = FILTERS.sort;
+      }
+      const sigSel = el("selSignalFilter");
+      if (sigSel && sigSel.options.length <= 1){
+        SIG.SIGNAL_ORDER.forEach(code => {
+          const opt = document.createElement("option");
+          opt.value = code;
+          opt.textContent = SIG.SIGNALS[code].label;
+          opt.title = SIG.SIGNALS[code].note;
+          sigSel.appendChild(opt);
+        });
+      }
     }
 
     function matchProductTag(row){
@@ -1518,8 +1537,19 @@
       const avg120 = avg120Raw || (qty120 ? qty120 / 120 : 0);
       const avg365 = avg365Raw || (qty365 ? qty365 / 365 : 0);
 
-      const daysOosRaw = num(pick(o, ["days_oos", "days_to_oos", "estimated_days_before_out_of_stock"], 0));
-      const daysOos = daysOosRaw || (avg30 > 0 ? avail / avg30 : (avg7 > 0 ? avail / avg7 : 0));
+      /* days_oos is NULL in the view whenever there is no demand basis to
+       * divide by. It must stay null all the way to the cell: num() used to
+       * turn it into 0, which is how a pin with 1,002 units and no recorded
+       * sale ended up inside a "cover <= 7 days" lens (bug 2). */
+      const daysOosRaw = SIG.numOrNull(o?.days_oos);
+      const daysCover = daysOosRaw !== null
+        ? daysOosRaw
+        : (avg30 > 0 ? avail / avg30 : (avg7 > 0 ? avail / avg7 : null));
+
+      // The view's own verdict on whether it found sales history for this row.
+      // Absent (an older view, or a row the mapper synthesised) is treated as
+      // matched, because inventing "unknown" would be its own false claim.
+      const velocityMatched = o?.velocity_matched === false ? false : true;
 
       const lastSold = norm(pick(o, ["last_sold_date", "last_sale_date", "max_sold_date"], ""));
       const lastSoldMs = parseDateLoose(lastSold);
@@ -1554,18 +1584,20 @@
         avg_day_90: avg90,
         avg_day_120: avg120,
         avg_day_365: avg365,
-        days_oos: daysOos,
+        days_cover: daysCover,
         last_sold_date: lastSold,
         last_sold_ms: lastSoldMs,
         velocity_basis: velocityBasis,
+        velocity_matched: velocityMatched,
+        velocity_source: norm(pick(o, ["velocity_source"], velocityMatched ? "title" : "none")),
+        demand_known_count: velocityMatched ? 1 : 0,
+        demand_rows_count: 1,
         image_url: img,
         notes: "",
         locations_count: 1,
         variant_count: 1,
         sku_count: 1,
-        products_count: 1,
-        suggested_po: 0,
-        _raw_supabase: o
+        products_count: 1
       });
     }
 
@@ -1587,7 +1619,14 @@
           continue;
         }
         const agg = byKey.get(k);
+        const beforeKnown = num(agg.demand_known_count);
+        const beforeRows = num(agg.demand_rows_count);
         mergeAggInto(agg, r, { sumDemand: false });
+        // These are the SAME physical row split across bins, so coverage is
+        // "did any of them match", not a sum.
+        agg.demand_known_count = Math.max(beforeKnown, num(r.demand_known_count));
+        agg.demand_rows_count = Math.max(beforeRows, num(r.demand_rows_count));
+        agg.velocity_matched = agg.demand_known_count > 0;
         if (r.inv_location) agg.inv_locations.add(r.inv_location);
       }
 
@@ -1623,6 +1662,13 @@
       agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
       agg.avg_day_365 = Math.max(num(agg.avg_day_365), num(r.avg_day_365));
 
+      /* Roll the demand-coverage counters up. An aggregate is "unknown" only
+       * when EVERY underlying row was unmatched; a partial match is measured
+       * against the part we know about and says so, rather than quietly
+       * presenting partial demand as complete. */
+      agg.demand_known_count = num(agg.demand_known_count) + num(r.demand_known_count);
+      agg.demand_rows_count = num(agg.demand_rows_count) + num(r.demand_rows_count);
+
       const msA = agg.last_sold_ms || null;
       const msB = r.last_sold_ms || null;
       if (msB && (!msA || msB > msA)){
@@ -1646,8 +1692,10 @@
       agg.avg_day_120 = num(agg.qty_120d) / 120;
       agg.avg_day_365 = num(agg.qty_365d) / 365;
       const basisAvg = agg.avg_day > 0 ? agg.avg_day : agg.avg_day_7;
-      agg.days_oos = basisAvg > 0 ? num(agg.avail_qty) / basisAvg : 0;
+      // null, never 0: an aggregate with no sales basis has UNKNOWN cover.
+      agg.days_cover = basisAvg > 0 ? num(agg.avail_qty) / basisAvg : null;
       agg.velocity_basis = agg.avg_day > 0 ? "30d" : (agg.avg_day_7 > 0 ? "7d" : "none");
+      agg.velocity_matched = num(agg.demand_known_count) > 0;
     }
 
     function emptyAgg(seed){
@@ -1665,15 +1713,16 @@
         avg_day_90: 0,
         avg_day_120: 0,
         avg_day_365: 0,
-        days_oos: 0,
+        days_cover: null,
         velocity_basis: "none",
+        velocity_matched: false,
+        demand_known_count: 0,
+        demand_rows_count: 0,
         last_sold_ms: null,
         last_sold_date: "",
-        suggested_po: 0,
-        category_buy: 0,
-        mix_shortage: 0,
         risk_count: 0,
         stale_count: 0,
+        unknown_count: 0,
         negative_count: 0,
         transfer_short_count: 0,
         transfer_excess_count: 0,
@@ -1762,22 +1811,25 @@
         agg.children.push(r);
       }
 
-      const inputs = getStrategyInputs();
+      const opts = signalOpts();
       const out = [];
       for (const agg of byKey.values()){
         finalizeVelocity(agg);
         const rawChildren = rawByProduct.get(agg.key.replace(/^PRODUCT::/, "")) || rawByProduct.get(agg.key) || [];
         const locs = new Set();
-        let risk = 0, stale = 0, neg = 0, short = 0, excess = 0;
+        let risk = 0, stale = 0, neg = 0, unknown = 0, short = 0, excess = 0;
         for (const rr of rawChildren){
           locs.add(`${rr.source_id}::${rr.location}`);
-          const d = num(rr.days_oos);
-          if (d > 0 && d <= num(el("numRiskDays")?.value || 14)) risk++;
-          const st = rr.last_sold_ms ? daysSince(rr.last_sold_ms) : null;
-          if (st !== null && st >= 90 && num(rr.sold_30) <= 0 && num(rr.qty_7d) <= 0 && num(rr.avail_qty) > 0) stale++;
-          if (num(rr.avail_qty) < 0) neg++;
-          if (d > 0 && d <= 14) short++;
-          if (d >= 90 && num(rr.avail_qty) > 0) excess++;
+          // Counted through the shared signal so a rollup's tallies and its
+          // children's badges can never disagree.
+          const code = SIG.inventorySignal(rr, opts).code;
+          if (code === "low_cover") risk++;
+          else if (code === "stale" || code === "no_sales") stale++;
+          else if (code === "unknown_demand") unknown++;
+          else if (code === "data_review") neg++;
+          const t = SIG.transferStatus(rr, opts).code;
+          if (t === "short") short++;
+          else if (t === "excess") excess++;
         }
         agg.locations_count = locs.size;
         agg.variant_count = agg.child_skus.size;
@@ -1785,12 +1837,10 @@
         agg.products_count = 1;
         agg.risk_count = risk;
         agg.stale_count = stale;
+        agg.unknown_count = unknown;
         agg.negative_count = neg;
         agg.transfer_short_count = short;
         agg.transfer_excess_count = excess;
-        agg.mix_shortage = agg.children.reduce((s, child) => s + suggestPOQty(child, inputs), 0);
-        agg.category_buy = categoryBuyQty(agg, inputs);
-        agg.suggested_po = agg.category_buy;
         delete agg.child_skus;
         delete agg.child_products;
         out.push(agg);
@@ -1823,10 +1873,10 @@
         agg.children.push(r);
         agg.risk_count += num(r.risk_count);
         agg.stale_count += num(r.stale_count);
+        agg.unknown_count += num(r.unknown_count);
         agg.negative_count += num(r.negative_count);
         agg.transfer_short_count += num(r.transfer_short_count);
         agg.transfer_excess_count += num(r.transfer_excess_count);
-        agg.mix_shortage += num(r.mix_shortage || r.suggested_po);
       }
       const out = [];
       for (const agg of byKey.values()){
@@ -1841,8 +1891,6 @@
           }
         }
         agg.locations_count = locs.size;
-        agg.category_buy = categoryBuyQty(agg, getStrategyInputs());
-        agg.suggested_po = agg.category_buy;
         delete agg.child_products;
         delete agg.child_skus;
         out.push(agg);
@@ -1877,13 +1925,22 @@
       sel.value = [...sel.options].some(o => o.value === current) ? current : "__ALL__";
     }
 
+    /* Keep whatever is on screen readable while a refresh runs. The rows stay
+     * put; they just stop claiming to be current, and the pager/KPIs are not
+     * blanked out from under someone mid-read. */
     function setLoadingUI(on){
       IS_LOADING = on;
       const btn = el("btnReload");
-      btn.disabled = on;
-      btn.classList.toggle("opacity-60", on);
-      btn.classList.toggle("cursor-not-allowed", on);
-      btn.textContent = on ? "Loading…" : "Reload";
+      if (btn){
+        btn.disabled = on;
+        btn.textContent = on ? "LOADING…" : "RELOAD";
+      }
+      document.body.classList.toggle("inv-updating", on);
+      el("tableCard")?.classList.toggle("is-updating", on && HAS_DATA);
+      const txt = el("updatingText");
+      if (txt) txt.textContent = HAS_DATA
+        ? "Refreshing inventory — the figures below are from the previous load."
+        : "Loading inventory…";
     }
 
     async function loadAll(){
@@ -1891,256 +1948,207 @@
       if (IS_LOADING) return;
 
       const mySeq = ++LOAD_SEQ;
+      const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
       setLoadingUI(true);
-      setStatus("Loading Supabase inventory…");
-
-      RAW = [];
-      SKU_ROWS = [];
-      PRODUCT_ROWS = [];
-      TYPE_ROWS = [];
-      VIEW = [];
-      SELECTED.clear();
-      LAST_SUGGEST = new Map();
-      SUGGEST_ENABLED = false;
-      PAGE = 1;
+      if (!HAS_DATA) setStatus("Loading inventory…");
 
       let tagLoadWarning = "";
 
       try{
-        try{
-          PRODUCT_TAG_ROWS = await loadProductTagsPaginated();
-          rebuildProductTagLookups();
-        } catch(e){
-          console.error(e);
-          tagLoadWarning = `Supabase product_tags load failed: ${e.message || String(e)}`;
-        }
-
-        const invRows = await loadInventoryCurrentPaginated();
+        // Both fetches at once: product_tags is small but used to be awaited
+        // in full before the inventory request was even issued.
+        const [tagsResult, invRows] = await Promise.all([
+          loadProductTagsPaginated().then(
+            rows => ({ ok: true, rows }),
+            err => ({ ok: false, err })
+          ),
+          loadInventoryCurrentPaginated()
+        ]);
         if (mySeq !== LOAD_SEQ) return;
 
+        if (tagsResult.ok){
+          PRODUCT_TAG_ROWS = tagsResult.rows;
+        } else {
+          console.error(tagsResult.err);
+          PRODUCT_TAG_ROWS = [];
+          tagLoadWarning = `Product tags failed to load: ${tagsResult.err?.message || String(tagsResult.err)}`;
+        }
+        rebuildProductTagLookups();
+
+        // Nothing above this line has touched the rendered state, so a failed
+        // load leaves the previous result intact rather than an empty table.
+        SELECTED.clear();
         const mapped = invRows.map((o, idx) => mapInventoryViewRow(o, idx));
         RAW = collapseLocationRows(mapped);
         SKU_ROWS = buildSkuAgg(RAW);
         PRODUCT_ROWS = buildProductAgg(SKU_ROWS, RAW);
         TYPE_ROWS = buildTypeAgg(PRODUCT_ROWS);
+        HAS_DATA = true;
 
         renderLocationDropdown();
         renderFilterOptions();
+        syncFiltersToDom();
         applyFilters();
 
+        const elapsed = Math.round(((window.performance && performance.now) ? performance.now() : Date.now()) - t0);
         const locCount = new Set(RAW.map(r => r.source_id).filter(Boolean)).size;
-        let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> location/SKU rows, <b>${SKU_ROWS.length.toLocaleString()}</b> SKU rollups, <b>${PRODUCT_ROWS.length.toLocaleString()}</b> product rollups, and <b>${TYPE_ROWS.length.toLocaleString()}</b> product type rollups from <b>${INVENTORY_VIEW}</b> across <b>${locCount.toLocaleString()}</b> location(s).`;
-        if (tagLoadWarning){
-          msg += ` <span class="text-amber-700 font-semibold">${escapeHtml(tagLoadWarning)}</span>`;
-        } else {
-          msg += ` <span class="text-slate-600">Product tags loaded: <b>${PRODUCT_TAG_ROWS.length.toLocaleString()}</b>.</span>`;
+        const unknown = RAW.filter(r => r.velocity_matched === false).length;
+        let msg = `<b>${RAW.length.toLocaleString()}</b> location rows · `
+          + `<b>${SKU_ROWS.length.toLocaleString()}</b> SKUs · `
+          + `<b>${PRODUCT_ROWS.length.toLocaleString()}</b> products · `
+          + `<b>${TYPE_ROWS.length.toLocaleString()}</b> types across `
+          + `<b>${locCount.toLocaleString()}</b> location(s) in ${(elapsed / 1000).toFixed(1)}s.`;
+        if (unknown){
+          msg += ` <span title="These rows have no matched sales history, so their days-cover is unknown rather than zero.">`
+            + `<b>${unknown.toLocaleString()}</b> row(s) have unknown demand.</span>`;
         }
+        if (tagLoadWarning) msg += ` <span style="color:#b45309;font-weight:600">${escapeHtml(tagLoadWarning)}</span>`;
         setStatus(msg);
 
       } catch(err){
         console.error(err);
-        setStatus(`<span class="text-rose-700 font-semibold">Supabase inventory load failed:</span> ${escapeHtml(err.message || String(err))}`);
-        openModal("Inventory load failed", `
-          <div class="dl-space">
-            <div class="dl-panel" style="color:#991b1b;font-weight:700">${escapeHtml(err.message || String(err))}</div>
-            <div class="dl-sub">
-              Check that <span class="kbd">${INVENTORY_VIEW}</span> exists and the logged-in user has SELECT access.
+        setStatus(`<span style="color:#be123c;font-weight:600">Inventory load failed:</span> ${escapeHtml(err.message || String(err))}`
+          + (HAS_DATA ? ` Showing the previous load.` : ""));
+        if (!HAS_DATA){
+          openModal("Inventory load failed", `
+            <div class="dl-space">
+              <div class="dl-panel" style="color:#991b1b;font-weight:700">${escapeHtml(err.message || String(err))}</div>
+              <div class="dl-sub">
+                Check that <span class="kbd">${INVENTORY_VIEW}</span> exists and the signed-in user has SELECT access.
+              </div>
             </div>
-          </div>
-        `);
+          `);
+        }
       } finally {
         if (mySeq === LOAD_SEQ) setLoadingUI(false);
       }
     }
 
-    function currentFilters(){
-      return {
-        source: el("selLocation")?.value || "__ALL__",
-        q: norm(el("txtSearch")?.value).toLowerCase(),
-        maxDays: valNumOrNull("numMaxDays"),
-        maxQty: valNumOrNull("numMaxQty"),
-        minSold30: valNumOrNull("numMinSold30"),
-        productType: el("selProductTypeFilter")?.value || "__ALL__",
-        tag: el("selTagFilter")?.value || "__ALL__",
-        subTag: el("selSubTagFilter")?.value || "__ALL__",
-        indicator: el("selIndicatorFilter")?.value || "__ALL__",
-        sort: el("selSort")?.value || "suggested_desc"
+    /* ------------------------------------------------------------------
+     * Filters. FILTERS is the state; the DOM is a mirror of it.
+     * ------------------------------------------------------------------ */
+
+    /** Push FILTERS into the form controls (after a lens, a chip X, a reset). */
+    function syncFiltersToDom(){
+      const set = (id, v) => { const n = el(id); if (n && n.value !== v) n.value = v; };
+      set("txtSearch", FILTERS.q || "");
+      set("selLocation", FILTERS.location);
+      set("selProductTypeFilter", FILTERS.productType);
+      set("selTagFilter", FILTERS.tag);
+      set("selSubTagFilter", FILTERS.subTag);
+      set("selIndicatorFilter", FILTERS.indicator);
+      set("selSignalFilter", FILTERS.signal);
+      set("selSort", FILTERS.sort);
+      set("numMaxDays", FILTERS.maxCoverDays === null ? "" : String(FILTERS.maxCoverDays));
+      set("numMaxQty", FILTERS.maxOnHand === null ? "" : String(FILTERS.maxOnHand));
+      set("numMinSold30", FILTERS.minSold30 === null ? "" : String(FILTERS.minSold30));
+
+      document.querySelectorAll("button[data-lens]").forEach(btn => {
+        const on = (FILTERS.lenses || []).includes(btn.getAttribute("data-lens"));
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+
+      const note = el("tagLevelNote");
+      if (note) note.hidden = SIG.fieldAppliesAtLevel("tag", FILTERS.level);
+    }
+
+    /** Read the form controls back into FILTERS (after a user edit). */
+    function readFiltersFromDom(){
+      const numOrNull = (id) => {
+        const n = el(id);
+        if (!n || n.value === "") return null;
+        const v = parseFloat(n.value);
+        return Number.isFinite(v) ? v : null;
       };
+      FILTERS.q = norm(el("txtSearch")?.value || "");
+      FILTERS.location = el("selLocation")?.value || "__ALL__";
+      FILTERS.productType = el("selProductTypeFilter")?.value || "__ALL__";
+      FILTERS.tag = el("selTagFilter")?.value || "__ALL__";
+      FILTERS.subTag = el("selSubTagFilter")?.value || "__ALL__";
+      FILTERS.indicator = el("selIndicatorFilter")?.value || "__ALL__";
+      FILTERS.signal = el("selSignalFilter")?.value || "__ALL__";
+      FILTERS.sort = el("selSort")?.value || "signal";
+      FILTERS.maxCoverDays = numOrNull("numMaxDays");
+      FILTERS.maxOnHand = numOrNull("numMaxQty");
+      FILTERS.minSold30 = numOrNull("numMinSold30");
+      FILTERS.level = MODE;
+      // A lens whose value the user has since typed over is no longer set by
+      // that lens, so drop it -- otherwise "Clear lenses" would revert an edit
+      // the person made by hand.
+      FILTERS.lenses = (FILTERS.lenses || []).filter(id => {
+        const lens = SIG.LENSES[id];
+        return lens && FILTERS[lens.field] === lens.value;
+      });
     }
 
-    function rowMatchesLocation(r, source){
-      if (source === "__ALL__") return true;
-      if (r.level === "location") return r.source_id === source;
-      if (r.level === "sku") return (r.children || []).some(x => x.source_id === source);
-      if (r.level === "product") return (r.children || []).some(sku => (sku.children || []).some(x => x.source_id === source));
-      if (r.level === "type") return (r.children || []).some(prod => (prod.children || []).some(sku => (sku.children || []).some(x => x.source_id === source)));
-      return true;
-    }
-
-    function rowSearchBlob(r){
-      return `${r.product_type||""} ${r.product||""} ${r.sku||""} ${r.barcode||""} ${r.variant||""} ${r.tag||""} ${r.sub_tag||""} ${r.indicator_group||""} ${r.collection||""}`.toLowerCase();
+    function currentBaseRows(){
+      if (MODE === "type") return TYPE_ROWS;
+      if (MODE === "product") return PRODUCT_ROWS;
+      if (MODE === "sku") return SKU_ROWS;
+      return RAW;
     }
 
     function applyFilters(){
-      const { source, q, maxDays, maxQty, minSold30, productType, tag, subTag, indicator, sort } = currentFilters();
-      const base = currentBase();
-
-      VIEW = base.filter(r => {
-        if (!rowMatchesLocation(r, source)) return false;
-        if (q && !rowSearchBlob(r).includes(q)) return false;
-        if (productType !== "__ALL__" && norm(r.product_type || "Uncategorized") !== productType) return false;
-        if (maxDays !== null){
-          const d = num(r.days_oos);
-          if (d > 0 && d > maxDays) return false;
-        }
-        if (maxQty !== null && num(r.avail_qty) > maxQty) return false;
-        if (minSold30 !== null && num(r.sold_30) < minSold30) return false;
-        if (tag !== "__ALL__" && norm(r.tag) !== tag) return false;
-        if (subTag !== "__ALL__" && norm(r.sub_tag) !== subTag) return false;
-        if (indicator !== "__ALL__" && norm(r.indicator_group) !== indicator) return false;
-        return true;
-      });
-
-      VIEW.sort((a,b) => compareRows(a,b,sort));
+      FILTERS.level = MODE;
+      const opts = signalOpts();
+      const base = currentBaseRows();
+      VIEW = base.filter(r => SIG.matchesFilters(r, FILTERS, opts));
+      VIEW.sort((a, b) => SIG.compareRows(a, b, FILTERS.sort, opts));
       PAGE = 1;
-      if (SUGGEST_ENABLED) computeSuggestions();
+      renderChips();
       render();
     }
 
-    function compareRows(a,b,sort){
-      const ad = num(a.days_oos), bd = num(b.days_oos);
-      const aq = num(a.avail_qty), bq = num(b.avail_qty);
-      const as7 = num(a.qty_7d), bs7 = num(b.qty_7d);
-      const as = num(a.sold_30), bs = num(b.sold_30);
-      const as365 = num(a.qty_365d), bs365 = num(b.qty_365d);
-      const av = num(a.inv_value), bv = num(b.inv_value);
-      const ag = num(a.category_buy ?? a.suggested_po) + num(a.mix_shortage || 0), bg = num(b.category_buy ?? b.suggested_po) + num(b.mix_shortage || 0);
-      const aSt = a.last_sold_ms ? a.last_sold_ms : 0;
-      const bSt = b.last_sold_ms ? b.last_sold_ms : 0;
-      switch(sort){
-        case "suggested_desc": return bg - ag;
-        case "days_asc": return (ad || 999999) - (bd || 999999);
-        case "days_desc": return (bd || 0) - (ad || 0);
-        case "qty_asc": return aq - bq;
-        case "qty_desc": return bq - aq;
-        case "sold7_desc": return bs7 - as7;
-        case "sold30_desc": return bs - as;
-        case "sold365_desc": return bs365 - as365;
-        case "value_desc": return bv - av;
-        case "risk_value_desc": {
-          const thr = num(el("numRiskDays").value || 14);
-          const aRisk = (ad > 0 && ad <= thr) || num(a.risk_count) > 0 ? 1 : 0;
-          const bRisk = (bd > 0 && bd <= thr) || num(b.risk_count) > 0 ? 1 : 0;
-          if (aRisk !== bRisk) return bRisk - aRisk;
-          return bv - av;
-        }
-        case "stale_desc": return aSt - bSt;
-        case "name_asc": return (a.product_type || a.product || a.sku || "").localeCompare(b.product_type || b.product || b.sku || "");
-        default: return 0;
+    /* ------------------------------------------------------------------ chips */
+
+    function renderChips(){
+      const bar = el("chipBar");
+      if (!bar) return;
+      const locOpt = LOCATION_OPTIONS.find(o => o.source_id === FILTERS.location);
+      const chips = SIG.activeChips(Object.assign({}, FILTERS, { locationLabel: locOpt?.location_label }));
+
+      const badge = el("moreFiltersCount");
+      // Only the conditions that live in the drawer are counted, so the badge
+      // means "things you cannot see from here".
+      const drawerFields = new Set(["tag", "subTag", "indicator", "signal", "maxCoverDays", "maxOnHand", "minSold30"]);
+      const hidden = chips.filter(c => drawerFields.has(c.field)).length;
+      if (badge){
+        badge.hidden = hidden === 0;
+        badge.textContent = String(hidden);
       }
-    }
 
-    function getStrategyInputs(){
-      return {
-        targetCover: num(el("numTargetCover").value || 45),
-        safetyDays: num(el("numSafetyDays").value || 0),
-        minReorder: num(el("numMinReorder").value || 0),
-        defaultGrowthPct: num(el("numGrowthPct").value || 0),
-        seedAvgDay: num(el("numSeedAvgDay").value || 0)
-      };
-    }
-
-    function growthFactorForRow(row, defaultGrowthPct){
-      const driver = deriveDriverCode(row);
-      const pctOverride = metaPctOverride(row);
-      const driverDefaults = {
-        core: 0,
-        hero: Math.max(defaultGrowthPct, 30),
-        new: Math.max(defaultGrowthPct, 50),
-        influencer: Math.max(defaultGrowthPct, 40),
-        wholesale: Math.max(defaultGrowthPct, 25),
-        promo: Math.max(defaultGrowthPct, 35),
-        seasonal: Math.max(defaultGrowthPct, 20),
-        keep: 0,
-        review: 0,
-        hold: 0,
-        none: 0
-      };
-      let pct = pctOverride !== null ? pctOverride : (driverDefaults[driver] ?? defaultGrowthPct);
-
-      if (STRATEGY === "replenish") return 1.0;
-      if (STRATEGY === "growth"){
-        const p = driver !== "none" ? pct : defaultGrowthPct;
-        return 1.0 + Math.max(0, p)/100;
+      if (!chips.length){
+        bar.hidden = true;
+        bar.innerHTML = "";
+        return;
       }
-      if (driver === "none" || driver === "hold") return 1.0;
-      return 1.0 + Math.max(0, pct)/100;
+      bar.hidden = false;
+      bar.innerHTML =
+        `<span class="chip-count">${VIEW.length.toLocaleString()} of ${currentBaseRows().length.toLocaleString()} rows</span>` +
+        chips.map(c => `
+          <span class="filter-chip${c.lens ? " chip-lens" : ""}${c.inactive ? " chip-inactive" : ""}"${
+            c.inactive ? ` title="This filter does not apply at the ${escapeHtml(MODE)} level, so it is not being used. It is kept for when you switch back."` : ""
+          }><span class="chip-text">${escapeHtml(c.label)}</span><button type="button" data-chip-clear="${escapeHtml(c.field)}" aria-label="Remove filter ${escapeHtml(c.label)}">×</button></span>`).join("") +
+        `<button type="button" class="chip-clear-all" id="btnChipResetAll">Reset all</button>`;
+
+      bar.querySelectorAll("button[data-chip-clear]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          FILTERS = SIG.clearField(FILTERS, btn.getAttribute("data-chip-clear"));
+          syncFiltersToDom();
+          applyFilters();
+        });
+      });
+      el("btnChipResetAll")?.addEventListener("click", resetAllFilters);
     }
 
-    function effectiveAvgDay(row, seedAvgDay){
-      const avg30 = num(row.avg_day);
-      const avg7 = num(row.avg_day_7);
-      if (avg30 > 0) return avg30;
-      if (avg7 > 0) return avg7;
-      const sold7 = num(row.qty_7d);
-      if (sold7 > 0) return sold7 / 7;
-      const driver = deriveDriverCode(row);
-      if (["new","hero","influencer","promo"].includes(driver)) return Math.max(0, seedAvgDay);
-      return 0;
+    function resetAllFilters(){
+      FILTERS = SIG.resetAll(FILTERS);
+      FILTERS.level = MODE;
+      syncFiltersToDom();
+      applyFilters();
     }
 
-    function suggestPOQty(row, inputs){
-      if (row.level === "type") return categoryBuyQty(row, inputs || getStrategyInputs());
-      if (row.level === "product") return num(row.suggested_po);
-      const { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay } = inputs;
-      const driver = deriveDriverCode(row);
-      if (driver === "hold") return 0;
-      const avg = effectiveAvgDay(row, seedAvgDay);
-      if (avg <= 0) return 0;
-      const factor = growthFactorForRow(row, defaultGrowthPct);
-      const coverDays = Math.max(0, targetCover) + Math.max(0, safetyDays);
-      const targetUnits = coverDays * avg * factor;
-      const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
-      if (needed < (minReorder || 0)) return 0;
-      return needed;
-    }
-
-    function computeSuggestions(){
-      const inputs = getStrategyInputs();
-      LAST_SUGGEST = new Map();
-      for (const r of RAW) LAST_SUGGEST.set(r._id, suggestPOQty(r, inputs));
-      for (const r of SKU_ROWS) LAST_SUGGEST.set(r._id, suggestPOQty(r, inputs));
-
-      for (const p of PRODUCT_ROWS){
-        p.mix_shortage = (p.children || []).reduce((sum, skuRow) => sum + (LAST_SUGGEST.get(skuRow._id) ?? suggestPOQty(skuRow, inputs)), 0);
-        p.category_buy = categoryBuyQty(p, inputs);
-        p.suggested_po = p.category_buy;
-        LAST_SUGGEST.set(p._id, p.category_buy);
-      }
-      for (const t of TYPE_ROWS){
-        t.mix_shortage = (t.children || []).reduce((sum, prodRow) => sum + num(prodRow.mix_shortage || prodRow.suggested_po), 0);
-        t.category_buy = categoryBuyQty(t, inputs);
-        t.suggested_po = t.category_buy;
-        LAST_SUGGEST.set(t._id, t.category_buy);
-      }
-      render();
-    }
-
-    function refreshAllRollupSuggestions(){
-      const inputs = getStrategyInputs();
-      for (const r of RAW) r.suggested_po = suggestPOQty(r, inputs);
-      for (const r of SKU_ROWS) r.suggested_po = suggestPOQty(r, inputs);
-      for (const p of PRODUCT_ROWS){
-        p.mix_shortage = (p.children || []).reduce((s, x) => s + suggestPOQty(x, inputs), 0);
-        p.category_buy = categoryBuyQty(p, inputs);
-        p.suggested_po = p.category_buy;
-      }
-      for (const t of TYPE_ROWS){
-        t.mix_shortage = (t.children || []).reduce((s, x) => s + num(x.mix_shortage || x.suggested_po), 0);
-        t.category_buy = categoryBuyQty(t, inputs);
-        t.suggested_po = t.category_buy;
-      }
-    }
+    /* ------------------------------------------------------------------ KPIs */
 
     function toggleSelect(id, on){
       if (on) SELECTED.add(id);
@@ -2148,75 +2156,61 @@
       el("kSelected").textContent = String(SELECTED.size);
     }
 
+    /* Every KPI is computed over the WHOLE filtered result (VIEW), never the
+     * 50 rows currently painted. */
     function updateKPIs(){
-      const rows = VIEW.length;
-      let units = 0, retail = 0, sold30 = 0, suggested = 0;
-      let riskRetail = 0;
-      let daysSum = 0, daysCount = 0;
-      const riskThr = num(el("numRiskDays").value || 14);
+      const opts = signalOpts();
+      let units = 0, retail = 0, sold30 = 0, riskRetail = 0, unknown = 0;
+      let coverSum = 0, coverCount = 0;
 
       for (const r of VIEW){
-        const u = num(r.avail_qty);
-        const v = num(r.inv_value);
-        const s = num(r.sold_30);
-        const d = num(r.days_oos);
-        const sug = LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : num(r.suggested_po);
+        units += num(r.avail_qty);
+        retail += num(r.inv_value);
+        sold30 += num(r.sold_30);
 
-        units += u;
-        retail += v;
-        sold30 += s;
-        suggested += num(sug);
+        // Averaged only over rows whose cover is actually measurable. Folding
+        // an unknown in as 0 is what made "avg cover" read far shorter than
+        // the business really carries.
+        const cover = SIG.coverDays(r);
+        if (cover !== null){ coverSum += cover; coverCount++; }
 
-        if (d > 0){
-          daysSum += d;
-          daysCount++;
-          if (d <= riskThr) riskRetail += v;
-        } else if (num(r.risk_count) > 0) {
-          riskRetail += v;
+        const code = SIG.inventorySignal(r, opts).code;
+        if (code === "unknown_demand") unknown++;
+        if (code === "out_of_stock" || code === "low_cover" || code === "data_review") {
+          riskRetail += num(r.inv_value);
         }
       }
 
-      el("kRows").textContent = rows.toLocaleString();
+      el("kRows").textContent = VIEW.length.toLocaleString();
       el("kUnits").textContent = units.toLocaleString();
       el("kRetailValue").textContent = money(retail);
-      el("kSuggested").textContent = suggested.toLocaleString();
       el("kSold30").textContent = sold30.toLocaleString();
       el("kRiskRetail").textContent = money(riskRetail);
-      el("kAvgDays").textContent = daysCount ? (daysSum / daysCount).toFixed(1) : "—";
+      el("kUnknown").textContent = unknown.toLocaleString();
+      // `(-0.033).toFixed(1)` is "-0.0", which reads as a typo rather than a
+      // number. Normalise the negative zero away.
+      const avgCover = coverCount ? (coverSum / coverCount) : null;
+      el("kAvgDays").textContent = avgCover === null
+        ? "—"
+        : (Object.is(Math.round(avgCover * 10) / 10, -0) ? "0.0" : avgCover.toFixed(1));
       el("kSelected").textContent = String(SELECTED.size);
-    }
-
-    function updateDraftPeek(){
-      const node = el("draftPeek");
-      if (!node) return;
-      const lines = loadDraft();
-      if (!lines.length){
-        node.textContent = "Draft empty.";
-        return;
-      }
-      const totalQty = lines.reduce((sum, line) => sum + num(line.qty), 0);
-      const preview = lines.slice(0, 8).map((line, i) => {
-        const sku = line.sku || line.level || "—";
-        const product = line.product || line.product_type || "";
-        const qty = num(line.qty).toLocaleString();
-        return `${i + 1}. ${sku} • ${product} • Qty ${qty}`;
-      });
-      const extra = lines.length > 8 ? `\n… +${lines.length - 8} more line(s)` : "";
-      node.textContent = [`${lines.length} line(s) • Total Qty ${totalQty.toLocaleString()}`, ...preview].join("\n") + extra;
     }
 
     function openColumnsModal(){
       const cols = currentCols();
       openModal("Columns", `
         <div class="dl-space">
-          <div class="dl-sub">Choose which columns show in the current mode.</div>
+          <div class="dl-sub">Choose which columns show at the <b>${escapeHtml(MODE)}</b> level. Each entry is named exactly as its column header.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
             ${cols.map(c => {
-              if (!c || !c.key || c.key === "_details") return "";
+              // Row selection and the details button are page furniture, not
+              // data. They used to appear in this list as a blank-labelled
+              // "_select" entry that toggled nothing legible.
+              if (!c || !c.key || c.structural) return "";
               return `
-                <label style="display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:4px;padding:6px 10px;font-size:11px;cursor:pointer">
-                  <input type="checkbox" data-col-toggle="${c.key}" ${VISIBLE[c.key] ? "checked" : ""}>
-                  <span>${c.label || c.key}</span>
+                <label style="display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:4px;padding:6px 10px;font-size:11px;cursor:pointer"${c.help ? ` title="${escapeHtml(c.help)}"` : ""}>
+                  <input type="checkbox" data-col-toggle="${escapeHtml(c.key)}" ${visibleMap()[c.key] ? "checked" : ""}>
+                  <span>${escapeHtml(c.label)}</span>
                 </label>`;
             }).join("")}
           </div>
@@ -2230,18 +2224,16 @@
       document.querySelectorAll('[data-col-toggle]').forEach(chk => {
         chk.addEventListener('change', (e) => {
           const key = e.target.getAttribute('data-col-toggle');
-          if (!key || key === '_details' || key === 'image') return;
-          VISIBLE[key] = !!e.target.checked;
+          if (!key || !VISIBLE[MODE]) return;
+          VISIBLE[MODE][key] = !!e.target.checked;
           saveVisible(VISIBLE);
           render();
         });
       });
 
       el('btnColsReset')?.addEventListener('click', () => {
-        VISIBLE = {};
-        allCols().forEach(c => { if (c && c.key) VISIBLE[c.key] = !!c.default; });
-        VISIBLE['_details'] = true;
-        VISIBLE['image'] = true;
+        // Resets the level being edited, not every level.
+        VISIBLE[MODE] = defaultVisible()[MODE];
         saveVisible(VISIBLE);
         closeModal();
         render();
@@ -2253,12 +2245,14 @@
       return `<div class="dl-metric"><div class="dl-metric-label">${escapeHtml(label)}</div><div class="dl-metric-value">${value}</div></div>`;
     }
 
+    /* Size / SKU breakdown under a product. Sorted by inventory urgency, not
+     * by a suggested quantity. */
     function renderChildSkuTable(rows){
-      const inputs = getStrategyInputs();
-      const lines = rows.slice().sort((a,b) => num(b.suggested_po || suggestPOQty(b, inputs)) - num(a.suggested_po || suggestPOQty(a, inputs)));
+      const opts = signalOpts();
+      const lines = rows.slice().sort((a, b) => SIG.compareRows(a, b, "signal", opts));
       return `
         <div class="dl-table-wrap">
-          <div class="dl-table-head">SKU / Size Curve</div>
+          <div class="dl-table-head">Sizes / SKUs</div>
           <div class="dl-table-scroll">
             <table class="dl-table">
               <thead>
@@ -2269,10 +2263,9 @@
                   <th class="text-right">Sold 7d</th>
                   <th class="text-right">Sold 30d</th>
                   <th class="text-right">Sold 365d</th>
-                  <th class="text-right">Avg/Day</th>
-                  <th class="text-right">Days</th>
-                  <th class="text-right">Suggest</th>
-                  <th>Action</th>
+                  <th class="text-right">Avg/Day 30d</th>
+                  <th class="text-right" title="${escapeHtml(COVER_HELP)}">Days Cover</th>
+                  <th title="${escapeHtml(SIGNAL_HELP)}">Inventory</th>
                 </tr>
               </thead>
               <tbody>
@@ -2284,10 +2277,9 @@
                     <td class="text-right mono">${num(r.qty_7d).toLocaleString()}</td>
                     <td class="text-right mono">${num(r.sold_30).toLocaleString()}</td>
                     <td class="text-right mono">${num(r.qty_365d).toLocaleString()}</td>
-                    <td class="text-right mono">${(num(r.avg_day) || num(r.avg_day_7)).toFixed(2)}</td>
-                    <td class="text-right mono">${num(r.days_oos) ? num(r.days_oos).toFixed(0) : "—"}</td>
-                    <td class="text-right mono" style="font-weight:700">${(LAST_SUGGEST.get(r._id) ?? suggestPOQty(r, inputs)).toLocaleString()}</td>
-                    <td>${actionBadge(r)}</td>
+                    <td class="text-right mono">${num(r.avg_day).toFixed(2)}</td>
+                    <td class="text-right mono">${coverCell(r)}</td>
+                    <td>${signalBadge(r)}</td>
                   </tr>
                 `).join("")}
               </tbody>
@@ -2296,12 +2288,17 @@
         </div>`;
     }
 
+    /* Per-location breakdown. Inventory status and transfer eligibility are
+     * SEPARATE columns on purpose. The old single column answered "is there a
+     * transfer to make?" and printed OK when there was not -- so a size with
+     * zero stock and ~450 sales a month read as healthy (bug 3). Transfer now
+     * only ever says "Short here", "Excess here" or nothing at all. */
     function renderLocationAllocationTable(rows){
-      const riskThr = num(el("numRiskDays").value || 14);
-      const lines = rows.slice().sort((a,b) => num(a.days_oos || 999999) - num(b.days_oos || 999999));
+      const opts = signalOpts();
+      const lines = rows.slice().sort((a, b) => SIG.compareRows(a, b, "signal", opts));
       return `
         <div class="dl-table-wrap">
-          <div class="dl-table-head">Location Allocation / Transfer Detail</div>
+          <div class="dl-table-head">Locations</div>
           <div class="dl-table-scroll">
             <table class="dl-table">
               <thead>
@@ -2311,50 +2308,62 @@
                   <th class="text-right">On Hand</th>
                   <th class="text-right">Sold 7d</th>
                   <th class="text-right">Sold 30d</th>
-                  <th class="text-right">Avg/Day</th>
-                  <th class="text-right">Days</th>
-                  <th>Transfer</th>
+                  <th class="text-right">Avg/Day 30d</th>
+                  <th class="text-right" title="${escapeHtml(COVER_HELP)}">Days Cover</th>
+                  <th title="${escapeHtml(SIGNAL_HELP)}">Inventory</th>
+                  <th title="${escapeHtml(SIG.TRANSFER_NOTE)}">Transfer</th>
                 </tr>
               </thead>
               <tbody>
-                ${lines.map(r => {
-                  const d = num(r.days_oos);
-                  const flag = num(r.avail_qty) < 0 ? "DATA ISSUE" : (d > 0 && d <= riskThr ? "SHORT" : (d >= 90 && num(r.avail_qty) > 0 ? "EXCESS" : "OK"));
-                  const cls = flag === "SHORT" ? "inv-flag--buynow" : flag === "EXCESS" ? "inv-flag--transfer" : flag === "DATA ISSUE" ? "inv-flag--hold" : "";
-                  return `
+                ${lines.map(r => `
                     <tr>
                       <td style="font-weight:700">${escapeHtml(r.location || "—")}</td>
                       <td class="mono">${escapeHtml(r.sku || "—")}</td>
                       <td class="text-right mono">${num(r.avail_qty).toLocaleString()}</td>
                       <td class="text-right mono">${num(r.qty_7d).toLocaleString()}</td>
                       <td class="text-right mono">${num(r.sold_30).toLocaleString()}</td>
-                      <td class="text-right mono">${(num(r.avg_day) || num(r.avg_day_7)).toFixed(2)}</td>
-                      <td class="text-right mono">${d ? d.toFixed(0) : "—"}</td>
-                      <td><span class="badge ${cls}">${flag}</span></td>
-                    </tr>`;
-                }).join("")}
+                      <td class="text-right mono">${num(r.avg_day).toFixed(2)}</td>
+                      <td class="text-right mono">${coverCell(r)}</td>
+                      <td>${signalBadge(r)}</td>
+                      <td>${transferBadge(r)}</td>
+                    </tr>`).join("")}
               </tbody>
             </table>
           </div>
+          <div style="padding:6px 10px;border-top:1px solid var(--line)" class="legend-note">${escapeHtml(SIG.TRANSFER_NOTE)}</div>
         </div>`;
+    }
+
+    /** The demand-coverage caveat, shown only when it actually applies. */
+    function coverageNote(row){
+      const cov = SIG.demandCoverage(row);
+      if (!cov.partial) return "";
+      return `<div class="legend-note" style="margin-top:6px">Sales history matched <b>${cov.known} of ${cov.total}</b> underlying rows. Days cover here is measured from those, against the stock of all of them — so real cover is likely longer than shown.</div>`;
     }
 
     function openTypeDetails(row){
       const products = row.children || [];
-      openModal("Product Type Planning Details", `
+      const opts = signalOpts();
+      openModal("Product Type Inventory", `
         <div class="dl-space">
           <div class="dl-panel">
             <div class="dl-title">${escapeHtml(row.product_type || "Uncategorized")}</div>
-            <div class="dl-sub">Product type rollup with product-family rows underneath.</div>
-            <div class="dl-badges">${actionBadge(row)} <span class="badge">Category Buy: ${num(row.category_buy).toLocaleString()}</span> <span class="badge">Mix Shortage: ${num(row.mix_shortage).toLocaleString()}</span></div>
+            <div class="dl-sub">Product type rollup with its product families underneath.</div>
+            <div class="dl-badges">
+              ${signalBadge(row)}
+              <span class="badge">Low cover items: ${num(row.risk_count).toLocaleString()}</span>
+              <span class="badge">Unknown demand items: ${num(row.unknown_count).toLocaleString()}</span>
+              <span class="badge">Negative inventory items: ${num(row.negative_count).toLocaleString()}</span>
+            </div>
+            ${coverageNote(row)}
           </div>
           <div class="dl-metrics">
             ${smallMetric("Products", num(row.products_count).toLocaleString())}
             ${smallMetric("SKUs", num(row.sku_count).toLocaleString())}
             ${smallMetric("Locations", num(row.locations_count).toLocaleString())}
             ${smallMetric("On Hand", num(row.avail_qty).toLocaleString())}
-            ${smallMetric("Retail", money(row.inv_value))}
-            ${smallMetric("Days Cover", num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—")}
+            ${smallMetric("Retail value @ sell", money(row.inv_value))}
+            ${smallMetric("Days Cover", coverCell(row))}
           </div>
           <div class="dl-table-wrap">
             <div class="dl-table-head">Products in Type</div>
@@ -2367,24 +2376,20 @@
                     <th class="text-right">On Hand</th>
                     <th class="text-right">Sold 30d</th>
                     <th class="text-right">Sold 365d</th>
-                    <th class="text-right">Days</th>
-                    <th class="text-right">Product Buy</th>
-                    <th class="text-right">Mix Δ</th>
-                    <th>Action</th>
+                    <th class="text-right" title="${escapeHtml(COVER_HELP)}">Days Cover</th>
+                    <th title="${escapeHtml(SIGNAL_HELP)}">Inventory</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${products.slice().sort((a,b) => (num(b.category_buy) + num(b.mix_shortage)) - (num(a.category_buy) + num(a.mix_shortage))).map(p => `
+                  ${products.slice().sort((a, b) => SIG.compareRows(a, b, "signal", opts)).map(p => `
                     <tr>
                       <td style="font-weight:600">${escapeHtml(p.product || "—")}</td>
                       <td class="text-right mono">${num(p.variant_count).toLocaleString()}</td>
                       <td class="text-right mono">${num(p.avail_qty).toLocaleString()}</td>
                       <td class="text-right mono">${num(p.sold_30).toLocaleString()}</td>
                       <td class="text-right mono">${num(p.qty_365d).toLocaleString()}</td>
-                      <td class="text-right mono">${num(p.days_oos) ? num(p.days_oos).toFixed(0) : "—"}</td>
-                      <td class="text-right mono" style="font-weight:700">${num(p.category_buy).toLocaleString()}</td>
-                      <td class="text-right mono" style="font-weight:700;color:#6d28d9">${num(p.mix_shortage).toLocaleString()}</td>
-                      <td>${actionBadge(p)}</td>
+                      <td class="text-right mono">${coverCell(p)}</td>
+                      <td>${signalBadge(p)}</td>
                     </tr>`).join("")}
                 </tbody>
               </table>
@@ -2396,7 +2401,7 @@
     function openProductDetails(row){
       const skuRows = row.children || [];
       const locRows = skuRows.flatMap(x => x.children || []);
-      openModal("Product Planning Details", `
+      openModal("Product Inventory", `
         <div class="dl-space">
           <div class="dl-cols-3">
             <div class="dl-img-wrap">
@@ -2409,21 +2414,20 @@
                 <div class="dl-title">${escapeHtml(row.product || "—")}</div>
                 <div class="dl-sub">${escapeHtml(row.product_type || "Uncategorized")}</div>
                 <div class="dl-badges">
-                  ${actionBadge(row)}
-                  ${driverBadgeForRow(row)}
+                  ${signalBadge(row)}
+                  ${driverBadgeForRow(row, true)}
                   ${row.tag ? `<span class="badge">Tag: ${escapeHtml(row.tag)}</span>` : ""}
                   ${row.collection ? `<span class="badge">Collection: ${escapeHtml(row.collection)}</span>` : ""}
-                  <span class="badge">Product Buy: ${num(row.category_buy).toLocaleString()}</span>
-                  <span class="badge">Mix Δ: ${num(row.mix_shortage).toLocaleString()}</span>
                 </div>
+                ${coverageNote(row)}
               </div>
               <div class="dl-metrics">
                 ${smallMetric("Variants", num(row.variant_count).toLocaleString())}
                 ${smallMetric("Locations", num(row.locations_count).toLocaleString())}
                 ${smallMetric("On Hand", num(row.avail_qty).toLocaleString())}
-                ${smallMetric("Retail", money(row.inv_value))}
+                ${smallMetric("Retail value @ sell", money(row.inv_value))}
                 ${smallMetric("Sold 30d", num(row.sold_30).toLocaleString())}
-                ${smallMetric("Days Cover", num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—")}
+                ${smallMetric("Days Cover", coverCell(row))}
               </div>
             </div>
           </div>
@@ -2434,20 +2438,25 @@
 
     function openSkuDetails(row){
       const locRows = row.children || [];
-      openModal("SKU / Variant Details", `
+      openModal("SKU / Variant Inventory", `
         <div class="dl-space">
           <div class="dl-panel">
             <div class="dl-title">${escapeHtml(row.product || "—")}</div>
             <div class="dl-sub"><span class="mono">SKU: ${escapeHtml(row.sku || "—")}</span> · ${escapeHtml(row.variant || "")}</div>
-            <div class="dl-badges">${actionBadge(row)} ${driverBadgeForRow(row)} <span class="badge">Basis: ${escapeHtml(row.velocity_basis || "none")}</span></div>
+            <div class="dl-badges">
+              ${signalBadge(row)}
+              ${driverBadgeForRow(row, true)}
+              <span class="badge" title="${escapeHtml(BASIS_HELP)}">Demand basis: ${escapeHtml(row.velocity_basis || "none")}</span>
+            </div>
+            ${coverageNote(row)}
           </div>
           <div class="dl-metrics">
             ${smallMetric("On Hand", num(row.avail_qty).toLocaleString())}
-            ${smallMetric("Retail", money(row.inv_value))}
+            ${smallMetric("Retail value @ sell", money(row.inv_value))}
             ${smallMetric("Sold 7d", num(row.qty_7d).toLocaleString())}
             ${smallMetric("Sold 30d", num(row.sold_30).toLocaleString())}
-            ${smallMetric("Days", num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—")}
-            ${smallMetric("Suggested", (LAST_SUGGEST.get(row._id) ?? suggestPOQty(row, getStrategyInputs())).toLocaleString())}
+            ${smallMetric("Days Cover", coverCell(row))}
+            ${smallMetric("Last sold", escapeHtml(row.last_sold_date || "—"))}
           </div>
           ${renderLocationAllocationTable(locRows)}
         </div>`);
@@ -2456,11 +2465,9 @@
     function openLocationDetails(row){
       const seasonalRatio = (num(row.avg_day_90) > 0) ? (num(row.avg_day) / num(row.avg_day_90)) : null;
       const staleDays = row.last_sold_ms ? daysSince(row.last_sold_ms) : null;
-      const inputs = getStrategyInputs();
-      const gFactor = growthFactorForRow(row, inputs.defaultGrowthPct);
-      const effAvg = effectiveAvgDay(row, inputs.seedAvgDay);
+      const sgl = signalFor(row);
 
-      openModal("Location SKU Details", `
+      openModal("Location SKU Inventory", `
         <div class="dl-cols-3">
           <div class="dl-img-wrap">
             ${row.image_url
@@ -2472,15 +2479,15 @@
               <div class="dl-title">${escapeHtml(row.product || "—")}</div>
               <div class="dl-sub">${escapeHtml(row.variant || "")}</div>
               <div class="dl-badges">
-                ${plannerBadge(row)}
-                ${actionBadge(row)}
-                ${driverBadgeForRow(row)}
-                ${row.velocity_basis ? `<span class="badge">Basis: ${escapeHtml(row.velocity_basis)}</span>` : ""}
+                ${signalBadge(row)}
+                ${transferBadge(row)}
+                ${driverBadgeForRow(row, true)}
                 ${row.tag ? `<span class="badge">Tag: ${escapeHtml(row.tag)}</span>` : ""}
                 ${row.sub_tag ? `<span class="badge">Sub: ${escapeHtml(row.sub_tag)}</span>` : ""}
                 ${row.indicator_group ? `<span class="badge">Indicator: ${escapeHtml(row.indicator_group)}</span>` : ""}
                 ${row.collection ? `<span class="badge">Collection: ${escapeHtml(row.collection)}</span>` : ""}
               </div>
+              <div class="legend-note" style="margin-top:6px">${escapeHtml(sgl.note)}</div>
             </div>
             <div class="dl-metrics">
               ${smallMetric("Source", escapeHtml(row.source_label || "—"))}
@@ -2490,25 +2497,25 @@
             </div>
             <div class="dl-metrics">
               ${smallMetric("On Hand", num(row.avail_qty).toLocaleString())}
-              ${smallMetric("Retail", money(row.inv_value))}
-              ${smallMetric("Avg/Day 7", num(row.avg_day_7).toFixed(2))}
-              ${smallMetric("Avg/Day 30", num(row.avg_day).toFixed(2))}
+              ${smallMetric("Retail value @ sell", money(row.inv_value))}
+              ${smallMetric("Avg/Day 7d", num(row.avg_day_7).toFixed(2))}
+              ${smallMetric("Avg/Day 30d", num(row.avg_day).toFixed(2))}
             </div>
             <div class="dl-metrics">
               ${smallMetric("Sold 7d", num(row.qty_7d).toLocaleString())}
               ${smallMetric("Sold 30d", num(row.sold_30).toLocaleString())}
               ${smallMetric("Sold 365d", num(row.qty_365d).toLocaleString())}
-              ${smallMetric("Eff Avg/Day", effAvg.toFixed(2))}
+              ${smallMetric("Days Cover", coverCell(row))}
             </div>
             <div class="dl-metrics">
-              ${smallMetric("Strategy", escapeHtml(STRATEGY))}
-              ${smallMetric("Growth ×", `${gFactor.toFixed(2)}x`)}
-              ${smallMetric("Suggested PO", (LAST_SUGGEST.get(row._id) ?? suggestPOQty(row, inputs)).toLocaleString())}
+              ${smallMetric("Demand basis", escapeHtml(row.velocity_basis || "none"))}
+              ${smallMetric("Demand match", escapeHtml(row.velocity_source || "none"))}
               ${smallMetric("Last sold", escapeHtml(row.last_sold_date || "—"))}
+              ${smallMetric("Transfer", escapeHtml(SIG.transferStatus(row, signalOpts()).label))}
             </div>
             <div class="dl-sub" style="font-size:10px">
-              ${seasonalRatio !== null ? `Seasonality (30/90): ${seasonalRatio.toFixed(2)}x · ` : ""}
-              ${staleDays !== null ? `Days since sold: ${staleDays.toFixed(0)}` : ""}
+              ${seasonalRatio !== null ? `Seasonality (30d/90d): ${seasonalRatio.toFixed(2)}x · ` : ""}
+              ${staleDays !== null ? `Days since last sale: ${staleDays.toFixed(0)}` : "No recorded sale date"}
             </div>
           </div>
         </div>
@@ -2520,15 +2527,16 @@
       const tr = el("theadRow");
       tr.innerHTML = "";
       const cols = currentCols();
+      const vis = visibleMap();
 
       for (const c of cols){
-        if (!c || !c.key || !VISIBLE[c.key]) continue;
+        if (!c || !c.key || !vis[c.key]) continue;
         if (c.key === "_select"){
           tr.innerHTML += `<th data-col="_select" class="th-compact text-left"><input id="chkAll" type="checkbox" class="h-3.5 w-3.5 align-middle" /></th>`;
           continue;
         }
         const align = colAlignClass(c);
-        tr.innerHTML += `<th data-col="${escapeHtml(c.key)}" class="th-compact ${align}" title="${escapeHtml(c.label)}">${escapeHtml(colHeaderLabel(c))}</th>`;
+        tr.innerHTML += `<th data-col="${escapeHtml(c.key)}" class="th-compact ${align}" title="${escapeHtml(c.help || c.label)}">${escapeHtml(colHeaderLabel(c))}</th>`;
       }
 
       const chkAll = document.getElementById("chkAll");
@@ -2610,7 +2618,7 @@
       }
     }
 
-    function renderCell(c, r, checked, sug, riskBadge, planner, driverBadge, thumb, detailsBtn, lastSoldTxt){
+    function renderCell(c, r, checked, driverBadge, thumb, detailsBtn, lastSoldTxt){
       const align = c.align === "right" ? "text-right" : "text-left";
       const key = c.key;
       if (key === "_select") return `<td data-col="_select" class="td-compact"><input data-rowchk="1" data-id="${escapeHtml(r._id)}" type="checkbox" class="h-3.5 w-3.5" ${checked ? "checked" : ""}/></td>`;
@@ -2644,28 +2652,34 @@
       if (key === "avg_day_120") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.avg_day_120).toFixed(2)}</td>`;
       if (key === "avg_day_365") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.avg_day_365).toFixed(2)}</td>`;
       if (key === "velocity_basis") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs mono">${escapeHtml(r.velocity_basis || "none")}</td>`;
-      if (key === "days_oos") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.days_oos) ? num(r.days_oos).toFixed(0) : "—"}</td>`;
+      if (key === "days_oos") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${coverCell(r)}</td>`;
+      if (key === "demand_coverage"){
+        const cov = SIG.demandCoverage(r);
+        const pct = cov.total ? Math.round((cov.known / cov.total) * 100) : 0;
+        return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono" title="${escapeHtml(cov.known + " of " + cov.total + " underlying rows have matched sales history.")}">${cov.total ? pct + "%" : "—"}</td>`;
+      }
       if (key === "last_sold_date") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs mono">${lastSoldTxt}</td>`;
       if (key === "planner_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${planner}</td>`;
       if (key === "risk_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${riskBadge}</td>`;
       if (key === "risk_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.risk_count).toLocaleString()}</td>`;
+      if (key === "unknown_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.unknown_count).toLocaleString()}</td>`;
       if (key === "stale_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.stale_count).toLocaleString()}</td>`;
       if (key === "negative_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.negative_count).toLocaleString()}</td>`;
-      if (key === "category_buy") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono font-semibold">${num(r.category_buy ?? r.suggested_po).toLocaleString()}</td>`;
-      if (key === "mix_shortage") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono ${num(r.mix_shortage) > 0 ? "font-semibold text-violet-900" : ""}">${num(r.mix_shortage).toLocaleString()}</td>`;
-      if (key === "transfer_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${actionFlag(r).t === "TRANSFER FIRST" ? actionBadge(r) : `<span class="badge">—</span>`}</td>`;
-      if (key === "suggested_po") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono font-semibold">${sug === null ? "—" : num(sug).toLocaleString()}</td>`;
-      if (key === "action_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${actionBadge(r)}</td>`;
+      if (key === "transfer_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${transferBadge(r)}</td>`;
+      if (key === "inventory_signal") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${signalBadge(r)}</td>`;
       if (key === "_details") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${detailsBtn}</td>`;
       return `<td data-col="${key}" class="td-compact ${align}"></td>`;
     }
 
     function render(){
       if (!APP_READY || !VISIBLE) return;
-      refreshAllRollupSuggestions();
+      // The old render() recomputed suggested quantities across RAW (66,745
+      // rows) plus every rollup on EVERY render -- so paging, ticking a
+      // checkbox or typing in the search box all paid for the planning engine.
+      // The engine is gone and so is the recompute.
       renderThead();
+      setTableWidth();
       updateKPIs();
-      updateDraftPeek();
 
       const total = VIEW.length;
       const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -2674,29 +2688,27 @@
       const slice = VIEW.slice(start, start + PAGE_SIZE);
       el("pagerInfo").textContent = `Page ${PAGE} of ${pages} • Showing ${slice.length} of ${total.toLocaleString()} filtered rows`;
 
-      const riskThr = num(el("numRiskDays").value || 14);
       const cols = currentCols();
+      const vis = visibleMap();
       const tbody = el("tbody");
 
       tbody.innerHTML = slice.map(r => {
         const checked = SELECTED.has(r._id);
-        const sug = LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : num(r.suggested_po);
-        const days = num(r.days_oos);
-        const rowTint = (days > 0 && days <= 7) || num(r.negative_count) > 0 || num(r.avail_qty) < 0 ? "row-risk" : (days > 0 && days <= riskThr) || num(r.risk_count) > 0 ? "row-warn" : "";
-        const riskBadge = (days > 0 && days <= riskThr) || num(r.risk_count) > 0
-          ? `<span class="badge inv-flag--buynow">RISK</span>`
-          : `<span class="badge">OK</span>`;
+        // Tint follows the same signal the badge shows, so colour and words
+        // can never tell two different stories about one row.
+        const code = signalFor(r).code;
+        const rowTint = (code === "data_review" || code === "out_of_stock") ? "row-risk"
+          : (code === "low_cover") ? "row-warn" : "";
         const thumb = r.image_url
           ? `<button data-img="${escapeHtml(r.image_url)}" style="line-height:0;border:none;background:none;padding:0;cursor:pointer"><img src="${escapeHtml(r.image_url)}" alt="" style="width:22px;height:22px;border:1px solid var(--line);border-radius:2px;object-fit:cover;background:#f8fafc" loading="lazy" /></button>`
           : `<div style="width:22px;height:22px;border:1px solid var(--line);border-radius:2px;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--muted)">—</div>`;
         const detailsBtn = `<button data-details="${escapeHtml(r._id)}" type="button" title="Details">···</button>`;
-        const planner = plannerBadge(r);
         const lastSoldTxt = r.last_sold_date ? escapeHtml(r.last_sold_date) : "—";
         const driverBadge = driverBadgeForRow(r);
         const tds = [];
         for (const c of cols){
-          if (!c || !c.key || !VISIBLE[c.key]) continue;
-          tds.push(renderCell(c, r, checked, sug, riskBadge, planner, driverBadge, thumb, detailsBtn, lastSoldTxt));
+          if (!c || !c.key || !vis[c.key]) continue;
+          tds.push(renderCell(c, r, checked, driverBadge, thumb, detailsBtn, lastSoldTxt));
         }
         return `<tr class="${rowTint}">${tds.join("")}</tr>`;
       }).join("");
@@ -2737,102 +2749,70 @@
 
     function setMode(nextMode){
       MODE = nextMode;
+      FILTERS.level = nextMode;
       const map = {
-        type: ["btnModeType", "Mode: Product Type Planning"],
-        product: ["btnModeProduct", "Mode: Product Planning"],
-        sku: ["btnModeSku", "Mode: SKU / Size Detail"],
-        location: ["btnModeLocation", "Mode: Location Detail"]
+        product:  ["btnModeProduct",  "View: Product"],
+        sku:      ["btnModeSku",      "View: SKU / size"],
+        type:     ["btnModeType",     "View: Product type"],
+        location: ["btnModeLocation", "View: Location"]
       };
-      Object.keys(map).forEach(k => el(map[k][0]).classList.toggle("active", k === nextMode));
+      Object.keys(map).forEach(k => el(map[k][0])?.classList.toggle("active", k === nextMode));
       el("modeLine").textContent = map[nextMode][1];
-      const tw = TABLE_MIN_W[nextMode] || 1520;
       el("mainTable").className = `inventory-table stickyHead table-compact`;
-      el("mainTable").style.minWidth = `${tw}px`;
+      setTableWidth();
+      // Filters are NOT cleared here. Every one that still means something at
+      // the new level keeps applying; the ones that do not (tags at the type
+      // rollup) are held, shown struck through in the chip bar, and come back
+      // when you switch down again.
+      syncFiltersToDom();
       applyFilters();
     }
 
-    function resetFilters(){
-      if (el("numMaxDays")) el("numMaxDays").value = "";
-      if (el("numMaxQty")) el("numMaxQty").value = "";
-      if (el("numMinSold30")) el("numMinSold30").value = "";
-      if (el("txtSearch")) el("txtSearch").value = "";
-      if (el("selLocation")) el("selLocation").value = "__ALL__";
-      if (el("selProductTypeFilter")) el("selProductTypeFilter").value = "__ALL__";
-      if (el("selTagFilter")) el("selTagFilter").value = "__ALL__";
-      if (el("selSubTagFilter")) el("selSubTagFilter").value = "__ALL__";
-      if (el("selIndicatorFilter")) el("selIndicatorFilter").value = "__ALL__";
-      if (el("selSort")) el("selSort").value = "suggested_desc";
-    }
-
+    /* CSV export mirrors what the page now claims, including the null
+     * cover: an unmeasurable row exports an EMPTY days_cover and an explicit
+     * demand_basis, never a 0 that a spreadsheet would then average. */
     function exportRows(rows){
-      return rows.map(r => ({
-        mode: MODE,
-        level: r.level,
-        product_type: r.product_type || "",
-        product: r.product || "",
-        sku: r.sku || "",
-        variant: r.variant || "",
-        location: r.location || "",
-        tag: r.tag || "",
-        sub_tag: r.sub_tag || "",
-        indicator_group: r.indicator_group || "",
-        collection: r.collection || "",
-        driver: deriveDriverCode(r),
-        products_count: r.products_count || "",
-        sku_count: r.sku_count || "",
-        variant_count: r.variant_count || "",
-        locations_count: r.locations_count || "",
-        avail_qty: r.avail_qty,
-        inv_value: r.inv_value,
-        qty_7d: r.qty_7d,
-        sold_30: r.sold_30,
-        qty_90d: r.qty_90d,
-        qty_120d: r.qty_120d,
-        qty_365d: r.qty_365d,
-        avg_day_7: r.avg_day_7,
-        avg_day_30: r.avg_day,
-        avg_day_90: r.avg_day_90,
-        avg_day_120: r.avg_day_120,
-        avg_day_365: r.avg_day_365,
-        velocity_basis: r.velocity_basis,
-        days_oos: r.days_oos,
-        last_sold_date: r.last_sold_date,
-        risk_count: r.risk_count || "",
-        stale_count: r.stale_count || "",
-        negative_count: r.negative_count || "",
-        category_buy: r.category_buy || "",
-        mix_shortage: r.mix_shortage || "",
-        draft_qty: LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : r.suggested_po,
-        action_flag: actionFlag(r).t
-      }));
-    }
-
-    function addRowsToDraft(rows){
-      if (!rows.length) return;
-      const lines = loadDraft();
-      rows.forEach(r => {
-        const qty = LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : (r.suggested_po || suggestPOQty(r, getStrategyInputs()));
-        lines.push({
-          po_name: norm(el("txtPoName").value) || "PO Draft",
-          vendor: norm(el("txtVendor").value),
-          eta: norm(el("txtEta").value),
-          level: r.level,
+      const opts = signalOpts();
+      return rows.map(r => {
+        const cover = SIG.coverDays(r);
+        const sgl = SIG.inventorySignal(r, opts);
+        const cov = SIG.demandCoverage(r);
+        return {
+          view_level: MODE,
           product_type: r.product_type || "",
-          product: r.product || r.product_type || "",
+          product: r.product || "",
           sku: r.sku || "",
           variant: r.variant || "",
           location: r.location || "",
-          qty,
-          mode_added_from: MODE,
-          velocity_basis: r.velocity_basis || "",
-          driver: deriveDriverCode(r),
           tag: r.tag || "",
           sub_tag: r.sub_tag || "",
-          indicator_group: r.indicator_group || ""
-        });
+          indicator_group: r.indicator_group || "",
+          collection: r.collection || "",
+          driver: deriveDriverCode(r),
+          products_count: r.products_count || "",
+          sku_count: r.sku_count || "",
+          variant_count: r.variant_count || "",
+          locations_count: r.locations_count || "",
+          on_hand_units: r.avail_qty,
+          retail_value_at_sell_price: r.inv_value,
+          sold_7d: r.qty_7d,
+          sold_30d: r.sold_30,
+          sold_90d: r.qty_90d,
+          sold_120d: r.qty_120d,
+          sold_365d: r.qty_365d,
+          avg_day_7: r.avg_day_7,
+          avg_day_30: r.avg_day,
+          avg_day_90: r.avg_day_90,
+          avg_day_365: r.avg_day_365,
+          demand_basis: SIG.demandBasis(r),
+          demand_rows_matched: cov.known,
+          demand_rows_total: cov.total,
+          days_cover: cover === null ? "" : Number(cover.toFixed(1)),
+          inventory_signal: sgl.label,
+          transfer_status: SIG.transferStatus(r, opts).label,
+          last_sold_date: r.last_sold_date || ""
+        };
       });
-      saveDraft(lines);
-      updateDraftPeek();
     }
 
     function bindUiEvents(){
@@ -2849,45 +2829,52 @@
         download(`silo_inventory_${MODE}_filtered_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
       });
 
-      el("btnModeType").addEventListener("click", () => setMode("type"));
       el("btnModeProduct").addEventListener("click", () => setMode("product"));
       el("btnModeSku").addEventListener("click", () => setMode("sku"));
+      el("btnModeType").addEventListener("click", () => setMode("type"));
       el("btnModeLocation").addEventListener("click", () => setMode("location"));
 
-      el("btnApply").addEventListener("click", applyFilters);
-      el("btnClear").addEventListener("click", () => { resetFilters(); applyFilters(); });
-      el("txtSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
-      el("selLocation").addEventListener("change", applyFilters);
-      el("selProductTypeFilter").addEventListener("change", applyFilters);
-      el("selSort").addEventListener("change", applyFilters);
-      el("selTagFilter").addEventListener("change", applyFilters);
-      el("selSubTagFilter").addEventListener("change", applyFilters);
-      el("selIndicatorFilter").addEventListener("change", applyFilters);
-      el("numRiskDays").addEventListener("change", applyFilters);
-      el("numMaxDays")?.addEventListener("change", applyFilters);
-      el("numMaxQty")?.addEventListener("change", applyFilters);
-      el("numMinSold30")?.addEventListener("change", applyFilters);
+      /* Everything applies live, so there is no "edited but not yet applied"
+       * state to signal -- an Apply button was the thing creating it. */
+      const onEdit = () => { readFiltersFromDom(); applyFilters(); };
 
-      ["numTargetCover", "numSafetyDays", "numMinReorder", "numGrowthPct", "numSeedAvgDay"].forEach(id => {
-        el(id).addEventListener("change", () => { computeSuggestions(); applyFilters(); });
+      let searchTimer = null;
+      el("txtSearch").addEventListener("input", () => {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(onEdit, 250);
+      });
+      el("txtSearch").addEventListener("keydown", (e) => {
+        if (e.key === "Enter"){ window.clearTimeout(searchTimer); onEdit(); }
       });
 
-      document.querySelectorAll("button[data-chip]").forEach(b => {
-        b.addEventListener("click", () => {
-          const chip = b.getAttribute("data-chip");
-          if (chip === "oos7" && el("numMaxDays")) el("numMaxDays").value = 7;
-          else if (chip === "oos14" && el("numMaxDays")) el("numMaxDays").value = 14;
-          else if (chip === "low10" && el("numMaxQty")) el("numMaxQty").value = 10;
-          else if (chip === "stale") { if (el("selSort")) el("selSort").value = "stale_desc"; }
-          else if (chip === "clear") resetFilters();
+      ["selLocation", "selProductTypeFilter", "selSort", "selTagFilter",
+       "selSubTagFilter", "selIndicatorFilter", "selSignalFilter",
+       "numMaxDays", "numMaxQty", "numMinSold30"].forEach(id => {
+        el(id)?.addEventListener("change", onEdit);
+      });
+
+      // The low-cover threshold changes what the signals SAY, so a change has
+      // to re-filter and re-sort, not just repaint.
+      el("numRiskDays")?.addEventListener("change", () => applyFilters());
+
+      document.querySelectorAll("button[data-lens]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          FILTERS = SIG.toggleLens(FILTERS, btn.getAttribute("data-lens"));
+          syncFiltersToDom();
           applyFilters();
         });
       });
 
-      el("btnSuggestPO").addEventListener("click", () => {
-        SUGGEST_ENABLED = true;
-        computeSuggestions();
+      // Bug 1: this clears the LENSES and nothing else. The search box, the
+      // location scope, the product type and any hand-typed threshold survive.
+      el("btnClearLenses")?.addEventListener("click", () => {
+        FILTERS = SIG.clearLenses(FILTERS);
+        syncFiltersToDom();
+        applyFilters();
       });
+
+      // The separate, explicit "clear everything" action.
+      el("btnResetAll")?.addEventListener("click", resetAllFilters);
 
       el("btnTagSelected").addEventListener("click", async () => {
         await applySupabaseTagToSelected({
@@ -2909,56 +2896,6 @@
         await applySupabaseTagToSelected({ tag: "", sub_tag: "", indicator_group: "", clear: true });
       });
 
-      el("btnAddSelectedToDraft").addEventListener("click", () => {
-        const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
-        addRowsToDraft(selectedRows);
-      });
-
-      el("btnViewDraft").addEventListener("click", () => {
-        const lines = loadDraft();
-        if (!lines.length){ openModal("PO Draft", `<div class="dl-sub">Draft empty.</div>`); return; }
-        openModal("PO Draft", `
-          <div class="dl-space">
-            <div class="dl-sub">Lines: <b>${lines.length}</b></div>
-            <div class="dl-table-wrap">
-              <div class="dl-table-scroll" style="max-height:62vh">
-                <table class="dl-table">
-                  <thead>
-                    <tr>
-                      <th>Level</th>
-                      <th>Type</th>
-                      <th>Product</th>
-                      <th>SKU</th>
-                      <th>Location</th>
-                      <th>Tag</th>
-                      <th class="text-right">Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${lines.map(l => `
-                      <tr>
-                        <td>${escapeHtml(l.level || "—")}</td>
-                        <td>${escapeHtml(l.product_type || "—")}</td>
-                        <td>${escapeHtml(l.product || "")}</td>
-                        <td class="mono">${escapeHtml(l.sku || "—")}</td>
-                        <td>${escapeHtml(l.location || "—")}</td>
-                        <td>${escapeHtml(l.tag || "—")}</td>
-                        <td class="text-right mono">${num(l.qty).toLocaleString()}</td>
-                      </tr>
-                    `).join("")}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>`);
-      });
-
-      el("btnExportDraft").addEventListener("click", () => {
-        const lines = loadDraft();
-        if (!lines.length) return;
-        download(`silo_po_draft_${safeId(lines[0].po_name || "draft")}.csv`, toCSV(lines, Object.keys(lines[0])));
-      });
-      el("btnClearDraft").addEventListener("click", () => { saveDraft([]); updateDraftPeek(); });
       el("btnExportSelected").addEventListener("click", () => {
         const selected = VIEW.filter(r => SELECTED.has(r._id));
         if (!selected.length) return;
@@ -2970,37 +2907,17 @@
         updateKPIs();
         render();
       });
+
       el("btnPrev").addEventListener("click", () => { PAGE = Math.max(1, PAGE - 1); render(); });
       el("btnNext").addEventListener("click", () => {
         const pages = Math.max(1, Math.ceil(VIEW.length / PAGE_SIZE));
         PAGE = Math.min(pages, PAGE + 1);
         render();
       });
+
       el("btnCloseModal").addEventListener("click", closeModal);
       el("modal").addEventListener("click", (e) => {
         if (e.target && e.target.getAttribute && e.target.getAttribute("data-modal-overlay") === "1") closeModal();
-      });
-
-      el("btnStratRepl").addEventListener("click", () => {
-        STRATEGY = "replenish";
-        el("btnStratRepl").classList.add("active");
-        el("btnStratGrowth").classList.remove("active");
-        el("btnStratHybrid").classList.remove("active");
-        computeSuggestions();
-      });
-      el("btnStratGrowth").addEventListener("click", () => {
-        STRATEGY = "growth";
-        el("btnStratGrowth").classList.add("active");
-        el("btnStratRepl").classList.remove("active");
-        el("btnStratHybrid").classList.remove("active");
-        computeSuggestions();
-      });
-      el("btnStratHybrid").addEventListener("click", () => {
-        STRATEGY = "hybrid";
-        el("btnStratHybrid").classList.add("active");
-        el("btnStratRepl").classList.remove("active");
-        el("btnStratGrowth").classList.remove("active");
-        computeSuggestions();
       });
     }
 
@@ -3018,8 +2935,10 @@
       const ok = await initAuth();
       if (!ok) return;
       initVisible();
-      updateDraftPeek();
+      renderStaticOptions();
+      syncFiltersToDom();
       bindUiEvents();
+      setMode(MODE);
       APP_READY = true;
       await loadAll();
     })();
