@@ -18345,3 +18345,14 @@ $c$select (select count(*) from v_po_header_summary
 -- sync.
 -- ---------------------------------------------------------------------------
 \i migrations/20260907120000_sales_by_product_title_daily_mv.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260907140000_report_row_estimate.sql
+-- Two columns recording how many rows a saved report actually returns, plus
+-- the two-line view extension that makes them visible to the picker. The
+-- runner pages at 1000 rows and every rendering surface says so; nothing told
+-- the AUTHOR before the report was already a tile on someone's dashboard.
+-- Additive, no policy change: `system` rows stay unwritable by any client.
+-- ---------------------------------------------------------------------------
+\i migrations/20260907140000_report_row_estimate.sql

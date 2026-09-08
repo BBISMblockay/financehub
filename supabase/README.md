@@ -360,6 +360,7 @@ supabase/
     20260904330000_readonly_query_revoke_anon.sql
     20260904340000_answer_widget.sql
     20260907120000_sales_by_product_title_daily_mv.sql
+    20260907140000_report_row_estimate.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

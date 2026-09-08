@@ -31,8 +31,18 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
       () => !/Running/.test(document.getElementById('previewBody').textContent),
       null, { timeout: 10000 });
 
-    ok('page 1 reports the 1000-row page cap, not the full 2500',
-      (await p.textContent('#previewMeta')).includes('1000 row'));
+    // Changed by 20260907140000: the meta line now leads with the TRUE total
+    // and says how much of it is on screen, rather than reporting the page
+    // size as if it were the result. Same intent as before -- page 1 must not
+    // read as the whole answer -- asserted against the stronger wording.
+    // The count is a SECOND query fired after the rows render, so the total
+    // appears a beat later than the table. Wait for it rather than racing it.
+    await p.waitForFunction(
+      () => /2,500 rows/.test(document.getElementById('previewMeta').textContent),
+      null, { timeout: 10000 });
+    const previewMetaText = await p.textContent('#previewMeta');
+    ok('page 1 names the real total (2,500) and says only 1,000 are shown',
+      (() => { const t = previewMetaText; return t.includes('2,500 rows') && t.includes('showing 1,000'); })());
     ok('a full page offers Load more',
       (await p.locator('#btnLoadMorePreview').count()) === 1);
     ok('the RPC was called with p_offset 0 for page 1',
@@ -43,7 +53,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
 
     await p.click('#btnLoadMorePreview');
     await p.waitForFunction(
-      () => /2000 row/.test(document.getElementById('previewMeta').textContent),
+      () => /showing 2,000/.test(document.getElementById('previewMeta').textContent),
       null, { timeout: 10000 });
     ok('page 2 appended onto page 1 rather than replacing it', true);
     ok('the second page fetch carried p_offset 1000 (rows already loaded)',
@@ -56,10 +66,10 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
 
     await p.click('#btnLoadMorePreview');
     await p.waitForFunction(
-      () => /2500 row/.test(document.getElementById('previewMeta').textContent),
+      () => /showing 2,500/.test(document.getElementById('previewMeta').textContent),
       null, { timeout: 10000 });
-    ok('the final PARTIAL page (500 rows) completed the set at 2500',
-      (await p.textContent('#previewMeta')).includes('2500 row'));
+    ok('the final PARTIAL page (500 rows) completed the set at 2,500',
+      (await p.textContent('#previewMeta')).includes('showing 2,500'));
     ok('a partial page ends pagination -- no more Load more',
       (await p.locator('#btnLoadMorePreview').count()) === 0);
 

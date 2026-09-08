@@ -343,16 +343,73 @@
     return source ? RB.buildSql(source, cfg) : null;
   }
 
+  /**
+   * How many rows does this query ACTUALLY return?
+   *
+   * Only asked when the preview came back full, because otherwise the answer
+   * is already known exactly -- a page that returns fewer rows than the cap
+   * IS the whole result, and spending a second query to confirm what we just
+   * counted would be waste on the great majority of reports.
+   *
+   * Wrapped as `select count(*) from (<sql>) z`, which survives the runner's
+   * single-statement check for every shape a report takes: a plain SELECT, a
+   * WITH/CTE chain (what the guided builder and an agent both tend to write),
+   * and a query carrying its own ORDER BY. Verified against all three on prod
+   * before this shipped. The trailing semicolon strip is load-bearing -- the
+   * runner rejects semicolons outright, and hand-written SQL frequently ends
+   * with one.
+   *
+   * Returns null on ANY failure, including the 30s timeout, and null must
+   * stay null all the way to the column: reporting the page size as the total
+   * would turn "we could not measure this" into a confident 1,000, which is
+   * the exact class of wrong number this whole feature exists to prevent.
+   */
+  async function countRows(resolvedSql) {
+    const inner = String(resolvedSql || '').trim().replace(/;+\s*$/, '');
+    if (!inner) return null;
+    try {
+      const { data, error } = await sb.rpc('chat_run_readonly_query',
+        { query: `select count(*) as n from (${inner}) z`, p_offset: 0 });
+      if (error) return null;
+      const n = Array.isArray(data) && data.length ? Number(data[0].n) : null;
+      return Number.isFinite(n) ? n : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * The report's true row count, or null when it genuinely is not known.
+   * Exact whenever the preview fit inside one page; otherwise whatever the
+   * count query managed. Never lastRun.rows.length on a capped run -- that is
+   * a floor, not a total.
+   */
+  function knownTotal() {
+    if (!lastRun) return null;
+    if (lastRun.total != null) return lastRun.total;
+    if (lastRun.firstPageRows != null && lastRun.firstPageRows < PAGE_CAP) return lastRun.firstPageRows;
+    return null;
+  }
+
   /** Re-render the preview table + meta line from lastRun's accumulated rows. */
   function renderPreview(ms, opts) {
     const rows = lastRun.rows;
     const usedParams = P.tokensIn(lastRun.sql).length;
     const hasMore = rows.length > 0 && rows.length % PAGE_CAP === 0 && !(opts && opts.exhausted);
-    el('previewMeta').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'}`
+    // Say the TOTAL, not the number fetched -- "1,000 rows" next to a result
+    // that is really 7,231 is the misreading this exists to stop.
+    const total = knownTotal();
+    const capped = total != null && total > PAGE_CAP;
+    el('previewMeta').textContent =
+      (capped
+        ? `${total.toLocaleString()} rows · showing ${rows.length.toLocaleString()}`
+        : `${rows.length.toLocaleString()} row${rows.length === 1 ? '' : 's'}`
+          + (total == null && rows.length >= PAGE_CAP ? '+ (could not measure the total)' : ''))
       + (ms != null ? ` · ${ms}ms` : '')
       + (usedParams ? ` · ran with default ${usedParams === 1 ? 'parameter' : 'parameters'}` : '');
     el('previewBody').innerHTML = rows.length
-      ? window.SiloChart.tableHtml(rows, { limit: 50 }, mapSemantics(currentMetadata(rows)))
+      ? sizeWarningHtml()
+        + window.SiloChart.tableHtml(rows, { limit: 50 }, mapSemantics(currentMetadata(rows)))
         + (hasMore
             ? `<div class="rb-preview-more">
                  <button type="button" class="bcn-btn bcn-btn--ghost" id="btnLoadMorePreview">Load next ${PAGE_CAP} rows</button>
@@ -360,6 +417,24 @@
                </div>`
             : '')
       : '<div class="dw-empty">Ran fine — 0 rows.</div>';
+  }
+
+  /**
+   * The one thing the author could not previously find out at authoring time.
+   *
+   * Deliberately not blocking and deliberately not phrased as an error: an
+   * export-shaped report is a legitimate thing to build, and a builder that
+   * refuses it sends the author to a duplicate. It states the number and what
+   * a tile will do with it, and leaves the decision where it belongs.
+   */
+  function sizeWarningHtml() {
+    const total = knownTotal();
+    if (total == null || total <= PAGE_CAP) return '';
+    return `<div class="rb-warn">This report returns <strong>${total.toLocaleString()} rows</strong>. `
+      + `A dashboard tile shows ${PAGE_CAP.toLocaleString()} at a time — a table lets the reader page `
+      + `through the rest, but a chart or KPI is drawn from the first page alone. `
+      + `If this is meant to be read on a board, aggregate it or take a top-N here; `
+      + `at this size it is shaped like an export.</div>`;
   }
 
   async function preview() {
@@ -391,8 +466,22 @@
     // `sql` is the template that gets saved; `resolved.sql` is what just ran.
     // Every fresh Preview restarts pagination at page 1 -- a stale second
     // page from a prior query would otherwise linger onto a new one.
-    lastRun = { sql, resolvedSql: resolved.sql, rows };
+    lastRun = { sql, resolvedSql: resolved.sql, rows, firstPageRows: rows.length, total: null };
     renderPreview(ms);
+
+    // Measure the real total only when the page came back full. Rendering
+    // first and counting after keeps the preview as fast as it was -- the
+    // count is a second query and this one is already on screen when it runs.
+    if (rows.length >= PAGE_CAP) {
+      const token = lastRun;
+      const total = await countRows(resolved.sql);
+      // A newer Preview may have replaced this run while the count was in
+      // flight; a stale total is worse than none.
+      if (lastRun === token) {
+        lastRun.total = total;
+        renderPreview(ms);
+      }
+    }
   }
 
   /**
@@ -566,10 +655,15 @@
    */
   function renderImpact() {
     const box = el('impactPanel');
-    if (!editing || !editing.canWrite) { box.innerHTML = ''; return; }
+    // The size note belongs on a NEW report as much as an edit -- a first
+    // save is exactly when an oversized report becomes everyone's problem --
+    // so it is rendered before the edit-only impact block returns early.
+    const size = sizeWarningHtml();
+    if (!editing || !editing.canWrite) { box.innerHTML = size; return; }
     const u = editing.usage || { widget_count: 0, dashboard_count: 0, max_query_index: 0 };
     const n = u.widget_count || 0;
     const parts = [];
+    if (size) parts.push(size);
 
     parts.push(n === 0
       ? '<div class="rb-impact">No dashboard uses this report yet — this edit affects nothing else.</div>'
@@ -632,6 +726,12 @@
       builder_config: (tab === 'build' && source && !sqlIsHandWritten)
         ? { relname: source.relname, cfg: JSON.parse(JSON.stringify(cfg)) }
         : null,
+      // Null when the size genuinely could not be measured. Writing the page
+      // size instead would record 1,000 for a 7,231-row report, and a wrong
+      // number in the column that exists to catch wrong numbers is worse than
+      // an empty one. The timestamp goes with it or neither means anything.
+      row_estimate: knownTotal(),
+      row_estimate_at: knownTotal() == null ? null : new Date().toISOString(),
     };
   }
 
