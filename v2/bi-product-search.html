@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
+  <script src="bi-nav.js"></script>
   <style>
     .bcn-kpi-band { flex-wrap:wrap; }
 
@@ -38,6 +39,22 @@
     .ps-col-toggle { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--bcn-ink-2); cursor:pointer; user-select:none; }
     .ps-col-toggle input { cursor:pointer; }
 
+    .ps-chipbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 18px;
+      border-bottom:1px solid var(--bcn-border); background:var(--bcn-sunken); font-size:11px; flex-shrink:0; }
+    .ps-chipbar[hidden] { display:none; }
+    .ps-chip-active { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--bcn-border);
+      border-radius:999px; background:var(--bcn-surface); padding:2px 4px 2px 9px; font-weight:600; }
+    .ps-chip-active button { border:none; background:none; cursor:pointer; padding:0 3px;
+      color:var(--bcn-ink-3); font-size:13px; line-height:1; font-weight:700; border-radius:999px; }
+    .ps-chip-active button:hover { background:var(--bcn-sunken); color:var(--bcn-neg); }
+    .ps-chip-count { color:var(--bcn-ink-3); font-weight:600; margin-right:2px; }
+    .ps-clear-all { border:none; background:none; cursor:pointer; padding:2px 6px; color:var(--bcn-accent);
+      font-size:11px; font-weight:700; text-decoration:underline; text-underline-offset:2px; }
+    .ps-linknote { margin:6px 18px 0; padding:5px 9px; border-radius:var(--bcn-radius);
+      background:oklch(0.97 0.04 85); border:1px solid var(--bcn-warn); font-size:11px; color:var(--bcn-ink-2); }
+    .ps-linknote[hidden] { display:none; }
+    .ps-grain-note { padding:5px 18px; font-size:10.5px; color:var(--bcn-ink-3); border-bottom:1px solid var(--bcn-border); }
+    .ps-names-cell { color:var(--bcn-ink-3); font-size:10.5px; }
     .ps-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
 
     /* Results (left, dominant) + By-product-type pivot (right, narrower) —
@@ -164,12 +181,21 @@
           </div>
         </div>
         <div class="ps-col-toggles">
-          <label class="ps-col-toggle"><input type="checkbox" id="toggleStore" /> Add Store column</label>
-          <label class="ps-col-toggle"><input type="checkbox" id="toggleMonth" /> Add Month column</label>
+          <label class="ps-col-toggle" title="Splits each row into one row per store. This changes the grouping, not just the columns — a product selling in three stores becomes three rows.">
+            <input type="checkbox" id="toggleStore" /> Split by Store
+          </label>
+          <label class="ps-col-toggle" title="Splits each row into one row per month. This changes the grouping, not just the columns.">
+            <input type="checkbox" id="toggleMonth" /> Split by Month
+          </label>
+          <label class="ps-col-toggle" title="Rolls every historical product name for a SKU into a single row. The same SKU is often recorded under several names over time; those are the same item, not duplicates.">
+            <input type="checkbox" id="toggleSkuRollup" /> Consolidate by SKU
+          </label>
         </div>
       </div>
     </div>
 
+    <section class="ps-chipbar" id="filterChips" aria-label="Active filters" aria-live="polite" hidden></section>
+    <div id="linkNote" class="ps-linknote" hidden></div>
     <div class="ps-content">
       <div class="ps-main-row">
         <div class="bcn-card ps-results-card">
@@ -246,13 +272,14 @@
     try { sessionStorage.setItem(SHARED_FILTER_KEY, JSON.stringify({ ...loadSharedFilters(), ...patch })); } catch {}
   }
   const shared = loadSharedFilters();
+  const NAV = window.SiloBiNav;
 
   const RESULT_CAP = 200;
 
   const state = {
     groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all',
     activeType:'', searchName:'', searchSku:'',
-    showStore:false, showMonth:false,
+    showStore:false, showMonth:false, skuRollup:false,
     sortKey:'total', sortDir:'desc',
     rowsRaw:[], lastRows:[], lastTypeRows:[],
     // Server-side search push-down bookkeeping: the name/SKU terms the
@@ -275,6 +302,9 @@
     groupFilters: document.getElementById('groupFilters'),
     toggleStore: document.getElementById('toggleStore'),
     toggleMonth: document.getElementById('toggleMonth'),
+    toggleSkuRollup: document.getElementById('toggleSkuRollup'),
+    filterChips: document.getElementById('filterChips'),
+    linkNote: document.getElementById('linkNote'),
     statusText: document.getElementById('statusText'),
     rowCount: document.getElementById('rowCount'),
     tblHead: document.getElementById('tblHead'),
@@ -351,9 +381,24 @@
 
   function renderTypeOptions(){
     const types = [...new Set(state.rowsRaw.map(r=>r.product_type).filter(Boolean))].sort();
-    const prev = el.typeSelect.value;
+    // Restore from STATE, not from the select. A deep link sets
+    // state.activeType before this list exists, so reading the (still empty)
+    // select dropped the filter the link asked for while the chip claimed it
+    // was applied.
+    const want = state.activeType || el.typeSelect.value;
     el.typeSelect.innerHTML = `<option value="">All types</option>` + types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
-    if (types.includes(prev)) el.typeSelect.value = prev;
+    if (want && types.includes(want)){
+      state.activeType = want;
+      el.typeSelect.value = want;
+    } else if (want){
+      // Asked for a type this data does not contain. Say so rather than
+      // silently showing every type under a chip that names one.
+      state.activeType = '';
+      el.typeSelect.value = '';
+      const msg = `This report has no "${want}" product type in the selected range, so that filter is not applied.`;
+      el.linkNote.hidden = false;
+      el.linkNote.textContent = el.linkNote.textContent ? `${el.linkNote.textContent} ${msg}` : msg;
+    }
   }
 
   function inGroup(r){
@@ -421,7 +466,13 @@
       // (i.e. state.showMonth triggered a refetch at month grain) — see
       // el.toggleMonth's handler below.
       const monthKey = r.month || '';
-      const keyParts = [r.sku||'', r.product_name||'', r.product_type||''];
+      // Consolidate-by-SKU drops product_name from the key, so every
+      // historical name a SKU has been sold under rolls into one row. Those
+      // are the SAME item recorded under a renamed product, not duplicate
+      // records -- the per-name rows remain available by unticking.
+      const keyParts = state.skuRollup
+        ? [r.sku||'', r.product_type||'']
+        : [r.sku||'', r.product_name||'', r.product_type||''];
       if (state.showStore) keyParts.push(r.location_tag||'');
       if (state.showMonth) keyParts.push(monthKey);
       const key = keyParts.join('␟');
@@ -430,8 +481,10 @@
         sku:r.sku||'', product_name:r.product_name||'', product_type:r.product_type||'Uncategorized',
         location_name: state.showStore ? (r.location_name||r.location_tag||'—') : null,
         month: state.showMonth ? monthKey : null,
+        names: new Set(),
         qty:0, gross:0, discounts:0, refunds:0, net:0, total:0,
       };
+      if (r.product_name) cur.names.add(r.product_name);
       cur.qty += Number(r.total_quantity_sold||0);
       cur.gross += Number(r.total_gross_sales||0);
       cur.discounts += Number(r.total_discounts||0);
@@ -440,7 +493,16 @@
       cur.total += Number(r.total_sales||0);
       byKey.set(key, cur);
     }
-    return [...byKey.values()];
+    // In rollup mode the row's headline name is the one it sold most under;
+    // the rest stay reachable through nameCount so nothing is hidden.
+    return [...byKey.values()].map(r => {
+      const names = [...r.names];
+      return Object.assign(r, {
+        nameCount: names.length,
+        allNames: names,
+        product_name: state.skuRollup ? (names[0] || r.product_name) : r.product_name,
+      });
+    });
   }
 
   const SORT_FIELDS = {
@@ -448,6 +510,7 @@
     sku: r=>(r.sku||'').toLowerCase(),
     type: r=>r.product_type.toLowerCase(),
     store: r=>(r.location_name||'').toLowerCase(),
+    names: r=>r.nameCount||0,
     month: r=>r.month||'',
     qty: r=>r.qty, gross: r=>r.gross, discounts: r=>r.discounts,
     refunds: r=>r.refunds, net: r=>r.net, total: r=>r.total,
@@ -615,6 +678,7 @@
       { key:'sku', label:'SKU', l:true },
       { key:'type', label:'Type', l:true },
     ];
+    if (state.skuRollup) cols.push({ key:'names', label:'Names', l:true });
     if (state.showStore) cols.push({ key:'store', label:'Store', l:true });
     if (state.showMonth) cols.push({ key:'month', label:'Month', l:true });
     cols.push(
@@ -659,6 +723,7 @@
       <td class="l">${esc(r.product_name)||'—'}</td>
       <td class="l ps-prod-sku">${esc(r.sku)||'—'}</td>
       <td class="l">${esc(r.product_type)}</td>
+      ${state.skuRollup ? `<td class="l ps-names-cell" title="${esc((r.allNames||[]).join(' · '))}">${r.nameCount>1?`${r.nameCount} names`:'1 name'}</td>` : ''}
       ${state.showStore ? `<td class="l">${esc(r.location_name)}</td>` : ''}
       ${state.showMonth ? `<td class="l">${esc(monthLabel(r.month))}</td>` : ''}
       <td>${numFmt(r.qty)}</td>
@@ -684,7 +749,89 @@
     renderKpis(rows);
     renderTable(rows);
     renderTypeTable();
+    renderFilterChips(rows);
+    renderGrainNote();
+    syncUrl();
   }
+
+  /* Everything currently narrowing the results, each removable on its own. */
+  function activeFilterList(){
+    const out = [];
+    if (state.searchName) out.push({ key:'name', label:'Product', value:state.searchName });
+    if (state.searchSku) out.push({ key:'sku', label:'SKU', value:state.searchSku });
+    if (state.activeType) out.push({ key:'type', label:'Type', value:state.activeType });
+    if (state.activeGroup && state.activeGroup !== 'all') out.push({ key:'group', label:'Store group', value:state.activeGroup });
+    if (el.dateFrom.value || el.dateTo.value){
+      out.push({ key:'dates', label:'Dates', value:`${el.dateFrom.value||'…'} → ${el.dateTo.value||'…'}` });
+    }
+    return out;
+  }
+
+  function clearFilter(key){
+    if (key==='name'){ state.searchName=''; el.searchName.value=''; onSearchInput(); return; }
+    if (key==='sku'){ state.searchSku=''; el.searchSku.value=''; onSearchInput(); return; }
+    if (key==='type'){ setActiveType(''); return; }
+    if (key==='group'){
+      state.activeGroup='all';
+      [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group==='all'));
+      saveSharedFilters({ storeGroup:'all' });
+      renderAll(); return;
+    }
+    if (key==='dates'){ applyPreset(30); runLoad(); return; }
+  }
+
+  function renderFilterChips(rows){
+    const list = activeFilterList();
+    const bar = el.filterChips;
+    if (!bar) return;
+    if (!list.length){ bar.hidden = true; bar.innerHTML=''; return; }
+    bar.hidden = false;
+    bar.innerHTML =
+      `<span class="ps-chip-count">${numFmt(rows.length)} row${rows.length===1?'':'s'}</span>` +
+      list.map(f=>`<span class="ps-chip-active"><span>${esc(f.label)}: ${esc(f.value)}</span>`
+        + `<button type="button" data-clear="${esc(f.key)}" aria-label="Remove ${esc(f.label)} filter">×</button></span>`).join('') +
+      `<button type="button" class="ps-clear-all" id="clearAllFilters">Clear all</button>`;
+    bar.querySelectorAll('[data-clear]').forEach(b=>b.addEventListener('click',()=>clearFilter(b.dataset.clear)));
+    document.getElementById('clearAllFilters').addEventListener('click', () => {
+      state.searchName=''; state.searchSku=''; state.activeType=''; state.activeGroup='all';
+      el.searchName.value=''; el.searchSku.value=''; el.typeSelect.value='';
+      [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group==='all'));
+      saveSharedFilters({ storeGroup:'all' });
+      applyPreset(30); runLoad();
+    });
+  }
+
+  /* One row is one ___ . Say which, because the toggles change the grain and
+     not merely the columns -- the same net sales split three ways is still
+     the same net sales, but it is no longer one row per product. */
+  function renderGrainNote(){
+    let host = document.getElementById('grainNote');
+    if (!host){
+      host = document.createElement('div');
+      host.id = 'grainNote';
+      host.className = 'ps-grain-note';
+      const wrap = el.tblBody.closest('.ps-table-wrap');
+      wrap.parentElement.insertBefore(host, wrap);
+    }
+    const parts = [state.skuRollup ? 'SKU' : 'product name + SKU'];
+    if (state.showStore) parts.push('store');
+    if (state.showMonth) parts.push('month');
+    host.textContent = `One row per ${parts.join(' × ')}.`
+      + (state.skuRollup
+          ? ' Historical names for a SKU are rolled together; untick Consolidate by SKU to see them separately.'
+          : ' The same SKU can appear more than once when it has been sold under different product names — those are the same item, not duplicates.')
+      + ' Totals are unchanged by grouping.';
+  }
+
+  function currentLinkState(){
+    return {
+      dateFrom: el.dateFrom.value, dateTo: el.dateTo.value,
+      storeGroup: state.activeGroup,
+      productType: state.activeType,
+      sku: state.searchSku, productName: state.searchName,
+    };
+  }
+  function syncUrl(){ NAV.syncUrl(currentLinkState(), NAV.supportsOf('/v2/bi-product-search.html')); }
 
   el.btnRefresh.addEventListener('click', runLoad);
   el.btnExport.addEventListener('click', exportResultsCsv);
@@ -704,6 +851,9 @@
   // stale (or absent) month buckets.
   el.toggleStore.addEventListener('change', () => { state.showStore = el.toggleStore.checked; renderAll(); });
   el.toggleMonth.addEventListener('change', () => { state.showMonth = el.toggleMonth.checked; runLoad(); });
+  // Pure regrouping of rows already loaded -- no refetch, and the reconciled
+  // totals are identical either way.
+  el.toggleSkuRollup.addEventListener('change', () => { state.skuRollup = el.toggleSkuRollup.checked; renderAll(); });
   el.tblHead.addEventListener('click', (ev) => {
     const th = ev.target.closest('[data-sort]'); if (!th) return;
     const key = th.dataset.sort;
@@ -756,7 +906,26 @@
     }
 
     renderTypeHead();
+    applyIncomingLink();
     await runLoad();
+  }
+
+  /* Open on whatever the link asked for. URL beats the remembered
+     sessionStorage filters -- a link is an explicit request, a remembered
+     filter is not -- and anything this report cannot honour is SHOWN. */
+  function applyIncomingLink(){
+    const res = NAV.resolveIncoming(NAV.supportsOf('/v2/bi-product-search.html'));
+    const a = res.applied;
+    if (a.dateFrom){ el.dateFrom.value = a.dateFrom;
+      [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active')); }
+    if (a.dateTo) el.dateTo.value = a.dateTo;
+    if (a.storeGroup) state.activeGroup = a.storeGroup;
+    if (a.productType){ state.activeType = a.productType; }
+    if (a.sku){ state.searchSku = a.sku; el.searchSku.value = a.sku; }
+    if (a.productName){ state.searchName = a.productName; el.searchName.value = a.productName; }
+    const note = NAV.droppedNote(res.dropped);
+    el.linkNote.hidden = !note;
+    if (note) el.linkNote.textContent = note;
   }
 
   boot();

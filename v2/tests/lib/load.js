@@ -34,6 +34,9 @@ function loadV2(files) {
   g.Date = Date;
   g.parseFloat = parseFloat;
   g.isNaN = isNaN;
+  g.isFinite = isFinite;
+  // daily-trend-kpis.js formats money and resolves the Pacific business day.
+  g.Intl = Intl;
   g.setTimeout = setTimeout;
   g.clearTimeout = clearTimeout;
 

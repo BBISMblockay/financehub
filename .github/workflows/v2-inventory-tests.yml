@@ -1,6 +1,8 @@
-name: v2 inventory tests
+name: v2 page tests
 
-# Tests for the /v2/ inventory page and its signal module.
+# Tests for /v2/ page logic extracted into testable modules:
+#   inventory-signals.js   what the inventory page claims about stock
+#   daily-trend-kpis.js    what the daily trend page's headline cards claim
 #
 # Why this exists: v2/inventory-signals.js decides what the inventory page
 # CLAIMS about stock -- whether a days-cover figure exists at all, whether a
@@ -18,14 +20,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'v2/inventory.html'
-      - 'v2/inventory-signals.js'
+      - 'v2/*.html'
+      - 'v2/*.js'
       - 'v2/tests/**'
       - '.github/workflows/v2-inventory-tests.yml'
   pull_request:
     paths:
-      - 'v2/inventory.html'
-      - 'v2/inventory-signals.js'
+      - 'v2/*.html'
+      - 'v2/*.js'
       - 'v2/tests/**'
       - '.github/workflows/v2-inventory-tests.yml'
   workflow_dispatch:
@@ -36,7 +38,7 @@ permissions:
 concurrency:
   # Supersede an in-flight run for the same branch: only the latest commit's
   # result matters, and a queued duplicate just delays the answer.
-  group: v2-inventory-tests-${{ github.ref }}
+  group: v2-page-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
