@@ -470,6 +470,27 @@
       if (chipsEl) paintChips(values);
     }
 
+    /**
+     * How many tiles a control actually moves.
+     *
+     * Stated on the chip because "this filter drives 6 of 9 tiles" is the
+     * honest sentence, and a header control that silently misses three of
+     * them teaches the reader that all nine are filtered. The three are
+     * ALSO marked on their own faces; this is the count, not a substitute
+     * for that.
+     */
+    function reachNote(keys) {
+      const supported = new Set();
+      const all = new Set();
+      for (const k of keys) {
+        const part = participation(k) || { supported: [], unsupported: [] };
+        for (const id of part.supported) { supported.add(id); all.add(id); }
+        for (const id of part.unsupported) all.add(id);
+      }
+      if (!all.size || supported.size === all.size) return '';
+      return `${supported.size} of ${all.size} tiles`;
+    }
+
     function chipHtml(label, value, extra) {
       return `<span class="v3-filter-chip">
           <span class="v3-filter-chip-key">${esc(label)}</span>
@@ -484,14 +505,19 @@
         if (g.kind === 'range') {
           const f = resolved(values[g.from.key]);
           const t = resolved(values[g.to.key]);
-          if (f && t) parts.push(chipHtml(g.label || 'Dates', `${f} → ${t}`, 'inclusive'));
+          const reach = reachNote([g.from.key, g.to.key]);
+          if (f && t) {
+            parts.push(chipHtml(g.label || 'Dates', `${f} → ${t}`,
+              reach ? `inclusive · ${reach}` : 'inclusive'));
+          }
           continue;
         }
         const d = g.decl;
         if (d.conflict) continue;
         const v = values[d.key];
         if (v === undefined || v === '') continue;
-        const note = d.type === 'date' ? dateNote(v) : '';
+        const note = [d.type === 'date' ? dateNote(v) : '', reachNote([d.key])]
+          .filter(Boolean).join(' · ');
         parts.push(chipHtml(d.label, v, note));
       }
       for (const [key, v] of pending) {
@@ -506,26 +532,6 @@
       chipsEl.hidden = !parts.length;
     }
 
-    /**
-     * Which widgets each declared key does NOT reach. The caller marks
-     * those tiles; saying it once in the bar and never on the tile is how
-     * a reader concludes a stale number is a filtered one.
-     */
-    function unsupportedWidgetIds() {
-      const keys = getDeclarations().filter((d) => !d.conflict).map((d) => d.key);
-      if (!keys.length) return new Set();
-      const supported = new Set();
-      const all = new Set();
-      for (const k of keys) {
-        const part = participation(k);
-        for (const id of part.supported) supported.add(id);
-        for (const id of part.supported.concat(part.unsupported)) all.add(id);
-      }
-      const out = new Set();
-      for (const id of all) if (!supported.has(id)) out.add(id);
-      return out;
-    }
-
     /** Commit anything typed but not yet applied (used before Save). */
     function flush() {
       const patch = {};
@@ -534,7 +540,7 @@
       return commit(patch).then(() => true);
     }
 
-    return { sync, paint, flush, hasPending, unsupportedWidgetIds, groupDeclarations, DATE_PRESETS, RANGE_PRESETS };
+    return { sync, paint, flush, hasPending, groupDeclarations, DATE_PRESETS, RANGE_PRESETS };
   }
 
   global.SiloFilterBar = { create, groupDeclarations, DATE_PRESETS, RANGE_PRESETS, matchRangePreset };
