@@ -125,6 +125,11 @@
     });
   }
 
+  /* Composite map key. A single non-printing byte, so two dimension values
+     can never collide by containing the separator themselves -- 'A|B' x 'C'
+     and 'A' x 'B|C' are different cells. */
+  const SEP = String.fromCharCode(0);
+
   const NOT_A_FIELD = new Set(['json', 'url', 'image']);
   const dimensionsOf = (prof) => prof.filter((c) => c.type !== 'number' && !NOT_A_FIELD.has(c.type));
   const measuresOf = (prof) => prof.filter((c) => c.type === 'number');
@@ -478,6 +483,13 @@
         type: 'value',
         position: side === 1 ? 'right' : 'left',
         alignTicks: true,
+        // An author-supplied axis label only goes on the LEFT axis: the
+        // right-hand one exists precisely because it measures something
+        // else, and repeating one name over both would mislabel it.
+        name: (side === 0 && cfg.axis_label) ? cfg.axis_label : undefined,
+        nameLocation: 'middle',
+        nameGap: 38,
+        nameTextStyle: { color: t.ink2, fontSize: 10.5 },
         axisLabel: {
           color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace',
           formatter: (v) => compact(v, sem),
@@ -492,7 +504,14 @@
       // A secondary-axis measure is drawn as a line even in a bar chart:
       // that is the conventional combo, and a ratio rendered as a bar next
       // to dollar bars invites reading them as comparable heights.
-      const asLine = kind === 'line' || (multi && sr.axis === 1);
+      //
+      // `line_measures` is the explicit version of the same idea, for the
+      // combo visual: an author naming which measure is the line, rather
+      // than the axis heuristic inferring it. Needed when the two measures
+      // sit on a SIMILAR scale (sales and target, spend and budget), where
+      // nothing about the numbers says one of them is the reference line.
+      const named = Array.isArray(cfg.line_measures) && cfg.line_measures.includes(sr.field);
+      const asLine = kind === 'line' || named || (multi && sr.axis === 1);
       const data = horizontal ? sr.data.slice().reverse() : sr.data;
       return {
         name: sr.field,
@@ -550,12 +569,17 @@
             </div>`).join('');
         },
       },
-      legend: multi ? {
+      legend: (multi && cfg.legend !== 'off') ? {
         type: 'scroll', top: 0, left: 'center',
         textStyle: { color: t.ink2, fontSize: 10.5, fontFamily: '"IBM Plex Mono", monospace' },
         itemWidth: 12, itemHeight: 8,
       } : undefined,
-      grid: { left: 8, right: shaped.hasSecondAxis ? 12 : 14, top: multi ? 30 : 14, bottom: 4, containLabel: true },
+      grid: {
+        left: 8, right: shaped.hasSecondAxis ? 12 : 14,
+        top: (multi && cfg.legend !== 'off') ? 30 : 14,
+        bottom: cfg.axis_label && !horizontal ? 4 : 4,
+        containLabel: true,
+      },
       xAxis: horizontal ? valueAxes : catAxis,
       yAxis: horizontal ? catAxis : valueAxes,
       series,
@@ -596,10 +620,287 @@
     };
   }
 
+  /**
+   * A heatmap: two dimensions, one measure, colour instead of position.
+   *
+   * The same (row, column, cell) shape the matrix reads -- day-of-week x
+   * hour, size x location, category x month -- drawn where the PATTERN is
+   * the point and the individual number is not. It keeps the matrix's two
+   * rules for the same reasons: row and column order come from the query
+   * (except dates, which go chronological), and an absent cell is absent,
+   * not zero. ECharts draws a missing pair as a gap because the data point
+   * simply is not emitted.
+   *
+   * The colour ramp is single-hue for a measure that is all one sign, and
+   * diverging around zero when the values cross it -- a spend variance that
+   * goes both ways is unreadable on a sequential ramp.
+   */
+  function heatmapOption(grid2d, t, semantic) {
+    const values = grid2d.data.map((d) => d[2]).filter((v) => v !== null && v !== undefined);
+    const min = values.length ? Math.min(...values) : 0;
+    const max = values.length ? Math.max(...values) : 0;
+    const diverging = min < 0 && max > 0;
+    const bound = Math.max(Math.abs(min), Math.abs(max));
+    return {
+      ...baseOption(t),
+      tooltip: {
+        ...baseOption(t).tooltip,
+        formatter: (p) => `<div style="font-size:11px;opacity:.7">${esc(grid2d.rows[p.value[1]])} · ${esc(grid2d.cols[p.value[0]])}</div>
+          <div style="font-weight:700">${formatValue(p.value[2], semantic)}</div>`,
+      },
+      grid: { left: 8, right: 8, top: 8, bottom: 40, containLabel: true },
+      xAxis: {
+        type: 'category', data: grid2d.cols, splitArea: { show: true },
+        axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace', hideOverlap: true },
+        axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
+      },
+      yAxis: {
+        type: 'category', data: grid2d.rows, splitArea: { show: true },
+        axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace' },
+        axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
+      },
+      visualMap: {
+        min: diverging ? -bound : min,
+        max: diverging ? bound : max,
+        calculable: true,
+        orient: 'horizontal',
+        left: 'center',
+        bottom: 0,
+        itemWidth: 10,
+        itemHeight: 90,
+        textStyle: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace' },
+        formatter: (v) => compact(v, semantic),
+        inRange: {
+          color: diverging
+            ? (t.dark ? ['#ff829a', '#2b3038', '#3fd2a4'] : ['#d94f6a', '#f2f4f7', '#17a67c'])
+            : (t.dark ? ['#1f3a52', '#6fa4ff'] : ['#eaf1fd', '#2f6fe4']),
+        },
+      },
+      series: [{
+        type: 'heatmap',
+        data: grid2d.data,
+        label: { show: false },
+        emphasis: { itemStyle: { borderColor: t.ink, borderWidth: 1 } },
+        progressive: 0,
+      }],
+    };
+  }
+
+  /**
+   * A waterfall: a bridge from one number to another through signed steps.
+   *
+   * Drawn as an invisible base bar plus a visible delta bar, which is the
+   * standard way to do this in ECharts without a dedicated series type.
+   *
+   * ROW ORDER IS THE QUERY'S, always. A bridge sorted by size is not a
+   * bridge -- the sequence IS the explanation -- so the widget forces
+   * sort off, and a total step is recognised by name rather than by
+   * position.
+   */
+  function waterfallOption(shaped, t, config) {
+    const cfg = config || {};
+    const semantic = shaped.semantic;
+    const labels = shaped.points.map((p) => (p.label === null || p.label === undefined ? '—' : String(p.label)));
+    const values = shaped.points.map((p) => toNumber(p.value) || 0);
+    // A step whose label says total/net/closing is an ABSOLUTE position in
+    // the bridge, not another delta -- drawing it as a delta double-counts
+    // the whole chart. Named rather than positional so a "Gross Profit"
+    // subtotal mid-statement works too.
+    const totalRe = /(total|net|closing|balance|ending|subtotal|gross profit)/i;
+    const isTotal = labels.map((l, i) => (cfg.total_steps === 'none' ? false
+      : (totalRe.test(l) || (cfg.total_steps === 'last' && i === labels.length - 1))));
+
+    const base = [];
+    const up = [];
+    const down = [];
+    let running = 0;
+    for (let i = 0; i < values.length; i += 1) {
+      const v = values[i];
+      if (isTotal[i]) {
+        base.push(0);
+        up.push(v >= 0 ? v : null);
+        down.push(v < 0 ? -v : null);
+        running = v;
+        continue;
+      }
+      if (v >= 0) { base.push(running); up.push(v); down.push(null); }
+      else { base.push(running + v); up.push(null); down.push(-v); }
+      running += v;
+    }
+
+    const bar = (name, data, color) => ({
+      name, type: 'bar', stack: 'wf', data,
+      itemStyle: { color, borderRadius: [2, 2, 0, 0] },
+      barMaxWidth: 42,
+      label: cfg.show_values && labels.length <= 24 ? {
+        show: true, position: 'top', fontSize: 10,
+        fontFamily: '"IBM Plex Mono", monospace', color: t.ink2,
+        formatter: (p) => (p.value === null ? '' : compact(p.value, semantic)),
+      } : { show: false },
+    });
+
+    return {
+      ...baseOption(t),
+      tooltip: {
+        ...baseOption(t).tooltip,
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        formatter: (params) => {
+          const arr = Array.isArray(params) ? params : [params];
+          const i = arr.length ? arr[0].dataIndex : 0;
+          const runningTo = values.slice(0, i + 1).reduce((a, b, j) => (isTotal[j] ? b : a + b), 0);
+          return `<div style="font-size:11px;opacity:.7">${esc(labels[i])}</div>
+            <div style="font-weight:700">${formatValue(values[i], semantic)}</div>
+            ${isTotal[i] ? '<div style="font-size:10px;opacity:.7">total step</div>'
+              : `<div style="font-size:10px;opacity:.7">running ${formatValue(runningTo, semantic)}</div>`}`;
+        },
+      },
+      legend: { show: false },
+      grid: { left: 8, right: 14, top: 14, bottom: 4, containLabel: true },
+      xAxis: {
+        type: 'category', data: labels,
+        axisLabel: {
+          color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace', hideOverlap: true,
+          formatter: (v) => (String(v).length > 18 ? String(v).slice(0, 17) + '…' : v),
+        },
+        axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace', formatter: (v) => compact(v, semantic) },
+        splitLine: { lineStyle: { color: t.grid, type: 'dashed' } },
+        axisLine: { show: false },
+      },
+      series: [
+        // The base is a transparent spacer, not data. It carries no tooltip
+        // and no legend entry so nobody can read it as a value.
+        { name: 'base', type: 'bar', stack: 'wf', data: base, itemStyle: { color: 'transparent' },
+          emphasis: { disabled: true }, silent: true, tooltip: { show: false } },
+        bar('increase', up, t.palette[1]),
+        bar('decrease', down, t.dark ? '#ff829a' : '#d94f6a'),
+      ],
+    };
+  }
+
+  /**
+   * Shape a result into (rows x columns x value) for a heatmap. Shares the
+   * matrix's rules deliberately -- these two visuals answer the same
+   * question and disagreeing about cell order would be worse than either
+   * ordering.
+   */
+  function grid2dOf(rows, config, semantics) {
+    const prof = profileColumns(rows);
+    const cfg = config || {};
+    const dims = dimensionsOf(prof);
+    const rowField = cfg.row_field || (dims[0] && dims[0].name);
+    const colField = cfg.x_field || (dims.find((d) => d.name !== rowField) || {}).name;
+    const valField = cfg.y_field || (measuresOf(prof)[0] || {}).name;
+    if (!rowField || !colField || !valField || rowField === colField) return null;
+
+    const agg = AGGREGATES.includes(cfg.aggregate) ? cfg.aggregate : 'sum';
+    const colType = (prof.find((c) => c.name === colField) || {}).type;
+    const rowKeys = [];
+    const colKeys = [];
+    const cells = new Map();
+    const cellKey = (rk, ck) => rk + SEP + ck;
+    for (const r of rows) {
+      const rk = r[rowField] === null || r[rowField] === undefined ? '—' : String(r[rowField]);
+      const ck = r[colField] === null || r[colField] === undefined ? '—' : String(r[colField]);
+      if (!rowKeys.includes(rk)) rowKeys.push(rk);
+      if (!colKeys.includes(ck)) colKeys.push(ck);
+      const n = toNumber(r[valField]);
+      if (n === null) continue;
+      const k = cellKey(rk, ck);
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(n);
+    }
+    if (colType === 'date') colKeys.sort();
+
+    const data = [];
+    for (let ri = 0; ri < rowKeys.length; ri += 1) {
+      for (let ci = 0; ci < colKeys.length; ci += 1) {
+        const vals = cells.get(cellKey(rowKeys[ri], colKeys[ci]));
+        // Absent stays absent: no data point at all, so the cell reads as a
+        // gap rather than as the ramp's zero colour.
+        if (!vals) continue;
+        data.push([ci, ri, aggregateValues(vals, agg)]);
+      }
+    }
+    const colLabels = (colType === 'date' && dateColumnLabels(colKeys)) || colKeys;
+    return {
+      rows: rowKeys, cols: colLabels, rawCols: colKeys, data,
+      rowField, colField, valField,
+      semantic: semanticOf(valField, semantics, prof),
+    };
+  }
+
+  /**
+   * Can this visual actually draw this result?
+   *
+   * Called before a visual is OFFERED, not only before it is drawn. A
+   * picker that lists Heatmap for a result with one dimension produces a
+   * tile that says "needs two dimensions", which is a worse answer than
+   * not offering it -- the person has already committed the tile by then.
+   *
+   * Returns { ok: true } or { ok: false, reason }.
+   */
+  function validateVisual(visualType, rows, config, semantics) {
+    if (visualType === 'section') return { ok: true };
+    if (!Array.isArray(rows) || !rows.length) return { ok: false, reason: 'no rows to draw' };
+    const prof = profileColumns(rows);
+    const dims = dimensionsOf(prof);
+    const meas = measuresOf(prof);
+    const cfg = config || {};
+
+    if (prof.some((c) => c.type === 'json') && visualType !== 'table') {
+      return { ok: false, reason: 'this result has nested JSON columns, which only a table can show' };
+    }
+    if (visualType === 'table') return { ok: true };
+    if (visualType === 'kpi') {
+      return meas.length ? { ok: true } : { ok: false, reason: 'needs at least one numeric column' };
+    }
+    if (visualType === 'matrix' || visualType === 'heatmap') {
+      if (dims.length < 2) return { ok: false, reason: 'needs two dimensions — one down, one across' };
+      if (!meas.length) return { ok: false, reason: 'needs a numeric column for the cells' };
+      return { ok: true };
+    }
+    if (visualType === 'waterfall') {
+      if (!dims.length) return { ok: false, reason: 'needs a dimension for the steps' };
+      if (!meas.length) return { ok: false, reason: 'needs a numeric column for each step' };
+      const sem = semanticOf((cfg.y_field || meas[0].name), semantics, prof);
+      if (sem === 'percent') {
+        return { ok: false, reason: 'a bridge adds its steps up, and rates do not add up' };
+      }
+      return { ok: true };
+    }
+    if (visualType === 'combo') {
+      if (!dims.length) return { ok: false, reason: 'needs a dimension for the axis' };
+      if (meas.length < 2) return { ok: false, reason: 'needs two numeric columns — one for the bars, one for the line' };
+      return { ok: true };
+    }
+    // bar / line / donut
+    if (!dims.length) return { ok: false, reason: 'needs a dimension to plot against' };
+    if (!meas.length) return { ok: false, reason: 'needs a numeric column to measure' };
+    if (visualType === 'donut') {
+      const sem = semanticOf((cfg.y_field || meas[0].name), semantics, prof);
+      if (sem === 'percent') {
+        return { ok: false, reason: 'slices of a whole have to add up, and rates do not' };
+      }
+    }
+    return { ok: true };
+  }
+
   function optionFor(visualType, shaped, config) {
     const t = theme();
     if (visualType === 'donut') return donutOption(shaped, t);
-    return axisChartOption(visualType === 'line' ? 'line' : 'bar', shaped, t, config);
+    if (visualType === 'waterfall') return waterfallOption(shaped, t, config);
+    // combo is a bar chart whose named measures are drawn as lines on the
+    // right-hand axis. axisChartOption already does exactly that for a
+    // measure that needs a second axis; combo makes it an explicit choice
+    // rather than an inference, which is what an author wants when the two
+    // measures happen to sit on a similar scale.
+    return axisChartOption(visualType === 'line' ? 'line' : 'bar', shaped, t,
+      visualType === 'combo' ? Object.assign({}, config || {}, { combo: true }) : config);
   }
 
   // ── HTML visuals (table / KPI) ───────────────────────────────────────
@@ -840,24 +1141,169 @@
       </div>${note}`;
   }
 
-  function tableHtml(rows, config, semantics) {
+  /**
+   * Rows a table should actually draw, after the widget's own sort/limit
+   * and the reader's live search.
+   *
+   * Split out of tableHtml because CSV export has to produce exactly what
+   * is on screen. Two code paths deciding "which rows" is how an export
+   * quietly disagrees with the table above it.
+   */
+  function tableRows(rows, config, ui) {
+    const cfg = config || {};
+    const state = ui || {};
+    let shown = rows.slice();
+
+    const term = String(state.search || '').trim().toLowerCase();
+    if (term) {
+      shown = shown.filter((r) => Object.values(r).some((v) => {
+        if (v === null || v === undefined) return false;
+        const t = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        return t.toLowerCase().includes(term);
+      }));
+    }
+
+    // The reader's column sort wins over the widget's configured one: they
+    // just clicked it, and it is a view of the loaded rows either way.
+    const prof = profileColumns(rows);
+    const sortField = state.sortCol && prof.some((c) => c.name === state.sortCol)
+      ? state.sortCol
+      : (cfg.y_field && prof.some((c) => c.name === cfg.y_field) ? cfg.y_field : null);
+    const dirName = state.sortCol ? (state.sortDir || 'desc') : cfg.sort;
+    if (sortField && (dirName === 'desc' || dirName === 'asc')) {
+      const dir = dirName === 'desc' ? -1 : 1;
+      const col = prof.find((c) => c.name === sortField);
+      shown.sort((a, b) => {
+        if (col && col.type === 'number') {
+          return dir * (((toNumber(a[sortField]) ?? 0)) - ((toNumber(b[sortField]) ?? 0)));
+        }
+        return dir * String(a[sortField] ?? '').localeCompare(String(b[sortField] ?? ''));
+      });
+    }
+
+    const limit = Number(cfg.limit) || 0;
+    const matched = shown.length;
+    const truncated = limit > 0 && shown.length > limit;
+    if (truncated) shown = shown.slice(0, limit);
+    return { shown, matched, truncated, sortField, sortDir: dirName };
+  }
+
+  /**
+   * Conditional formatting rules, evaluated per cell.
+   *
+   * `visual_config.rules` is [{ col, op, value, value2, tone }] where tone is
+   * pos / neg / warn. Deliberately a small vocabulary: the point of
+   * highlighting a cell is that a reader's eye goes to it, and a table where
+   * six colours mean six things has no highlights at all.
+   *
+   * A rule naming a column the query no longer returns is skipped, never
+   * an error -- same stance as `columns`: a report edited underneath a
+   * widget should degrade, not break.
+   */
+  function ruleTone(rules, colName, raw) {
+    if (!Array.isArray(rules) || !rules.length) return '';
+    const n = toNumber(raw);
+    for (const r of rules) {
+      if (!r || r.col !== colName) continue;
+      const a = toNumber(r.value);
+      const b = toNumber(r.value2);
+      let hit = false;
+      if (r.op === 'gt') hit = n !== null && a !== null && n > a;
+      else if (r.op === 'lt') hit = n !== null && a !== null && n < a;
+      else if (r.op === 'gte') hit = n !== null && a !== null && n >= a;
+      else if (r.op === 'lte') hit = n !== null && a !== null && n <= a;
+      else if (r.op === 'between') hit = n !== null && a !== null && b !== null && n >= Math.min(a, b) && n <= Math.max(a, b);
+      else if (r.op === 'negative') hit = n !== null && n < 0;
+      else if (r.op === 'positive') hit = n !== null && n > 0;
+      else if (r.op === 'empty') hit = raw === null || raw === undefined || raw === '';
+      else if (r.op === 'contains') hit = String(raw == null ? '' : raw).toLowerCase().includes(String(r.value || '').toLowerCase());
+      if (hit) return ` dw-rule dw-rule--${r.tone === 'neg' ? 'neg' : r.tone === 'warn' ? 'warn' : 'pos'}`;
+    }
+    return '';
+  }
+
+  /** The visible cell text for a value -- shared by the table and the CSV
+      export so an exported number reads the same as the printed one. */
+  function cellText(raw, col, semantic) {
+    if (col.type === 'number') return formatValue(raw, semantic);
+    if (raw !== null && typeof raw === 'object') {
+      try { return JSON.stringify(raw); } catch (e) { return '[unserialisable]'; }
+    }
+    return raw === null || raw === undefined ? '' : String(raw);
+  }
+
+  /**
+   * CSV of exactly what the table is showing: the same columns in the same
+   * order, the same search and sort, the same limit.
+   *
+   * `note` is a comment line naming the scope, because the single most
+   * dangerous thing about a dashboard export is that it looks complete.
+   * A table sitting on 1,000 of 7,231 rows exports 1,000 and says so, in
+   * the file -- not only in the UI the recipient never saw.
+   */
+  function tableCsv(rows, config, semantics, ui) {
+    const cfg = config || {};
+    const prof = profileColumns(rows);
+    const cols = visibleColumns(prof, cfg);
+    const { shown, matched, truncated } = tableRows(rows, cfg, ui);
+    const q = (v) => {
+      const t = String(v === null || v === undefined ? '' : v);
+      return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    const lines = [];
+    const state = ui || {};
+    const scope = [];
+    if (state.search) scope.push(`filtered by "${state.search}"`);
+    if (truncated) scope.push(`limited to ${shown.length} of ${matched} matching rows`);
+    if (state.hasMore) scope.push('the source query has more rows than are loaded — use Load more first for the rest');
+    else if (state.totalRows && state.totalRows > rows.length) {
+      scope.push(`${rows.length} of ${state.totalRows} rows loaded`);
+    }
+    if (scope.length) lines.push(`# ${scope.join('; ')}`);
+    lines.push(cols.map((c) => q(columnLabel(c.name, semantics))).join(','));
+    for (const r of shown) {
+      lines.push(cols.map((c) => {
+        // Raw values, not formatted ones: a spreadsheet needs 36393571,
+        // not "$36,393,571". The comment line above carries the context a
+        // formatted string was trying to.
+        const raw = r[c.name];
+        if (raw !== null && typeof raw === 'object') { try { return q(JSON.stringify(raw)); } catch (e) { return ''; } }
+        return q(raw);
+      }).join(','));
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * A table.
+   *
+   * `ui` is the reader's live state -- search text, which column they
+   * clicked to sort, how many rows are loaded against how many exist. It is
+   * deliberately NOT part of visual_config: searching a table is reading,
+   * not editing, and it must not mark a dashboard dirty or be written back
+   * as everyone's saved position.
+   */
+  function tableHtml(rows, config, semantics, ui) {
     if (!Array.isArray(rows) || !rows.length) return '<div class="dw-empty">0 rows</div>';
     const prof = profileColumns(rows);
     const cfg = config || {};
-
-    let shown = rows.slice();
-    const sortField = cfg.y_field && prof.some((c) => c.name === cfg.y_field) ? cfg.y_field : null;
-    if (sortField && (cfg.sort === 'desc' || cfg.sort === 'asc')) {
-      const dir = cfg.sort === 'desc' ? -1 : 1;
-      shown.sort((a, b) => dir * (((toNumber(a[sortField]) ?? 0)) - ((toNumber(b[sortField]) ?? 0))));
-    }
-    const limit = Number(cfg.limit) || 0;
-    const truncated = limit > 0 && shown.length > limit;
-    if (truncated) shown = shown.slice(0, limit);
+    const state = ui || {};
+    const { shown, matched, truncated, sortField, sortDir } = tableRows(rows, cfg, state);
 
     const cols = visibleColumns(prof, cfg);
-    const head = cols.map((c) =>
-      `<th class="${c.type === 'number' ? 'dw-num' : ''}" title="${esc(c.name)}">${esc(columnLabel(c.name, semantics))}</th>`).join('');
+    const head = cols.map((c) => {
+      const active = c.name === sortField;
+      const ariaSort = active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+      const next = active && sortDir === 'desc' ? 'asc' : 'desc';
+      return `<th class="${c.type === 'number' ? 'dw-num' : ''}${active ? ' is-sorted' : ''}"
+                  aria-sort="${ariaSort}" title="${esc(c.name)}">
+          <button type="button" class="dw-th-btn" data-sort-col="${esc(c.name)}" data-sort-dir="${next}">
+            <span class="dw-th-label">${esc(columnLabel(c.name, semantics))}</span><span
+              class="dw-th-arrow" aria-hidden="true">${active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</span>
+          </button>
+        </th>`;
+    }).join('');
+
     const body = shown.map((r) => `<tr>${cols.map((c) => {
       const raw = r[c.name];
       const sem = semanticOf(c.name, semantics, prof);
@@ -870,119 +1316,275 @@
         const url = safeUrl(raw);
         if (url) {
           if (sem === 'image') {
-            return `<td class="dw-cell-img"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">`
+            return `<td class="dw-cell-img" data-col="${esc(c.name)}"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">`
               + `<img class="dw-thumb" src="${esc(url)}" alt="" loading="lazy" /></a></td>`;
           }
-          return `<td class="dw-cell-link"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer"`
+          return `<td class="dw-cell-link" data-col="${esc(c.name)}"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer"`
             + ` title="${esc(url)}">${esc(linkLabel(url))}</a></td>`;
         }
       }
 
-      let cell;
       let numClass = c.type === 'number' ? 'dw-num' : '';
-      if (c.type === 'number') { cell = formatValue(raw, sem); numClass += signClass(raw, sem); }
-      else if (raw !== null && typeof raw === 'object') {
-        // jsonb. Show the JSON rather than "[object Object]" -- the value is
-        // the point, and a truncated object at least says what is in there.
-        try { cell = JSON.stringify(raw); } catch { cell = '[unserialisable]'; }
-      } else cell = (raw === null || raw === undefined ? '' : String(raw));
+      let cell = cellText(raw, c, sem);
+      if (c.type === 'number') numClass += signClass(raw, sem);
+      numClass += ruleTone(cfg.rules, c.name, raw);
       const full = cell;
       if (cell.length > 160) cell = cell.slice(0, 157) + '…';
-      return `<td class="${numClass}"${c.type === 'json' ? ` title="${esc(full)}"` : ''}>${esc(cell)}</td>`;
+      // data-col / data-value are what click-to-filter and drill-through
+      // read. They carry the RAW value, not the formatted one: a filter on
+      // "$36,393,571" matches nothing.
+      return `<td class="${numClass}" data-col="${esc(c.name)}"`
+        + (c.type !== 'number' && raw !== null && typeof raw !== 'object' ? ` data-value="${esc(raw)}"` : '')
+        + (c.type === 'json' ? ` title="${esc(full)}"` : '') + `>${esc(cell)}</td>`;
     }).join('')}</tr>`).join('');
 
     // A totals row sums the ROWS ON SCREEN, and says so when that is not
     // all of them -- a footer reading "Total" under a truncated list, over
     // a number covering everything, is the kind of quiet mismatch nobody
-    // catches.
+    // catches. Rates are refused outright: SiloMetrics.aggregate pools one
+    // from its numerator and denominator where the result carries them and
+    // otherwise leaves the cell blank rather than averaging.
     let foot = '';
+    const refusals = [];
     if (cfg.totals) {
       const cells = cols.map((c, i) => {
-        if (i === 0) return `<th class="dw-total-label">Total</th>`;
+        if (i === 0) return '<th class="dw-total-label">Total</th>';
         const sem = semanticOf(c.name, semantics, prof);
-        if (c.type !== 'number' || !TOTALLABLE.has(sem)) return '<td></td>';
-        const nums = shown.map((r) => toNumber(r[c.name])).filter((n) => n !== null);
-        if (!nums.length) return '<td></td>';
-        const sum = nums.reduce((a, b) => a + b, 0);
-        return `<td class="dw-num${signClass(sum, sem)}">${esc(formatValue(sum, sem))}</td>`;
+        if (c.type !== 'number') return '<td></td>';
+        const res = global.SiloMetrics
+          ? global.SiloMetrics.aggregate(shown, c.name, sem, { aggregate: 'sum' })
+          : { value: TOTALLABLE.has(sem) ? shown.map((r) => toNumber(r[c.name])).filter((n) => n !== null).reduce((a, b) => a + b, 0) : null };
+        if (res.value === null || res.value === undefined) {
+          if (res.refused) refusals.push(`${columnLabel(c.name, semantics)}: ${res.note}`);
+          return '<td></td>';
+        }
+        const title = res.method && res.method !== 'sum' ? ` title="${esc(res.method)}"` : '';
+        return `<td class="dw-num${signClass(res.value, sem)}"${title}>${esc(formatValue(res.value, sem))}</td>`;
       }).join('');
       foot = `<tfoot><tr class="dw-total-row">${cells}</tr></tfoot>`;
     }
 
-    const note = truncated
-      ? `<div class="dw-foot-note">Showing ${shown.length} of ${rows.length} rows${cfg.totals ? ' — the total covers the rows shown' : ''}</div>`
-      : '';
-    return `<div class="dw-table-wrap"><table class="dw-table">
+    // The tools row is the difference between a table you read and a table
+    // you use. Search and CSV are reader actions, so they are present in
+    // view mode too.
+    const tools = `<div class="dw-table-tools">
+        <input type="search" class="bcn-field dw-table-search" data-role="table-search"
+               placeholder="Search rows" aria-label="Search this table"
+               value="${esc(state.search || '')}" />
+        <span class="dw-table-count bcn-mono">${shown.length.toLocaleString()}${
+          matched !== shown.length ? ` of ${matched.toLocaleString()}` : ''} rows</span>
+        <button type="button" class="bcn-btn bcn-btn--ghost dw-csv" data-act="export-csv"
+                title="Download exactly these rows and columns as CSV">CSV</button>
+      </div>`;
+
+    const notes = [];
+    if (truncated) {
+      notes.push(`Showing ${shown.length.toLocaleString()} of ${matched.toLocaleString()} rows`
+        + (cfg.totals ? ' — the total covers the rows shown' : ''));
+    }
+    if (state.search) notes.push(`Search matched ${matched.toLocaleString()} of ${rows.length.toLocaleString()} loaded rows`);
+    if (refusals.length) notes.push('No total for ' + refusals.join('; '));
+    const note = notes.length ? `<div class="dw-foot-note">${esc(notes.join(' · '))}</div>` : '';
+
+    // tabindex + role make the horizontal scroller reachable by keyboard:
+    // a wide table whose rightmost columns can only be reached by dragging
+    // is unusable without a mouse.
+    return tools + `<div class="dw-table-wrap" tabindex="0" role="region"
+        aria-label="Table, scroll horizontally for more columns"><table class="dw-table">
       <thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}</table></div>${note}`;
+  }
+
+  /**
+   * Which measure a KPI is showing -- or null, meaning "nobody has said".
+   *
+   * A KPI is one number under one title, so getting the column wrong is not
+   * a formatting slip: it is a card headed "Total sales" printing MLB sales,
+   * which is what happened live. The old behaviour fell back to the first
+   * numeric column whenever `y_field` was unset, and every path that creates
+   * a KPI without choosing one (switching visual type, an imported config)
+   * landed there silently.
+   *
+   * So the fallback is now allowed in exactly one case: the result has ONE
+   * numeric column, where "first numeric" and "the only measure" are the
+   * same statement and there is nothing to get wrong. With a choice to make,
+   * the widget says so instead of guessing -- and never infers the measure
+   * from the card's title, which is the one place a wrong guess is invisible.
+   */
+  function kpiField(prof, cfg) {
+    const meas = measuresOf(prof);
+    if (cfg && cfg.y_field && prof.some((c) => c.name === cfg.y_field)) {
+      return { field: cfg.y_field, chosen: true };
+    }
+    if (meas.length === 1) return { field: meas[0].name, chosen: false };
+    return { field: null, chosen: false, candidates: meas.map((c) => c.name) };
+  }
+
+  /**
+   * A sparkline drawn as inline SVG rather than as an ECharts instance.
+   *
+   * A KPI tile is often 3x2 grid cells; standing up a whole chart runtime,
+   * a canvas and a ResizeObserver inside it for forty points costs more
+   * than the tile does. SVG also scales with the tile without a resize
+   * pass, which is what makes the KPI survive the density switch and the
+   * full-screen move for free.
+   *
+   * No axes and no labels on purpose: a sparkline is shape, not
+   * measurement. The number above it is the measurement.
+   */
+  function sparklineSvg(values, t, semantic) {
+    const nums = values.filter((v) => v !== null && v !== undefined && Number.isFinite(v));
+    if (nums.length < 2) return '';
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    const span = max - min || 1;
+    const W = 100;
+    const H = 26;
+    const step = W / (nums.length - 1);
+    const pts = nums.map((v, i) => `${(i * step).toFixed(2)},${(H - ((v - min) / span) * (H - 3) - 1.5).toFixed(2)}`);
+    const last = nums[nums.length - 1];
+    const first = nums[0];
+    // The stroke follows the metric's direction, not a fixed accent: a
+    // sparkline that is red when the number fell is readable at a glance
+    // in a way a blue one is not. Colour is never the only signal -- the
+    // delta line underneath states the direction in words.
+    const colour = last === first ? t.ink2 : (last > first ? t.palette[1] : (t.dark ? '#ff829a' : '#d94f6a'));
+    const lastPt = pts[pts.length - 1].split(',');
+    return `<svg class="dw-kpi-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+        role="img" aria-label="Trend across ${nums.length} points, ${formatValue(first, semantic)} to ${formatValue(last, semantic)}">
+        <polyline points="${pts.join(' ')}" fill="none" stroke="${colour}" stroke-width="1.6"
+                  stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
+        <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="1.8" fill="${colour}" />
+      </svg>`;
   }
 
   function kpiHtml(rows, config, semantics) {
     const cfg = config || {};
     const prof = profileColumns(rows || []);
     const meas = measuresOf(prof);
-    const field = cfg.y_field && prof.some((c) => c.name === cfg.y_field) ? cfg.y_field : (meas[0] || {}).name;
-    if (!field) return '<div class="dw-empty">No numeric column to show as a KPI.</div>';
+    const pick = kpiField(prof, cfg);
+    const field = pick.field;
+    if (!field) {
+      if (!meas.length) return '<div class="dw-empty">No numeric column to show as a KPI.</div>';
+      // Named candidates, not a bare instruction: the point is that the
+      // reader can see this card has not been told what it measures.
+      return `<div class="dw-empty dw-empty--warn dw-kpi-unset">
+          <strong>This KPI has no measure selected.</strong>
+          <span class="dw-empty-hint">Pick one of ${esc(meas.map((c) => columnLabel(c.name, semantics)).join(', '))}
+          in the widget's <em>Data</em> settings. A card's title is not evidence of which number it shows.</span>
+        </div>`;
+    }
 
-    const nums = (rows || []).map((r) => toNumber(r[field])).filter((n) => n !== null);
+    const list = rows || [];
+    const nums = list.map((r) => toNumber(r[field])).filter((n) => n !== null);
     if (!nums.length) return '<div class="dw-empty">No value</div>';
 
-    // A KPI over many rows has to say WHICH number it is showing. Sum is
-    // the default because that is what a "total sales" style report means,
-    // but a rate or an average is not summable, so the aggregate is part
-    // of the config and printed under the value either way.
-    const agg = cfg.aggregate || (nums.length === 1 ? 'first' : 'sum');
-    let value = agg === 'first' ? nums[0]
-      : agg === 'avg' ? nums.reduce((a, b) => a + b, 0) / nums.length
-      : agg === 'max' ? Math.max(...nums)
-      : agg === 'min' ? Math.min(...nums)
-      : agg === 'count' ? nums.length
-      : nums.reduce((a, b) => a + b, 0);
-
     const semantic = semanticOf(field, semantics, prof);
+
+    // A KPI over many rows has to say WHICH number it is showing, and how
+    // it got there. Rolling up goes through SiloMetrics so a rate is pooled
+    // from its numerator and denominator where the result carries them --
+    // and refused, not averaged, where it does not. Averaging 2% over 100
+    // sessions with 10% over 10,000 gives 6%; the real rate is 9.9%.
+    const requested = cfg.aggregate || (nums.length === 1 ? 'first' : 'sum');
+    const rolled = global.SiloMetrics
+      ? global.SiloMetrics.aggregate(list, field, semantic, { aggregate: requested })
+      : { value: nums.reduce((a, b) => a + b, 0), method: 'sum' };
+    if (rolled.value === null || rolled.value === undefined) {
+      return `<div class="dw-empty dw-empty--warn">
+          <strong>This number cannot be rolled up.</strong>
+          <span class="dw-empty-hint">${esc(rolled.note || 'no value')}</span>
+        </div>`;
+    }
+    const agg = requested;
+    let value = rolled.value;
     const valueSemantic = agg === 'count' ? 'count' : semantic;
 
     // A bare number is most of a KPI's job left undone: $36,393,571 says
     // nothing without something to compare it to. `compare_field` names a
-    // second measure to read as the prior value; with no config, a
-    // multi-row result compares the LAST row to the one before it, which is
-    // what a daily or monthly series means by "vs last period".
+    // second measure to read as the prior value; `compare: 'previous_row'`
+    // compares the LAST row to the one before it, which is what a daily or
+    // monthly series means by "vs last period".
     let prior = null;
     let priorLabel = '';
+    let compareRefusal = '';
+    const M = global.SiloMetrics;
     if (cfg.compare_field && prof.some((c) => c.name === cfg.compare_field)) {
-      const p2 = (rows || []).map((r) => toNumber(r[cfg.compare_field])).filter((n) => n !== null);
-      if (p2.length) {
-        prior = agg === 'first' ? p2[0] : p2.reduce((a, b) => a + b, 0);
+      const priorSem = semanticOf(cfg.compare_field, semantics, prof);
+      const p2 = M
+        ? M.aggregate(list, cfg.compare_field, priorSem, { aggregate: agg })
+        : { value: list.map((r) => toNumber(r[cfg.compare_field])).filter((n) => n !== null).reduce((a, b) => a + b, 0) };
+      if (p2.value !== null && p2.value !== undefined) {
+        prior = p2.value;
         priorLabel = columnLabel(cfg.compare_field, semantics);
+      } else if (p2.refused) {
+        compareRefusal = p2.note;
       }
-    } else if (cfg.compare === 'previous_row' && nums.length > 1) {
-      prior = nums[nums.length - 2];
-      value = nums[nums.length - 1];
-      priorLabel = 'previous';
+    } else if (cfg.compare === 'previous_row') {
+      // Refused rather than manufactured: one row has no previous row, and
+      // a comparison invented from insufficient data is worse than none.
+      const check = M ? M.canCompare('previous_row', { rowCount: nums.length }) : { ok: nums.length >= 2 };
+      if (check.ok) {
+        prior = nums[nums.length - 2];
+        value = nums[nums.length - 1];
+        priorLabel = 'the previous row';
+      } else {
+        compareRefusal = check.reason || 'not enough rows to compare';
+      }
+    } else if (cfg.compare_field) {
+      compareRefusal = `"${cfg.compare_field}" is not in this result any more`;
     }
 
     let delta = '';
-    if (prior !== null && prior !== 0) {
-      const pct = ((value - prior) / Math.abs(prior)) * 100;
-      // Direction is stated with a word as well as a colour and an arrow --
-      // colour alone is not readable for everyone, and an arrow alone does
-      // not survive being pasted into Slack.
-      const dir = pct >= 0 ? 'up' : 'down';
-      delta = `<div class="dw-kpi-delta dw-kpi-delta--${dir}">
-          <span aria-hidden="true">${pct >= 0 ? '▲' : '▼'}</span>
-          ${esc(Math.abs(pct).toLocaleString(undefined, { maximumFractionDigits: 1 }))}%
-          <span class="dw-kpi-delta-note">${dir} vs ${esc(priorLabel)} (${esc(formatValue(prior, valueSemantic))})</span>
+    if (prior !== null) {
+      const ch = M ? M.change(value, prior, valueSemantic) : null;
+      if (ch && ch.ok && (ch.percent !== null || ch.unit === 'pp')) {
+        const dir = ch.direction;
+        // A rate moves in PERCENTAGE POINTS. Calling 4% -> 5% a 25% rise is
+        // a true statement about a different quantity, and the one people
+        // quote when they want the bigger number, so points lead and the
+        // relative change follows in brackets.
+        const magnitude = ch.unit === 'pp'
+          ? `${Math.abs(ch.points).toLocaleString(undefined, { maximumFractionDigits: 2 })}pp`
+          : `${Math.abs(ch.percent).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+        const extra = ch.unit === 'pp' && ch.percent !== null
+          ? ` (${Math.abs(ch.percent).toLocaleString(undefined, { maximumFractionDigits: 1 })}% relative)` : '';
+        delta = `<div class="dw-kpi-delta dw-kpi-delta--${dir}">
+            <span aria-hidden="true">${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '▬'}</span>
+            ${esc(magnitude)}
+            <span class="dw-kpi-delta-note">${esc(dir === 'flat' ? 'unchanged vs' : `${dir} vs`)} ${esc(priorLabel)} (${esc(formatValue(prior, valueSemantic))})${esc(extra)}</span>
+          </div>`;
+      } else if (ch && ch.ok) {
+        delta = `<div class="dw-kpi-delta dw-kpi-delta--flat">
+            <span class="dw-kpi-delta-note">${esc(formatValue(ch.absolute, valueSemantic))} vs ${esc(priorLabel)} — no percentage, the prior value is zero</span>
+          </div>`;
+      }
+    } else if (compareRefusal) {
+      // Say why there is no comparison rather than silently dropping it:
+      // a card configured to compare and showing none reads as a bug.
+      delta = `<div class="dw-kpi-delta dw-kpi-delta--none">
+          <span class="dw-kpi-delta-note">No comparison — ${esc(compareRefusal)}</span>
         </div>`;
     }
+
+    // The sparkline is the shape behind the number, and only means anything
+    // when the rows are in a meaningful order -- which is the query's, so it
+    // is drawn from the rows as they arrived rather than from anything
+    // sorted here.
+    const spark = cfg.sparkline && nums.length > 1
+      ? sparklineSvg(nums, theme(), valueSemantic) : '';
 
     // Abbreviation is a WIDGET choice, not a report one: the same measure
     // wants $36.4M in a 3-column tile and $36,393,571 in a wide one.
     const shown = cfg.abbreviate ? compact(value, valueSemantic) : formatValue(value, valueSemantic);
-    const aggLabel = nums.length === 1 ? columnLabel(field, semantics)
-      : `${agg} of ${columnLabel(field, semantics)} · ${nums.length} rows`;
+    const method = rolled.method && rolled.method.startsWith('pooled') ? rolled.method : null;
+    const aggLabel = nums.length === 1
+      ? columnLabel(field, semantics)
+      : `${method || agg} of ${columnLabel(field, semantics)} · ${nums.length} rows`;
     return `<div class="dw-kpi">
       <div class="dw-kpi-value"${cfg.abbreviate ? ` title="${esc(formatValue(value, valueSemantic))}"` : ''}>${esc(shown)}</div>
+      ${spark}
       ${delta}
-      <div class="dw-kpi-label">${esc(aggLabel)}</div>
+      <div class="dw-kpi-label" title="${esc(field)}">${esc(aggLabel)}</div>
     </div>`;
   }
 
@@ -1015,11 +1617,12 @@
   }
 
   global.SiloChart = {
-    VISUAL_TYPES: ['table', 'kpi', 'bar', 'line', 'donut'],
+    VISUAL_TYPES: ['table', 'kpi', 'bar', 'line', 'donut', 'matrix', 'combo', 'heatmap', 'waterfall'],
     profileColumns, dimensionsOf, measuresOf,
-    recommend, shape, optionFor,
-    tableHtml, matrixHtml, kpiHtml, answerHtml, columnLabel,
-    AGGREGATES, defaultAggregate, semanticOf,
-    formatValue, inferFormat, theme, isDark, esc,
+    recommend, shape, optionFor, validateVisual,
+    grid2dOf, heatmapOption, waterfallOption,
+    tableHtml, tableRows, tableCsv, matrixHtml, kpiHtml, kpiField, answerHtml, columnLabel,
+    AGGREGATES, defaultAggregate, semanticOf, visibleColumns, ruleTone,
+    formatValue, compact, inferFormat, theme, isDark, esc,
   };
 })(window);

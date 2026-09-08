@@ -161,9 +161,22 @@ async function startSuite(options = {}) {
   return { BASE, ctx, browser, newPage, newContext, close };
 }
 
+/**
+ * Open one of the widget inspector's tabs.
+ *
+ * The panel is Data | Visual | Format | Interactions, and it opens on Data.
+ * Anything a suite asserts about the visual picker, number formatting or
+ * click behaviour therefore has to switch tab first -- exactly as a person
+ * does. Centralised so renaming a tab is one edit rather than eight.
+ */
+async function inspectorTab(page, tab) {
+  await page.click(`#inspectorTabs [data-tab="${tab}"]`);
+  await page.waitForTimeout(120);
+}
+
 /** Opt the fake DB into surviving a reload, for suites that seed then reload. */
 const PERSIST_FAKE_DB = () => {
   try { sessionStorage.setItem('__PERSIST_FAKE_DB__', '1'); } catch (e) { /* ignore */ }
 };
 
-module.exports = { startSuite, chromiumPath, REPO_ROOT, FIXTURES, PERSIST_FAKE_DB };
+module.exports = { startSuite, chromiumPath, REPO_ROOT, FIXTURES, PERSIST_FAKE_DB, inspectorTab };

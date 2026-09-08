@@ -6,7 +6,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { startSuite } = require('../lib/harness');
+const { startSuite, inspectorTab } = require('../lib/harness');
 
 let fails = 0, checks = 0;
 const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { console.log('  FAIL ' + n); fails++; } };
@@ -59,7 +59,12 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('chart canvas rendered', (await page.locator('.dw-chart canvas').count()) >= 1);
 
   // ── 3. Switch visual types, same dataset ────────────────────────────
+  // The visual picker lives on the inspector's Visual tab; the panel opens
+  // on Data. Switching tab per call rather than once, because several of
+  // the assertions below deliberately hop back to Data for the measure
+  // controls.
   const switchTo = async (type) => {
+    await inspectorTab(page, 'visual');
     await page.click(`.v3-visual-opt:has(input[value="${type}"])`);
     await page.waitForTimeout(220);
   };
@@ -68,7 +73,7 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   // Headers are the query's own columns, in query order, but rendered as
   // readable labels rather than raw SQL aliases (changed deliberately).
   ok('table header labels the query columns, in query order',
-    (await page.locator('.dw-table thead th').allTextContents()).join(',') === 'Product Title,Net Sales,Units');
+    (await page.locator('.dw-table thead th .dw-th-label').allTextContents()).join(',') === 'Product Title,Net Sales,Units');
   ok('the real column name is still on the header for reference',
     (await page.locator('.dw-table thead th').first().getAttribute('title')) === 'product_title');
   ok('badge says table', (await badgeText()) === 'table');
@@ -89,6 +94,7 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
 
   // Measures are a multi-select now: adding then removing swaps the measure,
   // and y_field must follow the first one so KPI/table keep working.
+  await inspectorTab(page, 'data');
   await page.click('.rb-col:has([data-measure="units"])');
   await page.waitForTimeout(300);
   ok('adding a second measure keeps both',
@@ -99,7 +105,9 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('removing the other leaves just units', JSON.stringify(cfgNow.measures) === '["units"]');
   ok('y_field follows the first measure', cfgNow.y_field === 'units');
 
-  // Rename the widget.
+  // Rename the widget. The title is a FORMAT concern -- what the tile is
+  // called -- so it sits on that tab.
+  await inspectorTab(page, 'format');
   await page.fill('#inspTitle', 'Top sellers by units');
   await page.waitForTimeout(120);
   ok('tile title follows the inspector', (await page.textContent('.dw-title')) === 'Top sellers by units');
@@ -135,7 +143,11 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   const id0 = Object.keys(after)[0];
   ok(`resize changed geometry (${JSON.stringify(before[id0])} -> ${JSON.stringify(after[id0])})`,
     after[id0].w > before[id0].w && after[id0].h > before[id0].h);
-  ok('resize marked the dashboard dirty', (await page.textContent('#btnSave')).includes('•'));
+  // The unsaved-change signal is a labelled pill in the header plus the
+  // button reading "Save changes" -- a bullet on a button was easy to miss
+  // and said nothing about what was unsaved.
+  ok('resize marked the dashboard dirty',
+    (await page.isVisible('#dirtyPill')) && (await page.textContent('#btnSave')).includes('Save changes'));
 
   // ── 5. Save ─────────────────────────────────────────────────────────
   await page.fill('#dashDescription', 'Weekly sell-through check');
@@ -338,8 +350,12 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
      sec.length > 0 && sec.every((m) => m.min === 1));
   ok('...and keeps the height it was given, rather than being grown to the minimum',
      sec.every((m) => m.h === 1));
-  ok('every other visual still needs two rows to draw in',
-     rest.length > 0 && rest.every((m) => m.min === 2));
+  // Minimums are per-visual now (a donut in a 2x2 box is a ring of
+  // unreadable labels, a matrix that narrow paints its row labels over the
+  // first column) -- so the assertion is "at least two rows, and never a
+  // section's one", not a single flat number.
+  ok('every other visual still needs at least two rows to draw in: ' + JSON.stringify(rest),
+     rest.length > 0 && rest.every((m) => m.min >= 2));
 
   // ── Mobile: the meta-bar must not clip its own wrapped rows ──────────
   // Found live (2026-09-04) on a real phone screenshot: .v3-meta-bar also

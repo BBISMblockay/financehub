@@ -1,6 +1,10 @@
 'use strict';
 const { loadV3 } = require('../lib/load');
-const g = loadV3(['report-params.js', 'field-semantics.js', 'chart-adapter.js']);
+// metrics.js is listed because chart-adapter calls SiloMetrics for every
+// roll-up and comparison. Omitting it does not throw -- the adapter falls
+// back -- which is worse: the suite would keep passing against arithmetic
+// the browser never runs.
+const g = loadV3(['report-params.js', 'field-semantics.js', 'metrics.js', 'chart-adapter.js']);
 const C = g.SiloChart, F = g.SiloFieldSemantics;
 let fails=0;
 const ok=(n,c)=>{ if(c) console.log('  ok  '+n); else {console.log('  FAIL '+n); fails++;} };

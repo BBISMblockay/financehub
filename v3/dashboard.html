@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260904e" />
+  <link rel="stylesheet" href="dashboard.css?v=20260908a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -28,33 +28,60 @@
 <body>
 <div class="silo-app" id="silo-app">
   <main class="silo-main">
-    <header class="bcn-header">
-      <div class="bcn-header-title">
+    <!-- Compact header: the name, how far it reaches, and the actions a
+         reader actually uses. The description used to sit beside the title
+         and win the fight for the line -- it now lives behind the ⓘ, where
+         it is one click away and never competes with the name. -->
+    <header class="bcn-header v3-header">
+      <div class="bcn-header-title v3-header-title">
         <h1 id="headerName">Dashboard</h1>
-        <span class="bcn-header-sub" id="headerSub"></span>
+        <span class="bcn-pill v3-scope-pill" id="headerScope" hidden></span>
+        <button type="button" class="v3-info-btn" id="btnInfo" hidden
+                aria-expanded="false" aria-controls="headerInfo"
+                title="About this dashboard" aria-label="About this dashboard">i</button>
+        <span class="v3-dirty-pill" id="dirtyPill" hidden>Unsaved changes</span>
       </div>
       <div class="bcn-header-actions">
-        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh">Refresh data</button>
-        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Add widget</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh" title="Re-run every widget query against live data">Refresh</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnDensity" title="Switch between comfortable and compact spacing">Compact</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Widget</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddSection" hidden>+ Section</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnEdit" hidden>Edit</button>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnSave" hidden>Save</button>
       </div>
     </header>
 
+    <!-- Information disclosure. Collapsed by default: a long description is
+         useful once and in the way every other time. -->
+    <section class="v3-header-info" id="headerInfo" hidden>
+      <p class="v3-header-desc" id="headerDesc"></p>
+      <p class="v3-header-meta" id="headerMeta"></p>
+    </section>
+
     <div class="bcn-status" id="status" hidden></div>
 
-    <!-- Slicers. Rendered from the parameters this dashboard's reports
+    <!-- Filters. Rendered from the parameters this dashboard's reports
          actually declare, so a board of unparameterised reports shows
          nothing here and looks exactly as it did before. Present in VIEW
          mode too: changing the date range is the ordinary way to read a
          dashboard, not an edit. A viewer's change applies to their session;
          only an editor's Save writes it back as the dashboard's position. -->
     <section class="v3-slicer-bar" id="slicerBar" hidden>
-      <span class="v3-slicer-lead">Filters</span>
-      <div class="v3-slicer-fields" id="slicerFields"></div>
-      <button type="button" class="bcn-btn bcn-btn--ghost v3-slicer-reset" id="btnResetFilters"
-              title="Back to this dashboard's saved filter values">Reset</button>
+      <div class="v3-slicer-row">
+        <span class="v3-slicer-lead">Filters</span>
+        <div class="v3-slicer-fields" id="slicerFields"></div>
+        <div class="v3-slicer-actions">
+          <select class="bcn-field v3-view-select" id="viewSelect" aria-label="Saved filter views" hidden></select>
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnSaveView" hidden
+                  title="Keep these filter values as a personal view of this dashboard">Save view</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost v3-slicer-reset" id="btnResetFilters"
+                  title="Back to this dashboard's saved filter values">Reset</button>
+        </div>
+      </div>
+      <!-- What is actually applied right now, dates resolved. A relative
+           token in a control reads as an instruction; the chip says what it
+           currently means. -->
+      <div class="v3-filter-chips" id="filterChips" hidden></div>
     </section>
 
     <!-- Dashboard-level settings, edit mode only. -->
@@ -91,13 +118,25 @@
   </main>
 </div>
 
+<!-- Full-screen widget. One tile, the whole viewport, same renderer: the
+     body is MOVED here and moved back, never re-rendered, so a chart keeps
+     its instance and a table keeps its scroll position and loaded pages. -->
+<div class="v3-fs" id="fsOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="fsTitle">
+  <div class="v3-fs-head">
+    <h2 id="fsTitle"></h2>
+    <button type="button" class="v3-close" id="btnCloseFs" aria-label="Close full screen">✕</button>
+  </div>
+  <div class="v3-fs-body" id="fsBody"></div>
+</div>
+
 <!-- Widget inspector: the whole point of storing config instead of HTML is
      that everything in here is a field update and a re-render. -->
 <aside class="v3-inspector" id="inspector" aria-label="Widget settings">
   <div class="v3-inspector-head">
-    <h3>Widget</h3>
+    <h3 id="inspectorHeading">Widget</h3>
     <button type="button" class="v3-close" id="btnCloseInspector" aria-label="Close">✕</button>
   </div>
+  <div class="v3-inspector-tabs" id="inspectorTabs" role="tablist" aria-label="Widget settings sections"></div>
   <div class="v3-inspector-body" id="inspectorBody"></div>
 </aside>
 
@@ -112,6 +151,29 @@
   </div>
 </div>
 
+<!-- Name a personal filter view -->
+<div class="v3-backdrop" id="viewBackdrop">
+  <div class="v3-modal" role="dialog" aria-modal="true" aria-labelledby="viewTitle" style="width:min(440px,100%)">
+    <div class="v3-modal-head">
+      <h3 id="viewTitle">Save this filter view</h3>
+      <button type="button" class="v3-close" id="btnCloseView" aria-label="Close">✕</button>
+    </div>
+    <div class="v3-modal-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="viewName">Name</label>
+        <input class="bcn-field" id="viewName" type="text" autocomplete="off" placeholder="e.g. Portland, last 28 days" />
+      </div>
+      <p class="v3-insp-hint" id="viewSummary"></p>
+      <p class="v3-insp-hint">Saved to you only. It stores the filter values, not a copy of the
+        dashboard or its reports — so the tiles stay the ones everyone else sees.</p>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnDeleteView" hidden>Delete this view</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnConfirmView">Save view</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
@@ -122,17 +184,19 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260904e"></script>
-<script src="js/field-semantics.js?v=20260904e"></script>
-<script src="js/chart-adapter.js?v=20260904e"></script>
+<script src="js/report-params.js?v=20260908a"></script>
+<script src="js/field-semantics.js?v=20260908a"></script>
+<script src="js/metrics.js?v=20260908a"></script>
+<script src="js/chart-adapter.js?v=20260908a"></script>
+<script src="js/filter-bar.js?v=20260908a"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260904e"></script>
-<script src="js/dashboard-renderer.js?v=20260904e"></script>
-<script src="js/dashboard-builder.js?v=20260904e"></script>
+<script src="js/report-builder.js?v=20260908a"></script>
+<script src="js/dashboard-renderer.js?v=20260908a"></script>
+<script src="js/dashboard-builder.js?v=20260908a"></script>
 <script>
 (function () {
   'use strict';
@@ -158,9 +222,28 @@
 
   let runtime = null;
   let builder = null;
+  let filterBar = null;
   let dashboard = null;
   let editing = false;
   let canEdit = false;
+  let savedViews = [];
+  let viewsAvailable = true;
+
+  // ── Density ───────────────────────────────────────────────────────────
+  // A per-reader preference, not a property of the dashboard: the same
+  // board is read on a laptop and thrown on a wall display. Stored in
+  // localStorage, which is per-browser and exactly the right scope for it.
+  const DENSITY_KEY = 'silo.v3.density';
+  function readDensity() {
+    try { return localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable'; }
+    catch (e) { return 'comfortable'; }
+  }
+  function applyDensity(mode) {
+    document.body.dataset.density = mode;
+    el('btnDensity').textContent = mode === 'compact' ? 'Comfortable' : 'Compact';
+    el('btnDensity').setAttribute('aria-pressed', String(mode === 'compact'));
+    try { localStorage.setItem(DENSITY_KEY, mode); } catch (e) { /* private mode */ }
+  }
 
   function setMode(next) {
     editing = !!next && canEdit;
@@ -171,6 +254,7 @@
     el('btnBlankAdd').hidden = !editing;
     el('btnSave').hidden = !editing;
     el('btnEdit').textContent = editing ? 'Done' : 'Edit';
+    document.body.classList.toggle('is-editing-dashboard', editing);
     if (!editing && builder) builder.closeInspector();
     // Keep the mode in the URL so a reload, or a link someone pastes to a
     // colleague, lands in the same mode rather than silently in view mode.
@@ -185,93 +269,171 @@
     el('grid').hidden = empty;
   }
 
-  // ── Slicers ───────────────────────────────────────────────────────────
-  // A date slicer stores a TOKEN ("today-27d") rather than the date it
-  // resolves to today. Storing the resolved date would freeze the dashboard
-  // on the day it was saved -- a "last 28 days" board silently reporting
-  // late August forever. The concrete date is shown next to the control so
-  // nobody has to guess what the token means right now.
-  const DATE_PRESETS = [
-    { value: 'today', label: 'Today' },
-    { value: 'today-1d', label: 'Yesterday' },
-    { value: 'today-7d', label: '7 days ago' },
-    { value: 'today-28d', label: '28 days ago' },
-    { value: 'today-90d', label: '90 days ago' },
-    { value: 'month_start', label: 'Start of this month' },
-    { value: 'month_end', label: 'End of this month' },
-    { value: 'year_start', label: 'Start of this year' },
-    { value: 'year_end', label: 'End of this year' },
-  ];
-
-  const escAttr = (s) => window.SiloChart.esc(s);
-
-  function slicerFieldHtml(decl, value) {
-    const id = `slicer_${decl.key}`;
-    const label = `<label class="bcn-label" for="${escAttr(id)}">${escAttr(decl.label)}</label>`;
-
-    if (decl.conflict) {
-      // Two reports disagree about what this key is. Rendering either
-      // reading would break the other's tiles, so render neither.
-      return `<div class="bcn-field-group v3-slicer-field v3-slicer-field--bad">
-          ${label}
-          <span class="v3-slicer-conflict" title="Reports on this dashboard disagree about this filter">
-            ${escAttr(decl.conflict)}
-          </span>
-        </div>`;
-    }
-
-    if (decl.type === 'enum') {
-      const opts = decl.options.map((o) =>
-        `<option value="${escAttr(o)}"${o === value ? ' selected' : ''}>${escAttr(o)}</option>`).join('');
-      return `<div class="bcn-field-group v3-slicer-field">${label}
-          <select class="bcn-field" id="${escAttr(id)}" data-param="${escAttr(decl.key)}">${opts}</select>
-        </div>`;
-    }
-
-    if (decl.type === 'date') {
-      const isPreset = DATE_PRESETS.some((p) => p.value === value);
-      const resolved = window.SiloReportParams.resolveDateExpr(value);
-      const opts = DATE_PRESETS.map((p) =>
-        `<option value="${escAttr(p.value)}"${p.value === value ? ' selected' : ''}>${escAttr(p.label)}</option>`).join('');
-      return `<div class="bcn-field-group v3-slicer-field">${label}
-          <div class="v3-slicer-date">
-            <select class="bcn-field" id="${escAttr(id)}" data-param="${escAttr(decl.key)}" data-date-mode>
-              ${opts}<option value="__custom"${isPreset ? '' : ' selected'}>Specific date…</option>
-            </select>
-            <input class="bcn-field" type="date" data-param-date="${escAttr(decl.key)}"
-                   value="${escAttr(resolved || '')}"${isPreset ? ' hidden' : ''} />
-          </div>
-          ${isPreset && resolved ? `<span class="v3-slicer-hint bcn-mono">${escAttr(resolved)}</span>` : ''}
-        </div>`;
-    }
-
-    const type = decl.type === 'number' ? 'number' : 'text';
-    return `<div class="bcn-field-group v3-slicer-field">${label}
-        <input class="bcn-field" type="${type}" id="${escAttr(id)}"
-               data-param="${escAttr(decl.key)}" value="${escAttr(value == null ? '' : value)}" />
-      </div>`;
+  function setDirty(d) {
+    el('btnSave').textContent = d ? 'Save changes' : 'Save';
+    el('btnSave').classList.toggle('is-dirty', !!d);
+    el('dirtyPill').hidden = !d;
   }
 
-  function renderSlicers() {
-    const decls = runtime.parameterDeclarations();
-    el('slicerBar').hidden = !decls.length;
-    if (!decls.length) return;
-    const values = runtime.getParamValues();
-    el('slicerFields').innerHTML = decls
-      .map((d) => slicerFieldHtml(d, values[d.key])).join('');
+  // ── Filters ───────────────────────────────────────────────────────────
+  /**
+   * Mark the tiles a filter does not reach.
+   *
+   * A dashboard-level control that silently misses three of nine tiles
+   * teaches the reader that all nine are filtered. The tile says otherwise
+   * itself, next to its own title, because that is where the number being
+   * misread actually is.
+   */
+  function markUnsupported() {
+    const decls = runtime.parameterDeclarations().filter((d) => !d.conflict);
+    const active = decls.map((d) => d.key);
+    for (const w of runtime.getWidgets()) {
+      const tile = el('grid').querySelector(`.dw[data-widget-id="${CSS.escape(w.id)}"]`);
+      if (!tile) continue;
+      let mark = tile.querySelector('.dw-nofilter');
+      const isContent = w.visual_type === 'section' || w.visual_type === 'answer';
+      const keys = runtime.widgetParamKeys(w.id);
+      const missing = active.filter((k) => !keys.includes(k));
+      const show = active.length && !isContent && w.query_sql && missing.length === active.length;
+      if (!show) { if (mark) mark.remove(); continue; }
+      if (!mark) {
+        mark = document.createElement('span');
+        mark.className = 'dw-nofilter';
+        const head = tile.querySelector('.dw-head-text');
+        if (head) head.appendChild(mark); else continue;
+      }
+      mark.textContent = 'not filtered';
+      mark.title = `This report does not read ${missing.map((k) => `{{${k}}}`).join(', ')}, so the dashboard filters do not change it.`;
+    }
   }
 
-  async function applyParam(key, value) {
+  async function applyParams(patch) {
     setStatus('Re-running the tiles that use this filter…', 'info');
-    await runtime.setParamValues({ [key]: value });
-    renderSlicers();
+    await runtime.setParamValues(patch);
     if (editing && builder) builder.markFiltersDirty();
+    markUnsupported();
     setStatus(editing
       ? 'Filters updated. Save to make this the dashboard’s saved position.'
       : 'Filters updated for this session.', 'pos', 4000);
   }
 
+  function renderSlicers() {
+    // Seed any declared-but-unset parameter with the report's own default
+    // BEFORE painting, so a control can never render blank over results
+    // that were filtered by that default.
+    runtime.ensureParamDefaults();
+    const count = filterBar.sync();
+    el('slicerBar').hidden = !count;
+    markUnsupported();
+  }
+
+  // ── Saved filter views ────────────────────────────────────────────────
+  async function loadViews() {
+    if (!viewsAvailable || !dashboard) return;
+    const { data, error } = await sb.from('dashboard_filter_views')
+      .select('id, name, filter_state').eq('dashboard_id', dashboard.id).order('name');
+    if (error) {
+      // The page ships ahead of, or behind, its migration without breaking:
+      // a missing table just means no saved views, not a broken filter bar.
+      viewsAvailable = false;
+      el('viewSelect').hidden = true;
+      el('btnSaveView').hidden = true;
+      return;
+    }
+    savedViews = data || [];
+    renderViews();
+  }
+
+  function renderViews() {
+    const sel = el('viewSelect');
+    sel.hidden = false;
+    el('btnSaveView').hidden = false;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Dashboard default</option>'
+      + savedViews.map((v) => `<option value="${window.SiloChart.esc(v.id)}">${window.SiloChart.esc(v.name)}</option>`).join('');
+    if (savedViews.some((v) => v.id === cur)) sel.value = cur;
+  }
+
+  async function applyView(id) {
+    const view = savedViews.find((v) => v.id === id);
+    const decls = runtime.parameterDeclarations();
+    const base = view ? view.filter_state : (dashboard.filter_state || {});
+    await runtime.setParamValues(window.SiloReportParams.defaultsFor(decls, base || {}));
+    filterBar.paint();
+    markUnsupported();
+    setStatus(view ? `Showing your "${view.name}" view.` : 'Back to this dashboard’s saved filters.', 'pos', 3000);
+  }
+
+  async function saveView() {
+    const name = (el('viewName').value || '').trim();
+    if (!name) { el('viewName').focus(); return; }
+    const decls = runtime.parameterDeclarations().filter((d) => !d.conflict).map((d) => d.key);
+    const live = runtime.getParamValues();
+    const state = {};
+    for (const k of decls) if (live[k] !== undefined && live[k] !== '') state[k] = String(live[k]);
+    const { error } = await sb.from('dashboard_filter_views')
+      .upsert({ dashboard_id: dashboard.id, name, filter_state: state },
+              { onConflict: 'dashboard_id,created_by,name' });
+    if (error) {
+      setStatus('Could not save this view: ' + error.message, 'neg', 7000);
+      return;
+    }
+    el('viewBackdrop').classList.remove('open');
+    await loadViews();
+    const hit = savedViews.find((v) => v.name.toLowerCase() === name.toLowerCase());
+    if (hit) el('viewSelect').value = hit.id;
+    setStatus(`Saved "${name}" as your view of this dashboard.`, 'pos', 4000);
+  }
+
+  async function deleteView() {
+    const id = el('viewSelect').value;
+    const view = savedViews.find((v) => v.id === id);
+    if (!view) return;
+    if (!confirm(`Delete your "${view.name}" view? The dashboard itself is untouched.`)) return;
+    const { error } = await sb.from('dashboard_filter_views').delete().eq('id', id);
+    if (error) { setStatus('Could not delete that view: ' + error.message, 'neg', 6000); return; }
+    el('viewBackdrop').classList.remove('open');
+    el('viewSelect').value = '';
+    await loadViews();
+    await applyView('');
+  }
+
+  // ── Full-screen one widget ────────────────────────────────────────────
+  let fsWidgetId = null;
+  let fsHome = null;
+  function openFullscreen(id) {
+    const w = runtime.getWidgets().find((x) => x.id === id);
+    const tile = el('grid').querySelector(`.dw[data-widget-id="${CSS.escape(id)}"]`);
+    if (!w || !tile) return;
+    const body = tile.querySelector('[data-role="body"]');
+    if (!body) return;
+    fsWidgetId = id;
+    fsHome = body.parentElement;
+    el('fsTitle').textContent = w.title || w.report_title || 'Widget';
+    el('fsBody').appendChild(body);
+    el('fsOverlay').hidden = false;
+    document.body.classList.add('v3-fs-open');
+    el('btnCloseFs').focus();
+    // A chart sized for a 3-column tile has to be told the box changed.
+    runtime.resizeCharts();
+  }
+  function closeFullscreen() {
+    if (!fsWidgetId) return;
+    const body = el('fsBody').firstElementChild;
+    const foot = fsHome && fsHome.querySelector('[data-role="foot"]');
+    if (body && fsHome) fsHome.insertBefore(body, foot || null);
+    el('fsOverlay').hidden = true;
+    document.body.classList.remove('v3-fs-open');
+    const tile = el('grid').querySelector(`.dw[data-widget-id="${CSS.escape(fsWidgetId)}"]`);
+    fsWidgetId = null; fsHome = null;
+    runtime.resizeCharts();
+    const btn = tile && tile.querySelector('[data-act="fullscreen"]');
+    if (btn) btn.focus();
+  }
+
   async function boot() {
+    applyDensity(readDensity());
+
     const sessRes = await sb.auth.getSession();
     if (!sessRes?.data?.session) { window.location.href = '/pages/login.html'; return; }
     const user = sessRes.data.session.user;
@@ -308,10 +470,14 @@
 
     document.title = `SILO · ${dash.name}`;
     el('headerName').textContent = dash.name;
-    el('headerSub').textContent = [
-      dash.description,
-      `${dash.visibility === 'private' ? 'Only you' : 'Company'} · ${dash.created_by_name || 'Unknown'}`,
-    ].filter(Boolean).join(' · ');
+    el('headerScope').textContent = dash.visibility === 'private' ? 'Only you' : 'Company';
+    el('headerScope').hidden = false;
+    el('headerScope').classList.toggle('bcn-pill--accent', dash.visibility !== 'private');
+    el('headerDesc').textContent = dash.description || 'No description.';
+    el('headerMeta').textContent = `${dash.visibility === 'private' ? 'Visible to you only' : 'Visible to everyone at your company'}`
+      + ` · created by ${dash.created_by_name || 'Unknown'}`
+      + (dash.updated_at ? ` · updated ${new Date(dash.updated_at).toLocaleString()}` : '');
+    el('btnInfo').hidden = false;
     el('dashName').value = dash.name;
     el('dashDescription').value = dash.description || '';
     el('dashVisibility').value = dash.visibility;
@@ -339,13 +505,24 @@
       gridEl: el('grid'),
       editable: false,
       paramValues: startValues,
+      density: readDensity(),
       onLayoutChange: () => { if (builder) builder.markLayoutDirty(); },
+      onPointClick,
+    });
+
+    filterBar = window.SiloFilterBar.create({
+      root: el('slicerFields'),
+      chipsEl: el('filterChips'),
+      getDeclarations: () => runtime.parameterDeclarations(),
+      getValues: () => runtime.getParamValues(),
+      participation: (key) => runtime.participationFor(key),
+      onApply: applyParams,
     });
 
     if (canEdit) {
       builder = window.SiloDashboardBuilder.create({
         sb, runtime, dashboard, setStatus,
-        onDirtyChange: (d) => { el('btnSave').textContent = d ? 'Save •' : 'Save'; },
+        onDirtyChange: setDirty,
         // Adding or removing a widget can add or remove a slicer, so the
         // filter bar is rebuilt alongside the blank state.
         onWidgetsChange: () => { syncBlankState(); renderSlicers(); },
@@ -356,14 +533,32 @@
     // read the config the page is actually holding -- this is how you check
     // a widget's live visual_config from the console, and what the browser
     // test drives.
-    window.__siloDashboard = { runtime, builder, dashboard };
+    window.__siloDashboard = { runtime, builder, dashboard, get filterBar() { return filterBar; } };
 
     await runtime.setWidgets(widgets || []);
     syncBlankState();
     renderSlicers();
+    await loadViews();
 
     const params = new URLSearchParams(location.search);
     if (canEdit && params.get('edit') === '1') setMode(true);
+
+    // Drill-through arrives as filter values in the URL. Applied on top of
+    // the board's own position, never instead of it, and reported in the
+    // status line so a reader who followed a link knows why the numbers are
+    // narrower than the board's name suggests.
+    const carried = {};
+    for (const [k, v] of params) {
+      if (k.startsWith('f.')) carried[k.slice(2)] = v;
+    }
+    if (Object.keys(carried).length) {
+      await runtime.setParamValues(carried);
+      filterBar.paint();
+      markUnsupported();
+      setStatus('Filtered from the widget you came from: '
+        + Object.entries(carried).map(([k, v]) => `${k} = ${v}`).join(', ')
+        + '. Use Reset to go back to this dashboard’s own filters.', 'info', 9000);
+    }
 
     // Hand-off from Ask SILO's save dialog. Strip the parameter BEFORE
     // acting on it: a refresh or a back-navigation would otherwise add the
@@ -385,11 +580,24 @@
   }
 
   // ── Header actions ────────────────────────────────────────────────────
+  el('btnInfo').addEventListener('click', () => {
+    const open = el('headerInfo').hidden;
+    el('headerInfo').hidden = !open;
+    el('btnInfo').setAttribute('aria-expanded', String(open));
+  });
+
+  el('btnDensity').addEventListener('click', () => {
+    const next = readDensity() === 'compact' ? 'comfortable' : 'compact';
+    applyDensity(next);
+    if (runtime) runtime.setDensity(next);
+  });
+
   el('btnRefresh').addEventListener('click', async (e) => {
     if (!runtime) return;
     e.target.disabled = true;
     setStatus('Re-running every widget query against live data…', 'info');
     await runtime.refresh();
+    markUnsupported();
     setStatus(`Refreshed ${new Date().toLocaleTimeString()}.`, 'pos', 3000);
     e.target.disabled = false;
   });
@@ -406,10 +614,17 @@
 
   el('btnSave').addEventListener('click', async (e) => {
     e.target.disabled = true;
+    // A value typed into a filter but not yet committed is part of what the
+    // person means by "save this". Commit it first rather than writing a
+    // filter_state that disagrees with the bar they are looking at.
+    if (filterBar) await filterBar.flush();
     const ok = await builder.save();
     e.target.disabled = false;
     if (ok) {
       el('headerName').textContent = dashboard.name;
+      el('headerScope').textContent = dashboard.visibility === 'private' ? 'Only you' : 'Company';
+      el('headerScope').classList.toggle('bcn-pill--accent', dashboard.visibility !== 'private');
+      el('headerDesc').textContent = el('dashDescription').value || 'No description.';
       syncBlankState();
     }
   });
@@ -417,54 +632,174 @@
   el('btnBlankAdd').addEventListener('click', () => builder && builder.openAddWidget());
   el('btnAddSection').addEventListener('click', () => builder && builder.addSection());
 
-  // Slicers. `change`, not `input`: a text or number field would otherwise
-  // fire a query per keystroke.
-  el('slicerFields').addEventListener('change', (e) => {
-    const sel = e.target.closest('[data-param]');
-    if (sel) {
-      if (sel.dataset.dateMode !== undefined && sel.value === '__custom') {
-        // Reveal the date input and wait for it -- "Specific date…" is not
-        // itself a date, so nothing should re-query yet.
-        const input = sel.parentElement.querySelector('[data-param-date]');
-        if (input) { input.hidden = false; input.focus(); }
-        return;
-      }
-      applyParam(sel.dataset.param, sel.value);
+  el('btnResetFilters').addEventListener('click', async () => {
+    el('viewSelect').value = '';
+    await applyView('');
+  });
+
+  el('viewSelect').addEventListener('change', (e) => applyView(e.target.value));
+  el('btnSaveView').addEventListener('click', () => {
+    const sel = el('viewSelect');
+    const existing = savedViews.find((v) => v.id === sel.value);
+    el('viewName').value = existing ? existing.name : '';
+    el('btnDeleteView').hidden = !existing;
+    const decls = runtime.parameterDeclarations().filter((d) => !d.conflict);
+    const live = runtime.getParamValues();
+    el('viewSummary').textContent = 'Saving: '
+      + decls.map((d) => `${d.label} = ${live[d.key] === undefined ? '—' : live[d.key]}`).join(' · ');
+    el('viewBackdrop').classList.add('open');
+    el('viewName').focus();
+  });
+  el('btnConfirmView').addEventListener('click', saveView);
+  el('btnDeleteView').addEventListener('click', deleteView);
+  el('btnCloseView').addEventListener('click', () => el('viewBackdrop').classList.remove('open'));
+  el('viewBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'viewBackdrop') el('viewBackdrop').classList.remove('open');
+  });
+  el('viewName').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveView(); });
+
+  // Tile actions that belong to the page rather than to editing.
+  el('grid').addEventListener('click', (e) => {
+    if (!runtime) return;
+    const tile = e.target.closest('.dw');
+    if (!tile) return;
+    const id = tile.dataset.widgetId;
+    if (e.target.closest('[data-act="reload"]')) { runtime.refreshWidget(id); return; }
+    if (e.target.closest('[data-act="loadmore"]')) { runtime.loadMoreWidget(id); return; }
+    if (e.target.closest('[data-act="retry"]')) { runtime.refreshWidget(id); return; }
+    if (e.target.closest('[data-act="fullscreen"]')) { openFullscreen(id); return; }
+    if (e.target.closest('[data-act="collapse"]')) { runtime.toggleSection(id); return; }
+    if (e.target.closest('[data-act="export-csv"]')) { exportCsv(id); return; }
+    const th = e.target.closest('[data-sort-col]');
+    if (th) {
+      runtime.setTableView(id, { sortCol: th.dataset.sortCol, sortDir: th.dataset.sortDir });
       return;
     }
-    const dateInput = e.target.closest('[data-param-date]');
-    if (dateInput && dateInput.value) applyParam(dateInput.dataset.paramDate, dateInput.value);
+    // A dimension cell is a click target for the same reasons a bar is.
+    const cell = e.target.closest('td[data-value]');
+    if (cell) {
+      const w = runtime.getWidgets().find((x) => x.id === id);
+      const cfg = w ? (w.visual_config || {}) : {};
+      if (w && (cfg.cross_filter || cfg.drill_to)) {
+        onPointClick(w, { field: cell.dataset.col, value: cell.dataset.value });
+      }
+    }
   });
 
-  el('btnResetFilters').addEventListener('click', async () => {
-    const decls = runtime.parameterDeclarations();
-    // Back to the SAVED position (each report's default where the dashboard
-    // has no saved value), not to empty -- empty is not a state a
-    // parameterised report can run in.
-    await runtime.setParamValues(
-      window.SiloReportParams.defaultsFor(decls, dashboard.filter_state || {}));
-    renderSlicers();
-    if (editing && builder) builder.markFiltersDirty();
-    setStatus('Filters reset to this dashboard’s saved values.', 'pos', 3000);
+  // ── Table reading: search, sort, export ───────────────────────────────
+  // All three are READER actions: they change what is on screen and never
+  // the dashboard, so none of them marks it dirty and none is saved.
+  el('grid').addEventListener('input', (e) => {
+    if (!runtime) return;
+    const box = e.target.closest('[data-role="table-search"]');
+    if (!box) return;
+    const tile = box.closest('.dw');
+    if (tile) runtime.setTableView(tile.dataset.widgetId, { search: box.value });
   });
 
-  // View-mode per-widget refresh.
-  el('grid').addEventListener('click', (e) => {
-    if (!runtime || !e.target.closest('[data-act="reload"]')) return;
-    const tile = e.target.closest('.dw');
-    if (tile) runtime.refreshWidget(tile.dataset.widgetId);
-  });
+  function exportCsv(id) {
+    const out = runtime.tableCsvFor(id);
+    if (!out) { setStatus('Nothing to export from that widget yet.', 'neg', 4000); return; }
+    const blob = new Blob([out.csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = out.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Say what the file covers. An export that quietly stops at the page
+    // cap is the most expensive kind of wrong number, because it leaves
+    // the building.
+    setStatus(out.hasMore
+      ? `Exported the ${out.loaded.toLocaleString()} rows loaded in this tile${out.estimate
+          ? ` — the report returns about ${Number(out.estimate).toLocaleString()}` : ''}. Use “Load next 1,000 rows” first for the rest.`
+      : `Exported ${out.loaded.toLocaleString()} rows.`,
+      out.hasMore ? 'info' : 'pos', out.hasMore ? 9000 : 4000);
+  }
 
-  // Table pagination. Works in both view and edit mode -- reading more rows
-  // is not an edit to the dashboard, same stance as slicers.
-  el('grid').addEventListener('click', (e) => {
-    if (!runtime || !e.target.closest('[data-act="loadmore"]')) return;
-    const tile = e.target.closest('.dw');
-    if (tile) runtime.loadMoreWidget(tile.dataset.widgetId);
-  });
+  // ── Click to filter, and drill-through ────────────────────────────────
+  /**
+   * A click on a bar, a slice or a dimension cell.
+   *
+   * Two things can happen, and the widget's own config decides which:
+   *
+   *   drill_to      Go to another dashboard, carrying this value AND every
+   *                 filter currently applied here, so the destination shows
+   *                 the same window narrowed by what was clicked.
+   *   cross_filter  Apply the value as a dashboard filter here, which
+   *                 re-runs every OTHER tile that reads the same parameter.
+   *
+   * Cross-filtering goes through the parameter system rather than filtering
+   * already-fetched rows client-side. That is the only version that is
+   * true: each tile has its own query and its own grain, and hiding rows in
+   * one tile while another silently keeps its total would produce two
+   * numbers on one screen that cannot both be right.
+   */
+  async function onPointClick(widget, point) {
+    const cfg = widget.visual_config || {};
+    if (!point || point.value === null || point.value === undefined || point.value === '') return;
+    const value = String(point.value);
+
+    if (cfg.drill_to) {
+      const url = new URL('/v3/dashboard.html', location.origin);
+      url.searchParams.set('id', cfg.drill_to);
+      // Carry the whole current filter position, not just the click: the
+      // destination has to show the same window, or the drill lands on a
+      // number that cannot be reconciled with the one just clicked.
+      for (const [k, v] of Object.entries(runtime.getParamValues())) {
+        if (v !== undefined && v !== '') url.searchParams.set('f.' + k, String(v));
+      }
+      if (cfg.drill_key) url.searchParams.set('f.' + cfg.drill_key, value);
+      window.location.href = url.toString();
+      return;
+    }
+
+    const key = cfg.cross_filter;
+    if (!key) return;
+    const decl = runtime.parameterDeclarations().find((d) => d.key === key);
+    if (!decl) {
+      setStatus(`This tile is set to filter on "${key}", but no report on this dashboard declares it.`, 'neg', 6000);
+      return;
+    }
+    const current = runtime.getParamValues()[key];
+    // Clicking the selected value again clears it. A selection you cannot
+    // undo where you made it is the standard cross-filter complaint.
+    const next = String(current || '') === value ? (decl.default || '') : value;
+    await runtime.setParamValues({ [key]: next });
+    filterBar.paint();
+    markUnsupported();
+    markSelection(widget.id, next === value ? value : null);
+    setStatus(next === value
+      ? `Filtered by ${decl.label} = ${value}. Click it again, or Reset, to clear.`
+      : `Cleared the ${decl.label} filter.`, 'pos', 5000);
+  }
+
+  /** Visible selection state: which tile drove the current cross-filter. */
+  function markSelection(widgetId, value) {
+    for (const tile of el('grid').querySelectorAll('.dw')) {
+      const on = tile.dataset.widgetId === widgetId && value !== null;
+      tile.classList.toggle('is-selection-source', on);
+      let chip = tile.querySelector('.dw-selection');
+      if (!on) { if (chip) chip.remove(); continue; }
+      if (!chip) {
+        chip = document.createElement('span');
+        chip.className = 'dw-selection';
+        const head = tile.querySelector('.dw-head-text');
+        if (head) head.appendChild(chip); else continue;
+      }
+      chip.textContent = `filtering: ${value}`;
+    }
+  }
+
+  el('btnCloseFs').addEventListener('click', closeFullscreen);
 
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && builder) builder.closeInspector();
+    if (e.key !== 'Escape') return;
+    if (fsWidgetId) { closeFullscreen(); return; }
+    if (el('viewBackdrop').classList.contains('open')) { el('viewBackdrop').classList.remove('open'); return; }
+    if (builder) builder.closeInspector();
   });
 
   // Buffered editing means a stray tab close loses work; the browser's own
