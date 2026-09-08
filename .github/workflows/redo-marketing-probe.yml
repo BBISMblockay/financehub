@@ -1,0 +1,28 @@
+name: Redo Marketing Probe
+
+# One-off diagnostic, not a real sync -- see scripts/redo-marketing-probe.mjs.
+# Manual trigger only.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe-redo-marketing:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Probe Redo marketing endpoints
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/redo-marketing-probe.mjs
