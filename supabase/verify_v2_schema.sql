@@ -2634,3 +2634,58 @@ select
       then 'MISSING — ad_platform_connections.search_console_site_url'
     else 'ok'
   end as search_console_connection;
+
+-- ── Per-shop product/SKU mapping (20260909200000) ───────────────────────────
+-- products_master is one row per (company, sku), so its shopify_product_id is
+-- whichever store synced last -- measured 2026-09-09: 26.9% of sold SKUs exist
+-- in more than one shop, and 43% of stamped rows are contested. This table is
+-- what makes collection membership joinable to sales/inventory at all, so the
+-- checks below are about the properties that make it CORRECT, not merely
+-- present.
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_product_skus')
+      then 'MISSING — shopify_product_skus'
+    -- Identity must be the VARIANT. A unique index on (company, shop, sku)
+    -- would silently re-introduce the collapse this table exists to undo.
+    when not exists (select 1 from pg_indexes
+                     where schemaname='public' and indexname='shopify_product_skus_identity')
+      then 'MISSING — shopify_product_skus_identity unique index (company, shop_domain, shopify_variant_id)'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='shopify_product_skus' and c.relrowsecurity)
+      then 'MISSING — RLS not enabled on shopify_product_skus'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='shopify_product_skus'
+                       and qual like '%active_company_id%')
+      then 'MISSING — shopify_product_skus select policy is not company-scoped'
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='shopify_product_skus'
+                   and cmd in ('INSERT','UPDATE','DELETE','ALL'))
+      then 'UNEXPECTED — shopify_product_skus has a client write policy; it is sync-owned'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='shopify_collection_skus_v')
+      then 'MISSING — shopify_collection_skus_v'
+    -- sku_unresolved is the honesty column: without it a caller cannot tell
+    -- "this collection has no more products" from "we have not mapped them
+    -- yet", and a create-or-replace that drops it does not error.
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='shopify_collection_skus_v'
+                       and column_name='sku_unresolved')
+      then 'MISSING — shopify_collection_skus_v lost sku_unresolved; unmapped products become indistinguishable from absent ones'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='shopify_collection_skus_v'
+                       and 'security_invoker=true' = any(c.reloptions))
+      then 'MISSING — shopify_collection_skus_v is not security_invoker'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname in ('shopify_product_skus','shopify_collection_skus_v')
+                   and jsonb_array_length(coalesce(columns,'[]'::jsonb)) = 0)
+      then 'MISSING — a product-SKU catalog entry has no columns; run select public.refresh_chat_schema_catalog()'
+    -- The table looks like a registry and is not one. Losing this sentence
+    -- invites exactly the absence-means-nonexistence claim the collections
+    -- work was built to stop.
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='shopify_product_skus' and description like '%NOT A REGISTRY%')
+      then 'MISSING — shopify_product_skus catalog entry no longer says it is not a registry'
+    else 'ok'
+  end as shopify_product_sku_mapping;
