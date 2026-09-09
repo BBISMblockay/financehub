@@ -302,4 +302,40 @@ const MIG_BODY = MIG.slice(MIG.indexOf('as $$'), MIG.indexOf('$$;') + 3);
     'and the rule records the finding the false superlative concealed');
 }
 
+// ── 15. A set size is a number too ─────────────────────────────────────────
+// Found on the third live run (silo-chat v65, 2026-09-09), on the multi-shop
+// question. The answer opened "across all 96 collection pages"; the function
+// returns 85, and no window produces 96 -- checked at 30, 60, 90, 180, 365 and
+// 730 days, per-shop and across shops.
+//
+// It is the SAME failure as the superlative in section 14: a claim about the
+// whole set, made without looking at the whole set. Rule 14(b) did not catch
+// it because a superlative names a member ("the lowest") while this names the
+// set's size, so the rule had to be widened rather than re-read. The word
+// "all" is what made it dangerous: it converts a number nobody counted into an
+// exhaustiveness guarantee.
+{
+  ok(/NEVER state a SET SIZE you did not count/i.test(SRC),
+    'an uncounted set size is refused');
+  ok(/rows a query returned in THIS conversation/i.test(SRC),
+    'and the only admissible source is rows this conversation actually got back');
+  ok(/count the rows in front of you, or run a count\(\*\)/i.test(SRC),
+    'with the two ways to get one named, so the rule is followable and not just a ban');
+  ok(/all 96 collection pages/.test(SRC) && /had returned 85/.test(SRC),
+    'the rule carries the measurement that produced it');
+  ok(/describe it without a number/i.test(SRC),
+    'and gives the fallback phrasing -- otherwise the pressure is to invent a number anyway');
+
+  // The three rules share one cause and are stated as one family. If the
+  // heading reverts to "TWO THINGS", a rule was dropped.
+  ok(/MEASURED VS GENERATED NUMBERS/.test(SRC),
+    'the three rules are framed by where the number came from');
+  ok(!/TWO THINGS YOU CANNOT MEASURE/i.test(SRC),
+    'the two-rule heading is gone -- it would leave the third rule unheaded');
+  // A set size IS measurable, unlike a character count. The old heading
+  // asserted the opposite, which is why it could not simply be extended.
+  ok(/quote a number a tool actually returned, or state none/i.test(SRC),
+    'and the shared fix is stated once at the top');
+}
+
 console.log(`seo-orchestration: ${passed} assertions passed`);
