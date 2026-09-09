@@ -191,9 +191,12 @@ const NOT_DONE = new Set(['partial', 'error', 'skipped', 'scope_skipped']);
  *   routinely red stops being read. sales-freshness-check.yml is the alarm
  *   for the feeds that genuinely cannot be allowed to lapse.
  *
- * `scope_skipped` never fails a run either way: a connection lacking a
- * Shopify scope is a configuration fact about that store, not a failure of
- * this run, and it does not become true or false based on who triggered it.
+ * `scope_skipped` follows the same split as everything else, and this comment
+ * used to say the opposite -- that it never failed a run either way, because
+ * a missing scope is a configuration fact about the store rather than a
+ * failure of the run. See the NOT_DONE comment above for why that reasoning
+ * was abandoned: a requested stage that could not run for want of a scope
+ * fails a MANUAL run and stays non-fatal on a SCHEDULED one.
  */
 export function runOutcomeReport({ manual, outcomes = [] }) {
   const failures = outcomes.filter((o) => o.requested && NOT_DONE.has(o.state));

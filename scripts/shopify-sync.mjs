@@ -6,6 +6,7 @@ import {
   connectionReadyForSync,
 } from './lib/shopify-scopes.mjs';
 import { buildSyncPlan, runOutcomeReport, shouldRecordSkippedJob } from './lib/sync-plan.mjs';
+import { landingPagesProgress, landingPagesCoverage } from './lib/sync-reporting.mjs';
 import {
   DEFAULT_CHUNK_DAYS,
   runCatalogSync,
@@ -351,25 +352,15 @@ async function syncConnection(connection) {
         sinceDays: LANDING_PAGES_DAYS,
         // A 730-day window is ~12 minutes of per-day queries plus whatever
         // backoff it takes. Without this the run looks hung.
-        onProgress: ({ day, event, attempt, waitMs, error }) => {
-          if (event === 'throttled') {
-            console.log(`[wait] ${connection.shop_domain} landing_pages_sync ${day}: throttled, attempt ${attempt}, backing off ${waitMs}ms`);
-          } else if (event === 'sweep_failed') {
-            console.warn(`[warn] ${connection.shop_domain} landing_pages_sync ${day}: fresh rows written but stale-path sweep FAILED (${error}) — paths that dropped out of this day's top ${result?.top_n ?? 'N'} remain`);
-          }
-        },
+        //
+        // Built by a factory rather than written inline HERE, on purpose: the
+        // inline version referenced `result` -- the very const it was an
+        // initializer argument to -- and threw a temporal-dead-zone
+        // ReferenceError on the first sweep failure, inside the day loop's
+        // try, aborting the rest of the backfill. See sync-reporting.mjs.
+        onProgress: landingPagesProgress({ shopDomain: connection.shop_domain }),
       });
-      const coverage =
-        `${result.days_covered}/${result.days_requested} days covered` +
-        (result.days_already_covered
-          ? ` (${result.days_written} fetched now, ${result.days_already_covered} already stored)`
-          : '') +
-        (result.earliest_day_covered ? ` ${result.earliest_day_covered} → ${result.latest_day_covered}` : '') +
-        `, ${result.rows_upserted} rows, ${result.distinct_paths} paths` +
-        (result.stale_rows_removed ? `, ${result.stale_rows_removed} superseded row(s) removed` : '') +
-        (result.days_not_swept ? `, ${result.days_not_swept} day(s) NOT swept` : '') +
-        (result.days_hitting_top_n ? `, ${result.days_hitting_top_n} day(s) hit the top-${result.top_n} cap` : '') +
-        (result.resume_unavailable ? `, resume unavailable (${result.resume_unavailable})` : '');
+      const coverage = landingPagesCoverage(result);
 
       // A window that did not complete is recorded as an ERROR carrying its
       // real progress, never as a success. The rows it wrote are good and are

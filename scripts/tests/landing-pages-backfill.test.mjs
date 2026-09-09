@@ -32,6 +32,7 @@ import {
   runOutcomeReport,
   shouldRecordSkippedJob,
 } from '../lib/sync-plan.mjs';
+import { landingPagesProgress, landingPagesCoverage } from '../lib/sync-reporting.mjs';
 
 let passed = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); passed += 1; };
@@ -492,6 +493,137 @@ function stubFetch(handler) {
   eq(result.rows_upserted, 4, 'while their fresh rows were still written');
   eq(result.complete, true,
     'a sweep failure leaves stale rows, not wrong new ones, so it does not make the window incomplete');
+}
+
+
+// ── 8. The orchestrator's REAL progress callback ────────────────────────────
+// The gap that let a bug through: every test above drove runLandingPagesSync
+// with a bespoke inline callback, so the orchestrator's own callback was never
+// executed by anything. It referenced `result` -- the const it was being
+// passed to as an initializer argument -- and threw
+// `ReferenceError: Cannot access 'result' before initialization` on the first
+// sweep failure. `?.` does not help: optional chaining guards null and
+// undefined, not an unreachable binding.
+//
+// Worse than a lost warning: the throw happened INSIDE the day loop's try, so
+// it was caught as that day's failure and broke the loop -- one failed sweep
+// aborted every remaining day and reported the run as failed, blaming a
+// message about variable initialization.
+{
+  const logs = [];
+  const warns = [];
+  const onProgress = landingPagesProgress({
+    shopDomain: 'baseballism.myshopify.com',
+    log: (m) => logs.push(m),
+    warn: (m) => warns.push(m),
+  });
+
+  // Every payload shape the core actually emits, exactly as it emits them.
+  onProgress({ day: '2026-09-01', event: 'throttled', attempt: 2, waitMs: 4000 });
+  onProgress({ day: '2026-09-02', event: 'sweep_failed', error: 'boom', topN: 250 });
+  onProgress({ day: '2026-09-03', event: 'written', rows: 12 });
+
+  eq(logs.length, 1, 'a throttle is logged');
+  ok(/throttled, attempt 2, backing off 4000ms/.test(logs[0]), 'with the attempt and the wait');
+  eq(warns.length, 1, 'a failed sweep warns');
+  ok(/sweep FAILED \(boom\)/.test(warns[0]), 'naming the error');
+  ok(/top 250 remain/.test(warns[0]), 'and the top-N from the PAYLOAD, not from a pending result');
+  ok(!/undefined/.test(warns[0]), 'with nothing rendering as undefined');
+
+  // topN absent must degrade, never throw.
+  warns.length = 0;
+  onProgress({ day: '2026-09-04', event: 'sweep_failed', error: 'boom' });
+  ok(/top N remain/.test(warns[0]), 'a missing topN falls back to "N" rather than throwing');
+
+  // An unknown event, and an empty call, must both be inert.
+  onProgress({ day: '2026-09-05', event: 'something_new' });
+  onProgress();
+  eq(warns.length, 1, 'unknown and empty events are ignored');
+}
+
+// ── 8b. Integration: a sweep failure through the REAL callback ──────────────
+// This is the actual regression. With the pre-fix callback this run reports
+// complete:false and a ReferenceError as its failure message.
+{
+  const supabase = createFakeSupabase();
+  supabase.breakRpc('shopify_landing_pages_sweep_day');
+  const warns = [];
+  const restore = stubFetch(() => reply(okRows(['/a', '/b'])));
+  const result = await runLandingPagesSync(supabase, CONNECTION, {
+    sinceDays: 5,
+    batchId: 'tdz1',
+    // The orchestrator's own callback, not a test double.
+    onProgress: landingPagesProgress({
+      shopDomain: CONNECTION.shop_domain,
+      log: () => {},
+      warn: (m) => warns.push(m),
+    }),
+  });
+  restore();
+
+  eq(result.complete, true,
+    'a failing sweep does NOT truncate the backfill — this is the bug, and it aborted every remaining day');
+  eq(result.days_written, 5, 'all five days were still fetched and written');
+  eq(result.rows_upserted, 10, 'and their rows stored');
+  eq(result.days_not_swept, 5, 'with every day flagged unswept');
+  eq(result.failure, null, 'and no failure recorded — a reporting problem is not a sync failure');
+  eq(warns.length, 5, 'the warning fired once per affected day');
+  ok(!warns.some((w) => /before initialization/.test(w)), 'and none of them is a ReferenceError');
+  // The two halves of the fix have to be asserted TOGETHER. Checking only that
+  // the callback reads topN from its payload passes even if the core stops
+  // putting it there -- found by mutation-testing this very suite, which
+  // caught the callback half and missed the core half.
+  ok(warns.every((w) => /top 250 remain/.test(w)),
+    'and every warning names the REAL top-N, so the core is still passing it through');
+  ok(!warns.some((w) => /top N remain|undefined/.test(w)),
+    'never the "N" fallback, which here would mean the payload lost topN');
+}
+
+// ── 8c. A callback that throws can never fail the sync ──────────────────────
+// The TDZ bug is fixed at its source; this is the second lock. A reporting
+// callback is not part of the job, so the core swallows its failure and
+// records that it happened, rather than letting a logging bug silently
+// truncate a backfill and blame Shopify for it.
+{
+  const supabase = createFakeSupabase();
+  const restore = stubFetch(() => reply(okRows(['/a'])));
+  const result = await runLandingPagesSync(supabase, CONNECTION, {
+    sinceDays: 4,
+    batchId: 'throwcb',
+    onProgress: () => { throw new Error('logger exploded'); },
+  });
+  restore();
+
+  eq(result.complete, true, 'a throwing progress callback does not stop the sync');
+  eq(result.days_written, 4, 'every day was still fetched');
+  eq(result.failure, null, 'and the run records no failure');
+  ok(result.progress_errors >= 4, 'but the callback failures ARE counted, not hidden');
+}
+
+// ── 8d. The coverage line, also extracted so it can be exercised ────────────
+{
+  const partial = landingPagesCoverage({
+    days_covered: 103, days_requested: 730, days_written: 100, days_already_covered: 3,
+    earliest_day_covered: '2026-05-29', latest_day_covered: '2026-09-08',
+    rows_upserted: 25000, distinct_paths: 1200, stale_rows_removed: 7,
+    days_not_swept: 2, days_hitting_top_n: 40, top_n: 250,
+  });
+  ok(/103\/730 days covered/.test(partial), 'coverage leads with covered vs requested');
+  ok(/100 fetched now, 3 already stored/.test(partial), 'and splits this run from the resumed days');
+  ok(/7 superseded row\(s\) removed/.test(partial), 'reporting the sweep');
+  ok(/2 day\(s\) NOT swept/.test(partial), 'and the days it could not sweep');
+  ok(!/undefined|NaN/.test(partial), 'with no undefined or NaN anywhere');
+
+  // A clean run must not carry the optional clauses at all.
+  const clean = landingPagesCoverage({
+    days_covered: 30, days_requested: 30, days_written: 30, days_already_covered: 0,
+    earliest_day_covered: '2026-08-10', latest_day_covered: '2026-09-08',
+    rows_upserted: 7500, distinct_paths: 900, top_n: 250,
+  });
+  ok(/30\/30 days covered/.test(clean), 'a complete run reports full coverage');
+  ok(!/already stored|NOT swept|superseded|resume unavailable/.test(clean),
+    'and none of the exception clauses appear');
+  ok(!/undefined|NaN/.test(clean), 'with no undefined or NaN');
 }
 
 console.log(`landing-pages-backfill: ${passed} assertions passed`);

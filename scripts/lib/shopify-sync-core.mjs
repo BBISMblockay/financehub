@@ -2590,6 +2590,31 @@ export async function runLandingPagesSync(supabase, connection, {
   // keep working when the migration has not been applied yet, same
   // feature-detect stance as /v3/'s dashboard_filter_views. It degrades to
   // re-fetching everything, which is what it did before.
+  // Progress reporting must never be able to fail the work it reports on.
+  //
+  // Every onProgress call sits inside the day loop's try, so a callback that
+  // throws was caught by the per-day handler, recorded as that day's failure
+  // and broke the loop -- a logging bug silently truncating a backfill and
+  // blaming Shopify for it. That is exactly what a temporal-dead-zone
+  // reference in the orchestrator's callback did (see sync-reporting.mjs).
+  //
+  // The TDZ bug is fixed at its source. This is the second lock: a reporting
+  // callback is not part of the job, so its failure is reported and dropped
+  // rather than being allowed to change the outcome. Any future caller gets
+  // that guarantee without having to know about it.
+  let progressErrors = 0;
+  const report = (payload) => {
+    if (!onProgress) return;
+    try {
+      onProgress(payload);
+    } catch (err) {
+      progressErrors += 1;
+      if (progressErrors === 1) {
+        console.warn(`[warn] landing_pages_sync progress callback threw (reporting only, sync continues): ${err?.message || err}`);
+      }
+    }
+  };
+
   let covered = null;
   let resumeError = null;
   if (days > restateDays) {
@@ -2623,7 +2648,7 @@ export async function runLandingPagesSync(supabase, connection, {
           ...(throttleTries === undefined ? {} : { throttleTries }),
           onThrottle: ({ attempt, waitMs }) => {
             throttleWaits += 1;
-            if (onProgress) onProgress({ day, event: 'throttled', attempt, waitMs });
+            report({ day, event: 'throttled', attempt, waitMs });
           },
         });
       daysFetched += 1;
@@ -2685,7 +2710,7 @@ export async function runLandingPagesSync(supabase, connection, {
           // combination that quietly accumulates, so it is counted and
           // reported like the shop-domain sweep is.
           daysNotSwept += 1;
-          if (onProgress) onProgress({ day, event: 'sweep_failed', error: sweepErr.message });
+          report({ day, event: 'sweep_failed', error: sweepErr.message, topN });
         } else {
           staleRowsRemoved += Number(swept) || 0;
         }
@@ -2696,7 +2721,7 @@ export async function runLandingPagesSync(supabase, connection, {
       // counts as written, or a quiet day would make the window look like it
       // has a hole in it.
       daysWritten.push(day);
-      if (onProgress) onProgress({ day, event: 'written', rows: dayRows.length });
+      report({ day, event: 'written', rows: dayRows.length });
     } catch (err) {
       // Stop at the first failure rather than pressing on: a rate limit that
       // survived six backoffs will not be gone by the next day's query, and
@@ -2749,6 +2774,10 @@ export async function runLandingPagesSync(supabase, connection, {
     // out of its top N.
     days_not_swept: daysNotSwept || undefined,
     resume_unavailable: resumeError || undefined,
+    // A reporting callback that threw. Swallowed so it cannot change the
+    // outcome, but recorded so a broken logger is visible rather than costing
+    // someone another investigation.
+    progress_errors: progressErrors || undefined,
     days_hitting_top_n: truncatedDays || undefined,
     top_n: topN,
     restate_days: restateDays,
