@@ -18557,3 +18557,17 @@ $c$select (select count(*) from v_po_header_summary
 -- cancelled job started, a skipped one never did.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909340000_sync_jobs_skipped_status.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909360000_landing_pages_resume_and_sweep.sql
+-- Two functions runLandingPagesSync needs. covered_days lets a backfill RESUME
+-- where it stopped rather than re-walking from yesterday (per-day writes alone
+-- preserve progress; they do not continue from it). sweep_day removes paths a
+-- restated day no longer has -- an upsert never deletes what it is not given,
+-- so a day's top 250 was drifting into "every page ever in that day's top 250".
+-- Both SECURITY INVOKER, and the grants name anon/authenticated EXPLICITLY:
+-- Supabase's default privileges re-grant EXECUTE on new public functions, and
+-- both roles could call the delete path after the first apply.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909360000_landing_pages_resume_and_sweep.sql

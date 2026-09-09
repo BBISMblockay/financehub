@@ -2989,3 +2989,39 @@ select
       then 'MISSING — sync_jobs status check lost one of success/error/running'
     else 'ok'
   end as sync_jobs_skipped_status;
+
+-- ── Landing-page resume + stale-path sweep (20260909360000) ──────────
+-- The sweep DELETES rows and takes a company id as an ARGUMENT, so who may
+-- execute it is the whole safety story. `revoke ... from public` does not
+-- cover it: Supabase's default privileges on the public schema re-grant
+-- EXECUTE to anon and authenticated on any newly created function, which is
+-- exactly the hole 20260904330000 closed for chat_run_readonly_query --
+-- measured here too, both roles could call the sweep after the first apply.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='shopify_landing_pages_covered_days')
+      then 'MISSING — run 20260909360000_landing_pages_resume_and_sweep.sql; without it a '
+        || 'landing-page backfill silently restarts at yesterday instead of resuming'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='shopify_landing_pages_sweep_day')
+      then 'MISSING — shopify_landing_pages_sweep_day absent; restated days accumulate paths '
+        || 'that have dropped out of their top N'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='shopify_landing_pages_sweep_day'
+                   and has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+      then 'CRITICAL — authenticated can EXECUTE shopify_landing_pages_sweep_day; it deletes '
+        || 'rows and takes company_entity_id as an argument. Re-run the explicit revokes'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname like 'shopify_landing_pages_%'
+                   and has_function_privilege('anon', p.oid, 'EXECUTE'))
+      then 'CRITICAL — anon can EXECUTE a shopify_landing_pages_* function'
+    -- Both must stay INVOKER. As DEFINER the sweep would bypass RLS entirely
+    -- and its company_entity_id argument would become a cross-tenant delete.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname like 'shopify_landing_pages_%'
+                   and p.prosecdef)
+      then 'CRITICAL — a shopify_landing_pages_* function is SECURITY DEFINER; the sweep must '
+        || 'run under the caller''s RLS or its company id argument is a cross-tenant delete'
+    else 'ok'
+  end as landing_pages_resume_and_sweep;

@@ -2538,10 +2538,11 @@ const LANDING_TOP_N = 250;
  * threw away all ~100 -- the table was byte-identical before and after a
  * two-minute run.
  *
- * Writing per day makes a failure cost only the days not yet fetched, so a
- * re-run resumes rather than restarts. Every write is an idempotent upsert on
- * (company, shop, day, path), so re-fetching a day already stored is free and
- * correct.
+ * Writing per day means a failure costs only the days not yet fetched. On its
+ * own that is PRESERVATION, not resumption -- the next run still starts at
+ * yesterday and re-walks the same days, so a backfill that died at day 100 of
+ * 730 pays for those 100 days again before reaching new ground. See
+ * `restateDays` below for the part that actually resumes.
  *
  * The cost is one round trip per day instead of one per 500 rows. At <=250
  * rows a day that is a small write, and it is the price of not discarding
@@ -2553,27 +2554,65 @@ export async function runLandingPagesSync(supabase, connection, {
   topN = LANDING_TOP_N,
   onProgress = null,
   throttleTries = undefined,
+  // Days within this many days of today are ALWAYS re-fetched; older days
+  // already in the table are skipped. That is what makes a long window
+  // genuinely resumable rather than merely non-destructive.
+  //
+  // Why a window rather than "skip anything stored": Shopify RESTATES recent
+  // analytics for several days after the fact, so the newest days are the ones
+  // most worth re-asking about. 30 is chosen so the 30-day nightly is
+  // UNCHANGED -- every day it looks at is inside the restatement window, so it
+  // still re-states all 30 exactly as before. Only a window longer than 30
+  // days gets resume behaviour, which is exactly the backfill case.
+  restateDays = 30,
 } = {}) {
   // Clamped to the ShopifyQL ceiling rather than the old 120. 120 was the
   // right limit while a failure discarded the whole run -- a long window was
-  // simply a bigger thing to lose. With per-day persistence and throttle
-  // backoff a long window is now resumable, so the limit that matters is
-  // Shopify's own history depth.
+  // simply a bigger thing to lose. With per-day persistence, throttle backoff
+  // and resume, the limit that matters is Shopify's own history depth.
   const days = Math.min(Math.max(Number(sinceDays) || 30, 1), SHOPIFYQL_MAX_DAYS);
   const iso = (d) => d.toISOString().slice(0, 10);
   const today = new Date();
+  const dayAt = (i) => iso(new Date(today.getTime() - i * 86400000));
 
   let rowsWritten = 0;
   let daysFetched = 0;
   let truncatedDays = 0;
   let throttleWaits = 0;
+  let staleRowsRemoved = 0;
+  let daysNotSwept = 0;
   const daysWritten = [];
+  const daysSkipped = [];
   const paths = new Set();
   let failure = null;
 
+  // Where to resume from. A missing function is NOT an error -- the sync must
+  // keep working when the migration has not been applied yet, same
+  // feature-detect stance as /v3/'s dashboard_filter_views. It degrades to
+  // re-fetching everything, which is what it did before.
+  let covered = null;
+  let resumeError = null;
+  if (days > restateDays) {
+    const { data, error } = await supabase.rpc('shopify_landing_pages_covered_days', {
+      p_company_entity_id: connection.company_entity_id,
+      p_shop_domain: connection.shop_domain,
+      p_since: dayAt(days),
+      p_until: dayAt(restateDays + 1),
+    });
+    if (error) resumeError = error.message;
+    else covered = new Set((data || []).map((r) => (typeof r === 'string' ? r : r?.day_date ?? r?.shopify_landing_pages_covered_days)));
+  }
+
   for (let i = 1; i <= days; i += 1) {
-    const d = new Date(today.getTime() - i * 86400000);
-    const day = iso(d);
+    const day = dayAt(i);
+
+    // Already have it, and it is old enough that Shopify has stopped revising
+    // it. Skipping is the resume.
+    if (covered && i > restateDays && covered.has(day)) {
+      daysSkipped.push(day);
+      continue;
+    }
+
     try {
       const out = await shopifyql(connection,
         `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
@@ -2620,6 +2659,38 @@ export async function runLandingPagesSync(supabase, connection, {
         await upsertInChunks(supabase, 'shopify_landing_pages_daily', dayRows,
           'company_entity_id,shop_domain,day_date,landing_page_path');
         rowsWritten += dayRows.length;
+
+        // Remove paths this day no longer has. An upsert cannot: when Shopify
+        // restates a day, a path that has dropped out of the top N is simply
+        // ABSENT from the new result, and an upsert never deletes what it is
+        // not given -- so the old row survived with a stale rank and stale
+        // counts, ranks collided, and "the top 250 pages that day" drifted
+        // into "every page ever in that day's top 250".
+        //
+        // Only ever after a fetch that RETURNED ROWS. Zero rows is the shape
+        // of a bad fetch as much as a genuinely dead day, and the two are
+        // indistinguishable from here -- so a zero-row day is left exactly as
+        // it was and counted, rather than having its history deleted on a
+        // transport hiccup. The function refuses an empty keep-list too.
+        const { data: swept, error: sweepErr } = await supabase.rpc('shopify_landing_pages_sweep_day', {
+          p_company_entity_id: connection.company_entity_id,
+          p_shop_domain: connection.shop_domain,
+          p_day: day,
+          p_keep_paths: dayRows.map((r) => r.landing_page_path),
+        });
+        if (sweepErr) {
+          // Not fatal: the day's fresh rows ARE written, and failing to remove
+          // superseded ones leaves stale rows, not wrong new ones. But it is
+          // never silent -- the sweep failing while the upsert succeeds is the
+          // combination that quietly accumulates, so it is counted and
+          // reported like the shop-domain sweep is.
+          daysNotSwept += 1;
+          if (onProgress) onProgress({ day, event: 'sweep_failed', error: sweepErr.message });
+        } else {
+          staleRowsRemoved += Number(swept) || 0;
+        }
+      } else {
+        daysNotSwept += 1;
       }
       // A day Shopify reported no traffic for is still a day we COVERED. It
       // counts as written, or a quiet day would make the window look like it
@@ -2642,25 +2713,45 @@ export async function runLandingPagesSync(supabase, connection, {
   }
 
   daysWritten.sort();
-  const complete = failure === null && daysWritten.length === days;
+  daysSkipped.sort();
+  // A day skipped because it was already stored IS covered -- that is what
+  // resuming means. A day that failed, or that the loop never reached, is not.
+  const daysCovered = daysWritten.length + daysSkipped.length;
+  const complete = failure === null && daysCovered === days;
+  const allCovered = [...daysWritten, ...daysSkipped].sort();
 
   return {
     job_type: 'landing_pages_sync',
     batch_id: batchId,
-    // The four numbers that make a partial run interpretable. days_requested
-    // is what was asked for; days_fetched is what Shopify answered;
-    // days_written is what is actually IN the table. They can legitimately
-    // differ, and reporting only the last one is how a 43-day table gets
-    // described as a 730-day backfill.
+    // The numbers that make a partial run interpretable. days_requested is
+    // what was asked for; days_fetched is what Shopify answered THIS run;
+    // days_written is what this run put in the table; days_already_covered is
+    // what an earlier run had already done and this one resumed past. Reporting
+    // only the last of these is how a 43-day table gets described as a 730-day
+    // backfill.
     days_requested: days,
     days_fetched: daysFetched,
     days_written: daysWritten.length,
+    days_already_covered: daysSkipped.length,
+    days_covered: daysCovered,
     earliest_day_written: daysWritten[0] ?? null,
     latest_day_written: daysWritten[daysWritten.length - 1] ?? null,
+    // The window's real extent across this run and the ones before it, which
+    // is the figure a person actually wants when asking how far back we go.
+    earliest_day_covered: allCovered[0] ?? null,
+    latest_day_covered: allCovered[allCovered.length - 1] ?? null,
     rows_upserted: rowsWritten,
     distinct_paths: paths.size,
+    stale_rows_removed: staleRowsRemoved || undefined,
+    // Days whose superseded rows were NOT removed -- either the fetch returned
+    // nothing (so sweeping would have been a guess) or the sweep itself
+    // failed. Surfaced because an unswept day keeps paths that have dropped
+    // out of its top N.
+    days_not_swept: daysNotSwept || undefined,
+    resume_unavailable: resumeError || undefined,
     days_hitting_top_n: truncatedDays || undefined,
     top_n: topN,
+    restate_days: restateDays,
     throttle_waits: throttleWaits || undefined,
     // NEVER derive completeness from rows_upserted > 0. A run that wrote
     // 25,000 rows and stopped 600 days short wrote a lot of rows and did not

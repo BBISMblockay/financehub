@@ -310,12 +310,188 @@ function stubFetch(handler) {
     outcomes: [{ jobType: 'catalog_sync', state: 'skipped', requested: false }],
   }).exitCode, 0, 'a deliberately skipped, unrequested stage is not a failure');
 
-  // Nor does a missing Shopify scope: that is a fact about the store's
-  // configuration, and it does not change based on who triggered the run.
+  // A missing Shopify scope DOES fail a requested manual run. This was the
+  // other way round until review: the reasoning was that a missing scope is a
+  // fact about the store's configuration rather than a failure of the run.
+  // True, and beside the point -- the stage still did not happen, and a
+  // backfill reporting success because the reason for doing nothing was
+  // configuration rather than a rate limit is the same misleading green in a
+  // different hat.
   eq(runOutcomeReport({
     manual: true,
-    outcomes: [{ jobType: 'payouts_sync', state: 'scope_skipped', requested: true }],
-  }).exitCode, 0, 'a missing scope is a configuration fact, not a run failure');
+    outcomes: [{ jobType: 'sessions_sync', state: 'scope_skipped', requested: true,
+      detail: 'missing Shopify scope(s): read_reports' }],
+  }).exitCode, 1, 'a requested stage that could not run for want of a scope fails a manual run');
+
+  // ...and stays non-fatal on a cron, or a store that never granted the scope
+  // would make the nightly permanently red, which is a nightly nobody reads.
+  eq(runOutcomeReport({
+    manual: false,
+    outcomes: [{ jobType: 'sessions_sync', state: 'scope_skipped', requested: true }],
+  }).exitCode, 0, 'the same missing scope does not fail the nightly');
+
+  // A scope skip on a stage this run did NOT ask for is not a failure either.
+  eq(runOutcomeReport({
+    manual: true,
+    outcomes: [{ jobType: 'catalog_sync', state: 'scope_skipped', requested: false }],
+  }).exitCode, 0, 'an unrequested stage skipped for scopes is not a failure');
+}
+
+// ── 6. Resume: a second run continues instead of re-walking the window ───────
+{
+  const supabase = createFakeSupabase();
+
+  // First run: 40 of a 90-day window, then the limiter refuses.
+  const restore1 = stubFetch((i) => reply(i < 40 ? okRows([`/a${i}`]) : ANALYTICS_THROTTLE));
+  const first = await runLandingPagesSync(supabase, CONNECTION, {
+    sinceDays: 90, batchId: 'r1', throttleTries: 1, restateDays: 5,
+  });
+  restore1();
+  eq(first.complete, false, 'the first run stopped short');
+  eq(first.days_written, 40, 'having written 40 days');
+  eq(first.days_already_covered, 0, 'with nothing to resume past on a first run');
+
+  // Second run, same window, Shopify now healthy. It must NOT re-fetch the 40
+  // days it already has -- except the ones inside the restatement window,
+  // which are deliberately re-asked because Shopify revises them.
+  let fetches = 0;
+  const restore2 = stubFetch(() => { fetches += 1; return reply(okRows(['/z'])); });
+  const second = await runLandingPagesSync(supabase, CONNECTION, {
+    sinceDays: 90, batchId: 'r2', restateDays: 5,
+  });
+  restore2();
+
+  eq(second.complete, true, 'the second run finishes the window');
+  eq(second.days_covered, 90, 'covering all 90 days between them');
+  eq(second.days_already_covered, 35,
+    'the 35 stored days outside the restatement window were skipped, not re-fetched');
+  eq(second.days_written, 55, 'so it fetched the 50 new days plus the 5 restatement days');
+  eq(fetches, 55, 'and made exactly that many Shopify calls -- this is the resume');
+
+  // Without resume this would have been 90 calls. That difference IS the fix:
+  // "partial progress preserved" and "continues from where it stopped" are
+  // different claims, and only the second one saves the re-walk.
+  ok(fetches < 90, 'a resumed run is strictly cheaper than a restart');
+
+  // Which days each run touched is observable through sync_batch_id, so this
+  // asserts the actual partition rather than restating the arithmetic above.
+  const rows = supabase.rows('shopify_landing_pages_daily');
+  eq(rows.length, 90, 'one row per day across the whole window');
+  const byBatch = rows.reduce((acc, r) => { acc[r.sync_batch_id] = (acc[r.sync_batch_id] || 0) + 1; return acc; }, {});
+  eq(byBatch, { r1: 35, r2: 55 },
+    'the 35 resumed days still carry the FIRST run\'s batch id -- they were genuinely not re-fetched');
+
+  // And the days the second run did re-fetch are the five most recent ones
+  // plus everything past where the first run stopped -- not an arbitrary 55.
+  const r2Days = rows.filter((r) => r.sync_batch_id === 'r2').map((r) => r.day_date).sort();
+  const r1Days = rows.filter((r) => r.sync_batch_id === 'r1').map((r) => r.day_date).sort();
+  ok(r2Days[r2Days.length - 1] > r1Days[r1Days.length - 1],
+    'the restatement window sits at the recent end, above every resumed day');
+  ok(r2Days[0] < r1Days[0],
+    'and the newly-reached days sit below every resumed day');
+}
+
+// ── 6b. The nightly's behaviour is unchanged ────────────────────────────────
+// sinceDays (30) is not greater than restateDays (30), so resume never engages
+// and every day is re-stated exactly as before this change.
+{
+  const supabase = createFakeSupabase();
+  const restore1 = stubFetch(() => reply(okRows(['/a'])));
+  await runLandingPagesSync(supabase, CONNECTION, { sinceDays: 30, batchId: 'n1' });
+  restore1();
+
+  let fetches = 0;
+  const restore2 = stubFetch(() => { fetches += 1; return reply(okRows(['/a'])); });
+  const again = await runLandingPagesSync(supabase, CONNECTION, { sinceDays: 30, batchId: 'n2' });
+  restore2();
+
+  eq(fetches, 30, 'the 30-day nightly still re-fetches all 30 days');
+  eq(again.days_already_covered, 0, 'resume does not engage at the default window');
+  eq(again.complete, true, 'and it completes');
+  // No RPC call at all when the window cannot benefit -- so the nightly does
+  // not depend on the new function existing.
+  ok(!supabase.calls.rpcs.some((c) => c.fn === 'shopify_landing_pages_covered_days'),
+    'the nightly never even asks which days are covered');
+}
+
+// ── 6c. A missing migration degrades to the old behaviour, not to an error ──
+{
+  const supabase = createFakeSupabase();
+  supabase.breakRpc('shopify_landing_pages_covered_days');
+  const restore = stubFetch(() => reply(okRows(['/a'])));
+  const result = await runLandingPagesSync(supabase, CONNECTION, {
+    sinceDays: 40, batchId: 'm1', restateDays: 5,
+  });
+  restore();
+
+  eq(result.complete, true, 'the sync still works when the resume function is absent');
+  eq(result.days_written, 40, 'it just re-fetches everything, as it did before');
+  ok(result.resume_unavailable, 'and says so rather than silently losing the optimisation');
+}
+
+// ── 7. A restated day drops paths that fell out of its top N ────────────────
+{
+  const supabase = createFakeSupabase();
+
+  // Day one: three paths.
+  const restore1 = stubFetch(() => reply(okRows(['/keep', '/also-keep', '/drops-out'])));
+  await runLandingPagesSync(supabase, CONNECTION, { sinceDays: 1, batchId: 's1' });
+  restore1();
+  eq(supabase.rows('shopify_landing_pages_daily').length, 3, 'three paths stored');
+
+  // Shopify restates the same day with only two of them. The third is not
+  // "unchanged", it is GONE from the top N -- and an upsert alone would leave
+  // it there forever with a stale rank and stale counts.
+  const restore2 = stubFetch(() => reply(okRows(['/keep', '/also-keep'])));
+  const restated = await runLandingPagesSync(supabase, CONNECTION, { sinceDays: 1, batchId: 's2' });
+  restore2();
+
+  const stored = supabase.rows('shopify_landing_pages_daily').map((r) => r.landing_page_path).sort();
+  eq(stored, ['/also-keep', '/keep'], 'the path that dropped out was removed');
+  eq(restated.stale_rows_removed, 1, 'and the removal is reported, not silent');
+
+  // Ranks must not collide: a leftover row keeps its old rank_in_day, so the
+  // day would have had two rows claiming the same rank.
+  const ranks = supabase.rows('shopify_landing_pages_daily').map((r) => r.rank_in_day).sort();
+  eq(ranks, [1, 2], 'and the surviving ranks are contiguous with no duplicate');
+}
+
+// ── 7b. A day that returned NOTHING is never swept ──────────────────────────
+// Zero rows is the shape of a bad fetch as much as of a genuinely dead day,
+// and from here the two are indistinguishable. Deleting a real day's history
+// on a transport hiccup is much worse than keeping stale rows one more run.
+{
+  const supabase = createFakeSupabase();
+  const restore1 = stubFetch(() => reply(okRows(['/a', '/b'])));
+  await runLandingPagesSync(supabase, CONNECTION, { sinceDays: 1, batchId: 'z1' });
+  restore1();
+  eq(supabase.rows('shopify_landing_pages_daily').length, 2, 'two rows stored');
+
+  const restore2 = stubFetch(() => reply(okRows([])));
+  const empty = await runLandingPagesSync(supabase, CONNECTION, { sinceDays: 1, batchId: 'z2' });
+  restore2();
+
+  eq(supabase.rows('shopify_landing_pages_daily').length, 2,
+    'an empty result did NOT wipe the day');
+  eq(empty.days_not_swept, 1, 'and the day is reported as not swept');
+  eq(empty.complete, true, 'the run itself is still complete -- a quiet day is covered');
+  ok(!supabase.calls.rpcs.some((c) => c.fn === 'shopify_landing_pages_sweep_day'
+    && c.args && (c.args.p_keep_paths || []).length === 0),
+    'the sweep was never even called with an empty keep-list');
+}
+
+// ── 7c. A failed sweep is reported, and does not lose the fresh rows ────────
+{
+  const supabase = createFakeSupabase();
+  supabase.breakRpc('shopify_landing_pages_sweep_day');
+  const restore = stubFetch(() => reply(okRows(['/a', '/b'])));
+  const result = await runLandingPagesSync(supabase, CONNECTION, { sinceDays: 2, batchId: 'f1' });
+  restore();
+
+  eq(result.days_not_swept, 2, 'both days are flagged as unswept');
+  eq(result.rows_upserted, 4, 'while their fresh rows were still written');
+  eq(result.complete, true,
+    'a sweep failure leaves stale rows, not wrong new ones, so it does not make the window incomplete');
 }
 
 console.log(`landing-pages-backfill: ${passed} assertions passed`);

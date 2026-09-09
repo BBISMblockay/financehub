@@ -376,6 +376,7 @@ supabase/
     20260909300000_seo_baseline_business_timezone.sql
     20260909320000_collection_skus_show_empty_collections.sql
     20260909340000_sync_jobs_skipped_status.sql
+    20260909360000_landing_pages_resume_and_sweep.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

@@ -23,7 +23,7 @@ let autoId = 0;
 export function createFakeSupabase() {
   /** @type {Map<string, object[]>} */
   const tables = new Map();
-  const calls = { inserts: [], upserts: [], updates: [], deletes: [] };
+  const calls = { inserts: [], upserts: [], updates: [], deletes: [], rpcs: [] };
 
   const rowsOf = (t) => {
     if (!tables.has(t)) tables.set(t, []);
@@ -99,10 +99,58 @@ export function createFakeSupabase() {
     return builder;
   }
 
+  /* RPCs, implemented against the same stored rows.
+   *
+   * A stub returning a canned answer would let a broken resume and a working
+   * one both pass -- the whole question is which days the caller SKIPS and
+   * which rows the sweep REMOVES, and neither is observable unless the fake
+   * really computes them from the table. `missingRpcs` lets a test assert the
+   * feature-detect path (migration not applied yet) instead of pretending it
+   * cannot happen.
+   */
+  const missingRpcs = new Set();
+  const rpcHandlers = {
+    shopify_landing_pages_covered_days({ p_company_entity_id, p_shop_domain, p_since, p_until }) {
+      const days = new Set(rowsOf('shopify_landing_pages_daily')
+        .filter((r) => r.company_entity_id === p_company_entity_id
+          && r.shop_domain === p_shop_domain
+          && r.day_date >= p_since && r.day_date <= p_until)
+        .map((r) => r.day_date));
+      return { data: [...days].sort(), error: null };
+    },
+    shopify_landing_pages_sweep_day({ p_company_entity_id, p_shop_domain, p_day, p_keep_paths }) {
+      // Mirrors the function's own guard. An empty keep-list must never mean
+      // "delete the whole day" -- that is a bad fetch, not a restatement.
+      if (!p_keep_paths || p_keep_paths.length === 0) {
+        return { data: null, error: { message: 'refusing to sweep with an empty keep-list' } };
+      }
+      const keep = new Set(p_keep_paths);
+      const all = rowsOf('shopify_landing_pages_daily');
+      const doomed = all.filter((r) => r.company_entity_id === p_company_entity_id
+        && r.shop_domain === p_shop_domain
+        && r.day_date === p_day
+        && !keep.has(r.landing_page_path));
+      tables.set('shopify_landing_pages_daily', all.filter((r) => !doomed.includes(r)));
+      calls.rpcs.push({ fn: 'shopify_landing_pages_sweep_day', deleted: doomed.map((r) => ({ ...r })) });
+      return { data: doomed.length, error: null };
+    },
+  };
+
   return {
     calls,
     tables,
     rows: (t) => rowsOf(t).map((r) => ({ ...r })),
+    /** Make an RPC behave as though its migration has not been applied. */
+    breakRpc(name) { missingRpcs.add(name); },
+    async rpc(fn, args) {
+      calls.rpcs.push({ fn, args });
+      if (missingRpcs.has(fn)) {
+        return { data: null, error: { code: '42883', message: `function public.${fn} does not exist` } };
+      }
+      const handler = rpcHandlers[fn];
+      if (!handler) throw new Error(`fake-supabase: unstubbed rpc ${fn}`);
+      return handler(args || {});
+    },
     from(table) {
       return {
         insert(row) {

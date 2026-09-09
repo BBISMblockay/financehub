@@ -124,12 +124,35 @@ async function finishJob(jobId, status, payload) {
   // assumption ("nothing was written") is the wrong one -- it invites a
   // pointless re-run of work already done.
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) update.result = payload;
-  if (status !== 'success') {
+  // 'skipped' is not an error and must not populate `error` -- the reason it
+  // did not run lives in `result`, and writing it here too would make a
+  // deliberate skip indistinguishable from a failure in every error report.
+  if (status !== 'success' && status !== 'skipped') {
     update.error = String(
       payload?.error || payload?.failure?.message || payload?.reason || payload,
     ).slice(0, 2000);
   }
   await supabase.from('sync_jobs').update(update).eq('id', jobId);
+}
+
+/** Finish a stage that ran but declined to do anything, because the store has
+ * not granted the Shopify scope it needs.
+ *
+ * Recorded as 'skipped', NOT 'success'. It was 'success' until review caught
+ * it, and that is the same misleading green as run #354 wearing a different
+ * hat: the row said the stage succeeded, when what happened is that it did
+ * nothing and said why in a field nobody reads. A stage that returns no data
+ * is not a stage that succeeded.
+ */
+async function finishScopeSkipped(jobId, connection, jobType, result) {
+  const missing = result.missing?.join(', ') || result.reason || 'unknown';
+  await finishJob(jobId, 'skipped', {
+    ...result,
+    reason: `missing Shopify scope(s): ${missing}`,
+    scope_skipped: true,
+  });
+  record(connection, jobType, 'scope_skipped', `missing Shopify scope(s): ${missing}`);
+  console.log(`[skip] ${connection.shop_domain} ${jobType}: missing scope(s) ${missing}`);
 }
 
 /** Record a stage that was NOT run, and why.
@@ -272,12 +295,11 @@ async function syncConnection(connection) {
     const jobId = await startJob(connection, 'payouts_sync');
     try {
       const result = await runPayoutsSync(supabase, connection, { batchId: BATCH_ID });
-      await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
-        record(connection, 'payouts_sync', 'scope_skipped', result.reason || result.missing?.join(','));
-        console.log(`[skip] ${connection.shop_domain} payouts_sync: ${result.reason || result.missing?.join(',')}`);
+        await finishScopeSkipped(jobId, connection, 'payouts_sync', result);
       } else {
+        await finishJob(jobId, 'success', result);
         record(connection, 'payouts_sync', 'success');
         console.log(`[ok] ${connection.shop_domain} payouts_sync: ${result.payouts_upserted} payouts since ${result.since}`);
       }
@@ -298,12 +320,11 @@ async function syncConnection(connection) {
         batchId: BATCH_ID,
         sinceDays: SESSIONS_DAYS,
       });
-      await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
-        record(connection, 'sessions_sync', 'scope_skipped', result.missing?.join(','));
-        console.log(`[skip] ${connection.shop_domain} sessions_sync: ${result.missing?.join(',')}`);
+        await finishScopeSkipped(jobId, connection, 'sessions_sync', result);
       } else {
+        await finishJob(jobId, 'success', result);
         record(connection, 'sessions_sync', 'success');
         console.log(
           `[ok] ${connection.shop_domain} sessions_sync: ${result.sessions_rows_upserted} session days, ` +
@@ -330,17 +351,25 @@ async function syncConnection(connection) {
         sinceDays: LANDING_PAGES_DAYS,
         // A 730-day window is ~12 minutes of per-day queries plus whatever
         // backoff it takes. Without this the run looks hung.
-        onProgress: ({ day, event, attempt, waitMs }) => {
+        onProgress: ({ day, event, attempt, waitMs, error }) => {
           if (event === 'throttled') {
             console.log(`[wait] ${connection.shop_domain} landing_pages_sync ${day}: throttled, attempt ${attempt}, backing off ${waitMs}ms`);
+          } else if (event === 'sweep_failed') {
+            console.warn(`[warn] ${connection.shop_domain} landing_pages_sync ${day}: fresh rows written but stale-path sweep FAILED (${error}) — paths that dropped out of this day's top ${result?.top_n ?? 'N'} remain`);
           }
         },
       });
       const coverage =
-        `${result.days_written}/${result.days_requested} days` +
-        (result.earliest_day_written ? ` (${result.earliest_day_written} → ${result.latest_day_written})` : '') +
+        `${result.days_covered}/${result.days_requested} days covered` +
+        (result.days_already_covered
+          ? ` (${result.days_written} fetched now, ${result.days_already_covered} already stored)`
+          : '') +
+        (result.earliest_day_covered ? ` ${result.earliest_day_covered} → ${result.latest_day_covered}` : '') +
         `, ${result.rows_upserted} rows, ${result.distinct_paths} paths` +
-        (result.days_hitting_top_n ? `, ${result.days_hitting_top_n} day(s) hit the top-${result.top_n} cap` : '');
+        (result.stale_rows_removed ? `, ${result.stale_rows_removed} superseded row(s) removed` : '') +
+        (result.days_not_swept ? `, ${result.days_not_swept} day(s) NOT swept` : '') +
+        (result.days_hitting_top_n ? `, ${result.days_hitting_top_n} day(s) hit the top-${result.top_n} cap` : '') +
+        (result.resume_unavailable ? `, resume unavailable (${result.resume_unavailable})` : '');
 
       // A window that did not complete is recorded as an ERROR carrying its
       // real progress, never as a success. The rows it wrote are good and are
@@ -453,12 +482,11 @@ async function syncConnection(connection) {
         if (metaErr) throw new Error(`meta update failed: ${metaErr.message}`);
         connection.meta = meta;
       }
-      await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
-        record(connection, 'draft_orders_sync', 'scope_skipped', result.missing?.join(','));
-        console.log(`[skip] ${connection.shop_domain} draft_orders_sync: missing scopes ${result.missing?.join(',')}`);
+        await finishScopeSkipped(jobId, connection, 'draft_orders_sync', result);
       } else {
+        await finishJob(jobId, 'success', result);
         record(connection, 'draft_orders_sync', 'success');
         console.log(`[ok] ${connection.shop_domain} draft_orders_sync: ${result.draft_orders_upserted} drafts`);
       }
@@ -488,12 +516,11 @@ async function syncConnection(connection) {
     const jobId = await startJob(connection, 'catalog_sync');
     try {
       const result = await runCatalogSync(supabase, connection, { batchId: BATCH_ID });
-      await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
-        record(connection, 'catalog_sync', 'scope_skipped', result.missing?.join(','));
-        console.log(`[skip] ${connection.shop_domain} catalog_sync: missing scopes ${result.missing?.join(',')}`);
+        await finishScopeSkipped(jobId, connection, 'catalog_sync', result);
       } else {
+        await finishJob(jobId, 'success', result);
         record(connection, 'catalog_sync', 'success');
         console.log(`[ok] ${connection.shop_domain} catalog_sync: ${result.products_master_rows_upserted} SKUs`);
       }

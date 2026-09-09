@@ -158,7 +158,24 @@ export function shouldRecordSkippedJob(stage, { manual } = {}) {
  * point, but the WINDOW was not covered, and a run that reports success there
  * is telling the next person the backfill happened. */
 export const STAGE_STATES = ['success', 'partial', 'error', 'skipped', 'scope_skipped'];
-const NOT_DONE = new Set(['partial', 'error', 'skipped']);
+
+/* Every state in which the stage did not do what was asked.
+ *
+ * `scope_skipped` is in here, and was not at first. The reasoning for leaving
+ * it out was that a missing Shopify scope is a fact about the store's
+ * configuration rather than a failure of this run -- true, and beside the
+ * point. The stage still did not happen, and a manual backfill that reports
+ * success because the reason for doing nothing was configuration rather than a
+ * rate limit recreates exactly the misleading green this whole change exists
+ * to remove. From the outside, "we asked for sessions and got none" is the
+ * same sentence either way; only the fix differs, and a red run naming the
+ * missing scope is what points at that fix.
+ *
+ * It stays non-fatal on a SCHEDULED run for the usual reason: a store that has
+ * never granted the scope would make the nightly permanently red, and a
+ * permanently red nightly is one nobody reads.
+ */
+const NOT_DONE = new Set(['partial', 'error', 'skipped', 'scope_skipped']);
 
 /**
  * Turn the run's stage outcomes into an exit code.
