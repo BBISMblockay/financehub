@@ -2599,3 +2599,38 @@ select
         || 'run select public.refresh_chat_schema_catalog()'
     else 'ok'
   end as shopify_collections_registry;
+
+-- ── Search Console connection (20260909180000) ──────────────────────────────
+-- The whole reason the migration exists: ad_platform_connections' platform
+-- CHECK is what stopped the finished Google OAuth plumbing from being reused
+-- for Search Console. If either CHECK loses the value, connecting silently
+-- fails at the callback's insert with a constraint error and no OAuth error
+-- to point at.
+select
+  case
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_connections_platform_check'
+                       and pg_get_constraintdef(oid) like '%search_console%')
+      then 'MISSING — ad_platform_connections rejects platform=search_console'
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_oauth_states_platform_check'
+                       and pg_get_constraintdef(oid) like '%search_console%')
+      then 'MISSING — ad_platform_oauth_states rejects platform=search_console, '
+        || 'so google-oauth-start cannot mint a CSRF nonce for it'
+    -- Dropping one of the OTHER values while extending the list is the real
+    -- risk here, since the constraint is re-typed rather than appended to,
+    -- and an existing row would keep working until the next write.
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_connections_platform_check'
+                       and pg_get_constraintdef(oid) like '%google_ads%'
+                       and pg_get_constraintdef(oid) like '%meta_ads%'
+                       and pg_get_constraintdef(oid) like '%tiktok_ads%'
+                       and pg_get_constraintdef(oid) like '%ga4%')
+      then 'MISSING — extending the platform CHECK dropped an existing platform'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema = 'public'
+                       and table_name = 'ad_platform_connections'
+                       and column_name = 'search_console_site_url')
+      then 'MISSING — ad_platform_connections.search_console_site_url'
+    else 'ok'
+  end as search_console_connection;

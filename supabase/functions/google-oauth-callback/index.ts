@@ -61,10 +61,16 @@ Deno.serve(async (req) => {
 
   const expiresAt = new Date(Date.now() + (Number(tokenData.expires_in) || 3600) * 1000).toISOString();
 
+  const DISPLAY_NAMES: Record<string, string> = {
+    ga4: 'GA4 property',
+    google_ads: 'Google Ads account',
+    search_console: 'Search Console property',
+  };
+
   const { error: insertErr } = await supabase.from('ad_platform_connections').insert({
     company_entity_id: stateRow.company_entity_id,
     platform: stateRow.platform,
-    display_name: stateRow.platform === 'ga4' ? 'GA4 property' : 'Google Ads account',
+    display_name: DISPLAY_NAMES[stateRow.platform] ?? stateRow.platform,
     access_token: accessToken,
     refresh_token: refreshToken,
     token_expires_at: expiresAt,

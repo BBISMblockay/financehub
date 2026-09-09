@@ -103,6 +103,17 @@ async function loadConnections() {
 async function syncConnection(connection) {
   const label = `${connection.display_name || connection.id} (${connection.platform})`;
 
+  // Search Console lives on ad_platform_connections for its OAuth tokens, but
+  // it is not a marketing_kpis_daily feed: its grain is query/page, not
+  // campaign, and it has no JOB_TYPES entry. Skip it by NAME rather than
+  // letting it fall through -- startJob() would insert a null job_type and
+  // fail the CHECK, turning "this platform isn't wired yet" into a nightly
+  // error on a connection that is working exactly as intended.
+  if (connection.platform === 'search_console') {
+    console.log(`[skip] ${label}: Search Console has no KPI sync — connection is for the SEO tooling`);
+    return { connection: label, skipped: 'not_a_kpi_platform' };
+  }
+
   if ((connection.platform === 'google_ads' || connection.platform === 'ga4') && !googleEnvReady()) {
     console.log(`[skip] ${label}: GOOGLE_CLIENT_ID/SECRET not set — add the repo secrets to activate`);
     return { connection: label, skipped: 'google_env_missing' };

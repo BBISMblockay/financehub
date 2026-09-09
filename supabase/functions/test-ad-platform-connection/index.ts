@@ -104,6 +104,55 @@ async function testGa4(conn: Record<string, unknown>, accessToken: string) {
   return { property_id: prop };
 }
 
+/** Search Console. With no site configured, returns the VERIFIED PROPERTY
+ * LIST — which is the answer to "is www.baseballism.com actually verified",
+ * and in which form. Search Console has two property kinds that are not
+ * interchangeable: a URL prefix ('https://www.baseballism.com/') covers one
+ * scheme+host+path, a domain property ('sc-domain:baseballism.com') covers
+ * every subdomain and both schemes. They report different traffic, so the
+ * identifier is offered verbatim rather than normalised.
+ *
+ * permissionLevel comes back per site; siteUnverifiedUser means the account
+ * can see the property exists but cannot read its data, which would otherwise
+ * surface later as an empty report rather than a permissions problem. */
+async function testSearchConsole(conn: Record<string, unknown>, accessToken: string) {
+  const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+  if (!conn.search_console_site_url) {
+    const res = await fetch('https://www.googleapis.com/webmasters/v3/sites', { headers });
+    if (!res.ok) throw new Error(`Search Console sites.list ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const data = await res.json();
+    const sites = (data.siteEntry ?? []).map((s: Record<string, unknown>) => ({
+      site_url: s.siteUrl,
+      permission_level: s.permissionLevel,
+      readable: s.permissionLevel !== 'siteUnverifiedUser',
+    }));
+    return { sites };
+  }
+  const site = encodeURIComponent(String(conn.search_console_site_url));
+  // A 3-day window ending 3 days ago: Search Console lags real time, so
+  // "yesterday" can legitimately return zero rows on a healthy property and
+  // would make a working connection look broken. Zero rows is not a failure
+  // here either way — the test is that the API accepts the property and the
+  // scope, which a 200 establishes.
+  const end = new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10);
+  const start = new Date(Date.now() - 6 * 86400_000).toISOString().slice(0, 10);
+  const res = await fetch(
+    `https://www.googleapis.com/webmasters/v3/sites/${site}/searchAnalytics/query`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ startDate: start, endDate: end, dimensions: ['date'], rowLimit: 5 }),
+    },
+  );
+  if (!res.ok) throw new Error(`Search Console searchAnalytics ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return {
+    site_url: conn.search_console_site_url,
+    days_with_data_in_probe_window: (data.rows ?? []).length,
+    probe_window: `${start}..${end}`,
+  };
+}
+
 /** Best-effort: list Pages the token can manage, with each Page's linked
  * Instagram business account, so the Facebook Page ID / Instagram Business
  * Account ID fields can be filled from a real list instead of Graph API
@@ -221,7 +270,7 @@ Deno.serve(async (req) => {
   let errMsg: string | null = null;
 
   try {
-    if (conn.platform === 'google_ads' || conn.platform === 'ga4') {
+    if (conn.platform === 'google_ads' || conn.platform === 'ga4' || conn.platform === 'search_console') {
       if (!conn.refresh_token) throw new Error('No refresh token stored — reconnect via OAuth');
       const fresh = await refreshGoogleToken(conn.refresh_token);
       await service.from('ad_platform_connections').update({
@@ -229,9 +278,9 @@ Deno.serve(async (req) => {
         token_expires_at: fresh.expires_at,
         updated_at: new Date().toISOString(),
       }).eq('id', conn.id);
-      result = conn.platform === 'google_ads'
-        ? await testGoogleAds(conn, fresh.access_token)
-        : await testGa4(conn, fresh.access_token);
+      if (conn.platform === 'google_ads') result = await testGoogleAds(conn, fresh.access_token);
+      else if (conn.platform === 'ga4') result = await testGa4(conn, fresh.access_token);
+      else result = await testSearchConsole(conn, fresh.access_token);
     } else if (conn.platform === 'meta_ads') {
       result = await testMetaAds(conn);
     } else if (conn.platform === 'tiktok_ads') {

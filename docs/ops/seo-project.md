@@ -242,3 +242,50 @@ behaviour, the data lag (believed ~2–3 days), the retention window (believed
 16 months), and URL Inspection's daily quota — that last one decides whether
 indexing checks are on-demand or a slow background crawl. The property must
 also be verified and match the storefront domain.
+
+### Step 2a — connection plumbing (shipped, unmeasured)
+
+How much of step 2 was actually new turned out to be smaller than this
+document implied. The Google OAuth path is *already* scope-parameterised by
+platform (`google-oauth-start`'s `SCOPES` map), tokens already live on
+`ad_platform_connections`, the callback already handles a missing refresh
+token, and `test-ad-platform-connection` already has the "no account
+configured → return the pickable list" shape. The one thing that genuinely
+blocked reuse was `ad_platform_connections_platform_check`, which permitted
+only `google_ads | meta_ads | tiktok_ads | ga4`.
+
+So step 2a is: extend both platform CHECKs, add `search_console_site_url`,
+one `SCOPES` entry (`webmasters.readonly`), a Connect button, and a tester
+that lists verified properties. `ad-platforms-sync.mjs` skips
+`search_console` **by name** — it has no `JOB_TYPES` entry, and falling
+through would insert a null `job_type` and fail the CHECK, turning "not
+wired yet" into a nightly error on a healthy connection.
+
+**No metric tables ship in 2a, deliberately.** Their grain depends on five
+things nobody here has measured, and `scripts/search-console-probe.mjs`
+(read-only, `workflow_dispatch`) measures all five against the live account:
+lag, retention, the real row cap, cross-dimension loss, and — the one that
+decides whether a negative claim is ever safe — **what share of a day's
+clicks Search Console will attribute to a query at all**. Rare queries are
+withheld for privacy, so the sum of per-query clicks is structurally less
+than the day's total. That is the same trap as
+`shopify_landing_pages_daily`'s top-250-per-day slice, and worse, because a
+query table looks complete. The probe compares an undimensioned total
+against the summed per-query and per-page cuts and prints the gap as a
+percentage, which is what lets the catalog state a number instead of a
+warning nobody can act on.
+
+Two things remain genuinely unknown and are settled by running it, not by
+reasoning: whether the consent screen's configuration makes
+`webmasters.readonly` (a sensitive scope) a re-verification event, and
+whether `www.baseballism.com` is verified as a URL-prefix property
+(`https://www.baseballism.com/`) or a domain property
+(`sc-domain:baseballism.com`). Those cover different traffic and are not
+interchangeable, which is why `search_console_site_url` stores whatever
+`sites.list` returned verbatim rather than a normalised host.
+
+Order of operations: apply the migration → deploy `google-oauth-start`,
+`google-oauth-callback` and `test-ad-platform-connection` → enable the
+Search Console API in the existing Cloud project → Connect (a fresh consent
+is required; an existing refresh token does not carry a newly added scope)
+→ Test to list properties → paste the identifier → run the probe.
