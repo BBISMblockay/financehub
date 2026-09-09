@@ -53,8 +53,34 @@ same caveats where the model actually reads schema facts. The old landing-pages
 description warned against *summing* and that warning worked; it said nothing
 about negative claims, and a caveat only covers the failure it names.
 
-**Requires a manual edge-function deploy to take effect.** Merging does not
-deploy.
+Deployed as silo-chat **v59** on 2026-09-09 via
+`.github/workflows/deploy-edge-function.yml` (the CLI reads the file off the
+checkout; deploying a 123KB function inline through an API client is what
+truncated two deploys and took Ask SILO down on 2026-08-25 — do not do that).
+
+### Live results — improvement, not yet consistent compliance
+
+Four real questions against the deployed function (`silo_chat_audit_log`,
+2026-09-09 01:45–01:59 UTC). Recorded because a passing prompt test proves
+only that a rule reaches the prompt.
+
+| Rule | Result |
+|---|---|
+| Coverage window disclosed | Fired — volunteered "only goes back to 2026-07-28, ~6 weeks" unprompted |
+| Truncation / absence≠zero | Fired strongly on the question built to break it: returned a bottom-10 *and* said the true bottom is unknowable from a top-250-per-day slice, then volunteered that SILO has no page/URL registry to check existence against. Omitted in an earlier answer that stated "zero sessions" flatly |
+| Not ingested vs provider capability | Fired, with the reviewed wording intact: "the sync only pulls `FROM campaign`… even though Google Ads' API supports them" |
+| Search evidence unavailable | Fired — labelled `Unavailable`, bounded GA4 to channel-level volume "never which query drove it", named GSC and the Ads search-terms report as where it actually lives |
+| **Qualifiers survive simplification** | **Failed.** "simplify that" dropped the 6-week window entirely and turned a hedged "likely no indexed hub" into an assertion |
+
+Caveats on the above: two of the four ran in a thread already primed by
+earlier answers, which flatters the result; the Google Ads case is the
+cleanest signal since that topic had not come up in the thread. n=1 per
+behaviour. **These support improvement, not consistent compliance.**
+
+The one failure is addressed by the follow-up rule change (bind the qualifier
+into the claim sentence rather than parking it beside the claim): the caveat
+that survived compression was the one that *was* the finding, so the
+distinguishing property is detachability, not importance.
 
 ---
 
