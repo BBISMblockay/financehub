@@ -60,8 +60,21 @@ const collectionNode = (n, extra = {}) => ({
   ...extra,
 });
 
+// Shape verified against the live Baseballism shop 2026-09-09: publications
+// carry catalog: null, and the online store is identified by the CHANNEL
+// handle, whose numeric id pairs with its publication.
 const PUBLICATION_OK = {
-  publications: { nodes: [{ id: 'gid://shopify/Publication/1', catalog: { title: 'Online Store' } }] },
+  channels: {
+    pageInfo: { hasNextPage: false, endCursor: null },
+    nodes: [
+      { id: 'gid://shopify/Channel/1861820', handle: 'online_store', app: { handle: 'online_store' } },
+      { id: 'gid://shopify/Channel/1861824', handle: 'pos', app: { handle: 'pos' } },
+    ],
+  },
+  publications: { nodes: [
+    { id: 'gid://shopify/Publication/1861820' },
+    { id: 'gid://shopify/Publication/1861824' },
+  ] },
 };
 
 console.log('\n-- a run that dies mid-pagination must not delete anything --');
@@ -152,16 +165,71 @@ await test('publication lookup failure writes null + an error, not false', async
   ok(row.publication_error, 'the reason is recorded');
 });
 
-await test('an ambiguous publication match is unknown too', async () => {
-  const two = {
-    publications: { nodes: [
-      { id: 'gid://shopify/Publication/1', catalog: { title: 'Online Store' } },
-      { id: 'gid://shopify/Publication/2', catalog: { title: 'Online Store (staging)' } },
-    ] },
+await test('the live shape resolves: channel handle -> derived publication id', async () => {
+  const res = await resolveOnlineStorePublication(CONNECTION, { gql: async () => PUBLICATION_OK });
+  eq(res.id, 'gid://shopify/Publication/1861820', 'derived from the online_store channel id');
+});
+
+// The bug this replaced: matching on Publication.catalog.title resolved
+// nothing on the real shop, because every publication returns catalog null.
+test('catalog.title is not used -- publications with null catalog still resolve', () => {
+  ok(PUBLICATION_OK.publications.nodes.every((p) => !('catalog' in p)),
+    'the fixture matches the live shape, where catalog is absent/null');
+});
+
+await test('a derived publication id that is not a real publication is unknown', async () => {
+  const orphanChannel = {
+    channels: { pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: 'gid://shopify/Channel/999', handle: 'online_store', app: { handle: 'online_store' } }] },
+    publications: { nodes: [{ id: 'gid://shopify/Publication/1861820' }] },
   };
-  const res = await resolveOnlineStorePublication(CONNECTION, { gql: async () => two });
-  ok(!res.id, 'no id chosen when two match');
-  ok(/cannot pick one/.test(res.error), 'says why');
+  const res = await resolveOnlineStorePublication(CONNECTION, { gql: async () => orphanChannel });
+  ok(!res.id, 'an unconfirmed derivation is not used');
+  ok(/no matching publication/.test(res.error), 'says why');
+});
+
+await test('an INTERRUPTED channel walk is unknown, never "not published"', async () => {
+  let call = 0;
+  const gql = async () => {
+    call++;
+    if (call === 1) {
+      return {
+        channels: { pageInfo: { hasNextPage: true, endCursor: 'C1' },
+                    nodes: [{ id: 'gid://shopify/Channel/5', handle: 'pos', app: { handle: 'pos' } }] },
+        publications: { nodes: [{ id: 'gid://shopify/Publication/5' }] },
+      };
+    }
+    throw new Error('rate limited paging channels');
+  };
+  const res = await resolveOnlineStorePublication(CONNECTION, { gql });
+  ok(!res.id, 'a partial channel list must not resolve');
+  ok(/rate limited/.test(res.error), 'the reason survives');
+});
+
+await test('a COMPLETE walk that finds no online store is still unknown, not false', async () => {
+  const noOnlineStore = {
+    channels: { pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: 'gid://shopify/Channel/5', handle: 'pos', app: { handle: 'pos' } }] },
+    publications: { nodes: [{ id: 'gid://shopify/Publication/5' }] },
+  };
+  const res = await resolveOnlineStorePublication(CONNECTION, { gql: async () => noOnlineStore });
+  ok(!res.id, 'no id');
+  ok(/no channel with handle online_store/.test(res.error), 'says why');
+});
+
+// The other half of the rule: false is only ever written when the
+// publication DID resolve, so the per-collection boolean is trustworthy.
+await test('only a resolved publication permits a false; otherwise null', async () => {
+  const supabase = fakeSupabase();
+  const gql = async (_conn, query) => {
+    if (query.includes('OnlineStorePublication')) return PUBLICATION_OK;
+    return { collections: { pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: [collectionNode(1, { publishedOnPublication: false })] } };
+  };
+  await runCollectionsSync(supabase, CONNECTION, { gql });
+  const row = supabase.rows('shopify_collections')[0];
+  eq(row.published_to_online_store, false, 'a resolved publication may record false');
+  eq(row.publication_error, null, 'and carries no error');
 });
 
 console.log('\n-- membership is paginated to completion --');

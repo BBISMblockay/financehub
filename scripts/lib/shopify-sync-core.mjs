@@ -2521,26 +2521,68 @@ export async function shopifyGraphql(connection, query, variables = {}) {
 
 /** Find the Online Store publication id.
  *
- *  Publication has no name field, so this matches on catalog.title, which is
- *  a display string and therefore brittle -- a renamed or localised channel
- *  stops matching. That is survivable ONLY because the caller treats failure
- *  here as unknown rather than as "not published"; if that ever changes,
- *  this needs a sturdier discriminator (the channel's app handle) first.
+ *  Resolved via CHANNELS, not via Publication.catalog.title. Verified
+ *  against the live Baseballism shop on 2026-09-09: all 13 publications
+ *  return catalog: null, because a publication bound to a sales channel has
+ *  no catalog at all (Shopify's own docs say so -- "when a publication isn't
+ *  associated with a catalog, product availability is determined by the
+ *  sales channel"). The first implementation matched on catalog.title and
+ *  therefore resolved NOTHING, writing unknown across all 349 collections.
+ *
+ *  Channel does carry a documented, stable handle ('online_store'), and a
+ *  channel's publication shares its numeric id -- Channel/1861820 pairs with
+ *  Publication/1861820, confirmed for all 13 publications on that shop. That
+ *  correspondence is undocumented, so it is DERIVED AND THEN VERIFIED
+ *  against the publications list rather than trusted: if the derived id
+ *  isn't a real publication, this returns unknown instead of a guess.
+ *
+ *  Channels are paginated to exhaustion. An interrupted or truncated walk
+ *  that did not find the online store returns unknown -- never "not
+ *  published", which is a different and actionable claim.
  *  Returns { id } or { error }, never throws. */
 export async function resolveOnlineStorePublication(connection, { gql = shopifyGraphql } = {}) {
   try {
-    const data = await gql(connection, `
-      query OnlineStorePublication {
-        publications(first: 50) { nodes { id catalog { title } } }
+    const publicationIds = new Set();
+    let channelId = null;
+    let cursor = null;
+    let pages = 0;
+
+    for (;;) {
+      const data = await gql(connection, `
+        query OnlineStorePublication($cursor: String) {
+          channels(first: 50, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes { id handle app { handle } }
+          }
+          publications(first: 50) { nodes { id } }
+        }
+      `, { cursor });
+
+      for (const p of data?.publications?.nodes || []) {
+        if (p?.id) publicationIds.add(p.id);
       }
-    `);
-    const nodes = data?.publications?.nodes || [];
-    const matches = nodes.filter((n) => /online store/i.test(n?.catalog?.title || ''));
-    if (matches.length === 1) return { id: matches[0].id };
-    if (matches.length === 0) {
-      return { error: `no publication whose catalog.title looks like Online Store (saw ${nodes.length})` };
+      const channels = data?.channels?.nodes || [];
+      const hit = channels.find((c) => c?.handle === 'online_store' || c?.app?.handle === 'online_store');
+      if (hit?.id) { channelId = hit.id; break; }
+
+      pages += 1;
+      const info = data?.channels?.pageInfo;
+      if (!info?.hasNextPage) break;
+      if (pages > 20) return { error: 'channel pagination did not terminate' };
+      cursor = info.endCursor;
     }
-    return { error: `${matches.length} publications match Online Store; cannot pick one` };
+
+    if (!channelId) return { error: 'no channel with handle online_store' };
+
+    const numeric = shopifyNumericId(channelId);
+    const derived = `gid://shopify/Publication/${numeric}`;
+    if (!publicationIds.has(derived)) {
+      // The channel exists but its publication is not in the list we saw.
+      // Do not fall back to "probably fine" -- an id we cannot confirm would
+      // silently answer a different question for every collection.
+      return { error: `online_store channel ${channelId} has no matching publication in the ${publicationIds.size} seen` };
+    }
+    return { id: derived };
   } catch (err) {
     return { error: `publication lookup failed: ${err?.message || err}` };
   }
