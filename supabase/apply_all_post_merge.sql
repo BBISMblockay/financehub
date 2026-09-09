@@ -18571,3 +18571,17 @@ $c$select (select count(*) from v_po_header_summary
 -- both roles could call the delete path after the first apply.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909360000_landing_pages_resume_and_sweep.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909380000_seo_collection_candidates.sql
+-- seo_collection_candidates(p_days, p_shop_domain): collection landing pages
+-- with measured traffic, each carrying an inspect_url built from the SAME
+-- SHOP's verified storefront host. That join is the point: Baseballism owns
+-- two primary hosts (www.baseballism.com DTC, baseballismb2b.com wholesale),
+-- both allowlisted for one company, so pairing a DTC path with the B2B host
+-- returns a real 200 from the wrong store -- which the SSRF allowlist cannot
+-- catch, because it is not a security violation. Collection ROOTS only; a
+-- /collections/x/y subpath is a product page. SECURITY INVOKER.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909380000_seo_collection_candidates.sql

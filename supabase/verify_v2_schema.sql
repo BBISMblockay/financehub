@@ -3025,3 +3025,38 @@ select
         || 'run under the caller''s RLS or its company id argument is a cross-tenant delete'
     else 'ok'
   end as landing_pages_resume_and_sweep;
+
+-- ── SEO collection candidates (20260909380000) ───────────────────────
+-- The function Ask SILO starts every on-page SEO review from. Its safety
+-- property is the shop-scoped host join, not the SSRF allowlist: two primary
+-- hosts under one company means a path from store A paired with store B's
+-- domain fetches successfully and reports on the wrong store.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_collection_candidates')
+      then 'MISSING — run 20260909380000_seo_collection_candidates.sql'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='seo_collection_candidates' and p.prosecdef)
+      then 'CRITICAL — seo_collection_candidates is SECURITY DEFINER; it must run under the '
+        || 'caller''s RLS or it reads every tenant''s landing pages'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='seo_collection_candidates'
+                   and has_function_privilege('anon', p.oid, 'EXECUTE'))
+      then 'CRITICAL — anon can EXECUTE seo_collection_candidates'
+    -- The load-bearing join, asserted on OUTCOME: every returned row's host
+    -- must be registered to that row's own shop, never a sibling store's.
+    when exists (
+      select 1 from public.seo_collection_candidates(90) c
+      where c.storefront_host is not null
+        and not exists (select 1 from public.shopify_shop_domains d
+                        where d.host = c.storefront_host
+                          and d.shop_domain = c.shop_domain))
+      then 'CRITICAL — a candidate row carries a host that is not registered to its own shop; '
+        || 'the inspect_url would fetch the wrong store'
+    -- A subpath is a product page and must never be offered as a collection.
+    when exists (select 1 from public.seo_collection_candidates(90)
+                 where landing_page_path !~ '^/collections/[^/?#]+$')
+      then 'MISSING — a non-root path leaked into seo_collection_candidates'
+    else 'ok'
+  end as seo_collection_candidates;
