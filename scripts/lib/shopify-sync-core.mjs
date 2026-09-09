@@ -1559,6 +1559,132 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
  * land with those fields blank for someone to fill in; existing SKUs never
  * get overwritten or deleted, even if since discontinued in Shopify.
  */
+/** Learn which hosts this shop actually serves from, and record them as the
+ * allowlist the page-inspect edge function checks against (20260909220000).
+ *
+ * The point is that NOBODY TYPES A DOMAIN. A row in shopify_shop_domains
+ * authorises an outbound fetch from our infrastructure, so the only
+ * acceptable source is Shopify's own answer for a shop we hold an OAuth token
+ * for. Verified against the live shop 2026-09-09: the main store reports
+ * domain 'www.baseballism.com' next to its myshopify_domain, so both forms
+ * are real and both belong in the list.
+ *
+ * Only the PRIMARY custom domain and the permanent myshopify domain are
+ * recorded -- deliberately not every alias a Plus store may have attached.
+ * Widening an allowlist costs nothing to do and is the thing you cannot undo
+ * quietly, so it stays at the two hosts a storefront is actually served on.
+ *
+ * Non-fatal by design: a shop that refuses this call should not fail a sales
+ * sync, it should just have no inspectable domains.
+ */
+export async function runShopDomainsSync(supabase, connection, { fetchJson = null } = {}) {
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const base = `https://${connection.shop_domain}/admin/api/${apiVersion}`;
+  const headers = {
+    'X-Shopify-Access-Token': connection.access_token,
+    'Content-Type': 'application/json',
+  };
+
+  let shop;
+  try {
+    if (fetchJson) {
+      shop = (await fetchJson(`${base}/shop.json`, headers))?.shop;
+    } else {
+      const res = await fetchWithRetry(`${base}/shop.json`, { headers });
+      if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+      shop = (await res.json())?.shop;
+    }
+  } catch (err) {
+    return { skipped: true, error: String(err?.message || err).slice(0, 300) };
+  }
+
+  const rows = buildShopDomainRows(shop, connection);
+  if (!rows.length) return { skipped: true, error: 'shop object carried no usable domain' };
+
+  const upserted = await upsertInChunks(
+    supabase,
+    'shopify_shop_domains',
+    rows,
+    'company_entity_id,host',
+  );
+
+  // RETIRE what this shop no longer serves. Without this an allowlist only
+  // ever grows: a custom domain that was changed, sold or transferred to
+  // another owner stays permanently authorised, and page-inspect would keep
+  // fetching a host that is now somebody else's.
+  //
+  // A sweep is justified HERE and not for the catalog tables, and the
+  // difference is completeness. shop.json is a SINGLE non-paginated request:
+  // it either succeeded and told us the whole truth about this shop's domains,
+  // or it threw and we returned above without reaching this line. There is no
+  // partial-fetch state in which a host could be missing merely because we
+  // stopped early -- which is exactly the condition the collections registry
+  // cannot satisfy, and why that one gates on completed_at instead.
+  //
+  // Deletion rather than a missing_since tombstone, because for a security
+  // allowlist the safe failure is to stop trusting a host immediately; a row
+  // that lingers in a "probably retired" state is still a row that authorises
+  // a fetch.
+  const keep = rows.map((r) => r.host);
+  const { data: removed, error: sweepErr } = await supabase
+    .from('shopify_shop_domains')
+    .delete()
+    .eq('company_entity_id', connection.company_entity_id)
+    .eq('shop_domain', connection.shop_domain)
+    .not('host', 'in', `(${keep.map((h) => `"${h}"`).join(',')})`)
+    .select('host');
+
+  return {
+    hosts: keep,
+    rows_upserted: upserted,
+    hosts_retired: sweepErr ? null : (removed || []).map((r) => r.host),
+    sweep_error: sweepErr ? sweepErr.message : null,
+  };
+}
+
+/** Pure half of runShopDomainsSync, so the allowlist rows can be asserted
+ * without a network. Normalises exactly as inspect-lib's normalizeHost does:
+ * lowercase, no scheme, no port, no trailing dot. A mismatch between the two
+ * would make an allowlisted host unmatchable at fetch time. */
+export function buildShopDomainRows(shop, connection) {
+  const now = new Date().toISOString();
+  const seen = new Set();
+  const rows = [];
+
+  const add = (raw, kind) => {
+    const host = normalizeShopHost(raw);
+    if (!host || seen.has(host)) return;
+    seen.add(host);
+    rows.push({
+      company_entity_id: connection.company_entity_id,
+      shop_domain: connection.shop_domain,
+      host,
+      kind,
+      last_seen_at: now,
+    });
+  };
+
+  // myshopify first: it comes from the OAuth grant itself, so it is the one
+  // host we can vouch for even if the shop object is unhelpful.
+  add(shop?.myshopify_domain || connection.shop_domain, 'myshopify');
+  add(shop?.domain, 'primary');
+  return rows;
+}
+
+export function normalizeShopHost(raw) {
+  if (typeof raw !== 'string') return '';
+  let h = raw.trim().toLowerCase();
+  if (!h) return '';
+  h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//, '');  // tolerate a pasted scheme
+  h = h.split('/')[0];                            // tolerate a path
+  const at = h.lastIndexOf('@');
+  if (at !== -1) h = h.slice(at + 1);
+  const colon = h.indexOf(':');
+  if (colon !== -1) h = h.slice(0, colon);
+  while (h.endsWith('.')) h = h.slice(0, -1);
+  return h;
+}
+
 /** One row per VARIANT for shopify_product_skus (20260909200000).
  *
  * Pure and exported so the properties that matter can be asserted without a

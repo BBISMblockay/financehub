@@ -15,6 +15,7 @@ import {
   runSessionsSync,
   runLandingPagesSync,
   runCollectionsSync,
+  runShopDomainsSync,
   runDiscountCodesSync,
   runWindowedHistory,
 } from './lib/shopify-sync-core.mjs';
@@ -239,6 +240,37 @@ async function syncConnection(connection) {
       // Same stance as sessions: analytics must not take down sales sync.
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       console.warn(`[warn] ${connection.shop_domain} landing_pages_sync failed: ${err.message || err}`);
+    }
+  }
+
+  if (SYNC_MODE === 'incremental' || SYNC_MODE === 'full') {
+    // One request, and it is what authorises page-inspect to fetch anything at
+    // all. Deliberately NOT wrapped in a sync_jobs row: it needs no job_type
+    // CHECK extension, and its own failure is already non-fatal — a shop whose
+    // domains we cannot read simply has no inspectable pages, which is the
+    // correct outcome rather than an error worth a job record.
+    try {
+      const result = await runShopDomainsSync(supabase, connection);
+      if (result.skipped) {
+        console.warn(`[warn] ${connection.shop_domain} shop_domains: ${result.error}`);
+      } else if (result.sweep_error) {
+        // The upsert succeeding and the sweep failing is the dangerous
+        // combination, and it is the one that used to be reported as success:
+        // new hosts are authorised while retired ones stay authorised too, so
+        // a domain that was sold or transferred keeps its permission to be
+        // fetched, indefinitely and invisibly. Never log this as [ok].
+        console.warn(
+          `[warn] ${connection.shop_domain} shop_domains: hosts written (${result.hosts.join(', ')}) ` +
+          `but RETIREMENT FAILED (${result.sweep_error}) — stale domains may still be authorised for page-inspect`,
+        );
+      } else {
+        const retired = (result.hosts_retired || []).length
+          ? `, retired ${result.hosts_retired.join(', ')}`
+          : '';
+        console.log(`[ok] ${connection.shop_domain} shop_domains: ${result.hosts.join(', ')}${retired}`);
+      }
+    } catch (err) {
+      console.warn(`[warn] ${connection.shop_domain} shop_domains failed: ${err.message || err}`);
     }
   }
 

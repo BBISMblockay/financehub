@@ -2689,3 +2689,233 @@ select
       then 'MISSING — shopify_product_skus catalog entry no longer says it is not a registry'
     else 'ok'
   end as shopify_product_sku_mapping;
+
+-- ── Page inspection (20260909220000) ────────────────────────────────────────
+-- shopify_shop_domains IS a security boundary: a row in it authorises an
+-- outbound fetch from our infrastructure. The checks that matter are that it
+-- stays sync-owned and company-scoped, not merely that it exists.
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_shop_domains')
+      then 'MISSING — shopify_shop_domains'
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='shopify_shop_domains'
+                   and cmd in ('INSERT','UPDATE','DELETE','ALL'))
+      then 'CRITICAL — shopify_shop_domains has a client write policy; a row here '
+        || 'authorises page-inspect to fetch that host'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='shopify_shop_domains'
+                       and qual like '%active_company_id%')
+      then 'MISSING — shopify_shop_domains select policy is not company-scoped'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='shopify_shop_domains' and c.relrowsecurity)
+      then 'MISSING — RLS not enabled on shopify_shop_domains'
+    when not exists (select 1 from pg_indexes
+                     where schemaname='public' and indexname='shopify_shop_domains_identity')
+      then 'MISSING — shopify_shop_domains_identity unique index (company, host)'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='page_inspections')
+      then 'MISSING — page_inspections'
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='page_inspections'
+                   and cmd in ('INSERT','UPDATE','DELETE','ALL'))
+      then 'UNEXPECTED — page_inspections has a client write policy; a hand-written '
+        || 'row would look like a capture that never happened'
+    -- Completeness columns. A capture without them cannot be compared to
+    -- another capture honestly, which is the only reason to store one.
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name='page_inspections'
+            and column_name in ('fetched_at','is_truncated','fetch_error','redirect_chain')) <> 4
+      then 'MISSING — page_inspections lost a completeness column '
+        || '(fetched_at / is_truncated / fetch_error / redirect_chain)'
+    -- The catalog entry must keep saying this is not search data, or the model
+    -- will be invited to read meta_robots as an indexing observation.
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='page_inspections'
+                       and description like '%no Search Console or search-engine data%')
+      then 'MISSING — page_inspections catalog entry no longer disclaims search data'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname in ('page_inspections','shopify_shop_domains')
+                   and jsonb_array_length(coalesce(columns,'[]'::jsonb)) = 0)
+      then 'MISSING — a page-inspection catalog entry has no columns; run select public.refresh_chat_schema_catalog()'
+    else 'ok'
+  end as page_inspection;
+
+-- ── SEO project workflow (20260909240000) ───────────────────────────────────
+-- The two invariants are STRUCTURAL, so they are checked structurally here.
+-- Behaviour (triggers, constraints, what the view derives) is exercised
+-- against a real database by scripts/sql/verify_seo_workflow.sql.
+select
+  case
+    when (select count(*) from information_schema.tables
+          where table_schema='public'
+            and table_name in ('seo_projects','seo_tasks','seo_task_revisions',
+                               'seo_task_publications','seo_measurements','seo_approvers')) <> 6
+      then 'MISSING — an SEO workflow table'
+    -- INVARIANT 1, enforced by ABSENCE. If a publication/published/live column
+    -- ever appears on seo_tasks, approval can advance it and the guarantee is
+    -- gone -- publication must stay the existence of an evidence row.
+    when exists (select 1 from information_schema.columns
+                 where table_schema='public' and table_name='seo_tasks'
+                   and (column_name like '%publish%' or column_name = 'is_live'))
+      then 'CRITICAL — seo_tasks grew a publication column; approval can now mark '
+        || 'something live without evidence. Publication belongs in seo_task_publications'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='can_approve_seo_tasks')
+      then 'MISSING — can_approve_seo_tasks()'
+    -- It must not quietly widen to every membership admin: 28 of 29 profiles
+    -- here carry that role.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='can_approve_seo_tasks'
+                   and pg_get_functiondef(p.oid) like '%is_admin_user%')
+      then 'CRITICAL — can_approve_seo_tasks() now calls is_admin_user(), which passes '
+        || 'for nearly every profile in this company'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='can_approve_seo_tasks'
+                       and pg_get_functiondef(p.oid) like '%active_company_id%')
+      then 'CRITICAL — can_approve_seo_tasks() no longer scopes the grant to the '
+        || 'active company; an approver at one tenant could approve at another'
+    -- Approval enforcement lives in the UPDATE policy's WITH CHECK.
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='seo_tasks'
+                       and policyname='seo_tasks_update'
+                       and with_check like '%can_approve_seo_tasks%')
+      then 'CRITICAL — seo_tasks_update no longer gates the approved state server-side'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='seo_tasks'
+                       and policyname='seo_tasks_insert'
+                       and with_check like '%can_approve_seo_tasks%')
+      then 'CRITICAL — a task can be INSERTED already approved'
+    -- Revisions are trigger-written history; a client write policy would let
+    -- someone rewrite what a page was asked to say.
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='seo_task_revisions'
+                   and cmd in ('INSERT','UPDATE','DELETE','ALL'))
+      then 'CRITICAL — seo_task_revisions has a client write policy; history is rewritable'
+    when not exists (select 1 from pg_trigger
+                     where tgname='trg_record_seo_task_revision' and not tgisinternal)
+      then 'MISSING — trg_record_seo_task_revision'
+    when not exists (select 1 from pg_trigger
+                     where tgname='trg_seo_baseline_precedes_publication' and not tgisinternal)
+      then 'MISSING — trg_seo_baseline_precedes_publication (invariant 2)'
+    when not exists (select 1 from pg_constraint
+                     where conname='seo_task_publications_verified_needs_evidence')
+      then 'MISSING — a verified_capture publication can be recorded with no evidence'
+    -- The measurement columns that make a number comparable to another number.
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name='seo_measurements'
+            and column_name in ('source','period_start','period_end','captured_at',
+                                'dimensions','filters','is_complete','window_kind')) <> 8
+      then 'MISSING — seo_measurements lost a provenance column'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='seo_tasks_v')
+      then 'MISSING — seo_tasks_v'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='seo_tasks_v'
+                       and 'security_invoker=true' = any(c.reloptions))
+      then 'MISSING — seo_tasks_v is not security_invoker'
+    -- The catalog must keep telling the model both rules, or it will read a
+    -- delta as a result and an approval as a launch.
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_measurements'
+                       and description like '%not proof that the change caused it%')
+      then 'MISSING — seo_measurements catalog entry lost the causation caveat'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_tasks'
+                       and description like '%NO PUBLICATION COLUMN%')
+      then 'MISSING — seo_tasks catalog entry no longer says approval is not publication'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname like 'seo\_%'
+                   and jsonb_array_length(coalesce(columns,'[]'::jsonb)) = 0)
+      then 'MISSING — an SEO catalog entry has no columns; run select public.refresh_chat_schema_catalog()'
+    else 'ok'
+  end as seo_project_workflow;
+
+-- ── SEO workflow integrity (20260909260000, corrective) ─────────────────────
+-- Each check here corresponds to a gap review found in 20260909220000 /
+-- 20260909240000. They are separate from the block above because losing one of
+-- these does not remove a table -- it silently removes a guarantee.
+select
+  case
+    -- Tenant identity tied to the PARENT ROW. A single-column FK lets a child
+    -- carry company A while citing company B's parent, and every downstream
+    -- join uses the child's own company id, so the row looks native.
+    when (select count(*) from pg_constraint
+          where conname in ('seo_tasks_project_company_fkey',
+                            'seo_task_revisions_task_company_fkey',
+                            'seo_task_publications_task_company_fkey',
+                            'seo_task_publications_inspection_company_fkey',
+                            'seo_measurements_project_company_fkey',
+                            'seo_measurements_task_company_fkey',
+                            'seo_measurements_evidence_company_fkey')) <> 7
+      then 'CRITICAL — a composite company-scoped foreign key is missing; a child row '
+        || 'can cite another tenant''s parent while carrying its own company id'
+    -- If the old single-column FKs came back they would coexist with the
+    -- composite ones and the weaker one would not be noticed.
+    when exists (select 1 from pg_constraint
+                 where conname in ('seo_tasks_project_id_fkey',
+                                   'seo_task_publications_task_id_fkey',
+                                   'seo_measurements_task_id_fkey',
+                                   'seo_measurements_project_id_fkey'))
+      then 'CRITICAL — a single-column FK was reintroduced alongside the composite one'
+    when not exists (select 1 from pg_constraint where conname='seo_projects_id_company_key')
+      then 'MISSING — seo_projects (id, company_entity_id) unique key'
+    when not exists (select 1 from pg_constraint where conname='page_inspections_id_company_key')
+      then 'MISSING — page_inspections (id, company_entity_id) unique key'
+    -- The baseline invariant needs BOTH directions: either row can arrive
+    -- second. With only the measurement-side trigger, the ordering could be
+    -- established and then invalidated by a later publication.
+    when not exists (select 1 from pg_trigger
+                     where tgname='trg_check_publication_after_baselines' and not tgisinternal)
+      then 'CRITICAL — publications are not checked against existing baselines; the '
+        || 'baseline invariant can be bypassed by recording the publication second'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts')
+      then 'MISSING — seo_baseline_conflicts(), the shared definition both triggers use'
+    -- Same-day windows. Publication carries a time, a daily window does not, so
+    -- >= is required: a baseline ending on the publication date straddles it.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                       and pg_get_functiondef(p.oid) like '%>=%')
+      then 'CRITICAL — seo_baseline_conflicts no longer rejects a baseline ending ON '
+        || 'the publication date'
+    -- The allowlist comment must not go back to claiming the host check alone
+    -- excludes private addresses. It does not: it stops an attacker NAMING one.
+    when not exists (select 1 from pg_description d
+                     join pg_class c on c.oid = d.objoid
+                     where c.relname='shopify_shop_domains' and d.objsubid=0
+                       and d.description like '%necessary and NOT sufficient%')
+      then 'MISSING — shopify_shop_domains comment no longer states the allowlist is '
+        || 'insufficient on its own; address validation at fetch time is what covers it'
+    else 'ok'
+  end as seo_workflow_integrity;
+
+-- ── Baseline boundary is a BUSINESS date (20260909300000, corrective) ───────
+-- seo_baseline_conflicts() compared a date against timestamptz::date, which
+-- reads the session TimeZone, while being declared IMMUTABLE. Measured on this
+-- database: '2026-09-01T02:00:00Z'::date is 2026-09-01 under UTC and
+-- 2026-08-31 under America/Los_Angeles -- so the boundary the whole invariant
+-- rests on moved with a connection setting, and IMMUTABLE let the planner fold
+-- a result computed under one timezone for reuse under another.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                       and pg_get_functiondef(p.oid) like '%America/Los_Angeles%')
+      then 'CRITICAL — seo_baseline_conflicts() no longer pins the publication date to '
+        || 'the business timezone; the baseline boundary moves with the session TimeZone'
+    -- The bare cast is what made it session-dependent. If it comes back the
+    -- explicit conversion has been undone.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                   and pg_get_functiondef(p.oid) ~ 'p_published[[:space:]]*::[[:space:]]*date')
+      then 'CRITICAL — seo_baseline_conflicts() is back to p_published::date, which reads '
+        || 'the session TimeZone'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                       and p.provolatile = 'i')
+      then 'MISSING — seo_baseline_conflicts() is no longer IMMUTABLE; it is called from '
+        || 'triggers on both sides of the invariant and from a WHERE clause'
+    else 'ok'
+  end as seo_baseline_business_timezone;

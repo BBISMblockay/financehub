@@ -18483,3 +18483,53 @@ $c$select (select count(*) from v_po_header_summary
 -- the catalog sync, so no missing_since sweep and absence means not-seen.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909200000_shopify_product_skus.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909220000_page_inspection.sql
+-- shopify_shop_domains (the page-inspect allowlist, learned from Shopify's own
+-- shop object per connected store -- nobody types a domain, and there is no
+-- client write policy because a row here authorises an outbound fetch) and
+-- page_inspections (point-in-time captures of what a page says about itself,
+-- with capture time, truncation and error preserved so two captures can be
+-- compared honestly). Nothing here is search data.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909220000_page_inspection.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909240000_seo_project_workflow.sql
+-- seo_projects / seo_tasks / seo_task_revisions / seo_task_publications /
+-- seo_measurements / seo_approvers, can_approve_seo_tasks(), seo_tasks_v.
+-- Two structural invariants: approval never publishes (seo_tasks has NO
+-- publication column -- a task is live only if a seo_task_publications row
+-- exists), and a baseline's reporting period must end on or before
+-- publication (trigger). Deliberately no delta view: a between-window change
+-- is evidence of movement, not proof of causation.
+-- Behaviour test: scripts/sql/verify_seo_workflow.sql
+-- ---------------------------------------------------------------------------
+\i migrations/20260909240000_seo_project_workflow.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909260000_seo_workflow_integrity.sql
+-- Forward-corrective for the two migrations above, both already applied to
+-- prod. Composite company-scoped foreign keys (a child could otherwise cite
+-- another tenant's parent while carrying its own company id), the reciprocal
+-- half of the baseline invariant (either row can arrive second), same-day
+-- windows rejected, and the shopify_shop_domains comment corrected -- an
+-- exact-match host allowlist stops an attacker NAMING an internal address, not
+-- an allowlisted name RESOLVING to one.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909260000_seo_workflow_integrity.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909300000_seo_baseline_business_timezone.sql
+-- seo_baseline_conflicts() used timestamptz::date, which reads the SESSION
+-- TimeZone, while being declared IMMUTABLE. Measured: the same instant is
+-- 2026-09-01 under UTC and 2026-08-31 under Pacific, so the invariant's
+-- boundary moved with a connection setting. Now an explicit
+-- America/Los_Angeles conversion, matching silo_business_today().
+-- ---------------------------------------------------------------------------
+\i migrations/20260909300000_seo_baseline_business_timezone.sql

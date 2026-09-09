@@ -22,6 +22,10 @@ on:
       - 'scripts/shopify-sync.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
       - 'supabase/functions/shopify-oauth-start/**'
+      # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
+      # function directory, so a change there must run these tests. Without
+      # this path the allowlist could be edited and nothing would run.
+      - 'supabase/functions/page-inspect/**'
       - '.github/workflows/sync-tests.yml'
   pull_request:
     paths: *sync_paths
@@ -57,3 +61,21 @@ jobs:
       # with no SKU is still mapped, first_seen_at is not restamped nightly.
       - name: Product/SKU mapping grain
         run: node scripts/tests/product-sku-mapping.test.mjs
+
+      # The one that most needs to run on every change: it asserts the known
+      # allowlist bypass shapes (suffix matching, lookalike hosts), that
+      # resolved addresses must be public unicast, HTTPS-only, that redirects
+      # get the same check, and that the shop-domain sweep retires only what
+      # the shop stopped serving.
+      - name: Page inspection admission and extraction
+        run: node scripts/tests/page-inspect.test.mjs
+
+      # Integration-style, all on localhost: proves the TCP connection goes to
+      # an ADDRESS we chose while TLS authenticates a NAME we chose, and that
+      # claiming a different name over the same address FAILS certificate
+      # validation. That negative case is the one that says pinning by address
+      # does not weaken authentication. The TLS half needs openssl to mint a
+      # throwaway cert and skips (does not fail) without it; ubuntu-latest has
+      # it. No network egress, no install.
+      - name: Page inspection pinned-TLS shape
+        run: node scripts/tests/page-inspect-tls.test.mjs

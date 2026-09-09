@@ -225,7 +225,7 @@ believable rather than merely non-null.
 | 2 | Search Console integration | The long pole. Search-performance and URL-Inspection are separate deliverables with separate quotas. |
 | 3 | Page inspection tool | Allowlisted fetch, per above. |
 | 4 | Shopify collections/pages sync | Registry + SEO fields + publication status; add `shopify_product_id`/`handle` to the catalog sync so membership joins work — `products_master` has no Shopify identifier today. |
-| 5 | Project workflow | Tables, tools, page. |
+| 5 | Project workflow | **Schema shipped** (`20260909240000`), applied. Tools and page still to build. |
 | 6 | GA4 landing-page dataset | **Separate dataset, not a dimension added to `marketing_kpis_daily`.** Adding `landingPage` to the existing campaign/channel ingestion would multiply rows against a table whose grain is day × platform × account × campaign and silently break every existing spend total. Needs its own table and its own grain-safety check. |
 | 7 | Google Ads sub-grains | Paid search only; not an SEO prerequisite. |
 
@@ -289,3 +289,330 @@ Order of operations: apply the migration → deploy `google-oauth-start`,
 Search Console API in the existing Cloud project → Connect (a fresh consent
 is required; an existing refresh token does not carry a newly added scope)
 → Test to list properties → paste the identifier → run the probe.
+
+## Step 5 — project workflow schema (shipped 2026-09-09)
+
+### Why new tables rather than the existing task system
+
+**Correction to the first version of this section and to commit `b1d0a8d`'s
+message.** They said reusing `launch_tasks` "would mean minting a
+`launch_calendar` row per SEO project". That is wrong. `launch_id` is nullable,
+`/v2/tasks.html` fetches `launch_tasks` and `launch_calendar` as two separate
+queries rather than joining them, it renders the launch cell conditionally, and
+it ships an explicit `__evergreen__` filter (`if (t.launch_id) return false;`)
+for exactly this case. **Launch-less tasks are a first-class, already-supported
+concept there.** No fake launch row would have been required, and the open
+question recorded in the Reuse assessment above — whether the Task Manager
+drops a null-`launch_id` row — is answered: it does not.
+
+The real reasons are narrower, and they are about the invariants rather than
+about launches:
+
+- `launch_tasks` carries `task_title`, `task_type`, `status`, `priority`,
+  `due_date`, `assigned_to`, `notes`, `sort_order`, `is_private`. It has no
+  target URL/handle/type, no current-vs-proposed copy, no rationale or
+  evidence, no approver identity, no revision history, no publication event,
+  and no measurement linkage.
+- Its `status` is a single freely-writable text column. Both invariants below
+  require the opposite: **no** publication column at all, and approval gated in
+  a policy `WITH CHECK`. Retrofitting those onto a table that backs a live
+  tool — where any member can change `status` today — would change the
+  semantics of something already in use and risk breaking the Task Manager for
+  launch work.
+
+So: separate tables, to keep the guarantee without touching a live surface. The
+*patterns* are borrowed — immutable revisions via a `BEFORE UPDATE` trigger
+from `product_concepts`, a narrow grant table beside a role check from
+`silo_chat_managers`.
+
+There is also **no generic `tasks` table** in this database; `/v2/tasks.html`
+is built entirely on `launch_tasks`. That part was checked and is accurate.
+
+### The two invariants, and why they are structural
+
+**1. Approval never publishes anything.** `seo_tasks` has *no publication
+column* — not a flag, not a status value the pipeline can advance into.
+A task is published if and only if a row exists in `seo_task_publications`,
+and `seo_tasks_v.is_published` derives it from there. There is no code path,
+policy gap or well-meaning `UPDATE` that can mark something live because it was
+approved. `verify_v2_schema.sql` fails loudly if a `%publish%` column ever
+appears on `seo_tasks`.
+
+`method` is either `manual_confirmation` (a person states they made the change
+live) or `verified_capture`, which a CHECK constraint requires to carry a
+`page_inspections` id — a "verified" publication with nothing to verify against
+is a claim wearing a stronger word. `published_at` is the *actual* date the
+change went live; `recorded_at` is when someone typed it in. Follow-up windows
+measure from the former.
+
+**2. A baseline must predate the change it is a baseline for.** Enforced by
+trigger on the reporting **period**, not on `captured_at` — recording a
+baseline late is normal, measuring one over a window that runs past publication
+is a follow-up mislabelled.
+
+### What is deliberately absent
+
+There is **no baseline-vs-follow-up delta view**. A change between two windows
+is evidence of *movement*, never proof of causation — seasonality, promotions,
+paid spend and site-wide changes move the same numbers — and a view handing
+back a tidy "+18%" invites exactly the claim the rest of this work exists to
+prevent. The caveat is carried in the `seo_measurements` catalog entry, which
+`verify_v2_schema.sql` checks is still there.
+
+`seo_measurements.source` is a constrained list so the two search sources stay
+nameable and separable, and the catalog entry states the rule directly: never
+combine `search_console_query` rows with GA4/Shopify session rows, and never
+attribute sessions to an individual query. `is_complete` is tri-state — null
+means nobody established completeness, which is not the same as incomplete.
+
+### Approvers
+
+`can_approve_seo_tasks()` = `is_exec_or_owner()` **or** a `seo_approvers` grant
+for the caller's **active** company. Company isolation is inside the function,
+so an approver at one tenant cannot approve at another. Deliberately *not*
+`is_admin_user()` — 28 of 29 profiles here carry membership `admin`.
+
+`seo_approvers` is intentionally **empty**: the decision was exec/owner level,
+and those seven already pass without a grant. The table exists so access can be
+handed to someone specific later without promoting them to `executive`
+company-wide.
+
+Who passes today (2026-09-09): Blake Evetts (owner), Ben Atkinson, Chris
+Clements, Kalin Boodman, Jon Loomis, Travis Chock, and **Daniel Lopez
+(`dlopez.wpv@gmail.com`)** — the only non-`baseballism.com` address in the set,
+carrying a pre-existing `executive` profile role. Flagged for confirmation
+rather than changed.
+
+### Testing
+
+`scripts/sql/verify_seo_workflow.sql` exercises the behaviour against a real
+database and rolls back. All nine assertions pass, including both invariants.
+It runs as service role, so it does **not** exercise the RLS policies
+themselves — approval enforcement is asserted structurally in
+`verify_v2_schema.sql`, and confirming it end to end needs impersonation, the
+way the storage-isolation work was checked. That is the open gap in this step.
+
+### Still to build
+
+The tools and the page. The schema is the contract; nothing writes to it yet.
+
+## Review fixes (2026-09-09, forward-corrective)
+
+Review of the first cut found six blockers. All six were reproduced before
+being fixed; the two migrations were already applied to production, so the
+schema fixes are a **forward-corrective migration** (`20260909260000`) rather
+than edits to already-applied files.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Exact hostname matching does not stop an allowlisted domain **resolving** to a private/link-local address; stale primary domains were never retired; http was permitted | HTTPS only; every hop's host is resolved and every returned address must be public unicast, checked at the fetch layer; the shop-domain sync now **deletes** hosts a shop no longer serves |
+| 2 | The 2 MiB and 15 s limits were decorative — the timer was cleared in a `finally` that ran *before* the body was read, and `response.text()` downloads everything then truncates | One controller and one timer spanning redirects **and** body download; the body is streamed and stops at `MAX_BYTES + 1` |
+| 3 | The baseline invariant checked only on measurement insert, so a publication recorded afterwards could land inside an existing baseline window; same-day windows passed | Reciprocal trigger on `seo_task_publications`; shared `seo_baseline_conflicts()` so the two cannot disagree; `>=` rejects a baseline ending on the publication date |
+| 4 | Children carried their own `company_entity_id` next to a single-column FK, so a row could cite another tenant's parent and still look native to every downstream join | Composite `(id, company_entity_id)` foreign keys throughout; cited evidence is `ON DELETE RESTRICT`, not `SET NULL` |
+| 5 | A capture whose insert failed returned `ok: true` with a null id — evidence that looks like it worked | Returns 500 `capture_not_stored` |
+| 6 | Neither new suite ran in CI, and the workflow had no path trigger for the function directory | Both added to `sync-tests.yml`, plus `supabase/functions/page-inspect/**` |
+
+### The SSRF claim, restated honestly
+
+The first version said an exact-match allowlist excluded private-range access
+"structurally". It does not. It stops an attacker **naming** an internal
+address; it says nothing about an allowlisted name **resolving** to one. The
+mitigation is now a stack: exact-match allowlist of domains Shopify vouched
+for, HTTPS only, resolution validated on every hop, stale domains retired
+promptly.
+
+**Residual risk, stated rather than glossed:** this is check-then-connect, so a
+zone returning a public address to our lookup and a private one to the
+connection a moment later (DNS rebinding) is not defeated by it. Closing that
+needs connecting to the validated address with an explicit `Host` header, which
+`fetch()` does not expose.
+
+### Still not covered
+
+`scripts/sql/verify_seo_workflow.sql` runs as service role, so it exercises
+constraints, triggers and the view — **not** the RLS policies. Approval
+enforcement and company isolation are asserted structurally in
+`verify_v2_schema.sql`; confirming them end to end needs impersonation, the way
+the storage-isolation work was checked. That remains the open gap.
+
+## Second review round (2026-09-09)
+
+Four further gaps, all reproduced before fixing.
+
+### 1 — DNS rebinding is now closed, not just reduced
+
+The previous version validated the resolved addresses and then called
+`fetch(host)`. That is **two independent lookups**: the one we approved and the
+one the connection used, with nothing binding them. A zone answering
+differently a moment later won, which is why the last PR could only claim the
+blocker was *reduced*.
+
+The connection is now made to the **validated address** via `Deno.connectTls`,
+with `servername` set to the hostname — so TLS SNI and certificate validation
+remain pinned to the storefront name. Connecting by address does not weaken
+authentication: an attacker who can point DNS at their box still cannot present
+a valid certificate for `www.baseballism.com`.
+
+That means speaking HTTP/1.1 ourselves. The request is shaped to keep the
+reader minimal — `Connection: close` (no keep-alive framing to desynchronise)
+and `Accept-Encoding: identity` (no decompression in the path). Chunked
+transfer-encoding is still handled, because a server may use it regardless.
+Parsing lives in `inspect-lib.mjs` and is unit-tested: header-end location,
+status/header parsing, duplicated `Location` keeping the **first** value,
+chunked decode with and without its terminator, chunk extensions, bad chunk
+sizes, and the byte cap applied to a chunked body.
+
+**Deployment risk, stated plainly:** whether `Deno.connectTls` is available in
+the Supabase Edge runtime is **unverified**. The code **fails closed** if it is
+absent — it raises `tls_connect_unavailable` rather than falling back to
+`fetch()`, because a silent fallback would reopen exactly the hole this closes.
+So if the runtime lacks it, page-inspect will not work at all until that is
+resolved. That is the deliberate trade: no captures beats captures made through
+an unpinned connection.
+
+A non-443 port is now also refused. A storefront is served on 443; an explicit
+alternate port is not a storefront, and allowing one widens what an allowlisted
+name can reach on a host we do not otherwise control.
+
+### 2 — The deadline now covers DNS
+
+Neither `Deno.resolveDns` nor the DNS-over-HTTPS fallback took the abort
+signal, so a hanging resolver sat entirely outside the 15 s budget.
+`resolveHostAddresses` now races `resolveDns` against the abort and passes
+`signal` to the DoH request, and the TLS socket is closed on abort. No step is
+left outside the budget.
+
+### 3 — A failed retirement sweep is no longer logged as success
+
+`sweep_error` was returned and ignored. The dangerous combination is precisely
+the one that used to print `[ok]`: hosts written, retirement failed — new hosts
+authorised while retired ones stay authorised, indefinitely and invisibly. The
+orchestrator now warns explicitly and names the consequence, and a successful
+run reports what it retired.
+
+### 4 — The baseline boundary was session-dependent
+
+`seo_baseline_conflicts()` compared a `date` against `timestamptz::date`, which
+reads the session `TimeZone`, while being declared `IMMUTABLE`. Measured on
+this database:
+
+```
+set time zone 'UTC';                  '2026-09-01T02:00:00Z'::date => 2026-09-01
+set time zone 'America/Los_Angeles';  same value            ::date => 2026-08-31
+```
+
+A publication at 02:00 UTC on the 1st is 19:00 Pacific on the 31st, so the
+boundary the entire invariant rests on moved by a day between connections — and
+`IMMUTABLE` entitled the planner to fold a result computed under one timezone
+and reuse it under another.
+
+Now an explicit `AT TIME ZONE 'America/Los_Angeles'`, matching
+`silo_business_today()`, which exists in this repo for the same reason.
+`timestamptz AT TIME ZONE '<literal>'` is genuinely immutable, so the marking
+becomes true rather than being downgraded. Verified identical under UTC and
+Asia/Tokyo sessions after the change. Pacific is hardcoded for the same reason
+it is in `silo_business_today()`: a tenant elsewhere needs it read from their
+company record, which is a wider change.
+
+## Third review round (2026-09-09) — pinned connect, and the deploy gate
+
+### `connectTls` replaced with `connect` → `startTls`
+
+Same guarantee, expressed so it cannot be tidied away:
+
+```
+Deno.connect  -> plain TCP to the VALIDATED ADDRESS   (this is the pin)
+Deno.startTls -> TLS over that socket, hostname = the STOREFRONT NAME
+                 (this is what SNI carries and what the cert is checked against)
+```
+
+`connectTls({ hostname, servername })` did the same job, but reads as an option
+on a call whose `hostname` is doing the connecting — one plausible "simplify
+this" later collapses the two into a single hostname, the connection
+re-resolves, and the pin is gone with nothing failing. Splitting the steps makes
+the two values visibly independent. `startTls` is also the more widely available
+of the two APIs.
+
+Both are feature-detected and **fail closed**: if either is missing the function
+raises `tls_connect_unavailable` rather than falling back to `fetch()`.
+
+### The integration test
+
+`scripts/tests/page-inspect-tls.test.mjs`, all on localhost, in CI:
+
+- a real split header block and chunked body, read off a socket and parsed by
+  the actual helpers — the title tag is deliberately split *across* two chunks
+- the server sees `Host:` = the storefront name, never the address
+- **TLS validates the NAME while TCP went to the pinned ADDRESS**, asserted from
+  both ends: the server records SNI = storefront and peer = `127.0.0.1`
+- **claiming a different name over the same address FAILS certificate
+  validation** — the assertion that says pinning by address does not weaken
+  authentication
+- an untrusted certificate is rejected even for the right name
+
+Node's `net`/`tls` stand in for `Deno.connect`/`Deno.startTls`: the same two-step
+shape. This proves the *shape* and the parser. It cannot prove the Deno runtime
+exposes those APIs — that is the live smoke test below.
+
+The TLS half mints a throwaway certificate with `openssl` and **skips (does not
+fail)** without it, the same stance as the v3 browser suites. Verified both
+ways: 5/5 with openssl, 2/2 and a reported skip without it, exit 0 either way.
+
+### Deploy gate — page-inspect stays undeployed until this passes
+
+The one thing no test here can settle is whether the Supabase Edge runtime
+exposes `Deno.connect` and `Deno.startTls`. **Do not consider page-inspect
+shipped, and do not wire any UI to it, until one live call succeeds.**
+
+Order:
+
+1. Merge, then deploy `page-inspect` (`verify_jwt: true`).
+2. One call, as a signed-in admin whose active company has a
+   `shopify_shop_domains` row:
+   `POST /functions/v1/page-inspect  {"url":"https://www.baseballism.com/"}`
+
+**Passes** when the response has `ok: true`, a non-null `inspection_id`,
+`http_status: 200`, a non-empty `title`, and `fetch_error: null` — and the
+matching `page_inspections` row exists.
+
+**Fails closed** if the response carries
+`fetch_error: "tls_connect_unavailable: ..."`. That is not a security problem —
+the function refuses to fetch rather than falling back to an unpinned
+connection, and it still records the attempt — but the tool is inert until the
+runtime question is resolved. In that case the options are a Deno version with
+those APIs, or moving the fetch to a runner that has them (the GitHub Actions
+path the probes already use).
+
+Nothing is deployed as of this writing.
+
+### Fourth round — the deadline claim was still false
+
+Review caught that the previous round's comment ("no step is left outside the
+budget") was not yet true. `Deno.connect` and `Deno.startTls` were both plain
+awaits, and the abort handler was attached only *after* the handshake resolved —
+so an abort during either did nothing, and an abort mid-handshake had no socket
+to close.
+
+Fixed, and the bound is now a tested function rather than a claim:
+
+- `opts.signal` is passed into `Deno.connect` **and** the call is raced against
+  the abort. Relying on the option alone would make the deadline depend on a
+  runtime detail we cannot check from here.
+- The closer is attached to the **raw TCP socket before the handshake is
+  awaited**, and only re-pointed at the TLS connection once the handshake
+  succeeds — the raw socket is consumed by `startTls` and must not be closed
+  separately afterwards.
+- The handshake is raced too. A peer that completes TCP and then never finishes
+  TLS is exactly the shape that hides inside an unbounded await.
+
+`raceAbort()` lives in `inspect-lib.mjs` and is unit-tested, including the part
+that is easy to get wrong invisibly: **losing the race does not cancel the
+underlying connect**, so a socket that arrives after the abort is closed rather
+than leaked. Without that, every timed-out inspection leaks a live connection
+and the leak is unobservable because the request already returned. Also tested:
+a genuine failure still surfaces as itself rather than as a timeout, and the
+abort listener is removed so it cannot accumulate across redirect hops.
+
+The comment now enumerates what is bounded step by step instead of asserting a
+summary. Three rounds of review each found another step outside the deadline,
+and each time the summary sentence is what stopped anyone looking.
