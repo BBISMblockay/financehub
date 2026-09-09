@@ -15,6 +15,7 @@ import {
   runSessionsSync,
   runLandingPagesSync,
   runCollectionsSync,
+  runShopDomainsSync,
   runDiscountCodesSync,
   runWindowedHistory,
 } from './lib/shopify-sync-core.mjs';
@@ -239,6 +240,24 @@ async function syncConnection(connection) {
       // Same stance as sessions: analytics must not take down sales sync.
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       console.warn(`[warn] ${connection.shop_domain} landing_pages_sync failed: ${err.message || err}`);
+    }
+  }
+
+  if (SYNC_MODE === 'incremental' || SYNC_MODE === 'full') {
+    // One request, and it is what authorises page-inspect to fetch anything at
+    // all. Deliberately NOT wrapped in a sync_jobs row: it needs no job_type
+    // CHECK extension, and its own failure is already non-fatal — a shop whose
+    // domains we cannot read simply has no inspectable pages, which is the
+    // correct outcome rather than an error worth a job record.
+    try {
+      const result = await runShopDomainsSync(supabase, connection);
+      if (result.skipped) {
+        console.warn(`[warn] ${connection.shop_domain} shop_domains: ${result.error}`);
+      } else {
+        console.log(`[ok] ${connection.shop_domain} shop_domains: ${result.hosts.join(', ')}`);
+      }
+    } catch (err) {
+      console.warn(`[warn] ${connection.shop_domain} shop_domains failed: ${err.message || err}`);
     }
   }
 
