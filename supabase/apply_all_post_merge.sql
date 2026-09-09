@@ -18459,3 +18459,15 @@ $c$select (select count(*) from v_po_header_summary
 -- correct.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909160000_collections_registry_now_populated.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909180000_search_console_connection.sql
+-- Lets a Search Console connection exist on ad_platform_connections: extends
+-- the platform CHECK on that table and on ad_platform_oauth_states, and adds
+-- search_console_site_url. Connection plumbing ONLY -- no metric tables, on
+-- purpose: their grain depends on how much of this site's traffic Search
+-- Console will actually attribute to a query, which
+-- scripts/search-console-probe.mjs measures rather than assumes.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909180000_search_console_connection.sql

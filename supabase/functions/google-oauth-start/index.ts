@@ -8,14 +8,23 @@ const corsHeaders = {
 const CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? '';
 const CALLBACK_URL = 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/google-oauth-callback';
 
-// Same Google Cloud OAuth client covers both platforms — only the scope
-// differs. Google Ads needs the `adwords` scope; GA4 reads use the
-// analytics.readonly scope. access_type=offline + prompt=consent guarantee
-// a refresh_token comes back even on a repeat authorization by the same
-// Google account (Google otherwise omits it after the first consent).
+// One Google Cloud OAuth client covers every Google platform here — only the
+// scope differs. access_type=offline + prompt=consent guarantee a
+// refresh_token comes back even on a repeat authorization by the same Google
+// account (Google otherwise omits it after the first consent).
+//
+// An EXISTING refresh token does not carry a newly added scope: a connection
+// authorized before a scope was listed here keeps working for what it was
+// granted and returns 403 for anything else. Adding a platform therefore
+// needs one fresh consent round-trip per connection, not just this line.
 const SCOPES: Record<string, string> = {
   google_ads: 'https://www.googleapis.com/auth/adwords',
   ga4: 'https://www.googleapis.com/auth/analytics.readonly',
+  // webmasters.readonly is read-only Search Console (performance data + the
+  // verified-site list). The read-only variant is the whole grant we want —
+  // the writable `webmasters` scope additionally permits submitting sitemaps
+  // and adding/removing properties, none of which SILO does.
+  search_console: 'https://www.googleapis.com/auth/webmasters.readonly',
 };
 
 Deno.serve(async (req) => {

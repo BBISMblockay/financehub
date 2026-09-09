@@ -1,0 +1,55 @@
+name: Search Console Probe
+
+# Measures the Search Console account before any table is designed for it:
+# freshness lag, how far history reaches, the real row cap, and -- the one
+# that decides whether a negative claim is ever safe -- what share of clicks
+# Search Console will attribute to a query or a page at all.
+#
+# READ ONLY. It writes nothing to Supabase, not even the refreshed access
+# token. Safe to re-run; manual only, no schedule.
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "Property to probe, verbatim (blank = the connection's stored site). e.g. https://www.baseballism.com/ or sc-domain:baseballism.com"
+        required: false
+        default: ""
+        type: string
+      window_days:
+        description: "Days in the coverage window (default 28)"
+        required: false
+        default: "28"
+        type: string
+      connection_id:
+        description: "Specific ad_platform_connections row (blank = first search_console connection)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Probe Search Console
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SC_SITE_URL: ${{ inputs.site_url }}
+          SC_WINDOW_DAYS: ${{ inputs.window_days }}
+          SC_CONNECTION_ID: ${{ inputs.connection_id }}
+        run: node scripts/search-console-probe.mjs
