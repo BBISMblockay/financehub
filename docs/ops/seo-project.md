@@ -616,3 +616,58 @@ abort listener is removed so it cannot accumulate across redirect hops.
 The comment now enumerates what is bounded step by step instead of asserting a
 summary. Three rounds of review each found another step outside the deadline,
 and each time the summary sentence is what stopped anyone looking.
+
+## After the first full multi-shop nightly (2026-09-09)
+
+### The product-grain prediction was confirmed
+
+PR #639 recorded a falsifiable prediction: coverage through
+`products_master` would **fall** after a multi-shop sync, and if it held steady
+the stated mechanism was wrong. Measured after the nightly:
+
+| | One shop synced | After the nightly |
+|---|---|---|
+| `products_master` rows stamped | 9,868, all one shop | 23,986, across 20 shops |
+| Collection products joinable via `products_master` | 2,299 / 2,442 = **94.1%** | 4,099 / 12,890 = **31.8%** |
+| Joinable via `shopify_product_skus` | — | 12,890 / 12,890 = **100%** |
+
+One row per `(company, sku)` means the product id belongs to whichever shop
+synced last, so the join degrades as shops are added. The mapping table is the
+difference between 32% and 100%.
+
+`shopify_collection_skus_v` now resolves fully: 315,644 rows, 0 unresolved,
+16,319 distinct SKUs.
+
+### Empty collections were invisible (fixed, 20260909320000)
+
+The view LEFT-joined product→SKU but INNER-joined collection→membership, so a
+collection with no products vanished — the same absence-semantics mistake one
+join further up. **45 collections were invisible, 42 of them published to the
+online store**: live pages with nothing on them, which is a real SEO finding
+the view was hiding.
+
+Found because Ask SILO answered "all 341 collections" from the view while the
+registry held 349. The model reported the view faithfully; the view was wrong.
+
+Now two flags, each meaning one thing: `collection_is_empty` (a live page with
+no products — a merchandising question) and `sku_unresolved` (it has a product
+but no SKU mapping yet — a sync-coverage question). On an empty collection
+`sku_unresolved` is false, because there is nothing to resolve.
+
+Verified after the fix: 636 registry collections, 636 reachable in the view on
+`(company, shop, collection)`, zero missing.
+
+### Duplicate hosts in the allowlist are intentional
+
+`baseballismchicago.myshopify.com` and `baseballismdsg.myshopify.com` each
+appear twice in `shopify_shop_domains`, once for Baseballism and once for Test
+Company, because **both tenants hold active connections to those shops as a
+deliberate multi-tenant test fixture** (confirmed 2026-09-09). The unique index
+is `(company_entity_id, host)`, so two rows are correct, and the allowlist is
+faithfully recording what Shopify vouched for per company.
+
+Recorded here because it looks exactly like a cross-tenant leak to anyone
+reading the table cold, and it is not one. The same duplication is why a
+distinct count of bare `shopify_collection_id` (626) is lower than the registry
+row count (636) — ten collections exist under both companies. Compare on the
+full identity.

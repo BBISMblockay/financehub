@@ -2919,3 +2919,43 @@ select
         || 'triggers on both sides of the invariant and from a WHERE clause'
     else 'ok'
   end as seo_baseline_business_timezone;
+
+-- ── Empty collections stay visible (20260909320000, corrective) ─────────────
+-- The view LEFT-joined product->SKU but INNER-joined collection->membership,
+-- so a collection with no products vanished -- an empty collection read as a
+-- nonexistent one, the same absence mistake one join further up. Measured when
+-- fixed: 45 invisible collections, 42 of them PUBLISHED to the online store.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='shopify_collection_skus_v'
+                       and column_name='collection_is_empty')
+      then 'MISSING — shopify_collection_skus_v lost collection_is_empty; published '
+        || 'collection pages with no products become invisible again'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='shopify_collection_skus_v'
+                       and column_name='sku_unresolved')
+      then 'MISSING — shopify_collection_skus_v lost sku_unresolved'
+    -- The actual regression risk: an INNER join, or the missing_since filter
+    -- moved back into the WHERE clause, silently re-hides them. Assert the
+    -- outcome rather than the SQL text -- every registry collection must be
+    -- reachable in the view on its FULL identity.
+    when exists (select 1 from public.shopify_collections c
+                 where c.missing_since is null
+                   and not exists (select 1 from public.shopify_collection_skus_v v
+                                   where v.company_entity_id = c.company_entity_id
+                                     and v.shop_domain = c.shop_domain
+                                     and v.shopify_collection_id = c.shopify_collection_id))
+      then 'CRITICAL — a registry collection is missing from shopify_collection_skus_v; '
+        || 'the collection->membership join is inner again (or missing_since moved to WHERE)'
+    -- The two flags must stay separate facts.
+    when exists (select 1 from public.shopify_collection_skus_v
+                 where collection_is_empty and sku_unresolved)
+      then 'MISSING — an empty collection is flagged sku_unresolved; there is nothing to '
+        || 'resolve on a collection with no products, and merging the two hides which is which'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='shopify_collection_skus_v'
+                       and description like '%collection_is_empty%')
+      then 'MISSING — catalog entry no longer explains collection_is_empty'
+    else 'ok'
+  end as collection_skus_empty_visibility;
