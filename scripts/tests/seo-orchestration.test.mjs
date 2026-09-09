@@ -252,4 +252,33 @@ const MIG_BODY = MIG.slice(MIG.indexOf('as $$'), MIG.indexOf('$$;') + 3);
   ok(/check sales_by_day/i.test(SRC), 'and names where a real start date comes from');
 }
 
+
+// ── 14. Two things the model cannot measure and must not assert ─────────────
+// Both found on the second live run (silo-chat v64, 2026-09-09), on an answer
+// that was otherwise accurate to the digit.
+{
+  // (a) Character counts. A token-based model cannot count characters, and
+  // "try harder" produces confident wrong numbers rather than none. The
+  // measured failure: a meta description stated as "159 chars" was 169 -- the
+  // SAME length as one flagged on that answer as too long, so the checklist
+  // said trim one and publish the other.
+  ok(/NEVER give a character count/i.test(SRC), 'character counts are refused outright');
+  ok(/159 chars/.test(SRC) && /was 169/.test(SRC),
+    'and the rule carries the measurement that produced it, so it is not mistaken for caution');
+  ok(/confirm meta description length before publishing/i.test(SRC),
+    'the check is handed to the human, who has a character counter');
+  ok(/150-160 characters/.test(SRC), 'while still naming the target to write to');
+
+  // (b) Superlatives. "Lowest of any reviewable candidate, 0.39%" was false --
+  // ~25 candidates sat at 0.00%, one at 0.37%, and the framing hid a page with
+  // 497 sessions and no completed checkouts.
+  ok(/NEVER claim a superlative/i.test(SRC), 'unscoped superlatives are refused');
+  ok(/ORDERED THE WHOLE CANDIDATE SET/i.test(SRC),
+    'unless the whole set was actually ordered');
+  ok(/the lowest of the five I reviewed/i.test(SRC),
+    'and the correct scoped phrasing is given, not just the prohibition');
+  ok(/497 sessions/.test(SRC),
+    'and the rule records the finding the false superlative concealed');
+}
+
 console.log(`seo-orchestration: ${passed} assertions passed`);
