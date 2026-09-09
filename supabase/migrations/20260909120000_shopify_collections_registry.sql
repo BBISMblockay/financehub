@@ -219,7 +219,13 @@ alter table public.sync_jobs add constraint sync_jobs_job_type_check
 insert into public.silo_chat_schema_catalog (relname, relkind, columns, description, keywords)
 values
   ('shopify_collections', 'r', '[]'::jsonb,
-   'THE REGISTRY OF WHICH SHOPIFY COLLECTION PAGES EXIST -- use this, never '
+   'NOT POPULATED YET -- the collections sync has not shipped, so this table is '
+   'EMPTY and cannot answer an existence question either way today. Until it has '
+   'data, keep saying SILO has no way to confirm whether a collection page '
+   'exists; do NOT read an empty registry as "no collections exist", which would '
+   'be a worse version of the landing-page mistake it was built to prevent. '
+   'Once populated: THE REGISTRY OF WHICH SHOPIFY COLLECTION PAGES EXIST -- use '
+   'this, never '
    'shopify_landing_pages_daily, to answer whether a collection or /collections/ '
    'URL exists. handle is the URL segment (/collections/{handle}); it is a lookup '
    'key, NOT identity, because a rename changes the handle and keeps the id -- '
@@ -252,3 +258,22 @@ on conflict (relname) do update
   set description = excluded.description,
       keywords = excluded.keywords,
       updated_at = now();
+
+-- ---------------------------------------------------------------------------
+-- Fill in the column lists for the three new entries.
+--
+-- The inserts above seed relname/description/keywords with columns = '[]',
+-- because the column list is generated from pg_catalog rather than typed by
+-- hand. Without this call the catalog carries three tables the model can see
+-- named and described but whose COLUMNS it does not know -- so it writes
+-- queries against guessed column names, which is the failure mode
+-- 20260821210000 created this table to end.
+--
+-- Running it here rather than by hand is the point: prod was correct after
+-- this migration only because the refresh was run manually, which means a
+-- rebuild from apply_all_post_merge.sql would NOT have reproduced it. The
+-- function is SECURITY DEFINER, owned by postgres, takes no arguments, and
+-- preserves curated description/keywords across refreshes, so it is safe and
+-- idempotent to call from a migration.
+-- ---------------------------------------------------------------------------
+select public.refresh_chat_schema_catalog();

@@ -2567,5 +2567,20 @@ select
                         and description like '%OVERRIDES ONLY%')
       then 'MISSING — shopify_collections lost the seo override note; '
         || 'un-customised collections will be reported as missing SEO'
+    -- The migration seeds these rows with columns = '[]' and then calls
+    -- refresh_chat_schema_catalog() to fill them from pg_catalog. If that
+    -- call is ever dropped, Ask SILO sees three tables it can name and
+    -- describe but whose COLUMNS it does not know, and writes queries
+    -- against guessed column names -- the exact failure the catalog exists
+    -- to prevent. Caught in review of PR #633, where the refresh had been
+    -- run by hand in prod and was missing from the migration, so a rebuild
+    -- from apply_all_post_merge.sql would not have reproduced it.
+    when exists (select 1 from public.silo_chat_schema_catalog
+                  where relname in ('shopify_collections',
+                                    'shopify_collection_products',
+                                    'shopify_collection_sync_runs')
+                    and jsonb_array_length(coalesce(columns, '[]'::jsonb)) = 0)
+      then 'MISSING — a collections-registry catalog entry has no columns; '
+        || 'run select public.refresh_chat_schema_catalog()'
     else 'ok'
   end as shopify_collections_registry;
