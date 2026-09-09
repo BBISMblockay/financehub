@@ -225,7 +225,7 @@ believable rather than merely non-null.
 | 2 | Search Console integration | The long pole. Search-performance and URL-Inspection are separate deliverables with separate quotas. |
 | 3 | Page inspection tool | Allowlisted fetch, per above. |
 | 4 | Shopify collections/pages sync | Registry + SEO fields + publication status; add `shopify_product_id`/`handle` to the catalog sync so membership joins work — `products_master` has no Shopify identifier today. |
-| 5 | Project workflow | Tables, tools, page. |
+| 5 | Project workflow | **Schema shipped** (`20260909240000`), applied. Tools and page still to build. |
 | 6 | GA4 landing-page dataset | **Separate dataset, not a dimension added to `marketing_kpis_daily`.** Adding `landingPage` to the existing campaign/channel ingestion would multiply rows against a table whose grain is day × platform × account × campaign and silently break every existing spend total. Needs its own table and its own grain-safety check. |
 | 7 | Google Ads sub-grains | Paid search only; not an SEO prerequisite. |
 
@@ -289,3 +289,86 @@ Order of operations: apply the migration → deploy `google-oauth-start`,
 Search Console API in the existing Cloud project → Connect (a fresh consent
 is required; an existing refresh token does not carry a newly added scope)
 → Test to list properties → paste the identifier → run the probe.
+
+## Step 5 — project workflow schema (shipped 2026-09-09)
+
+### Why new tables rather than the existing task system
+
+Checked first, not assumed. `/v2/tasks.html` reads `launch_tasks`, and there is
+**no generic `tasks` table in this database at all**. `launch_tasks` hangs off
+`launch_id` and has no target page, no revision history, no approval gate and
+no concept of publication. Reusing it would mean minting a `launch_calendar`
+row per SEO project — and `launch_calendar` feeds `launch_actuals_v`,
+`launch_measurability_v` and `calendar_events_v`, so every SEO project would
+become a fake "launch" those views then try to measure. The tables are new; the
+*patterns* are borrowed — immutable revisions via a `BEFORE UPDATE` trigger
+from `product_concepts`, a narrow grant table beside a role check from
+`silo_chat_managers`.
+
+### The two invariants, and why they are structural
+
+**1. Approval never publishes anything.** `seo_tasks` has *no publication
+column* — not a flag, not a status value the pipeline can advance into.
+A task is published if and only if a row exists in `seo_task_publications`,
+and `seo_tasks_v.is_published` derives it from there. There is no code path,
+policy gap or well-meaning `UPDATE` that can mark something live because it was
+approved. `verify_v2_schema.sql` fails loudly if a `%publish%` column ever
+appears on `seo_tasks`.
+
+`method` is either `manual_confirmation` (a person states they made the change
+live) or `verified_capture`, which a CHECK constraint requires to carry a
+`page_inspections` id — a "verified" publication with nothing to verify against
+is a claim wearing a stronger word. `published_at` is the *actual* date the
+change went live; `recorded_at` is when someone typed it in. Follow-up windows
+measure from the former.
+
+**2. A baseline must predate the change it is a baseline for.** Enforced by
+trigger on the reporting **period**, not on `captured_at` — recording a
+baseline late is normal, measuring one over a window that runs past publication
+is a follow-up mislabelled.
+
+### What is deliberately absent
+
+There is **no baseline-vs-follow-up delta view**. A change between two windows
+is evidence of *movement*, never proof of causation — seasonality, promotions,
+paid spend and site-wide changes move the same numbers — and a view handing
+back a tidy "+18%" invites exactly the claim the rest of this work exists to
+prevent. The caveat is carried in the `seo_measurements` catalog entry, which
+`verify_v2_schema.sql` checks is still there.
+
+`seo_measurements.source` is a constrained list so the two search sources stay
+nameable and separable, and the catalog entry states the rule directly: never
+combine `search_console_query` rows with GA4/Shopify session rows, and never
+attribute sessions to an individual query. `is_complete` is tri-state — null
+means nobody established completeness, which is not the same as incomplete.
+
+### Approvers
+
+`can_approve_seo_tasks()` = `is_exec_or_owner()` **or** a `seo_approvers` grant
+for the caller's **active** company. Company isolation is inside the function,
+so an approver at one tenant cannot approve at another. Deliberately *not*
+`is_admin_user()` — 28 of 29 profiles here carry membership `admin`.
+
+`seo_approvers` is intentionally **empty**: the decision was exec/owner level,
+and those seven already pass without a grant. The table exists so access can be
+handed to someone specific later without promoting them to `executive`
+company-wide.
+
+Who passes today (2026-09-09): Blake Evetts (owner), Ben Atkinson, Chris
+Clements, Kalin Boodman, Jon Loomis, Travis Chock, and **Daniel Lopez
+(`dlopez.wpv@gmail.com`)** — the only non-`baseballism.com` address in the set,
+carrying a pre-existing `executive` profile role. Flagged for confirmation
+rather than changed.
+
+### Testing
+
+`scripts/sql/verify_seo_workflow.sql` exercises the behaviour against a real
+database and rolls back. All nine assertions pass, including both invariants.
+It runs as service role, so it does **not** exercise the RLS policies
+themselves — approval enforcement is asserted structurally in
+`verify_v2_schema.sql`, and confirming it end to end needs impersonation, the
+way the storage-isolation work was checked. That is the open gap in this step.
+
+### Still to build
+
+The tools and the page. The schema is the contract; nothing writes to it yet.

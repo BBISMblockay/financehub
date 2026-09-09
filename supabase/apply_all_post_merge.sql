@@ -18495,3 +18495,17 @@ $c$select (select count(*) from v_po_header_summary
 -- compared honestly). Nothing here is search data.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909220000_page_inspection.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909240000_seo_project_workflow.sql
+-- seo_projects / seo_tasks / seo_task_revisions / seo_task_publications /
+-- seo_measurements / seo_approvers, can_approve_seo_tasks(), seo_tasks_v.
+-- Two structural invariants: approval never publishes (seo_tasks has NO
+-- publication column -- a task is live only if a seo_task_publications row
+-- exists), and a baseline's reporting period must end on or before
+-- publication (trigger). Deliberately no delta view: a between-window change
+-- is evidence of movement, not proof of causation.
+-- Behaviour test: scripts/sql/verify_seo_workflow.sql
+-- ---------------------------------------------------------------------------
+\i migrations/20260909240000_seo_project_workflow.sql

@@ -371,6 +371,7 @@ supabase/
     20260909180000_search_console_connection.sql
     20260909200000_shopify_product_skus.sql
     20260909220000_page_inspection.sql
+    20260909240000_seo_project_workflow.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
