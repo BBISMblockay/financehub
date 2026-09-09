@@ -18533,3 +18533,15 @@ $c$select (select count(*) from v_po_header_summary
 -- America/Los_Angeles conversion, matching silo_business_today().
 -- ---------------------------------------------------------------------------
 \i migrations/20260909300000_seo_baseline_business_timezone.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909320000_collection_skus_show_empty_collections.sql
+-- Forward-corrective for 20260909200000. The view LEFT-joined product->SKU but
+-- INNER-joined collection->membership, so a collection with NO products
+-- vanished -- an empty collection read as a nonexistent one. 45 were invisible,
+-- 42 of them published to the online store. Now two separate flags:
+-- collection_is_empty (a live page with nothing on it) and sku_unresolved (it
+-- has a product but no SKU mapping yet).
+-- ---------------------------------------------------------------------------
+\i migrations/20260909320000_collection_skus_show_empty_collections.sql
