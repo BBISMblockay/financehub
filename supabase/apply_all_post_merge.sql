@@ -18412,3 +18412,21 @@ $c$select (select count(*) from v_po_header_summary
 -- change, and refresh_chat_schema_catalog() preserves them across refreshes.
 -- ---------------------------------------------------------------------------
 \i migrations/20260908150000_chat_catalog_evidence_caveats.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909120000_shopify_collections_registry.sql
+-- The registry of which Shopify collection pages EXIST, as opposed to which
+-- got traffic -- the gap that let Ask SILO declare eight collections
+-- non-existent from a top-250-per-day slice of landing sessions. Three
+-- tables (collections, collection->product membership, and sync runs) plus
+-- shopify_product_id/shopify_handle on products_master, which had no Shopify
+-- identifier at all so membership had nothing to join to. Additive; every
+-- table is empty until the collections sync ships. Note two deliberate NULL
+-- semantics: published_to_online_store is tri-state (null = could not be
+-- checked, never "not published") and seo_*_override are overrides only
+-- (null = inherits the collection title, not missing SEO). Deletions are
+-- gated on a sync run with completed_at, so a partial fetch can never mark
+-- a live collection as gone.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909120000_shopify_collections_registry.sql

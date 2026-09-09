@@ -2530,3 +2530,57 @@ select
         || 'caveat; run 20260908150000_chat_catalog_evidence_caveats.sql'
     else 'ok'
   end as silo_chat_catalog_evidence_caveats;
+
+
+-- ---------------------------------------------------------------------------
+-- Shopify collections registry (20260909120000): the three tables exist, and
+-- the two columns whose NULL semantics are load-bearing are still documented
+-- in the Ask SILO catalog.
+--
+-- published_to_online_store is tri-state (null = UNKNOWN, not "no") and the
+-- seo_*_override columns hold overrides only (null = inherits, not
+-- "missing SEO"). Both are the kind of fact a reader infers wrongly by
+-- default, so if the catalog description loses them the table starts
+-- producing confident false findings -- which is the exact failure this
+-- registry was built to end.
+-- ---------------------------------------------------------------------------
+select
+  case
+    when (select count(*) from information_schema.tables
+           where table_schema = 'public'
+             and table_name in ('shopify_collections',
+                                'shopify_collection_products',
+                                'shopify_collection_sync_runs')) < 3
+      then 'MISSING — run 20260909120000_shopify_collections_registry.sql'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='products_master'
+                        and column_name = 'shopify_product_id')
+      then 'MISSING — products_master.shopify_product_id absent; collection '
+        || 'membership cannot join to products'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'shopify_collections'
+                        and description like '%TRI-STATE%')
+      then 'MISSING — shopify_collections lost the tri-state '
+        || 'published_to_online_store note; null will be read as "not published"'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'shopify_collections'
+                        and description like '%OVERRIDES ONLY%')
+      then 'MISSING — shopify_collections lost the seo override note; '
+        || 'un-customised collections will be reported as missing SEO'
+    -- The migration seeds these rows with columns = '[]' and then calls
+    -- refresh_chat_schema_catalog() to fill them from pg_catalog. If that
+    -- call is ever dropped, Ask SILO sees three tables it can name and
+    -- describe but whose COLUMNS it does not know, and writes queries
+    -- against guessed column names -- the exact failure the catalog exists
+    -- to prevent. Caught in review of PR #633, where the refresh had been
+    -- run by hand in prod and was missing from the migration, so a rebuild
+    -- from apply_all_post_merge.sql would not have reproduced it.
+    when exists (select 1 from public.silo_chat_schema_catalog
+                  where relname in ('shopify_collections',
+                                    'shopify_collection_products',
+                                    'shopify_collection_sync_runs')
+                    and jsonb_array_length(coalesce(columns, '[]'::jsonb)) = 0)
+      then 'MISSING — a collections-registry catalog entry has no columns; '
+        || 'run select public.refresh_chat_schema_catalog()'
+    else 'ok'
+  end as shopify_collections_registry;
