@@ -137,7 +137,7 @@ Brand context: SILO is used by more than one company, so nothing about brand ide
 
 Voice for data answers specifically: even where brand context exists and describes a playful/distinctive voice, keep data answers direct and number-first -- lead with the figure, stay concise. That playfulness belongs in campaign-name/marketing-copy suggestions, not in a sales report, unless the brand context explicitly says otherwise.
 
-You have four tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do. web_search looks up public information on the open internet -- use it for anything outside this company's own database: competitor research, industry trends/benchmarks, or evaluating this brand's own public website/marketing the way an outside visitor sees it. view_ad_creative_image fetches the actual creative image for a specific Meta ad by ad_id, for visual-design questions (color, layout, imagery, composition) that the text fields in meta_ad_creatives can't answer.
+You have five tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do. web_search looks up public information on the open internet -- use it for anything outside this company's own database: competitor research, industry trends/benchmarks, or evaluating this brand's own public website/marketing the way an outside visitor sees it. view_ad_creative_image fetches the actual creative image for a specific Meta ad by ad_id, for visual-design questions (color, layout, imagery, composition) that the text fields in meta_ad_creatives can't answer. inspect_storefront_page fetches ONE page of this company's own verified storefront and reports what that page currently says about itself (title, meta description, canonical, headings, word count, images missing alt, structured data) -- use it only for a page the USER named, never one you picked, and never to walk links: it is not a crawler and you get one inspection per question.
 
 Internal data vs. public web knowledge: run_sql results are this company's own, verified, real operational numbers. web_search results are external, unverified, and can be wrong, outdated, written by a competitor about themselves, or simply not match SILO's own data -- never blend a web-sourced figure into an internal number, and never state a web claim with the same confidence as a number you actually queried. Say plainly when a fact came from the web rather than from SILO's own data. Use web_search efficiently -- a handful of well-targeted searches beats many near-duplicate ones.`;
 
@@ -179,7 +179,7 @@ EVIDENCE DISCIPLINE -- these four rules bind every answer, and breaking them pro
   HOW to keep it: BIND THE QUALIFIER INTO THE CLAIM SENTENCE rather than parking it next to the claim. A qualifier in its own sentence, paragraph, parenthetical or trailing "note:" is detachable, and compression detaches it -- measured live on 2026-09-09, where "landing-page data only goes back to 2026-07-28, ~6 weeks" and a hedged "likely no indexed hub" both vanished on "simplify that", while a caveat that WAS the finding ("confirm with merchandising before writing copy") survived intact. So write "no hoodie-hub traffic in the 6 weeks of data we hold" rather than "zero traffic lands on a hoodies hub" plus a note about the window. The bound version is barely longer and cannot be dropped without dropping the claim itself.
   This is NOT a request for a disclaimer footer. A standing "data may be incomplete" line at the end of every answer is worse than nothing: it is the first thing compression removes, it is identical across answers so nobody reads it, and it does not say WHICH claim is limited or HOW. One specific qualifier inside the sentence it limits beats any amount of general hedging.
 
-SEO and search specifically: SILO holds NO Search Console data -- no search queries, impressions, clicks, CTR or ranking positions -- and you cannot fetch or inspect a live web page. GA4 contributes Organic Search SESSIONS at channel level only (marketing_kpis_daily, campaign_name = 'Organic Search'), which is traffic volume; it is never per-query or per-page search performance, and sessions can NEVER be attributed to individual search queries. You can still help prepare page copy, titles and descriptions grounded in sales, inventory and on-site traffic -- just label search evidence as unavailable and never present that work as a measured search opportunity or a ranking claim until Search Console is connected.
+SEO and search specifically: SILO holds NO Search Console data -- no search queries, impressions, clicks, CTR or ranking positions -- and you cannot fetch or inspect a live web page. GA4 contributes Organic Search SESSIONS at channel level only (marketing_kpis_daily, campaign_name = 'Organic Search'), which is traffic volume; it is never per-query or per-page search performance, and sessions can NEVER be attributed to individual search queries. What you CAN now do is read the page itself: inspect_storefront_page reports what a storefront page states about itself right now, which is on-page fact, not search performance -- a meta_robots value is a DIRECTIVE the page gives, never evidence that anything indexed or ranked it. You can still help prepare page copy, titles and descriptions grounded in sales, inventory and on-site traffic -- just label search evidence as unavailable and never present that work as a measured search opportunity or a ranking claim until Search Console is connected.
 
 Rules:
 - Write ONE single SELECT or WITH statement per run_sql call -- no semicolons, no multiple statements. For a multi-step analysis (e.g. aggregate performance, then join creative/product attributes, then rank or compare groups), chain it as ONE WITH statement with multiple CTEs -- \`WITH a AS (...), b AS (...) SELECT ... FROM a JOIN b ON ...\` -- rather than as separate sequential run_sql calls or a temp table. Both of those get rejected by this same single-statement rule every time, and repeatedly hitting that rejection wastes tool-call rounds you don't get back -- if you notice yourself planning "first I'll compute X, then in a separate query use X to compute Y," fold it into one CTE chain instead of two calls.
@@ -354,6 +354,17 @@ const TOOLS = [
         ad_id: { type: 'string', description: 'The ad_id from meta_ad_performance_daily / meta_ad_creatives to view the creative image for.' },
       },
       required: ['ad_id'],
+    },
+  },
+  {
+    name: 'inspect_storefront_page',
+    description: 'Fetch ONE storefront page the USER has asked about and report what that page says about itself right now: title, meta description, canonical URL, robots directive, H1/H2s, word count, images missing alt text, and structured-data types. Only pages on this company\'s own verified Shopify storefront domains can be fetched; anything else is refused. THIS IS NOT A CRAWLER and not a search tool: inspect only the single URL the user named, never a URL you chose yourself, never a list, and never links found on the page. One inspection per question. What it returns is what the PAGE STATES -- it is not evidence about Google indexing, ranking, impressions or queries, and SILO holds no such data.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'The full https:// URL the user asked about, on one of this company\'s own storefront domains.' },
+      },
+      required: ['url'],
     },
   },
 ];
@@ -808,6 +819,13 @@ Deno.serve(async (req: Request) => {
   let question = '';
   let history: { role: string; content: string; imageUrls?: string[]; conceptId?: string }[] = [];
   let queriesRun: string[] = [];
+  // Crawl guard. "One URL per call" is the tool's signature; this is what stops
+  // a turn becoming a crawl by calling it repeatedly. Enforced here rather than
+  // asked for in the prompt, because a limit a model is merely told about is
+  // not a limit. Raise deliberately, alongside the rate-limit and robots
+  // questions crawling actually needs.
+  const MAX_PAGE_INSPECTIONS_PER_REQUEST = 1;
+  let pageInspectionsThisRequest = 0;
 
   try {
     if (!ANTHROPIC_API_KEY) {
@@ -1116,6 +1134,83 @@ Deno.serve(async (req: Request) => {
             ];
           } catch (err) {
             resultContent = `Error: could not load creative image -- ${String((err as Error)?.message || err)}`;
+          }
+        } else if (use.name === 'inspect_storefront_page') {
+          // ONE page, requested by the user, per call. This is deliberately
+          // NOT a crawler: it never follows links out of the page, never
+          // enumerates URLs, and the cap below stops a turn from becoming one
+          // by repetition. Crawling is a separate decision with its own
+          // rate-limit and robots questions, and it is not being made here.
+          const target = String(use.input?.url || '').trim();
+          if (pageInspectionsThisRequest >= MAX_PAGE_INSPECTIONS_PER_REQUEST) {
+            resultContent = `Error: only ${MAX_PAGE_INSPECTIONS_PER_REQUEST} page inspection is permitted per question, and it has been used. `
+              + 'This tool is not a crawler. If the user wants another page inspected, ask them to request it as a separate question.';
+          } else if (!target) {
+            resultContent = 'Error: url is required, and it must be a page the USER asked about -- do not pick a URL yourself.';
+          } else {
+            pageInspectionsThisRequest += 1;
+            try {
+              // The CALLER'S JWT is forwarded, not a service-role key and not
+              // an assertion by this function about who is asking. page-inspect
+              // reads its host allowlist through that token, so RLS decides
+              // which company's storefront may be fetched -- the tenant check
+              // and the allowlist stay the same query, and Ask SILO cannot
+              // widen either by calling on someone's behalf.
+              const insRes = await fetch(`${SUPABASE_URL}/functions/v1/page-inspect`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${jwt}`,
+                  apikey: SUPABASE_ANON_KEY,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url: target }),
+              });
+              const ins = await insRes.json().catch(() => ({}));
+              if (!insRes.ok || ins?.ok === false) {
+                // Surface the real reason. no_allowlisted_hosts and
+                // host_not_allowed are both legitimate refusals the model
+                // should relay rather than retry or work around.
+                resultContent = `Error: page inspection failed (HTTP ${insRes.status}) -- ${ins?.error || 'unknown error'}`
+                  + (ins?.detail ? ` (${ins.detail})` : '')
+                  + (Array.isArray(ins?.allowed_hosts) ? ` Allowed hosts: ${ins.allowed_hosts.join(', ')}.` : '');
+              } else {
+                // Only the on-page facts. Deliberately no invitation to infer
+                // anything about search: meta_robots is what the page SAYS,
+                // and SILO holds no indexing, ranking or query data at all.
+                resultContent = JSON.stringify({
+                  inspection_id: ins.inspection_id,
+                  requested_url: ins.requested_url,
+                  final_url: ins.final_url,
+                  http_status: ins.http_status,
+                  redirect_chain: ins.redirect_chain,
+                  title: ins.title,
+                  title_length: ins.title_length,
+                  meta_description: ins.meta_description,
+                  meta_description_length: ins.meta_description_length,
+                  canonical_url: ins.canonical_url,
+                  meta_robots: ins.meta_robots,
+                  og_title: ins.og_title,
+                  og_description: ins.og_description,
+                  h1: ins.h1,
+                  h1_count: ins.h1_count,
+                  h2_count: ins.h2_count,
+                  word_count: ins.word_count,
+                  image_count: ins.image_count,
+                  images_missing_alt: ins.images_missing_alt,
+                  jsonld_types: ins.jsonld_types,
+                  is_truncated: ins.is_truncated,
+                  fetch_error: ins.fetch_error,
+                  fetched_at: ins.fetched_at,
+                  note: 'These are facts the PAGE states about itself, captured just now. '
+                    + 'meta_robots is a directive the page gives, NOT evidence about whether anything '
+                    + 'has indexed, crawled or ranked it -- SILO holds no search-engine data. '
+                    + 'word_count measures server-rendered HTML, so JavaScript-injected content is not counted. '
+                    + 'If is_truncated or fetch_error is set, this capture is partial: say so.',
+                });
+              }
+            } catch (err) {
+              resultContent = `Error: could not reach the page inspector -- ${String((err as Error)?.message || err)}`;
+            }
           }
         } else if (use.name === 'create_product_concept') {
           const input = use.input || {};

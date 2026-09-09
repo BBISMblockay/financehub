@@ -20,8 +20,12 @@
  * accepts `evil-baseballism.com` and `baseballism.com.attacker.net`, which is
  * the classic allowlist bypass. It also means an IP literal in any notation
  * (dotted, decimal, octal, IPv6, IPv4-mapped) can never be admitted, because
- * none of them is string-equal to a storefront domain -- so private-range
- * access is excluded structurally rather than filtered.
+ * none of them is string-equal to a storefront domain.
+ *
+ * That stops an attacker NAMING an internal address. It does NOT stop an
+ * allowlisted name RESOLVING to one, and an earlier version of this comment
+ * claimed otherwise. The resolution check below is what covers that, and the
+ * connection is then pinned to the address it approved.
  */
 export function isHostAllowed(host, allowedHosts) {
   if (!host) return false;
