@@ -218,4 +218,38 @@ const MIG_BODY = MIG.slice(MIG.indexOf('as $$'), MIG.indexOf('$$;') + 3);
     'and copy is explicitly not drafted for the non-reviewable statuses');
 }
 
+
+// ── 13. A first-appearance date is not a launch date ────────────────────────
+// The first live run (silo-chat v63, 2026-09-09) produced, from correct data:
+//   "38,286 sessions since launch on 2026-08-13"   (uncrustables-collection)
+//   "41,264 sessions in just 8 days"               (sonic-the-hedgehog)
+// Both false. Checked against sales_by_day: uncrustables had sold 352 units
+// over 10 days BEFORE that date, sonic 85 units over 6 days. page_first_day
+// was only the first day the page ranked into the truncated top-N.
+//
+// The answer had stated the truncation caveat correctly in its own header and
+// then contradicted it -- the general rule did not generalise to the specific
+// inference. So the fix is in the NAME (which cannot be misread without
+// ignoring it), in the per-row coverage_note, and in the prompt.
+{
+  const MIG13 = readFileSync(new URL(
+    '../../supabase/migrations/20260909420000_seo_candidates_top_n_day_names.sql', import.meta.url), 'utf8');
+  const BODY13 = MIG13.slice(MIG13.indexOf('as $$'), MIG13.indexOf('$$;') + 3);
+
+  ok(/page_first_day_in_top_n/.test(BODY13), 'the column carries the caveat in its own name');
+  ok(/page_last_day_in_top_n/.test(BODY13), 'and so does its pair');
+  ok(!/\bpage_first_day\b(?!_in_top_n)/.test(BODY13.replace(/page_first_day_in_top_n/g, 'X')),
+    'the bare page_first_day name is gone from the SQL -- it invited the launch-date reading');
+
+  // The warning must travel IN THE ROW, not only in a prompt that has to be
+  // remembered at each claim.
+  ok(/IS NOT A LAUNCH DATE/.test(BODY13), 'coverage_note says so outright');
+  ok(/since launch/.test(BODY13) && /in just N days/.test(BODY13),
+    'and names the exact phrasings that were produced');
+
+  ok(/ARE NOT LAUNCH OR END DATES/.test(SRC), 'the prompt states the rule');
+  ok(/NEVER write "since launch"/.test(SRC), 'and forbids the phrasing that appeared');
+  ok(/check sales_by_day/i.test(SRC), 'and names where a real start date comes from');
+}
+
 console.log(`seo-orchestration: ${passed} assertions passed`);

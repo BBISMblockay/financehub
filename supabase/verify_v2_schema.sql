@@ -3080,5 +3080,19 @@ select
                      where candidate_status is not null)
       then 'MISSING — candidate_status is absent; an unpublished or unregistered page would be '
         || 'offered for a copy rewrite'
+    -- The day columns must carry their own caveat. Named page_first_day they
+    -- were read as a launch date on the first live run, producing "since
+    -- launch on 2026-08-13" for a collection that had sold for two weeks
+    -- before that.
+    when not exists (select 1 from information_schema.routines r
+                     join information_schema.parameters pa on pa.specific_name = r.specific_name
+                     where r.routine_schema='public' and r.routine_name='seo_collection_candidates'
+                       and pa.parameter_name = 'page_first_day_in_top_n')
+      then 'MISSING — the day columns lost the _in_top_n suffix; a first-appearance date reads '
+        || 'as a launch date without it'
+    when not exists (select 1 from public.seo_collection_candidates(90)
+                     where coverage_note like '%IS NOT A LAUNCH DATE%')
+      then 'MISSING — coverage_note no longer warns that a first-appearance date is not a '
+        || 'launch date'
     else 'ok'
   end as seo_collection_candidates;

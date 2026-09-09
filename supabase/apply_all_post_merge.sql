@@ -18601,3 +18601,17 @@ $c$select (select count(*) from v_po_header_summary
 -- revoke is re-applied -- Supabase re-grants EXECUTE on new public functions.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909400000_seo_candidates_coverage_and_pacific.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909420000_seo_candidates_top_n_day_names.sql
+-- Forward-corrective for 20260909400000. On its first live run Ask SILO wrote
+-- "38,286 sessions since launch on 2026-08-13" and "41,264 sessions in just 8
+-- days" from correct data: page_first_day was the first day the page entered
+-- the TRUNCATED top-N, not a launch date. Uncrustables had already sold 352
+-- units over 10 days before that date; Sonic 85 over 6. Renamed to
+-- page_first_day_in_top_n / page_last_day_in_top_n so the caveat is in the
+-- name, and coverage_note now says it outright. DROP+CREATE (return type
+-- changed), so the anon revoke is re-applied.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909420000_seo_candidates_top_n_day_names.sql
