@@ -13,7 +13,8 @@
  * No network, no database, no install. Run:
  *   node scripts/tests/collections-sync.test.mjs
  */
-import { runCollectionsSync, resolveOnlineStorePublication } from '../lib/shopify-sync-core.mjs';
+import { runCollectionsSync, resolveOnlineStorePublication, shopifyNumericId } from '../lib/shopify-sync-core.mjs';
+import { createFakeSupabase } from './lib/fake-supabase.mjs';
 
 let failures = 0;
 let count = 0;
@@ -35,40 +36,12 @@ const CONNECTION = {
   access_token: 'unused',
 };
 
-/** Minimal stand-in for the supabase client surface this function touches:
- *  .from(t).insert(...).select(...).single(), .from(t).upsert(rows, opts),
- *  and .from(t).update(patch).eq().eq().is().neq(). Records every call so a
- *  test can assert on what was written -- and, more importantly, on what
- *  was NOT. */
-function fakeSupabase() {
-  const calls = { inserts: [], upserts: [], updates: [] };
-  const chainable = (record) => {
-    const chain = {
-      eq: () => chain, is: () => chain, neq: () => chain,
-      then: (resolve) => resolve({ error: null }),
-    };
-    return chain;
-  };
-  return {
-    calls,
-    from(table) {
-      return {
-        insert(row) {
-          calls.inserts.push({ table, row });
-          return { select: () => ({ single: async () => ({ data: { id: 'run-1' }, error: null }) }) };
-        },
-        upsert(rows, opts) {
-          calls.upserts.push({ table, rows, opts });
-          return Promise.resolve({ error: null });
-        },
-        update(patch) {
-          calls.updates.push({ table, patch });
-          return chainable();
-        },
-      };
-    },
-  };
-}
+// The fake applies filters against stored rows (scripts/tests/lib/
+// fake-supabase.mjs) -- the earlier version ignored predicates, so a sweep
+// assertion proved only that a sweep ran, not which rows it touched.
+const fakeSupabase = createFakeSupabase;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const collectionNode = (n, extra = {}) => ({
   id: `gid://shopify/Collection/${n}`,
@@ -238,6 +211,122 @@ await test('an inherited (null) seo override is not backfilled from the title', 
   const row = supabase.calls.upserts.find((u) => u.table === 'shopify_collections').rows[0];
   eq(row.seo_title_override, null, 'null means inherits, and must survive as null');
   eq(row.title, 'Collection 1', 'the title itself is still recorded');
+});
+
+
+console.log('\n-- the sweep marks the right rows, not merely "some rows" --');
+
+await test('a completed run marks only what it did NOT see', async () => {
+  const supabase = fakeSupabase();
+  // A stale row from an earlier era: last_seen_at long past, still present.
+  supabase.from('shopify_collections').insert({
+    company_entity_id: CONNECTION.company_entity_id,
+    shop_domain: CONNECTION.shop_domain,
+    shopify_collection_id: 'gid://shopify/Collection/999',
+    handle: 'retired-collection',
+    last_seen_at: '2020-01-01T00:00:00.000Z',
+    last_seen_run_id: 'run-ancient',
+    missing_since: null,
+  });
+
+  const gql = async (_conn, query) => {
+    if (query.includes('OnlineStorePublication')) return PUBLICATION_OK;
+    return { collections: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [collectionNode(1)] } };
+  };
+  await runCollectionsSync(supabase, CONNECTION, { gql });
+
+  const rows = supabase.rows('shopify_collections');
+  const seen = rows.find((r) => r.handle === 'collection-1');
+  const stale = rows.find((r) => r.handle === 'retired-collection');
+  eq(seen.missing_since, null, 'a collection this run SAW must not be marked missing');
+  ok(stale.missing_since, 'a collection this run did not see IS marked missing');
+});
+
+await test('a row belonging to another shop is never swept', async () => {
+  const supabase = fakeSupabase();
+  supabase.from('shopify_collections').insert({
+    company_entity_id: CONNECTION.company_entity_id,
+    shop_domain: 'other-shop.myshopify.com',
+    shopify_collection_id: 'gid://shopify/Collection/777',
+    handle: 'other-shops-collection',
+    last_seen_at: '2020-01-01T00:00:00.000Z',
+    missing_since: null,
+  });
+  const gql = async (_conn, query) => {
+    if (query.includes('OnlineStorePublication')) return PUBLICATION_OK;
+    return { collections: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [collectionNode(1)] } };
+  };
+  await runCollectionsSync(supabase, CONNECTION, { gql });
+  const other = supabase.rows('shopify_collections').find((r) => r.handle === 'other-shops-collection');
+  eq(other.missing_since, null, 'the sweep is scoped to this shop');
+});
+
+console.log('\n-- overlapping runs must not delete each other\'s data --');
+
+// The nightly workflow deliberately permits overlapping runs (its
+// concurrency group was tried and removed). Sweeping on
+// last_seen_run_id != runId is wrong under that: B re-stamps a row while A
+// is still walking, then A completes and marks it missing because the id
+// isn't A's -- deleting a live collection. Sweeping on
+// last_seen_at < A.started_at survives it.
+await test('a run interleaved inside another does not get its rows swept', async () => {
+  const supabase = fakeSupabase();
+  let ranB = false;
+
+  // A must NOT re-see collection 1 after B stamps it -- otherwise A's own
+  // upsert overwrites B's run id and the race never materialises. (The first
+  // version of this test did exactly that and passed against the BROKEN
+  // sweep, which is why it is written this way.) So A sees 1 then 2, while
+  // B sees both.
+  const gqlA = async (_conn, query, vars) => {
+    if (query.includes('OnlineStorePublication')) return PUBLICATION_OK;
+    if (!vars.cursor) {
+      return { collections: { pageInfo: { hasNextPage: true, endCursor: 'C1' }, nodes: [collectionNode(1)] } };
+    }
+    if (!ranB) {
+      ranB = true;
+      await sleep(5); // distinguishable timestamps for B's writes
+      const gqlB = async (_c, q) => {
+        if (q.includes('OnlineStorePublication')) return PUBLICATION_OK;
+        return { collections: { pageInfo: { hasNextPage: false, endCursor: null },
+                                nodes: [collectionNode(1), collectionNode(2)] } };
+      };
+      await runCollectionsSync(supabase, CONNECTION, { gql: gqlB });
+      await sleep(5);
+    }
+    return { collections: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [collectionNode(2)] } };
+  };
+
+  await sleep(5);
+  await runCollectionsSync(supabase, CONNECTION, { gql: gqlA });
+
+  const one = supabase.rows('shopify_collections').find((r) => r.handle === 'collection-1');
+  ok(one, 'collection 1 exists');
+  eq(one.missing_since, null,
+    'collection 1 was seen by A (page 1) and re-stamped by B, so A\'s sweep must leave it alone; ' +
+    'sweeping on last_seen_run_id marks it missing here and deletes live data');
+});
+
+console.log('\n-- membership joins products_master --');
+
+await test('membership stores the NUMERIC product id, not the GID', async () => {
+  const supabase = fakeSupabase();
+  const gql = async (_conn, query) => {
+    if (query.includes('OnlineStorePublication')) return PUBLICATION_OK;
+    return { collections: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [collectionNode(7)] } };
+  };
+  await runCollectionsSync(supabase, CONNECTION, { gql });
+  const member = supabase.rows('shopify_collection_products')[0];
+  eq(member.shopify_product_id, '7',
+    'products_master.shopify_product_id is Shopify\'s REST numeric id; a GID here joins to nothing');
+  ok(!String(member.shopify_product_id).startsWith('gid://'), 'no GID leaked through');
+});
+
+await test('shopifyNumericId is idempotent and handles both dialects', () => {
+  eq(shopifyNumericId('gid://shopify/Product/123'), '123', 'gid');
+  eq(shopifyNumericId('123'), '123', 'already numeric');
+  eq(shopifyNumericId(shopifyNumericId('gid://shopify/Product/123')), '123', 'applied twice');
+  eq(shopifyNumericId(null), null, 'null');
 });
 
 console.log(`\n${count - failures}/${count} passed`);

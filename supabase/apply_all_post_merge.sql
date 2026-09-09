@@ -18444,3 +18444,18 @@ $c$select (select count(*) from v_po_header_summary
 -- Description only, no schema change.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909140000_landing_pages_day_level_truncation.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909160000_collections_registry_now_populated.sql
+-- Replaces the registry's "NOT POPULATED YET" warning now that the sync
+-- exists. Deliberately does not swap it for "this table is correct": the
+-- registry is authoritative only for a shop whose most recent
+-- shopify_collection_sync_runs row has completed_at, and only as of when
+-- that run finished, so the description tells the model how to CHECK rather
+-- than asserting a new default. Also documents that
+-- shopify_collection_products.shopify_product_id is the NUMERIC id matching
+-- products_master, since a GID there would join to nothing while looking
+-- correct.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909160000_collections_registry_now_populated.sql

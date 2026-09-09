@@ -20,6 +20,8 @@ on:
       - 'scripts/lib/**'
       - 'scripts/tests/**'
       - 'scripts/shopify-sync.mjs'
+      - 'scripts/shopify-orders-backfill.mjs'
+      - 'supabase/functions/shopify-oauth-start/**'
       - '.github/workflows/sync-tests.yml'
   pull_request:
     paths: *sync_paths
@@ -44,3 +46,6 @@ jobs:
       # Bare checkout on purpose, same stance as the v3 unit job.
       - name: Collections sync
         run: node scripts/tests/collections-sync.test.mjs
+
+      - name: Shopify stays read-only
+        run: node scripts/tests/shopify-readonly.test.mjs

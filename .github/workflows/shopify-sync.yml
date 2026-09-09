@@ -7,6 +7,13 @@ on:
         description: incremental | history | full
         required: false
         default: incremental
+      collections_enabled:
+        description: >-
+          Run the collections registry sync (true/false). OFF by default and
+          off on every schedule -- it has never run against live Shopify. Use
+          true with a single connection_id for the first run.
+        required: false
+        default: 'false'
       company_entity_id:
         description: Optional company UUID (limit to one entity)
         required: false
@@ -147,6 +154,13 @@ jobs:
       SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
       SHOPIFY_LANDING_PAGES_DAYS: ${{ github.event.inputs.landing_pages_days || '' }}
       SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
+      # Collections registry: OPT-IN and currently OFF on every schedule.
+      # It has never run against live Shopify. Turn it on for a manual
+      # single-shop run first (Run workflow -> collections_enabled: true,
+      # connection_id: <one shop>), confirm shopify_collection_sync_runs has
+      # a completed_at and a plausible collections_seen, and only then
+      # default this to 'true'.
+      SHOPIFY_COLLECTIONS_ENABLED: ${{ github.event.inputs.collections_enabled || 'false' }}
       SHOPIFY_DISCOUNT_CODES_DAYS: ${{ github.event.inputs.discount_codes_days || '' }}
       SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}

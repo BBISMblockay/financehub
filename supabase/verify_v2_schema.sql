@@ -2567,6 +2567,21 @@ select
                         and description like '%OVERRIDES ONLY%')
       then 'MISSING — shopify_collections lost the seo override note; '
         || 'un-customised collections will be reported as missing SEO'
+    -- Once the sync shipped (20260909160000) the description had to stop
+    -- saying NOT POPULATED YET and start saying how to CHECK -- a registry
+    -- is authoritative only for a shop whose latest run finished, and only
+    -- as of when it finished. Losing this sentence returns the table to
+    -- being read as unconditionally complete.
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'shopify_collections'
+                        and description like '%completed_at set%')
+      then 'MISSING — shopify_collections no longer tells the model to '
+        || 'require a completed sync run before claiming a collection is gone'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                  where relname = 'shopify_collections'
+                    and description like '%NOT POPULATED YET%')
+      then 'STALE — shopify_collections still says NOT POPULATED YET, but '
+        || 'the collections sync has shipped; run 20260909160000'
     -- The migration seeds these rows with columns = '[]' and then calls
     -- refresh_chat_schema_catalog() to fill them from pg_catalog. If that
     -- call is ever dropped, Ask SILO sees three tables it can name and

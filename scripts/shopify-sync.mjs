@@ -55,7 +55,15 @@ const SKIP_DISCOUNT_CODES = process.env.SHOPIFY_SKIP_DISCOUNT_CODES === 'true';
 // The collections registry: what pages exist, as opposed to what got
 // traffic. Cheap relative to sales (one GraphQL page per 50 collections
 // plus follow-ups only for collections with >250 products).
-const SKIP_COLLECTIONS = process.env.SHOPIFY_SKIP_COLLECTIONS === 'true';
+//
+// OPT-IN, unlike its siblings, which are opt-OUT skips. This has never run
+// against live Shopify, and a SKIP_ flag defaulting to false means merging
+// alone would switch it on for the nightly, the catch-up AND the two-hourly
+// sales refresh simultaneously -- "we'll run it manually for one shop
+// first" is not a plan if the code does not enforce it. Flip this to true
+// in .github/workflows/shopify-sync.yml once a manual single-shop run has
+// produced a completed_at and a sane collections_seen.
+const COLLECTIONS_ENABLED = process.env.SHOPIFY_COLLECTIONS_ENABLED === 'true';
 const DISCOUNT_CODES_DAYS = Number(process.env.SHOPIFY_DISCOUNT_CODES_DAYS || 30);
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
@@ -232,7 +240,7 @@ async function syncConnection(connection) {
     }
   }
 
-  if (!SKIP_COLLECTIONS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (COLLECTIONS_ENABLED && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
     const jobId = await startJob(connection, 'collections_sync');
     try {
       const result = await runCollectionsSync(supabase, connection, { batchId: BATCH_ID });

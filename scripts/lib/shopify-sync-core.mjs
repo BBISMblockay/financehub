@@ -1609,6 +1609,14 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
       vendor_original: p.vendor || null,
       image_url: imageUrl,
       barcode: v.barcode || null,
+      // The join keys collection membership needs. products_master had NO
+      // Shopify identifier at all before 20260909120000, so
+      // shopify_collection_products could name a product it could not reach.
+      // Numeric id (Shopify's REST id, matching shopifyNumericId() on the
+      // membership side) plus the handle, which is what /products/{handle}
+      // in landing-page paths is built from.
+      shopify_product_id: p.id != null ? String(p.id) : null,
+      shopify_handle: p.handle || null,
       // Shopify's own storefront status. These are SYNC-owned and deliberately
       // separate from is_active / lifecycle_status, which stay human-owned per
       // the contract above -- writing Shopify's answer into is_active would have
@@ -2475,6 +2483,18 @@ async function finishSessionsSync(supabase, connection, { batchId, iso, since, s
       outcome.
 -------------------------------------------------------------------------- */
 
+/** Shopify GID -> the numeric id Shopify's REST API uses.
+ *  'gid://shopify/Product/123' -> '123'. Already-numeric input passes
+ *  through, so this is safe to apply twice. Exists because the GraphQL and
+ *  REST halves of this file speak different id dialects for the same object,
+ *  and a join across them silently returns nothing rather than erroring. */
+export function shopifyNumericId(gidOrId) {
+  if (gidOrId == null) return null;
+  const s = String(gidOrId);
+  const m = /\/(\d+)(?:\?.*)?$/.exec(s);
+  return m ? m[1] : s;
+}
+
 const COLLECTIONS_PAGE_SIZE = 50;
 const COLLECTION_PRODUCTS_PAGE_SIZE = 250;
 
@@ -2619,11 +2639,13 @@ export async function runCollectionsSync(supabase, connection, {
   batchId = null,
   gql = shopifyGraphql,
 } = {}) {
+  const startedAt = new Date().toISOString();
   const { data: runRow, error: runErr } = await supabase
     .from('shopify_collection_sync_runs')
     .insert({
       company_entity_id: connection.company_entity_id,
       shop_domain: connection.shop_domain,
+      started_at: startedAt,
       sync_batch_id: batchId,
     })
     .select('id')
@@ -2681,7 +2703,13 @@ export async function runCollectionsSync(supabase, connection, {
             company_entity_id: connection.company_entity_id,
             shop_domain: connection.shop_domain,
             shopify_collection_id: node.id,
-            shopify_product_id: pid,
+            // NUMERIC id, not the GID. runCatalogSync is REST-based and
+            // writes products_master.shopify_product_id as Shopify's numeric
+            // id, so storing 'gid://shopify/Product/123' here would make the
+            // membership -> product join return zero rows while looking
+            // perfectly correct -- the exact shape of failure this project
+            // exists to stop. shopifyNumericId() is asserted on both sides.
+            shopify_product_id: shopifyNumericId(pid),
             position: idx + 1,
             last_seen_at: new Date().toISOString(),
             last_seen_run_id: runId,
@@ -2719,6 +2747,20 @@ export async function runCollectionsSync(supabase, connection, {
       .eq('id', runId);
     if (doneErr) throw new Error(`collection sync run completion failed: ${doneErr.message}`);
 
+    // Sweep on last_seen_at < THIS RUN'S START, never on
+    // last_seen_run_id != runId.
+    //
+    // The run-id form is wrong under concurrency, and the nightly workflow
+    // deliberately permits overlapping runs (the concurrency group was tried
+    // and removed -- see shopify-sync.yml). Interleave two runs and the
+    // run-id form deletes live data: A upserts collection X stamping run A,
+    // B upserts X stamping run B, then A completes and sweeps everything
+    // whose run id isn't A -- marking X missing even though A saw it.
+    //
+    // The timestamp form is monotonic and needs no lock: any row touched by
+    // ANY run since this one started is newer than startedAt and survives.
+    // A row genuinely absent from a COMPLETED walk has not been touched
+    // since before this run began, and is swept correctly.
     const sweptAt = new Date().toISOString();
     for (const table of ['shopify_collections', 'shopify_collection_products']) {
       const { error } = await supabase
@@ -2727,7 +2769,7 @@ export async function runCollectionsSync(supabase, connection, {
         .eq('company_entity_id', connection.company_entity_id)
         .eq('shop_domain', connection.shop_domain)
         .is('missing_since', null)
-        .neq('last_seen_run_id', runId);
+        .lt('last_seen_at', startedAt);
       if (error) throw new Error(`${table} missing sweep failed: ${error.message}`);
     }
 
