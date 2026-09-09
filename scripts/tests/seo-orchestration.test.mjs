@@ -35,7 +35,15 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); passed += 1; };
   const sixth = b.take('https://www.baseballism.com/collections/c6');
   eq(sixth.ok, false, 'the sixth page is refused -- this is what stops a crawler by repetition');
   ok(/not a crawler/i.test(sixth.reason), 'and the refusal says why');
-  ok(/already inspected/i.test(b.take(urls[0]).reason) === false || true, 'cap wins over dedupe once spent');
+  // Was written as `cond === false || true`, which passes under EVERY
+  // implementation -- an assertion credited as coverage that could not fail.
+  // Real behaviour: dedupe is checked BEFORE the cap, so a URL already fetched
+  // is told to reuse the result rather than that the budget is gone.
+  const spentRepeat = b.take(urls[0]);
+  eq(spentRepeat.ok, false, 'a repeat after the cap is still refused');
+  ok(/already inspected/i.test(spentRepeat.reason),
+    `dedupe is reported ahead of the cap (got: ${spentRepeat.reason})`);
+  eq(b.used, 5, 'and neither refusal incremented the counter past the cap');
 }
 
 // ── 1b. Re-inspecting the same page does not silently burn budget ────────────
@@ -148,6 +156,66 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); passed += 1; };
   ok(/SILO stores no licensing status field/i.test(SRC),
     'and the reason given is the absence of a field to verify against');
   ok(/For love of the game" is protected/i.test(SRC), 'the protected phrase is named');
+}
+
+
+/* ── Review corrections (2026-09-09) ─────────────────────────────────────────
+ * The migration is read as TEXT and sliced to the executable function body,
+ * because it documents the bugs it fixes -- matching its own prose instead of
+ * its code is how a fix-assertion passes against the bug it describes.
+ */
+const MIG = readFileSync(new URL(
+  '../../supabase/migrations/20260909400000_seo_candidates_coverage_and_pacific.sql', import.meta.url), 'utf8');
+const MIG_BODY = MIG.slice(MIG.indexOf('as $$'), MIG.indexOf('$$;') + 3);
+
+// ── 10. Dataset coverage is a separate fact from page presence ───────────────
+// Live, /collections/prime-collection reported "28 days, 2026-06-22 to
+// 2026-07-19" -- reading as "SILO holds five weeks of data" when it had
+// searched 90 truncated days and the page surfaced on 28 of them.
+{
+  ok(/source_days_available/.test(MIG_BODY), 'dataset coverage is returned');
+  ok(/source_earliest_day/.test(MIG_BODY) && /source_latest_day/.test(MIG_BODY), 'with its real date range');
+  ok(/source_days_truncated/.test(MIG_BODY), 'and how many of those days were truncated');
+  ok(/page_days_present/.test(MIG_BODY), 'page presence is a SEPARATE, differently named field');
+  ok(!/\bdays_with_data\b/.test(MIG_BODY),
+    'the ambiguous days_with_data name is gone from the SQL');
+  ok(/source_cov as \(/.test(MIG_BODY), 'computed in its own shop-level CTE, not per page');
+  ok(/join source_cov sc/.test(MIG_BODY), 'and joined onto every candidate row');
+  ok(/page_days_present against source_days_available/i.test(SRC),
+    'the prompt says to read presence against coverage');
+  ok(/FELL OUT of the top N/i.test(SRC),
+    'and that an absent day means the page fell out of the top N');
+}
+
+// ── 11. The window is Pacific completed days, never UTC ─────────────────────
+{
+  ok(/silo_business_today\(\)/.test(MIG_BODY), 'the window anchors on Pacific business today');
+  ok(!/current_date/.test(MIG_BODY), 'current_date appears nowhere in the executable body');
+  ok(/day_date <\s+win\.today/.test(MIG_BODY),
+    'the upper bound is EXCLUSIVE, so a partial day never enters a completed-days window');
+}
+
+// ── 12. An unpublished or unregistered page is not a copy job ────────────────
+// Live: 3 of 85 candidates are not reviewable. /collections/all and
+// /collections/headwear-all carry 4,978 sessions and match no live collection;
+// /collections/cleveland-guardians is empty. All three would have been given
+// rewritten copy by the first version.
+{
+  for (const st of ['not_in_registry', 'publication_unknown', 'not_published', 'empty_collection', 'reviewable']) {
+    ok(new RegExp(`'${st}'`).test(MIG_BODY), `candidate_status can be ${st} (asserted in the SQL body)`);
+  }
+  ok(/c\.shopify_collection_id is null\s+then 'not_in_registry'/.test(MIG_BODY),
+    'an unmatched handle really is classified not_in_registry, not merely listed as a possible value');
+  ok(/published_to_online_store = false\s+then 'not_published'/.test(MIG_BODY),
+    'and an unpublished collection really is classified not_published');
+  ok(/Read candidate_status FIRST/i.test(SRC),
+    'the prompt tells the model to read candidate_status before writing copy');
+  ok(/Only "reviewable" pages get rewritten copy/.test(SRC),
+    'and that only reviewable pages get rewritten copy');
+  ok(/REDIRECT\/investigation finding/i.test(SRC),
+    'while an unregistered path is a redirect/investigation finding');
+  ok(/do not draft copy for them/i.test(SRC),
+    'and copy is explicitly not drafted for the non-reviewable statuses');
 }
 
 console.log(`seo-orchestration: ${passed} assertions passed`);

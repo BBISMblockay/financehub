@@ -738,3 +738,43 @@ Enforced in the prompt and asserted in `scripts/tests/seo-orchestration.test.mjs
   would be unfollowable — the honest rule is not to make the claim.
 - "For love of the game" is protected and reproduced exactly or not at all.
 - Everything produced is a draft for human review.
+
+### What is guidance, not a guarantee (be precise about this)
+
+`seo_collection_candidates` makes the correct URL the easiest one to use, and
+the tool description and prompt both say a URL must come from the user or from
+a candidate row's `inspect_url`. **That rule is prompt-enforced, not
+code-enforced.** `looksInspectable()` sees a string, not its provenance, and
+`page-inspect` checks only that the host is on this company's allowlist. A
+model that assembled a path onto one of the company's *other* storefront hosts
+would be refused by nothing in the orchestration layer — the wrong-store join
+in the function removes the *reason* to do it, not the *ability*.
+
+What IS code-enforced: the five-page budget, the refusal of a repeated URL, the
+HTTPS/shape check, the host allowlist (in `page-inspect`, under the caller's
+JWT), tenant scoping (RLS), and the absence of any write tool.
+
+Closing the provenance gap is a scoped follow-up: track the URLs returned in
+this request's tool results plus those in the user's message, and refuse
+anything else. It carries real false-refusal risk — a URL the user pasted
+several turns earlier — so it deserves its own change and its own tests rather
+than being folded into this one.
+
+### Corrections applied after review (2026-09-09)
+
+- **Coverage was per-page and read as per-dataset.** `/collections/prime-collection`
+  reported "28 days, 2026-06-22 → 2026-07-19" when SILO had searched 90
+  truncated days and the page had merely surfaced on 28 of them. Now
+  `page_days_present` and `source_days_available` are separate fields, and the
+  prompt requires both to be cited.
+- **The window used `current_date` (UTC).** Latent, not visible — the two agreed
+  on the day it shipped — but from 17:00 Pacific onward "the last 90 days"
+  shifted by one. Now `silo_business_today()` with an exclusive upper bound:
+  the last N *completed* Pacific days.
+- **An unpublished or unregistered page could receive rewritten copy.**
+  `candidate_status` now states the verdict. Live, 3 of 85 candidates are not
+  reviewable: `/collections/all` and `/collections/headwear-all` (4,978
+  sessions, no live collection behind them — a redirect question) and
+  `/collections/cleveland-guardians` (empty).
+- **One test assertion could not fail** (`cond === false || true`). Replaced
+  with the actual expected behaviour: dedupe is reported ahead of the cap.

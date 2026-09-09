@@ -3058,5 +3058,27 @@ select
     when exists (select 1 from public.seo_collection_candidates(90)
                  where landing_page_path !~ '^/collections/[^/?#]+$')
       then 'MISSING — a non-root path leaked into seo_collection_candidates'
+    -- Coverage must be DATASET-level, not per page. Per-page counts reported as
+    -- coverage read as "SILO only holds N days", misstating the evidence base.
+    when not exists (select 1 from information_schema.routines r
+                     join information_schema.parameters pa on pa.specific_name = r.specific_name
+                     where r.routine_schema='public' and r.routine_name='seo_collection_candidates'
+                       and pa.parameter_name = 'source_days_available')
+      then 'MISSING — seo_collection_candidates lost source_days_available; page presence would '
+        || 'again be reported as dataset coverage'
+    when exists (select 1 from public.seo_collection_candidates(90)
+                 where page_days_present > source_days_available)
+      then 'CRITICAL — a page is present on more days than the dataset covers; the coverage '
+        || 'CTE is per-page again'
+    -- Pacific completed days only: a partial day must never enter a window a
+    -- person reads as "the last 90 days".
+    when exists (select 1 from public.seo_collection_candidates(90)
+                 where source_latest_day >= public.silo_business_today())
+      then 'CRITICAL — the window includes today (Pacific); the upper bound is not exclusive '
+        || 'or the function is back on current_date'
+    when not exists (select 1 from public.seo_collection_candidates(90)
+                     where candidate_status is not null)
+      then 'MISSING — candidate_status is absent; an unpublished or unregistered page would be '
+        || 'offered for a copy rewrite'
     else 'ok'
   end as seo_collection_candidates;

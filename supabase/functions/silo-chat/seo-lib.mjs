@@ -12,6 +12,20 @@
 // file may be read as permission -- re-implementing the allowlist here would
 // create a second definition of the boundary that could drift from the real
 // one, which is worse than having no check at all.
+//
+// AND URL PROVENANCE IS NOT ENFORCED IN CODE EITHER. The rule that a URL must
+// come from the user or from a candidate row's inspect_url is carried by the
+// prompt and the tool description. This module cannot check it: it sees a
+// string, not where the string came from, and page-inspect checks only that
+// the host is on the company's allowlist. A model that assembled a path onto
+// one of the company's OTHER storefront hosts would be refused by nothing
+// here -- seo_collection_candidates removes the REASON to do that, not the
+// ability. Guidance, not a guarantee; do not describe it as code-enforced.
+//
+// Closing that gap is possible and deliberately not done here: it means
+// tracking every URL returned in this request's tool results plus those in the
+// user's message and refusing anything else, which carries real false-refusal
+// risk (a URL pasted several turns ago) and deserves its own change.
 
 /** How many page inspections one chat request may make.
  *
