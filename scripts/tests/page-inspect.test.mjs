@@ -12,6 +12,7 @@
 import {
   admitUrl, admitRedirect, isHostAllowed, normalizeHost, extractPageFacts, decodeEntities,
   isPublicAddress, allAddressesPublic,
+  findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest,
 } from '../../supabase/functions/page-inspect/inspect-lib.mjs';
 import { buildShopDomainRows, normalizeShopHost, runShopDomainsSync } from '../lib/shopify-sync-core.mjs';
 import { createFakeSupabase } from './lib/fake-supabase.mjs';
@@ -79,7 +80,9 @@ for (const [label, url] of [
   ['octal IPv4', 'https://0177.0.0.1/'],
   ['IPv6 loopback', 'https://[::1]/'],
   ['IPv4-mapped IPv6', 'https://[::ffff:127.0.0.1]/'],
-  ['localhost by name', 'https://localhost:8000/'],
+  // No port: the non-443 port rule is asserted separately, and this case is
+  // here to exercise the HOST check.
+  ['localhost by name', 'https://localhost/'],
 ]) {
   test(`${label} is rejected by name`, () => {
     ok(rejected(url).startsWith('host_not_allowed'), 'rejected as a disallowed host');
@@ -373,6 +376,81 @@ test('a host written by the sync is admitted by the checker', () => {
   );
   const allow = new Set(rows.map((r) => r.host));
   eq(admitUrl('https://www.baseballism.com/collections/tees', allow).error, undefined, 'admitted end to end');
+});
+
+console.log('\n-- reading HTTP ourselves, because fetch() re-resolves --');
+
+// Validating an address and then calling fetch(host) is two lookups: the one
+// we approved and the one the connection used. Nothing binds them, which is
+// why the connection is made to the validated address and the response is
+// parsed here rather than by fetch.
+const enc = (s) => new TextEncoder().encode(s);
+const dec = (b) => new TextDecoder().decode(b);
+
+test('a non-443 port is refused even on an allowlisted host', () => {
+  eq(rejected('https://www.baseballism.com:8443/admin'), 'port_not_allowed: 8443', 'reason');
+  eq(admitUrl('https://www.baseballism.com:443/x', ALLOWED).error, undefined, '443 is fine');
+});
+
+test('findHeaderEnd locates the blank line, or reports absence', () => {
+  const bytes = enc('HTTP/1.1 200 OK\r\nA: b\r\n\r\nBODY');
+  eq(findHeaderEnd(bytes), enc('HTTP/1.1 200 OK\r\nA: b').length, 'offset of the CRLFCRLF');
+  eq(findHeaderEnd(enc('HTTP/1.1 200 OK\r\nA: b\r\n')), -1, 'not yet complete');
+});
+
+test('a status line and headers are parsed, case-insensitively', () => {
+  const r = parseResponseHead('HTTP/1.1 301 Moved Permanently\r\nLocation: /new\r\nContent-Type: text/html');
+  eq(r.status, 301, 'status');
+  eq(r.headers.get('location'), '/new', 'location');
+  eq(r.headers.get('content-type'), 'text/html', 'header names lowercased');
+});
+
+test('a malformed status line is an error, not a guess', () => {
+  eq(parseResponseHead('GARBAGE').error, 'malformed_status_line', 'reason');
+  eq(parseResponseHead('').error, 'malformed_status_line', 'empty');
+});
+
+// Two Location headers is malformed. Taking the last would let a second header
+// override the one any check already read.
+test('a duplicated Location keeps the FIRST value', () => {
+  const r = parseResponseHead('HTTP/1.1 302 Found\r\nLocation: https://www.baseballism.com/a\r\nLocation: https://evil.example/');
+  eq(r.headers.get('location'), 'https://www.baseballism.com/a', 'first wins');
+});
+
+test('a chunked body is decoded and its terminator noted', () => {
+  const raw = enc('4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n');
+  const r = decodeChunkedBody(raw);
+  eq(dec(r.body), 'Wikipedia', 'joined');
+  eq(r.complete, true, 'saw the zero-length terminator');
+  eq(r.truncated, false, 'not truncated');
+});
+
+// A connection cut mid-body must not read as a clean short page: a later
+// comparison would report content that "shrank".
+test('a chunked body with no terminator is marked incomplete', () => {
+  const r = decodeChunkedBody(enc('4\r\nWiki\r\n'));
+  eq(dec(r.body), 'Wiki', 'what arrived');
+  eq(r.complete, false, 'incomplete');
+});
+
+test('chunk extensions are ignored, bad chunk sizes are refused', () => {
+  eq(dec(decodeChunkedBody(enc('4;name=value\r\nWiki\r\n0\r\n\r\n')).body), 'Wiki', 'extension ignored');
+  eq(decodeChunkedBody(enc('zz\r\nWiki\r\n')).error, 'bad_chunk_size', 'refused');
+});
+
+test('the byte cap applies to a chunked body too', () => {
+  const r = decodeChunkedBody(enc('4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n'), 6);
+  eq(dec(r.body), 'Wikipe', 'stopped at the cap');
+  eq(r.truncated, true, 'flagged');
+});
+
+test('the request asks for the framing the reader can handle', () => {
+  const req = buildRequest('www.baseballism.com', '/collections/tees?a=1', 'SILO/1.0');
+  ok(req.startsWith('GET /collections/tees?a=1 HTTP/1.1\r\n'), 'request line with query');
+  ok(req.includes('\r\nHost: www.baseballism.com\r\n'), 'Host header drives SNI-matched vhost');
+  ok(req.includes('\r\nConnection: close\r\n'), 'no keep-alive framing to desynchronise');
+  ok(req.includes('\r\nAccept-Encoding: identity\r\n'), 'no decompression in the path');
+  ok(req.endsWith('\r\n\r\n'), 'terminated');
 });
 
 console.log('\n-- the allowlist must SHRINK when a shop stops serving a host --');

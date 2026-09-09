@@ -253,8 +253,21 @@ async function syncConnection(connection) {
       const result = await runShopDomainsSync(supabase, connection);
       if (result.skipped) {
         console.warn(`[warn] ${connection.shop_domain} shop_domains: ${result.error}`);
+      } else if (result.sweep_error) {
+        // The upsert succeeding and the sweep failing is the dangerous
+        // combination, and it is the one that used to be reported as success:
+        // new hosts are authorised while retired ones stay authorised too, so
+        // a domain that was sold or transferred keeps its permission to be
+        // fetched, indefinitely and invisibly. Never log this as [ok].
+        console.warn(
+          `[warn] ${connection.shop_domain} shop_domains: hosts written (${result.hosts.join(', ')}) ` +
+          `but RETIREMENT FAILED (${result.sweep_error}) — stale domains may still be authorised for page-inspect`,
+        );
       } else {
-        console.log(`[ok] ${connection.shop_domain} shop_domains: ${result.hosts.join(', ')}`);
+        const retired = (result.hosts_retired || []).length
+          ? `, retired ${result.hosts_retired.join(', ')}`
+          : '';
+        console.log(`[ok] ${connection.shop_domain} shop_domains: ${result.hosts.join(', ')}${retired}`);
       }
     } catch (err) {
       console.warn(`[warn] ${connection.shop_domain} shop_domains failed: ${err.message || err}`);

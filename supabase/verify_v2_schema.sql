@@ -2890,3 +2890,32 @@ select
         || 'insufficient on its own; address validation at fetch time is what covers it'
     else 'ok'
   end as seo_workflow_integrity;
+
+-- ── Baseline boundary is a BUSINESS date (20260909300000, corrective) ───────
+-- seo_baseline_conflicts() compared a date against timestamptz::date, which
+-- reads the session TimeZone, while being declared IMMUTABLE. Measured on this
+-- database: '2026-09-01T02:00:00Z'::date is 2026-09-01 under UTC and
+-- 2026-08-31 under America/Los_Angeles -- so the boundary the whole invariant
+-- rests on moved with a connection setting, and IMMUTABLE let the planner fold
+-- a result computed under one timezone for reuse under another.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                       and pg_get_functiondef(p.oid) like '%America/Los_Angeles%')
+      then 'CRITICAL — seo_baseline_conflicts() no longer pins the publication date to '
+        || 'the business timezone; the baseline boundary moves with the session TimeZone'
+    -- The bare cast is what made it session-dependent. If it comes back the
+    -- explicit conversion has been undone.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                   and pg_get_functiondef(p.oid) ~ 'p_published[[:space:]]*::[[:space:]]*date')
+      then 'CRITICAL — seo_baseline_conflicts() is back to p_published::date, which reads '
+        || 'the session TimeZone'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                       and p.provolatile = 'i')
+      then 'MISSING — seo_baseline_conflicts() is no longer IMMUTABLE; it is called from '
+        || 'triggers on both sides of the invariant and from a WHERE clause'
+    else 'ok'
+  end as seo_baseline_business_timezone;

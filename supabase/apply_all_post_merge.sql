@@ -18522,3 +18522,14 @@ $c$select (select count(*) from v_po_header_summary
 -- an allowlisted name RESOLVING to one.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909260000_seo_workflow_integrity.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909300000_seo_baseline_business_timezone.sql
+-- seo_baseline_conflicts() used timestamptz::date, which reads the SESSION
+-- TimeZone, while being declared IMMUTABLE. Measured: the same instant is
+-- 2026-09-01 under UTC and 2026-08-31 under Pacific, so the invariant's
+-- boundary moved with a connection setting. Now an explicit
+-- America/Los_Angeles conversion, matching silo_business_today().
+-- ---------------------------------------------------------------------------
+\i migrations/20260909300000_seo_baseline_business_timezone.sql

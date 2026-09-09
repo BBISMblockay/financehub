@@ -24,6 +24,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   admitUrl, admitRedirect, extractPageFacts, allAddressesPublic,
+  findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest,
 } from './inspect-lib.mjs';
 
 const corsHeaders = {
@@ -56,7 +57,7 @@ async function sha256Hex(text: string): Promise<string> {
  * Returns [] when resolution fails, and the caller treats that as a REFUSAL.
  * Failing closed is the point: not knowing where a name points is not the same
  * as knowing it is safe. */
-async function resolveHostAddresses(host: string): Promise<string[]> {
+async function resolveHostAddresses(host: string, signal: AbortSignal): Promise<string[]> {
   const out: string[] = [];
 
   const maybeResolve = (Deno as unknown as {
@@ -64,7 +65,16 @@ async function resolveHostAddresses(host: string): Promise<string[]> {
   }).resolveDns;
   if (typeof maybeResolve === 'function') {
     for (const type of ['A', 'AAAA']) {
-      try { out.push(...await maybeResolve(host, type)); } catch { /* NODATA is normal */ }
+      try {
+        // resolveDns takes no signal, so it is RACED against the deadline --
+        // otherwise a hanging resolver sits outside the timeout entirely, which
+        // is the gap review found: the abort covered the fetch and nothing else.
+        out.push(...await Promise.race([
+          maybeResolve(host, type),
+          abortPromise(signal),
+        ]) as string[]);
+      } catch { /* NODATA is normal; an abort rethrows below via signal check */ }
+      if (signal.aborted) throw new DOMException('aborted', 'AbortError');
     }
     if (out.length) return out;
   }
@@ -73,18 +83,122 @@ async function resolveHostAddresses(host: string): Promise<string[]> {
     try {
       const res = await fetch(
         `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`,
-        { headers: { Accept: 'application/dns-json' } },
+        { headers: { Accept: 'application/dns-json' }, signal },
       );
-      if (!res.ok) continue;
+      if (!res.ok) { await res.body?.cancel().catch(() => {}); continue; }
       const data = await res.json();
       for (const answer of data?.Answer ?? []) {
-        // 1 = A, 28 = AAAA. Anything else in the chain (CNAME) is followed by
-        // the resolver itself, so only address records are collected.
+        // 1 = A, 28 = AAAA. A CNAME chain is followed by the resolver itself,
+        // so only address records are collected.
         if (answer?.type === 1 || answer?.type === 28) out.push(String(answer.data));
       }
-    } catch { /* fall through to the empty-list refusal */ }
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') throw err;
+      /* otherwise fall through to the empty-list refusal */
+    }
   }
   return out;
+}
+
+function abortPromise(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) reject(new DOMException('aborted', 'AbortError'));
+    signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+  });
+}
+
+/** One HTTPS request, made to an ADDRESS WE ALREADY VALIDATED.
+ *
+ * This is the part that actually closes DNS rebinding. Validating a name and
+ * then handing the NAME to fetch() means two independent lookups: the one we
+ * approved and the one the connection used. Nothing binds them, so a zone that
+ * answers differently a moment later wins. Connecting to the validated address
+ * removes the second lookup entirely.
+ *
+ * TLS is still pinned to the HOSTNAME: `servername` sets SNI and is what the
+ * certificate is validated against, so connecting by address does not weaken
+ * authentication -- an attacker who can point DNS at their box still cannot
+ * present a valid certificate for the storefront.
+ *
+ * Returns { status, headers, body, truncated, complete }. */
+async function httpsGetViaAddress(opts: {
+  address: string; host: string; pathWithQuery: string;
+  signal: AbortSignal; maxBytes: number;
+}): Promise<{
+  status: number; headers: Map<string, string>;
+  body: Uint8Array; truncated: boolean; complete: boolean;
+}> {
+  const connectTls = (Deno as unknown as {
+    connectTls?: (o: Record<string, unknown>) => Promise<Deno.Conn>;
+  }).connectTls;
+  if (typeof connectTls !== 'function') {
+    // FAIL CLOSED. Falling back to fetch(host) here would silently reopen the
+    // exact hole this function exists to close, and it would do it invisibly.
+    throw new Error('tls_connect_unavailable: cannot pin the connection to a validated address');
+  }
+
+  // An IPv6 literal needs brackets in the URL sense but NOT in connectTls's
+  // hostname, which takes the bare address.
+  const address = opts.address.replace(/^\[|\]$/g, '');
+  const conn = await connectTls({ hostname: address, port: 443, servername: opts.host });
+
+  const onAbort = () => { try { conn.close(); } catch { /* already closed */ } };
+  opts.signal.addEventListener('abort', onAbort, { once: true });
+
+  try {
+    await conn.write(new TextEncoder().encode(
+      buildRequest(opts.host, opts.pathWithQuery, USER_AGENT),
+    ));
+
+    // Read headers, then body, never more than the cap plus one chunk. The cap
+    // applies to bytes off the wire, so an oversized page costs us the cap and
+    // not the page.
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    let headEnd = -1;
+    let joined = new Uint8Array(0);
+
+    while (true) {
+      const buf = new Uint8Array(64 * 1024);
+      const n = await conn.read(buf);
+      if (n === null) break;
+      chunks.push(buf.subarray(0, n));
+      total += n;
+
+      joined = new Uint8Array(total);
+      let at = 0;
+      for (const c of chunks) { joined.set(c, at); at += c.byteLength; }
+
+      if (headEnd === -1) headEnd = findHeaderEnd(joined);
+      if (headEnd !== -1 && total - (headEnd + 4) > opts.maxBytes) break;
+      if (headEnd === -1 && total > 256 * 1024) break;  // absurd header block
+    }
+
+    if (headEnd === -1) throw new Error('no_response_headers');
+    const head = parseResponseHead(new TextDecoder().decode(joined.slice(0, headEnd)));
+    if ((head as { error?: string }).error) throw new Error((head as { error: string }).error);
+
+    const { status, headers } = head as { status: number; headers: Map<string, string> };
+    const rawBody = joined.slice(headEnd + 4);
+
+    let body = rawBody;
+    let truncated = false;
+    let complete = true;
+    if ((headers.get('transfer-encoding') || '').toLowerCase().includes('chunked')) {
+      const decoded = decodeChunkedBody(rawBody, opts.maxBytes);
+      body = decoded.body;
+      truncated = decoded.truncated;
+      complete = decoded.complete;
+    } else if (rawBody.byteLength > opts.maxBytes) {
+      body = rawBody.slice(0, opts.maxBytes);
+      truncated = true;
+    }
+
+    return { status, headers, body, truncated, complete };
+  } finally {
+    opts.signal.removeEventListener('abort', onAbort);
+    try { conn.close(); } catch { /* already closed by abort or by the peer */ }
+  }
 }
 
 Deno.serve(async (req) => {
@@ -139,14 +253,25 @@ Deno.serve(async (req) => {
   const startedAt = Date.now();
   const redirectChain: Array<Record<string, unknown>> = [];
   let currentUrl = admitted.url as string;
-  let response: Response | null = null;
+  // Not a fetch Response: httpsGetViaAddress returns what it read off a
+  // connection we opened to a validated address.
+  let response: {
+    status: number; headers: Map<string, string>;
+    body: Uint8Array; truncated: boolean; complete: boolean;
+  } | null = null;
   let fetchError: string | null = null;
 
-  // ONE controller and ONE timer for the whole operation, redirects and body
-  // download included. The first version cleared the timer in a `finally` that
-  // ran before the body was read, so a server that answered headers quickly and
-  // then dribbled bytes forever was completely unbounded -- the timeout only
-  // ever covered the handshake.
+  // ONE controller and ONE timer for the WHOLE operation: DNS resolution,
+  // every redirect hop, the TLS connect, and the body read.
+  //
+  // Two prior versions of this were wrong in different ways. The first cleared
+  // the timer in a `finally` that ran before the body was read, so a server
+  // that answered headers quickly and then dribbled bytes forever was
+  // unbounded. The second covered the fetch but not the name lookup -- neither
+  // Deno.resolveDns nor the DNS-over-HTTPS fallback took the signal, so a
+  // hanging resolver sat entirely outside the deadline. resolveHostAddresses
+  // now races the abort and passes the signal, and the TLS socket is closed on
+  // abort, so there is no step left outside the budget.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -159,9 +284,11 @@ Deno.serve(async (req) => {
     for (let hop = 0; hop <= MAX_HOPS; hop++) {
       // Resolution is checked HERE, per hop, not once at admission. The
       // allowlist proves we are willing to talk to this NAME; this proves the
-      // name currently points somewhere public.
-      const hopHost = new URL(currentUrl).hostname;
-      const addresses = await resolveHostAddresses(hopHost);
+      // name currently points somewhere public. The address we approve is then
+      // the address we connect to -- see httpsGetViaAddress.
+      const hopUrl = new URL(currentUrl);
+      const hopHost = hopUrl.hostname;
+      const addresses = await resolveHostAddresses(hopHost, controller.signal);
       if (!allAddressesPublic(addresses)) {
         fetchError = addresses.length
           ? `destination_not_public: ${hopHost} -> ${addresses.join(', ').slice(0, 120)}`
@@ -169,51 +296,34 @@ Deno.serve(async (req) => {
         break;
       }
 
-      const res = await fetch(currentUrl, {
-        redirect: 'manual',
+      const res = await httpsGetViaAddress({
+        address: addresses[0],
+        host: hopHost,
+        pathWithQuery: `${hopUrl.pathname}${hopUrl.search}`,
         signal: controller.signal,
-        headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml' },
+        maxBytes: MAX_BYTES,
       });
+
       if (res.status >= 300 && res.status < 400) {
-        const location = res.headers.get('location');
-        redirectChain.push({ from: currentUrl, status: res.status, location });
-        // Drain the redirect body so the connection is not left hanging.
-        await res.body?.cancel().catch(() => {});
+        const location = res.headers.get('location') ?? null;
+        redirectChain.push({ from: currentUrl, status: res.status, location, address: addresses[0] });
         if (hop === MAX_HOPS) { fetchError = 'too_many_redirects'; break; }
         const next = admitRedirect(location, currentUrl, allowed);
         if (next.error) { fetchError = `redirect_${next.error}`; break; }
         currentUrl = next.url as string;
         continue;
       }
-      response = res;
-      break;
-    }
 
-    if (response) {
-      // Read at most MAX_BYTES + 1 and stop. response.text() downloads the
-      // WHOLE body first and truncates after, which makes the cap decorative:
-      // a 2 GB response is fully transferred before a single byte is discarded.
-      // The extra byte is what distinguishes "exactly at the cap" from "over".
-      const reader = response.body?.getReader();
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      if (reader) {
-        while (total <= MAX_BYTES) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) { chunks.push(value); total += value.byteLength; }
-        }
-        if (total > MAX_BYTES) {
-          isTruncated = true;
-          await reader.cancel().catch(() => {});
-        }
-      }
-      const joined = new Uint8Array(total);
-      let at = 0;
-      for (const c of chunks) { joined.set(c, at); at += c.byteLength; }
-      html = new TextDecoder().decode(joined.slice(0, MAX_BYTES));
+      response = res;
+      isTruncated = res.truncated;
+      html = new TextDecoder().decode(res.body);
       htmlHash = await sha256Hex(html);
       facts = extractPageFacts(html);
+      // A chunked body that never delivered its terminating chunk is a partial
+      // page. Recording it as a clean capture would let a later comparison read
+      // "the content shrank" off a connection that was cut.
+      if (!res.complete && !res.truncated) fetchError = 'incomplete_body';
+      break;
     }
   } catch (err) {
     fetchError = (err as Error)?.name === 'AbortError'

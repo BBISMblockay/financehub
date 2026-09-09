@@ -434,3 +434,82 @@ constraints, triggers and the view — **not** the RLS policies. Approval
 enforcement and company isolation are asserted structurally in
 `verify_v2_schema.sql`; confirming them end to end needs impersonation, the way
 the storage-isolation work was checked. That remains the open gap.
+
+## Second review round (2026-09-09)
+
+Four further gaps, all reproduced before fixing.
+
+### 1 — DNS rebinding is now closed, not just reduced
+
+The previous version validated the resolved addresses and then called
+`fetch(host)`. That is **two independent lookups**: the one we approved and the
+one the connection used, with nothing binding them. A zone answering
+differently a moment later won, which is why the last PR could only claim the
+blocker was *reduced*.
+
+The connection is now made to the **validated address** via `Deno.connectTls`,
+with `servername` set to the hostname — so TLS SNI and certificate validation
+remain pinned to the storefront name. Connecting by address does not weaken
+authentication: an attacker who can point DNS at their box still cannot present
+a valid certificate for `www.baseballism.com`.
+
+That means speaking HTTP/1.1 ourselves. The request is shaped to keep the
+reader minimal — `Connection: close` (no keep-alive framing to desynchronise)
+and `Accept-Encoding: identity` (no decompression in the path). Chunked
+transfer-encoding is still handled, because a server may use it regardless.
+Parsing lives in `inspect-lib.mjs` and is unit-tested: header-end location,
+status/header parsing, duplicated `Location` keeping the **first** value,
+chunked decode with and without its terminator, chunk extensions, bad chunk
+sizes, and the byte cap applied to a chunked body.
+
+**Deployment risk, stated plainly:** whether `Deno.connectTls` is available in
+the Supabase Edge runtime is **unverified**. The code **fails closed** if it is
+absent — it raises `tls_connect_unavailable` rather than falling back to
+`fetch()`, because a silent fallback would reopen exactly the hole this closes.
+So if the runtime lacks it, page-inspect will not work at all until that is
+resolved. That is the deliberate trade: no captures beats captures made through
+an unpinned connection.
+
+A non-443 port is now also refused. A storefront is served on 443; an explicit
+alternate port is not a storefront, and allowing one widens what an allowlisted
+name can reach on a host we do not otherwise control.
+
+### 2 — The deadline now covers DNS
+
+Neither `Deno.resolveDns` nor the DNS-over-HTTPS fallback took the abort
+signal, so a hanging resolver sat entirely outside the 15 s budget.
+`resolveHostAddresses` now races `resolveDns` against the abort and passes
+`signal` to the DoH request, and the TLS socket is closed on abort. No step is
+left outside the budget.
+
+### 3 — A failed retirement sweep is no longer logged as success
+
+`sweep_error` was returned and ignored. The dangerous combination is precisely
+the one that used to print `[ok]`: hosts written, retirement failed — new hosts
+authorised while retired ones stay authorised, indefinitely and invisibly. The
+orchestrator now warns explicitly and names the consequence, and a successful
+run reports what it retired.
+
+### 4 — The baseline boundary was session-dependent
+
+`seo_baseline_conflicts()` compared a `date` against `timestamptz::date`, which
+reads the session `TimeZone`, while being declared `IMMUTABLE`. Measured on
+this database:
+
+```
+set time zone 'UTC';                  '2026-09-01T02:00:00Z'::date => 2026-09-01
+set time zone 'America/Los_Angeles';  same value            ::date => 2026-08-31
+```
+
+A publication at 02:00 UTC on the 1st is 19:00 Pacific on the 31st, so the
+boundary the entire invariant rests on moved by a day between connections — and
+`IMMUTABLE` entitled the planner to fold a result computed under one timezone
+and reuse it under another.
+
+Now an explicit `AT TIME ZONE 'America/Los_Angeles'`, matching
+`silo_business_today()`, which exists in this repo for the same reason.
+`timestamptz AT TIME ZONE '<literal>'` is genuinely immutable, so the marking
+becomes true rather than being downgraded. Verified identical under UTC and
+Asia/Tokyo sessions after the change. Pacific is hardcoded for the same reason
+it is in `silo_business_today()`: a tenant elsewhere needs it read from their
+company record, which is a wider change.

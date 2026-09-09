@@ -190,6 +190,122 @@ export function allAddressesPublic(addresses) {
   return addresses.every((a) => isPublicAddress(a));
 }
 
+// ── Minimal HTTP/1.1 response reading ───────────────────────────────────────
+//
+// These exist because validating an address and then calling fetch(host) does
+// NOT close DNS rebinding: fetch performs its own resolution, so the address
+// we approved and the address we connect to are two different lookups, and
+// nothing binds them together. The connection is therefore made to the
+// VALIDATED ADDRESS directly, with TLS SNI and certificate validation still
+// pinned to the hostname -- which means speaking HTTP ourselves.
+//
+// Deliberately minimal, and the request is shaped to keep it that way:
+// Connection: close (no keep-alive framing) and Accept-Encoding: identity (no
+// decompression). Chunked transfer-encoding still has to be handled, because a
+// server may use it regardless of what we asked for.
+
+const CRLF = 13; // \r
+const LF = 10;
+
+/** Index of the \r\n\r\n that ends the header block, or -1. */
+export function findHeaderEnd(bytes) {
+  for (let i = 0; i + 3 < bytes.length; i++) {
+    if (bytes[i] === CRLF && bytes[i + 1] === LF && bytes[i + 2] === CRLF && bytes[i + 3] === LF) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** Parse a status line + headers. Returns { status, headers } or { error }. */
+export function parseResponseHead(text) {
+  const lines = String(text ?? '').split('\r\n');
+  const m = /^HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(lines[0] || '');
+  if (!m) return { error: 'malformed_status_line' };
+
+  const headers = new Map();
+  for (const line of lines.slice(1)) {
+    if (!line) continue;
+    const i = line.indexOf(':');
+    if (i === -1) continue;
+    const k = line.slice(0, i).trim().toLowerCase();
+    const v = line.slice(i + 1).trim();
+    // Repeated headers are joined, EXCEPT location: a response carrying two
+    // Location headers is malformed, and picking the last one would let a
+    // second header override the first after any check that read it. Keep the
+    // first and let the redirect check see that one.
+    if (headers.has(k)) {
+      if (k !== 'location') headers.set(k, `${headers.get(k)}, ${v}`);
+    } else {
+      headers.set(k, v);
+    }
+  }
+  return { status: Number(m[1]), headers };
+}
+
+function concatChunks(chunks, total) {
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out;
+}
+
+/** Decode a chunked body, stopping at maxBytes.
+ * Returns { body, complete, truncated } -- `complete` false means the
+ * terminating zero-length chunk was never seen, which is a fact worth keeping
+ * rather than silently presenting a partial page as whole. */
+export function decodeChunkedBody(bytes, maxBytes = Infinity) {
+  const chunks = [];
+  let total = 0;
+  let i = 0;
+  const decoder = new TextDecoder();
+
+  while (i < bytes.length) {
+    let lineEnd = -1;
+    for (let j = i; j + 1 < bytes.length; j++) {
+      if (bytes[j] === CRLF && bytes[j + 1] === LF) { lineEnd = j; break; }
+    }
+    if (lineEnd === -1) return { body: concatChunks(chunks, total), complete: false, truncated: false };
+
+    // A chunk header may carry extensions after a ';'.
+    const sizeText = decoder.decode(bytes.slice(i, lineEnd)).split(';')[0].trim();
+    if (!/^[0-9a-fA-F]+$/.test(sizeText)) {
+      return { body: concatChunks(chunks, total), complete: false, truncated: false, error: 'bad_chunk_size' };
+    }
+    const size = parseInt(sizeText, 16);
+    i = lineEnd + 2;
+    if (size === 0) return { body: concatChunks(chunks, total), complete: true, truncated: false };
+
+    const chunk = bytes.slice(i, i + size);
+    if (total + chunk.byteLength > maxBytes) {
+      chunks.push(chunk.slice(0, Math.max(0, maxBytes - total)));
+      total = maxBytes;
+      return { body: concatChunks(chunks, total), complete: false, truncated: true };
+    }
+    chunks.push(chunk);
+    total += chunk.byteLength;
+    i += size + 2;   // chunk data plus its trailing CRLF
+  }
+  return { body: concatChunks(chunks, total), complete: false, truncated: false };
+}
+
+/** The request bytes for one hop. Shaped to keep the reader minimal. */
+export function buildRequest(host, pathWithQuery, userAgent) {
+  return [
+    `GET ${pathWithQuery} HTTP/1.1`,
+    `Host: ${host}`,
+    `User-Agent: ${userAgent}`,
+    'Accept: text/html,application/xhtml+xml',
+    // No compression: decompressing would mean another decoder in the path,
+    // and the byte cap should apply to what we actually read off the wire.
+    'Accept-Encoding: identity',
+    // No keep-alive: the response ends when the connection does, which is the
+    // simplest framing that cannot be desynchronised.
+    'Connection: close',
+    '', '',
+  ].join('\r\n');
+}
+
 /** Admit a URL for fetching, or say precisely why not.
  * Returns { url, host } or { error }. Never throws. */
 export function admitUrl(raw, allowedHosts) {
@@ -207,6 +323,11 @@ export function admitUrl(raw, allowedHosts) {
   // Credentials in a URL are never legitimate here and can confuse host
   // parsing in downstream tools even where URL got it right.
   if (parsed.username || parsed.password) return { error: 'credentials_in_url' };
+
+  // A storefront is served on 443. An explicit alternate port is not a
+  // storefront, and allowing one widens what an allowlisted name can reach on
+  // a host we do not otherwise control (an admin panel, a debug listener).
+  if (parsed.port && parsed.port !== '443') return { error: `port_not_allowed: ${parsed.port}` };
 
   const host = normalizeHost(parsed.hostname);
   if (!host) return { error: 'no_host' };
