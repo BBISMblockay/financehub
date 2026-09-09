@@ -91,6 +91,19 @@ test('simplifying must not strip qualifiers', () => {
 test('...and says which to drop when both will not fit', () => {
   has(GENERAL, 'drop the finding and keep the qualifier');
 });
+// Live result 2026-09-09 (silo-chat v59, audit rows 8ee1b081 / 84c3201b):
+// the prose rule alone did not hold. "simplify that" dropped the 6-week
+// window and downgraded a hedged "likely no indexed hub" to an assertion,
+// while the gloves caveat -- which WAS the finding -- survived untouched.
+// The distinction is detachability, not caveat-ness, so the rule now
+// prescribes the mechanism rather than only the goal.
+test('the rule says HOW to keep a qualifier, not just that it must', () => {
+  has(GENERAL, 'BIND THE QUALIFIER INTO THE CLAIM SENTENCE');
+  has(GENERAL, 'compression detaches it');
+});
+test('...and explicitly rules out a standing disclaimer footer', () => {
+  has(GENERAL, 'This is NOT a request for a disclaimer footer');
+});
 
 console.log('\n-- our ingested grain is separated from a provider capability --');
 
