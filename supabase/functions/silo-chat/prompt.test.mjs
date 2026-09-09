@@ -68,7 +68,17 @@ test('absence-vs-nonexistence is in the base prompt, not concept-gated', () => {
 });
 test('...and names the registry distinction that makes it actionable', () => {
   has(GENERAL, 'REGISTRY table');
-  has(GENERAL, 'SILO has NO registry of Shopify collections, pages or URLs');
+});
+// Updated when the registry shipped (20260909120000). The rule used to say
+// SILO had no collections registry, which stopped being true. Astra's review
+// of #633 asked that the replacement require a COMPLETED and CURRENT sync
+// rather than merely pointing at the table -- an empty or half-synced
+// registry read as authoritative is a worse version of the landing-page
+// mistake, since it looks like proof.
+test('...points at shopify_collections and demands a completed run', () => {
+  has(GENERAL, 'shopify_collections');
+  has(GENERAL, 'shopify_collection_sync_runs with completed_at set');
+  has(GENERAL, 'records landing SESSIONS');
 });
 test('truncation must be checked before a negative or ranking claim', () => {
   has(GENERAL, 'CHECK FOR TRUNCATION AND COVERAGE BEFORE ANY NEGATIVE OR RANKING CLAIM');

@@ -1609,6 +1609,14 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
       vendor_original: p.vendor || null,
       image_url: imageUrl,
       barcode: v.barcode || null,
+      // The join keys collection membership needs. products_master had NO
+      // Shopify identifier at all before 20260909120000, so
+      // shopify_collection_products could name a product it could not reach.
+      // Numeric id (Shopify's REST id, matching shopifyNumericId() on the
+      // membership side) plus the handle, which is what /products/{handle}
+      // in landing-page paths is built from.
+      shopify_product_id: p.id != null ? String(p.id) : null,
+      shopify_handle: p.handle || null,
       // Shopify's own storefront status. These are SYNC-owned and deliberately
       // separate from is_active / lifecycle_status, which stay human-owned per
       // the contract above -- writing Shopify's answer into is_active would have
@@ -2435,4 +2443,359 @@ async function finishSessionsSync(supabase, connection, { batchId, iso, since, s
     sessions_rows_upserted: sessionsUpserted,
     customer_rows_upserted: customersUpserted,
   };
+}
+
+/* ------------------------------------------------------------------------
+   Collections registry sync
+   ------------------------------------------------------------------------
+   Populates shopify_collections / shopify_collection_products /
+   shopify_collection_sync_runs (20260909120000). This is the ingestion half
+   of the registry that answers "does this collection page exist" -- a
+   question shopify_landing_pages_daily structurally cannot answer, since it
+   records landing SESSIONS and keeps only the top ~250 paths per day.
+
+   Field shapes verified against the live Admin GraphQL schema, not recalled:
+   Collection carries handle/title/description/seo/ruleSet/sortOrder/
+   templateSuffix/productsCount/updatedAt/legacyResourceId, and Publication
+   carries NO name field -- the only human-readable discriminator reachable
+   from it is catalog.title.
+
+   Three properties this function exists to get right, all of them the
+   opposite of what the shortest implementation does:
+
+   1. DELETION IS GATED ON COMPLETENESS. missing_since is written only after
+      the run records completed_at, which happens only when every page was
+      walked without error. The obvious version -- upsert what came back,
+      mark the rest deleted -- turns one timeout into "every collection was
+      removed".
+
+   2. PUBLICATION FAILURE IS UNKNOWN, NOT FALSE. Resolving the Online Store
+      publication is its own call and can fail or be ambiguous. When it does,
+      the collections query drops the publishedOnPublication field entirely
+      (it takes a NON_NULL id, so there is nothing to pass) and every row
+      gets published_to_online_store = null plus publication_error. An
+      unpublished collection and an uncheckable one lead to opposite actions.
+
+   3. MEMBERSHIP IS PAGINATED TO COMPLETION. A collection with more products
+      than one page keeps being fetched until hasNextPage is false. A
+      partial product list is not recorded as if it were the whole set --
+      if that pagination fails the whole run fails, which is the honest
+      outcome.
+-------------------------------------------------------------------------- */
+
+/** Shopify GID -> the numeric id Shopify's REST API uses.
+ *  'gid://shopify/Product/123' -> '123'. Already-numeric input passes
+ *  through, so this is safe to apply twice. Exists because the GraphQL and
+ *  REST halves of this file speak different id dialects for the same object,
+ *  and a join across them silently returns nothing rather than erroring. */
+export function shopifyNumericId(gidOrId) {
+  if (gidOrId == null) return null;
+  const s = String(gidOrId);
+  const m = /\/(\d+)(?:\?.*)?$/.exec(s);
+  return m ? m[1] : s;
+}
+
+const COLLECTIONS_PAGE_SIZE = 50;
+const COLLECTION_PRODUCTS_PAGE_SIZE = 250;
+
+/** One Admin GraphQL call. Separate from shopifyql() above, which is
+ *  specifically the ShopifyQL analytics wrapper. */
+export async function shopifyGraphql(connection, query, variables = {}) {
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const url = `https://${connection.shop_domain}/admin/api/${apiVersion}/graphql.json`;
+  const res = await fetchWithRetry(url, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': connection.access_token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  const json = await res.json();
+  if (json?.errors?.length) {
+    throw new Error(`Shopify GraphQL: ${json.errors.map((e) => e.message).join('; ')}`);
+  }
+  if (!json?.data) throw new Error('Shopify GraphQL returned no data');
+  return json.data;
+}
+
+/** Find the Online Store publication id.
+ *
+ *  Publication has no name field, so this matches on catalog.title, which is
+ *  a display string and therefore brittle -- a renamed or localised channel
+ *  stops matching. That is survivable ONLY because the caller treats failure
+ *  here as unknown rather than as "not published"; if that ever changes,
+ *  this needs a sturdier discriminator (the channel's app handle) first.
+ *  Returns { id } or { error }, never throws. */
+export async function resolveOnlineStorePublication(connection, { gql = shopifyGraphql } = {}) {
+  try {
+    const data = await gql(connection, `
+      query OnlineStorePublication {
+        publications(first: 50) { nodes { id catalog { title } } }
+      }
+    `);
+    const nodes = data?.publications?.nodes || [];
+    const matches = nodes.filter((n) => /online store/i.test(n?.catalog?.title || ''));
+    if (matches.length === 1) return { id: matches[0].id };
+    if (matches.length === 0) {
+      return { error: `no publication whose catalog.title looks like Online Store (saw ${nodes.length})` };
+    }
+    return { error: `${matches.length} publications match Online Store; cannot pick one` };
+  } catch (err) {
+    return { error: `publication lookup failed: ${err?.message || err}` };
+  }
+}
+
+function collectionsQuery({ withPublication }) {
+  // publishedOnPublication takes a NON_NULL ID, so when the publication is
+  // unresolved the field is omitted rather than passed null -- passing null
+  // is a GraphQL error, and defaulting it to some other publication would
+  // silently answer a different question.
+  const publicationField = withPublication
+    ? 'publishedOnPublication(publicationId: $publicationId)'
+    : '';
+  const publicationArg = withPublication ? ', $publicationId: ID!' : '';
+  return `
+    query Collections($cursor: String${publicationArg}) {
+      collections(first: ${COLLECTIONS_PAGE_SIZE}, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          legacyResourceId
+          handle
+          title
+          description
+          updatedAt
+          sortOrder
+          templateSuffix
+          seo { title description }
+          ruleSet { appliedDisjunctively }
+          productsCount { count }
+          ${publicationField}
+          resourcePublications(first: 25) {
+            nodes { publication { id catalog { title } } isPublished }
+          }
+          products(first: ${COLLECTION_PRODUCTS_PAGE_SIZE}) {
+            pageInfo { hasNextPage endCursor }
+            nodes { id }
+          }
+        }
+      }
+    }
+  `;
+}
+
+const COLLECTION_PRODUCTS_QUERY = `
+  query CollectionProducts($id: ID!, $cursor: String) {
+    collection(id: $id) {
+      products(first: ${COLLECTION_PRODUCTS_PAGE_SIZE}, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id }
+      }
+    }
+  }
+`;
+
+function collectionRow(connection, node, { publicationId, publicationError, runId }) {
+  const published = publicationId
+    ? (typeof node.publishedOnPublication === 'boolean' ? node.publishedOnPublication : null)
+    : null;
+  return {
+    company_entity_id: connection.company_entity_id,
+    shop_domain: connection.shop_domain,
+    shopify_collection_id: node.id,
+    legacy_resource_id: node.legacyResourceId != null ? String(node.legacyResourceId) : null,
+    handle: node.handle,
+    title: node.title ?? null,
+    description: node.description ?? null,
+    // seo.title/description are OVERRIDES -- Shopify returns null when the
+    // collection simply inherits its own title, which is normal and is not a
+    // missing-SEO defect. The column names carry that; do not "fix" a null
+    // here by falling back to node.title, which would erase the distinction.
+    seo_title_override: node.seo?.title ?? null,
+    seo_description_override: node.seo?.description ?? null,
+    is_smart_collection: node.ruleSet != null,
+    sort_order: node.sortOrder ?? null,
+    template_suffix: node.templateSuffix ?? null,
+    products_count: node.productsCount?.count ?? null,
+    published_to_online_store: published,
+    publication_checked_at: new Date().toISOString(),
+    publication_error: publicationId ? null : (publicationError || null),
+    publications: (node.resourcePublications?.nodes || []).map((p) => ({
+      id: p?.publication?.id ?? null,
+      title: p?.publication?.catalog?.title ?? null,
+      is_published: p?.isPublished ?? null,
+    })),
+    shopify_updated_at: node.updatedAt ?? null,
+    raw: node,
+    last_seen_at: new Date().toISOString(),
+    last_seen_run_id: runId,
+    missing_since: null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function runCollectionsSync(supabase, connection, {
+  batchId = null,
+  gql = shopifyGraphql,
+} = {}) {
+  const startedAt = new Date().toISOString();
+  const { data: runRow, error: runErr } = await supabase
+    .from('shopify_collection_sync_runs')
+    .insert({
+      company_entity_id: connection.company_entity_id,
+      shop_domain: connection.shop_domain,
+      started_at: startedAt,
+      sync_batch_id: batchId,
+    })
+    .select('id')
+    .single();
+  if (runErr) throw new Error(`collection sync run insert failed: ${runErr.message}`);
+  const runId = runRow.id;
+
+  let pages = 0;
+  let collectionsSeen = 0;
+  let membershipsSeen = 0;
+
+  try {
+    const publication = await resolveOnlineStorePublication(connection, { gql });
+    const publicationId = publication.id || null;
+    const publicationError = publication.error || null;
+    const query = collectionsQuery({ withPublication: Boolean(publicationId) });
+
+    let cursor = null;
+    for (;;) {
+      const vars = publicationId ? { cursor, publicationId } : { cursor };
+      const data = await gql(connection, query, vars);
+      const conn = data?.collections;
+      if (!conn) throw new Error('collections query returned no connection');
+      pages += 1;
+
+      const nodes = conn.nodes || [];
+      const rows = nodes.map((n) => collectionRow(connection, n, { publicationId, publicationError, runId }));
+      if (rows.length) {
+        const { error } = await supabase
+          .from('shopify_collections')
+          .upsert(rows, { onConflict: 'company_entity_id,shop_domain,shopify_collection_id' });
+        if (error) throw new Error(`shopify_collections upsert failed: ${error.message}`);
+        collectionsSeen += rows.length;
+      }
+
+      for (const node of nodes) {
+        const productIds = (node.products?.nodes || []).map((p) => p.id);
+        let productPage = node.products?.pageInfo;
+        // Paginate to completion. A collection whose product list is longer
+        // than one page must not be recorded as if the first page were the
+        // whole membership.
+        while (productPage?.hasNextPage) {
+          const more = await gql(connection, COLLECTION_PRODUCTS_QUERY, {
+            id: node.id, cursor: productPage.endCursor,
+          });
+          const moreConn = more?.collection?.products;
+          if (!moreConn) throw new Error(`collection ${node.id}: product page returned no connection`);
+          productIds.push(...(moreConn.nodes || []).map((p) => p.id));
+          productPage = moreConn.pageInfo;
+          pages += 1;
+        }
+
+        if (productIds.length) {
+          const memberRows = productIds.map((pid, idx) => ({
+            company_entity_id: connection.company_entity_id,
+            shop_domain: connection.shop_domain,
+            shopify_collection_id: node.id,
+            // NUMERIC id, not the GID. runCatalogSync is REST-based and
+            // writes products_master.shopify_product_id as Shopify's numeric
+            // id, so storing 'gid://shopify/Product/123' here would make the
+            // membership -> product join return zero rows while looking
+            // perfectly correct -- the exact shape of failure this project
+            // exists to stop. shopifyNumericId() is asserted on both sides.
+            shopify_product_id: shopifyNumericId(pid),
+            position: idx + 1,
+            last_seen_at: new Date().toISOString(),
+            last_seen_run_id: runId,
+            missing_since: null,
+          }));
+          for (const group of chunk(memberRows, 500)) {
+            const { error } = await supabase
+              .from('shopify_collection_products')
+              .upsert(group, {
+                onConflict: 'company_entity_id,shop_domain,shopify_collection_id,shopify_product_id',
+              });
+            if (error) throw new Error(`shopify_collection_products upsert failed: ${error.message}`);
+          }
+          membershipsSeen += memberRows.length;
+        }
+      }
+
+      if (!conn.pageInfo?.hasNextPage) break;
+      cursor = conn.pageInfo.endCursor;
+    }
+
+    // Only now -- every page walked, nothing thrown -- may absence mean
+    // removal. Order matters: completed_at is stamped BEFORE the
+    // missing_since sweep so a crash between them leaves a completed run and
+    // an un-swept table (stale-but-true) rather than a swept table with no
+    // completed run to justify it.
+    const { error: doneErr } = await supabase
+      .from('shopify_collection_sync_runs')
+      .update({
+        completed_at: new Date().toISOString(),
+        pages_fetched: pages,
+        collections_seen: collectionsSeen,
+        memberships_seen: membershipsSeen,
+      })
+      .eq('id', runId);
+    if (doneErr) throw new Error(`collection sync run completion failed: ${doneErr.message}`);
+
+    // Sweep on last_seen_at < THIS RUN'S START, never on
+    // last_seen_run_id != runId.
+    //
+    // The run-id form is wrong under concurrency, and the nightly workflow
+    // deliberately permits overlapping runs (the concurrency group was tried
+    // and removed -- see shopify-sync.yml). Interleave two runs and the
+    // run-id form deletes live data: A upserts collection X stamping run A,
+    // B upserts X stamping run B, then A completes and sweeps everything
+    // whose run id isn't A -- marking X missing even though A saw it.
+    //
+    // The timestamp form is monotonic and needs no lock: any row touched by
+    // ANY run since this one started is newer than startedAt and survives.
+    // A row genuinely absent from a COMPLETED walk has not been touched
+    // since before this run began, and is swept correctly.
+    const sweptAt = new Date().toISOString();
+    for (const table of ['shopify_collections', 'shopify_collection_products']) {
+      const { error } = await supabase
+        .from(table)
+        .update({ missing_since: sweptAt })
+        .eq('company_entity_id', connection.company_entity_id)
+        .eq('shop_domain', connection.shop_domain)
+        .is('missing_since', null)
+        .lt('last_seen_at', startedAt);
+      if (error) throw new Error(`${table} missing sweep failed: ${error.message}`);
+    }
+
+    return {
+      job_type: 'collections_sync',
+      batch_id: batchId,
+      run_id: runId,
+      complete: true,
+      pages_fetched: pages,
+      collections_seen: collectionsSeen,
+      memberships_seen: membershipsSeen,
+      publication_resolved: Boolean(publicationId),
+      publication_error: publicationError || undefined,
+    };
+  } catch (err) {
+    // Record why, leave completed_at null, and do NOT sweep. A partial view
+    // of the store may never drive a deletion.
+    await supabase
+      .from('shopify_collection_sync_runs')
+      .update({
+        error: String(err?.message || err).slice(0, 2000),
+        pages_fetched: pages,
+        collections_seen: collectionsSeen,
+        memberships_seen: membershipsSeen,
+      })
+      .eq('id', runId);
+    throw err;
+  }
 }

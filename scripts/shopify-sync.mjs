@@ -14,6 +14,7 @@ import {
   runPayoutsSync,
   runSessionsSync,
   runLandingPagesSync,
+  runCollectionsSync,
   runDiscountCodesSync,
   runWindowedHistory,
 } from './lib/shopify-sync-core.mjs';
@@ -51,6 +52,18 @@ const SESSIONS_DAYS = Number(process.env.SHOPIFY_SESSIONS_DAYS || 90);
 const SKIP_LANDING_PAGES = process.env.SHOPIFY_SKIP_LANDING_PAGES === 'true';
 const LANDING_PAGES_DAYS = Number(process.env.SHOPIFY_LANDING_PAGES_DAYS || 30);
 const SKIP_DISCOUNT_CODES = process.env.SHOPIFY_SKIP_DISCOUNT_CODES === 'true';
+// The collections registry: what pages exist, as opposed to what got
+// traffic. Cheap relative to sales (one GraphQL page per 50 collections
+// plus follow-ups only for collections with >250 products).
+//
+// OPT-IN, unlike its siblings, which are opt-OUT skips. This has never run
+// against live Shopify, and a SKIP_ flag defaulting to false means merging
+// alone would switch it on for the nightly, the catch-up AND the two-hourly
+// sales refresh simultaneously -- "we'll run it manually for one shop
+// first" is not a plan if the code does not enforce it. Flip this to true
+// in .github/workflows/shopify-sync.yml once a manual single-shop run has
+// produced a completed_at and a sane collections_seen.
+const COLLECTIONS_ENABLED = process.env.SHOPIFY_COLLECTIONS_ENABLED === 'true';
 const DISCOUNT_CODES_DAYS = Number(process.env.SHOPIFY_DISCOUNT_CODES_DAYS || 30);
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
@@ -224,6 +237,26 @@ async function syncConnection(connection) {
       // Same stance as sessions: analytics must not take down sales sync.
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       console.warn(`[warn] ${connection.shop_domain} landing_pages_sync failed: ${err.message || err}`);
+    }
+  }
+
+  if (COLLECTIONS_ENABLED && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+    const jobId = await startJob(connection, 'collections_sync');
+    try {
+      const result = await runCollectionsSync(supabase, connection, { batchId: BATCH_ID });
+      await finishJob(jobId, 'success', result);
+      results.jobs.push(result);
+      console.log(
+        `[ok] ${connection.shop_domain} collections_sync: ${result.collections_seen} collections, ` +
+        `${result.memberships_seen} memberships, ${result.pages_fetched} pages` +
+        (result.publication_resolved ? '' : ` — publication UNKNOWN (${result.publication_error})`),
+      );
+    } catch (err) {
+      // Same stance as sessions/landing pages: the registry must not take
+      // down sales sync. A failed run leaves completed_at null, so nothing
+      // downstream will read the partial fetch as a set of deletions.
+      await finishJob(jobId, 'error', { error: err.message || String(err) });
+      console.warn(`[warn] ${connection.shop_domain} collections_sync failed: ${err.message || err}`);
     }
   }
 

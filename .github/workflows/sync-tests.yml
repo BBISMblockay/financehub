@@ -1,0 +1,51 @@
+name: Sync logic tests
+
+# Unit tests for scripts/lib sync logic that has no network and no database.
+#
+# The suite that matters here is collections-sync: it drives a real
+# mid-pagination failure through runCollectionsSync with a fake Shopify and
+# a fake Supabase, and asserts that a partial fetch writes NO completed_at
+# and sweeps NO missing_since. That property is the difference between a
+# timeout being a retry and a timeout marking every collection deleted, and
+# it is not visible in a diff -- the wrong version looks perfectly
+# reasonable.
+#
+# No secrets, no install: everything is stubbed in-memory, which is what
+# makes it safe on pull requests.
+
+on:
+  push:
+    branches: [main]
+    paths: &sync_paths
+      - 'scripts/lib/**'
+      - 'scripts/tests/**'
+      - 'scripts/shopify-sync.mjs'
+      - 'scripts/shopify-orders-backfill.mjs'
+      - 'supabase/functions/shopify-oauth-start/**'
+      - '.github/workflows/sync-tests.yml'
+  pull_request:
+    paths: *sync_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Bare checkout on purpose, same stance as the v3 unit job.
+      - name: Collections sync
+        run: node scripts/tests/collections-sync.test.mjs
+
+      - name: Shopify stays read-only
+        run: node scripts/tests/shopify-readonly.test.mjs
