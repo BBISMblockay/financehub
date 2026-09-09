@@ -370,6 +370,7 @@ supabase/
     20260909160000_collections_registry_now_populated.sql
     20260909180000_search_console_connection.sql
     20260909200000_shopify_product_skus.sql
+    20260909220000_page_inspection.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

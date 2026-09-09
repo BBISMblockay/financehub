@@ -18483,3 +18483,15 @@ $c$select (select count(*) from v_po_header_summary
 -- the catalog sync, so no missing_since sweep and absence means not-seen.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909200000_shopify_product_skus.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909220000_page_inspection.sql
+-- shopify_shop_domains (the page-inspect allowlist, learned from Shopify's own
+-- shop object per connected store -- nobody types a domain, and there is no
+-- client write policy because a row here authorises an outbound fetch) and
+-- page_inspections (point-in-time captures of what a page says about itself,
+-- with capture time, truncation and error preserved so two captures can be
+-- compared honestly). Nothing here is search data.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909220000_page_inspection.sql

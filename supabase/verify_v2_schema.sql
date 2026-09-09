@@ -2689,3 +2689,55 @@ select
       then 'MISSING — shopify_product_skus catalog entry no longer says it is not a registry'
     else 'ok'
   end as shopify_product_sku_mapping;
+
+-- ── Page inspection (20260909220000) ────────────────────────────────────────
+-- shopify_shop_domains IS a security boundary: a row in it authorises an
+-- outbound fetch from our infrastructure. The checks that matter are that it
+-- stays sync-owned and company-scoped, not merely that it exists.
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shopify_shop_domains')
+      then 'MISSING — shopify_shop_domains'
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='shopify_shop_domains'
+                   and cmd in ('INSERT','UPDATE','DELETE','ALL'))
+      then 'CRITICAL — shopify_shop_domains has a client write policy; a row here '
+        || 'authorises page-inspect to fetch that host'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='shopify_shop_domains'
+                       and qual like '%active_company_id%')
+      then 'MISSING — shopify_shop_domains select policy is not company-scoped'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='shopify_shop_domains' and c.relrowsecurity)
+      then 'MISSING — RLS not enabled on shopify_shop_domains'
+    when not exists (select 1 from pg_indexes
+                     where schemaname='public' and indexname='shopify_shop_domains_identity')
+      then 'MISSING — shopify_shop_domains_identity unique index (company, host)'
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='page_inspections')
+      then 'MISSING — page_inspections'
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='page_inspections'
+                   and cmd in ('INSERT','UPDATE','DELETE','ALL'))
+      then 'UNEXPECTED — page_inspections has a client write policy; a hand-written '
+        || 'row would look like a capture that never happened'
+    -- Completeness columns. A capture without them cannot be compared to
+    -- another capture honestly, which is the only reason to store one.
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name='page_inspections'
+            and column_name in ('fetched_at','is_truncated','fetch_error','redirect_chain')) <> 4
+      then 'MISSING — page_inspections lost a completeness column '
+        || '(fetched_at / is_truncated / fetch_error / redirect_chain)'
+    -- The catalog entry must keep saying this is not search data, or the model
+    -- will be invited to read meta_robots as an indexing observation.
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='page_inspections'
+                       and description like '%no Search Console or search-engine data%')
+      then 'MISSING — page_inspections catalog entry no longer disclaims search data'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname in ('page_inspections','shopify_shop_domains')
+                   and jsonb_array_length(coalesce(columns,'[]'::jsonb)) = 0)
+      then 'MISSING — a page-inspection catalog entry has no columns; run select public.refresh_chat_schema_catalog()'
+    else 'ok'
+  end as page_inspection;
