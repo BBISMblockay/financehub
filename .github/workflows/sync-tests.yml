@@ -49,3 +49,11 @@ jobs:
 
       - name: Shopify stays read-only
         run: node scripts/tests/shopify-readonly.test.mjs
+
+      # products_master is one row per (company, sku), so its shopify_product_id
+      # is decided by nightly sync ORDER for the 26.9% of sold SKUs that exist
+      # in more than one shop. These assert the properties that mapping table
+      # exists to keep -- one SKU on two products yields two rows, a variant
+      # with no SKU is still mapped, first_seen_at is not restamped nightly.
+      - name: Product/SKU mapping grain
+        run: node scripts/tests/product-sku-mapping.test.mjs
