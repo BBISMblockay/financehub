@@ -128,19 +128,46 @@ async function httpsGetViaAddress(opts: {
   status: number; headers: Map<string, string>;
   body: Uint8Array; truncated: boolean; complete: boolean;
 }> {
-  const connectTls = (Deno as unknown as {
-    connectTls?: (o: Record<string, unknown>) => Promise<Deno.Conn>;
-  }).connectTls;
-  if (typeof connectTls !== 'function') {
+  // Two steps, deliberately, rather than connectTls({ servername }):
+  //
+  //   Deno.connect  — a plain TCP socket to the VALIDATED ADDRESS. This is the
+  //                   pin. No name is resolved here, so there is no second
+  //                   lookup for a rebinding zone to answer differently.
+  //   Deno.startTls — negotiates TLS over that existing socket with `hostname`
+  //                   set to the STOREFRONT NAME, which is what SNI carries and
+  //                   what the certificate is verified against.
+  //
+  // Splitting them makes the guarantee legible in the code: the thing we
+  // connected to and the thing we authenticated are visibly different values,
+  // and neither is derived from the other. `servername` on connectTls does the
+  // same job, but reads as an option on a call whose `hostname` is doing the
+  // connecting -- easy to "tidy" into a single hostname later and silently
+  // unpin. startTls is also the more widely available of the two.
+  const rawConnect = (Deno as unknown as {
+    connect?: (o: Record<string, unknown>) => Promise<Deno.Conn>;
+  }).connect;
+  const startTls = (Deno as unknown as {
+    startTls?: (c: Deno.Conn, o: Record<string, unknown>) => Promise<Deno.Conn>;
+  }).startTls;
+  if (typeof rawConnect !== 'function' || typeof startTls !== 'function') {
     // FAIL CLOSED. Falling back to fetch(host) here would silently reopen the
     // exact hole this function exists to close, and it would do it invisibly.
-    throw new Error('tls_connect_unavailable: cannot pin the connection to a validated address');
+    throw new Error(
+      'tls_connect_unavailable: Deno.connect/startTls missing, cannot pin the connection to a validated address',
+    );
   }
 
-  // An IPv6 literal needs brackets in the URL sense but NOT in connectTls's
+  // An IPv6 literal needs brackets in a URL but NOT in Deno.connect's
   // hostname, which takes the bare address.
   const address = opts.address.replace(/^\[|\]$/g, '');
-  const conn = await connectTls({ hostname: address, port: 443, servername: opts.host });
+  const tcp = await rawConnect({ hostname: address, port: 443, transport: 'tcp' });
+  let conn: Deno.Conn;
+  try {
+    conn = await startTls(tcp, { hostname: opts.host });
+  } catch (err) {
+    try { tcp.close(); } catch { /* already gone */ }
+    throw err;
+  }
 
   const onAbort = () => { try { conn.close(); } catch { /* already closed */ } };
   opts.signal.addEventListener('abort', onAbort, { once: true });

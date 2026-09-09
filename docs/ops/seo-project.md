@@ -513,3 +513,74 @@ becomes true rather than being downgraded. Verified identical under UTC and
 Asia/Tokyo sessions after the change. Pacific is hardcoded for the same reason
 it is in `silo_business_today()`: a tenant elsewhere needs it read from their
 company record, which is a wider change.
+
+## Third review round (2026-09-09) — pinned connect, and the deploy gate
+
+### `connectTls` replaced with `connect` → `startTls`
+
+Same guarantee, expressed so it cannot be tidied away:
+
+```
+Deno.connect  -> plain TCP to the VALIDATED ADDRESS   (this is the pin)
+Deno.startTls -> TLS over that socket, hostname = the STOREFRONT NAME
+                 (this is what SNI carries and what the cert is checked against)
+```
+
+`connectTls({ hostname, servername })` did the same job, but reads as an option
+on a call whose `hostname` is doing the connecting — one plausible "simplify
+this" later collapses the two into a single hostname, the connection
+re-resolves, and the pin is gone with nothing failing. Splitting the steps makes
+the two values visibly independent. `startTls` is also the more widely available
+of the two APIs.
+
+Both are feature-detected and **fail closed**: if either is missing the function
+raises `tls_connect_unavailable` rather than falling back to `fetch()`.
+
+### The integration test
+
+`scripts/tests/page-inspect-tls.test.mjs`, all on localhost, in CI:
+
+- a real split header block and chunked body, read off a socket and parsed by
+  the actual helpers — the title tag is deliberately split *across* two chunks
+- the server sees `Host:` = the storefront name, never the address
+- **TLS validates the NAME while TCP went to the pinned ADDRESS**, asserted from
+  both ends: the server records SNI = storefront and peer = `127.0.0.1`
+- **claiming a different name over the same address FAILS certificate
+  validation** — the assertion that says pinning by address does not weaken
+  authentication
+- an untrusted certificate is rejected even for the right name
+
+Node's `net`/`tls` stand in for `Deno.connect`/`Deno.startTls`: the same two-step
+shape. This proves the *shape* and the parser. It cannot prove the Deno runtime
+exposes those APIs — that is the live smoke test below.
+
+The TLS half mints a throwaway certificate with `openssl` and **skips (does not
+fail)** without it, the same stance as the v3 browser suites. Verified both
+ways: 5/5 with openssl, 2/2 and a reported skip without it, exit 0 either way.
+
+### Deploy gate — page-inspect stays undeployed until this passes
+
+The one thing no test here can settle is whether the Supabase Edge runtime
+exposes `Deno.connect` and `Deno.startTls`. **Do not consider page-inspect
+shipped, and do not wire any UI to it, until one live call succeeds.**
+
+Order:
+
+1. Merge, then deploy `page-inspect` (`verify_jwt: true`).
+2. One call, as a signed-in admin whose active company has a
+   `shopify_shop_domains` row:
+   `POST /functions/v1/page-inspect  {"url":"https://www.baseballism.com/"}`
+
+**Passes** when the response has `ok: true`, a non-null `inspection_id`,
+`http_status: 200`, a non-empty `title`, and `fetch_error: null` — and the
+matching `page_inspections` row exists.
+
+**Fails closed** if the response carries
+`fetch_error: "tls_connect_unavailable: ..."`. That is not a security problem —
+the function refuses to fetch rather than falling back to an unpinned
+connection, and it still records the attempt — but the tool is inert until the
+runtime question is resolved. In that case the options are a Deno version with
+those APIs, or moving the fetch to a runner that has them (the GitHub Actions
+path the probes already use).
+
+Nothing is deployed as of this writing.

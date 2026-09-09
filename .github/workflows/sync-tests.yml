@@ -69,3 +69,13 @@ jobs:
       # the shop stopped serving.
       - name: Page inspection admission and extraction
         run: node scripts/tests/page-inspect.test.mjs
+
+      # Integration-style, all on localhost: proves the TCP connection goes to
+      # an ADDRESS we chose while TLS authenticates a NAME we chose, and that
+      # claiming a different name over the same address FAILS certificate
+      # validation. That negative case is the one that says pinning by address
+      # does not weaken authentication. The TLS half needs openssl to mint a
+      # throwaway cert and skips (does not fail) without it; ubuntu-latest has
+      # it. No network egress, no install.
+      - name: Page inspection pinned-TLS shape
+        run: node scripts/tests/page-inspect-tls.test.mjs
