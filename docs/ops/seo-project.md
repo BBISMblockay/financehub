@@ -170,6 +170,53 @@ the allowlist rather than followed blindly.
 
 ---
 
+## Collections registry — shipped and scheduled (2026-09-09)
+
+Ingestion runs on the **08:30 UTC nightly only** — not the 14:30 catch-up,
+not the 2-hourly refresh — and stays non-fatal.
+
+Enabled on three manual single-shop runs against `baseballism.myshopify.com`,
+byte-identical each time: 153 pages, **349 collections**, 51,713 memberships,
+`completed_at` set, `marked_missing` 0. After the publication fix, all 349
+resolve, with 6 `false` values that are all app scaffolding (`Smart Products
+Filter Index - Do not delete`, `[XCloud Search app] All products`, and
+similar) rather than merchandising — which is what makes the boolean
+believable rather than merely non-null.
+
+### Open, in priority order
+
+1. **Product-grain mapping table.** Collection membership joins
+   `products_master` on `shopify_product_id` at **94.1% observed coverage**
+   (2,299 of 2,442 distinct products, measured 2026-09-09). This is a GRAIN
+   MISMATCH, not missing data, and will not improve by re-syncing:
+   `products_master` is one row per `(company_entity_id, sku)`, and
+   `runCatalogSync` keeps the first variant per SKU, so when two Shopify
+   products share a SKU the row records whichever was seen first and the
+   other product id becomes unreachable. Verified: 49 of the 51 SKUs behind
+   unmatched products ARE present, stamped with a different product id.
+   Build a product-grain table before collection membership drives any
+   sales/inventory prioritisation. Until then, quote 94.1% as *observed join
+   coverage* and never as "6% of products are missing".
+
+2. **One traffic handle absent from the registry.** Exactly one
+   `/collections/{handle}` path with recorded sessions has no matching
+   registry row. Most likely a rename, a redirect, or historical traffic to
+   a since-deleted collection — unconfirmed. Worth resolving because it is
+   the one case where the registry and the traffic data actually disagree.
+
+3. **277 collections have no hub-traffic row.** An INVESTIGATION SET, never
+   a claim of zero traffic: `shopify_landing_pages_daily` keeps only the top
+   ~250 paths per day and the online store hits that cap every day, so a
+   collection can have real traffic and no row. Anything derived from this
+   list must carry that qualifier.
+
+4. **Run-level reporting.** Verification queries currently join
+   `shopify_collection_sync_runs` to *current* table state, so a query about
+   run 1 silently reports what the table looks like today — three historical
+   runs all appeared to have resolved publication when only the third did.
+   Snapshot the per-run counts onto the run row so a past run's result stays
+   readable.
+
 ## Sequence
 
 | # | Step | Notes |
