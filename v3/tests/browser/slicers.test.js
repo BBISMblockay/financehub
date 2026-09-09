@@ -176,6 +176,85 @@ const isoToday = () => { const d = new Date(); const p = (n) => String(n).padSta
     saved && Object.keys(saved).every((k) => ['grain', 'report_date', 'min_sales'].includes(k)),
     'got ' + JSON.stringify(saved));
 
+  // ── The filter bar collapses ────────────────────────────────────────
+  // A board with seven filters spent ~230px restating itself: two rows of
+  // controls, then a chip for each one underneath.
+  console.log('\n── the filter bar collapses ──');
+
+  await seed(`
+    db.silo_chat_saved_reports.push({
+      id: 'BIG', title: 'Sales Explorer', question: null, description: null,
+      source: 'manual', company_entity_id: 'C1', visibility: 'company',
+      created_by: 'U1', created_by_name: 'Blake', created_at: '2026-09-05T00:00:00Z',
+      parameters: [
+        { key: 'date_from', type: 'date', label: 'From', default: '2026-01-01' },
+        { key: 'date_to', type: 'date', label: 'To', default: '2026-09-08' },
+        { key: 'store', type: 'text', label: 'Store', default: 'all' },
+        { key: 'store_group', type: 'enum', label: 'Store group', options: ['all','retail'], default: 'all' },
+        { key: 'mlb_rule', type: 'enum', label: 'MLB', options: ['all','mlb'], default: 'all' },
+        { key: 'product_type', type: 'text', label: 'Product type', default: 'all' },
+        { key: 'name_contains', type: 'text', label: 'Name contains', default: 'all' },
+        { key: 'demand_rate', type: 'enum', label: 'Demand rate', options: ['recent_3m','recent_12m'], default: 'recent_3m' },
+      ],
+      queries_run: ['select a from s where d between {{date_from}} and {{date_to}} and st = {{store}} and g = {{store_group}} and m = {{mlb_rule}} and pt = {{product_type}} and n = {{name_contains}} and dr = {{demand_rate}}'],
+    });
+    db.dashboard_widgets.length = 0;
+    db.dashboard_widgets.push({ id: 'BW', dashboard_id: 'D1', report_id: 'BIG', query_index: 0,
+      title: 'Explorer', visual_type: 'table', visual_config: {},
+      layout: { x: 0, y: 0, w: 12, h: 6 }, sort_order: 0 });`);
+  await page.evaluate(() => { try { localStorage.removeItem('silo.v3.filters.collapsed'); } catch (e) {} });
+  await page.goto(`${BASE}/v3/dashboard.html?id=D1`);
+  await page.waitForFunction(() => window.__siloDashboard, { timeout: 10000 });
+  await page.waitForTimeout(900);
+
+  const canvasTop = () => page.evaluate(() =>
+    Math.round(document.getElementById('canvas').getBoundingClientRect().top));
+
+  ok('the start/end pair counts as ONE range control, so the label matches what opens',
+    (await page.textContent('#filterCount')) === '(7)', await page.textContent('#filterCount'));
+  ok('a bar this size starts collapsed', await page.isHidden('#slicerFields'));
+  // The chips are the whole reason collapsing is honest: they carry the
+  // applied values, the resolved dates and the tile reach. A collapsed bar
+  // that dropped them would be smaller and would stop saying what is applied.
+  ok('...but the applied values are still on screen', await page.isVisible('#filterChips'));
+  ok('...including the resolved date range',
+    (await page.textContent('#filterChips')).includes('2026-01-01'));
+
+  const collapsedTop = await canvasTop();
+  await page.click('#btnFilters');
+  await page.waitForTimeout(350);
+  const expandedTop = await canvasTop();
+
+  ok('expanding reveals the controls', await page.isVisible('#slicerFields'));
+  // This is the assertion that matters. `.v3-slicer-fields` sets
+  // `display: flex`, an author declaration that beats the UA's
+  // `[hidden] { display: none }` -- so the first cut of this flipped .hidden
+  // and aria-expanded, looked correct in the DOM, and moved the canvas by
+  // FOUR pixels. Assert the space, not the attribute.
+  ok('...and collapsing genuinely reclaims the space, not just the attribute',
+    expandedTop - collapsedTop > 100, `collapsed ${collapsedTop}px, expanded ${expandedTop}px`);
+  ok('the toggle states which way it is', (await page.getAttribute('#btnFilters', 'aria-expanded')) === 'true');
+
+  await page.click('#btnFilters');
+  await page.waitForTimeout(300);
+  await page.reload();
+  await page.waitForFunction(() => window.__siloDashboard, { timeout: 10000 });
+  await page.waitForTimeout(900);
+  ok('an explicit choice outlives a reload', await page.isHidden('#slicerFields'));
+  ok('...and still shows what is applied', await page.isVisible('#filterChips'));
+
+  // A small bar is in nobody's way, and hiding it would cost a click for
+  // nothing.
+  await seed(`db.dashboard_widgets.length = 0;
+    db.dashboard_widgets.push({ id: 'W1', dashboard_id: 'D1', report_id: 'P3', query_index: 0,
+      title: 'One store', visual_type: 'table', visual_config: {},
+      layout: { x: 0, y: 0, w: 6, h: 4 }, sort_order: 0 });`);
+  await page.evaluate(() => { try { localStorage.removeItem('silo.v3.filters.collapsed'); } catch (e) {} });
+  await page.goto(`${BASE}/v3/dashboard.html?id=D1`);
+  await page.waitForFunction(() => window.__siloDashboard, { timeout: 10000 });
+  await page.waitForTimeout(900);
+  ok('a one-filter bar is left open', await page.isVisible('#slicerFields'));
+
   ok('no page errors throughout', errors.length === 0, errors.slice(0, 4).join('\n        '));
 
   console.log(`\n${checks - fails}/${checks} checks passed\n`);

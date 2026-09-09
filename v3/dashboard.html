@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260908a" />
+  <link rel="stylesheet" href="dashboard.css?v=20260909a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -46,6 +46,9 @@
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnDensity" title="Switch between comfortable and compact spacing">Compact</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Widget</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddSection" hidden>+ Section</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnSettings" hidden
+                aria-expanded="false" aria-controls="metaBar"
+                title="Name, description and who can see this dashboard">Settings</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnEdit" hidden>Edit</button>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnSave" hidden>Save</button>
       </div>
@@ -68,7 +71,13 @@
          only an editor's Save writes it back as the dashboard's position. -->
     <section class="v3-slicer-bar" id="slicerBar" hidden>
       <div class="v3-slicer-row">
-        <span class="v3-slicer-lead">Filters</span>
+        <button type="button" class="v3-slicer-lead v3-slicer-toggle" id="btnFilters"
+                aria-expanded="true" aria-controls="slicerFields"
+                title="Show or hide the filter controls">
+          <span class="v3-slicer-caret" aria-hidden="true">▾</span>
+          <span>Filters</span>
+          <span class="v3-slicer-count" id="filterCount"></span>
+        </button>
         <div class="v3-slicer-fields" id="slicerFields"></div>
         <div class="v3-slicer-actions">
           <select class="bcn-field v3-view-select" id="viewSelect" aria-label="Saved filter views" hidden></select>
@@ -184,19 +193,19 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260908a"></script>
-<script src="js/field-semantics.js?v=20260908a"></script>
-<script src="js/metrics.js?v=20260908a"></script>
-<script src="js/chart-adapter.js?v=20260908a"></script>
-<script src="js/filter-bar.js?v=20260908a"></script>
+<script src="js/report-params.js?v=20260909a"></script>
+<script src="js/field-semantics.js?v=20260909a"></script>
+<script src="js/metrics.js?v=20260909a"></script>
+<script src="js/chart-adapter.js?v=20260909a"></script>
+<script src="js/filter-bar.js?v=20260909a"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260908a"></script>
-<script src="js/dashboard-renderer.js?v=20260908a"></script>
-<script src="js/dashboard-builder.js?v=20260908a"></script>
+<script src="js/report-builder.js?v=20260909a"></script>
+<script src="js/dashboard-renderer.js?v=20260909a"></script>
+<script src="js/dashboard-builder.js?v=20260909a"></script>
 <script>
 (function () {
   'use strict';
@@ -248,7 +257,11 @@
   function setMode(next) {
     editing = !!next && canEdit;
     runtime.setEditable(editing);
-    el('metaBar').hidden = !editing;
+    el('btnSettings').hidden = !editing;
+    // Name, description and visibility are set once and then read from the
+    // header pill. Entering edit mode should not cost a permanent band.
+    el('metaBar').hidden = true;
+    el('btnSettings').setAttribute('aria-expanded', 'false');
     el('btnAddWidget').hidden = !editing;
     el('btnAddSection').hidden = !editing;
     el('btnBlankAdd').hidden = !editing;
@@ -317,6 +330,36 @@
       : 'Filters updated for this session.', 'pos', 4000);
   }
 
+  // ── Filter bar disclosure ─────────────────────────────────────────────
+  // Collapsed keeps the CHIPS and drops the controls, never the reverse: the
+  // chips are what say which values are actually applied, what a relative
+  // date token resolves to today, and how many tiles each one reaches. A
+  // collapsed bar that hid those would be smaller and dishonest.
+  const FILTERS_KEY = 'silo.v3.filters.collapsed';
+
+  function filtersCollapsed() {
+    try {
+      const v = localStorage.getItem(FILTERS_KEY);
+      if (v === '1') return true;
+      if (v === '0') return false;
+    } catch (e) { /* private window, no stored preference */ }
+    return null;   // never chosen -- the caller picks by size
+  }
+
+  function setFiltersCollapsed(on, remember) {
+    el('slicerBar').classList.toggle('is-collapsed', on);
+    el('slicerFields').hidden = on;
+    el('btnFilters').setAttribute('aria-expanded', String(!on));
+    if (remember) {
+      try { localStorage.setItem(FILTERS_KEY, on ? '1' : '0'); } catch (e) { /* ignore */ }
+    }
+    // A hidden control must not keep the focus -- that leaves the keyboard
+    // silently parked on something nobody can see.
+    const active = document.activeElement;
+    if (on && active && el('slicerFields').contains(active)) el('btnFilters').focus();
+    if (runtime) runtime.resizeCharts();
+  }
+
   function renderSlicers() {
     // Seed any declared-but-unset parameter with the report's own default
     // BEFORE painting, so a control can never render blank over results
@@ -324,6 +367,16 @@
     runtime.ensureParamDefaults();
     const count = filterBar.sync();
     el('slicerBar').hidden = !count;
+    // Count the CONTROLS, not the declarations: a start/end date pair is
+    // grouped into one range control, and the label has to match what a
+    // reader sees when they open it.
+    const fields = el('slicerFields').querySelectorAll('.v3-slicer-field').length;
+    el('filterCount').textContent = fields ? `(${fields})` : '';
+    // Default by size, and only until someone chooses for themselves: a
+    // two-filter bar is not in anybody's way, a seven-filter one was the
+    // whole complaint.
+    const chosen = filtersCollapsed();
+    setFiltersCollapsed(chosen === null ? fields > 4 : chosen, false);
     markUnsupported();
   }
 
@@ -415,7 +468,7 @@
     document.body.classList.add('v3-fs-open');
     el('btnCloseFs').focus();
     // A chart sized for a 3-column tile has to be told the box changed.
-    runtime.resizeCharts();
+    if (runtime) runtime.resizeCharts();
   }
   function closeFullscreen() {
     if (!fsWidgetId) return;
@@ -580,6 +633,18 @@
   }
 
   // ── Header actions ────────────────────────────────────────────────────
+  el('btnFilters').addEventListener('click', () => {
+    setFiltersCollapsed(!el('slicerFields').hidden, true);
+  });
+
+  el('btnSettings').addEventListener('click', () => {
+    const show = el('metaBar').hidden;
+    el('metaBar').hidden = !show;
+    el('btnSettings').setAttribute('aria-expanded', String(show));
+    if (show) el('dashName').focus();
+    if (runtime) runtime.resizeCharts();
+  });
+
   el('btnInfo').addEventListener('click', () => {
     const open = el('headerInfo').hidden;
     el('headerInfo').hidden = !open;
