@@ -2831,3 +2831,62 @@ select
       then 'MISSING — an SEO catalog entry has no columns; run select public.refresh_chat_schema_catalog()'
     else 'ok'
   end as seo_project_workflow;
+
+-- ── SEO workflow integrity (20260909260000, corrective) ─────────────────────
+-- Each check here corresponds to a gap review found in 20260909220000 /
+-- 20260909240000. They are separate from the block above because losing one of
+-- these does not remove a table -- it silently removes a guarantee.
+select
+  case
+    -- Tenant identity tied to the PARENT ROW. A single-column FK lets a child
+    -- carry company A while citing company B's parent, and every downstream
+    -- join uses the child's own company id, so the row looks native.
+    when (select count(*) from pg_constraint
+          where conname in ('seo_tasks_project_company_fkey',
+                            'seo_task_revisions_task_company_fkey',
+                            'seo_task_publications_task_company_fkey',
+                            'seo_task_publications_inspection_company_fkey',
+                            'seo_measurements_project_company_fkey',
+                            'seo_measurements_task_company_fkey',
+                            'seo_measurements_evidence_company_fkey')) <> 7
+      then 'CRITICAL — a composite company-scoped foreign key is missing; a child row '
+        || 'can cite another tenant''s parent while carrying its own company id'
+    -- If the old single-column FKs came back they would coexist with the
+    -- composite ones and the weaker one would not be noticed.
+    when exists (select 1 from pg_constraint
+                 where conname in ('seo_tasks_project_id_fkey',
+                                   'seo_task_publications_task_id_fkey',
+                                   'seo_measurements_task_id_fkey',
+                                   'seo_measurements_project_id_fkey'))
+      then 'CRITICAL — a single-column FK was reintroduced alongside the composite one'
+    when not exists (select 1 from pg_constraint where conname='seo_projects_id_company_key')
+      then 'MISSING — seo_projects (id, company_entity_id) unique key'
+    when not exists (select 1 from pg_constraint where conname='page_inspections_id_company_key')
+      then 'MISSING — page_inspections (id, company_entity_id) unique key'
+    -- The baseline invariant needs BOTH directions: either row can arrive
+    -- second. With only the measurement-side trigger, the ordering could be
+    -- established and then invalidated by a later publication.
+    when not exists (select 1 from pg_trigger
+                     where tgname='trg_check_publication_after_baselines' and not tgisinternal)
+      then 'CRITICAL — publications are not checked against existing baselines; the '
+        || 'baseline invariant can be bypassed by recording the publication second'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts')
+      then 'MISSING — seo_baseline_conflicts(), the shared definition both triggers use'
+    -- Same-day windows. Publication carries a time, a daily window does not, so
+    -- >= is required: a baseline ending on the publication date straddles it.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_baseline_conflicts'
+                       and pg_get_functiondef(p.oid) like '%>=%')
+      then 'CRITICAL — seo_baseline_conflicts no longer rejects a baseline ending ON '
+        || 'the publication date'
+    -- The allowlist comment must not go back to claiming the host check alone
+    -- excludes private addresses. It does not: it stops an attacker NAMING one.
+    when not exists (select 1 from pg_description d
+                     join pg_class c on c.oid = d.objoid
+                     where c.relname='shopify_shop_domains' and d.objsubid=0
+                       and d.description like '%necessary and NOT sufficient%')
+      then 'MISSING — shopify_shop_domains comment no longer states the allowlist is '
+        || 'insufficient on its own; address validation at fetch time is what covers it'
+    else 'ok'
+  end as seo_workflow_integrity;

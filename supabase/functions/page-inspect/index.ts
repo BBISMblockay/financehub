@@ -22,7 +22,9 @@
 // ranked the page, and SILO holds no data that could support such a claim.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { admitUrl, admitRedirect, extractPageFacts } from './inspect-lib.mjs';
+import {
+  admitUrl, admitRedirect, extractPageFacts, allAddressesPublic,
+} from './inspect-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,6 +44,47 @@ const USER_AGENT = 'SILO-PageInspect/1.0 (+https://silo-baseballism.com)';
 async function sha256Hex(text: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Resolve a host to every address it currently points at.
+ *
+ * Deno.resolveDns where the runtime exposes it; DNS-over-HTTPS otherwise. Both
+ * are attempted because the edge runtime's permissions are not guaranteed, and
+ * the DoH call is to a fixed resolver we chose -- the user-supplied part is
+ * only the NAME being looked up, never the endpoint.
+ *
+ * Returns [] when resolution fails, and the caller treats that as a REFUSAL.
+ * Failing closed is the point: not knowing where a name points is not the same
+ * as knowing it is safe. */
+async function resolveHostAddresses(host: string): Promise<string[]> {
+  const out: string[] = [];
+
+  const maybeResolve = (Deno as unknown as {
+    resolveDns?: (h: string, t: string) => Promise<string[]>;
+  }).resolveDns;
+  if (typeof maybeResolve === 'function') {
+    for (const type of ['A', 'AAAA']) {
+      try { out.push(...await maybeResolve(host, type)); } catch { /* NODATA is normal */ }
+    }
+    if (out.length) return out;
+  }
+
+  for (const type of ['A', 'AAAA']) {
+    try {
+      const res = await fetch(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`,
+        { headers: { Accept: 'application/dns-json' } },
+      );
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const answer of data?.Answer ?? []) {
+        // 1 = A, 28 = AAAA. Anything else in the chain (CNAME) is followed by
+        // the resolver itself, so only address records are collected.
+        if (answer?.type === 1 || answer?.type === 28) out.push(String(answer.data));
+      }
+    } catch { /* fall through to the empty-list refusal */ }
+  }
+  return out;
 }
 
 Deno.serve(async (req) => {
@@ -99,11 +142,33 @@ Deno.serve(async (req) => {
   let response: Response | null = null;
   let fetchError: string | null = null;
 
+  // ONE controller and ONE timer for the whole operation, redirects and body
+  // download included. The first version cleared the timer in a `finally` that
+  // ran before the body was read, so a server that answered headers quickly and
+  // then dribbled bytes forever was completely unbounded -- the timeout only
+  // ever covered the handshake.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+  let facts: Record<string, unknown> = {};
+  let html = '';
+  let isTruncated = false;
+  let htmlHash: string | null = null;
+
   try {
     for (let hop = 0; hop <= MAX_HOPS; hop++) {
+      // Resolution is checked HERE, per hop, not once at admission. The
+      // allowlist proves we are willing to talk to this NAME; this proves the
+      // name currently points somewhere public.
+      const hopHost = new URL(currentUrl).hostname;
+      const addresses = await resolveHostAddresses(hopHost);
+      if (!allAddressesPublic(addresses)) {
+        fetchError = addresses.length
+          ? `destination_not_public: ${hopHost} -> ${addresses.join(', ').slice(0, 120)}`
+          : `unresolvable_host: ${hopHost}`;
+        break;
+      }
+
       const res = await fetch(currentUrl, {
         redirect: 'manual',
         signal: controller.signal,
@@ -112,6 +177,8 @@ Deno.serve(async (req) => {
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get('location');
         redirectChain.push({ from: currentUrl, status: res.status, location });
+        // Drain the redirect body so the connection is not left hanging.
+        await res.body?.cancel().catch(() => {});
         if (hop === MAX_HOPS) { fetchError = 'too_many_redirects'; break; }
         const next = admitRedirect(location, currentUrl, allowed);
         if (next.error) { fetchError = `redirect_${next.error}`; break; }
@@ -121,28 +188,43 @@ Deno.serve(async (req) => {
       response = res;
       break;
     }
+
+    if (response) {
+      // Read at most MAX_BYTES + 1 and stop. response.text() downloads the
+      // WHOLE body first and truncates after, which makes the cap decorative:
+      // a 2 GB response is fully transferred before a single byte is discarded.
+      // The extra byte is what distinguishes "exactly at the cap" from "over".
+      const reader = response.body?.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      if (reader) {
+        while (total <= MAX_BYTES) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) { chunks.push(value); total += value.byteLength; }
+        }
+        if (total > MAX_BYTES) {
+          isTruncated = true;
+          await reader.cancel().catch(() => {});
+        }
+      }
+      const joined = new Uint8Array(total);
+      let at = 0;
+      for (const c of chunks) { joined.set(c, at); at += c.byteLength; }
+      html = new TextDecoder().decode(joined.slice(0, MAX_BYTES));
+      htmlHash = await sha256Hex(html);
+      facts = extractPageFacts(html);
+    }
   } catch (err) {
     fetchError = (err as Error)?.name === 'AbortError'
       ? `timeout_after_${TIMEOUT_MS}ms`
       : `fetch_failed: ${String((err as Error)?.message ?? err).slice(0, 300)}`;
   } finally {
+    // Only now, once the body is consumed or abandoned.
     clearTimeout(timer);
   }
 
   const responseMs = Date.now() - startedAt;
-
-  let facts: Record<string, unknown> = {};
-  let html = '';
-  let isTruncated = false;
-  let htmlHash: string | null = null;
-
-  if (response) {
-    const raw = await response.text();
-    isTruncated = raw.length > MAX_BYTES;
-    html = isTruncated ? raw.slice(0, MAX_BYTES) : raw;
-    htmlHash = await sha256Hex(html);
-    facts = extractPageFacts(html);
-  }
 
   const row = {
     company_entity_id: companyEntityId,
@@ -171,10 +253,23 @@ Deno.serve(async (req) => {
     .select('id')
     .single();
 
+  // A capture that was not recorded is not a capture. This function's whole
+  // purpose is to produce evidence a publication or a baseline can point at,
+  // and returning ok:true with a null inspection_id hands the caller a reading
+  // that nothing can later be checked against -- worse than an error, because
+  // it looks like it worked. Fail loudly and let the caller retry.
+  if (insErr || !inserted?.id) {
+    return json({
+      ok: false,
+      error: `capture_not_stored: ${insErr?.message ?? 'insert returned no row'}`,
+      inspection_id: null,
+      ...row,
+    }, 500);
+  }
+
   return json({
     ok: !fetchError && !!response,
-    inspection_id: inserted?.id ?? null,
-    store_error: insErr?.message ?? null,
+    inspection_id: inserted.id,
     ...row,
   }, 200);
 });

@@ -11,15 +11,19 @@
  */
 import {
   admitUrl, admitRedirect, isHostAllowed, normalizeHost, extractPageFacts, decodeEntities,
+  isPublicAddress, allAddressesPublic,
 } from '../../supabase/functions/page-inspect/inspect-lib.mjs';
-import { buildShopDomainRows, normalizeShopHost } from '../lib/shopify-sync-core.mjs';
+import { buildShopDomainRows, normalizeShopHost, runShopDomainsSync } from '../lib/shopify-sync-core.mjs';
+import { createFakeSupabase } from './lib/fake-supabase.mjs';
 
 let failures = 0;
 let count = 0;
 function test(name, fn) {
   count++;
-  try { fn(); console.log(`  ok   ${name}`); }
-  catch (err) { failures++; console.log(`  FAIL ${name}\n       ${err.message}`); }
+  return Promise.resolve()
+    .then(fn)
+    .then(() => console.log(`  ok   ${name}`))
+    .catch((err) => { failures++; console.log(`  FAIL ${name}\n       ${err.message}`); });
 }
 function eq(actual, expected, what) {
   if (actual !== expected) throw new Error(`${what}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -65,22 +69,98 @@ test('a subdomain of an allowed host is REJECTED — allowlisting is exact', () 
 
 console.log('\n-- SSRF targets are excluded structurally, not filtered --');
 
-// None of these is string-equal to a storefront domain, so no IP-range
-// denylist is needed to keep them out.
+// https:// on purpose, so it is the HOST check being exercised rather than the
+// scheme check short-circuiting first.
 for (const [label, url] of [
-  ['dotted IPv4 loopback', 'http://127.0.0.1/'],
-  ['link-local metadata', 'http://169.254.169.254/latest/meta-data/'],
-  ['private range', 'http://10.0.0.1/'],
-  ['decimal IPv4', 'http://2130706433/'],
-  ['octal IPv4', 'http://0177.0.0.1/'],
-  ['IPv6 loopback', 'http://[::1]/'],
-  ['IPv4-mapped IPv6', 'http://[::ffff:127.0.0.1]/'],
-  ['localhost by name', 'http://localhost:8000/'],
+  ['dotted IPv4 loopback', 'https://127.0.0.1/'],
+  ['link-local metadata', 'https://169.254.169.254/latest/meta-data/'],
+  ['private range', 'https://10.0.0.1/'],
+  ['decimal IPv4', 'https://2130706433/'],
+  ['octal IPv4', 'https://0177.0.0.1/'],
+  ['IPv6 loopback', 'https://[::1]/'],
+  ['IPv4-mapped IPv6', 'https://[::ffff:127.0.0.1]/'],
+  ['localhost by name', 'https://localhost:8000/'],
 ]) {
-  test(`${label} is rejected`, () => {
+  test(`${label} is rejected by name`, () => {
     ok(rejected(url).startsWith('host_not_allowed'), 'rejected as a disallowed host');
   });
 }
+
+// The allowlist stops an attacker NAMING an internal address. It does nothing
+// about an allowlisted name RESOLVING to one, which is why the address checks
+// below exist and run at the fetch layer on every hop.
+console.log('\n-- resolved addresses must be public unicast --');
+
+for (const [label, ip] of [
+  ['IPv4 loopback', '127.0.0.1'],
+  ['IPv4 loopback, high', '127.255.255.254'],
+  ['link-local / cloud metadata', '169.254.169.254'],
+  ['RFC1918 10/8', '10.1.2.3'],
+  ['RFC1918 172.16/12', '172.20.0.1'],
+  ['RFC1918 192.168/16', '192.168.1.1'],
+  ['CGNAT 100.64/10', '100.100.0.1'],
+  ['this-host 0/8', '0.0.0.0'],
+  ['multicast', '224.0.0.1'],
+  ['broadcast', '255.255.255.255'],
+  ['benchmark 198.18/15', '198.18.0.1'],
+  ['IPv6 loopback', '::1'],
+  ['IPv6 unspecified', '::'],
+  ['IPv6 unique-local', 'fd00::1'],
+  ['IPv6 link-local', 'fe80::1'],
+  ['IPv6 multicast', 'ff02::1'],
+  ['IPv4-mapped loopback', '::ffff:127.0.0.1'],
+  ['IPv4-mapped metadata', '::ffff:169.254.169.254'],
+  ['NAT64 loopback', '64:ff9b::127.0.0.1'],
+  ['6to4 wrapping RFC1918', '2002:c0a8:0101::1'],
+]) {
+  test(`${label} (${ip}) is not a public destination`, () => {
+    ok(!isPublicAddress(ip), 'must be refused');
+  });
+}
+
+for (const [label, ip] of [
+  ['a normal public IPv4', '23.227.38.65'],
+  ['another public IPv4', '8.8.8.8'],
+  ['public IPv6', '2606:4700:4700::1111'],
+  ['IPv4-mapped public', '::ffff:23.227.38.65'],
+]) {
+  test(`${label} (${ip}) is allowed`, () => {
+    ok(isPublicAddress(ip), 'must be permitted');
+  });
+}
+
+test('an unparseable or absent address is refused, not waved through', () => {
+  ok(!isPublicAddress('not-an-ip'), 'garbage');
+  ok(!isPublicAddress(''), 'empty');
+  ok(!isPublicAddress(null), 'null');
+  ok(!isPublicAddress('999.1.1.1'), 'out of range octet');
+});
+
+// 0177.0.0.1 is 127.0.0.1 in octal. Rather than trying to decode every
+// alternate notation correctly, anything that is not an unambiguous dotted
+// quad is refused outright.
+test('octal and leading-zero IPv4 forms are refused rather than decoded', () => {
+  ok(!isPublicAddress('0177.0.0.1'), 'octal loopback');
+  ok(!isPublicAddress('010.0.0.1'), 'leading zero');
+});
+
+test('allAddressesPublic requires ALL of them, and refuses an empty list', () => {
+  ok(allAddressesPublic(['23.227.38.65', '8.8.8.8']), 'all public');
+  ok(!allAddressesPublic(['23.227.38.65', '127.0.0.1']), 'one private poisons it');
+  ok(!allAddressesPublic([]), 'empty means we could not establish where it points');
+  ok(!allAddressesPublic(null), 'null');
+});
+
+console.log('\n-- HTTPS only --');
+
+test('http:// is refused even on an allowlisted host', () => {
+  eq(rejected('http://www.baseballism.com/'), 'scheme_not_allowed: http', 'reason');
+});
+
+test('a redirect that downgrades to http is refused', () => {
+  const r = admitRedirect('http://www.baseballism.com/x', 'https://www.baseballism.com/', ALLOWED);
+  eq(r.error, 'scheme_not_allowed: http', 'reason');
+});
 
 console.log('\n-- schemes and credentials --');
 
@@ -112,7 +192,9 @@ test('an empty allowlist admits nothing', () => {
 console.log('\n-- redirects get the SAME check, which is the whole point --');
 
 test('a redirect to a disallowed host is rejected', () => {
-  const r = admitRedirect('http://169.254.169.254/', 'https://www.baseballism.com/a', ALLOWED);
+  // https so the HOST check is what runs; the http downgrade case is asserted
+  // separately above.
+  const r = admitRedirect('https://169.254.169.254/', 'https://www.baseballism.com/a', ALLOWED);
   ok(String(r.error).startsWith('host_not_allowed'), 'rejected');
 });
 
@@ -291,6 +373,70 @@ test('a host written by the sync is admitted by the checker', () => {
   );
   const allow = new Set(rows.map((r) => r.host));
   eq(admitUrl('https://www.baseballism.com/collections/tees', allow).error, undefined, 'admitted end to end');
+});
+
+console.log('\n-- the allowlist must SHRINK when a shop stops serving a host --');
+
+// An allowlist that only grows keeps authorising a custom domain that was
+// changed, sold or transferred. The sweep is safe here specifically because
+// shop.json is ONE non-paginated request: it either told us the whole truth or
+// it threw before reaching the sweep. That is the property the collections
+// registry cannot have, which is why that one gates on completed_at instead.
+await test('a domain the shop no longer serves is deleted, and only that one', async () => {
+  const supabase = createFakeSupabase();
+  const conn = { company_entity_id: 'company-1', shop_domain: 'baseballism.myshopify.com', api_version: '2024-10', access_token: 'x' };
+
+  await runShopDomainsSync(supabase, conn, {
+    fetchJson: async () => ({ shop: { myshopify_domain: 'baseballism.myshopify.com', domain: 'old.example.com' } }),
+  });
+  eq(supabase.rows('shopify_shop_domains').length, 2, 'two hosts after the first sync');
+
+  const res = await runShopDomainsSync(supabase, conn, {
+    fetchJson: async () => ({ shop: { myshopify_domain: 'baseballism.myshopify.com', domain: 'www.baseballism.com' } }),
+  });
+
+  const hosts = supabase.rows('shopify_shop_domains').map((r) => r.host).sort();
+  deepEq(hosts, ['baseballism.myshopify.com', 'www.baseballism.com'], 'old.example.com is gone');
+  deepEq(res.hosts_retired, ['old.example.com'], 'and it is reported as retired');
+});
+
+await test('the sweep is scoped to this shop — another shop keeps its hosts', async () => {
+  const supabase = createFakeSupabase();
+  const connA = { company_entity_id: 'company-1', shop_domain: 'a.myshopify.com', api_version: '2024-10', access_token: 'x' };
+  const connB = { company_entity_id: 'company-1', shop_domain: 'b.myshopify.com', api_version: '2024-10', access_token: 'x' };
+
+  await runShopDomainsSync(supabase, connB, {
+    fetchJson: async () => ({ shop: { myshopify_domain: 'b.myshopify.com', domain: 'shop-b.example.com' } }),
+  });
+  await runShopDomainsSync(supabase, connA, {
+    fetchJson: async () => ({ shop: { myshopify_domain: 'a.myshopify.com', domain: 'shop-a.example.com' } }),
+  });
+
+  const hosts = supabase.rows('shopify_shop_domains').map((r) => r.host).sort();
+  deepEq(hosts,
+    ['a.myshopify.com', 'b.myshopify.com', 'shop-a.example.com', 'shop-b.example.com'],
+    "syncing shop A must not retire shop B's hosts");
+});
+
+// If the shop object could not be read we know nothing, and deleting on the
+// strength of nothing would empty the allowlist and break inspection for a
+// shop that is perfectly fine.
+await test('a failed shop fetch retires NOTHING', async () => {
+  const supabase = createFakeSupabase();
+  const conn = { company_entity_id: 'company-1', shop_domain: 'baseballism.myshopify.com', api_version: '2024-10', access_token: 'x' };
+
+  await runShopDomainsSync(supabase, conn, {
+    fetchJson: async () => ({ shop: { myshopify_domain: 'baseballism.myshopify.com', domain: 'www.baseballism.com' } }),
+  });
+  const before = supabase.rows('shopify_shop_domains').length;
+
+  const res = await runShopDomainsSync(supabase, conn, {
+    fetchJson: async () => { throw new Error('503 from Shopify'); },
+  });
+
+  ok(res.skipped, 'reported as skipped');
+  eq(supabase.calls.deletes.length, 1, 'no second delete ran');
+  eq(supabase.rows('shopify_shop_domains').length, before, 'allowlist untouched');
 });
 
 console.log(`\n${count - failures}/${count} passed`);

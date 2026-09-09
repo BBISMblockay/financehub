@@ -395,3 +395,42 @@ way the storage-isolation work was checked. That is the open gap in this step.
 ### Still to build
 
 The tools and the page. The schema is the contract; nothing writes to it yet.
+
+## Review fixes (2026-09-09, forward-corrective)
+
+Review of the first cut found six blockers. All six were reproduced before
+being fixed; the two migrations were already applied to production, so the
+schema fixes are a **forward-corrective migration** (`20260909260000`) rather
+than edits to already-applied files.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Exact hostname matching does not stop an allowlisted domain **resolving** to a private/link-local address; stale primary domains were never retired; http was permitted | HTTPS only; every hop's host is resolved and every returned address must be public unicast, checked at the fetch layer; the shop-domain sync now **deletes** hosts a shop no longer serves |
+| 2 | The 2 MiB and 15 s limits were decorative — the timer was cleared in a `finally` that ran *before* the body was read, and `response.text()` downloads everything then truncates | One controller and one timer spanning redirects **and** body download; the body is streamed and stops at `MAX_BYTES + 1` |
+| 3 | The baseline invariant checked only on measurement insert, so a publication recorded afterwards could land inside an existing baseline window; same-day windows passed | Reciprocal trigger on `seo_task_publications`; shared `seo_baseline_conflicts()` so the two cannot disagree; `>=` rejects a baseline ending on the publication date |
+| 4 | Children carried their own `company_entity_id` next to a single-column FK, so a row could cite another tenant's parent and still look native to every downstream join | Composite `(id, company_entity_id)` foreign keys throughout; cited evidence is `ON DELETE RESTRICT`, not `SET NULL` |
+| 5 | A capture whose insert failed returned `ok: true` with a null id — evidence that looks like it worked | Returns 500 `capture_not_stored` |
+| 6 | Neither new suite ran in CI, and the workflow had no path trigger for the function directory | Both added to `sync-tests.yml`, plus `supabase/functions/page-inspect/**` |
+
+### The SSRF claim, restated honestly
+
+The first version said an exact-match allowlist excluded private-range access
+"structurally". It does not. It stops an attacker **naming** an internal
+address; it says nothing about an allowlisted name **resolving** to one. The
+mitigation is now a stack: exact-match allowlist of domains Shopify vouched
+for, HTTPS only, resolution validated on every hop, stale domains retired
+promptly.
+
+**Residual risk, stated rather than glossed:** this is check-then-connect, so a
+zone returning a public address to our lookup and a private one to the
+connection a moment later (DNS rebinding) is not defeated by it. Closing that
+needs connecting to the validated address with an explicit `Host` header, which
+`fetch()` does not expose.
+
+### Still not covered
+
+`scripts/sql/verify_seo_workflow.sql` runs as service role, so it exercises
+constraints, triggers and the view — **not** the RLS policies. Approval
+enforcement and company isolation are asserted structurally in
+`verify_v2_schema.sql`; confirming them end to end needs impersonation, the way
+the storage-isolation work was checked. That remains the open gap.

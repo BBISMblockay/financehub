@@ -18509,3 +18509,16 @@ $c$select (select count(*) from v_po_header_summary
 -- Behaviour test: scripts/sql/verify_seo_workflow.sql
 -- ---------------------------------------------------------------------------
 \i migrations/20260909240000_seo_project_workflow.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909260000_seo_workflow_integrity.sql
+-- Forward-corrective for the two migrations above, both already applied to
+-- prod. Composite company-scoped foreign keys (a child could otherwise cite
+-- another tenant's parent while carrying its own company id), the reciprocal
+-- half of the baseline invariant (either row can arrive second), same-day
+-- windows rejected, and the shopify_shop_domains comment corrected -- an
+-- exact-match host allowlist stops an attacker NAMING an internal address, not
+-- an allowlisted name RESOLVING to one.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909260000_seo_workflow_integrity.sql

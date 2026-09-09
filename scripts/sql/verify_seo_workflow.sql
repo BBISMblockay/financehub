@@ -93,6 +93,84 @@ begin
     out := out || 'PASS — measurement must belong to a project or task' || E'\n';
   end;
 
+  -- ── Added by 20260909260000, after review found these gaps ──────────────
+
+  -- Tenant identity must be tied to the PARENT ROW, not just carried
+  -- alongside it. Before the composite keys, a child could cite another
+  -- company's parent while wearing its own company id, and every downstream
+  -- join (which uses the child's own id) would make it look native.
+  declare
+    co2   uuid := '549324ed-6e36-45c9-bf7b-b9dbb253d6fc';  -- Test Company
+    projB uuid; inspB uuid;
+  begin
+    insert into public.seo_projects (company_entity_id, name)
+    values (co2, 'other tenant') returning id into projB;
+    insert into public.page_inspections (company_entity_id, requested_url, host)
+    values (co2, 'https://other.example/', 'other.example') returning id into inspB;
+
+    begin
+      insert into public.seo_tasks (company_entity_id, project_id, title)
+      values (co, projB, 'stolen');
+      out := out || 'FAIL — task in company A pointed at company B project' || E'\n';
+    exception when foreign_key_violation then
+      out := out || 'PASS — cross-tenant project reference refused' || E'\n';
+    end;
+
+    begin
+      insert into public.seo_task_publications (company_entity_id, task_id, published_at,
+        method, verification_inspection_id)
+      values (co, task, '2026-09-20T00:00:00Z', 'verified_capture', inspB);
+      out := out || 'FAIL — publication cited another tenant''s inspection' || E'\n';
+    exception when foreign_key_violation then
+      out := out || 'PASS — cross-tenant evidence reference refused' || E'\n';
+    end;
+  end;
+
+  -- The baseline invariant needs BOTH directions: either row can arrive
+  -- second, and checking only on measurement insert let the ordering be
+  -- established and then invalidated by a later publication.
+  declare
+    task2 uuid;
+  begin
+    insert into public.seo_tasks (company_entity_id, project_id, title)
+    values (co, proj, 'reciprocal') returning id into task2;
+
+    insert into public.seo_measurements (company_entity_id, task_id, source, metric, value,
+      window_kind, period_start, period_end)
+    values (co, task2, 'shopify_landing_pages', 'sessions', 10, 'baseline', '2026-08-01','2026-08-28');
+
+    begin
+      insert into public.seo_task_publications (company_entity_id, task_id, published_at, method)
+      values (co, task2, '2026-08-15T12:00:00Z', 'manual_confirmation');
+      out := out || 'FAIL — publication landed inside an existing baseline window' || E'\n';
+    exception when check_violation then
+      out := out || 'PASS — publication inside an existing baseline window refused' || E'\n';
+    end;
+
+    -- Same-day: publication has a time of day, a daily window does not, so a
+    -- baseline ending ON the publication date straddles the change.
+    begin
+      insert into public.seo_task_publications (company_entity_id, task_id, published_at, method)
+      values (co, task2, '2026-08-28T09:00:00Z', 'manual_confirmation');
+      out := out || 'FAIL — publication on the baseline end date accepted' || E'\n';
+    exception when check_violation then
+      out := out || 'PASS — same-day publication refused' || E'\n';
+    end;
+
+    insert into public.seo_task_publications (company_entity_id, task_id, published_at, method)
+    values (co, task2, '2026-08-29T09:00:00Z', 'manual_confirmation');
+    out := out || 'PASS — publication after the baseline window accepted' || E'\n';
+
+    begin
+      insert into public.seo_measurements (company_entity_id, task_id, source, metric, value,
+        window_kind, period_start, period_end)
+      values (co, task2, 'shopify_landing_pages', 'sessions', 11, 'baseline', '2026-08-20','2026-08-29');
+      out := out || 'FAIL — baseline ending on publication date accepted' || E'\n';
+    exception when check_violation then
+      out := out || 'PASS — baseline ending on the publication date refused' || E'\n';
+    end;
+  end;
+
   -- Not a failure: this is the rollback, and the message is the report.
   raise exception '%', out;
 end;

@@ -48,7 +48,147 @@ export function normalizeHost(host) {
   return h;
 }
 
-const ALLOWED_SCHEMES = new Set(['http:', 'https:']);
+// HTTPS only. A storefront on a custom domain is served over TLS, and http://
+// bought nothing except a downgrade path: an on-path attacker can rewrite a
+// plaintext response, and the redirect chain is only as trustworthy as the
+// responses carrying it.
+const ALLOWED_SCHEMES = new Set(['https:']);
+
+// ── Destination address validation ──────────────────────────────────────────
+//
+// The host allowlist is necessary and NOT sufficient, and the first version of
+// this file overstated it. An allowlisted custom domain is a name we do not
+// control the resolution of: www.baseballism.com is whatever DNS says it is,
+// and DNS can say 127.0.0.1, 169.254.169.254 or a ULA address -- by
+// misconfiguration, by a hijacked zone, or deliberately. Exact-match hostnames
+// stop an attacker NAMING an internal address; they do nothing about one being
+// RESOLVED to.
+//
+// So every hop's host is resolved and every returned address must be public
+// unicast. This is checked at the fetch layer, per hop, not once at admission.
+//
+// RESIDUAL RISK, stated rather than glossed: this is a check-then-connect, so
+// a zone that returns a public address to our lookup and a private one to the
+// connection a moment later (DNS rebinding) is not defeated by it. Closing
+// that needs connecting to the validated address with an explicit Host header,
+// which fetch() does not expose. The mitigation stack is therefore: an
+// exact-match allowlist of domains Shopify vouched for, HTTPS only, resolution
+// checked on every hop, and stale domains retired from the allowlist promptly.
+
+const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/** Parse a dotted-quad into 4 octets, or null. Strict: no octal, no decimal
+ * shorthand, no leading zeros -- those forms are how denylists get walked past,
+ * and anything that is not an unambiguous dotted quad is simply not accepted. */
+export function parseIpv4(s) {
+  const m = IPV4_RE.exec(String(s ?? '').trim());
+  if (!m) return null;
+  const parts = m.slice(1, 5).map((p) => {
+    if (p.length > 1 && p[0] === '0') return -1;   // leading zero => octal-ish
+    const n = Number(p);
+    return n >= 0 && n <= 255 ? n : -1;
+  });
+  return parts.some((p) => p < 0) ? null : parts;
+}
+
+function ipv4IsPublic([a, b, c]) {
+  if (a === 0) return false;                                   // 0.0.0.0/8 "this host"
+  if (a === 10) return false;                                  // RFC1918
+  if (a === 127) return false;                                 // loopback
+  if (a === 169 && b === 254) return false;                    // link-local (metadata)
+  if (a === 172 && b >= 16 && b <= 31) return false;           // RFC1918
+  if (a === 192 && b === 168) return false;                    // RFC1918
+  if (a === 192 && b === 0 && c === 0) return false;           // IETF protocol assignments
+  if (a === 192 && b === 0 && c === 2) return false;           // TEST-NET-1
+  if (a === 198 && b === 51 && c === 100) return false;        // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return false;         // TEST-NET-3
+  if (a === 192 && b === 88 && c === 99) return false;         // 6to4 relay anycast
+  if (a === 100 && b >= 64 && b <= 127) return false;          // CGNAT
+  if (a === 198 && (b === 18 || b === 19)) return false;       // benchmarking
+  if (a >= 224) return false;                                  // multicast + reserved + broadcast
+  return true;
+}
+
+/** Expand an IPv6 literal (with or without ::) to 8 groups, or null. */
+export function parseIpv6(s) {
+  let str = String(s ?? '').trim().toLowerCase();
+  if (str.startsWith('[') && str.endsWith(']')) str = str.slice(1, -1);
+  if (!str.includes(':')) return null;
+  const zone = str.indexOf('%');
+  if (zone !== -1) str = str.slice(0, zone);
+
+  // A trailing dotted quad (IPv4-mapped / NAT64 / 6to4-style) becomes 2 groups.
+  const lastColon = str.lastIndexOf(':');
+  const tail = str.slice(lastColon + 1);
+  if (tail.includes('.')) {
+    const v4 = parseIpv4(tail);
+    if (!v4) return null;
+    str = str.slice(0, lastColon + 1)
+      + ((v4[0] << 8) | v4[1]).toString(16) + ':' + ((v4[2] << 8) | v4[3]).toString(16);
+  }
+
+  const halves = str.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tailGroups = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : [];
+  if (halves.length === 1 && head.length !== 8) return null;
+  const fill = 8 - head.length - tailGroups.length;
+  if (fill < 0 || (halves.length === 2 && fill < 1)) return null;
+
+  const groups = [
+    ...head,
+    ...Array(halves.length === 2 ? fill : 0).fill('0'),
+    ...tailGroups,
+  ].map((g) => {
+    if (g === '') return -1;
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return -1;
+    return parseInt(g, 16);
+  });
+  return groups.length === 8 && !groups.some((g) => g < 0) ? groups : null;
+}
+
+function ipv6IsPublic(g) {
+  const isZero = (n) => g.slice(0, n).every((x) => x === 0);
+  if (isZero(8)) return false;                                  // ::
+  if (isZero(7) && g[7] === 1) return false;                    // ::1 loopback
+  // IPv4-mapped ::ffff:a.b.c.d and NAT64 64:ff9b::/96 carry a v4 address; judge
+  // it as v4, or 127.0.0.1 walks straight through wearing a v6 hat.
+  if (isZero(5) && g[5] === 0xffff) {
+    return ipv4IsPublic([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff]);
+  }
+  if (g[0] === 0x0064 && g[1] === 0xff9b
+      && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    return ipv4IsPublic([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff]);
+  }
+  // 6to4 2002::/16 embeds a v4 address in the next 32 bits.
+  if (g[0] === 0x2002) {
+    return ipv4IsPublic([g[1] >> 8, g[1] & 0xff, g[2] >> 8, g[2] & 0xff]);
+  }
+  if ((g[0] & 0xfe00) === 0xfc00) return false;                 // fc00::/7 unique-local
+  if ((g[0] & 0xffc0) === 0xfe80) return false;                 // fe80::/10 link-local
+  if ((g[0] & 0xff00) === 0xff00) return false;                 // ff00::/8 multicast
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return false;         // 2001:db8::/32 docs
+  if (g[0] === 0x2001 && g[1] === 0x0000) return false;         // Teredo
+  return true;
+}
+
+/** Is this literal address a public unicast destination we are willing to
+ * connect to? Anything unparseable is REFUSED, not waved through -- an address
+ * we cannot classify is one we cannot vouch for. */
+export function isPublicAddress(ip) {
+  const v4 = parseIpv4(ip);
+  if (v4) return ipv4IsPublic(v4);
+  const v6 = parseIpv6(ip);
+  if (v6) return ipv6IsPublic(v6);
+  return false;
+}
+
+/** Every resolved address must be public. An empty list is a refusal: "we
+ * could not establish where this points" is not permission to connect. */
+export function allAddressesPublic(addresses) {
+  if (!Array.isArray(addresses) || addresses.length === 0) return false;
+  return addresses.every((a) => isPublicAddress(a));
+}
 
 /** Admit a URL for fetching, or say precisely why not.
  * Returns { url, host } or { error }. Never throws. */

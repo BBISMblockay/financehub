@@ -1607,7 +1607,39 @@ export async function runShopDomainsSync(supabase, connection, { fetchJson = nul
     rows,
     'company_entity_id,host',
   );
-  return { hosts: rows.map((r) => r.host), rows_upserted: upserted };
+
+  // RETIRE what this shop no longer serves. Without this an allowlist only
+  // ever grows: a custom domain that was changed, sold or transferred to
+  // another owner stays permanently authorised, and page-inspect would keep
+  // fetching a host that is now somebody else's.
+  //
+  // A sweep is justified HERE and not for the catalog tables, and the
+  // difference is completeness. shop.json is a SINGLE non-paginated request:
+  // it either succeeded and told us the whole truth about this shop's domains,
+  // or it threw and we returned above without reaching this line. There is no
+  // partial-fetch state in which a host could be missing merely because we
+  // stopped early -- which is exactly the condition the collections registry
+  // cannot satisfy, and why that one gates on completed_at instead.
+  //
+  // Deletion rather than a missing_since tombstone, because for a security
+  // allowlist the safe failure is to stop trusting a host immediately; a row
+  // that lingers in a "probably retired" state is still a row that authorises
+  // a fetch.
+  const keep = rows.map((r) => r.host);
+  const { data: removed, error: sweepErr } = await supabase
+    .from('shopify_shop_domains')
+    .delete()
+    .eq('company_entity_id', connection.company_entity_id)
+    .eq('shop_domain', connection.shop_domain)
+    .not('host', 'in', `(${keep.map((h) => `"${h}"`).join(',')})`)
+    .select('host');
+
+  return {
+    hosts: keep,
+    rows_upserted: upserted,
+    hosts_retired: sweepErr ? null : (removed || []).map((r) => r.host),
+    sweep_error: sweepErr ? sweepErr.message : null,
+  };
 }
 
 /** Pure half of runShopDomainsSync, so the allowlist rows can be asserted
