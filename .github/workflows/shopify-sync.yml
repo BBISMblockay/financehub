@@ -154,13 +154,27 @@ jobs:
       SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
       SHOPIFY_LANDING_PAGES_DAYS: ${{ github.event.inputs.landing_pages_days || '' }}
       SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
-      # Collections registry: OPT-IN and currently OFF on every schedule.
-      # It has never run against live Shopify. Turn it on for a manual
-      # single-shop run first (Run workflow -> collections_enabled: true,
-      # connection_id: <one shop>), confirm shopify_collection_sync_runs has
-      # a completed_at and a plausible collections_seen, and only then
-      # default this to 'true'.
-      SHOPIFY_COLLECTIONS_ENABLED: ${{ github.event.inputs.collections_enabled || 'false' }}
+      # Collections registry: ON for the 08:30 nightly ONLY, off on the
+      # 14:30 catch-up and the 2-hourly refresh.
+      #
+      # Enabled on the evidence of three manual single-shop runs against
+      # baseballism.myshopify.com on 2026-09-09, which were byte-identical
+      # (153 pages / 349 collections / 51,713 memberships), each recorded a
+      # completed_at, each left marked_missing at 0, and -- after
+      # 20260909 publication fix -- resolved publication on all 349 with 6
+      # plausible false values (app index collections, not merchandising).
+      #
+      # Daily rather than 2-hourly because collections change on the order
+      # of days, a run costs ~90s of Shopify API budget, and the sweep is
+      # the one part with teeth: a bug there marks live collections missing,
+      # and running it 12x a day multiplies the exposure without adding
+      # information. Off on the catch-up for the same reason the catalog and
+      # session syncs are -- that run exists to repair SALES after a dropped
+      # nightly, not to redo everything.
+      #
+      # Still non-fatal in the orchestrator: a collections failure logs and
+      # continues rather than taking down the sales sync.
+      SHOPIFY_COLLECTIONS_ENABLED: ${{ github.event.inputs.collections_enabled || (github.event.schedule == '30 8 * * *' && 'true') || 'false' }}
       SHOPIFY_DISCOUNT_CODES_DAYS: ${{ github.event.inputs.discount_codes_days || '' }}
       SHOPIFY_DAYS_BACK: ${{ github.event.inputs.days_back || '2' }}
       SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}

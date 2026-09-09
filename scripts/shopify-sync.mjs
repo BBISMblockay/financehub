@@ -56,13 +56,15 @@ const SKIP_DISCOUNT_CODES = process.env.SHOPIFY_SKIP_DISCOUNT_CODES === 'true';
 // traffic. Cheap relative to sales (one GraphQL page per 50 collections
 // plus follow-ups only for collections with >250 products).
 //
-// OPT-IN, unlike its siblings, which are opt-OUT skips. This has never run
-// against live Shopify, and a SKIP_ flag defaulting to false means merging
-// alone would switch it on for the nightly, the catch-up AND the two-hourly
-// sales refresh simultaneously -- "we'll run it manually for one shop
-// first" is not a plan if the code does not enforce it. Flip this to true
-// in .github/workflows/shopify-sync.yml once a manual single-shop run has
-// produced a completed_at and a sane collections_seen.
+// OPT-IN, unlike its siblings, which are opt-OUT skips. It started that way
+// because it had never run against live Shopify and a SKIP_ flag defaulting
+// to false would have switched it on for the nightly, the catch-up AND the
+// two-hourly refresh the moment it merged -- "we'll run it manually for one
+// shop first" is not a plan if the code does not enforce it.
+//
+// It stays opt-in now that it IS enabled, because the workflow turns it on
+// for the 08:30 nightly ONLY (see shopify-sync.yml). An opt-out flag would
+// make "on everywhere" the default again the next time someone adds a cron.
 const COLLECTIONS_ENABLED = process.env.SHOPIFY_COLLECTIONS_ENABLED === 'true';
 const DISCOUNT_CODES_DAYS = Number(process.env.SHOPIFY_DISCOUNT_CODES_DAYS || 30);
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
