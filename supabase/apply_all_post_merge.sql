@@ -18404,11 +18404,11 @@ $c$select (select count(*) from v_po_header_summary
 -- 20260908150000_chat_catalog_evidence_caveats.sql
 -- Teaches the Ask SILO schema catalog three caveats a live SEO answer got
 -- wrong: shopify_landing_pages_daily is a top-250-per-day slice so absence
--- from it is not evidence a page does not exist (98% of its rows carry
--- is_truncated); marketing_kpis_daily stops at Google Ads campaign grain
--- because that is all the sync queries, NOT because the platform lacks
--- deeper reporting; and sales_by_product_title_daily_v ranks sales, never
--- current availability. Descriptions only -- no schema, policy or column
+-- from it is not evidence a page does not exist (the online store hits the
+-- cap on all 42 of its 42 days); marketing_kpis_daily stops at Google Ads
+-- campaign grain because that is all the sync queries, NOT because the
+-- platform lacks deeper reporting; and sales_by_product_title_daily_v ranks
+-- sales, never current availability. Descriptions only -- no schema, policy or column
 -- change, and refresh_chat_schema_catalog() preserves them across refreshes.
 -- ---------------------------------------------------------------------------
 \i migrations/20260908150000_chat_catalog_evidence_caveats.sql

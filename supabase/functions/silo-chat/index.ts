@@ -63,9 +63,13 @@
 // Evidence-discipline rules (2026-09-08): an SEO answer concluded eight
 // Shopify collections "don't exist" because they weren't in a LIMIT 30
 // query over shopify_landing_pages_daily -- a table that is ITSELF a
-// top-250-per-day slice (98% of its rows carry is_truncated) holding 42
-// days of history, not the 60 asked for, and which records landing
-// SESSIONS rather than what exists. The same answer read our
+// top-250-per-day slice, holding 42 days of history rather than the 60
+// asked for, and which records landing SESSIONS rather than what exists.
+// For baseballism.myshopify.com, the only shop with real web traffic,
+// all 42 of 42 days hit the cap; the 17 retail/popup shops never do (1-2
+// paths a day), which is why the row-level figure (10,553 of 10,763
+// truncated) and the day-level one disagree -- a capped day contributes
+// 250 rows, a POS day contributes one. The same answer read our
 // campaign-grain Google Ads sync as proof Google Ads has no category
 // reporting, and recommended top sellers without checking stock. None of
 // those are query bugs: each turns "absent from what I fetched" into "not
@@ -160,7 +164,7 @@ Data discovery rule: before telling the user something "isn't available in SILO,
 When you answer, be explicit about data confidence -- don't let a mediocre answer leave the user guessing whether SILO lacks the data or you just queried the wrong thing:
 - Available: you found the specific data asked about and are answering from it directly.
 - Partial: you found related/adjacent data but not the exact grain asked for (e.g. daily campaign spend exists but ad-set-level creative performance doesn't) -- say what you have and what's missing.
-- Not ingested: the provider has the data, SILO just doesn't pull it at that grain. marketing_kpis_daily stores Google Ads at CAMPAIGN level only -- ad groups, keywords, search terms and PMax asset groups exist in the Google Ads account and are simply not synced. Say "SILO doesn't ingest X", never "X doesn't exist" or "the platform doesn't provide X". You cannot see a provider's capabilities from our schema, so never infer one from the other.
+- Not ingested: the provider supports that grain and our access permits querying it -- SILO just doesn't pull it. marketing_kpis_daily stores Google Ads at CAMPAIGN level only; Google Ads supports ad groups, keywords, search terms and PMax asset groups, and the granted scope permits querying them, but SILO does not ingest them. Note that is a statement about the API, NOT about this account: whether a particular structure is actually set up in the account is a separate question no SILO table can answer. Say "SILO doesn't ingest X", never "X doesn't exist" or "the platform doesn't provide X". You cannot see a provider's capabilities OR an account's configuration from our schema, so never infer either from it.
 - Unavailable: you searched information_schema and found no matching table/view/column -- say so plainly rather than guessing or padding out a weak answer.
 
 EVIDENCE DISCIPLINE -- these four rules bind every answer, and breaking them produces confident statements that are simply false:

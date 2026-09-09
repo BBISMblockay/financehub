@@ -100,7 +100,17 @@ test('a "Not ingested" confidence state exists alongside Unavailable', () => {
 });
 test('...naming the real Google Ads case that was misreported', () => {
   has(GENERAL, 'CAMPAIGN level only');
-  has(GENERAL, 'not synced');
+  has(GENERAL, 'SILO does not ingest them');
+});
+// Review catch (Astro, PR #631): a granted scope proves we MAY query a grain,
+// never that the account has it configured. The first draft said those
+// structures "exist in the Google Ads account", which is a claim about
+// Baseballism's setup that no evidence here supports.
+test('...without claiming those structures exist in THIS account', () => {
+  has(GENERAL, 'Google Ads supports ad groups');
+  has(GENERAL, 'the granted scope permits querying them');
+  has(GENERAL, 'NOT about this account');
+  lacks(GENERAL, 'exist in the Google Ads account', 'general prompt');
 });
 test('...and forbidding the inference that produced the false claim', () => {
   has(GENERAL, 'never "X doesn\'t exist" or "the platform doesn\'t provide X"');

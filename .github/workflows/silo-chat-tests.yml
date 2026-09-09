@@ -1,0 +1,51 @@
+name: Ask SILO prompt tests
+
+# Guards the silo-chat edge function's prompt assembly.
+#
+# Why this exists as CI rather than a script someone remembers to run: the
+# failure it catches is SILENT. The rule "ABSENCE OF HISTORY IS NOT EVIDENCE
+# AGAINST" was correct, committed, and unreachable for months because it sat
+# in PRODUCT_CONCEPT_SYSTEM_BLOCK, which is appended only for concept-mode
+# testers -- so ordinary questions never saw it. A rule in the wrong prompt
+# block does not error, does not warn, and reads perfectly in review. Only an
+# assertion about WHICH block it lands in catches that.
+#
+# Scope note, so nobody reads more into a green check than it earns: these
+# tests prove the instructions reach the prompt an ordinary question is built
+# from. They do NOT prove the model obeys them. That question needs eval runs
+# against the deployed function, which is a different (and much slower) kind
+# of test than this file.
+#
+# Needs NO secrets and no install -- it reads index.ts off the checkout and
+# asserts on string content, so it is safe to run on pull requests.
+
+on:
+  push:
+    branches: [main]
+    paths: &prompt_paths
+      - 'supabase/functions/silo-chat/**'
+      - '.github/workflows/silo-chat-tests.yml'
+  pull_request:
+    paths: *prompt_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: silo-chat-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prompt:
+    name: Prompt assembly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Bare checkout on purpose, same stance as the v3 unit job: if this
+      # ever needs an install step, that is a regression worth failing over.
+      - name: Run prompt assertions
+        run: node supabase/functions/silo-chat/prompt.test.mjs

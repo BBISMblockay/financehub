@@ -5,9 +5,14 @@
 -- they were absent from a LIMIT 30 query over shopify_landing_pages_daily.
 -- Every step of that was wrong in a way the catalog could have prevented:
 --
---   * the table is a TOP-250-PER-DAY slice, not the full tail. Measured
---     the same day: 10,553 of 10,763 rows carry is_truncated = true, so
---     98% of days hit the cap and dropped whatever ranked 251st down.
+--   * the table is a TOP-250-PER-DAY slice, not the full tail. For
+--     baseballism.myshopify.com -- the only shop with real web traffic --
+--     all 42 of its 42 days hit the cap and dropped whatever ranked 251st
+--     down. (Row-level, 10,553 of 10,763 rows are truncated, but do not
+--     read that as "98% of days": a capped day contributes 250 rows and
+--     one of the 17 POS/popup shops contributes one or two, so the row
+--     share and the day share are different measurements. The day share
+--     across all shops is 42 of 236.)
 --   * its history began 2026-07-28, so the 60-day window asked for was
 --     really 42 days.
 --   * it records landing SESSIONS. A collection with no landing traffic
@@ -51,10 +56,12 @@ set description =
   'Daily ad spend/revenue by platform (google_ads, meta_ads, tiktok_ads, ga4), '
   'CAMPAIGN-level. The authoritative ledger for spend. GRAIN IS OURS, NOT THE '
   'PROVIDER''S: Google Ads rows stop at campaign because the sync queries only '
-  '`FROM campaign` -- ad groups, keywords, search terms, PMax asset groups and '
-  'shopping product performance all exist in the Google Ads account under the '
-  'access already granted and are simply not ingested. Never report a grain we '
-  'do not sync as one the platform does not offer. GA4 rows are not campaigns '
+  '`FROM campaign`. Google Ads supports ad groups, keywords, search terms, PMax '
+  'asset groups and shopping product performance, and the granted scope permits '
+  'querying them; SILO does not ingest them. That is a fact about the API, NOT '
+  'about this account -- whether a given structure is actually set up in the '
+  'account is a separate question no table here can answer. Never report a grain '
+  'we do not sync as one the platform does not offer. GA4 rows are not campaigns '
   'at all: campaign_name carries the GA4 default channel group (Organic Search, '
   'Paid Social, Email, ...), so ga4 + campaign_name = ''Organic Search'' is the '
   'only organic-search signal SILO has -- session VOLUME at channel level, never '
