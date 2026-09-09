@@ -18430,3 +18430,17 @@ $c$select (select count(*) from v_po_header_summary
 -- a live collection as gone.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909120000_shopify_collections_registry.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909140000_landing_pages_day_level_truncation.sql
+-- Puts the DAY-level truncation figure in the Ask SILO catalog, because the
+-- model kept deriving the ROW-level one and restating it as a rate over
+-- time ("truncates 98% of the time" -- observed live, audit row 13820e92).
+-- 98% of rows carry is_truncated, but that is 42 of 236 shop-DAYS: a capped
+-- day contributes 250 rows and a POS shop's day contributes one. The same
+-- conflation was caught in this repo's own comments during review of #631,
+-- so it is a trap the table's shape sets rather than a model quirk.
+-- Description only, no schema change.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909140000_landing_pages_day_level_truncation.sql

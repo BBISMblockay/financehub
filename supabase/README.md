@@ -366,6 +366,7 @@ supabase/
     20260908140000_v3_visual_types.sql
     20260908150000_chat_catalog_evidence_caveats.sql
     20260909120000_shopify_collections_registry.sql
+    20260909140000_landing_pages_day_level_truncation.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
