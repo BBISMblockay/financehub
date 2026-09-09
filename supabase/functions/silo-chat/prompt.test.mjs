@@ -155,6 +155,44 @@ test('copy prep stays allowed, just not dressed up as measured opportunity', () 
   has(GENERAL, 'never present that work as a measured search opportunity');
 });
 
+console.log('\n-- page inspection is on-page fact, and is not a crawler --');
+
+// The tool must be declared, and declared as ONE user-named page. A model
+// that reads it as "fetch pages" will walk links, which is a different tool
+// with different rate-limit and robots questions that nobody has decided yet.
+test('inspect_storefront_page is declared to the model', () => {
+  has(SRC, "name: 'inspect_storefront_page'", 'index.ts');
+});
+test('...and is described as one user-named page, never a crawl', () => {
+  has(SRC, 'THIS IS NOT A CRAWLER');
+  has(SRC, 'never a URL you chose yourself');
+  has(SRC, 'One inspection per question');
+});
+test('the general prompt tells the model the tool exists and what it is not', () => {
+  has(GENERAL, 'inspect_storefront_page');
+  has(GENERAL, 'it is not a crawler');
+});
+// The whole point of the SEO paragraph is that SILO has no search data. A
+// page-fetch tool is the most tempting thing to mistake for one.
+test('...and that reading a page is not search performance', () => {
+  has(GENERAL, 'on-page fact, not search performance');
+  has(GENERAL, 'never evidence that anything indexed or ranked it');
+});
+// A cap the model is merely asked to respect is not a cap.
+test('the crawl guard is enforced in code, not only in the prompt', () => {
+  has(SRC, 'MAX_PAGE_INSPECTIONS_PER_REQUEST', 'index.ts');
+  has(SRC, 'pageInspectionsThisRequest >= MAX_PAGE_INSPECTIONS_PER_REQUEST', 'index.ts');
+});
+// Forwarding the caller's JWT is what keeps the tenant check and the host
+// allowlist the same query. A service-role call here would let Ask SILO fetch
+// a storefront the asking user has no claim to.
+test('the caller JWT is forwarded to page-inspect, not a service-role key', () => {
+  has(SRC, 'functions/v1/page-inspect', 'index.ts');
+  has(SRC, 'Authorization: `Bearer ${jwt}`', 'index.ts');
+  lacks(SRC.slice(SRC.indexOf("use.name === 'inspect_storefront_page'")).slice(0, 3000),
+    'SERVICE_ROLE', 'the inspect_storefront_page branch');
+});
+
 console.log('\n-- regressions --');
 
 test('the concept block keeps its own absence rule (not moved, generalized)', () => {
