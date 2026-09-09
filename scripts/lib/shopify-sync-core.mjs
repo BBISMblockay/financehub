@@ -2143,8 +2143,87 @@ const SHOPIFYQL_ROW_LIMIT = 1000;
 // but it has to be fetched in chunks, not one wide window.
 const SHOPIFYQL_MAX_DAYS = 730;
 
-/** Run one ShopifyQL statement. Returns rows as objects keyed by column name. */
-export async function shopifyql(connection, query) {
+/* ── Throttling, which arrives INSIDE a 200 ──────────────────────────────────
+ *
+ * fetchWithRetry only knows about HTTP status codes, and a GraphQL API does
+ * not use them for rate limiting: Shopify answers a throttled query with
+ * HTTP 200 and puts the refusal in the `errors` array. So every retry
+ * mechanism in this file was blind to the one failure the ShopifyQL loops
+ * actually hit.
+ *
+ * Measured, not theorised (GHA run #354, 2026-09-09): a 730-day landing-page
+ * backfill made ~100 successful per-day queries in 19 seconds and then got
+ *   {"errors":[{"message":"Rate limited. Please retry later."}]}
+ * with HTTP 200. fetchWithRetry returned that response as a success,
+ * shopifyql threw on `json.errors`, and the run wrote nothing at all.
+ *
+ * Two throttle dialects have to be recognised, because they are different
+ * systems behind one endpoint:
+ *   - the GraphQL calculated-cost limiter -- extensions.code THROTTLED, with
+ *     a throttleStatus telling you exactly how long to wait;
+ *   - the ANALYTICS limiter that ShopifyQL sits behind -- a bare
+ *     "Rate limited. Please retry later." with no code and no metadata.
+ * The first is answerable arithmetically; the second only by backing off.
+ */
+const THROTTLE_MESSAGE = /throttl|rate limit|too many requests|exceeded .*(rate|limit)/i;
+
+/** Is this GraphQL error array a rate-limit refusal (as opposed to a real error)? */
+export function isThrottleError(errors) {
+  return (errors || []).some((e) => {
+    const code = e?.extensions?.code;
+    if (typeof code === 'string' && /^THROTTLED$/i.test(code)) return true;
+    return THROTTLE_MESSAGE.test(String(e?.message ?? ''));
+  });
+}
+
+/** How long to wait before retrying a throttled ShopifyQL query, in ms.
+ *
+ * Preference order, most-informed first:
+ *   1. Shopify's own throttleStatus -- how many cost points short we are
+ *      divided by how fast the bucket refills. This is the only source that
+ *      knows the real answer, so it is used verbatim rather than blended
+ *      with a guess.
+ *   2. A Retry-After header, if the edge returned one.
+ *   3. Exponential backoff with FULL JITTER. Jitter matters here because the
+ *      caller is a tight per-day loop against one shop: without it every
+ *      retry in a burst re-collides on the same schedule.
+ *
+ * Capped, because an unbounded wait inside a 730-iteration loop is a hang
+ * with extra steps.
+ */
+export function throttleWaitMs(json, { attempt = 0, retryAfterHeader = null } = {}) {
+  const status = json?.extensions?.cost?.throttleStatus;
+  const requested = Number(json?.extensions?.cost?.requestedQueryCost);
+  const available = Number(status?.currentlyAvailable);
+  const restoreRate = Number(status?.restoreRate);
+  if (Number.isFinite(requested) && Number.isFinite(available) && restoreRate > 0) {
+    const shortfall = requested - available;
+    if (shortfall > 0) {
+      return Math.min(Math.ceil((shortfall / restoreRate) * 1000) + 250, THROTTLE_MAX_WAIT_MS);
+    }
+  }
+
+  const headerSeconds = Number(retryAfterHeader);
+  if (Number.isFinite(headerSeconds) && headerSeconds > 0) {
+    return Math.min(headerSeconds * 1000, THROTTLE_MAX_WAIT_MS);
+  }
+
+  const ceiling = Math.min(THROTTLE_BASE_WAIT_MS * 2 ** attempt, THROTTLE_MAX_WAIT_MS);
+  // Full jitter: uniform in [base, ceiling], never zero -- retrying instantly
+  // against a limiter that just refused you is how a burst becomes a ban.
+  return Math.round(THROTTLE_BASE_WAIT_MS + Math.random() * (ceiling - THROTTLE_BASE_WAIT_MS));
+}
+
+const THROTTLE_BASE_WAIT_MS = 2_000;
+const THROTTLE_MAX_WAIT_MS = 60_000;
+const THROTTLE_TRIES = 6;
+
+/** Run one ShopifyQL statement. Returns rows as objects keyed by column name.
+ *
+ * `onThrottle` is called before each backoff so a long-running loop can say
+ * out loud that it is waiting rather than looking hung.
+ */
+export async function shopifyql(connection, query, { throttleTries = THROTTLE_TRIES, onThrottle = null } = {}) {
   const apiVersion = connection.api_version || DEFAULT_API_VERSION;
   const url = `https://${connection.shop_domain}/admin/api/${apiVersion}/graphql.json`;
   // Shape read off the live schema via introspection on 2026-08-27, after
@@ -2170,22 +2249,45 @@ export async function shopifyql(connection, query) {
     variables: { q: query },
   };
 
-  const res = await fetchWithRetry(url, {
-    method: 'POST',
-    headers: {
-      'X-Shopify-Access-Token': connection.access_token,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json();
+  let json;
+  let throttleWaits = 0;
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': connection.access_token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    json = await res.json();
 
-  // A ShopifyQL parse error comes back 200 with parseErrors populated, so
-  // it has to be checked explicitly or it looks like an empty result.
-  const gqlErrors = json?.errors;
-  if (gqlErrors?.length) {
-    throw new Error(`ShopifyQL transport error: ${gqlErrors.map((e) => e.message).join('; ')}`);
+    const errs = json?.errors;
+    if (!errs?.length) break;
+
+    // Only a THROTTLE is retryable. A genuine transport or permission error
+    // repeated six times is still the same error, six times slower.
+    if (!isThrottleError(errs) || attempt >= throttleTries - 1) {
+      const msg = errs.map((e) => e.message).join('; ');
+      const err = new Error(`ShopifyQL transport error: ${msg}`);
+      err.throttled = isThrottleError(errs);
+      // Distinguish "we gave up after N backoffs" from "it refused once".
+      // Same message otherwise, and the two want different responses: the
+      // first says the window is too big for the budget, the second says
+      // something is wrong with the query.
+      if (err.throttled) err.throttle_attempts = attempt + 1;
+      throw err;
+    }
+
+    const waitMs = throttleWaitMs(json, {
+      attempt,
+      retryAfterHeader: res.headers?.get?.('retry-after') ?? null,
+    });
+    throttleWaits += 1;
+    if (onThrottle) onThrottle({ attempt: attempt + 1, waitMs, message: errs.map((e) => e.message).join('; ') });
+    await sleep(waitMs);
   }
+
   const payload = json?.data?.shopifyqlQuery;
   if (payload?.parseErrors?.length) {
     // Scalar strings, but tolerate objects in case a future version changes it.
@@ -2197,7 +2299,10 @@ export async function shopifyql(connection, query) {
   if (!table) {
     const empty = [];
     Object.defineProperty(empty, 'raw', {
-      value: { columns: [], row_count: 0, table_data_was_null: true, typename: payload?.__typename ?? null },
+      value: {
+        columns: [], row_count: 0, table_data_was_null: true,
+        typename: payload?.__typename ?? null, throttle_waits: throttleWaits,
+      },
       enumerable: false,
     });
     return empty;
@@ -2239,7 +2344,10 @@ export async function shopifyql(connection, query) {
   // Carry the raw payload so a caller that parses nothing can say what it
   // actually received instead of reporting an empty success.
   Object.defineProperty(out, 'raw', {
-    value: { columns: cols, row_count: rawRows.length, row_shape: shape, sample: rawRows.slice(0, 1) },
+    value: {
+      columns: cols, row_count: rawRows.length, row_shape: shape,
+      sample: rawRows.slice(0, 1), throttle_waits: throttleWaits,
+    },
     enumerable: false,
   });
   return out;
@@ -2420,64 +2528,145 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
  */
 const LANDING_TOP_N = 250;
 
-export async function runLandingPagesSync(supabase, connection, { sinceDays = 30, batchId = null } = {}) {
-  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), 120);
+/* Why each day is written as it is fetched, rather than all at the end.
+ *
+ * The first version accumulated every day into one array and upserted after
+ * the loop. That is one transaction-shaped thought applied to a job that is
+ * not a transaction: the days are independent facts, and there is no sense in
+ * which day 40 being unavailable makes day 39 untrue. GHA run #354 fetched
+ * ~100 days successfully, hit an analytics rate limit on the next one, and
+ * threw away all ~100 -- the table was byte-identical before and after a
+ * two-minute run.
+ *
+ * Writing per day makes a failure cost only the days not yet fetched, so a
+ * re-run resumes rather than restarts. Every write is an idempotent upsert on
+ * (company, shop, day, path), so re-fetching a day already stored is free and
+ * correct.
+ *
+ * The cost is one round trip per day instead of one per 500 rows. At <=250
+ * rows a day that is a small write, and it is the price of not discarding
+ * work that has already been paid for.
+ */
+export async function runLandingPagesSync(supabase, connection, {
+  sinceDays = 30,
+  batchId = null,
+  topN = LANDING_TOP_N,
+  onProgress = null,
+  throttleTries = undefined,
+} = {}) {
+  // Clamped to the ShopifyQL ceiling rather than the old 120. 120 was the
+  // right limit while a failure discarded the whole run -- a long window was
+  // simply a bigger thing to lose. With per-day persistence and throttle
+  // backoff a long window is now resumable, so the limit that matters is
+  // Shopify's own history depth.
+  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), SHOPIFYQL_MAX_DAYS);
   const iso = (d) => d.toISOString().slice(0, 10);
   const today = new Date();
 
-  const rows = [];
+  let rowsWritten = 0;
+  let daysFetched = 0;
   let truncatedDays = 0;
+  let throttleWaits = 0;
+  const daysWritten = [];
+  const paths = new Set();
+  let failure = null;
+
   for (let i = 1; i <= days; i += 1) {
     const d = new Date(today.getTime() - i * 86400000);
     const day = iso(d);
-    const out = await shopifyql(connection,
-      `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
-      `sessions_that_reached_checkout, sessions_that_completed_checkout ` +
-      `GROUP BY landing_page_path SINCE ${day} UNTIL ${day} ` +
-      `ORDER BY sessions DESC LIMIT ${LANDING_TOP_N}`);
+    try {
+      const out = await shopifyql(connection,
+        `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
+        `sessions_that_reached_checkout, sessions_that_completed_checkout ` +
+        `GROUP BY landing_page_path SINCE ${day} UNTIL ${day} ` +
+        `ORDER BY sessions DESC LIMIT ${topN}`,
+        {
+          ...(throttleTries === undefined ? {} : { throttleTries }),
+          onThrottle: ({ attempt, waitMs }) => {
+            throttleWaits += 1;
+            if (onProgress) onProgress({ day, event: 'throttled', attempt, waitMs });
+          },
+        });
+      daysFetched += 1;
 
-    // Landing on the LIMIT means there was more tail than we kept. That is
-    // expected and fine -- but it must be recorded, not inferred.
-    const clipped = out.length >= LANDING_TOP_N;
-    if (clipped) truncatedDays += 1;
+      // Landing on the LIMIT means there was more tail than we kept. That is
+      // expected and fine -- but it must be recorded, not inferred.
+      const clipped = out.length >= topN;
+      if (clipped) truncatedDays += 1;
 
-    out.forEach((r, idx) => {
-      const path = r.landing_page_path;
-      if (!path) return;
-      rows.push({
-        company_entity_id: connection.company_entity_id,
-        shop_domain: connection.shop_domain,
-        day_date: day,
-        landing_page_path: String(path),
-        rank_in_day: idx + 1,
-        sessions: numOrNull(r.sessions),
-        sessions_with_cart_additions: numOrNull(r.sessions_with_cart_additions),
-        sessions_that_reached_checkout: numOrNull(r.sessions_that_reached_checkout),
-        sessions_that_completed_checkout: numOrNull(r.sessions_that_completed_checkout),
-        is_truncated: clipped,
-        synced_at: new Date().toISOString(),
-        sync_batch_id: batchId,
+      const now = new Date().toISOString();
+      const dayRows = [];
+      out.forEach((r, idx) => {
+        const path = r.landing_page_path;
+        if (!path) return;
+        paths.add(String(path));
+        dayRows.push({
+          company_entity_id: connection.company_entity_id,
+          shop_domain: connection.shop_domain,
+          day_date: day,
+          landing_page_path: String(path),
+          rank_in_day: idx + 1,
+          sessions: numOrNull(r.sessions),
+          sessions_with_cart_additions: numOrNull(r.sessions_with_cart_additions),
+          sessions_that_reached_checkout: numOrNull(r.sessions_that_reached_checkout),
+          sessions_that_completed_checkout: numOrNull(r.sessions_that_completed_checkout),
+          is_truncated: clipped,
+          synced_at: now,
+          sync_batch_id: batchId,
+        });
       });
-    });
+
+      if (dayRows.length) {
+        await upsertInChunks(supabase, 'shopify_landing_pages_daily', dayRows,
+          'company_entity_id,shop_domain,day_date,landing_page_path');
+        rowsWritten += dayRows.length;
+      }
+      // A day Shopify reported no traffic for is still a day we COVERED. It
+      // counts as written, or a quiet day would make the window look like it
+      // has a hole in it.
+      daysWritten.push(day);
+      if (onProgress) onProgress({ day, event: 'written', rows: dayRows.length });
+    } catch (err) {
+      // Stop at the first failure rather than pressing on: a rate limit that
+      // survived six backoffs will not be gone by the next day's query, and
+      // continuing would turn one refusal into hundreds. Everything fetched
+      // so far is already in the table.
+      failure = {
+        day,
+        message: err?.message || String(err),
+        throttled: Boolean(err?.throttled),
+        throttle_attempts: err?.throttle_attempts ?? null,
+      };
+      break;
+    }
   }
 
-  for (let i = 0; i < rows.length; i += 500) {
-    const { error } = await supabase
-      .from('shopify_landing_pages_daily')
-      .upsert(rows.slice(i, i + 500), {
-        onConflict: 'company_entity_id,shop_domain,day_date,landing_page_path',
-      });
-    if (error) throw new Error(`landing_pages upsert failed: ${error.message}`);
-  }
+  daysWritten.sort();
+  const complete = failure === null && daysWritten.length === days;
 
   return {
     job_type: 'landing_pages_sync',
     batch_id: batchId,
+    // The four numbers that make a partial run interpretable. days_requested
+    // is what was asked for; days_fetched is what Shopify answered;
+    // days_written is what is actually IN the table. They can legitimately
+    // differ, and reporting only the last one is how a 43-day table gets
+    // described as a 730-day backfill.
     days_requested: days,
-    rows_upserted: rows.length,
-    distinct_paths: new Set(rows.map((r) => r.landing_page_path)).size,
+    days_fetched: daysFetched,
+    days_written: daysWritten.length,
+    earliest_day_written: daysWritten[0] ?? null,
+    latest_day_written: daysWritten[daysWritten.length - 1] ?? null,
+    rows_upserted: rowsWritten,
+    distinct_paths: paths.size,
     days_hitting_top_n: truncatedDays || undefined,
-    top_n: LANDING_TOP_N,
+    top_n: topN,
+    throttle_waits: throttleWaits || undefined,
+    // NEVER derive completeness from rows_upserted > 0. A run that wrote
+    // 25,000 rows and stopped 600 days short wrote a lot of rows and did not
+    // do what was asked.
+    complete,
+    failure,
   };
 }
 

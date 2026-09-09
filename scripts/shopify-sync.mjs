@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   connectionReadyForSync,
 } from './lib/shopify-scopes.mjs';
+import { buildSyncPlan, runOutcomeReport, shouldRecordSkippedJob } from './lib/sync-plan.mjs';
 import {
   DEFAULT_CHUNK_DAYS,
   runCatalogSync,
@@ -35,12 +36,9 @@ const HISTORY_DAYS = process.env.SHOPIFY_HISTORY_DAYS
 const HISTORY_CHUNK_DAYS = Number(process.env.SHOPIFY_HISTORY_CHUNK_DAYS || DEFAULT_CHUNK_DAYS);
 const ONLY_COMPANY_ID = process.env.SHOPIFY_ONLY_COMPANY_ID || '';
 const ONLY_CONNECTION_ID = process.env.SHOPIFY_ONLY_CONNECTION_ID || '';
-const SKIP_SALES = process.env.SHOPIFY_SKIP_SALES === 'true';
-const SKIP_INVENTORY = process.env.SHOPIFY_SKIP_INVENTORY === 'true';
-const SKIP_CATALOG = process.env.SHOPIFY_SKIP_CATALOG === 'true';
-const SKIP_PAYOUTS = process.env.SHOPIFY_SKIP_PAYOUTS === 'true';
-const SKIP_DRAFT_ORDERS = process.env.SHOPIFY_SKIP_DRAFT_ORDERS === 'true';
-const SKIP_SESSIONS = process.env.SHOPIFY_SKIP_SESSIONS === 'true';
+// The SHOPIFY_SKIP_* flags are no longer read individually here. Every stage
+// gate goes through the plan (see PLAN below) so that turning a stage off
+// produces a record instead of silence.
 // 90 days keeps the nightly call small while re-stating recent history, since
 // Shopify revises analytics for a few days after the fact. Raise it once (or
 // run with SHOPIFY_SESSIONS_DAYS=365) to seed as much history as Shopify will
@@ -50,9 +48,7 @@ const SESSIONS_DAYS = Number(process.env.SHOPIFY_SESSIONS_DAYS || 90);
 // Landing pages cost one ShopifyQL query PER DAY (see runLandingPagesSync for
 // why it cannot be one wide window), so the default window is much shorter
 // than sessions'. The weekly report needs two weeks; 30 gives margin.
-const SKIP_LANDING_PAGES = process.env.SHOPIFY_SKIP_LANDING_PAGES === 'true';
 const LANDING_PAGES_DAYS = Number(process.env.SHOPIFY_LANDING_PAGES_DAYS || 30);
-const SKIP_DISCOUNT_CODES = process.env.SHOPIFY_SKIP_DISCOUNT_CODES === 'true';
 // The collections registry: what pages exist, as opposed to what got
 // traffic. Cheap relative to sales (one GraphQL page per 50 collections
 // plus follow-ups only for collections with >250 products).
@@ -66,13 +62,35 @@ const SKIP_DISCOUNT_CODES = process.env.SHOPIFY_SKIP_DISCOUNT_CODES === 'true';
 // It stays opt-in now that it IS enabled, because the workflow turns it on
 // for the 08:30 nightly ONLY (see shopify-sync.yml). An opt-out flag would
 // make "on everywhere" the default again the next time someone adds a cron.
-const COLLECTIONS_ENABLED = process.env.SHOPIFY_COLLECTIONS_ENABLED === 'true';
+// (The flag itself is now read by buildSyncPlan, as SYNC_STAGES' one enableEnv.)
 const DISCOUNT_CODES_DAYS = Number(process.env.SHOPIFY_DISCOUNT_CODES_DAYS || 30);
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
 const BATCH_ID =
   process.env.SHOPIFY_SYNC_BATCH_ID ||
   `shopify-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+
+// What this run was ASKED to do. Every stage gate below reads this instead of
+// re-deriving `!SKIP_X && mode-is-right` at the point of use, so that a stage
+// which does not run leaves the same trail as one that does. See
+// scripts/lib/sync-plan.mjs for why (short version: a manual backfill once
+// finished green having written nothing, because a skipped stage produced no
+// record of any kind).
+const PLAN = buildSyncPlan(process.env);
+const STAGES = new Map(PLAN.stages.map((s) => [s.jobType, s]));
+const stageEnabled = (jobType) => STAGES.get(jobType)?.enabled === true;
+
+// Every stage outcome across every connection, for the exit-code decision.
+const OUTCOMES = [];
+const record = (connection, jobType, state, detail = null) => {
+  OUTCOMES.push({
+    shopDomain: connection?.shop_domain ?? null,
+    jobType,
+    state,
+    requested: STAGES.get(jobType)?.requested ?? true,
+    detail,
+  });
+};
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -99,9 +117,75 @@ async function finishJob(jobId, status, payload) {
     status,
     finished_at: new Date().toISOString(),
   };
-  if (status === 'success') update.result = payload;
-  else update.error = String(payload?.error || payload).slice(0, 2000);
+  // `result` is written whatever the status, which it was not before. A stage
+  // that fetched 100 days and then hit a rate limit HAS 100 days in the
+  // table; if the only record of a failed run is an error string, the next
+  // person cannot tell that from a run that wrote nothing, and the safe
+  // assumption ("nothing was written") is the wrong one -- it invites a
+  // pointless re-run of work already done.
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) update.result = payload;
+  if (status !== 'success') {
+    update.error = String(
+      payload?.error || payload?.failure?.message || payload?.reason || payload,
+    ).slice(0, 2000);
+  }
   await supabase.from('sync_jobs').update(update).eq('id', jobId);
+}
+
+/** Record a stage that was NOT run, and why.
+ *
+ * This is the whole point of the 2026-09-09 fix: a step that does not run has
+ * to leave the same kind of trace as one that does, or "the backfill didn't
+ * happen" and "the backfill happened and found nothing" are indistinguishable
+ * from outside.
+ *
+ * Only on manual runs, and only for stages gated by their own flag. A
+ * scheduled light refresh turns four stages off by design twelve times a day
+ * across every connection -- writing that down would add ~900 rows a day
+ * saying nothing, and bury the rows that mean something. A contradiction is
+ * always recorded, whoever triggered it.
+ */
+async function recordSkippedJob(connection, stage) {
+  const now = new Date().toISOString();
+  const { error } = await supabase.from('sync_jobs').insert({
+    company_entity_id: connection.company_entity_id,
+    connection_id: connection.id,
+    job_type: stage.jobType,
+    status: 'skipped',
+    started_at: now,
+    finished_at: now,
+    result: {
+      skipped: true,
+      reason: stage.skipReason,
+      requested: stage.requested,
+      contradiction: stage.contradiction,
+      parameter_supplied: stage.parameterSupplied
+        ? { env: stage.daysEnv, value: stage.parameterValue }
+        : null,
+      sync_mode: PLAN.mode,
+      run_kind: PLAN.manual ? 'manual' : 'scheduled',
+      batch_id: BATCH_ID,
+    },
+  });
+  // A failure to record the skip must not be silent either -- that would
+  // reintroduce the exact invisibility this function exists to remove.
+  if (error) console.warn(`[warn] ${connection.shop_domain} could not record skipped ${stage.jobType}: ${error.message}`);
+}
+
+/** Announce and (where it matters) persist every stage this run will not do. */
+async function reportSkippedStages(connection) {
+  for (const stage of PLAN.stages) {
+    if (stage.enabled) continue;
+    record(connection, stage.jobType, 'skipped', stage.skipReason);
+
+    const line = `${connection.shop_domain} ${stage.jobType}: ${stage.skipReason}`;
+    if (stage.contradiction) console.warn(`[warn] NOT RUN — ${line}`);
+    else console.log(`[skip] ${line}`);
+
+    if (shouldRecordSkippedJob(stage, { manual: PLAN.manual })) {
+      await recordSkippedJob(connection, stage);
+    }
+  }
 }
 
 async function loadConnections() {
@@ -123,7 +207,10 @@ async function loadConnections() {
 async function syncConnection(connection) {
   const results = { shop_domain: connection.shop_domain, jobs: [] };
 
-  if (!SKIP_SALES && (SYNC_MODE === 'history' || SYNC_MODE === 'full')) {
+  // Before anything runs, say what will not run and why.
+  await reportSkippedStages(connection);
+
+  if (stageEnabled('history_import')) {
     const days = HISTORY_DAYS || connection.history_days_default || 90;
     const jobId = await startJob(connection, 'history_import');
     try {
@@ -134,14 +221,16 @@ async function syncConnection(connection) {
       });
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
+      record(connection, 'history_import', 'success');
       console.log(`[ok] ${connection.shop_domain} history_import: ${result.sales_rows_total} sales rows`);
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'history_import', 'error', err.message || String(err));
       throw err;
     }
   }
 
-  if (!SKIP_SALES && SYNC_MODE === 'incremental') {
+  if (stageEnabled('incremental_sales')) {
     const jobId = await startJob(connection, 'incremental_sales');
     try {
       const result = await runIncrementalSales(supabase, connection, {
@@ -170,26 +259,31 @@ async function syncConnection(connection) {
       }
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
+      record(connection, 'incremental_sales', 'success');
       console.log(`[ok] ${connection.shop_domain} incremental_sales: ${result.sales_rows_upserted} rows`);
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'incremental_sales', 'error', err.message || String(err));
       throw err;
     }
   }
 
-  if (!SKIP_PAYOUTS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('payouts_sync')) {
     const jobId = await startJob(connection, 'payouts_sync');
     try {
       const result = await runPayoutsSync(supabase, connection, { batchId: BATCH_ID });
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
+        record(connection, 'payouts_sync', 'scope_skipped', result.reason || result.missing?.join(','));
         console.log(`[skip] ${connection.shop_domain} payouts_sync: ${result.reason || result.missing?.join(',')}`);
       } else {
+        record(connection, 'payouts_sync', 'success');
         console.log(`[ok] ${connection.shop_domain} payouts_sync: ${result.payouts_upserted} payouts since ${result.since}`);
       }
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'payouts_sync', 'error', err.message || String(err));
       throw err;
     }
   }
@@ -197,7 +291,7 @@ async function syncConnection(connection) {
   // Storefront funnel + customer mix from ShopifyQL. Cheap -- two aggregated
   // queries returning one row per day -- and it is what the Week over Week
   // conversion funnel and returning-customer rate read.
-  if (!SKIP_SESSIONS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('sessions_sync')) {
     const jobId = await startJob(connection, 'sessions_sync');
     try {
       const result = await runSessionsSync(supabase, connection, {
@@ -207,38 +301,70 @@ async function syncConnection(connection) {
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
+        record(connection, 'sessions_sync', 'scope_skipped', result.missing?.join(','));
         console.log(`[skip] ${connection.shop_domain} sessions_sync: ${result.missing?.join(',')}`);
       } else {
+        record(connection, 'sessions_sync', 'success');
         console.log(
           `[ok] ${connection.shop_domain} sessions_sync: ${result.sessions_rows_upserted} session days, ` +
           `${result.customer_rows_upserted} customer days, earliest ${result.earliest_day_returned || 'n/a'}`,
         );
       }
     } catch (err) {
-      // Analytics is a nice-to-have next to sales and inventory. A ShopifyQL
-      // failure should not take the whole nightly run down with it.
+      // Analytics is a nice-to-have next to sales and inventory, so this does
+      // not throw: a ShopifyQL wobble must not take the nightly's sales sync
+      // down with it. On a MANUAL run the recorded outcome still fails the
+      // workflow at the end -- see runOutcomeReport. Non-fatal here means
+      // "keep going", not "pretend it worked".
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'sessions_sync', 'error', err.message || String(err));
       console.warn(`[warn] ${connection.shop_domain} sessions_sync failed: ${err.message || err}`);
     }
   }
 
-  if (!SKIP_LANDING_PAGES && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('landing_pages_sync')) {
     const jobId = await startJob(connection, 'landing_pages_sync');
     try {
       const result = await runLandingPagesSync(supabase, connection, {
         batchId: BATCH_ID,
         sinceDays: LANDING_PAGES_DAYS,
+        // A 730-day window is ~12 minutes of per-day queries plus whatever
+        // backoff it takes. Without this the run looks hung.
+        onProgress: ({ day, event, attempt, waitMs }) => {
+          if (event === 'throttled') {
+            console.log(`[wait] ${connection.shop_domain} landing_pages_sync ${day}: throttled, attempt ${attempt}, backing off ${waitMs}ms`);
+          }
+        },
       });
-      await finishJob(jobId, 'success', result);
+      const coverage =
+        `${result.days_written}/${result.days_requested} days` +
+        (result.earliest_day_written ? ` (${result.earliest_day_written} → ${result.latest_day_written})` : '') +
+        `, ${result.rows_upserted} rows, ${result.distinct_paths} paths` +
+        (result.days_hitting_top_n ? `, ${result.days_hitting_top_n} day(s) hit the top-${result.top_n} cap` : '');
+
+      // A window that did not complete is recorded as an ERROR carrying its
+      // real progress, never as a success. The rows it wrote are good and are
+      // kept; what is not true is that the backfill happened.
       results.jobs.push(result);
-      console.log(
-        `[ok] ${connection.shop_domain} landing_pages_sync: ${result.rows_upserted} rows, ` +
-        `${result.distinct_paths} paths` +
-        (result.days_hitting_top_n ? `, ${result.days_hitting_top_n} day(s) hit the top-${result.top_n} cap` : ''),
-      );
+      if (result.complete) {
+        await finishJob(jobId, 'success', result);
+        record(connection, 'landing_pages_sync', 'success');
+        console.log(`[ok] ${connection.shop_domain} landing_pages_sync: ${coverage}`);
+      } else {
+        await finishJob(jobId, 'error', result);
+        record(connection, 'landing_pages_sync', 'partial',
+          `kept ${coverage}; stopped at ${result.failure?.day} — ${result.failure?.message}`);
+        console.warn(
+          `[warn] ${connection.shop_domain} landing_pages_sync INCOMPLETE: kept ${coverage}; ` +
+          `stopped at ${result.failure?.day}: ${result.failure?.message}`,
+        );
+      }
     } catch (err) {
       // Same stance as sessions: analytics must not take down sales sync.
+      // runLandingPagesSync catches its own per-day failures, so reaching here
+      // means something outside the day loop broke.
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'landing_pages_sync', 'error', err.message || String(err));
       console.warn(`[warn] ${connection.shop_domain} landing_pages_sync failed: ${err.message || err}`);
     }
   }
@@ -274,12 +400,13 @@ async function syncConnection(connection) {
     }
   }
 
-  if (COLLECTIONS_ENABLED && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('collections_sync')) {
     const jobId = await startJob(connection, 'collections_sync');
     try {
       const result = await runCollectionsSync(supabase, connection, { batchId: BATCH_ID });
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
+      record(connection, 'collections_sync', 'success');
       console.log(
         `[ok] ${connection.shop_domain} collections_sync: ${result.collections_seen} collections, ` +
         `${result.memberships_seen} memberships, ${result.pages_fetched} pages` +
@@ -290,11 +417,12 @@ async function syncConnection(connection) {
       // down sales sync. A failed run leaves completed_at null, so nothing
       // downstream will read the partial fetch as a set of deletions.
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'collections_sync', 'error', err.message || String(err));
       console.warn(`[warn] ${connection.shop_domain} collections_sync failed: ${err.message || err}`);
     }
   }
 
-  if (!SKIP_DISCOUNT_CODES && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('discount_codes_sync')) {
     const jobId = await startJob(connection, 'discount_codes_sync');
     try {
       const result = await runDiscountCodesSync(supabase, connection, {
@@ -303,17 +431,19 @@ async function syncConnection(connection) {
       });
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
+      record(connection, 'discount_codes_sync', 'success');
       console.log(
         `[ok] ${connection.shop_domain} discount_codes_sync: ${result.rows_upserted} rows, ` +
         `${result.distinct_codes} codes`,
       );
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'discount_codes_sync', 'error', err.message || String(err));
       console.warn(`[warn] ${connection.shop_domain} discount_codes_sync failed: ${err.message || err}`);
     }
   }
 
-  if (!SKIP_DRAFT_ORDERS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('draft_orders_sync')) {
     const jobId = await startJob(connection, 'draft_orders_sync');
     try {
       const result = await runDraftOrdersSync(supabase, connection, { batchId: BATCH_ID, daysBack: DAYS_BACK });
@@ -326,42 +456,50 @@ async function syncConnection(connection) {
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
+        record(connection, 'draft_orders_sync', 'scope_skipped', result.missing?.join(','));
         console.log(`[skip] ${connection.shop_domain} draft_orders_sync: missing scopes ${result.missing?.join(',')}`);
       } else {
+        record(connection, 'draft_orders_sync', 'success');
         console.log(`[ok] ${connection.shop_domain} draft_orders_sync: ${result.draft_orders_upserted} drafts`);
       }
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'draft_orders_sync', 'error', err.message || String(err));
       throw err;
     }
   }
 
-  if (!SKIP_INVENTORY && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('inventory_snapshot')) {
     const jobId = await startJob(connection, 'inventory_snapshot');
     try {
       const result = await runInventorySnapshot(supabase, connection, { batchId: BATCH_ID });
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
+      record(connection, 'inventory_snapshot', 'success');
       console.log(`[ok] ${connection.shop_domain} inventory_snapshot: ${result.inventory_rows_upserted} rows`);
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'inventory_snapshot', 'error', err.message || String(err));
       throw err;
     }
   }
 
-  if (!SKIP_CATALOG && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+  if (stageEnabled('catalog_sync')) {
     const jobId = await startJob(connection, 'catalog_sync');
     try {
       const result = await runCatalogSync(supabase, connection, { batchId: BATCH_ID });
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       if (result.skipped) {
+        record(connection, 'catalog_sync', 'scope_skipped', result.missing?.join(','));
         console.log(`[skip] ${connection.shop_domain} catalog_sync: missing scopes ${result.missing?.join(',')}`);
       } else {
+        record(connection, 'catalog_sync', 'success');
         console.log(`[ok] ${connection.shop_domain} catalog_sync: ${result.products_master_rows_upserted} SKUs`);
       }
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
+      record(connection, 'catalog_sync', 'error', err.message || String(err));
       throw err;
     }
   }
@@ -380,7 +518,18 @@ async function purgeBetterReportsOverlap(companyEntityId) {
 }
 
 async function main() {
-  console.log(`[shopify-sync] mode=${SYNC_MODE} batch=${BATCH_ID}`);
+  console.log(`[shopify-sync] mode=${SYNC_MODE} batch=${BATCH_ID} trigger=${PLAN.manual ? 'manual' : 'scheduled'}`);
+  // Print the plan up front. A reader of the log should be able to see what
+  // this run intends to do before it does any of it, rather than inferring
+  // it afterwards from which [ok] lines happen to be present -- which is
+  // exactly what could not be done for run #354.
+  console.log('[shopify-sync] plan: ' + PLAN.stages
+    .map((s) => `${s.jobType}=${s.enabled ? 'run' : (s.contradiction ? 'SKIP(contradictory)' : 'skip')}`)
+    .join(' '));
+  const contradictions = PLAN.stages.filter((s) => s.contradiction);
+  for (const s of contradictions) {
+    console.warn(`[warn] contradictory inputs — ${s.skipReason}`);
+  }
 
   const connections = await loadConnections();
   if (!connections.length) {
@@ -455,7 +604,7 @@ async function main() {
 
     // The retired Sheets sync used to refresh this after its inventory
     // import — with Shopify as the sole inventory source, it happens here.
-    if (!SKIP_INVENTORY) {
+    if (stageEnabled('inventory_snapshot')) {
       const { error: invMvError } = await supabase.rpc('refresh_inventory_current_mv');
       if (invMvError) {
         hadError = true;
@@ -475,7 +624,24 @@ async function main() {
   }
 
   console.log('[shopify-sync] done', JSON.stringify(allResults, null, 2));
-  if (hadError) process.exit(1);
+
+  // The judgement, kept separate from the work.
+  //
+  // A manual backfill exists FOR a particular stage, so a requested stage
+  // that errored, stopped short of its window, or was never run fails the
+  // run -- otherwise a green tick says the backfill happened when it did not,
+  // and the only remaining way to find out is to query the tables by hand.
+  //
+  // A scheduled run keeps the existing non-fatal policy: a nightly that
+  // synced every sale should not go red because ShopifyQL rate-limited the
+  // analytics stage, and a nightly that is routinely red is a nightly nobody
+  // reads. sales-freshness-check.yml is the alarm for the feeds that truly
+  // cannot lapse.
+  const outcome = runOutcomeReport({ manual: PLAN.manual, outcomes: OUTCOMES });
+  if (outcome.summary) {
+    console.warn(`[shopify-sync] ${outcome.summary}`);
+  }
+  if (hadError || outcome.exitCode) process.exit(1);
 }
 
 main().catch((err) => {

@@ -29,7 +29,7 @@ on:
         required: false
         default: 'false'
       skip_sessions:
-        description: Set true to skip the ShopifyQL sessions/funnel sync
+        description: Set true to skip the ShopifyQL sessions/funnel sync (leave false if you are setting sessions_days)
         required: false
         default: 'false'
       skip_discount_codes:
@@ -42,10 +42,18 @@ on:
         description: Skip the landing-page sync (true/false)
         required: false
       landing_pages_days:
-        description: Landing-page days back (default 30; one query per day, so keep it modest)
+        description: >-
+          Landing-page days back (default 30, max 730). One ShopifyQL query
+          per day, throttle-aware, and each day is written as it is fetched --
+          so a long window is resumable and a stop costs only the days not yet
+          done. Setting this while skip_landing_pages is true is treated as
+          contradictory and FAILS a manual run.
         required: false
       sessions_days:
-        description: Days of session history to pull (default 90; use 365 once to seed as far back as Shopify serves)
+        description: >-
+          Days of session history to pull (default 90, max 730). Setting this
+          while skip_sessions is true is treated as contradictory and FAILS a
+          manual run -- that exact pair silently did nothing on 2026-09-09.
         required: false
       skip_catalog:
         description: Set true to skip products_master catalog sync
@@ -129,6 +137,12 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Which policy applies when a requested step does not complete. A
+      # scheduled run stays non-fatal (an analytics wobble must not mark a
+      # nightly that synced every sale as failed); a hand-dispatched backfill
+      # goes RED, because it exists for the step that failed and a green tick
+      # would say the backfill happened. See scripts/lib/sync-plan.mjs.
+      SHOPIFY_RUN_KIND: ${{ github.event_name }}
       SHOPIFY_SYNC_MODE: ${{ github.event.inputs.sync_mode || 'incremental' }}
       SHOPIFY_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
       SHOPIFY_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}

@@ -2959,3 +2959,33 @@ select
       then 'MISSING — catalog entry no longer explains collection_is_empty'
     else 'ok'
   end as collection_skus_empty_visibility;
+
+-- ── A skipped sync step can be recorded (20260909340000) ─────────────
+-- A manual backfill on 2026-09-09 was dispatched with sessions_days=730 AND
+-- skip_sessions=true, silently resolved that in favour of the skip, and wrote
+-- NO record of any kind -- then reported success. The orchestrator now files a
+-- sync_jobs row for every stage a run was asked for, including the ones it
+-- declined. Without this status value that insert fails the CHECK and the
+-- silence comes straight back.
+select
+  case
+    when not exists (select 1 from pg_constraint
+                     where conname='sync_jobs_status_check'
+                       and pg_get_constraintdef(oid) like '%skipped%')
+      then 'MISSING — sync_jobs status check does not allow ''skipped''; run '
+        || '20260909340000_sync_jobs_skipped_status.sql, or every requested-but-skipped '
+        || 'step goes unrecorded again'
+    -- 'cancelled' must survive alongside it. They are different facts: a
+    -- cancelled job started and was stopped, a skipped one never started.
+    when not exists (select 1 from pg_constraint
+                     where conname='sync_jobs_status_check'
+                       and pg_get_constraintdef(oid) like '%cancelled%')
+      then 'MISSING — sync_jobs status check lost ''cancelled'' when ''skipped'' was added'
+    when not exists (select 1 from pg_constraint
+                     where conname='sync_jobs_status_check'
+                       and pg_get_constraintdef(oid) like '%success%'
+                       and pg_get_constraintdef(oid) like '%error%'
+                       and pg_get_constraintdef(oid) like '%running%')
+      then 'MISSING — sync_jobs status check lost one of success/error/running'
+    else 'ok'
+  end as sync_jobs_skipped_status;
