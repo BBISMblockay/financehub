@@ -24,7 +24,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   admitUrl, admitRedirect, extractPageFacts, allAddressesPublic,
-  findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest,
+  findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest, raceAbort,
 } from './inspect-lib.mjs';
 
 const corsHeaders = {
@@ -115,10 +115,12 @@ function abortPromise(signal: AbortSignal): Promise<never> {
  * answers differently a moment later wins. Connecting to the validated address
  * removes the second lookup entirely.
  *
- * TLS is still pinned to the HOSTNAME: `servername` sets SNI and is what the
- * certificate is validated against, so connecting by address does not weaken
- * authentication -- an attacker who can point DNS at their box still cannot
- * present a valid certificate for the storefront.
+ * TLS is still pinned to the HOSTNAME: startTls's `hostname` sets SNI and is
+ * what the certificate is validated against, so connecting by address does not
+ * weaken authentication -- an attacker who can point DNS at their box still
+ * cannot present a valid certificate for the storefront. That property is
+ * asserted against real sockets in scripts/tests/page-inspect-tls.test.mjs,
+ * including the negative case.
  *
  * Returns { status, headers, body, truncated, complete }. */
 async function httpsGetViaAddress(opts: {
@@ -160,17 +162,44 @@ async function httpsGetViaAddress(opts: {
   // An IPv6 literal needs brackets in a URL but NOT in Deno.connect's
   // hostname, which takes the bare address.
   const address = opts.address.replace(/^\[|\]$/g, '');
-  const tcp = await rawConnect({ hostname: address, port: 443, transport: 'tcp' });
+
+  // `signal` is passed through in case the runtime honours it (newer Deno
+  // does; an older one ignores an unknown option harmlessly), AND the call is
+  // raced against the abort so the bound holds either way. Relying on the
+  // option alone would make the deadline depend on a runtime detail we cannot
+  // check from here.
+  const tcp = await raceAbort(
+    rawConnect({ hostname: address, port: 443, transport: 'tcp', signal: opts.signal }),
+    opts.signal,
+    'tcp connect',
+  ) as Deno.Conn;
+
+  // Attach the closer to the RAW SOCKET before the handshake is awaited. The
+  // previous version registered it only after startTls resolved, so an abort
+  // during the handshake had nothing to close -- the socket stayed open and the
+  // deadline did not actually reach the step it was supposed to bound.
+  let closeTarget: Deno.Conn = tcp;
+  const onAbort = () => { try { closeTarget.close(); } catch { /* already closed */ } };
+  opts.signal.addEventListener('abort', onAbort, { once: true });
+
   let conn: Deno.Conn;
   try {
-    conn = await startTls(tcp, { hostname: opts.host });
+    // The handshake is raced too: a peer that completes TCP and then never
+    // finishes TLS is exactly the shape that hides inside an unbounded await.
+    conn = await raceAbort(
+      startTls(tcp, { hostname: opts.host }),
+      opts.signal,
+      'tls handshake',
+    ) as Deno.Conn;
   } catch (err) {
-    try { tcp.close(); } catch { /* already gone */ }
+    opts.signal.removeEventListener('abort', onAbort);
+    try { tcp.close(); } catch { /* abort handler may have closed it already */ }
     throw err;
   }
 
-  const onAbort = () => { try { conn.close(); } catch { /* already closed */ } };
-  opts.signal.addEventListener('abort', onAbort, { once: true });
+  // From here the TLS conn is the thing to close; the raw socket has been
+  // consumed by the handshake and must not be closed separately.
+  closeTarget = conn;
 
   try {
     await conn.write(new TextEncoder().encode(
@@ -296,9 +325,20 @@ Deno.serve(async (req) => {
   // that answered headers quickly and then dribbled bytes forever was
   // unbounded. The second covered the fetch but not the name lookup -- neither
   // Deno.resolveDns nor the DNS-over-HTTPS fallback took the signal, so a
-  // hanging resolver sat entirely outside the deadline. resolveHostAddresses
-  // now races the abort and passes the signal, and the TLS socket is closed on
-  // abort, so there is no step left outside the budget.
+  // hanging resolver sat entirely outside the deadline. The third still left
+  // BOTH connection steps unbounded -- Deno.connect and Deno.startTls were
+  // plain awaits, and the abort handler was attached only after the handshake
+  // resolved, so an abort mid-handshake had nothing to close.
+  //
+  // What is bounded now, step by step, because a summary claim is what hid the
+  // last two gaps:
+  //   name resolution   -- resolveDns raced against the abort, signal passed to
+  //                        the DNS-over-HTTPS fallback
+  //   TCP connect       -- signal passed through AND the call raced
+  //   TLS handshake     -- raced, with the closer attached to the RAW SOCKET
+  //                        before the handshake is awaited
+  //   body read         -- on a socket the abort closes
+  // Every redirect hop repeats all four.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 

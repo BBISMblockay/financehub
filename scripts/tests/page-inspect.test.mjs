@@ -12,7 +12,7 @@
 import {
   admitUrl, admitRedirect, isHostAllowed, normalizeHost, extractPageFacts, decodeEntities,
   isPublicAddress, allAddressesPublic,
-  findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest,
+  findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest, raceAbort,
 } from '../../supabase/functions/page-inspect/inspect-lib.mjs';
 import { buildShopDomainRows, normalizeShopHost, runShopDomainsSync } from '../lib/shopify-sync-core.mjs';
 import { createFakeSupabase } from './lib/fake-supabase.mjs';
@@ -451,6 +451,79 @@ test('the request asks for the framing the reader can handle', () => {
   ok(req.includes('\r\nConnection: close\r\n'), 'no keep-alive framing to desynchronise');
   ok(req.includes('\r\nAccept-Encoding: identity\r\n'), 'no decompression in the path');
   ok(req.endsWith('\r\n\r\n'), 'terminated');
+});
+
+console.log('\n-- the deadline reaches the steps that cannot self-abort --');
+
+// Deno.connect and Deno.startTls are plain awaits in most runtimes, so a
+// hanging connect or a stalled handshake would sit outside the request budget
+// entirely. Three review rounds each found another step outside the deadline,
+// so the bound is now a tested function rather than a claim in a comment.
+const never = () => new Promise(() => {});
+const later = (ms, value) => new Promise((r) => setTimeout(() => r(value), ms));
+
+await test('a value that arrives before the abort passes straight through', async () => {
+  const ctl = new AbortController();
+  eq(await raceAbort(later(1, 'ok'), ctl.signal, 'x'), 'ok', 'resolved normally');
+});
+
+await test('an operation that never settles is cut short by the abort', async () => {
+  const ctl = new AbortController();
+  setTimeout(() => ctl.abort(), 5);
+  let err = null;
+  try { await raceAbort(never(), ctl.signal, 'tls handshake'); } catch (e) { err = e; }
+  ok(err, 'must reject');
+  eq(err.name, 'AbortError', 'named so callers can tell it from a real failure');
+  ok(err.message.includes('tls handshake'), `label says which step: ${err.message}`);
+});
+
+// Losing the race does not cancel the underlying connect. Without disposing of
+// the late arrival, every timed-out inspection leaks a live socket -- and
+// invisibly, because the request already returned.
+await test('a socket that arrives AFTER the abort is closed, not leaked', async () => {
+  const ctl = new AbortController();
+  let closed = false;
+  const late = later(10, { close() { closed = true; } });
+  setTimeout(() => ctl.abort(), 2);
+
+  await raceAbort(late, ctl.signal, 'tcp connect').catch(() => {});
+  ok(!closed, 'not closed yet — it has not arrived');
+  await later(20);
+  ok(closed, 'the orphaned connection was closed once it resolved');
+});
+
+await test('an already-aborted signal refuses immediately and still disposes', async () => {
+  const ctl = new AbortController();
+  ctl.abort();
+  let closed = false;
+  const late = later(5, { close() { closed = true; } });
+
+  let err = null;
+  try { await raceAbort(late, ctl.signal, 'tcp connect'); } catch (e) { err = e; }
+  eq(err?.name, 'AbortError', 'refused without waiting');
+  await later(15);
+  ok(closed, 'the late arrival is still cleaned up');
+});
+
+await test('a genuine failure surfaces as itself, not as an abort', async () => {
+  const ctl = new AbortController();
+  let err = null;
+  try {
+    await raceAbort(Promise.reject(new Error('ECONNREFUSED')), ctl.signal, 'tcp connect');
+  } catch (e) { err = e; }
+  eq(err.message, 'ECONNREFUSED', 'original error preserved');
+  ok(err.name !== 'AbortError', 'not mislabelled as a timeout');
+});
+
+// A listener left on the signal for every hop would accumulate across
+// redirects and, in a long-lived isolate, across requests.
+await test('the abort listener is removed once the race is settled', async () => {
+  const ctl = new AbortController();
+  for (let i = 0; i < 20; i++) await raceAbort(later(1, i), ctl.signal, 'hop');
+  let fired = 0;
+  ctl.signal.addEventListener('abort', () => { fired++; });
+  ctl.abort();
+  eq(fired, 1, 'only the listener just added remains');
 });
 
 console.log('\n-- the allowlist must SHRINK when a shop stops serving a host --');

@@ -584,3 +584,35 @@ those APIs, or moving the fetch to a runner that has them (the GitHub Actions
 path the probes already use).
 
 Nothing is deployed as of this writing.
+
+### Fourth round — the deadline claim was still false
+
+Review caught that the previous round's comment ("no step is left outside the
+budget") was not yet true. `Deno.connect` and `Deno.startTls` were both plain
+awaits, and the abort handler was attached only *after* the handshake resolved —
+so an abort during either did nothing, and an abort mid-handshake had no socket
+to close.
+
+Fixed, and the bound is now a tested function rather than a claim:
+
+- `opts.signal` is passed into `Deno.connect` **and** the call is raced against
+  the abort. Relying on the option alone would make the deadline depend on a
+  runtime detail we cannot check from here.
+- The closer is attached to the **raw TCP socket before the handshake is
+  awaited**, and only re-pointed at the TLS connection once the handshake
+  succeeds — the raw socket is consumed by `startTls` and must not be closed
+  separately afterwards.
+- The handshake is raced too. A peer that completes TCP and then never finishes
+  TLS is exactly the shape that hides inside an unbounded await.
+
+`raceAbort()` lives in `inspect-lib.mjs` and is unit-tested, including the part
+that is easy to get wrong invisibly: **losing the race does not cancel the
+underlying connect**, so a socket that arrives after the abort is closed rather
+than leaked. Without that, every timed-out inspection leaks a live connection
+and the leak is unobservable because the request already returned. Also tested:
+a genuine failure still surfaces as itself rather than as a timeout, and the
+abort listener is removed so it cannot accumulate across redirect hops.
+
+The comment now enumerates what is bounded step by step instead of asserting a
+summary. Three rounds of review each found another step outside the deadline,
+and each time the summary sentence is what stopped anyone looking.

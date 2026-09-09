@@ -289,6 +289,58 @@ export function decodeChunkedBody(bytes, maxBytes = Infinity) {
   return { body: concatChunks(chunks, total), complete: false, truncated: false };
 }
 
+/** Await a promise, but give up the moment the deadline fires.
+ *
+ * Needed because the two calls that open the connection take no abort signal
+ * of their own in every runtime: a hanging TCP connect or a stalled TLS
+ * handshake would otherwise sit entirely outside the request budget. A comment
+ * claiming "every step is inside the deadline" is worth nothing unless the
+ * steps that cannot self-abort are wrapped in something that can.
+ *
+ * The subtle part is the LATE ARRIVAL. Losing the race does not cancel the
+ * underlying operation -- the socket may still open a second later, with
+ * nobody holding it. So the orphan is closed when it eventually resolves.
+ * Without that, every timed-out inspection leaks a live connection, and the
+ * leak is invisible because the request already returned.
+ *
+ * `closer` says how to dispose of a late arrival; it defaults to calling
+ * .close(), which is what a Deno.Conn wants.
+ */
+export function raceAbort(promise, signal, label, closer = (v) => v?.close?.()) {
+  const disposeLate = () => {
+    Promise.resolve(promise).then(
+      (v) => { try { closer(v); } catch { /* already gone */ } },
+      () => { /* the operation failed on its own; nothing to dispose */ },
+    );
+  };
+
+  if (signal?.aborted) {
+    disposeLate();
+    return Promise.reject(abortError(label));
+  }
+
+  let onAbort;
+  const abortRace = new Promise((_, reject) => {
+    onAbort = () => reject(abortError(label));
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+
+  return Promise.race([promise, abortRace])
+    .catch((err) => {
+      if (err?.name === 'AbortError') disposeLate();
+      throw err;
+    })
+    .finally(() => {
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+    });
+}
+
+function abortError(label) {
+  const err = new Error(label ? `aborted during ${label}` : 'aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
 /** The request bytes for one hop. Shaped to keep the reader minimal. */
 export function buildRequest(host, pathWithQuery, userAgent) {
   return [
