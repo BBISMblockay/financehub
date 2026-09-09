@@ -671,3 +671,110 @@ reading the table cold, and it is not one. The same duplication is why a
 distinct count of bare `shopify_collection_id` (626) is lower than the registry
 row count (636) — ten collections exist under both companies. Compare on the
 full identity.
+
+---
+
+## Readiness ledger (2026-09-09)
+
+What is actually usable today, so a plan is never built on a capability that
+does not exist. Each line is a claim about the SYSTEM, not about intent.
+
+| Capability | Status | What that means in practice |
+|---|---|---|
+| **Shopify evidence** | **Operational** | `shopify_landing_pages_daily` holds 730 days (2024-09-09 → 2026-09-08), 182,502 rows, 7,162 paths for the DTC store. `shopify_sessions_daily` holds 744 days of store-level totals. `shopify_collections` registry is complete and swept nightly. |
+| **Page inspection** | **Operational** | `page-inspect` v1 deployed, `verify_jwt: true`, host allowlist read under the caller's JWT from `shopify_shop_domains`. Verified live against `/collections/mlb`. |
+| **Candidate selection** | **Operational (new)** | `seo_collection_candidates(p_days, p_shop_domain)` returns collection landing pages with a shop-scoped `inspect_url` already built. |
+| **Search Console** | **Awaiting access / OAuth** | Connection plumbing shipped (`search_console` platform + scope). No property connected, no data. **No queries, impressions, clicks, CTR, positions or indexing status exist anywhere in SILO.** |
+| **Competitor SERP monitoring** | **Not integrated** | No SERP data source of any kind. Competitor rank snapshots cannot be produced. |
+| **Google Ads search-term / keyword / ad-asset grains** | **Not integrated** | `marketing_kpis_daily` is CAMPAIGN grain only — 8 Google campaigns. No search terms, keywords, negatives or RSA assets. |
+| **Draft → approval → baseline → 30d → 90d workflow** | **Schema only, not built** | `20260909240000` created the tables and invariants; nothing writes to them and there is no UI. Recommendations today are chat output, not tracked projects. |
+
+### The pre-Search-Console workflow (shipped 2026-09-09)
+
+Ask SILO can now run an on-page SEO review end to end without the user
+supplying a single URL: query `seo_collection_candidates(90)`, shortlist on
+evidence, inspect up to five pages sequentially, and return paste-ready draft
+edits with their evidence and limits. It stops at draft — there is no Shopify
+write path and no ad mutation path, in the prompt or in the tool list.
+
+**Two hazards this had to solve, neither of them obvious:**
+
+**The wrong-store URL.** Baseballism owns two `primary` storefront hosts —
+`www.baseballism.com` (DTC, 182,502 landing rows) and `baseballismb2b.com`
+(wholesale, 32 rows). Both are legitimately allowlisted for the same company,
+so `page-inspect` will fetch either. Pairing a DTC path with the B2B host
+returns HTTP 200 from a real page that has nothing to do with the traffic being
+discussed — a confident, well-formatted, entirely wrong answer. **The SSRF
+allowlist cannot catch this, because nothing about it is a security
+violation.** `seo_collection_candidates` joins the host on
+`(company_entity_id, shop_domain)` — the same shop the sessions were measured
+on — and returns a NULL `inspect_url` rather than borrowing a sibling store's
+domain.
+
+**Collection roots vs subpaths.** Of 1,311 distinct landing paths in the last
+90 days, only 85 are collection roots (`/collections/handle`); 290 are
+subpaths (`/collections/handle/product-slug`), which are PRODUCT pages reached
+in a collection context. Attributing a product page's sessions to a collection
+and then rewriting the collection's copy is a silent, plausible error. Only
+anchored roots are returned.
+
+### What the workflow may never claim
+
+Enforced in the prompt and asserted in `scripts/tests/seo-orchestration.test.mjs`:
+
+- `shopify_sessions_daily` (store totals) and `shopify_landing_pages_daily`
+  (per-page, truncated) are different grains and are **never added together**.
+- Landing-page data is truncated to the top ranked pages per day — on this
+  store **every one of 730 days hit the cap** — so a page's absence is never
+  evidence of zero traffic, and the coverage window must be stated.
+- These are **on-site sessions**, never "organic traffic".
+- No queries, keywords, indexing status, rankings, impressions, CTR or
+  organic-search attribution. A page fetching successfully is **not** evidence
+  Google indexed it.
+- No competitor rank snapshots without a real SERP source.
+- No search-term, keyword or RSA conclusions from campaign-grain ad totals.
+- **No "official" / "officially licensed" language at all.** There is no
+  licensing field anywhere in the schema, so a "verify licensing first" rule
+  would be unfollowable — the honest rule is not to make the claim.
+- "For love of the game" is protected and reproduced exactly or not at all.
+- Everything produced is a draft for human review.
+
+### What is guidance, not a guarantee (be precise about this)
+
+`seo_collection_candidates` makes the correct URL the easiest one to use, and
+the tool description and prompt both say a URL must come from the user or from
+a candidate row's `inspect_url`. **That rule is prompt-enforced, not
+code-enforced.** `looksInspectable()` sees a string, not its provenance, and
+`page-inspect` checks only that the host is on this company's allowlist. A
+model that assembled a path onto one of the company's *other* storefront hosts
+would be refused by nothing in the orchestration layer — the wrong-store join
+in the function removes the *reason* to do it, not the *ability*.
+
+What IS code-enforced: the five-page budget, the refusal of a repeated URL, the
+HTTPS/shape check, the host allowlist (in `page-inspect`, under the caller's
+JWT), tenant scoping (RLS), and the absence of any write tool.
+
+Closing the provenance gap is a scoped follow-up: track the URLs returned in
+this request's tool results plus those in the user's message, and refuse
+anything else. It carries real false-refusal risk — a URL the user pasted
+several turns earlier — so it deserves its own change and its own tests rather
+than being folded into this one.
+
+### Corrections applied after review (2026-09-09)
+
+- **Coverage was per-page and read as per-dataset.** `/collections/prime-collection`
+  reported "28 days, 2026-06-22 → 2026-07-19" when SILO had searched 90
+  truncated days and the page had merely surfaced on 28 of them. Now
+  `page_days_present` and `source_days_available` are separate fields, and the
+  prompt requires both to be cited.
+- **The window used `current_date` (UTC).** Latent, not visible — the two agreed
+  on the day it shipped — but from 17:00 Pacific onward "the last 90 days"
+  shifted by one. Now `silo_business_today()` with an exclusive upper bound:
+  the last N *completed* Pacific days.
+- **An unpublished or unregistered page could receive rewritten copy.**
+  `candidate_status` now states the verdict. Live, 3 of 85 candidates are not
+  reviewable: `/collections/all` and `/collections/headwear-all` (4,978
+  sessions, no live collection behind them — a redirect question) and
+  `/collections/cleveland-guardians` (empty).
+- **One test assertion could not fail** (`cond === false || true`). Replaced
+  with the actual expected behaviour: dedupe is reported ahead of the cap.

@@ -163,10 +163,14 @@ console.log('\n-- page inspection is on-page fact, and is not a crawler --');
 test('inspect_storefront_page is declared to the model', () => {
   has(SRC, "name: 'inspect_storefront_page'", 'index.ts');
 });
-test('...and is described as one user-named page, never a crawl', () => {
-  has(SRC, 'THIS IS NOT A CRAWLER');
-  has(SRC, 'never a URL you chose yourself');
-  has(SRC, 'One inspection per question');
+// The contract widened on 2026-09-09: the model may now select pages itself,
+// but only from a TRUSTED company-scoped query result, and still never by
+// walking links. "Not a crawler" is unchanged; "one user-named page" is not.
+test('...and is bounded to trusted-source URLs, still never a crawl', () => {
+  has(SRC, 'up to 5 pages per question');
+  has(SRC, 'inspect_url column');
+  has(SRC, 'NEVER assemble a URL yourself');
+  has(SRC, 'never inspect links found on a fetched page');
 });
 test('the general prompt tells the model the tool exists and what it is not', () => {
   has(GENERAL, 'inspect_storefront_page');
@@ -181,7 +185,10 @@ test('...and that reading a page is not search performance', () => {
 // A cap the model is merely asked to respect is not a cap.
 test('the crawl guard is enforced in code, not only in the prompt', () => {
   has(SRC, 'MAX_PAGE_INSPECTIONS_PER_REQUEST', 'index.ts');
-  has(SRC, 'pageInspectionsThisRequest >= MAX_PAGE_INSPECTIONS_PER_REQUEST', 'index.ts');
+  // The counter became a budget object so it could be unit-tested and could
+  // also refuse a repeat of a page already fetched. Still enforced in code.
+  has(SRC, 'createInspectionBudget(MAX_PAGE_INSPECTIONS_PER_REQUEST)', 'index.ts');
+  has(SRC, 'inspectionBudget.take(target)', 'index.ts');
 });
 // Forwarding the caller's JWT is what keeps the tenant check and the host
 // allowlist the same query. A service-role call here would let Ask SILO fetch

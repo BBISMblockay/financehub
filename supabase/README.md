@@ -377,6 +377,8 @@ supabase/
     20260909320000_collection_skus_show_empty_collections.sql
     20260909340000_sync_jobs_skipped_status.sql
     20260909360000_landing_pages_resume_and_sweep.sql
+    20260909380000_seo_collection_candidates.sql
+    20260909400000_seo_candidates_coverage_and_pacific.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

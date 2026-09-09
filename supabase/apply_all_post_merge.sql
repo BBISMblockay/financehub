@@ -18571,3 +18571,33 @@ $c$select (select count(*) from v_po_header_summary
 -- both roles could call the delete path after the first apply.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909360000_landing_pages_resume_and_sweep.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909380000_seo_collection_candidates.sql
+-- seo_collection_candidates(p_days, p_shop_domain): collection landing pages
+-- with measured traffic, each carrying an inspect_url built from the SAME
+-- SHOP's verified storefront host. That join is the point: Baseballism owns
+-- two primary hosts (www.baseballism.com DTC, baseballismb2b.com wholesale),
+-- both allowlisted for one company, so pairing a DTC path with the B2B host
+-- returns a real 200 from the wrong store -- which the SSRF allowlist cannot
+-- catch, because it is not a security violation. Collection ROOTS only; a
+-- /collections/x/y subpath is a product page. SECURITY INVOKER.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909380000_seo_collection_candidates.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909400000_seo_candidates_coverage_and_pacific.sql
+-- Forward-corrective for 20260909380000. (1) Coverage was counted PER PAGE and
+-- read as per-dataset: prime-collection reported "28 days, Jun 22 - Jul 19"
+-- when SILO had searched 90 truncated days and the page surfaced on 28 of
+-- them. page_days_present and source_days_available are now separate fields.
+-- (2) The window used current_date (UTC), which is a day ahead from 17:00
+-- Pacific; now silo_business_today() with an exclusive upper bound, i.e. the
+-- last N COMPLETED Pacific days. (3) candidate_status states the verdict, so an
+-- unpublished, empty or unregistered collection is an investigation finding
+-- rather than a copy rewrite. DROP+CREATE (return type changed), so the anon
+-- revoke is re-applied -- Supabase re-grants EXECUTE on new public functions.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909400000_seo_candidates_coverage_and_pacific.sql

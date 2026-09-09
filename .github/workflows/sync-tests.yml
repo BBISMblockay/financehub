@@ -26,6 +26,7 @@ on:
       # function directory, so a change there must run these tests. Without
       # this path the allowlist could be edited and nothing would run.
       - 'supabase/functions/page-inspect/**'
+      - 'supabase/functions/silo-chat/**'
       - '.github/workflows/sync-tests.yml'
   pull_request:
     paths: *sync_paths
@@ -63,6 +64,18 @@ jobs:
       # visible in a diff, and every wrong version looks reasonable.
       - name: Landing-page backfill keeps partial progress and reports honestly
         run: node scripts/tests/landing-pages-backfill.test.mjs
+
+      # Ask SILO may now select SEO candidate pages itself and inspect up to
+      # five. These pin the parts decided in code and prompt text: the
+      # inspection budget, the trusted-URL contract (never assemble one, never
+      # pair a path with another shop's domain), and the qualifiers a
+      # "simplify" pass strips first -- truncation, absence-is-not-zero, and
+      # the absence of any Search Console / search-term data.
+      - name: Ask SILO SEO orchestration and qualifiers
+        run: node scripts/tests/seo-orchestration.test.mjs
+
+      - name: Ask SILO prompt assembly
+        run: node supabase/functions/silo-chat/prompt.test.mjs
 
       # products_master is one row per (company, sku), so its shopify_product_id
       # is decided by nightly sync ORDER for the 26.9% of sold SKUs that exist
