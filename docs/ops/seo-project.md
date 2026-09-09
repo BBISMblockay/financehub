@@ -294,16 +294,39 @@ is required; an existing refresh token does not carry a newly added scope)
 
 ### Why new tables rather than the existing task system
 
-Checked first, not assumed. `/v2/tasks.html` reads `launch_tasks`, and there is
-**no generic `tasks` table in this database at all**. `launch_tasks` hangs off
-`launch_id` and has no target page, no revision history, no approval gate and
-no concept of publication. Reusing it would mean minting a `launch_calendar`
-row per SEO project — and `launch_calendar` feeds `launch_actuals_v`,
-`launch_measurability_v` and `calendar_events_v`, so every SEO project would
-become a fake "launch" those views then try to measure. The tables are new; the
+**Correction to the first version of this section and to commit `b1d0a8d`'s
+message.** They said reusing `launch_tasks` "would mean minting a
+`launch_calendar` row per SEO project". That is wrong. `launch_id` is nullable,
+`/v2/tasks.html` fetches `launch_tasks` and `launch_calendar` as two separate
+queries rather than joining them, it renders the launch cell conditionally, and
+it ships an explicit `__evergreen__` filter (`if (t.launch_id) return false;`)
+for exactly this case. **Launch-less tasks are a first-class, already-supported
+concept there.** No fake launch row would have been required, and the open
+question recorded in the Reuse assessment above — whether the Task Manager
+drops a null-`launch_id` row — is answered: it does not.
+
+The real reasons are narrower, and they are about the invariants rather than
+about launches:
+
+- `launch_tasks` carries `task_title`, `task_type`, `status`, `priority`,
+  `due_date`, `assigned_to`, `notes`, `sort_order`, `is_private`. It has no
+  target URL/handle/type, no current-vs-proposed copy, no rationale or
+  evidence, no approver identity, no revision history, no publication event,
+  and no measurement linkage.
+- Its `status` is a single freely-writable text column. Both invariants below
+  require the opposite: **no** publication column at all, and approval gated in
+  a policy `WITH CHECK`. Retrofitting those onto a table that backs a live
+  tool — where any member can change `status` today — would change the
+  semantics of something already in use and risk breaking the Task Manager for
+  launch work.
+
+So: separate tables, to keep the guarantee without touching a live surface. The
 *patterns* are borrowed — immutable revisions via a `BEFORE UPDATE` trigger
 from `product_concepts`, a narrow grant table beside a role check from
 `silo_chat_managers`.
+
+There is also **no generic `tasks` table** in this database; `/v2/tasks.html`
+is built entirely on `launch_tasks`. That part was checked and is accurate.
 
 ### The two invariants, and why they are structural
 
