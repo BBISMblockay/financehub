@@ -262,12 +262,33 @@ const MIG_BODY = MIG.slice(MIG.indexOf('as $$'), MIG.indexOf('$$;') + 3);
   // measured failure: a meta description stated as "159 chars" was 169 -- the
   // SAME length as one flagged on that answer as too long, so the checklist
   // said trim one and publish the other.
-  ok(/NEVER give a character count/i.test(SRC), 'character counts are refused outright');
+  // The rule splits by WHERE THE NUMBER COMES FROM, and the first version got
+  // this wrong: it banned character counts outright, which would have stopped
+  // SILO reporting title_length / meta_description_length -- values
+  // inspect-lib.mjs computes as `title.length` and which match Postgres
+  // length() exactly (verified 32/32, 42/42, 29/29). Suppressing a real
+  // measurement is not caution.
+  ok(/For an EXISTING page, REPORT the count/i.test(SRC),
+    'a measured length from the inspection IS reported');
+  ok(/title_length and meta_description_length/.test(SRC),
+    'and the rule names the fields that carry it');
+  ok(/quote them as given, never recompute/i.test(SRC),
+    'quoted as given, not recomputed by the model');
+  ok(/read a null as "the page has no such tag"/i.test(SRC),
+    'and a null length is an absent tag, not a length of zero');
+
+  ok(/For copy YOU wrote, NEVER calculate or assert a count/i.test(SRC),
+    'while a count for its OWN draft is refused');
   ok(/159 chars/.test(SRC) && /was 169/.test(SRC),
     'and the rule carries the measurement that produced it, so it is not mistaken for caution');
   ok(/confirm meta description length before publishing/i.test(SRC),
-    'the check is handed to the human, who has a character counter');
-  ok(/150-160 characters/.test(SRC), 'while still naming the target to write to');
+    'the check on proposed copy is handed to the human, who has a character counter');
+  ok(/TARGET rather than a measurement/i.test(SRC),
+    'and 150-160 is named as a target, not a measured value');
+
+  // The blanket ban must not come back.
+  ok(!/NEVER give a character count/i.test(SRC),
+    'the blanket ban is gone -- it suppressed a real measurement the tool already returns');
 
   // (b) Superlatives. "Lowest of any reviewable candidate, 0.39%" was false --
   // ~25 candidates sat at 0.00%, one at 0.37%, and the framing hid a page with
