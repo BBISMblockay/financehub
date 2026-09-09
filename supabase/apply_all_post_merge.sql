@@ -18545,3 +18545,29 @@ $c$select (select count(*) from v_po_header_summary
 -- has a product but no SKU mapping yet).
 -- ---------------------------------------------------------------------------
 \i migrations/20260909320000_collection_skus_show_empty_collections.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909340000_sync_jobs_skipped_status.sql
+-- Adds 'skipped' to sync_jobs_status_check so a step that was NOT RUN can leave
+-- a row saying why. A manual backfill on 2026-09-09 was dispatched with
+-- sessions_days=730 AND skip_sessions=true, resolved the contradiction in
+-- favour of the skip, and recorded nothing at all -- no job row, no log line --
+-- then reported success. 'skipped' is distinct from 'cancelled' on purpose: a
+-- cancelled job started, a skipped one never did.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909340000_sync_jobs_skipped_status.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909360000_landing_pages_resume_and_sweep.sql
+-- Two functions runLandingPagesSync needs. covered_days lets a backfill RESUME
+-- where it stopped rather than re-walking from yesterday (per-day writes alone
+-- preserve progress; they do not continue from it). sweep_day removes paths a
+-- restated day no longer has -- an upsert never deletes what it is not given,
+-- so a day's top 250 was drifting into "every page ever in that day's top 250".
+-- Both SECURITY INVOKER, and the grants name anon/authenticated EXPLICITLY:
+-- Supabase's default privileges re-grant EXECUTE on new public functions, and
+-- both roles could call the delete path after the first apply.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909360000_landing_pages_resume_and_sweep.sql

@@ -2143,8 +2143,87 @@ const SHOPIFYQL_ROW_LIMIT = 1000;
 // but it has to be fetched in chunks, not one wide window.
 const SHOPIFYQL_MAX_DAYS = 730;
 
-/** Run one ShopifyQL statement. Returns rows as objects keyed by column name. */
-export async function shopifyql(connection, query) {
+/* ── Throttling, which arrives INSIDE a 200 ──────────────────────────────────
+ *
+ * fetchWithRetry only knows about HTTP status codes, and a GraphQL API does
+ * not use them for rate limiting: Shopify answers a throttled query with
+ * HTTP 200 and puts the refusal in the `errors` array. So every retry
+ * mechanism in this file was blind to the one failure the ShopifyQL loops
+ * actually hit.
+ *
+ * Measured, not theorised (GHA run #354, 2026-09-09): a 730-day landing-page
+ * backfill made ~100 successful per-day queries in 19 seconds and then got
+ *   {"errors":[{"message":"Rate limited. Please retry later."}]}
+ * with HTTP 200. fetchWithRetry returned that response as a success,
+ * shopifyql threw on `json.errors`, and the run wrote nothing at all.
+ *
+ * Two throttle dialects have to be recognised, because they are different
+ * systems behind one endpoint:
+ *   - the GraphQL calculated-cost limiter -- extensions.code THROTTLED, with
+ *     a throttleStatus telling you exactly how long to wait;
+ *   - the ANALYTICS limiter that ShopifyQL sits behind -- a bare
+ *     "Rate limited. Please retry later." with no code and no metadata.
+ * The first is answerable arithmetically; the second only by backing off.
+ */
+const THROTTLE_MESSAGE = /throttl|rate limit|too many requests|exceeded .*(rate|limit)/i;
+
+/** Is this GraphQL error array a rate-limit refusal (as opposed to a real error)? */
+export function isThrottleError(errors) {
+  return (errors || []).some((e) => {
+    const code = e?.extensions?.code;
+    if (typeof code === 'string' && /^THROTTLED$/i.test(code)) return true;
+    return THROTTLE_MESSAGE.test(String(e?.message ?? ''));
+  });
+}
+
+/** How long to wait before retrying a throttled ShopifyQL query, in ms.
+ *
+ * Preference order, most-informed first:
+ *   1. Shopify's own throttleStatus -- how many cost points short we are
+ *      divided by how fast the bucket refills. This is the only source that
+ *      knows the real answer, so it is used verbatim rather than blended
+ *      with a guess.
+ *   2. A Retry-After header, if the edge returned one.
+ *   3. Exponential backoff with FULL JITTER. Jitter matters here because the
+ *      caller is a tight per-day loop against one shop: without it every
+ *      retry in a burst re-collides on the same schedule.
+ *
+ * Capped, because an unbounded wait inside a 730-iteration loop is a hang
+ * with extra steps.
+ */
+export function throttleWaitMs(json, { attempt = 0, retryAfterHeader = null } = {}) {
+  const status = json?.extensions?.cost?.throttleStatus;
+  const requested = Number(json?.extensions?.cost?.requestedQueryCost);
+  const available = Number(status?.currentlyAvailable);
+  const restoreRate = Number(status?.restoreRate);
+  if (Number.isFinite(requested) && Number.isFinite(available) && restoreRate > 0) {
+    const shortfall = requested - available;
+    if (shortfall > 0) {
+      return Math.min(Math.ceil((shortfall / restoreRate) * 1000) + 250, THROTTLE_MAX_WAIT_MS);
+    }
+  }
+
+  const headerSeconds = Number(retryAfterHeader);
+  if (Number.isFinite(headerSeconds) && headerSeconds > 0) {
+    return Math.min(headerSeconds * 1000, THROTTLE_MAX_WAIT_MS);
+  }
+
+  const ceiling = Math.min(THROTTLE_BASE_WAIT_MS * 2 ** attempt, THROTTLE_MAX_WAIT_MS);
+  // Full jitter: uniform in [base, ceiling], never zero -- retrying instantly
+  // against a limiter that just refused you is how a burst becomes a ban.
+  return Math.round(THROTTLE_BASE_WAIT_MS + Math.random() * (ceiling - THROTTLE_BASE_WAIT_MS));
+}
+
+const THROTTLE_BASE_WAIT_MS = 2_000;
+const THROTTLE_MAX_WAIT_MS = 60_000;
+const THROTTLE_TRIES = 6;
+
+/** Run one ShopifyQL statement. Returns rows as objects keyed by column name.
+ *
+ * `onThrottle` is called before each backoff so a long-running loop can say
+ * out loud that it is waiting rather than looking hung.
+ */
+export async function shopifyql(connection, query, { throttleTries = THROTTLE_TRIES, onThrottle = null } = {}) {
   const apiVersion = connection.api_version || DEFAULT_API_VERSION;
   const url = `https://${connection.shop_domain}/admin/api/${apiVersion}/graphql.json`;
   // Shape read off the live schema via introspection on 2026-08-27, after
@@ -2170,22 +2249,45 @@ export async function shopifyql(connection, query) {
     variables: { q: query },
   };
 
-  const res = await fetchWithRetry(url, {
-    method: 'POST',
-    headers: {
-      'X-Shopify-Access-Token': connection.access_token,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json();
+  let json;
+  let throttleWaits = 0;
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': connection.access_token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    json = await res.json();
 
-  // A ShopifyQL parse error comes back 200 with parseErrors populated, so
-  // it has to be checked explicitly or it looks like an empty result.
-  const gqlErrors = json?.errors;
-  if (gqlErrors?.length) {
-    throw new Error(`ShopifyQL transport error: ${gqlErrors.map((e) => e.message).join('; ')}`);
+    const errs = json?.errors;
+    if (!errs?.length) break;
+
+    // Only a THROTTLE is retryable. A genuine transport or permission error
+    // repeated six times is still the same error, six times slower.
+    if (!isThrottleError(errs) || attempt >= throttleTries - 1) {
+      const msg = errs.map((e) => e.message).join('; ');
+      const err = new Error(`ShopifyQL transport error: ${msg}`);
+      err.throttled = isThrottleError(errs);
+      // Distinguish "we gave up after N backoffs" from "it refused once".
+      // Same message otherwise, and the two want different responses: the
+      // first says the window is too big for the budget, the second says
+      // something is wrong with the query.
+      if (err.throttled) err.throttle_attempts = attempt + 1;
+      throw err;
+    }
+
+    const waitMs = throttleWaitMs(json, {
+      attempt,
+      retryAfterHeader: res.headers?.get?.('retry-after') ?? null,
+    });
+    throttleWaits += 1;
+    if (onThrottle) onThrottle({ attempt: attempt + 1, waitMs, message: errs.map((e) => e.message).join('; ') });
+    await sleep(waitMs);
   }
+
   const payload = json?.data?.shopifyqlQuery;
   if (payload?.parseErrors?.length) {
     // Scalar strings, but tolerate objects in case a future version changes it.
@@ -2197,7 +2299,10 @@ export async function shopifyql(connection, query) {
   if (!table) {
     const empty = [];
     Object.defineProperty(empty, 'raw', {
-      value: { columns: [], row_count: 0, table_data_was_null: true, typename: payload?.__typename ?? null },
+      value: {
+        columns: [], row_count: 0, table_data_was_null: true,
+        typename: payload?.__typename ?? null, throttle_waits: throttleWaits,
+      },
       enumerable: false,
     });
     return empty;
@@ -2239,7 +2344,10 @@ export async function shopifyql(connection, query) {
   // Carry the raw payload so a caller that parses nothing can say what it
   // actually received instead of reporting an empty success.
   Object.defineProperty(out, 'raw', {
-    value: { columns: cols, row_count: rawRows.length, row_shape: shape, sample: rawRows.slice(0, 1) },
+    value: {
+      columns: cols, row_count: rawRows.length, row_shape: shape,
+      sample: rawRows.slice(0, 1), throttle_waits: throttleWaits,
+    },
     enumerable: false,
   });
   return out;
@@ -2420,64 +2528,265 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
  */
 const LANDING_TOP_N = 250;
 
-export async function runLandingPagesSync(supabase, connection, { sinceDays = 30, batchId = null } = {}) {
-  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), 120);
+/* Why each day is written as it is fetched, rather than all at the end.
+ *
+ * The first version accumulated every day into one array and upserted after
+ * the loop. That is one transaction-shaped thought applied to a job that is
+ * not a transaction: the days are independent facts, and there is no sense in
+ * which day 40 being unavailable makes day 39 untrue. GHA run #354 fetched
+ * ~100 days successfully, hit an analytics rate limit on the next one, and
+ * threw away all ~100 -- the table was byte-identical before and after a
+ * two-minute run.
+ *
+ * Writing per day means a failure costs only the days not yet fetched. On its
+ * own that is PRESERVATION, not resumption -- the next run still starts at
+ * yesterday and re-walks the same days, so a backfill that died at day 100 of
+ * 730 pays for those 100 days again before reaching new ground. See
+ * `restateDays` below for the part that actually resumes.
+ *
+ * The cost is one round trip per day instead of one per 500 rows. At <=250
+ * rows a day that is a small write, and it is the price of not discarding
+ * work that has already been paid for.
+ */
+export async function runLandingPagesSync(supabase, connection, {
+  sinceDays = 30,
+  batchId = null,
+  topN = LANDING_TOP_N,
+  onProgress = null,
+  throttleTries = undefined,
+  // Days within this many days of today are ALWAYS re-fetched; older days
+  // already in the table are skipped. That is what makes a long window
+  // genuinely resumable rather than merely non-destructive.
+  //
+  // Why a window rather than "skip anything stored": Shopify RESTATES recent
+  // analytics for several days after the fact, so the newest days are the ones
+  // most worth re-asking about. 30 is chosen so the 30-day nightly is
+  // UNCHANGED -- every day it looks at is inside the restatement window, so it
+  // still re-states all 30 exactly as before. Only a window longer than 30
+  // days gets resume behaviour, which is exactly the backfill case.
+  restateDays = 30,
+} = {}) {
+  // Clamped to the ShopifyQL ceiling rather than the old 120. 120 was the
+  // right limit while a failure discarded the whole run -- a long window was
+  // simply a bigger thing to lose. With per-day persistence, throttle backoff
+  // and resume, the limit that matters is Shopify's own history depth.
+  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), SHOPIFYQL_MAX_DAYS);
   const iso = (d) => d.toISOString().slice(0, 10);
   const today = new Date();
+  const dayAt = (i) => iso(new Date(today.getTime() - i * 86400000));
 
-  const rows = [];
+  let rowsWritten = 0;
+  let daysFetched = 0;
   let truncatedDays = 0;
-  for (let i = 1; i <= days; i += 1) {
-    const d = new Date(today.getTime() - i * 86400000);
-    const day = iso(d);
-    const out = await shopifyql(connection,
-      `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
-      `sessions_that_reached_checkout, sessions_that_completed_checkout ` +
-      `GROUP BY landing_page_path SINCE ${day} UNTIL ${day} ` +
-      `ORDER BY sessions DESC LIMIT ${LANDING_TOP_N}`);
+  let throttleWaits = 0;
+  let staleRowsRemoved = 0;
+  let daysNotSwept = 0;
+  const daysWritten = [];
+  const daysSkipped = [];
+  const paths = new Set();
+  let failure = null;
 
-    // Landing on the LIMIT means there was more tail than we kept. That is
-    // expected and fine -- but it must be recorded, not inferred.
-    const clipped = out.length >= LANDING_TOP_N;
-    if (clipped) truncatedDays += 1;
+  // Where to resume from. A missing function is NOT an error -- the sync must
+  // keep working when the migration has not been applied yet, same
+  // feature-detect stance as /v3/'s dashboard_filter_views. It degrades to
+  // re-fetching everything, which is what it did before.
+  // Progress reporting must never be able to fail the work it reports on.
+  //
+  // Every onProgress call sits inside the day loop's try, so a callback that
+  // throws was caught by the per-day handler, recorded as that day's failure
+  // and broke the loop -- a logging bug silently truncating a backfill and
+  // blaming Shopify for it. That is exactly what a temporal-dead-zone
+  // reference in the orchestrator's callback did (see sync-reporting.mjs).
+  //
+  // The TDZ bug is fixed at its source. This is the second lock: a reporting
+  // callback is not part of the job, so its failure is reported and dropped
+  // rather than being allowed to change the outcome. Any future caller gets
+  // that guarantee without having to know about it.
+  let progressErrors = 0;
+  const report = (payload) => {
+    if (!onProgress) return;
+    try {
+      onProgress(payload);
+    } catch (err) {
+      progressErrors += 1;
+      if (progressErrors === 1) {
+        console.warn(`[warn] landing_pages_sync progress callback threw (reporting only, sync continues): ${err?.message || err}`);
+      }
+    }
+  };
 
-    out.forEach((r, idx) => {
-      const path = r.landing_page_path;
-      if (!path) return;
-      rows.push({
-        company_entity_id: connection.company_entity_id,
-        shop_domain: connection.shop_domain,
-        day_date: day,
-        landing_page_path: String(path),
-        rank_in_day: idx + 1,
-        sessions: numOrNull(r.sessions),
-        sessions_with_cart_additions: numOrNull(r.sessions_with_cart_additions),
-        sessions_that_reached_checkout: numOrNull(r.sessions_that_reached_checkout),
-        sessions_that_completed_checkout: numOrNull(r.sessions_that_completed_checkout),
-        is_truncated: clipped,
-        synced_at: new Date().toISOString(),
-        sync_batch_id: batchId,
-      });
+  let covered = null;
+  let resumeError = null;
+  if (days > restateDays) {
+    const { data, error } = await supabase.rpc('shopify_landing_pages_covered_days', {
+      p_company_entity_id: connection.company_entity_id,
+      p_shop_domain: connection.shop_domain,
+      p_since: dayAt(days),
+      p_until: dayAt(restateDays + 1),
     });
+    if (error) resumeError = error.message;
+    else covered = new Set((data || []).map((r) => (typeof r === 'string' ? r : r?.day_date ?? r?.shopify_landing_pages_covered_days)));
   }
 
-  for (let i = 0; i < rows.length; i += 500) {
-    const { error } = await supabase
-      .from('shopify_landing_pages_daily')
-      .upsert(rows.slice(i, i + 500), {
-        onConflict: 'company_entity_id,shop_domain,day_date,landing_page_path',
+  for (let i = 1; i <= days; i += 1) {
+    const day = dayAt(i);
+
+    // Already have it, and it is old enough that Shopify has stopped revising
+    // it. Skipping is the resume.
+    if (covered && i > restateDays && covered.has(day)) {
+      daysSkipped.push(day);
+      continue;
+    }
+
+    try {
+      const out = await shopifyql(connection,
+        `FROM sessions SHOW sessions, sessions_with_cart_additions, ` +
+        `sessions_that_reached_checkout, sessions_that_completed_checkout ` +
+        `GROUP BY landing_page_path SINCE ${day} UNTIL ${day} ` +
+        `ORDER BY sessions DESC LIMIT ${topN}`,
+        {
+          ...(throttleTries === undefined ? {} : { throttleTries }),
+          onThrottle: ({ attempt, waitMs }) => {
+            throttleWaits += 1;
+            report({ day, event: 'throttled', attempt, waitMs });
+          },
+        });
+      daysFetched += 1;
+
+      // Landing on the LIMIT means there was more tail than we kept. That is
+      // expected and fine -- but it must be recorded, not inferred.
+      const clipped = out.length >= topN;
+      if (clipped) truncatedDays += 1;
+
+      const now = new Date().toISOString();
+      const dayRows = [];
+      out.forEach((r, idx) => {
+        const path = r.landing_page_path;
+        if (!path) return;
+        paths.add(String(path));
+        dayRows.push({
+          company_entity_id: connection.company_entity_id,
+          shop_domain: connection.shop_domain,
+          day_date: day,
+          landing_page_path: String(path),
+          rank_in_day: idx + 1,
+          sessions: numOrNull(r.sessions),
+          sessions_with_cart_additions: numOrNull(r.sessions_with_cart_additions),
+          sessions_that_reached_checkout: numOrNull(r.sessions_that_reached_checkout),
+          sessions_that_completed_checkout: numOrNull(r.sessions_that_completed_checkout),
+          is_truncated: clipped,
+          synced_at: now,
+          sync_batch_id: batchId,
+        });
       });
-    if (error) throw new Error(`landing_pages upsert failed: ${error.message}`);
+
+      if (dayRows.length) {
+        await upsertInChunks(supabase, 'shopify_landing_pages_daily', dayRows,
+          'company_entity_id,shop_domain,day_date,landing_page_path');
+        rowsWritten += dayRows.length;
+
+        // Remove paths this day no longer has. An upsert cannot: when Shopify
+        // restates a day, a path that has dropped out of the top N is simply
+        // ABSENT from the new result, and an upsert never deletes what it is
+        // not given -- so the old row survived with a stale rank and stale
+        // counts, ranks collided, and "the top 250 pages that day" drifted
+        // into "every page ever in that day's top 250".
+        //
+        // Only ever after a fetch that RETURNED ROWS. Zero rows is the shape
+        // of a bad fetch as much as a genuinely dead day, and the two are
+        // indistinguishable from here -- so a zero-row day is left exactly as
+        // it was and counted, rather than having its history deleted on a
+        // transport hiccup. The function refuses an empty keep-list too.
+        const { data: swept, error: sweepErr } = await supabase.rpc('shopify_landing_pages_sweep_day', {
+          p_company_entity_id: connection.company_entity_id,
+          p_shop_domain: connection.shop_domain,
+          p_day: day,
+          p_keep_paths: dayRows.map((r) => r.landing_page_path),
+        });
+        if (sweepErr) {
+          // Not fatal: the day's fresh rows ARE written, and failing to remove
+          // superseded ones leaves stale rows, not wrong new ones. But it is
+          // never silent -- the sweep failing while the upsert succeeds is the
+          // combination that quietly accumulates, so it is counted and
+          // reported like the shop-domain sweep is.
+          daysNotSwept += 1;
+          report({ day, event: 'sweep_failed', error: sweepErr.message, topN });
+        } else {
+          staleRowsRemoved += Number(swept) || 0;
+        }
+      } else {
+        daysNotSwept += 1;
+      }
+      // A day Shopify reported no traffic for is still a day we COVERED. It
+      // counts as written, or a quiet day would make the window look like it
+      // has a hole in it.
+      daysWritten.push(day);
+      report({ day, event: 'written', rows: dayRows.length });
+    } catch (err) {
+      // Stop at the first failure rather than pressing on: a rate limit that
+      // survived six backoffs will not be gone by the next day's query, and
+      // continuing would turn one refusal into hundreds. Everything fetched
+      // so far is already in the table.
+      failure = {
+        day,
+        message: err?.message || String(err),
+        throttled: Boolean(err?.throttled),
+        throttle_attempts: err?.throttle_attempts ?? null,
+      };
+      break;
+    }
   }
+
+  daysWritten.sort();
+  daysSkipped.sort();
+  // A day skipped because it was already stored IS covered -- that is what
+  // resuming means. A day that failed, or that the loop never reached, is not.
+  const daysCovered = daysWritten.length + daysSkipped.length;
+  const complete = failure === null && daysCovered === days;
+  const allCovered = [...daysWritten, ...daysSkipped].sort();
 
   return {
     job_type: 'landing_pages_sync',
     batch_id: batchId,
+    // The numbers that make a partial run interpretable. days_requested is
+    // what was asked for; days_fetched is what Shopify answered THIS run;
+    // days_written is what this run put in the table; days_already_covered is
+    // what an earlier run had already done and this one resumed past. Reporting
+    // only the last of these is how a 43-day table gets described as a 730-day
+    // backfill.
     days_requested: days,
-    rows_upserted: rows.length,
-    distinct_paths: new Set(rows.map((r) => r.landing_page_path)).size,
+    days_fetched: daysFetched,
+    days_written: daysWritten.length,
+    days_already_covered: daysSkipped.length,
+    days_covered: daysCovered,
+    earliest_day_written: daysWritten[0] ?? null,
+    latest_day_written: daysWritten[daysWritten.length - 1] ?? null,
+    // The window's real extent across this run and the ones before it, which
+    // is the figure a person actually wants when asking how far back we go.
+    earliest_day_covered: allCovered[0] ?? null,
+    latest_day_covered: allCovered[allCovered.length - 1] ?? null,
+    rows_upserted: rowsWritten,
+    distinct_paths: paths.size,
+    stale_rows_removed: staleRowsRemoved || undefined,
+    // Days whose superseded rows were NOT removed -- either the fetch returned
+    // nothing (so sweeping would have been a guess) or the sweep itself
+    // failed. Surfaced because an unswept day keeps paths that have dropped
+    // out of its top N.
+    days_not_swept: daysNotSwept || undefined,
+    resume_unavailable: resumeError || undefined,
+    // A reporting callback that threw. Swallowed so it cannot change the
+    // outcome, but recorded so a broken logger is visible rather than costing
+    // someone another investigation.
+    progress_errors: progressErrors || undefined,
     days_hitting_top_n: truncatedDays || undefined,
-    top_n: LANDING_TOP_N,
+    top_n: topN,
+    restate_days: restateDays,
+    throttle_waits: throttleWaits || undefined,
+    // NEVER derive completeness from rows_upserted > 0. A run that wrote
+    // 25,000 rows and stopped 600 days short wrote a lot of rows and did not
+    // do what was asked.
+    complete,
+    failure,
   };
 }
 

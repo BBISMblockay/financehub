@@ -519,6 +519,66 @@ Additionally: `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPE
 
 ---
 
+## Working method — preflight before code, adversarial review after
+
+**This is a required sequence, not advice.** It exists because of a repeated,
+expensive pattern: entering build mode before finishing attack-the-design mode,
+so verification keeps exposing assumptions *after* the work has already been
+described as finished. Each round of "wait, I found another thing" costs a
+review cycle, and most of those findings were available before a line was
+written.
+
+### 1. Preflight (read-only, before writing any code)
+
+Do not edit anything until you have walked, and can name:
+
+- **Every call site** of every function you intend to change — including
+  callbacks, and including the ones only reachable from a workflow or an edge
+  function rather than from a test
+- **Every workflow input** that reaches the code, and what happens when two of
+  them contradict each other
+- **Every database policy and grant** the change touches. Read them from
+  `pg_policy` / `pg_constraint` / `has_function_privilege`, never from a
+  migration file — the live definition is the one that matters, and Supabase's
+  default privileges silently re-grant EXECUTE on new `public` functions
+- **Every partial-failure path**: what is already written when step N fails,
+  and what the record says about it afterwards
+- **Retry and resume behaviour**: what a re-run repeats, and what it continues
+- **Every destructive operation**, and what makes it safe *by construction*
+  rather than by the caller remembering to be careful
+- **Concurrency**: two runs, a queued run, a cancelled run
+- **Every success / skip / error state**, and whether each one is
+  distinguishable from the others by someone reading only the stored record
+
+Then write down, explicitly: **the assumptions that require live verification**,
+and **the tests, defined before the implementation**.
+
+### 2. Implement.
+
+### 3. Adversarial review of the FINAL INTEGRATED CALL PATH
+
+A separate pass, after the code is written — not a re-read of the helpers you
+just tested. Helper functions passing in isolation is exactly the state in which
+a temporal-dead-zone reference shipped in an orchestrator callback that no test
+ever executed (2026-09-09): the core function had 91 passing assertions and the
+five lines that actually called it had none. Run the real path, with the real
+wiring, in the shape production uses.
+
+Mutation-test the suite while you are there: break each fix deliberately and
+confirm a test fails. A test that passes against the bug it claims to prevent is
+worse than no test, because it is credited as coverage.
+
+### 4. Language
+
+**Do not say "ready", "done", or "complete" until review and verification have
+both actually happened.** While anything is unverified, the phrase is
+**"implementation complete, verification pending"**, followed by the specific
+unknowns. Some findings genuinely require a live environment and will still
+arrive late — that is fine and expected. Announcing completion before the phase
+that would have caught them is not.
+
+---
+
 ## Conventions for new features
 
 ### Adding a new v2 page
