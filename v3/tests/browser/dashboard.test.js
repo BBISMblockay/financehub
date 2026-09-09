@@ -21,7 +21,10 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   await page.waitForSelector('#btnAddWidget:not([hidden])', { timeout: 10000 });
   ok('empty dashboard shows the blank state', await page.isVisible('#blank'));
   ok('header shows the dashboard name', (await page.textContent('#headerName')) === 'Monday sales review');
-  ok('edit mode reveals the meta bar', await page.isVisible('#metaBar'));
+  // Edit mode offers the settings, it does not spend a band on them: name,
+  // description and visibility are set once and read from the header after.
+  ok('edit mode offers dashboard settings', await page.isVisible('#btnSettings'));
+  ok('...without dropping the band onto the page', await page.isHidden('#metaBar'));
 
   // ── 2. Add a widget from a saved report ─────────────────────────────
   await page.click('#btnAddWidget');
@@ -150,6 +153,10 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
     (await page.isVisible('#dirtyPill')) && (await page.textContent('#btnSave')).includes('Save changes'));
 
   // ── 5. Save ─────────────────────────────────────────────────────────
+  // Name/description/visibility live behind the header's Settings
+  // disclosure -- entering edit mode no longer costs a permanent band.
+  await page.click('#btnSettings');
+  await page.waitForSelector('#dashDescription', { state: 'visible' });
   await page.fill('#dashDescription', 'Weekly sell-through check');
   await page.click('#btnSave');
   await page.waitForFunction(() => !document.getElementById('btnSave').textContent.includes('•'), null, { timeout: 5000 });

@@ -512,12 +512,40 @@
    control by the height of that one hint. Top-aligning puts all the labels
    on one line and lets the hint hang below without moving anything. */
 .v3-slicer-fields { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; flex: 1; }
+/* The same author-`display`-beats-[hidden] trap this file already documents
+   three times over. Without this the collapse toggle sets .hidden, the aria
+   state flips, and the controls stay exactly where they were. */
+.v3-slicer-fields[hidden] { display: none; }
 .v3-slicer-field { min-width: 150px; }
 /* The reset button used to sit directly in .v3-slicer-fields and needed its
    own label-height offset. It now lives in .v3-slicer-actions, which carries
    that offset for the whole group -- keeping it here too pushed Reset a row
    lower than the controls beside it. */
 .v3-slicer-reset { align-self: center; }
+
+/* ── Collapsing the filter bar ───────────────────────────────────────────
+   A board with seven filters spent ~230px of the viewport restating itself:
+   two rows of controls, then a chip for each one directly underneath. The
+   chips are the better summary -- they resolve relative dates and say how
+   many tiles each control reaches -- so COLLAPSED keeps the chips and drops
+   the controls, and the board starts that much higher up the page. */
+.v3-slicer-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  /* Inherits the .v3-slicer-lead type; only the affordances are new. */
+}
+.v3-slicer-toggle:hover { color: var(--bcn-ink-2); }
+.v3-slicer-toggle:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 3px; border-radius: 3px; }
+.v3-slicer-caret { font-size: 9px; transition: transform .12s ease; }
+.v3-slicer-toggle[aria-expanded="false"] .v3-slicer-caret { transform: rotate(-90deg); }
+.v3-slicer-count { font-variant-numeric: tabular-nums; opacity: .65; }
+
+/* Collapsed: the toggle keeps its own top offset for the control labels it
+   is no longer sitting beside, so drop it back in line with the chips. */
+.v3-slicer-bar.is-collapsed .v3-slicer-lead { margin-top: 0; }
+.v3-slicer-bar.is-collapsed { padding: 8px 14px; }
+.v3-slicer-bar.is-collapsed .v3-slicer-actions { margin-top: 0; }
+
 
 /* Preset select and the custom-date input sit on one line; the input is
    hidden until "Specific date…" is chosen. */
