@@ -18471,3 +18471,15 @@ $c$select (select count(*) from v_po_header_summary
 -- scripts/search-console-probe.mjs measures rather than assumes.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909180000_search_console_connection.sql
+
+
+-- ---------------------------------------------------------------------------
+-- 20260909200000_shopify_product_skus.sql
+-- Per-shop Shopify product <-> variant <-> SKU mapping, plus
+-- shopify_collection_skus_v. products_master is one row per (company, sku),
+-- so its shopify_product_id is decided by nightly sync ORDER -- 26.9% of sold
+-- SKUs exist in more than one shop. Identity here is the VARIANT, so nothing
+-- is discarded. Deliberately NOT a registry: no completeness gating behind
+-- the catalog sync, so no missing_since sweep and absence means not-seen.
+-- ---------------------------------------------------------------------------
+\i migrations/20260909200000_shopify_product_skus.sql

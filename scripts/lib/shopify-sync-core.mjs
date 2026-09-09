@@ -1559,6 +1559,40 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
  * land with those fields blank for someone to fill in; existing SKUs never
  * get overwritten or deleted, even if since discontinued in Shopify.
  */
+/** One row per VARIANT for shopify_product_skus (20260909200000).
+ *
+ * Pure and exported so the properties that matter can be asserted without a
+ * network: that a SKU carried by two products in one shop yields TWO rows
+ * (products_master collapses it to one), that a variant with no SKU is still
+ * kept, and that a variant whose product was not fetched still maps its
+ * product id rather than being dropped.
+ *
+ * `productById` is keyed by String(product.id). */
+export function buildProductSkuRows(variants, productById, { companyEntityId, shopDomain, now }) {
+  return (variants ?? [])
+    // A row with no variant id has no identity and no way to be upserted; a
+    // row with no product id cannot serve the join this table exists for.
+    .filter((v) => v?.id != null && v?.product_id != null)
+    .map((v) => {
+      const p = productById.get(String(v.product_id)) || {};
+      return {
+        company_entity_id: companyEntityId,
+        shop_domain: shopDomain,
+        shopify_product_id: String(v.product_id),
+        shopify_variant_id: String(v.id),
+        // Empty string is not a SKU. Storing '' would make it look joinable
+        // and match every other variant that also has none.
+        sku: v.sku || null,
+        product_handle: p.handle || null,
+        product_title: (p.title || '').trim() || null,
+        variant_title: v.title && v.title !== 'Default Title' ? v.title : null,
+        shopify_status: p.status || null,
+        online_published_at: p.published_at || null,
+        last_seen_at: now,
+      };
+    });
+}
+
 export async function runCatalogSync(supabase, connection, { batchId } = {}) {
   const granted = grantedScopes(connection);
   const missing = scopesMissingForJob(granted, 'catalog_sync');
@@ -1637,11 +1671,44 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
   const rows = [...rowBySku.values()];
   const upserted = await upsertInChunks(supabase, 'products_master', rows, 'company_entity_id,sku');
 
+  // The per-SHOP product <-> variant <-> SKU mapping (20260909200000).
+  //
+  // This walks `variants` AGAIN rather than reusing rowBySku, and the
+  // difference is the entire point. rowBySku is keyed by SKU and skips a
+  // repeat (`rowBySku.has(v.sku)`), because products_master is one row per
+  // (company, sku); that discards a SKU carried by two products in this shop,
+  // and products_master's single shopify_product_id cannot in any case
+  // represent the same SKU being a different product in another store --
+  // measured at 26.9% of SKUs that have ever sold.
+  //
+  // Identity is the VARIANT: it belongs to exactly one product and carries
+  // exactly one SKU, so nothing has to be dropped. Variants with no SKU are
+  // stored too (sku null) -- they are still part of the product, and omitting
+  // them would understate what a collection contains.
+  //
+  // first_seen_at is deliberately NOT in the payload: the column default
+  // applies on insert and an upsert then leaves it alone, so it keeps meaning
+  // "when we first saw this variant" instead of being restamped nightly.
+  const mappingRows = buildProductSkuRows(variants, productById, {
+    companyEntityId: connection.company_entity_id,
+    shopDomain: domain,
+    now,
+  });
+
+  const mappingUpserted = await upsertInChunks(
+    supabase,
+    'shopify_product_skus',
+    mappingRows,
+    'company_entity_id,shop_domain,shopify_variant_id',
+  );
+
   return {
     job_type: 'catalog_sync',
     batch_id: batchId,
     skus_seen: rows.length,
     products_master_rows_upserted: upserted,
+    variants_seen: mappingRows.length,
+    product_sku_rows_upserted: mappingUpserted,
   };
 }
 
