@@ -379,6 +379,7 @@ supabase/
     20260909360000_landing_pages_resume_and_sweep.sql
     20260909380000_seo_collection_candidates.sql
     20260909400000_seo_candidates_coverage_and_pacific.sql
+    20260909420000_seo_candidates_top_n_day_names.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
