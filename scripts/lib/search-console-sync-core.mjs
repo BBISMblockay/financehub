@@ -24,13 +24,20 @@
 //                                   impressions/CTR/position are a different
 //                                   measure from site-level ones, not a
 //                                   breakdown of them.
-//   query (dimensions: date, query) recovered 56.9% of clicks. The other
-//                                   43.1% are ANONYMISED by Google for privacy
-//                                   and belong to no query row, ever. A query
-//                                   table therefore looks complete and is not
-//                                   -- the same trap as shopify_landing_pages_
-//                                   daily's top-250 slice, and worse because
-//                                   nothing about the rows says so.
+//   query (dimensions: date, query) recovered 56.9% of clicks. The rest are
+//                                   ANONYMISED by Google for privacy and
+//                                   belong to no query row, ever -- AND the
+//                                   API caps the cut at ~5,000 rows per day:
+//                                   the first backfill (2026-09-10) returned
+//                                   exactly 28 x 5,000 rows on nine chunks.
+//                                   The page guard below cannot see that cap
+//                                   (Google returns a short final page at it),
+//                                   so the per-day signal is query_rows = 5000
+//                                   on the site row. A query table therefore
+//                                   looks complete and is not -- the same trap
+//                                   as shopify_landing_pages_daily's top-250
+//                                   slice, and worse because nothing about the
+//                                   rows says so.
 //
 // So each sync computes, PER DAY, how many clicks and impressions the page
 // and query cuts recovered, and writes those sums onto the site row next to

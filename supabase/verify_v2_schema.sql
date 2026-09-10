@@ -2717,6 +2717,13 @@ select
                      where relname = 'search_console_page_daily'
                        and description like '%ABSENCE IS NOT ZERO%')
       then 'MISSING — search_console_page_daily lacks its absence-is-not-zero caveat; run 20260910190000_search_console_page_absence_caveat.sql'
+    -- The backfill showed Google caps the query cut at ~5,000 rows/day (nine
+    -- chunks at exactly 28 x 5,000). Both rows must say so, or the model
+    -- reads the unattributed share as anonymisation alone.
+    when (select count(*) from public.silo_chat_schema_catalog
+          where relname in ('search_console_query_daily', 'search_console_site_daily')
+            and description like '%PER-DAY ROW CAP%') < 2
+      then 'MISSING — search_console query/site rows lack the per-day row cap caveat; run 20260910200000_search_console_query_cap_caveat.sql'
     when exists (select 1 from public.silo_chat_schema_catalog
                  where relname like 'search\_console\_%\_daily'
                    and jsonb_array_length(coalesce(columns, '[]'::jsonb)) = 0)

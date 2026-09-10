@@ -457,3 +457,14 @@ supabase/
   and site rows with an ABSENCE IS NOT ZERO caveat; idempotent. Verify's
   `search_console_daily_tables` goes CRITICAL if the wrong sentence returns.
   Found in review of PR #666 after 20260910180000 was already applied
+
+- `20260910200000_search_console_query_cap_caveat.sql` — the first full backfill
+  (498 days, 18 chunks) returned EXACTLY 28 × 5,000 query rows on nine chunks
+  and 22 × 5,000 on the tail: the Search Analytics API caps the query cut at
+  ~5,000 rows per day, which the probe's recent window (~4,500/day) sat under.
+  The sync's page guard cannot see it (the API returns a short final page at
+  the cap). Appends a PER-DAY ROW CAP caveat to the query and site catalog rows
+  naming the second cause and the signal (`query_rows` = 5,000 on the site
+  row means a top-N day). The stored unattributed share was honest already —
+  it is total minus RETURNED clicks — so only the stated cause changes. Guarded
+  append; verify's `search_console_daily_tables` goes MISSING without it

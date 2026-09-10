@@ -18673,3 +18673,10 @@ $c$select (select count(*) from v_po_header_summary
 -- PR #666 after the migration was already applied.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910190000_search_console_page_absence_caveat.sql
+
+-- ---------------------------------------------------------------------------
+-- The first full backfill showed Google caps the query cut at ~5,000 rows per
+-- day (nine 28-day chunks at exactly 28 x 5,000). Appends the cause and the
+-- signal (query_rows = 5,000) to the query and site catalog rows; guarded.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910200000_search_console_query_cap_caveat.sql

@@ -407,6 +407,33 @@ The lesson is the one already written above about the landing-pages table:
 a caveat covers only the failure it names, and "complete in aggregate" is
 not "complete per row".
 
+### Backfill result and the per-day query cap (2026-09-10)
+
+`search-console-backfill.yml` run 1: 18 chunks, 498 days (2025-04-27 →
+2026-09-08), 1,258,728 page rows, 2,448,876 query rows, 26 minutes, no chunk
+failed, no page guard hit. The first nightly had already reconciled with the
+probe (query cut 56.6% of clicks over 31 days vs 56.9% over 28).
+
+**The backfill found a limit the probe could not.** Nine 28-day chunks
+returned **exactly 140,000** query rows (28 × 5,000) and the 22-day tail
+**exactly 110,000** (22 × 5,000). Google caps the query cut at ~5,000 rows
+per day; the probe's recent window (~4,500/day) sat under it, so it measured
+only the anonymisation. The sync's page guard never fired because the API
+returns a short final page at the cap — indistinguishable from completeness,
+which is the point review made on PR #666 about the page table, now
+demonstrated on the query table with a number. Page rows vary between 56k
+and 93k per chunk with no round value, so the page cut is not capped this way.
+
+What did not change: `unattributed_query_click_share` is total clicks minus
+RETURNED clicks, whichever reason rows are missing, so it was honest all
+along. What changed: the stated cause (anonymised OR beyond the per-day row
+limit), the wording ("no returned query row", never "anonymised clicks"), and
+a named signal — a day whose `query_rows` is exactly 5,000 hit the cap and
+its query list is a top-N slice. `20260910200000` appends both to the catalog;
+the prompt bullet says the same. Confirmation query for the site table:
+`select query_rows, count(*) from search_console_site_daily group by 1 order
+by 1 desc limit 5` — the top row should be 5,000 with a large day count.
+
 **Still unverified, in the order it will be found out:**
 
 1. ~~Apply the migration in production~~ (done 2026-09-10) and apply
