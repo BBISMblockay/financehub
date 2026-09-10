@@ -338,4 +338,39 @@ const MIG_BODY = MIG.slice(MIG.indexOf('as $$'), MIG.indexOf('$$;') + 3);
     'and the shared fix is stated once at the top');
 }
 
+
+// ── 16. The set you assembled yourself is a set too ────────────────────────
+// The first live run under the §15 rule (silo-chat v67, 2026-09-10). Every one
+// of the thirteen figures in that answer was correct to the digit, 85 included
+// -- and it still wrote "the lowest completed-checkout rate of these five"
+// directly above a list of FOUR pages, then "three of these four" three
+// sentences later.
+//
+// §15 did not cover it, and the reason is instructive: every example in it
+// pointed at QUERY RESULTS ("all 96 collection pages", "there are 12 such
+// SKUs"), so a count of the model's own prose does not obviously fall under
+// "rows a query returned". The narrower a rule's examples, the narrower it
+// gets read.
+//
+// What made it matter is not the arithmetic. 0.39% genuinely was the lowest of
+// the four shown, so the FINDING was true and only its SCOPE was wrong -- and
+// the scope is the whole reason §14(b) allows a scoped superlative at all. A
+// wrong scope label puts the superlative straight back where it started.
+{
+  ok(/THIS COVERS A SET YOU ASSEMBLED YOURSELF/i.test(SRC),
+    'a self-assembled set is counted like any other');
+  ok(/not only query results/i.test(SRC),
+    'stated as a widening of the rule, since the query-result framing is what let it through');
+  ok(/COUNT THE ITEMS YOU ACTUALLY LISTED/i.test(SRC),
+    'and the check is the cheapest possible one: count what you wrote');
+  ok(/"these five", "the four above" or "three of these"/.test(SRC),
+    'the phrasings that trigger it are named, not left to be recognised');
+  ok(/of these five" directly above a list of FOUR pages/.test(SRC),
+    'the rule carries the measurement that produced it');
+  ok(/only the SCOPE was wrong/i.test(SRC),
+    'and says the finding was TRUE -- this is not a rule about arithmetic');
+  ok(/the scope is the entire reason a scoped superlative is honest/i.test(SRC),
+    'and ties it back to the superlative rule it silently undoes');
+}
+
 console.log(`seo-orchestration: ${passed} assertions passed`);

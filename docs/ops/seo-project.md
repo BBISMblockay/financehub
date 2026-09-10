@@ -794,6 +794,17 @@ than being folded into this one.
   (`MEASURED VS GENERATED NUMBERS`). Asserted in
   `scripts/tests/seo-orchestration.test.mjs` §15; all seven assertions
   mutation-tested.
+- **…and the set the model assembled itself was not covered by that rule.**
+  The first live run under it (2026-09-10) got **all thirteen figures right to
+  the digit**, 85 included — and still wrote "the lowest completed-checkout
+  rate of **these five**" directly above a list of **four** pages, then "three
+  of these four" three sentences later. §15's examples all pointed at query
+  results, so a count of the model's own prose did not read as covered; the
+  narrower a rule's examples, the narrower it gets read. Note the finding was
+  TRUE — 0.39% really was the lowest of the four shown — and only its SCOPE was
+  wrong, which is worse than it sounds, because the scope is the entire reason
+  a scoped superlative is permitted at all. §16, seven more mutation-tested
+  assertions.
 
 ### What has never executed (as of 2026-09-09)
 
