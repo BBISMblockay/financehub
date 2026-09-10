@@ -1410,7 +1410,7 @@ function bind(){
 
   // brief + release document
   $('briefSaveBtn').onclick = saveBrief;
-  $('printDocBtn').onclick  = () => window.print();
+  // Print control is bound by the standalone document enhancement below.
   // beforeprint rather than the button alone, so Ctrl/Cmd-P and the browser
   // menu get the masthead too — not just our button.
   window.addEventListener('beforeprint', () => { if (activeLaunch) buildDocPrintHeader(activeLaunch); });
@@ -3039,5 +3039,70 @@ function lc2MoveDates(launch, targetDate) {
   }
 })();
 </script>
-</body>
+<style>
+#dp-brief{max-width:1000px;gap:12px}
+#dp-brief .lc3-brief-hero{display:flex;align-items:center;gap:24px;padding:4px 0 10px}
+.lc3-brief-hero img{width:180px;height:180px;object-fit:contain;border-radius:10px;background:var(--bcn-surface)}
+.lc3-brief-hero h2{font-size:22px;margin:0 0 8px}.lc3-brief-hero p{color:var(--bcn-ink-3);margin:0}
+#dp-brief .lc3-essentials{padding:18px;display:grid;gap:10px}
+#dp-brief textarea{min-height:68px}
+#dp-brief .lc3-optional{border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface)}
+#dp-brief .lc3-optional summary{padding:14px 18px;font-size:13px;font-weight:600;cursor:pointer}
+#dp-brief .lc3-optional .dp-section{border:0;padding:0 18px 18px}
+@media(max-width:700px){.lc3-brief-hero img{width:120px;height:120px}.lc3-brief-hero h2{font-size:18px}}
+</style><script>
+(function(){
+ const brief=$('dp-brief');
+ const sections=[...brief.querySelectorAll(':scope > .dp-section')];
+ const hero=document.createElement('div');hero.className='lc3-brief-hero';brief.querySelector('.lc2-brief-save').after(hero);
+ const essentials=document.createElement('section');essentials.className='dp-section lc3-essentials';
+ essentials.innerHTML='<div class="dp-title">Creative direction</div><div class="dp-sub">Start with the story, audience, and key product details. Everything else is optional.</div>';
+ hero.after(essentials);
+ ['briefMarketingAngle','briefAudience','briefProductCallouts'].forEach(id=>essentials.append($(id).closest('.bcn-field-group')));
+ $('briefMarketingAngle').rows=3;
+ $('briefMarketingAngle').placeholder='What is the story, and why should someone care?';
+ $('briefAudience').placeholder='Who is this launch for?';
+ $('briefAudience').previousElementSibling.textContent='AUDIENCE';
+ const titles=['Schedule & release links','Design details','Copy, creative & audience details','Budget & forecast','Post-launch results'];
+ sections.forEach((section,i)=>{
+  const details=document.createElement('details');details.className='lc3-optional';
+  const summary=document.createElement('summary');summary.textContent=titles[i];details.append(summary);
+  section.before(details);details.append(section);
+  section.querySelector('.dp-sec-head')?.remove();
+ });
+ const oldBrief=renderBrief;
+ renderBrief=function(x){
+  oldBrief(x);if(!x)return;
+  hero.replaceChildren();
+  if(x.launch_image_url){const img=document.createElement('img');img.src=x.launch_image_url;img.alt=x.title||'Container image';hero.append(img);}
+  const meta=document.createElement('div'),title=document.createElement('h2'),sub=document.createElement('p');
+  title.textContent=x.title||'Launch brief';sub.textContent=fmt(x.launch_date)+(x.designer?' · '+x.designer:'');
+  meta.append(title,sub);hero.append(meta);
+ };
+ // Use a separate document so application overflow and drawer rules cannot clip printing.
+ function printMarkup(){
+  const clone=$('releaseDocument').cloneNode(true);
+  clone.querySelectorAll('.reldoc-row--empty,.reldoc-sec--empty,.reldoc-print-none,.reldoc-print-header').forEach(el=>el.remove());
+  clone.querySelectorAll('a').forEach(a=>{try{if(!/^https?:$/.test(new URL(a.href).protocol))a.removeAttribute('href');}catch{a.removeAttribute('href');}});
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(activeLaunch?.title||'Launch document')+'</title><style>body{font:14px/1.6 Arial,sans-serif;color:#17202a;max-width:850px;margin:32px auto;padding:0 28px}h1{font-size:28px;line-height:1.25}.lc2-doc-date{color:#667085}.reldoc-sec{border-top:1px solid #ddd;margin-top:24px;padding-top:20px}.reldoc-sec-title{font-size:19px;font-weight:bold;margin-bottom:12px}.reldoc-row{display:grid;grid-template-columns:1fr 1.3fr;gap:24px;padding:6px 0;break-inside:avoid}.reldoc-k{color:#667085}.reldoc-v{overflow-wrap:anywhere}.reldoc-block{white-space:pre-wrap;margin:14px 0}.reldoc-block-label{font-weight:bold;margin:14px 0 6px}.print-tools{background:#f2f5fa;padding:16px;margin-bottom:24px}button{padding:10px 18px;cursor:pointer} @page{size:auto;margin:16mm}@media print{body{margin:0;padding:0;max-width:none}.print-tools{display:none}.reldoc-sec-title{break-after:avoid}a{color:inherit}}</style></head><body><div class="print-tools"><button onclick="window.print()">Print / Save as PDF</button><p>If no print dialog opens, open this document in Chrome or Edge and print there.</p></div>'+clone.outerHTML+'</body></html>';
+ }
+ const button=$('printDocBtn');button.textContent='PRINT DOCUMENT';
+ const download=document.createElement('button');download.type='button';download.className='bcn-btn bcn-btn--mono';download.textContent='DOWNLOAD PRINT COPY';button.after(download);
+ download.onclick=()=>{
+  if(!activeLaunch)return;
+  const url=URL.createObjectURL(new Blob([printMarkup()],{type:'text/html;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download=(activeLaunch.title||'launch').replace(/[^a-z0-9 -]/gi,'').slice(0,100)+'-print.html';
+  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+ };
+ button.onclick=()=>{
+  if(!activeLaunch)return;
+  let win;try{win=window.open('','_blank');}catch{}
+  if(!win){setStatus('Print window blocked. Use Download print copy, then open it in Chrome or Edge.','info',15000);return;}
+  win.document.open();win.document.write(printMarkup());win.document.close();
+  win.opener=null;win.focus();
+  setTimeout(()=>{try{win.print();}catch{}},400);
+  setStatus('Opened a printable document. If no dialog appears, use Download print copy and print it from Chrome or Edge.','info',15000);
+ };
+})();
+</script></body>
 </html>
