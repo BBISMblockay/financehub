@@ -22,7 +22,8 @@ No open P1s.
 | Many v2 pages still iframe legacy HTML | Expected until Beacon migration (see roadmap) |
 | Planning: projection seed has no product type | By design — see [planning-scenarios-filter-scope.md](../planning-scenarios-filter-scope.md) |
 | Optional DB view missing → empty open POs on planning page | Create view in Supabase or ignore |
-| **`card-categorize` differs between production (v9) and `main`, and the difference is a prompt rule.** Production: "Where the CARD NAME names one of the locations listed above, use that location." Repo: "Only name a location when the merchant or card name clearly belongs to one store." Plus a `type Account` refactor and shorter comments on the deployed side, fuller comments on the repo side. Every other function was reconciled 2026-09-10 (`page-inspect` v2 deployed from `main`) | Pick the rule, put the winning text in the repo, deploy from `main` |
+| **`page-inspect` v2 differs from `main` by the dash count in three `── ... ──` comment rules.** The v2 deploy went through an API client and the box-drawing lines were retyped, not copied; the code is identical. This is the failure mode the repo's own rule warns about, in miniature | Actions → Deploy Edge Function → `page-inspect` from `main`; the CLI reads the file, so it cannot mistype it |
+| **`card-categorize` differs between production (v9) and `main`, and the difference is a prompt rule.** Production: "Where the CARD NAME names one of the locations listed above, use that location." Repo: "Only name a location when the merchant or card name clearly belongs to one store." Plus a `type Account` refactor and shorter comments on the deployed side, fuller comments on the repo side | Pick the rule, put the winning text in the repo, deploy from `main` |
 
 ---
 
