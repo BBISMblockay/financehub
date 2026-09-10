@@ -35,6 +35,33 @@ const FN_DIR = 'supabase/functions';
 // living with it; the honest fix is checking the source in.
 const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'notify-slack', 'oneoff-meta-sync']);
 
+// A content difference somebody has decided not to reconcile YET.
+//
+// Without this the check is red every day for as long as the decision
+// stands, and a check that is always red is one nobody reads -- which costs
+// more than the finding it is reporting.
+//
+// But a bare list of slugs would be worse than the red: it would also
+// swallow the NEXT, different drift in the same function -- a truncated hand
+// deploy, a rollback, a repo edit nobody shipped -- which is exactly what
+// this check exists to catch. So each entry is PINNED to the `ezbr_sha256`
+// of the deployed bundle at the moment the decision was taken. It forgives
+// that one state of production and nothing else: redeploy the function and
+// the hash moves, the pin breaks, and the run fails again.
+//
+// Delete the entry when the difference is reconciled.
+const DEFERRED_DRIFT = new Map([
+  ['card-categorize', {
+    since: '2026-09-10',
+    deployedSha256: '2f4a4bc09f8c688b837841748f34481a752fc5a4023339047f0c23697ff58ba0', // v9
+    why: 'the difference is a prompt RULE, not a merge -- production says a card-name '
+      + 'match should set the location, main says only name a location when the merchant '
+      + 'or card clearly belongs to one store. Deferred until there is enough real card '
+      + 'coding to say which rule suggests better; shipping either one first ends the '
+      + 'comparison.',
+  }],
+]);
+
 if (!TOKEN) {
   console.error('::error::SUPABASE_ACCESS_TOKEN is not set.');
   process.exit(2);
@@ -49,6 +76,7 @@ if (!res.ok) {
 }
 const deployed = await res.json();
 const deployedSlugs = new Set(deployed.map((f) => f.slug));
+const shaBySlug = new Map(deployed.map((f) => [f.slug, f.ezbr_sha256]));
 
 // TRACKED directories only. This runs after `supabase functions download`
 // has written every deployed function over the checkout, so reading the
@@ -88,6 +116,20 @@ for (const line of status) {
   const tracked = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
   if (deployed.trimEnd() === tracked.trimEnd()) newlineOnly.push(path); else modified.push(path);
 }
+// Pull out drift that was deferred BY DECISION -- but only while the pin
+// still holds. A pin that cannot be checked (no ezbr_sha256 came back for
+// the slug) fails closed: the path stays in `modified` and the run fails.
+const deferredDrift = [];
+const brokenPins = [];
+for (let i = modified.length - 1; i >= 0; i -= 1) {
+  const slug = modified[i].split('/')[2];
+  const d = DEFERRED_DRIFT.get(slug);
+  if (!d) continue;
+  const live = shaBySlug.get(slug);
+  if (live && live === d.deployedSha256) deferredDrift.push(...modified.splice(i, 1));
+  else brokenPins.push({ path: modified[i], slug, live });
+}
+
 const notDeployed = [...repoSlugs].filter((s) => !deployedSlugs.has(s));
 
 console.log('Deployed functions:');
@@ -96,6 +138,25 @@ for (const f of deployed.sort((a, b) => a.slug.localeCompare(b.slug))) {
 }
 
 let failed = false;
+if (deferredDrift.length) {
+  console.log('\nDeferred by decision (deployed bundle still matches the pin, so this is the SAME difference that was deferred):');
+  for (const path of deferredDrift) {
+    const d = DEFERRED_DRIFT.get(path.split('/')[2]);
+    console.log(`  ${path}\n    deferred ${d.since}: ${d.why}`);
+    console.log(`::warning file=${path}::deployed source differs from main; deferred by decision on ${d.since}`);
+  }
+}
+if (brokenPins.length) {
+  // Still counted in `modified`, so the run fails on it -- this only makes
+  // the reason legible instead of looking like brand-new drift.
+  console.log('\nA DEFERRED DIFFERENCE IS NO LONGER THE ONE THAT WAS DEFERRED:');
+  for (const b of brokenPins) {
+    const d = DEFERRED_DRIFT.get(b.slug);
+    console.log(`::error file=${b.path}::${b.slug} was deferred on ${d.since} against deployed bundle `
+      + `${d.deployedSha256.slice(0, 12)}, but production now reports ${String(b.live || 'no ezbr_sha256').slice(0, 12)}. `
+      + 'Re-read the difference, then either reconcile it or re-pin the deferral in scripts/check-function-drift.mjs.');
+  }
+}
 if (newlineOnly.length) {
   console.log('\nDiffers only by a trailing newline at end of file (not drift):');
   for (const p of newlineOnly) console.log(`  ${p}`);
@@ -139,4 +200,6 @@ if (failed) {
   console.log('\nFix: run the "Deploy Edge Function" workflow for the named function(s) from main. Never copy source through an API client by hand -- that is what truncated two silo-chat deploys on 2026-08-25.');
   process.exit(1);
 }
-console.log('\nEvery deployed function matches main byte-for-byte, and every function on main is deployed.');
+console.log(deferredDrift.length
+  ? `\nNo undeferred drift: every other deployed function matches main byte-for-byte, every function on main is deployed, and ${deferredDrift.length} deferred difference(s) are unchanged since the decision.`
+  : '\nEvery deployed function matches main byte-for-byte, and every function on main is deployed.');

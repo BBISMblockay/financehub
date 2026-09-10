@@ -208,8 +208,37 @@
     .pill-blocked  { background:oklch(0.93 0.08 15);  color:oklch(0.40 0.20 15);  border-color:oklch(0.80 0.14 15); }
     .pill-ready    { background:oklch(0.92 0.10 145); color:oklch(0.38 0.18 145); border-color:oklch(0.78 0.14 145); }
     .pill-risk     { background:oklch(0.93 0.08 30);  color:oklch(0.42 0.18 30);  border-color:oklch(0.80 0.14 30); }
-    .pill-channel  { background:oklch(0.92 0.10 60);  color:oklch(0.40 0.22 60);  border-color:oklch(0.80 0.16 60); }
     .pill-task     { background:oklch(0.92 0.10 245); color:oklch(0.40 0.20 245); border-color:oklch(0.80 0.14 245); }
+
+    /* Initiative TYPE tones.
+       One hue per type, set ONCE here as custom properties and read by BOTH
+       the drawer pill and the month-calendar chip -- the two surfaces show
+       the same row, so they must not drift into two colour languages.
+       Type is the only thing colour encodes on an initiative. The status
+       pill beside it is deliberately neutral: two coloured pills on one row
+       and neither of them means anything.
+       Colour is never the only signal -- both the pill and the chip still
+       print the type as text. */
+    .ch-email   { --ch-h: 245; --ch-c: .10; }
+    .ch-sms     { --ch-h: 195; --ch-c: .10; }
+    .ch-organic { --ch-h: 145; --ch-c: .10; }
+    .ch-website { --ch-h:  75; --ch-c: .10; }
+    .ch-retail  { --ch-h:  25; --ch-c: .10; }
+    .ch-meta    { --ch-h: 305; --ch-c: .10; }
+    /* "Other" is the absence of a type, so it is grey rather than a seventh
+       hue: a colour would imply a category somebody chose. */
+    .ch-other   { --ch-h: 245; --ch-c: .012; }
+
+    .pill-ch {
+      background:   oklch(0.93 var(--ch-c, .10) var(--ch-h, 245));
+      color:        oklch(0.40 calc(var(--ch-c, .10) * 2)   var(--ch-h, 245));
+      border-color: oklch(0.80 calc(var(--ch-c, .10) * 1.5) var(--ch-h, 245));
+    }
+    :root[data-theme="dark"] .pill-ch {
+      background:   oklch(0.30 calc(var(--ch-c, .10) * 0.9) var(--ch-h, 245));
+      color:        oklch(0.86 calc(var(--ch-c, .10) * 1.1) var(--ch-h, 245));
+      border-color: oklch(0.44 calc(var(--ch-c, .10) * 1.2) var(--ch-h, 245));
+    }
     .prod-callout { font-size:12px; color:var(--bcn-ink-3); background:oklch(0.97 0.02 245); border:1px solid var(--bcn-border); border-radius:8px; padding:10px 12px; margin-bottom:12px; line-height:1.45; }
     .prod-quick-bar { border:1px solid var(--bcn-border); border-radius:10px; padding:12px; background:var(--bcn-surface); }
     .prod-lookup-results { margin-top:10px; max-height:220px; overflow-y:auto; }
@@ -221,13 +250,23 @@
     .prod-lookup-actions { display:flex; gap:6px; flex-shrink:0; flex-wrap:wrap; }
     .prod-row-actions { display:flex; gap:6px; flex-shrink:0; align-items:flex-start; flex-wrap:wrap; }
     .dp-row-actions { display:flex; gap:6px; flex-shrink:0; align-items:flex-start; flex-wrap:wrap; }
+    /* Same hue as the drawer pill (see .ch-* above), so an initiative reads
+       as the same thing in the month view and inside its launch. The chroma
+       multipliers reproduce the tones this chip had when every initiative
+       was orange: .02 fill, .18 rule, .04 hover. */
     .ev-chip-init {
       position:relative; border:1px dashed var(--bcn-border-strong); border-radius:4px;
-      padding:2px 6px 2px 8px; cursor:pointer; background:oklch(0.98 0.02 60);
+      padding:2px 6px 2px 8px; cursor:pointer;
+      background:oklch(0.98 calc(var(--ch-c, .10) * 0.2) var(--ch-h, 245));
       font-size:9.5px; line-height:1.2; overflow:hidden;
     }
-    .ev-chip-init::before { content:''; position:absolute; left:0; top:2px; bottom:2px; width:2px; border-radius:1px; background:oklch(0.62 0.18 60); }
-    .ev-chip-init:hover { border-color:oklch(0.62 0.18 60); background:oklch(0.96 0.04 60); }
+    .ev-chip-init::before { content:''; position:absolute; left:0; top:2px; bottom:2px; width:2px; border-radius:1px; background:oklch(0.62 calc(var(--ch-c, .10) * 1.8) var(--ch-h, 245)); }
+    .ev-chip-init:hover { border-color:oklch(0.62 calc(var(--ch-c, .10) * 1.8) var(--ch-h, 245)); background:oklch(0.96 calc(var(--ch-c, .10) * 0.4) var(--ch-h, 245)); }
+    /* The chip had no dark tone at all before this -- a 0.98-lightness fill
+       on a dark canvas. Added here because the rule was being rewritten
+       anyway; the older .pill-* tones above still need the same treatment. */
+    :root[data-theme="dark"] .ev-chip-init { background:oklch(0.26 calc(var(--ch-c, .10) * 0.5) var(--ch-h, 245)); }
+    :root[data-theme="dark"] .ev-chip-init:hover { background:oklch(0.31 calc(var(--ch-c, .10) * 0.7) var(--ch-h, 245)); }
     .ev-chip-init-title { font-weight:600; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
     .ev-chip-init-meta { font-size:9px; color:var(--bcn-ink-3); margin-top:1px; }
 
@@ -358,7 +397,7 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title"><h1>Launch Workbench</h1></div>
-        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · channel initiatives · <span id="wbBuildTag" style="opacity:.65;font-family:var(--bcn-mono);font-size:10px;">WB-96</span></div>
+        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · initiatives · <span id="wbBuildTag" style="opacity:.65;font-family:var(--bcn-mono);font-size:10px;">WB-96</span></div>
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/launch-calendar-guide.html">GUIDE</a>
@@ -386,7 +425,7 @@
         <div class="bcn-kpi-delta" data-kpi="risk">— AT RISK</div>
       </div>
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">CHANNELS</div>
+        <div class="bcn-kpi-label">INITIATIVES</div>
         <div class="bcn-kpi-value bcn-mono" data-kpi="channels">—</div>
         <div class="bcn-kpi-delta" data-kpi="chweek">— THIS WEEK</div>
       </div>
@@ -569,7 +608,7 @@
     <div class="dp" id="dp-channels">
       <div class="dp-section">
         <div class="dp-sec-head">
-          <div><div class="dp-title">Channel Initiatives</div><div class="dp-sub">Each touch gets its own date — shown on the month calendar.</div></div>
+          <div><div class="dp-title">Initiatives</div><div class="dp-sub">Each touch gets its own date — shown on the month calendar.</div></div>
         </div>
         <div class="prod-callout">Add email, SMS, social, and retail touches. Set a <strong>scheduled date</strong> to see them as dots on the calendar grid.</div>
         <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;">
@@ -581,7 +620,7 @@
             <input type="hidden" id="channelEditId" value="" />
             <div class="dp-title" id="channelFormTitle" style="margin-bottom:8px;">New initiative</div>
             <div class="dp-g2">
-              <div class="bcn-field-group"><label class="bcn-label">CHANNEL</label><select class="bcn-field" id="channelName"><option value="email">Email</option><option value="sms">SMS</option><option value="organic">Organic</option><option value="meta">Meta</option><option value="website">Website</option><option value="retail">Retail</option><option value="other">Other</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">TYPE</label><select class="bcn-field" id="channelName"><option value="email">Email</option><option value="sms">SMS</option><option value="organic">Organic</option><option value="meta">Meta</option><option value="website">Website</option><option value="retail">Retail</option><option value="other">Other</option></select></div>
               <div class="bcn-field-group"><label class="bcn-label">TITLE *</label><input class="bcn-field" id="channelTitle" required /></div>
             </div>
             <div class="dp-g3">
@@ -1466,11 +1505,21 @@ function evChip(x){
     <span class="ev-chip-edit" data-edit="${x.id}" title="Edit launch">✏</span>
   </div>`;
 }
+// The seven types the initiative form offers. A value outside this list --
+// legacy free text, or a type retired from the form later -- falls to
+// `other` rather than being interpolated into a class name, so a stored
+// value can never reach the stylesheet or the markup as a class.
+const CH_CLASS = {
+  email:'ch-email', sms:'ch-sms', organic:'ch-organic',
+  meta:'ch-meta', website:'ch-website', retail:'ch-retail', other:'ch-other',
+};
+function chClass(v){ return CH_CLASS[String(v || '').trim().toLowerCase()] || 'ch-other'; }
+
 function evChipInitiative(c){
   const launch=launches.find(x=>String(x.id)===String(c.launch_id));
   const title=launch?.title||'Launch';
   const meta=[c.channel,c.scheduled_time?c.scheduled_time.slice(0,5):null].filter(Boolean).join(' · ');
-  return `<div class="ev-chip-init" data-lid="${c.launch_id}" data-cid="${c.id}" title="${esc(title)}">
+  return `<div class="ev-chip-init ${chClass(c.channel)}" data-lid="${c.launch_id}" data-cid="${c.id}" title="${esc(title)}">
     <div class="ev-chip-init-title">${esc(c.item_title||c.channel||'Initiative')}</div>
     ${meta?`<div class="ev-chip-init-meta">${esc(meta)}</div>`:''}
   </div>`;
@@ -1667,7 +1716,7 @@ function renderChannels(rows){
       ? `<span class="bcn-pill" style="font-size:9px;margin-left:6px;" title="Tasks on this initiative">`
         + `${openN} open${mine.length>openN?` · ${mine.length-openN} done`:''}</span>`
       : '';
-    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.item_title)}${taskTag}</div><div class="dp-item-meta">${esc([x.channel,when,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}${x.link_url?`<div style="margin-top:3px;"><a href="${esc(x.link_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--bcn-accent)">${esc(x.link_url.length>60?x.link_url.slice(0,57)+'…':x.link_url)}</a></div>`:''}</div><div class="dp-row-actions"><span class="bcn-pill pill-channel">${esc(x.status||'planned')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-ch="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-ch="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.item_title)}${taskTag}</div><div class="dp-item-meta">${esc([when,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}${x.link_url?`<div style="margin-top:3px;"><a href="${esc(x.link_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--bcn-accent)">${esc(x.link_url.length>60?x.link_url.slice(0,57)+'…':x.link_url)}</a></div>`:''}</div><div class="dp-row-actions"><span class="bcn-pill pill-ch ${chClass(x.channel)}">${esc(x.channel||'other')}</span><span class="bcn-pill">${esc(x.status||'planned')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-ch="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-ch="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
     list.appendChild(div);
   });
   list.querySelectorAll('[data-edit-ch]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editCh)); if(row) btn.onclick=()=>openChannelForm(row); });
