@@ -371,6 +371,42 @@ That split is the rule for anything added here: if two tiles could
 reasonably disagree it is a widget setting; if they could not, it belongs to
 the report and should only ever be stated once.
 
+### The chart's visual language (2026-09-10)
+
+Same argument as the section above, applied to how a tile *looks* rather
+than to what it says: the ECharts defaults live in `chart-adapter.js` and
+the tile chrome in `dashboard.css`, so one edit moves every board at once.
+None of it touches report SQL, `visual_config`, or any stored widget.
+
+What changed, and the reason in each case — these are the things that make a
+chart read as a decade old, not matters of taste:
+
+| Was | Is | Why |
+|---|---|---|
+| A dot on every point of a line, up to 40 | Symbols only on a series of **≤ 2 points** | A dot per point is a dotted smear at tile scale. The exception is real: one point with no symbol draws an *empty tile*, not a clean one |
+| Flat 8% (light) / 14% (dark) fill under a line | A gradient fading to nothing at the axis | Written as a **plain gradient object**, never `echarts.graphic.LinearGradient` — the unit suites build every option in node, where no `echarts` global exists |
+| Dashed gridlines, a drawn axis line, ticks | Solid hairline gridlines at `gridline`, no axis line, no ticks, `splitNumber: 4` | A drawn rule under every bar plus a tick per category is the single strongest "spreadsheet chart" tell. `grid` (structural) and `gridline` (the scale behind the data) are now separate colours |
+| Every label in `IBM Plex Mono` | **Words in the sans, numbers in the mono** | Category names, legend entries and axis titles are words. Value axes, bar value labels and KPI figures stay mono, which is beacon's own rule and what keeps figures aligned |
+| Bars 34px max, 3px corners | 30px max, 4px corners, `barCategoryGap: '34%'` | — |
+| Donut with an empty hole | The **total** in the hole, abbreviated | The hole is free space where the eye already lands; empty, the reader has to add the slices up to learn what 100% is |
+| KPI: number, then its caption underneath | Caption, number, change **pill**, sparkline | The old order meant reading the tile bottom-up to find out what the figure was *of*. The pill is a tint mixed from the same `--bcn-pos` / `--bcn-neg`, so each direction still has one definition |
+| Tile: 4px corners, 1px hairline shadow | 10px corners, a soft two-layer shadow, hover lift | The **one** place v3 departs from beacon's density token. Put `var(--bcn-radius)` / `var(--bcn-shadow)` back to revert |
+| A filled, ruled titlebar on every tile | Transparent head in view mode; the filled bar returns **in edit mode**, where it is the drag handle | It only needs to look grabbable when it is grabbable |
+| A `BAR` / `TABLE` pill on every tile | Hidden in view mode | A reader can see that a bar chart is a bar chart. Hidden, not removed: `rerenderWidget()` writes the current type back into that element, and two browser suites read its text |
+
+**Rejected, and worth not re-trying: a bottom legend on the donut.** It
+centres the pie and looks better in a mock, but an ECharts scroll legend
+laid out horizontally *paginates* instead of wrapping — a six-slice donut in
+a normal tile came out showing three names and a `1/3` pager, which is
+strictly less than the donut said before. The legend stays vertical on the
+right; only the centre total was kept.
+
+Two knock-on effects to know about if you touch this again: the icon buttons
+in the head hover on `--bcn-sunken` rather than `--bcn-surface`, because a
+surface-coloured hover over a now-transparent head is invisible; and every
+sparkline mints its own gradient `id`, because two KPI tiles sharing one
+`<linearGradient>` would let the second repaint the first.
+
 ## Totals, and the ones that are refused
 
 `visual_config.totals` is `row` on a table, and `row` / `column` / `both` on
