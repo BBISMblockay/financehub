@@ -380,6 +380,8 @@ supabase/
     20260909380000_seo_collection_candidates.sql
     20260909400000_seo_candidates_coverage_and_pacific.sql
     20260909420000_seo_candidates_top_n_day_names.sql
+    20260910120000_tasks_on_initiatives.sql
+    20260910130000_seo_approvers_stamp_and_granted_by.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
@@ -393,3 +395,11 @@ supabase/
   tasks, and `tasks_v` (**`security_invoker`** — `launch_tasks` hides private tasks
   from all but their assignee and creator). Nothing is required: a task created in
   Task Manager with no parent stays evergreen and never reaches the new triggers.
+
+- `20260910130000_seo_approvers_stamp_and_granted_by.sql` — `seo_approvers`
+  (and the other 11 tables created 2026-09-09) had no `stamp_company_entity_id`
+  trigger, so the "DB trigger is the backstop" promise was false for exactly the
+  newest tables; re-runs `attach_stamp_company_entity_id_triggers()`, which is
+  idempotent and never overwrites an explicitly passed company. Also defaults
+  `seo_approvers.granted_by` to `auth.uid()`, matching `silo_chat_managers`.
+  Surfaced by wiring the SEO approver grant into `/v2/backend.html`

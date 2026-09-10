@@ -2808,6 +2808,17 @@ select
             and column_name in ('source','period_start','period_end','captured_at',
                                 'dimensions','filters','is_complete','window_kind')) <> 8
       then 'MISSING — seo_measurements lost a provenance column'
+    -- The grant table is written from a browser (/v2/backend.html), so it needs
+    -- the same backstops silo_chat_managers has. Both were absent on every
+    -- table created 2026-09-09 (20260910130000).
+    when not exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid
+                     where c.relname='seo_approvers' and t.tgname='stamp_company_entity_id'
+                       and not t.tgisinternal)
+      then 'MISSING — seo_approvers has no stamp_company_entity_id trigger; run attach_stamp_company_entity_id_triggers()'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='seo_approvers'
+                       and column_name='granted_by' and column_default like '%auth.uid()%')
+      then 'MISSING — seo_approvers.granted_by has no auth.uid() default (20260910130000)'
     when not exists (select 1 from information_schema.views
                      where table_schema='public' and table_name='seo_tasks_v')
       then 'MISSING — seo_tasks_v'

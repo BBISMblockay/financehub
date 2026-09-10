@@ -18622,3 +18622,11 @@ $c$select (select count(*) from v_po_header_summary
 -- tasks_v -- security_invoker, since launch_tasks hides private tasks.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910120000_tasks_on_initiatives.sql
+
+-- ---------------------------------------------------------------------------
+-- seo_approvers backstops: re-run attach_stamp_company_entity_id_triggers()
+-- (12 tables created 2026-09-09 had no stamp trigger, seo_approvers among
+-- them) and default seo_approvers.granted_by to auth.uid(), matching
+-- silo_chat_managers. Found while adding the grant button to backend.html.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910130000_seo_approvers_stamp_and_granted_by.sql
