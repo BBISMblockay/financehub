@@ -338,10 +338,10 @@ scheme is invisible here, not zero.
 |---|---|---|
 | Lag | newest **final** day is 2 days back (2026-09-08 on 2026-09-10); `all` reaches today but is partial | ingestion window ends `today - 2` Pacific and requests `dataState=final`; anything fresher is provisional and must be labelled so |
 | Retention | 498 final days, back to 2025-04-29 | a full backfill is feasible; any comparison older than ~16 months is unmeasurable, not flat |
-| Row cap | 25,000 per page; pagination works (date×query needed 6 pages, 125,846 rows) | tables can be COMPLETE lists of what Google returns, not top-N slices — the `shopify_landing_pages_daily` trap does not recur here |
-| **Query attribution** | query cut recovers **56.9% of clicks** (10,200 of 17,913) and 70.5% of impressions; **43.1% of clicks belong to no query row** (anonymised for privacy) | a "no query brought traffic to X" claim is unsafe by 43 points. Every query-grain surface must carry the unattributed share, per day |
+| Row cap | 25,000 per page; pagination works (date×query needed 6 pages, 125,846 rows) | pagination exhausts offered rows; Google may still withhold rows internally |
+| **Query attribution** | query cut recovers **56.9% of clicks** (10,200 of 17,913) and 70.5% of impressions; **43.1% of clicks belong to no query row** (the cause of omitted rows is unknown) | a "no query brought traffic to X" claim is unsafe by 43 points. Every query-grain surface must carry the unattributed share, per day |
 | Page attribution | page cut recovers **102.8% of clicks** and 172.2% of impressions | IN AGGREGATE the page cut recovers at least the site total. **That is not a per-row guarantee**: Google documents that the Search Analytics API does not return every row, even with pagination, so a page absent on a day is not-returned, never zero. Over 100% is Google's per-page counting: one query showing two of our URLs is one site impression but two page impressions, so page-level CTR and position are NOT comparable to site-level |
-| Cross-dimension loss | query×page recovers 58.2% of clicks — no worse than query alone | the loss is entirely the anonymised-query withholding, not the cross. Still: 41.8% of clicks cannot be tied to a query×page pair |
+| Cross-dimension loss | query×page recovers 58.2% of clicks — no worse than query alone | the aggregate comparison does not establish why rows are missing. 41.8% of clicks cannot be tied to a query×page pair |
 
 **Schema consequences, decided by the numbers rather than recalled:**
 
@@ -407,32 +407,33 @@ The lesson is the one already written above about the landing-pages table:
 a caveat covers only the failure it names, and "complete in aggregate" is
 not "complete per row".
 
-### Backfill result and the per-day query cap (2026-09-10)
+### Backfill result and observed query-row pattern (2026-09-10)
 
-`search-console-backfill.yml` run 1: 18 chunks, 498 days (2025-04-27 →
-2026-09-08), 1,258,728 page rows, 2,448,876 query rows, 26 minutes, no chunk
-failed, no page guard hit. The first nightly had already reconciled with the
-probe (query cut 56.6% of clicks over 31 days vs 56.9% over 28).
+Backfill run 1 completed 18 chunks across the requested 2025-04-27 through
+2026-09-08 window: 498 days with data, 1,258,728 page rows and 2,448,876 query
+rows. No local page guard fired.
 
-**The backfill found a limit the probe could not.** Nine 28-day chunks
-returned **exactly 140,000** query rows (28 × 5,000) and the 22-day tail
-**exactly 110,000** (22 × 5,000). Google caps the query cut at ~5,000 rows
-per day; the probe's recent window (~4,500/day) sat under it, so it measured
-only the anonymisation. The sync's page guard never fired because the API
-returns a short final page at the cap — indistinguishable from completeness,
-which is the point review made on PR #666 about the page table, now
-demonstrated on the query table with a number. Page rows vary between 56k
-and 93k per chunk with no round value, so the page cut is not capped this way.
+Nine 28-day chunks returned exactly 140,000 query rows; the 22-day tail
+returned 110,000. Those totals imply averages of 5,000 rows per populated day,
+not proof that every day has that count or that Google enforces a 5,000-row
+cap. Inspect per-day counts and compare equivalent single-day and multi-day
+requests before attributing the pattern to a cause. Even an exact count is
+not proof of truncation. Non-round page totals likewise do not prove that
+the page cut escaped internal limits.
 
-What did not change: `unattributed_query_click_share` is total clicks minus
-RETURNED clicks, whichever reason rows are missing, so it was honest all
-along. What changed: the stated cause (anonymised OR beyond the per-day row
-limit), the wording ("no returned query row", never "anonymised clicks"), and
-a named signal — a day whose `query_rows` is exactly 5,000 hit the cap and
-its query list is a top-N slice. `20260910200000` appends both to the catalog;
-the prompt bullet says the same. Confirmation query for the site table:
-`select query_rows, count(*) from search_console_site_daily group by 1 order
-by 1 desc limit 5` — the top row should be 5,000 with a large day count.
+Google documents a 50,000-row daily maximum per search type and explicitly
+does not guarantee all rows:
+https://developers.google.com/webmaster-tools/v1/how-tos/all-your-data
+
+The stored remainder is total clicks minus returned query clicks. Describe
+it as clicks with no returned query row, not anonymised clicks alone.
+Window shares must use summed clicks for the same company/property/window,
+rather than averaging daily percentages. Missing measurements and locally
+truncated runs must remain visible in the claim.
+
+Candidate page joins must first establish the same company, selected Search
+Console property and verified storefront host. Paths alone do not identify
+a shop. Do not sum overlapping properties or multiply daily rows in a join.
 
 **Still unverified, in the order it will be found out:**
 
@@ -478,21 +479,21 @@ as the numbers so the page cannot show one without the other:
   one: data through which day, how many days behind today (2 is expected;
   more is a missed nightly and says so), history range, last sync, the
   window and its prior window, query coverage for the window, and how many
-  days hit the 5,000-row query cap.
+  days returned exactly 5,000 query rows (not proof of a cap).
 - **KPIs** with prior-period deltas in words as well as sign: counts as
   percent change, CTR in percentage points, position as "better/worse".
   NULL prior renders "no prior-period data", never a zero delta.
 - **Chart**: clicks/impressions or CTR/position (position axis inverted, said
-  so in the legend), capped days marked. A day with no row is not drawn and
+  so in the legend), 5,000-row observations marked. A day with no row is not drawn and
   the footer says it is not ingested, not zero.
 - **Top returned pages / queries** with the same row's prior figures; an
   absent prior row renders **"not returned"** with a tooltip saying why that
   is not zero. The queries card's footer carries the window's unattributed
-  share and the cap-day count, and says the rows are never joined to pages.
+  share and the 5,000-row observation count, and says the rows are never joined to pages.
 
 Rates are pooled and position is impression-weighted in SQL, not in the
 browser. `scripts/sql/verify_search_console_overview.sql` pins the window
-anchoring, the pooling, the measured-days-only share, the cap count, the
+anchoring, the pooling, the withheld share for unmeasured days, the observed row count, the
 NULL-not-zero prior, the zero-prior division guard, and company scoping (16
 assertions). **Not yet verified live**: apply the migration, open the page as
 an exec, and compare the 28-day KPI band to the first nightly's `[ok]` line

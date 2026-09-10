@@ -458,22 +458,15 @@ supabase/
   `search_console_daily_tables` goes CRITICAL if the wrong sentence returns.
   Found in review of PR #666 after 20260910180000 was already applied
 
-- `20260910200000_search_console_query_cap_caveat.sql` — the first full backfill
-  (498 days, 18 chunks) returned EXACTLY 28 × 5,000 query rows on nine chunks
-  and 22 × 5,000 on the tail: the Search Analytics API caps the query cut at
-  ~5,000 rows per day, which the probe's recent window (~4,500/day) sat under.
-  The sync's page guard cannot see it (the API returns a short final page at
-  the cap). Appends a PER-DAY ROW CAP caveat to the query and site catalog rows
-  naming the second cause and the signal (`query_rows` = 5,000 on the site
-  row means a top-N day). The stored unattributed share was honest already —
-  it is total minus RETURNED clicks — so only the stated cause changes. Guarded
-  append; verify's `search_console_daily_tables` goes MISSING without it
-
+- `20260910200000_search_console_query_cap_caveat.sql` — records the repeated
+  5,000-row daily averages as an observed pattern, not a confirmed cap.
+  Missing rows have unknown causes; use weighted window coverage for the same
+  company/property, withholding the share for unmeasured or truncated days.
 - `20260910210000_search_console_overview_rpcs.sql` — three read-only RPCs
   behind `/v2/seo-overview.html`: `search_console_overview(p_days, p_end)`
   (freshness, window, current + prior totals with POOLED ctr and
   impression-weighted position, the unattributed share over measured days,
-  capped/truncated day counts, a daily series), `search_console_top_pages` and
+  observed 5,000-row/truncated day counts, a daily series), `search_console_top_pages` and
   `search_console_top_queries` (top rows with the same row's prior-window
   figures; `prior_*` NULL = not returned, never 0; a prior of 0 clicks gives a
   NULL percent change). The window ends on the NEWEST INGESTED day, not

@@ -167,17 +167,23 @@ test('query-level data is stated as partial, with the stored per-day share', () 
   has(GENERAL, 'unattributed_query_click_share');
   has(GENERAL, 'never say a page, product or topic gets "no search traffic" from the absence of a query');
 });
-// The backfill showed a SECOND cause the probe could not: the API caps the
-// query cut at ~5,000 rows/day (nine 28-day chunks at exactly 28 x 5,000).
-// The prompt must name both causes and the per-day signal, or the model
-// reads the unattributed share as anonymisation alone and calls a capped
-// day's missing query "rare".
-test('...for TWO reasons, naming the per-day row cap and its signal', () => {
-  has(GENERAL, 'FOR TWO REASONS');
-  has(GENERAL, 'at most about 5,000 query rows per day');
-  has(GENERAL, 'query_rows is exactly 5,000 hit the cap');
-  has(GENERAL, 'TOP-N SLICE');
+test('observed row patterns are not promoted into a confirmed cap', () => {
+  has(GENERAL, 'OBSERVED PATTERN, NOT A CONFIRMED CAP');
+  has(GENERAL, 'does not prove truncation');
+  has(GENERAL, '50,000 rows per day per search type');
   has(GENERAL, 'no returned query row');
+  lacks(GENERAL, 'query_rows is exactly 5,000 hit the cap', 'general prompt');
+  lacks(GENERAL, 'at most about 5,000', 'general prompt');
+});
+test('candidate search data stays with its verified storefront and property', () => {
+  has(GENERAL, 'SAME company and VERIFIED STOREFRONT HOST');
+  has(GENERAL, 'ONLY AFTER company, property and host matching');
+  has(GENERAL, 'never combine overlapping URL-prefix/domain properties');
+  has(GENERAL, 'Aggregate the search rows to one candidate/window before joining');
+});
+test('window coverage uses weighted totals and discloses missing measurement', () => {
+  has(GENERAL, 'never average daily percentages');
+  has(GENERAL, 'any included share is null or any day is locally truncated');
 });
 test('a missing page row is not-returned, never zero', () => {
   has(GENERAL, 'IS NOT RETURNED, NEVER ZERO');

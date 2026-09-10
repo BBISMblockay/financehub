@@ -18659,8 +18659,7 @@ $c$select (select count(*) from v_po_header_summary
 -- ---------------------------------------------------------------------------
 -- Search Console performance tables, built to what the probe MEASURED on
 -- 2026-09-10: site / page / query per day, dataState=final, and the site row
--- carrying per-day attribution because Google anonymises 43% of clicks away
--- from any query. Extends sync_jobs.job_type by reading the live constraint
+-- carrying per-day attribution because some clicks have no returned query row. Extends sync_jobs.job_type by reading the live constraint
 -- rather than retyping it. Seeds the Ask SILO catalog with the numbers.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910180000_search_console_daily.sql
@@ -18675,9 +18674,8 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260910190000_search_console_page_absence_caveat.sql
 
 -- ---------------------------------------------------------------------------
--- The first full backfill showed Google caps the query cut at ~5,000 rows per
--- day (nine 28-day chunks at exactly 28 x 5,000). Appends the cause and the
--- signal (query_rows = 5,000) to the query and site catalog rows; guarded.
+-- Backfill row counts are observations, not proof of a universal API cap.
+-- Append the uncertainty and weighted-window coverage rules to the catalog.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910200000_search_console_query_cap_caveat.sql
 

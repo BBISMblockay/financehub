@@ -4,7 +4,7 @@
 -- browser cannot aggregate 2.4M query rows through PostgREST, and because the
 -- freshness and coverage facts every SEO view must show (data through which
 -- day, how far behind today, what share of clicks the returned query rows
--- account for, how many days hit the 5,000-row cap) belong NEXT TO the
+-- account for, how many days returned exactly 5,000 rows (not proof of a cap) belong NEXT TO the
 -- numbers they qualify, computed in the same statement, not assembled by the
 -- page from separate calls that can disagree.
 --
@@ -16,6 +16,9 @@
 -- functions to anon, which is how chat_run_readonly_query was once callable
 -- unauthenticated (20260904330000).
 --
+-- Multiple properties may overlap: withhold results if company property
+-- selection is ambiguous rather than add their totals. A single property is
+-- required until a property selector is implemented.
 -- Window semantics, shared by all three:
 --   end   = p_end, else the NEWEST INGESTED day for this company -- not
 --           "today minus 2". If a nightly is missed the page shows what
@@ -39,7 +42,12 @@ returns jsonb
 language sql
 stable
 as $$
-with n as (
+with property_scope as (
+  select case when count(distinct site_url) = 1 then min(site_url) end as site_url,
+         count(distinct site_url) as property_count
+  from public.search_console_site_daily
+  where company_entity_id = public.active_company_id()
+), n as (
   select greatest(coalesce(p_days, 28), 1) as days
 ),
 bounds as (
@@ -48,6 +56,7 @@ bounds as (
          min(site_url) as site_url
   from public.search_console_site_daily
   where company_entity_id = public.active_company_id()
+    and site_url = (select site_url from property_scope)
 ),
 w as (
   select coalesce(p_end, b.max_day) as e,
@@ -64,11 +73,13 @@ cur as (
          sum(d.query_attributed_clicks) as qa_clicks,
          sum(d.clicks) filter (where d.query_attributed_clicks is not null) as clicks_measured,
          sum(d.page_attributed_clicks) as pa_clicks,
+         count(*) filter (where d.page_attributed_clicks is null) as page_unmeasured_days,
          count(*) filter (where d.query_attributed_clicks is null) as unmeasured_days,
-         count(*) filter (where d.query_rows >= 5000) as capped_days,
+         count(*) filter (where d.query_rows = 5000) as query_5000_row_days,
          count(*) filter (where d.is_truncated) as truncated_days
   from public.search_console_site_daily d cross join w
   where d.company_entity_id = public.active_company_id()
+    and d.site_url = (select site_url from property_scope)
     and d.day_date between w.s and w.e
 ),
 prev as (
@@ -78,11 +89,13 @@ prev as (
          sum(d.query_attributed_clicks) as qa_clicks,
          sum(d.clicks) filter (where d.query_attributed_clicks is not null) as clicks_measured,
          sum(d.page_attributed_clicks) as pa_clicks,
+         count(*) filter (where d.page_attributed_clicks is null) as page_unmeasured_days,
          count(*) filter (where d.query_attributed_clicks is null) as unmeasured_days,
-         count(*) filter (where d.query_rows >= 5000) as capped_days,
+         count(*) filter (where d.query_rows = 5000) as query_5000_row_days,
          count(*) filter (where d.is_truncated) as truncated_days
   from public.search_console_site_daily d cross join w
   where d.company_entity_id = public.active_company_id()
+    and d.site_url = (select site_url from property_scope)
     and d.day_date between w.ps and w.pe
 ),
 series as (
@@ -93,16 +106,18 @@ series as (
            'ctr', case when d.impressions > 0 then round(d.clicks::numeric / d.impressions, 6) end,
            'position', d.position,
            'query_rows', d.query_rows,
-           'capped', d.query_rows >= 5000,
+           'query_5000_rows', d.query_rows = 5000,
            'unattributed_query_click_share', d.unattributed_query_click_share
          ) order by d.day_date) as rows
   from public.search_console_site_daily d cross join w
   where d.company_entity_id = public.active_company_id()
+    and d.site_url = (select site_url from property_scope)
     and d.day_date between w.s and w.e
 )
 select jsonb_build_object(
   'freshness', jsonb_build_object(
     'site_url', b.site_url,
+    'property_count', (select property_count from property_scope),
     'min_day', b.min_day,
     'max_day', b.max_day,
     'days_ingested', b.days_ingested,
@@ -123,14 +138,14 @@ select jsonb_build_object(
     'query_attributed_clicks', cur.qa_clicks,
     'unattributed_query_clicks', case when cur.qa_clicks is null then null else cur.clicks_measured - cur.qa_clicks end,
     'unattributed_query_click_share',
-      case when cur.qa_clicks is null or coalesce(cur.clicks_measured, 0) = 0 then null
+      case when cur.unmeasured_days > 0 or cur.truncated_days > 0 or cur.qa_clicks is null or coalesce(cur.clicks_measured, 0) = 0 then null
            else round((cur.clicks_measured - cur.qa_clicks)::numeric / cur.clicks_measured, 4) end,
     'page_attributed_clicks', cur.pa_clicks,
     'page_attributed_share',
-      case when cur.pa_clicks is null or coalesce(cur.clicks, 0) = 0 then null
+      case when cur.page_unmeasured_days > 0 or cur.truncated_days > 0 or cur.pa_clicks is null or coalesce(cur.clicks, 0) = 0 then null
            else round(cur.pa_clicks::numeric / cur.clicks, 4) end,
     'unmeasured_days', cur.unmeasured_days,
-    'capped_days', cur.capped_days,
+    'query_5000_row_days', cur.query_5000_row_days,
     'truncated_days', cur.truncated_days
   ),
   'prior', case when coalesce(prev.days_present, 0) = 0 then null else jsonb_build_object(
@@ -140,9 +155,9 @@ select jsonb_build_object(
     'position', case when prev.impressions > 0 then round(prev.pos_w / prev.impressions, 2) end,
     'query_attributed_clicks', prev.qa_clicks,
     'unattributed_query_click_share',
-      case when prev.qa_clicks is null or coalesce(prev.clicks_measured, 0) = 0 then null
+      case when prev.unmeasured_days > 0 or prev.truncated_days > 0 or prev.qa_clicks is null or coalesce(prev.clicks_measured, 0) = 0 then null
            else round((prev.clicks_measured - prev.qa_clicks)::numeric / prev.clicks_measured, 4) end,
-    'capped_days', prev.capped_days
+    'query_5000_row_days', prev.query_5000_row_days
   ) end,
   'series', coalesce(s.rows, '[]'::jsonb)
 )
@@ -177,10 +192,16 @@ returns table (
 language sql
 stable
 as $$
-with n as (select greatest(coalesce(p_days, 28), 1) as days, least(greatest(coalesce(p_limit, 25), 1), 200) as lim),
+with property_scope as (
+  select case when count(distinct site_url) = 1 then min(site_url) end as site_url,
+         count(distinct site_url) as property_count
+  from public.search_console_site_daily
+  where company_entity_id = public.active_company_id()
+), n as (select greatest(coalesce(p_days, 28), 1) as days, least(greatest(coalesce(p_limit, 25), 1), 200) as lim),
 bounds as (
   select max(day_date) as max_day from public.search_console_site_daily
   where company_entity_id = public.active_company_id()
+    and site_url = (select site_url from property_scope)
 ),
 w as (
   select coalesce(p_end, b.max_day) as e, coalesce(p_end, b.max_day) - (n.days - 1) as s,
@@ -192,14 +213,14 @@ cur as (
          sum(p.clicks) as clicks, sum(p.impressions) as impressions,
          sum(p.position * p.impressions) as pos_w, count(*) as days_present
   from public.search_console_page_daily p cross join w
-  where p.company_entity_id = public.active_company_id() and p.day_date between w.s and w.e
+  where p.company_entity_id = public.active_company_id() and p.site_url = (select site_url from property_scope) and p.day_date between w.s and w.e
   group by p.page
 ),
 prev as (
   select p.page, sum(p.clicks) as clicks, sum(p.impressions) as impressions,
          sum(p.position * p.impressions) as pos_w, count(*) as days_present
   from public.search_console_page_daily p cross join w
-  where p.company_entity_id = public.active_company_id() and p.day_date between w.ps and w.pe
+  where p.company_entity_id = public.active_company_id() and p.site_url = (select site_url from property_scope) and p.day_date between w.ps and w.pe
   group by p.page
 )
 select c.page, c.page_path, c.clicks, c.impressions,
@@ -221,7 +242,7 @@ limit (select lim from n);
 $$;
 
 -- Top RETURNED queries by clicks. The window-level coverage facts (what share
--- of clicks these rows account for, how many days hit the 5,000-row cap) are
+-- of clicks these rows account for, how many days returned exactly 5,000 rows (not proof of a cap) are
 -- on search_console_overview() and must be rendered beside this list; a
 -- query absent from the prior window is "not returned", never 0.
 create or replace function public.search_console_top_queries(
@@ -247,10 +268,16 @@ returns table (
 language sql
 stable
 as $$
-with n as (select greatest(coalesce(p_days, 28), 1) as days, least(greatest(coalesce(p_limit, 25), 1), 200) as lim),
+with property_scope as (
+  select case when count(distinct site_url) = 1 then min(site_url) end as site_url,
+         count(distinct site_url) as property_count
+  from public.search_console_site_daily
+  where company_entity_id = public.active_company_id()
+), n as (select greatest(coalesce(p_days, 28), 1) as days, least(greatest(coalesce(p_limit, 25), 1), 200) as lim),
 bounds as (
   select max(day_date) as max_day from public.search_console_site_daily
   where company_entity_id = public.active_company_id()
+    and site_url = (select site_url from property_scope)
 ),
 w as (
   select coalesce(p_end, b.max_day) as e, coalesce(p_end, b.max_day) - (n.days - 1) as s,
@@ -261,14 +288,14 @@ cur as (
   select q.query, sum(q.clicks) as clicks, sum(q.impressions) as impressions,
          sum(q.position * q.impressions) as pos_w, count(*) as days_present
   from public.search_console_query_daily q cross join w
-  where q.company_entity_id = public.active_company_id() and q.day_date between w.s and w.e
+  where q.company_entity_id = public.active_company_id() and q.site_url = (select site_url from property_scope) and q.day_date between w.s and w.e
   group by q.query
 ),
 prev as (
   select q.query, sum(q.clicks) as clicks, sum(q.impressions) as impressions,
          sum(q.position * q.impressions) as pos_w, count(*) as days_present
   from public.search_console_query_daily q cross join w
-  where q.company_entity_id = public.active_company_id() and q.day_date between w.ps and w.pe
+  where q.company_entity_id = public.active_company_id() and q.site_url = (select site_url from property_scope) and q.day_date between w.ps and w.pe
   group by q.query
 )
 select c.query, c.clicks, c.impressions,
@@ -304,11 +331,15 @@ set description = coalesce(description, '') ||
   ' OVERVIEW RPCS: search_console_overview(p_days, p_end) returns one jsonb '
   'with freshness (max_day, lag_days), the window, current and prior-period '
   'totals (pooled ctr, impression-weighted position, unattributed share, '
-  'capped_days) and a daily series; search_console_top_pages(p_days, p_end, '
+  'query_5000_row_days) and a daily series; search_console_top_pages(p_days, p_end, '
   'p_limit) and search_console_top_queries(...) return the top rows with the '
   'same row''s prior-window figures beside them (prior_* NULL = not returned '
   'in the prior window, never 0). Prefer these to hand-rolled aggregates so '
-  'the coverage facts travel with the numbers.',
+  'the coverage facts travel with the numbers. Results require exactly one '
+  'ingested property for the active company; multiple properties are ambiguous '
+  'and totals are withheld to avoid double counting. query_5000_row_days is '
+  'an observed row count, not a confirmed API cap. A window query share is '
+  'NULL if any included day is unmeasured or locally truncated.',
     updated_at = now()
 where relname = 'search_console_site_daily'
   and coalesce(description, '') not like '%OVERVIEW RPCS%';

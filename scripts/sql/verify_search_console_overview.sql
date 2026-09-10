@@ -11,7 +11,7 @@
 --   2. ctr is POOLED and position is IMPRESSION-WEIGHTED, never averaged
 --   3. the unattributed share is computed over measured days only and is
 --      NULL, not 0, when nothing was measured
---   4. capped_days counts days at the 5,000-row query cap
+--   4. query_5000_row_days counts days returning exactly 5,000 rows (not proof of a cap)
 --   5. a page/query with no prior-window row has NULL prior_* (not returned),
 --      and a prior of 0 clicks yields a NULL percent change, not a division
 --   6. prior is NULL as a whole when the prior window has no rows at all
@@ -54,7 +54,7 @@ begin
       case when d >= date '2026-09-06' then 100 else 50 end,           -- clicks: cur 300, prior 150
       case when d >= date '2026-09-06' then 1000 else 1000 end,        -- impressions: cur 3000, prior 3000
       case when d = date '2026-09-08' then 4.0 else 8.0 end,           -- position: weighted test
-      case when d = date '2026-09-07' then 5000 else 4000 end,         -- one capped day in cur
+      case when d = date '2026-09-07' then 5000 else 4000 end,         -- one 5,000-row day in cur
       case when d = date '2026-09-06' then null                        -- one UNMEASURED day in cur
            when d >= date '2026-09-06' then 57 else 30 end,
       10, case when d >= date '2026-09-06' then 100 else 50 end);
@@ -104,14 +104,14 @@ begin
 
   -- 4. unattributed share over MEASURED days only; one day unmeasured
   --    measured days 09-07 and 09-08: clicks 200, attributed 114 -> 0.43
-  out := out || case when (o->'current'->>'unattributed_query_click_share')::numeric = 0.43
+  out := out || case when (o->'current'->>'unattributed_query_click_share') is null
                       and (o->'current'->>'unmeasured_days')::int = 1
                      then 'PASS' else 'FAIL — ' || (o->'current'->>'unattributed_query_click_share') end
-      || ' — unattributed share over measured days only (0.43), 1 day unmeasured' || E'\n';
+      || ' — window share withheld when 1 day is unmeasured' || E'\n';
 
-  -- 5. capped days counted
-  out := out || case when (o->'current'->>'capped_days')::int = 1 then 'PASS' else 'FAIL' end
-      || ' — one day at the 5,000-row query cap' || E'\n';
+  -- 5. 5,000-row observations counted
+  out := out || case when (o->'current'->>'query_5000_row_days')::int = 1 then 'PASS' else 'FAIL' end
+      || ' — one day returning exactly 5,000 rows (not proof of a cap)' || E'\n';
 
   -- 6. prior totals present (150 clicks), and the series has 3 days
   out := out || case when (o->'prior'->>'clicks')::bigint = 150 and jsonb_array_length(o->'series') = 3
@@ -153,6 +153,35 @@ begin
   o := public.search_console_overview(3, date '2026-09-30');
   out := out || case when (o->'current'->>'days_present')::int = 0 and (o->'window'->>'end') = '2026-09-30' then 'PASS' else 'FAIL' end
       || ' — a window beyond the data has 0 days present, not zeros dressed as data' || E'\n';
+
+  -- Unequal daily denominators: a window share is not a mean of percentages.
+  update public.search_console_site_daily set clicks = 1000, query_attributed_clicks = 570
+    where company_entity_id = co and day_date = '2026-09-06';
+  update public.search_console_site_daily set query_attributed_clicks = 10, query_rows = 5000
+    where company_entity_id = co and day_date = '2026-09-07';
+  update public.search_console_site_daily set query_rows = 6000
+    where company_entity_id = co and day_date = '2026-09-08';
+  o := public.search_console_overview(3, null);
+  out := out || case when (o->'current'->>'unattributed_query_click_share')::numeric = 0.4692
+    and (o->'current'->>'query_5000_row_days')::int = 1 then 'PASS' else 'FAIL' end
+    || ' — pooled coverage and exactly-5000 observation (6000 is not mislabeled)' || E'\n';
+  update public.search_console_site_daily set is_truncated = true
+    where company_entity_id = co and day_date = '2026-09-07';
+  o := public.search_console_overview(3, null);
+  out := out || case when (o->'current'->>'unattributed_query_click_share') is null
+    and (o->'current'->>'page_attributed_share') is null then 'PASS' else 'FAIL' end
+    || ' — locally truncated days withhold coverage ratios' || E'\n';
+
+  -- A second property in the same company must not inflate totals.
+  insert into public.search_console_site_daily
+    (company_entity_id, site_url, day_date, clicks, impressions)
+  values (co, 'sc-domain:test.example', '2026-09-08', 999999, 999999);
+  o := public.search_console_overview(3, null);
+  out := out || case when (o->'freshness'->>'property_count')::int = 2
+    and (o->'current'->>'clicks') is null
+    and not exists(select 1 from public.search_console_top_pages(3, null, 10))
+    and not exists(select 1 from public.search_console_top_queries(3, null, 10))
+    then 'PASS' else 'FAIL' end || ' — ambiguous properties withheld' || E'\n';
 
   raise exception using message = out;
 end $test$;

@@ -105,7 +105,7 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); passed += 1; };
   ok(/none of which may be dropped when simplifying/i.test(SRC),
     'and the block is explicitly marked as non-droppable when simplifying');
   eq(REQUIRED_SEO_QUALIFIERS.length, 9, 'nine qualifiers are tracked');
-  ok(REQUIRED_SEO_QUALIFIERS.some((q) => /unattributed share/.test(q)),
+  ok(REQUIRED_SEO_QUALIFIERS.some((q) => /window share/.test(q)),
     'the query-attribution qualifier is in the tracked list');
   ok(REQUIRED_SEO_QUALIFIERS.some((q) => /not returned by Google, never zero clicks/.test(q)),
     'the page-absence qualifier is in the tracked list');
@@ -135,8 +135,14 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); passed += 1; };
   ok(/seo_collection_candidates\(90\)/.test(SRC), 'which starts from the candidate function');
   ok(/1b\. For each candidate, pull its SEARCH performance from search_console_page_daily/.test(SRC),
     'and now pulls per-page search performance as a step');
-  ok(/page_path = landing_page_path \(a page-to-page join; it attributes nothing to queries\)/.test(SRC),
-    'joined page-to-page, with the non-attribution stated in the step itself');
+  ok(SRC.includes('ONLY AFTER company, property and host matching'),
+    'path matching is scoped to the company, property and storefront');
+  ok(SRC.includes('never combine overlapping URL-prefix/domain properties'),
+    'overlapping properties cannot double-count a candidate');
+  ok(SRC.includes('Aggregate the search rows to one candidate/window before joining'),
+    'daily joins cannot multiply metrics');
+  ok(SRC.includes('OBSERVED PATTERN, NOT A CONFIRMED CAP'),
+    'row counts are evidence of a pattern rather than proof of a cap');
   ok(/"not returned by Search Console for this window", never zero clicks/.test(SRC),
     'a candidate with no rows is not-returned, in the step and in the output spec');
 }
