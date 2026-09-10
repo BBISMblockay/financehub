@@ -302,6 +302,66 @@ Search Console API in the existing Cloud project → Connect (a fresh consent
 is required; an existing refresh token does not carry a newly added scope)
 → Test to list properties → paste the identifier → run the probe.
 
+### Step 2b — connected and probed (2026-09-10)
+
+Connected the same day Search Console access arrived. What the connect
+sequence actually hit, in order, so the next tenant's setup is not a
+guessing game:
+
+1. OAuth consent accepted `webmasters.readonly` with no re-verification
+   event — the existing consent screen was fine.
+2. First Test returned **403 `accessNotConfigured`** naming Cloud project
+   `109468771479`: the Search Console API was not enabled there. It is the
+   same project as the Google Ads / GA4 client (one `GOOGLE_CLIENT_ID` serves
+   every Google platform in `google-oauth-start`), so whoever administers that
+   project enables it. One click; no credential or consent change.
+3. A second Connect while diagnosing created a **duplicate connection row**.
+   Connect always INSERTs; there is no replace-in-place for Google platforms
+   the way there is for the Meta token. The older row was deleted by hand.
+4. After enablement, a **400 `INVALID_ARGUMENT`** from `searchAnalytics` —
+   a malformed property string in the account field (a 403 "insufficient
+   permission" is what a well-formed-but-wrong property returns instead).
+   The Integrations Test button did not display the property list the tester
+   returns (it read only the Ads/GA4/Meta/TikTok result shapes), which is
+   what made the string a guess; fixed on `claude/current-project-repo-6qmj5o`.
+5. Test OK with `https://www.baseballism.com/`.
+
+**Property:** exactly one verified, `https://www.baseballism.com/`, a
+URL-PREFIX property (`siteFullUser`). There is no `sc-domain:` property, so
+`www`-only is the whole measured surface — traffic to any other host or
+scheme is invisible here, not zero.
+
+**Probe results** (`search-console-probe.yml` run 1, 28-day window
+2026-08-12 → 2026-09-08, `dataState=final`):
+
+| Measurement | Result | Consequence |
+|---|---|---|
+| Lag | newest **final** day is 2 days back (2026-09-08 on 2026-09-10); `all` reaches today but is partial | ingestion window ends `today - 2` Pacific and requests `dataState=final`; anything fresher is provisional and must be labelled so |
+| Retention | 498 final days, back to 2025-04-29 | a full backfill is feasible; any comparison older than ~16 months is unmeasurable, not flat |
+| Row cap | 25,000 per page; pagination works (date×query needed 6 pages, 125,846 rows) | tables can be COMPLETE lists of what Google returns, not top-N slices — the `shopify_landing_pages_daily` trap does not recur here |
+| **Query attribution** | query cut recovers **56.9% of clicks** (10,200 of 17,913) and 70.5% of impressions; **43.1% of clicks belong to no query row** (anonymised for privacy) | a "no query brought traffic to X" claim is unsafe by 43 points. Every query-grain surface must carry the unattributed share, per day |
+| Page attribution | page cut recovers **102.8% of clicks** and 172.2% of impressions | page grain is complete on clicks. Over 100% is Google's per-page counting: one query showing two of our URLs is one site impression but two page impressions, so page-level CTR and position are NOT comparable to site-level |
+| Cross-dimension loss | query×page recovers 58.2% of clicks — no worse than query alone | the loss is entirely the anonymised-query withholding, not the cross. Still: 41.8% of clicks cannot be tied to a query×page pair |
+
+**Schema consequences, decided by the numbers rather than recalled:**
+
+- **Three grains, three tables**, never joined into one figure: a site-daily
+  total (undimensioned — the denominator that makes the other two honest), a
+  page-daily table (complete on clicks; impressions/CTR/position are
+  page-level semantics), and a query-daily table (57% of clicks; the
+  remainder is a per-day `unattributed_clicks` computed against the site
+  total and stored, not inferred later).
+- The catalog entry for the query table states the 43% as a number, which
+  is what the probe existed to make possible.
+- A query×page table is not needed for measurement and would invite the
+  exact inference the withheld rows make unsupportable. If one is ever built
+  it is for drill-down only and carries the same unattributed share.
+- `search_console_site_url` stays the verbatim `sites.list` string, so the
+  ingestion request is the same one the probe made.
+- Not yet measured: URL Inspection quota (a separate API with its own
+  limits), which decides whether indexing checks are on-demand or a slow
+  background crawl. The probe does not touch it.
+
 ## Step 5 — project workflow schema (shipped 2026-09-09)
 
 ### Why new tables rather than the existing task system
