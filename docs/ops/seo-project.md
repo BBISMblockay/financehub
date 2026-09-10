@@ -419,12 +419,26 @@ not "complete per row".
    wrong denominator; a share near 0% means the query fetch returned
    nothing.
 3. Dispatch `search-console-backfill.yml` with defaults. ~18 chunks.
-4. Only then: point Ask SILO at it. **`silo-chat/index.ts` still says "SILO
-   holds NO Search Console data"** and two test files pin that sentence
-   (`prompt.test.mjs`, `seo-orchestration.test.mjs` §5). Until the prompt is
-   changed and the function deployed, the model has the catalog telling it
-   the tables exist and the prompt telling it they do not. That contradiction
-   is the next step's whole job, not a bug in this one.
+4. ~~Point Ask SILO at it~~ **Prompt rewritten 2026-09-10, deploy pending.**
+   `silo-chat/index.ts` no longer says "SILO holds NO Search Console data";
+   the SEO paragraph now names the three tables and binds the two failure
+   modes into the rules (query data partial by construction, cite the stored
+   per-day unattributed share; a missing page row is not-returned, never
+   zero), states the 2-day lag and the backfill horizon check, forbids the
+   query x page join, and keeps indexing status as unavailable (no URL
+   Inspection data). The workflow gained step 1b (per-candidate search
+   performance from `search_console_page_daily`, page-to-page join) and the
+   output spec carries clicks/impressions/position or "not returned". Both
+   test files now pin the NEW sentences and assert the old ones are absent;
+   three mutations (old claim restored, share binding dropped, absence read
+   as zero) each fail exactly one assertion. **Until `silo-chat` is deployed
+   through `deploy-edge-function.yml`, production still runs the old prompt**
+   and the daily drift check will show it as differing from `main`. The live
+   smoke test after deploy: ask which queries bring the most clicks over the
+   last four weeks (the answer must carry the unattributed share in the
+   claim sentence), and whether a specific collection page gets search
+   traffic (an absent page must read as not-returned, with the day's
+   page_attributed_clicks share, never as zero).
 
 ## Step 5 — project workflow schema (shipped 2026-09-09)
 
@@ -831,7 +845,7 @@ does not exist. Each line is a claim about the SYSTEM, not about intent.
 | **Shopify evidence** | **Operational** | `shopify_landing_pages_daily` holds 730 days (2024-09-09 → 2026-09-08), 182,502 rows, 7,162 paths for the DTC store. `shopify_sessions_daily` holds 744 days of store-level totals. `shopify_collections` registry is complete and swept nightly. |
 | **Page inspection** | **Operational** | `page-inspect` v1 deployed, `verify_jwt: true`, host allowlist read under the caller's JWT from `shopify_shop_domains`. Verified live against `/collections/mlb`. |
 | **Candidate selection** | **Operational (new)** | `seo_collection_candidates(p_days, p_shop_domain)` returns collection landing pages with a shop-scoped `inspect_url` already built. |
-| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). Tables + nightly + backfill written (Step 2c) but **not yet applied, enabled or run** — until the migration is applied and the Sync toggle is on, **no queries, impressions, clicks, CTR or positions exist anywhere in SILO**, and Ask SILO's prompt still says so. Indexing status is a separate API, unprobed. |
+| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). Tables applied, sync enabled, first nightly run landed 31 days (2026-08-09 → 2026-09-08: 19,825 clicks, 70,413 page rows, 140,846 query rows, query cut 56.6% of clicks) — reconciling with the probe. Backfill pending. Ask SILO's prompt rewritten to use it; **function deploy pending**. Indexing status is a separate API, unprobed. |
 | **Competitor SERP monitoring** | **Not integrated** | No SERP data source of any kind. Competitor rank snapshots cannot be produced. |
 | **Google Ads search-term / keyword / ad-asset grains** | **Not integrated** | `marketing_kpis_daily` is CAMPAIGN grain only — 8 Google campaigns. No search terms, keywords, negatives or RSA assets. |
 | **Draft → approval → baseline → 30d → 90d workflow** | **Schema only, not built** | `20260909240000` created the tables and invariants; nothing writes to them and there is no UI. Recommendations today are chat output, not tracked projects. |

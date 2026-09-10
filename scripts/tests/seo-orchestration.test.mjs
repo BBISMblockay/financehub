@@ -1,4 +1,4 @@
-/* Ask SILO's pre-Search-Console SEO workflow: orchestration and qualifiers.
+/* Ask SILO's SEO workflow: orchestration and qualifiers.
  *
  * What these can and cannot prove. They do NOT run the model, so they cannot
  * show that it *chooses* well. They pin the things that are decided in CODE
@@ -104,17 +104,41 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); passed += 1; };
   ok(/Do not call them organic traffic/i.test(SRC), 'on-site sessions are not organic traffic');
   ok(/none of which may be dropped when simplifying/i.test(SRC),
     'and the block is explicitly marked as non-droppable when simplifying');
-  eq(REQUIRED_SEO_QUALIFIERS.length, 7, 'seven qualifiers are tracked');
+  eq(REQUIRED_SEO_QUALIFIERS.length, 9, 'nine qualifiers are tracked');
+  ok(REQUIRED_SEO_QUALIFIERS.some((q) => /unattributed share/.test(q)),
+    'the query-attribution qualifier is in the tracked list');
+  ok(REQUIRED_SEO_QUALIFIERS.some((q) => /not returned by Google, never zero clicks/.test(q)),
+    'the page-absence qualifier is in the tracked list');
+  ok(!REQUIRED_SEO_QUALIFIERS.some((q) => /holds no Search Console data/.test(q)),
+    'the retired "no Search Console data" qualifier is gone from the list');
 }
 
-// ── 5. Missing Search Console blocks rank claims but not Shopify work ────────
+// ── 5. Search Console is ingested: rank claims are sourced, not forbidden ────
+// Until 2026-09-10 the rule was "that data does not exist here". Now it does,
+// and the failure modes flip: a query number without its unattributed share,
+// a page absence read as zero, or a window claimed before the backfill
+// covers it. The old fallback sentence must be GONE, or the model holds two
+// contradicting instructions (the catalog says the tables exist).
 {
-  ok(/Never claim, imply or estimate Google queries, keywords, indexing status, rankings/i.test(SRC),
-    'ranking/query/indexing claims are forbidden');
-  ok(/say Search Console is not connected yet/i.test(SRC), 'and the honest fallback is named');
-  ok(/THE PRE-SEARCH-CONSOLE SEO WORKFLOW/i.test(SRC),
-    'while a full Shopify-grounded workflow is still offered -- absence of GSC does not block it');
+  ok(!/say Search Console is not connected yet/i.test(SRC), 'the "not connected yet" fallback is gone');
+  ok(!/SILO holds NO Search Console data/.test(SRC), 'the "holds NO Search Console data" claim is gone');
+  ok(/come ONLY from the search_console_\* tables/.test(SRC),
+    'search numbers are sourced from the tables and nowhere else');
+  ok(/every query-level figure carries that window's unattributed share/i.test(SRC),
+    'query-level figures carry the unattributed share');
+  ok(/IS NOT RETURNED, NEVER ZERO/.test(SRC), 'page absence is not-returned, never zero');
+  ok(/not ingested for that window/i.test(SRC), 'and the new honest fallback is named');
+  ok(/Indexing status is NOT available -- there is no URL Inspection data/.test(SRC),
+    'indexing remains unavailable and says why');
+  ok(/THE SEO WORKFLOW\./.test(SRC) && !/PRE-SEARCH-CONSOLE/.test(SRC),
+    'the workflow is no longer labelled pre-Search-Console');
   ok(/seo_collection_candidates\(90\)/.test(SRC), 'which starts from the candidate function');
+  ok(/1b\. For each candidate, pull its SEARCH performance from search_console_page_daily/.test(SRC),
+    'and now pulls per-page search performance as a step');
+  ok(/page_path = landing_page_path \(a page-to-page join; it attributes nothing to queries\)/.test(SRC),
+    'joined page-to-page, with the non-attribution stated in the step itself');
+  ok(/"not returned by Search Console for this window", never zero clicks/.test(SRC),
+    'a candidate with no rows is not-returned, in the step and in the output spec');
 }
 
 // ── 6. Campaign-grain ad data cannot become search-term evidence ─────────────
