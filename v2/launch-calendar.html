@@ -619,6 +619,10 @@
             <input type="hidden" id="taskEditId" value="" />
             <div class="dp-title" id="taskFormTitle" style="margin-bottom:8px;">New task</div>
             <div class="bcn-field-group"><label class="bcn-label">TASK TITLE *</label><input class="bcn-field" id="taskTitle" required /></div>
+            <!-- Optional. A launch task with no initiative stays a task on the
+                 launch itself, exactly as before. -->
+            <div class="bcn-field-group"><label class="bcn-label">INITIATIVE (OPTIONAL)</label>
+              <select class="bcn-field" id="taskInitiative"><option value="">— This launch —</option></select></div>
             <div class="dp-g3">
               <div class="bcn-field-group"><label class="bcn-label">DUE DATE</label><input class="bcn-field" id="taskDue" type="date" /></div>
               <div class="bcn-field-group"><label class="bcn-label">PRIORITY</label><select class="bcn-field" id="taskPriority"><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option></select></div>
@@ -2374,6 +2378,15 @@ async function deleteChannel(id){
   await deleteRow('launch_channel_items', id, 'Initiative', 'dp-channels');
 }
 
+function fillTaskInitiatives(selected){
+  const el=$('taskInitiative'); if(!el) return;
+  // `channels` is the live array; CHANNELS (upper) is the demo fixture, and
+  // reading that one would have shown an empty picker against real data.
+  const mine=activeLaunch ? (channels||[]).filter(c=>String(c.launch_id)===String(activeLaunch.id)) : [];
+  el.innerHTML='<option value="">— This launch —</option>'+mine.map(c=>
+    `<option value="${esc(c.id)}">${esc([c.channel,c.item_title].filter(Boolean).join(' · '))}</option>`).join('');
+  el.value=selected||'';
+}
 function resetTaskForm(){ $('taskForm').reset(); $('taskEditId').value=''; $('taskFormTitle').textContent='New task'; $('taskFormSaveBtn').textContent='SAVE TASK'; }
 function closeTaskForm(){ $('taskForm').style.display='none'; resetTaskForm(); }
 function populateAssigneeDropdown(selectedUserId){
@@ -2389,6 +2402,7 @@ function populateAssigneeDropdown(selectedUserId){
 }
 function openTaskForm(row){
   resetTaskForm(); $('taskForm').style.display='';
+  fillTaskInitiatives(row ? row.channel_item_id : null);
   populateAssigneeDropdown(row?.assigned_to_user_id||null);
   if(row){
     $('taskEditId').value=row.id;
@@ -2405,7 +2419,8 @@ function openTaskForm(row){
 function taskPayloadFromForm(){
   const assignId=$('taskAssignTo').value||null;
   const assignUser=assignId?siloUsers.find(u=>u.id===assignId):null;
-  return { task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null, assigned_to_user_id:assignId, assigned_to_name:assignUser?(assignUser.name||assignUser.email):null };
+  return { channel_item_id:$('taskInitiative').value||null,
+           task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null, assigned_to_user_id:assignId, assigned_to_name:assignUser?(assignUser.name||assignUser.email):null };
 }
 async function saveTask(e){
   e.preventDefault(); if(!activeLaunch) return;

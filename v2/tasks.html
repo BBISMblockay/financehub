@@ -176,9 +176,8 @@
         <input class="bcn-field" type="text" id="fSearch" placeholder="Search tasks…" style="min-width:200px;" />
       </div>
       <div class="bcn-filter">
-        <select class="bcn-field" id="fLaunch">
-          <option value="">All launches</option>
-          <option value="__evergreen__">Evergreen (no launch)</option>
+        <select class="bcn-field" id="fParent" title="Filter by initiative, launch, or unattached tasks">
+          <option value="">All tasks</option>
         </select>
       </div>
       <div class="bcn-filter">
@@ -262,12 +261,15 @@
       <input class="bcn-field" type="text" id="dTitle" placeholder="Describe the task…" />
     </div>
 
-    <!-- Launch (optional — leave blank for evergreen tasks) -->
+    <!-- Attach to (optional). A task made here needs no parent at all. -->
     <div class="bcn-field-group">
-      <label class="bcn-label" for="dLaunch">Launch <span style="font-weight:400;color:var(--bcn-ink-3)">(optional)</span></label>
-      <select class="bcn-field" id="dLaunch">
-        <option value="">— Evergreen (no launch) —</option>
+      <label class="bcn-label" for="dParent">Attach to <span style="font-weight:400;color:var(--bcn-ink-3)">(optional)</span></label>
+      <select class="bcn-field" id="dParent">
+        <option value="">— Nothing (evergreen) —</option>
       </select>
+      <div style="font-size:11px;color:var(--bcn-ink-3);margin-top:4px;">
+        An initiative, a launch, or leave it unattached.
+      </div>
     </div>
 
     <div class="tm-field-row">
@@ -396,6 +398,7 @@
   /* ── State ─────────────────────────────────────────────────────── */
   let allTasks      = [];
   let allLaunches   = [];
+  let allInitiatives = [];
   let allProfiles   = [];
   let filteredTasks = [];
 
@@ -454,6 +457,79 @@
       .replace(/"/g, '&quot;');
   }
 
+  /* ── One parent, chosen once ──────────────────────────────────────────
+     A task belongs to an initiative, a launch, or nothing. Offering two
+     separate pickers would let someone choose a launch AND an initiative
+     from a different launch -- a disagreement the database then has to
+     correct behind their back. One list, prefixed values, no contradiction
+     available to pick.
+
+     NOTHING here is required: the first option is Evergreen, and a task made
+     in Task Manager with no parent stays that way. */
+  const PARENT_NONE = '';
+
+  function parentValueOf(task) {
+    if (!task) return PARENT_NONE;
+    if (task.channel_item_id) return 'I:' + task.channel_item_id;
+    if (task.launch_id) return 'L:' + task.launch_id;
+    return PARENT_NONE;
+  }
+
+  // Returns the two columns to write. launch_id is left for the DATABASE to
+  // derive when an initiative is chosen -- deriving it here as well would put
+  // the rule in two places and let them drift.
+  function parentColumns(value) {
+    if (value && value.startsWith('I:')) return { channel_item_id: value.slice(2) };
+    if (value && value.startsWith('L:')) return { channel_item_id: null, launch_id: value.slice(2) };
+    return { channel_item_id: null, launch_id: null };
+  }
+
+  function initiativeLabel(i) {
+    const when = i.scheduled_date ? ' · ' + i.scheduled_date : '';
+    const ch = i.channel ? i.channel + ' · ' : '';
+    return ch + (i.item_title || 'Untitled') + when;
+  }
+
+  // Fills a <select> with Launches and Initiatives as two groups.
+  function fillParentSelect(el, noneLabel) {
+    el.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = PARENT_NONE; none.textContent = noneLabel;
+    el.appendChild(none);
+
+    if (allInitiatives.length) {
+      const g = document.createElement('optgroup');
+      g.label = 'Initiatives';
+      allInitiatives.forEach(i => {
+        const o = document.createElement('option');
+        o.value = 'I:' + i.id; o.textContent = initiativeLabel(i);
+        g.appendChild(o);
+      });
+      el.appendChild(g);
+    }
+    if (allLaunches.length) {
+      const g = document.createElement('optgroup');
+      g.label = 'Launches';
+      allLaunches.forEach(l => {
+        const o = document.createElement('option');
+        o.value = 'L:' + l.id; o.textContent = l.title;
+        g.appendChild(o);
+      });
+      el.appendChild(g);
+    }
+  }
+
+  // What to show in the list's Parent column, and what a filter matches on.
+  function parentOf(task) {
+    if (task.channel_item_id) {
+      const i = allInitiatives.find(x => x.id === task.channel_item_id);
+      return { kind: 'initiative', title: i ? (i.item_title || 'Untitled') : 'Initiative (removed)',
+               launchId: task.launch_id };
+    }
+    if (task.launch_id) return { kind: 'launch', title: launchName(task.launch_id), launchId: task.launch_id };
+    return { kind: 'evergreen', title: 'Evergreen', launchId: null };
+  }
+
   /* ── Load all data in parallel ─────────────────────────────────── */
   async function loadAll() {
     setStatus('Loading…', 'info');
@@ -462,19 +538,29 @@
       if (_co?.id) _qt = _qt.eq('company_entity_id', _co.id);
       let _ql = db.from('launch_calendar').select('id, title, launch_date').order('launch_date', { ascending: false });
       if (_co?.id) _ql = _ql.eq('company_entity_id', _co.id);
-      const [tasksRes, launchRes, profilesRes, profileMe] = await Promise.all([
+      // Initiatives are the launch calendar's "Channel Initiatives" -- one
+      // dated touch each. A task can now hang off one of these instead of the
+      // whole launch.
+      let _qi = db.from('launch_channel_items')
+        .select('id, item_title, channel, scheduled_date, launch_id')
+        .order('scheduled_date', { ascending: false });
+      if (_co?.id) _qi = _qi.eq('company_entity_id', _co.id);
+      const [tasksRes, launchRes, initRes, profilesRes, profileMe] = await Promise.all([
         _qt,
         _ql,
+        _qi,
         db.from('profiles').select('id, name, email, avatar_url').eq('is_active', true).order('name'),
         db.from('profiles').select('role').eq('id', currentUser.id).single(),
       ]);
 
       if (tasksRes.error)    throw tasksRes.error;
       if (launchRes.error)   throw launchRes.error;
+      if (initRes.error)     throw initRes.error;
       if (profilesRes.error) throw profilesRes.error;
 
       allTasks    = tasksRes.data    || [];
       allLaunches = launchRes.data   || [];
+      allInitiatives = initRes.data  || [];
       allProfiles = profilesRes.data || [];
       if (profileMe.data) currentRole = profileMe.data.role || 'user';
 
@@ -491,13 +577,13 @@
   /* ── Populate filter dropdowns ─────────────────────────────────── */
   function populateFilterDropdowns() {
     // filter: launches
-    const fLaunch = document.getElementById('fLaunch');
-    fLaunch.innerHTML = '<option value="">All launches</option><option value="__evergreen__">Evergreen (no launch)</option>';
-    allLaunches.forEach(l => {
-      const o = document.createElement('option');
-      o.value = l.id; o.textContent = l.title;
-      fLaunch.appendChild(o);
-    });
+    const fParent = document.getElementById('fParent');
+    const keepFilter = fParent.value;
+    fillParentSelect(fParent, 'All tasks');
+    const ever = document.createElement('option');
+    ever.value = '__evergreen__'; ever.textContent = 'Evergreen (unattached)';
+    fParent.insertBefore(ever, fParent.children[1] || null);
+    fParent.value = keepFilter;
 
     // filter: assignees
     const fAssignee = document.getElementById('fAssignee');
@@ -518,14 +604,8 @@
       fType.appendChild(o);
     });
 
-    // drawer: launches
-    const dLaunch = document.getElementById('dLaunch');
-    dLaunch.innerHTML = '<option value="">— Evergreen (no launch) —</option>';
-    allLaunches.forEach(l => {
-      const o = document.createElement('option');
-      o.value = l.id; o.textContent = l.title;
-      dLaunch.appendChild(o);
-    });
+    // drawer: one "attach to" list -- initiatives and launches together
+    fillParentSelect(document.getElementById('dParent'), '— Nothing (evergreen) —');
 
     // drawer: assignees
     const dAssignee = document.getElementById('dAssignee');
@@ -597,7 +677,7 @@
   /* ── Filter logic ──────────────────────────────────────────────── */
   function applyFilters() {
     const search   = document.getElementById('fSearch').value.trim().toLowerCase();
-    const launch   = document.getElementById('fLaunch').value;
+    const parent   = document.getElementById('fParent').value;
     const assignee = document.getElementById('fAssignee').value;
     const priority = document.getElementById('fPriority').value;
     const statusF  = document.getElementById('fStatus').value;
@@ -608,8 +688,12 @@
         const hay = ((t.task_title || '') + ' ' + (t.notes || '')).toLowerCase();
         if (!hay.includes(search)) return false;
       }
-      if (launch === '__evergreen__') { if (t.launch_id) return false; }
-      else if (launch && t.launch_id !== launch) return false;
+      // Evergreen means attached to NOTHING -- neither an initiative nor a
+      // launch. Filtering on a launch still includes tasks reached through one
+      // of its initiatives, since those are that launch's work too.
+      if (parent === '__evergreen__') { if (t.launch_id || t.channel_item_id) return false; }
+      else if (parent.startsWith('I:')) { if (t.channel_item_id !== parent.slice(2)) return false; }
+      else if (parent.startsWith('L:')) { if (t.launch_id !== parent.slice(2)) return false; }
       if (viewUserId && t.assigned_to_user_id !== viewUserId) return false;
       if (assignee === '__me__'   && t.assigned_to_user_id !== currentUser.id) return false;
       if (assignee === '__none__' && t.assigned_to_user_id)                    return false;
@@ -657,10 +741,15 @@
       const dc     = dueCss(t.due_date, t.status);
       const rowCls = dc ? `tm-row--${dc}` : '';
       const dueCls = dc ? `tm-due--${dc}` : '';
-      const lName  = launchName(t.launch_id);
+      const par    = parentOf(t);
+      const lName  = par.title;
       const aName  = t.assigned_to_name || (t.assigned_to_user_id ? profileName(t.assigned_to_user_id) : '—');
-      const launchCell = t.launch_id
-        ? `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(t.launch_id)}" style="color:var(--bcn-accent);font-weight:600;text-decoration:none;">${escHtml(lName)}</a>`
+      // An initiative is named as itself, and still links through to the
+      // launch it sits on -- that is where you go to see it in context.
+      const launchCell = par.kind !== 'evergreen'
+        ? `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(par.launchId || '')}" style="color:var(--bcn-accent);font-weight:600;text-decoration:none;">`
+          + (par.kind === 'initiative' ? '<span title="Initiative" style="opacity:.7;margin-right:3px;">&#9671;</span>' : '')
+          + `${escHtml(lName)}</a>`
         : '<span class="bcn-pill bcn-pill--dark" style="font-size:10px;">Evergreen</span>';
       const orderCell = viewUserId
         ? `<td class="tm-order-col" style="white-space:nowrap;">
@@ -761,7 +850,7 @@
     document.getElementById('drawerTitle').textContent  = isNew ? 'New Task' : (task.task_title || 'Edit Task');
     document.getElementById('dTaskId').value            = isNew ? '' : task.id;
     document.getElementById('dTitle').value             = isNew ? '' : (task.task_title || '');
-    document.getElementById('dLaunch').value            = isNew ? '' : (task.launch_id || '');
+    document.getElementById('dParent').value            = isNew ? '' : parentValueOf(task);
     document.getElementById('dType').value              = isNew ? '' : (task.task_type || '');
     document.getElementById('dDueDate').value           = isNew ? '' : (task.due_date || '');
     document.getElementById('dNotes').value             = isNew ? '' : (task.notes || '');
@@ -794,7 +883,7 @@
   async function saveDrawer() {
     const id         = document.getElementById('dTaskId').value;
     const title      = document.getElementById('dTitle').value.trim();
-    const launchId   = document.getElementById('dLaunch').value;
+    const parentVal  = document.getElementById('dParent').value;
     const assigneeId = document.getElementById('dAssignee').value;
 
     if (!title) {
@@ -807,7 +896,10 @@
 
     const payload = {
       task_title:          title,
-      launch_id:           launchId || null,
+      // channel_item_id and/or launch_id. When an initiative is chosen the
+      // launch is derived by the DATABASE, not sent from here -- one rule, one
+      // place, so the two columns cannot drift apart.
+      ...parentColumns(parentVal),
       task_type:           document.getElementById('dType').value.trim() || null,
       due_date:            document.getElementById('dDueDate').value     || null,
       notes:               document.getElementById('dNotes').value.trim()   || null,
@@ -890,7 +982,7 @@
     if (task) openDrawer(task);
   });
 
-  ['fSearch', 'fLaunch', 'fAssignee', 'fPriority', 'fStatus', 'fType'].forEach(id => {
+  ['fSearch', 'fParent', 'fAssignee', 'fPriority', 'fStatus', 'fType'].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('input',  applyFilters);
     el.addEventListener('change', applyFilters);
@@ -930,7 +1022,13 @@
     if (v === 'me') setViewMode(currentUser.id);
     else if (v) setViewMode(v);
     const l = qp.get('launch');
-    if (l) { document.getElementById('fLaunch').value = (l === 'evergreen') ? '__evergreen__' : l; applyFilters(); }
+    // ?launch=<id> and ?launch=evergreen still work: other pages already emit
+    // those links, and breaking them to tidy a value prefix would be a silent
+    // dead end for anyone holding one.
+    if (l) {
+      document.getElementById('fParent').value = (l === 'evergreen') ? '__evergreen__' : ('L:' + l);
+      applyFilters();
+    }
     const a = qp.get('assignee');
     if (a) { document.getElementById('fAssignee').value = (a === 'me') ? '__me__' : a; applyFilters(); }
   }
