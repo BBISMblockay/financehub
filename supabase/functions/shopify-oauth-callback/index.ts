@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CLIENT_ID = Deno.env.get('SHOPIFY_CLIENT_ID') ?? '';
 const CLIENT_SECRET = Deno.env.get('SHOPIFY_CLIENT_SECRET') ?? '';
-const SILO_APP_URL = Deno.env.get('SILO_APP_URL') ?? 'https://bbismblockay.github.io/financehub';
+const SILO_APP_URL = Deno.env.get('SILO_APP_URL') ?? 'https://silo-baseballism.com';
 const API_VERSION = '2025-01';
 
 async function verifyHmac(params: URLSearchParams, hmac: string): Promise<boolean> {
@@ -43,7 +43,6 @@ Deno.serve(async (req) => {
   if (!code || !shop || !state || !hmac) return errorRedirect('missing_params');
   if (!CLIENT_ID || !CLIENT_SECRET) return errorRedirect('server_misconfigured');
 
-  // Verify HMAC
   const valid = await verifyHmac(params, hmac);
   if (!valid) return errorRedirect('invalid_hmac');
 
@@ -52,7 +51,6 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  // Look up + consume state (CSRF check)
   const { data: stateRow, error: stateErr } = await supabase
     .from('shopify_oauth_states')
     .select('*')
@@ -62,13 +60,10 @@ Deno.serve(async (req) => {
 
   if (stateErr || !stateRow) return errorRedirect('invalid_or_expired_state');
 
-  // Delete immediately (one-time use)
   await supabase.from('shopify_oauth_states').delete().eq('nonce', state);
 
-  // Ensure the shop matches what we started with
   if (stateRow.shop_domain !== shop) return errorRedirect('shop_mismatch');
 
-  // Exchange code for access token
   const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -80,17 +75,14 @@ Deno.serve(async (req) => {
   const accessToken: string = tokenData.access_token;
   if (!accessToken) return errorRedirect('no_access_token');
 
-  // Fetch shop info
   const shopRes = await fetch(`https://${shop}/admin/api/${API_VERSION}/shop.json`, {
     headers: { 'X-Shopify-Access-Token': accessToken },
   });
   const shopJson = shopRes.ok ? await shopRes.json() : {};
   const shopInfo = shopJson.shop ?? {};
 
-  // Parse scopes granted
   const scopesGranted: string[] = (tokenData.scope ?? '').split(',').filter(Boolean);
 
-  // Upsert into shopify_connections
   const { error: upsertErr } = await supabase
     .from('shopify_connections')
     .upsert({

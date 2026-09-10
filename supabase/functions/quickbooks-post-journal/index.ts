@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
     });
 
     entryDate = batch.entry_date;
-    privateNote = `SILO card coding \u00b7 ${src.display_name} \u00b7 ${batch.label || ''}`.trim();
+    privateNote = `SILO card coding · ${src.display_name} · ${batch.label || ''}`.trim();
     periodStart = batch.period_start;
     periodEnd = batch.period_end;
     source = 'card_import';
@@ -336,7 +336,7 @@ Deno.serve(async (req) => {
     }));
 
     entryDate = adj.entry_date;
-    privateNote = `SILO adjustment \u00b7 ${adj.memo}`.slice(0, 4000);
+    privateNote = `SILO adjustment · ${adj.memo}`.slice(0, 4000);
     periodStart = adj.entry_date;
     periodEnd = adj.entry_date;
     source = 'journal_adjustment';
@@ -378,7 +378,7 @@ Deno.serve(async (req) => {
     }).select('id').single();
 
   if (claimErr) {
-    // 23505 is the unique violation: someone already posted this batch.
+    // 23505 is the unique violation: someone already posted this.
     if ((claimErr as any).code === '23505') {
       return json({
         error: batch_id
@@ -390,7 +390,7 @@ Deno.serve(async (req) => {
   }
 
   const fail = async (msg: string, extra: Record<string, unknown> = {}) => {
-    // Release the claim so a fixed batch can be posted, and keep the reason.
+    // Release the claim so a fixed entry can be posted, and keep the reason.
     await supabase.from('quickbooks_journal_postings')
       .update({ status: 'failed', error_message: msg.slice(0, 500), ...extra })
       .eq('id', claim.id);
