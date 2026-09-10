@@ -383,3 +383,13 @@ supabase/
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
+
+- `20260910120000_tasks_on_initiatives.sql` — a task can be attached to an
+  **initiative** (`launch_channel_items`), not only a launch. Adds
+  `launch_tasks.channel_item_id` (`ON DELETE SET NULL` — removing an initiative
+  must not delete somebody's task), a BEFORE trigger deriving `launch_id` from the
+  initiative so the two columns can never disagree about which launch a task is on,
+  an AFTER trigger on `launch_channel_items` so moving an initiative moves its
+  tasks, and `tasks_v` (**`security_invoker`** — `launch_tasks` hides private tasks
+  from all but their assignee and creator). Nothing is required: a task created in
+  Task Manager with no parent stays evergreen and never reaches the new triggers.
