@@ -49,11 +49,11 @@ const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'notif
 //
 //   deployedSha256  the `ezbr_sha256` of the deployed bundle. Moves whenever
 //                   PRODUCTION changes.
-//   repoBlobs       the git blob sha of every repo file the deferral covers,
-//                   read from HEAD. Moves whenever a covered file changes.
-//   repoTree        the whole function directory's tree in HEAD, including
-//                   names and modes. Also catches additions and renames that
-//                   the production download leaves untouched in the checkout.
+//   repoTree        the function directory's git tree in HEAD. A tree hash
+//                   covers every name, mode and blob under it, so this moves
+//                   whenever the REPO changes -- an edit, an addition, a
+//                   removal or a rename, including ones `git status` cannot
+//                   see because the download left those files untouched.
 //
 // Pinning production alone is not enough, and that was the first version of
 // this: a change merged to the function and never deployed leaves the
@@ -71,9 +71,6 @@ const DEFERRED_DRIFT = new Map([
     since: '2026-09-10',
     deployedSha256: '2f4a4bc09f8c688b837841748f34481a752fc5a4023339047f0c23697ff58ba0', // v9
     repoTree: 'fe96e373c6619839a939d9684d37a57e68e2cc31', // HEAD:supabase/functions/card-categorize
-    repoBlobs: {
-      'supabase/functions/card-categorize/index.ts': '1401c4b3153e0648d98e1a2fc345b390bc10ed5c',
-    },
     why: 'the difference is a prompt RULE, not a merge -- production says a card-name '
       + 'match should set the location, main says only name a location when the merchant '
       + 'or card clearly belongs to one store. Deferred until there is enough real card '
@@ -139,15 +136,16 @@ for (const line of status) {
 /**
  * Why this deferral no longer applies, or '' if it still does.
  *
- * Judged per FUNCTION rather than per file, because a deferral has to
- * account for every file drifting under it -- a second file appearing is
- * new drift, not deferred drift.
+ * Two pins, one per side, and both must hold. Judged per FUNCTION rather
+ * than per file: the repo side is the directory's whole tree, which already
+ * accounts for every file under it, so there is nothing left for a per-file
+ * check to add.
  *
- * The repo side reads `git rev-parse HEAD:<path>`, which is the COMMIT's
- * blob and so is unaffected by `supabase functions download` having just
- * overwritten the working tree with the deployed source.
+ * Reads `HEAD:<path>`, the COMMIT's tree, so it is unaffected by
+ * `supabase functions download` having just overwritten the working tree
+ * with the deployed source.
  */
-function deferralBreak(slug, paths, d) {
+function deferralBreak(slug, d) {
   const live = shaBySlug.get(slug);
   // Fail closed: a pin that cannot be checked is not a pin.
   if (!live) return `the Management API reported no ezbr_sha256 for ${slug}, so the deferral's pin could not be verified`;
@@ -155,8 +153,10 @@ function deferralBreak(slug, paths, d) {
     return `PRODUCTION CHANGED since the deferral was recorded on ${d.since}: the deployed bundle is `
       + `${live.slice(0, 12)}, pinned at ${d.deployedSha256.slice(0, 12)}`;
   }
-  // Git status cannot see a newly committed file that the download leaves
-  // untouched. Pin the complete directory, not just the files that drift.
+  // The whole directory, not the files git happens to report. `git status`
+  // cannot see a file committed to the repo that the deployment lacks -- the
+  // download leaves it alone, so it matches HEAD and reports nothing -- and a
+  // tree hash catches it because the tree covers names and modes too.
   let liveTree;
   try {
     liveTree = execFileSync('git', ['rev-parse', `HEAD:${FN_DIR}/${slug}`], { encoding: 'utf8' }).trim();
@@ -165,26 +165,8 @@ function deferralBreak(slug, paths, d) {
   }
   if (!d.repoTree || liveTree !== d.repoTree) {
     return `THE REPO CHANGED since the deferral was recorded on ${d.since}: ${slug} has tree `
-      + `${liveTree.slice(0, 12)}, pinned at ${d.repoTree || 'no repo tree'}. `
-      + 'Changes to the function directory are new drift, even when the download leaves those files untouched';
-  }
-  const covered = Object.keys(d.repoBlobs || {});
-  const uncovered = paths.filter((path) => !covered.includes(path));
-  if (uncovered.length) {
-    return `the deferral does not cover ${uncovered.join(', ')} -- it names only ${covered.join(', ')}`;
-  }
-  for (const [path, blob] of Object.entries(d.repoBlobs || {})) {
-    let liveBlob;
-    try {
-      liveBlob = execFileSync('git', ['rev-parse', `HEAD:${path}`], { encoding: 'utf8' }).trim();
-    } catch {
-      return `${path} is no longer in HEAD, so the deferral's pin is meaningless`;
-    }
-    if (liveBlob !== blob) {
-      return `THE REPO CHANGED since the deferral was recorded on ${d.since}: ${path} is blob `
-        + `${liveBlob.slice(0, 12)}, pinned at ${blob.slice(0, 12)}. A change merged to a deferred `
-        + 'function and never deployed is drift too, and is not what was deferred';
-    }
+      + `${liveTree.slice(0, 12)}, pinned at ${d.repoTree || 'no repo tree'}. An edit, an addition, `
+      + 'a removal or a rename in a deferred function is new drift, and is not what was deferred';
   }
   return '';
 }
@@ -204,7 +186,7 @@ const stillModified = [];
 for (const [slug, paths] of modifiedBySlug) {
   const d = DEFERRED_DRIFT.get(slug);
   if (!d) { stillModified.push(...paths); continue; }
-  const why = deferralBreak(slug, paths, d);
+  const why = deferralBreak(slug, d);
   if (why) { brokenPins.push({ slug, paths, why }); stillModified.push(...paths); }
   else deferredDrift.push(...paths);
 }
