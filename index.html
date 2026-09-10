@@ -233,20 +233,16 @@
     }
 
     function routeForProfile(profile) {
-      const role = String(profile?.role || "").toLowerCase();
-      const department = String(profile?.department || "").toLowerCase();
       const defaultPage = safePath(profile?.default_page);
-
       if (defaultPage) return defaultPage;
 
-      // Keep signed-in users off login/department-access. Finance is the current stable SILO landing.
-      if (role === "owner" || role === "admin") return DEFAULT_APP_PAGE;
-      if (department === "finance" || department === "exec" || department === "executive") return DEFAULT_APP_PAGE;
-      if (department === "ops" || department === "operations") return "/ops.html";
-      if (department === "planning") return "/planning.html";
-      if (department === "marketing") return "/marketing.html";
-      if (department === "retail") return "/retail.html";
-
+      // Every role and department lands on Finance, matching
+      // ROUTE_BY_DEPARTMENT in pages/login.html. Until 2026-09-10 this
+      // router still sent the ops, planning, marketing and retail
+      // departments to root-level /ops.html, /planning.html,
+      // /marketing.html and /retail.html — none of which exist — so an
+      // already-signed-in user in one of those departments who opened the
+      // site root got a 404 while the login page sent them to Finance.
       return DEFAULT_APP_PAGE;
     }
 

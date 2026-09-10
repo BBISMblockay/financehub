@@ -158,15 +158,16 @@
   <script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
   <script>
+    // Every value here must be a page that exists. `/finance.html` and
+    // `/ops.html` were listed until 2026-09-10 and neither file exists, so
+    // choosing them wrote a `profiles.default_page` that 404'd on next login.
     const LANDING_OPTIONS = [
       { value: '', label: '(Use department default)' },
-      { value: '/finance.html', label: 'Finance hub (v1)' },
-      { value: '/v2/finance.html', label: 'Finance hub (v2)' },
-      { value: '/v2/mailroom.html', label: 'Mailroom (v2)' },
-      { value: '/v2/inventory.html', label: 'Inventory (v2)' },
-      { value: '/v2/po-builder.html', label: 'PO builder (v2)' },
+      { value: '/v2/finance.html', label: 'Finance hub' },
+      { value: '/v2/mailroom.html', label: 'Mailroom' },
+      { value: '/v2/inventory.html', label: 'Inventory' },
+      { value: '/v2/po-builder.html', label: 'PO builder' },
       { value: '/v2/profile.html', label: 'My profile' },
-      { value: '/ops.html', label: 'Ops hub (v1)' },
     ];
 
     const cfg = window.__SILO_CONFIG__ || {};
@@ -698,7 +699,15 @@
 
     function renderLandingOptions(selected) {
       const val = selected == null ? '' : String(selected);
-      els.fDefaultPage.innerHTML = LANDING_OPTIONS.map(o =>
+      // A stored value that is no longer offered (e.g. the retired
+      // `/finance.html`) is shown flagged rather than silently dropped:
+      // without this the <select> falls back to its first option, the
+      // saved preference looks like "(department default)", and the user
+      // has no way to see why login still sends them to a 404.
+      const opts = LANDING_OPTIONS.some(o => o.value === val)
+        ? LANDING_OPTIONS
+        : [...LANDING_OPTIONS, { value: val, label: `${val} (page no longer exists — choose another)` }];
+      els.fDefaultPage.innerHTML = opts.map(o =>
         `<option value="${esc(o.value)}"${o.value === val ? ' selected' : ''}>${esc(o.label)}</option>`
       ).join('');
     }
