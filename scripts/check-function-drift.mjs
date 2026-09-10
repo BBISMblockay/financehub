@@ -35,6 +35,53 @@ const FN_DIR = 'supabase/functions';
 // living with it; the honest fix is checking the source in.
 const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'notify-slack', 'oneoff-meta-sync']);
 
+// A content difference somebody has decided not to reconcile YET.
+//
+// Without this the check is red every day for as long as the decision
+// stands, and a check that is always red is one nobody reads -- which costs
+// more than the finding it is reporting.
+//
+// But a bare list of slugs would be worse than the red: it would also
+// swallow the NEXT, different drift in the same function -- a truncated hand
+// deploy, a rollback, a repo edit nobody shipped -- which is exactly what
+// this check exists to catch. So each entry is PINNED to BOTH SIDES of the
+// difference it forgives, and both must still match:
+//
+//   deployedSha256  the `ezbr_sha256` of the deployed bundle. Moves whenever
+//                   PRODUCTION changes.
+//   repoBlobs       the git blob sha of every repo file the deferral covers,
+//                   read from HEAD. Moves whenever a covered file changes.
+//   repoTree        the whole function directory's tree in HEAD, including
+//                   names and modes. Also catches additions and renames that
+//                   the production download leaves untouched in the checkout.
+//
+// Pinning production alone is not enough, and that was the first version of
+// this: a change merged to the function and never deployed leaves the
+// deployed hash untouched, so the deferral would go on forgiving a
+// difference that had grown into something nobody looked at. "Merged but
+// not deployed" is drift in the other direction and is exactly what this
+// check caught `silo-chat` on twice.
+//
+// A deferral therefore forgives one recorded state of the world and nothing
+// else. It expires by itself the moment either side moves.
+//
+// Delete the entry when the difference is reconciled.
+const DEFERRED_DRIFT = new Map([
+  ['card-categorize', {
+    since: '2026-09-10',
+    deployedSha256: '2f4a4bc09f8c688b837841748f34481a752fc5a4023339047f0c23697ff58ba0', // v9
+    repoTree: 'fe96e373c6619839a939d9684d37a57e68e2cc31', // HEAD:supabase/functions/card-categorize
+    repoBlobs: {
+      'supabase/functions/card-categorize/index.ts': '1401c4b3153e0648d98e1a2fc345b390bc10ed5c',
+    },
+    why: 'the difference is a prompt RULE, not a merge -- production says a card-name '
+      + 'match should set the location, main says only name a location when the merchant '
+      + 'or card clearly belongs to one store. Deferred until there is enough real card '
+      + 'coding to say which rule suggests better; shipping either one first ends the '
+      + 'comparison.',
+  }],
+]);
+
 if (!TOKEN) {
   console.error('::error::SUPABASE_ACCESS_TOKEN is not set.');
   process.exit(2);
@@ -49,6 +96,7 @@ if (!res.ok) {
 }
 const deployed = await res.json();
 const deployedSlugs = new Set(deployed.map((f) => f.slug));
+const shaBySlug = new Map(deployed.map((f) => [f.slug, f.ezbr_sha256]));
 
 // TRACKED directories only. This runs after `supabase functions download`
 // has written every deployed function over the checkout, so reading the
@@ -88,6 +136,81 @@ for (const line of status) {
   const tracked = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
   if (deployed.trimEnd() === tracked.trimEnd()) newlineOnly.push(path); else modified.push(path);
 }
+/**
+ * Why this deferral no longer applies, or '' if it still does.
+ *
+ * Judged per FUNCTION rather than per file, because a deferral has to
+ * account for every file drifting under it -- a second file appearing is
+ * new drift, not deferred drift.
+ *
+ * The repo side reads `git rev-parse HEAD:<path>`, which is the COMMIT's
+ * blob and so is unaffected by `supabase functions download` having just
+ * overwritten the working tree with the deployed source.
+ */
+function deferralBreak(slug, paths, d) {
+  const live = shaBySlug.get(slug);
+  // Fail closed: a pin that cannot be checked is not a pin.
+  if (!live) return `the Management API reported no ezbr_sha256 for ${slug}, so the deferral's pin could not be verified`;
+  if (live !== d.deployedSha256) {
+    return `PRODUCTION CHANGED since the deferral was recorded on ${d.since}: the deployed bundle is `
+      + `${live.slice(0, 12)}, pinned at ${d.deployedSha256.slice(0, 12)}`;
+  }
+  // Git status cannot see a newly committed file that the download leaves
+  // untouched. Pin the complete directory, not just the files that drift.
+  let liveTree;
+  try {
+    liveTree = execFileSync('git', ['rev-parse', `HEAD:${FN_DIR}/${slug}`], { encoding: 'utf8' }).trim();
+  } catch {
+    return `${FN_DIR}/${slug} is no longer in HEAD, so the deferral's pin could not be verified`;
+  }
+  if (!d.repoTree || liveTree !== d.repoTree) {
+    return `THE REPO CHANGED since the deferral was recorded on ${d.since}: ${slug} has tree `
+      + `${liveTree.slice(0, 12)}, pinned at ${d.repoTree || 'no repo tree'}. `
+      + 'Changes to the function directory are new drift, even when the download leaves those files untouched';
+  }
+  const covered = Object.keys(d.repoBlobs || {});
+  const uncovered = paths.filter((path) => !covered.includes(path));
+  if (uncovered.length) {
+    return `the deferral does not cover ${uncovered.join(', ')} -- it names only ${covered.join(', ')}`;
+  }
+  for (const [path, blob] of Object.entries(d.repoBlobs || {})) {
+    let liveBlob;
+    try {
+      liveBlob = execFileSync('git', ['rev-parse', `HEAD:${path}`], { encoding: 'utf8' }).trim();
+    } catch {
+      return `${path} is no longer in HEAD, so the deferral's pin is meaningless`;
+    }
+    if (liveBlob !== blob) {
+      return `THE REPO CHANGED since the deferral was recorded on ${d.since}: ${path} is blob `
+        + `${liveBlob.slice(0, 12)}, pinned at ${blob.slice(0, 12)}. A change merged to a deferred `
+        + 'function and never deployed is drift too, and is not what was deferred';
+    }
+  }
+  return '';
+}
+
+// Pull out drift that was deferred BY DECISION -- but only while its pin
+// still holds on BOTH sides. Grouped by function first, so a deferral is
+// judged against every file drifting under it at once.
+const modifiedBySlug = new Map();
+for (const path of modified) {
+  const slug = path.split('/')[2];
+  if (!modifiedBySlug.has(slug)) modifiedBySlug.set(slug, []);
+  modifiedBySlug.get(slug).push(path);
+}
+const deferredDrift = [];
+const brokenPins = [];
+const stillModified = [];
+for (const [slug, paths] of modifiedBySlug) {
+  const d = DEFERRED_DRIFT.get(slug);
+  if (!d) { stillModified.push(...paths); continue; }
+  const why = deferralBreak(slug, paths, d);
+  if (why) { brokenPins.push({ slug, paths, why }); stillModified.push(...paths); }
+  else deferredDrift.push(...paths);
+}
+modified.length = 0;
+modified.push(...stillModified);
+
 const notDeployed = [...repoSlugs].filter((s) => !deployedSlugs.has(s));
 
 console.log('Deployed functions:');
@@ -96,6 +219,26 @@ for (const f of deployed.sort((a, b) => a.slug.localeCompare(b.slug))) {
 }
 
 let failed = false;
+if (deferredDrift.length) {
+  console.log('\nDeferred by decision (deployed bundle and repository directory still match their pins, so this is the SAME difference that was deferred):');
+  for (const path of deferredDrift) {
+    const d = DEFERRED_DRIFT.get(path.split('/')[2]);
+    console.log(`  ${path}\n    deferred ${d.since}: ${d.why}`);
+    console.log(`::warning file=${path}::deployed source differs from main; deferred by decision on ${d.since}`);
+  }
+}
+if (brokenPins.length) {
+  // Still counted in `modified`, so the run fails on it -- this only makes
+  // the reason legible instead of looking like brand-new drift.
+  console.log('\nA DEFERRED DIFFERENCE IS NO LONGER THE ONE THAT WAS DEFERRED:');
+  for (const b of brokenPins) {
+    console.log(`  ${b.slug}: ${b.why}`);
+    for (const path of b.paths) {
+      console.log(`::error file=${path}::${b.why}. Re-read the difference, then either reconcile it `
+        + 'or re-pin the deferral in scripts/check-function-drift.mjs.');
+    }
+  }
+}
 if (newlineOnly.length) {
   console.log('\nDiffers only by a trailing newline at end of file (not drift):');
   for (const p of newlineOnly) console.log(`  ${p}`);
@@ -139,4 +282,6 @@ if (failed) {
   console.log('\nFix: run the "Deploy Edge Function" workflow for the named function(s) from main. Never copy source through an API client by hand -- that is what truncated two silo-chat deploys on 2026-08-25.');
   process.exit(1);
 }
-console.log('\nEvery deployed function matches main byte-for-byte, and every function on main is deployed.');
+console.log(deferredDrift.length
+  ? `\nNo undeferred drift: every other deployed function matches main byte-for-byte, every function on main is deployed, and ${deferredDrift.length} deferred difference(s) are unchanged since the decision.`
+  : '\nEvery deployed function matches main byte-for-byte, and every function on main is deployed.');
