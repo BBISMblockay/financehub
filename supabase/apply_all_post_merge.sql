@@ -18601,3 +18601,12 @@ $c$select (select count(*) from v_po_header_summary
 -- revoke is re-applied -- Supabase re-grants EXECUTE on new public functions.
 -- ---------------------------------------------------------------------------
 \i migrations/20260909400000_seo_candidates_coverage_and_pacific.sql
+
+-- ---------------------------------------------------------------------------
+-- Tasks can hang off an INITIATIVE (launch_channel_items), not only a launch.
+-- Adds launch_tasks.channel_item_id (ON DELETE SET NULL), a trigger deriving
+-- launch_id from the initiative so the two columns cannot disagree, a second
+-- trigger moving an initiative's tasks when the initiative itself moves, and
+-- tasks_v -- security_invoker, since launch_tasks hides private tasks.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910120000_tasks_on_initiatives.sql

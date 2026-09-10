@@ -3082,3 +3082,48 @@ select
         || 'offered for a copy rewrite'
     else 'ok'
   end as seo_collection_candidates;
+
+-- ── Tasks on initiatives (20260910120000) ─────────────────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='launch_tasks'
+                       and column_name='channel_item_id')
+      then 'MISSING — launch_tasks.channel_item_id; a task cannot be attached to an initiative'
+    -- SET NULL, never CASCADE: deleting an initiative must not silently delete
+    -- somebody's task, nor block the delete.
+    when not exists (select 1 from pg_constraint
+                     where conrelid='public.launch_tasks'::regclass and contype='f'
+                       and conname='launch_tasks_channel_item_id_fkey'
+                       and pg_get_constraintdef(oid) ilike '%on delete set null%')
+      then 'CRITICAL — the initiative link is not ON DELETE SET NULL; removing an initiative '
+        || 'would take its tasks with it'
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.launch_tasks'::regclass
+                       and tgname='trg_task_launch_from_initiative')
+      then 'MISSING — trg_task_launch_from_initiative; launch_id and channel_item_id can now '
+        || 'disagree about which launch a task is on'
+    -- Without this, the derivation is only true at write time: move an
+    -- initiative to another launch and its tasks stay pointing at the old one.
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.launch_channel_items'::regclass
+                       and tgname='trg_initiative_move_resyncs_tasks')
+      then 'MISSING — trg_initiative_move_resyncs_tasks; moving an initiative would strand '
+        || 'its tasks on the previous launch'
+    when not exists (select 1 from pg_views where schemaname='public' and viewname='tasks_v')
+      then 'MISSING — tasks_v'
+    -- security_invoker is NOT optional: launch_tasks hides private tasks from
+    -- all but their assignee and creator, and a definer view would hand every
+    -- private task to the whole company.
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='tasks_v'
+                       and c.reloptions::text ilike '%security_invoker=true%')
+      then 'CRITICAL — tasks_v is not security_invoker; private tasks would be visible '
+        || 'company-wide'
+    -- The row that proves the derivation still holds in live data.
+    when exists (select 1 from public.launch_tasks t
+                 join public.launch_channel_items ci on ci.id = t.channel_item_id
+                 where t.launch_id is distinct from ci.launch_id)
+      then 'CRITICAL — a task disagrees with its initiative about the launch'
+    else 'ok'
+  end as tasks_on_initiatives;
