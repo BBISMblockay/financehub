@@ -38,11 +38,73 @@
   // keeps every derived state working. Hues are matched to beacon's
   // accent/pos/warn/neg by eye so a chart sits next to a KPI band without
   // clashing.
-  const PALETTE_LIGHT = ['#2f6fe4', '#17a67c', '#e8873a', '#8a5cd6', '#d94f6a', '#0e9cb5', '#b08a2e', '#6b7a8f'];
-  const PALETTE_DARK  = ['#6fa4ff', '#3fd2a4', '#ffab5e', '#b48cf5', '#ff829a', '#45c8dd', '#dfb857', '#9aa9bd'];
+  // Hues keep their ORDER and their identities across the two themes,
+  // because two indexes are load-bearing and not free to move: [0] is the
+  // single-series colour every one-measure chart draws in, and [1] is the
+  // increase colour the waterfall and the sparkline read directly. The
+  // retune since 2026-09-10 is chroma only -- the 2019-era default for a
+  // categorical palette was eight fully saturated hues at one lightness,
+  // which fight each other and glow against a white tile.
+  const PALETTE_LIGHT = ['#3d63dd', '#12a67a', '#e07f2e', '#7f5ad0', '#d24d68', '#0f92ab', '#a4842c', '#77869a'];
+  const PALETTE_DARK  = ['#7ba3ff', '#3fd2a4', '#f6a961', '#b08cf0', '#ff7f96', '#4ac2d6', '#d8b45e', '#98a5b6'];
 
-  const INK_LIGHT = { ink: '#26303d', ink2: '#5b6673', grid: '#e2e6eb', surface: '#ffffff' };
-  const INK_DARK  = { ink: '#eef1f5', ink2: '#9aa6b4', grid: '#333c47', surface: '#2b3038' };
+  // `grid` is a STRUCTURAL line (a border, a tooltip edge). `gridline` is
+  // the scale behind the data and is deliberately far lighter: a gridline
+  // as dark as a border competes with the series drawn over it.
+  // `pos`/`neg` are the directional pair -- an increase and a decrease --
+  // held here rather than hardcoded at each of the four call sites that
+  // used to carry their own copy.
+  const INK_LIGHT = {
+    ink: '#26303d', ink2: '#5b6673', ink3: '#8a94a3',
+    grid: '#e2e6eb', gridline: '#eff2f6', surface: '#ffffff',
+    pos: '#12a67a', neg: '#d24d68',
+  };
+  const INK_DARK = {
+    ink: '#eef1f5', ink2: '#9aa6b4', ink3: '#798494',
+    grid: '#333c47', gridline: '#2b333d', surface: '#2b3038',
+    pos: '#3fd2a4', neg: '#ff7f96',
+  };
+
+  // One definition of each font stack. Words render in the UI sans and
+  // numbers in the mono, which is the split beacon.css already uses for
+  // KPI values and table figures -- category names and legend entries had
+  // been set in mono too, and a chart whose every label is monospaced
+  // reads as a terminal rather than as a report.
+  const SANS = '"Plus Jakarta Sans", system-ui, -apple-system, sans-serif';
+  const MONO = '"IBM Plex Mono", ui-monospace, monospace';
+
+  /**
+   * A hex colour at a given alpha, as rgba().
+   *
+   * Only ever fed the palette and ink constants above, which are all
+   * 6-digit hex by construction (see the note on why they are not the
+   * beacon oklch() tokens), so there is no 3-digit or named-colour path
+   * to get wrong.
+   */
+  function withAlpha(hex, a) {
+    const h = String(hex).replace('#', '');
+    const n = parseInt(h, 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+
+  /**
+   * The fill under a single line: the series colour at the top, fading to
+   * nothing at the axis.
+   *
+   * Written as a PLAIN OBJECT rather than through echarts.graphic.
+   * LinearGradient because this module is loaded by the unit suites in
+   * node, where no echarts global exists -- and every option builder is
+   * exercised there. ECharts accepts this form directly.
+   */
+  function verticalFade(colour, dark) {
+    return {
+      type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+      colorStops: [
+        { offset: 0, color: withAlpha(colour, dark ? 0.28 : 0.20) },
+        { offset: 1, color: withAlpha(colour, 0) },
+      ],
+    };
+  }
 
   function isDark() {
     const attr = document.documentElement.getAttribute('data-theme');
@@ -471,14 +533,21 @@
     return {
       color: t.palette,
       backgroundColor: 'transparent',
-      textStyle: { fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif', color: t.ink2 },
-      animationDuration: 260,
+      textStyle: { fontFamily: SANS, color: t.ink2 },
+      animationDuration: 320,
+      animationEasing: 'cubicOut',
+      animationDurationUpdate: 240,
       tooltip: {
         trigger: 'item',
         backgroundColor: t.surface,
+        // Light: no border at all, the shadow does the lifting. Dark: a
+        // shadow against a dark ground is invisible, so the hairline is
+        // what separates the card from the tile behind it.
         borderColor: t.grid,
-        textStyle: { color: t.ink, fontSize: 12 },
-        extraCssText: 'box-shadow:0 4px 14px rgba(15,23,42,.12);border-radius:4px;',
+        borderWidth: t.dark ? 1 : 0,
+        padding: [9, 12],
+        textStyle: { color: t.ink, fontSize: 12, fontFamily: SANS },
+        extraCssText: 'box-shadow:0 8px 28px rgba(15,23,42,.16);border-radius:10px;',
       },
     };
   }
@@ -499,13 +568,18 @@
       type: 'category',
       data: horizontal ? labels.slice().reverse() : labels,
       axisLabel: {
-        color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace',
+        // A category is a WORD, so it is set in the UI sans. The value
+        // axis below stays mono, where tabular figures line up.
+        color: t.ink3, fontSize: 11, fontFamily: SANS, margin: 10,
         hideOverlap: true,
         // Long product titles are the norm in this data set; truncate
         // rather than rotate, the tooltip carries the full name.
         formatter: (v) => (String(v).length > 22 ? String(v).slice(0, 21) + '…' : v),
       },
-      axisLine: { lineStyle: { color: t.grid } },
+      // No baseline and no ticks. The gridlines already state the scale,
+      // and a drawn rule under every bar plus a tick per category is the
+      // strongest single "spreadsheet chart" tell in the whole option.
+      axisLine: { show: false },
       axisTick: { show: false },
     };
 
@@ -524,13 +598,19 @@
         name: (side === 0 && cfg.axis_label) ? cfg.axis_label : undefined,
         nameLocation: 'middle',
         nameGap: 38,
-        nameTextStyle: { color: t.ink2, fontSize: 10.5 },
+        // Four bands rather than ECharts' default five or six: a small
+        // tile with six labelled gridlines is mostly gridline.
+        splitNumber: 4,
+        nameTextStyle: { color: t.ink3, fontSize: 10.5, fontFamily: SANS },
         axisLabel: {
-          color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace',
+          color: t.ink3, fontSize: 10.5, fontFamily: MONO, margin: 10,
           formatter: (v) => compact(v, sem),
         },
-        splitLine: { show: side === 0, lineStyle: { color: t.grid, type: 'dashed' } },
+        // Solid and very light, not dashed. A dashed grid draws attention
+        // to itself; it is meant to be read through, not read.
+        splitLine: { show: side === 0, lineStyle: { color: t.gridline, width: 1 } },
         axisLine: { show: false },
+        axisTick: { show: false },
       };
     };
     const valueAxes = shaped.hasSecondAxis ? [axisFor(0), axisFor(1)] : [axisFor(0)];
@@ -548,13 +628,15 @@
       const named = Array.isArray(cfg.line_measures) && cfg.line_measures.includes(sr.field);
       const asLine = kind === 'line' || named || (multi && sr.axis === 1);
       const data = horizontal ? sr.data.slice().reverse() : sr.data;
+      const colour = t.palette[i % t.palette.length];
       return {
         name: sr.field,
         type: asLine ? 'line' : 'bar',
         yAxisIndex: horizontal ? undefined : sr.axis,
         xAxisIndex: horizontal ? sr.axis : undefined,
         data,
-        barMaxWidth: 34,
+        barMaxWidth: 30,
+        barCategoryGap: '34%',
         // Stacking is a BAR idea: stacked lines read as an area chart
         // nobody asked for, and a stacked rate is meaningless. So it only
         // applies to bars, and only when every series shares a semantic --
@@ -568,18 +650,30 @@
           show: true,
           position: horizontal ? 'right' : 'top',
           fontSize: 10,
-          fontFamily: '"IBM Plex Mono", monospace',
-          color: t.ink2,
+          fontFamily: MONO,
+          color: t.ink3,
           formatter: (p) => compact(p.value, sr.semantic || shaped.semantic),
         } : { show: false },
-        itemStyle: { borderRadius: !asLine ? (horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0]) : 0 },
+        itemStyle: { borderRadius: !asLine ? (horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]) : 0 },
         smooth: asLine ? 0.2 : false,
-        showSymbol: asLine && shaped.points.length <= 40,
-        symbolSize: 5,
-        lineStyle: asLine ? { width: 2 } : undefined,
+        symbol: 'circle',
+        // A dot on every point was the other half of the dated look, and
+        // on a 40-point series it is a dotted smear rather than a line.
+        // The axis pointer still puts a symbol on the hovered point, so
+        // nothing about reading a single value is lost.
+        //
+        // The exception is a series too short to draw AS a line: one
+        // point with no symbol renders an empty chart, which is not a
+        // style choice but a blank tile.
+        showSymbol: asLine && shaped.points.length <= 2,
+        symbolSize: 7,
+        lineStyle: asLine ? { width: 2.25, cap: 'round', join: 'round' } : undefined,
+        emphasis: asLine ? { focus: 'series', scale: 1.5 } : undefined,
         // Only fill under a single line. Stacked translucent fills across
-        // several series read as one muddy shape.
-        areaStyle: (asLine && !multi) ? { opacity: t.dark ? 0.14 : 0.08 } : undefined,
+        // several series read as one muddy shape. The fill FADES to the
+        // axis rather than sitting at a flat opacity -- a flat block of
+        // tinted colour under a line is the 2019 default.
+        areaStyle: (asLine && !multi) ? { color: verticalFade(colour, t.dark) } : undefined,
         z: asLine ? 3 : 2,
       };
     });
@@ -606,12 +700,13 @@
       },
       legend: (multi && cfg.legend !== 'off') ? {
         type: 'scroll', top: 0, left: 'center',
-        textStyle: { color: t.ink2, fontSize: 10.5, fontFamily: '"IBM Plex Mono", monospace' },
-        itemWidth: 12, itemHeight: 8,
+        icon: 'circle',
+        textStyle: { color: t.ink2, fontSize: 11, fontFamily: SANS },
+        itemWidth: 8, itemHeight: 8, itemGap: 16,
       } : undefined,
       grid: {
         left: 8, right: shaped.hasSecondAxis ? 12 : 14,
-        top: (multi && cfg.legend !== 'off') ? 30 : 14,
+        top: (multi && cfg.legend !== 'off') ? 34 : 16,
         bottom: cfg.axis_label && !horizontal ? 4 : 4,
         containLabel: true,
       },
@@ -622,6 +717,20 @@
   }
 
   function donutOption(shaped, t) {
+    const data = shaped.points.map((p) => ({
+      name: p.label === null || p.label === undefined ? '—' : String(p.label),
+      value: p.value,
+    })).concat(shaped.remainder ? [{
+      // Without this the donut's own percentages are wrong -- ECharts
+      // computes them over the slices it was given, not the real total.
+      name: `Other (${shaped.droppedCount})`,
+      value: shaped.remainder[shaped.yField],
+      itemStyle: { color: t.dark ? '#5c6674' : '#aeb7c2' },
+    }] : []);
+    // The hole is the one piece of chart real estate that costs nothing,
+    // and it is exactly where the reader's eye lands. An empty one makes
+    // them add the slices up to learn what 100% is.
+    const total = data.reduce((a, d) => a + (toNumber(d.value) || 0), 0);
     return {
       ...baseOption(t),
       tooltip: {
@@ -629,28 +738,39 @@
         formatter: (p) => `<div style="font-size:11px;opacity:.7">${p.name}</div>
           <div style="font-weight:700">${formatValue(p.value, shaped.format)} · ${p.percent}%</div>`,
       },
+      // Abbreviated, never the full figure: this sits inside the hole and
+      // a tile is often three grid columns wide. The tooltip and any KPI
+      // beside it carry the exact number.
+      title: {
+        text: compact(total, shaped.format),
+        subtext: 'total',
+        left: '35%', top: '42%', textAlign: 'center',
+        textStyle: { color: t.ink, fontSize: 19, fontWeight: 700, fontFamily: MONO },
+        subtextStyle: { color: t.ink3, fontSize: 10.5, fontFamily: SANS },
+        itemGap: 3,
+      },
+      // Stays UP THE RIGHT-HAND SIDE. A bottom legend centres the pie and
+      // looks better in a mock, but a scroll legend laid out horizontally
+      // paginates rather than wrapping -- a six-slice donut in a normal
+      // tile came out showing three names and a "1/3" pager, which is
+      // strictly less than this donut said before. Vertical, the same six
+      // fit with room over.
       legend: {
-        type: 'scroll', orient: 'vertical', right: 4, top: 'middle',
-        textStyle: { color: t.ink2, fontSize: 10.5 }, itemWidth: 9, itemHeight: 9,
+        type: 'scroll', orient: 'vertical', right: 6, top: 'middle',
+        icon: 'circle',
+        textStyle: { color: t.ink2, fontSize: 11, fontFamily: SANS },
+        itemWidth: 8, itemHeight: 8, itemGap: 10,
       },
       series: [{
         type: 'pie',
-        radius: ['52%', '76%'],
-        center: ['36%', '50%'],
+        radius: ['62%', '84%'],
+        center: ['35%', '50%'],
         avoidLabelOverlap: true,
         label: { show: false },
         labelLine: { show: false },
-        itemStyle: { borderColor: t.surface, borderWidth: 2 },
-        data: shaped.points.map((p) => ({
-          name: p.label === null || p.label === undefined ? '—' : String(p.label),
-          value: p.value,
-        })).concat(shaped.remainder ? [{
-          // Without this the donut's own percentages are wrong -- ECharts
-          // computes them over the slices it was given, not the real total.
-          name: `Other (${shaped.droppedCount})`,
-          value: shaped.remainder[shaped.yField],
-          itemStyle: { color: t.dark ? '#6b7a8f' : '#9aa9bd' },
-        }] : []),
+        itemStyle: { borderColor: t.surface, borderWidth: 2, borderRadius: 4 },
+        emphasis: { scaleSize: 5 },
+        data,
       }],
     };
   }
@@ -684,10 +804,13 @@
           <div style="font-weight:700">${formatValue(p.value[2], semantic)}</div>`,
       },
       grid: { left: 8, right: 8, top: 8, bottom: 40, containLabel: true },
+      // splitArea drew an alternating chequerboard UNDER the cells. With
+      // gapped, rounded cells the grid is legible without it, and the
+      // banding was competing with the colour that carries the measure.
       xAxis: {
-        type: 'category', data: grid2d.cols, splitArea: { show: true },
-        axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace', hideOverlap: true },
-        axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
+        type: 'category', data: grid2d.cols, splitArea: { show: false },
+        axisLabel: { color: t.ink3, fontSize: 11, fontFamily: SANS, hideOverlap: true, margin: 10 },
+        axisLine: { show: false }, axisTick: { show: false },
       },
       yAxis: {
         type: 'category', data: grid2d.rows, splitArea: { show: true },
@@ -696,8 +819,8 @@
         // at the bottom of a category axis, so without this the two visuals
         // disagree about the same data and a P&L comes out upside down.
         inverse: true,
-        axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace' },
-        axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
+        axisLabel: { color: t.ink3, fontSize: 11, fontFamily: SANS, margin: 10 },
+        axisLine: { show: false }, axisTick: { show: false },
       },
       visualMap: {
         min: diverging ? -bound : min,
@@ -708,19 +831,22 @@
         bottom: 0,
         itemWidth: 10,
         itemHeight: 90,
-        textStyle: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace' },
+        textStyle: { color: t.ink3, fontSize: 10.5, fontFamily: MONO },
         formatter: (v) => compact(v, semantic),
         inRange: {
           color: diverging
-            ? (t.dark ? ['#ff829a', '#2b3038', '#3fd2a4'] : ['#d94f6a', '#f2f4f7', '#17a67c'])
-            : (t.dark ? ['#1f3a52', '#6fa4ff'] : ['#eaf1fd', '#2f6fe4']),
+            ? [t.neg, t.dark ? '#2b3038' : '#f2f4f7', t.pos]
+            : [t.dark ? '#1e3450' : '#eaf0fc', t.palette[0]],
         },
       },
       series: [{
         type: 'heatmap',
         data: grid2d.data,
         label: { show: false },
-        emphasis: { itemStyle: { borderColor: t.ink, borderWidth: 1 } },
+        // Surface-coloured borders read as GAPS between cells, which is
+        // what turns a solid block of colour into a grid of tiles.
+        itemStyle: { borderColor: t.surface, borderWidth: 2, borderRadius: 3 },
+        emphasis: { itemStyle: { borderColor: t.ink, borderWidth: 2 } },
         progressive: 0,
       }],
     };
@@ -770,11 +896,12 @@
 
     const bar = (name, data, color) => ({
       name, type: 'bar', stack: 'wf', data,
-      itemStyle: { color, borderRadius: [2, 2, 0, 0] },
-      barMaxWidth: 42,
+      itemStyle: { color, borderRadius: [4, 4, 0, 0] },
+      barMaxWidth: 36,
+      barCategoryGap: '34%',
       label: cfg.show_values && labels.length <= 24 ? {
         show: true, position: 'top', fontSize: 10,
-        fontFamily: '"IBM Plex Mono", monospace', color: t.ink2,
+        fontFamily: MONO, color: t.ink3,
         formatter: (p) => (p.value === null ? '' : compact(p.value, semantic)),
       } : { show: false },
     });
@@ -800,24 +927,26 @@
       xAxis: {
         type: 'category', data: labels,
         axisLabel: {
-          color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace', hideOverlap: true,
+          color: t.ink3, fontSize: 11, fontFamily: SANS, hideOverlap: true, margin: 10,
           formatter: (v) => (String(v).length > 18 ? String(v).slice(0, 17) + '…' : v),
         },
-        axisLine: { lineStyle: { color: t.grid } }, axisTick: { show: false },
+        axisLine: { show: false }, axisTick: { show: false },
       },
       yAxis: {
         type: 'value',
-        axisLabel: { color: t.ink2, fontSize: 10, fontFamily: '"IBM Plex Mono", monospace', formatter: (v) => compact(v, semantic) },
-        splitLine: { lineStyle: { color: t.grid, type: 'dashed' } },
+        splitNumber: 4,
+        axisLabel: { color: t.ink3, fontSize: 10.5, fontFamily: MONO, margin: 10, formatter: (v) => compact(v, semantic) },
+        splitLine: { lineStyle: { color: t.gridline, width: 1 } },
         axisLine: { show: false },
+        axisTick: { show: false },
       },
       series: [
         // The base is a transparent spacer, not data. It carries no tooltip
         // and no legend entry so nobody can read it as a value.
         { name: 'base', type: 'bar', stack: 'wf', data: base, itemStyle: { color: 'transparent' },
           emphasis: { disabled: true }, silent: true, tooltip: { show: false } },
-        bar('increase', up, t.palette[1]),
-        bar('decrease', down, t.dark ? '#ff829a' : '#d94f6a'),
+        bar('increase', up, t.pos),
+        bar('decrease', down, t.neg),
       ],
     };
   }
@@ -1488,6 +1617,11 @@
    * No axes and no labels on purpose: a sparkline is shape, not
    * measurement. The number above it is the measurement.
    */
+  // Each sparkline needs its own gradient id: two KPI tiles on one board
+  // would otherwise share one <linearGradient>, and the second tile's
+  // definition would repaint the first.
+  let SPARK_SEQ = 0;
+
   function sparklineSvg(values, t, semantic) {
     const nums = values.filter((v) => v !== null && v !== undefined && Number.isFinite(v));
     if (nums.length < 2) return '';
@@ -1504,13 +1638,26 @@
     // sparkline that is red when the number fell is readable at a glance
     // in a way a blue one is not. Colour is never the only signal -- the
     // delta line underneath states the direction in words.
-    const colour = last === first ? t.ink2 : (last > first ? t.palette[1] : (t.dark ? '#ff829a' : '#d94f6a'));
+    const colour = last === first ? t.ink2 : (last > first ? t.pos : t.neg);
     const lastPt = pts[pts.length - 1].split(',');
+    const gid = `dw-spark-${SPARK_SEQ += 1}`;
+    // The area under the line, closed along the bottom edge. A bare
+    // 1.6px stroke reads as a hairline at tile scale; the fade gives the
+    // trend some weight without turning it into a chart.
+    const area = `0,${H} ${pts.join(' ')} ${W},${H}`;
     return `<svg class="dw-kpi-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
         role="img" aria-label="Trend across ${nums.length} points, ${formatValue(first, semantic)} to ${formatValue(last, semantic)}">
-        <polyline points="${pts.join(' ')}" fill="none" stroke="${colour}" stroke-width="1.6"
+        <defs>
+          <linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${colour}" stop-opacity="${t.dark ? 0.34 : 0.24}" />
+            <stop offset="100%" stop-color="${colour}" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon points="${area}" fill="url(#${gid})" />
+        <polyline points="${pts.join(' ')}" fill="none" stroke="${colour}" stroke-width="2"
                   stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
-        <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="1.8" fill="${colour}" />
+        <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="3" fill="${t.surface}" />
+        <circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="1.9" fill="${colour}" />
       </svg>`;
   }
 
@@ -1606,8 +1753,10 @@
         const extra = ch.unit === 'pp' && ch.percent !== null
           ? ` (${Math.abs(ch.percent).toLocaleString(undefined, { maximumFractionDigits: 1 })}% relative)` : '';
         delta = `<div class="dw-kpi-delta dw-kpi-delta--${dir}">
-            <span aria-hidden="true">${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '▬'}</span>
-            ${esc(magnitude)}
+            <span class="dw-kpi-delta-pill">
+              <span aria-hidden="true">${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '▬'}</span>
+              ${esc(magnitude)}
+            </span>
             <span class="dw-kpi-delta-note">${esc(dir === 'flat' ? 'unchanged vs' : `${dir} vs`)} ${esc(priorLabel)} (${esc(formatValue(prior, valueSemantic))})${esc(extra)}</span>
           </div>`;
       } else if (ch && ch.ok) {
@@ -1637,11 +1786,15 @@
     const aggLabel = nums.length === 1
       ? columnLabel(field, semantics)
       : `${method || agg} of ${columnLabel(field, semantics)} · ${nums.length} rows`;
+    // Label first, then the number, then the change, then the shape
+    // behind it. The number used to lead with its own caption underneath,
+    // which meant reading the tile bottom-up to find out what the figure
+    // was OF.
     return `<div class="dw-kpi">
-      <div class="dw-kpi-value"${cfg.abbreviate ? ` title="${esc(formatValue(value, valueSemantic))}"` : ''}>${esc(shown)}</div>
-      ${spark}
-      ${delta}
       <div class="dw-kpi-label" title="${esc(field)}">${esc(aggLabel)}</div>
+      <div class="dw-kpi-value"${cfg.abbreviate ? ` title="${esc(formatValue(value, valueSemantic))}"` : ''}>${esc(shown)}</div>
+      ${delta}
+      ${spark}
     </div>`;
   }
 

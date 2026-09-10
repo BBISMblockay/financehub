@@ -25,8 +25,29 @@
   overflow: hidden;
   background: var(--bcn-surface);
   border: 1px solid var(--bcn-border);
-  border-radius: var(--bcn-radius);
-  box-shadow: var(--bcn-shadow);
+  /* The one place v3 departs from beacon's 4px density token. A dashboard
+     tile is a CARD read from a distance, not a form control in a dense
+     page of them, and 4px corners under a 1px hairline shadow is the
+     single most dating thing about the canvas. Revert by putting
+     var(--bcn-radius) and var(--bcn-shadow) back.
+     The shadow is mixed from --bcn-band (near-black in light, near-black
+     in dark) so it stays theme-correct: it lifts the tile on the light
+     ground and all but disappears on the dark one, which is how dark UIs
+     are meant to separate surfaces -- by border, not by shadow. */
+  border-radius: 10px;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--bcn-band) 6%, transparent),
+    0 6px 18px -8px color-mix(in srgb, var(--bcn-band) 18%, transparent);
+  transition: box-shadow .16s ease, border-color .16s ease;
+}
+.grid-stack > .grid-stack-item > .grid-stack-item-content:hover {
+  border-color: var(--bcn-border-strong);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--bcn-band) 8%, transparent),
+    0 10px 26px -10px color-mix(in srgb, var(--bcn-band) 24%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .grid-stack > .grid-stack-item > .grid-stack-item-content { transition: none; }
 }
 
 /* GridStack's drop placeholder, restyled to read as a slot rather than a
@@ -34,7 +55,7 @@
 .grid-stack > .grid-stack-placeholder > .placeholder-content {
   background: var(--bcn-accent-soft);
   border: 1px dashed var(--bcn-accent-border);
-  border-radius: var(--bcn-radius);
+  border-radius: 10px;
 }
 
 /* ── Widget tile ─────────────────────────────────────────────────────── */
@@ -42,17 +63,26 @@
 
 .dw-head {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px 8px 12px;
-  border-bottom: 1px solid var(--bcn-border);
-  background: var(--bcn-sunken);
+  padding: 10px 10px 4px 14px;
+  border-bottom: 1px solid transparent;
+  background: transparent;
   flex-shrink: 0;
 }
-/* .dw-head is GridStack's drag handle in edit mode. */
+/* .dw-head is GridStack's drag handle in edit mode -- and only there does
+   it need to LOOK like one. In view mode it is a caption, and the filled,
+   ruled titlebar it used to wear all the time is what made every tile
+   read as an application window rather than as a card. Sections keep
+   their own transparent treatment (.dw-head--section) in both modes. */
 .grid-stack.is-editing .dw-head { cursor: move; }
+.grid-stack.is-editing .dw-head:not(.dw-head--section) {
+  background: var(--bcn-sunken);
+  border-bottom-color: var(--bcn-border);
+  padding: 8px 10px 8px 12px;
+}
 
 .dw-head-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .dw-title {
-  font-size: 12.5px; font-weight: 700; color: var(--bcn-ink);
+  font-size: 13px; font-weight: 650; letter-spacing: -.005em; color: var(--bcn-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dw-sub {
@@ -61,6 +91,13 @@
 }
 
 .dw-head-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* View mode renders the visual type as a plain <span>; edit mode renders
+   it as the .dw-type-badge--btn that opens the inspector. Only the second
+   is a control. A reader can see that a bar chart is a bar chart, so the
+   span is chrome -- hidden rather than removed, because rerenderWidget()
+   writes the current type back into this element on every config change
+   and two browser suites read its text. */
+.dw-head-actions > span.dw-type-badge { display: none; }
 .dw-type-badge {
   font-family: var(--bcn-mono); font-size: 9.5px; text-transform: uppercase;
   letter-spacing: .06em; color: var(--bcn-ink-3);
@@ -82,13 +119,16 @@
   border: 1px solid transparent; border-radius: var(--bcn-radius-sm);
   background: transparent; color: var(--bcn-ink-3); cursor: pointer; font-size: 12px; line-height: 1;
 }
-.dw-icon-btn:hover { background: var(--bcn-surface); border-color: var(--bcn-border); color: var(--bcn-ink); }
+/* --bcn-sunken, not --bcn-surface: in view mode the head is now
+   transparent over the tile's own surface, so a surface-coloured hover
+   state was invisible -- the button appeared to do nothing on hover. */
+.dw-icon-btn:hover { background: var(--bcn-sunken); border-color: var(--bcn-border); color: var(--bcn-ink); }
 
-.dw-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+.dw-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 12px 10px; }
 .dw-chart { width: 100%; height: 100%; min-height: 90px; }
 
 .dw-foot:not(:empty) {
-  flex-shrink: 0; padding: 5px 12px;
+  flex-shrink: 0; padding: 5px 14px 7px;
   border-top: 1px solid var(--bcn-border);
   font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3);
 }
@@ -122,14 +162,22 @@
 .dw-foot-note { padding-top: 6px; font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3); }
 
 /* ── KPI visual ──────────────────────────────────────────────────────── */
-.dw-kpi { display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 2px; }
+.dw-kpi { display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 4px; }
 .dw-kpi-value {
   font-family: var(--bcn-mono); font-variant-numeric: tabular-nums;
-  font-size: clamp(20px, 3.6vw, 36px); font-weight: 700; line-height: 1.05; color: var(--bcn-ink);
+  font-size: clamp(22px, 3.8vw, 38px); font-weight: 700; line-height: 1.02;
+  letter-spacing: -.02em; color: var(--bcn-ink);
 }
+/* The caption, which now sits ABOVE the number rather than under it.
+   Set in the UI sans: beacon reserves mono for values, table figures and
+   status labels, and this is none of those -- small uppercase monospace
+   on a caption is a terminal readout, which is not what a KPI card is.
+   It truncates rather than wrapping, and carries the full text in its
+   title attribute (set in kpiHtml). */
 .dw-kpi-label {
-  font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
-  letter-spacing: .05em; color: var(--bcn-ink-3);
+  font-family: var(--bcn-font); font-size: 11px; font-weight: 500;
+  color: var(--bcn-ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* ── Empty canvas ────────────────────────────────────────────────────── */
@@ -756,18 +804,41 @@ table.dw-matrix {
    not survive being pasted into Slack. */
 .dw-kpi-delta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 2px;
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
 }
-.dw-kpi-delta--up { color: var(--bcn-pos); }
-.dw-kpi-delta--down { color: var(--bcn-neg); }
+/* The magnitude sits in a tinted pill rather than being coloured text on
+   the tile background. Coloured text alone is the weakest way to show a
+   change -- it competes with the number above it at the same visual
+   weight. The tint is mixed from the same --bcn-pos / --bcn-neg the text
+   uses, so there is still exactly one definition of each direction. */
+.dw-kpi-delta-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--bcn-mono); font-variant-numeric: tabular-nums;
+  font-size: 11.5px; font-weight: 600; line-height: 1;
+  border-radius: 999px; padding: 3px 8px;
+  background: var(--bcn-sunken); color: var(--bcn-ink-2);
+}
+.dw-kpi-delta--up .dw-kpi-delta-pill {
+  background: color-mix(in srgb, var(--bcn-pos) 13%, transparent);
+  color: var(--bcn-pos);
+}
+.dw-kpi-delta--down .dw-kpi-delta-pill {
+  background: color-mix(in srgb, var(--bcn-neg) 13%, transparent);
+  color: var(--bcn-neg);
+}
+/* The colour still never carries the direction on its own -- the note
+   beside the pill says "up vs" or "down vs" in words, which is what
+   survives a screenshot pasted into Slack and what a reader who cannot
+   separate the two hues reads instead. */
+.dw-kpi-delta--flat, .dw-kpi-delta--none { color: var(--bcn-ink-3); font-weight: 500; }
 .dw-kpi-delta-note {
   font-family: var(--bcn-font, inherit);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 400;
   color: var(--bcn-ink-3);
 }
@@ -969,12 +1040,11 @@ table.dw-matrix th.dw-total-label {
 .dw-rule--warn { background: color-mix(in srgb, var(--bcn-warn) 18%, transparent); color: var(--bcn-warn); }
 
 /* ── KPI ────────────────────────────────────────────────────────────── */
-.dw-kpi-spark { width: 100%; height: 26px; display: block; margin: 2px 0 1px; }
-.dw-kpi-delta { display: flex; align-items: baseline; gap: 5px; font-size: 11px; font-weight: 700; }
-.dw-kpi-delta--up { color: var(--bcn-pos); }
-.dw-kpi-delta--down { color: var(--bcn-neg); }
-.dw-kpi-delta--flat, .dw-kpi-delta--none { color: var(--bcn-ink-3); font-weight: 500; }
-.dw-kpi-delta-note { font-size: 10px; font-weight: 500; color: var(--bcn-ink-3); }
+/* The delta rules that used to be repeated here, with different values,
+   have been folded into the single block above -- this copy came later in
+   the file and so was the one that actually shipped, while the commented
+   one above it looked authoritative and was dead. */
+.dw-kpi-spark { width: 100%; height: 30px; display: block; margin: 4px 0 1px; }
 
 /* ── Full-screen one widget ─────────────────────────────────────────── */
 .v3-fs {

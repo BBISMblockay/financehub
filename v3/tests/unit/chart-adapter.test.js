@@ -226,5 +226,28 @@ ok('without marked/DOMPurify, falls back to escaped plain text',
 ok('...wrapped in the same .dw-answer container the styled path uses',
    /^<div class="dw-answer">/.test(C.answerHtml('plain text')));
 
+// ── the donut's centre total must BE the donut ────────────────────────
+// Same rule as the Other slice above, one layer out: the figure drawn in
+// the hole is what a reader takes as 100%, so it has to be the sum of
+// every slice actually drawn, truncation remainder included. A total
+// computed from shaped.points alone would quietly under-report by
+// whatever "Other" covers.
+const dTitle = C.optionFor('donut', dsh).title;
+ok('the centre total is the sum of every slice drawn, Other included',
+   dTitle.text === C.compact(trueTotal, 'currency'),
+   `${dTitle.text} vs ${C.compact(trueTotal, 'currency')}`);
+ok('...and says what it is', dTitle.subtext === 'total');
+
+// ── a line too short to BE a line still has to be visible ─────────────
+// Symbols are off so a 40-point line is not a dotted smear -- but a
+// single-point series with no symbol and no line between points draws
+// literally nothing. A blank tile is not a style choice.
+const onePoint = C.shape([{ day_date: '2026-09-01', net_sales: 4200 }],
+  { x_field: 'day_date', y_field: 'net_sales', sort: 'none' }, { net_sales: 'currency' });
+ok('a ONE-point line series still draws its symbol, or the tile is blank',
+   C.optionFor('line', onePoint).series[0].showSymbol === true);
+ok('a long line series does not dot every point',
+   C.optionFor('line', C.shape(ts, { x_field: 'day_date', y_field: 'net_sales', sort: 'x_asc' })).series[0].showSymbol === false);
+
 console.log(fails? `\n${fails} FAILURES`:'\nall passed');
 process.exit(fails?1:0);

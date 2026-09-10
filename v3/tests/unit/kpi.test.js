@@ -124,6 +124,21 @@ test('...with a text alternative, since it carries no axes', () =>
   has(C.kpiHtml(series, { y_field: 'v', sparkline: true }, {}), 'aria-label="Trend across 10 points'));
 test('a single row has no trend to draw', () =>
   not(C.kpiHtml(single, { y_field: 'net_sales', sparkline: true }, {}), 'dw-kpi-spark'));
+// The fill under the line is an SVG gradient, and an SVG gradient is
+// addressed by id. Two KPI tiles on one board that minted the same id
+// would leave the second definition painting the first tile's fill.
+test('two sparklines never share a gradient id', () => {
+  const idOf = (html) => (html.match(/<linearGradient id="([^"]+)"/) || [])[1];
+  const a = idOf(C.kpiHtml(series, { y_field: 'v', sparkline: true }, {}));
+  const b = idOf(C.kpiHtml(series, { y_field: 'v', sparkline: true }, {}));
+  truthy(a && b);
+  truthy(a !== b, `both sparklines used ${a}`);
+});
+test('...and the line references the id its own <defs> declared', () => {
+  const html = C.kpiHtml(series, { y_field: 'v', sparkline: true }, {});
+  const id = (html.match(/<linearGradient id="([^"]+)"/) || [])[1];
+  has(html, `fill="url(#${id})"`);
+});
 
 const r = R.summary();
 process.exit(r.fail ? 1 : 0);
