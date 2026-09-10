@@ -18655,3 +18655,21 @@ $c$select (select count(*) from v_po_header_summary
 -- rebuild by decision. Runs AFTER the 20260818 versions so it wins.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910160000_notify_sample_events_as_deployed.sql
+
+-- ---------------------------------------------------------------------------
+-- Search Console performance tables, built to what the probe MEASURED on
+-- 2026-09-10: site / page / query per day, dataState=final, and the site row
+-- carrying per-day attribution because Google anonymises 43% of clicks away
+-- from any query. Extends sync_jobs.job_type by reading the live constraint
+-- rather than retyping it. Seeds the Ask SILO catalog with the numbers.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910180000_search_console_daily.sql
+
+-- ---------------------------------------------------------------------------
+-- Forward-corrective for the row above: 20260910180000's page catalog text
+-- said a missing page row "genuinely had no search clicks". Google does not
+-- guarantee every row is returned, so absence is not zero. Replaces the
+-- sentence on both the page and site rows; idempotent. Found in review of
+-- PR #666 after the migration was already applied.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910190000_search_console_page_absence_caveat.sql

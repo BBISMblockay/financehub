@@ -13,6 +13,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync } from './lib/ad-platforms-sync-core.mjs';
+import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -36,6 +37,11 @@ const IG_POST_LIMIT = process.env.ADS_IG_POST_LIMIT ? Number(process.env.ADS_IG_
 // engagement does not need hourly resolution, so the hourly cron skips it and
 // the nightly still does it in full.
 const SKIP_ORGANIC = String(process.env.ADS_SKIP_ORGANIC || '').toLowerCase() === 'true';
+// Search Console data is FINAL two days back and does not move within a
+// day, so the 2-hourly spend refresh skips it -- the nightly and the
+// catch-up still run it in full. Same shape as SKIP_ORGANIC, its own flag
+// because the two are different decisions.
+const SKIP_SEARCH_CONSOLE = String(process.env.ADS_SKIP_SEARCH_CONSOLE || '').toLowerCase() === 'true';
 
 const BATCH_ID =
   process.env.ADS_SYNC_BATCH_ID ||
@@ -50,6 +56,7 @@ const JOB_TYPES = {
   meta_ads: 'meta_ads_kpis',
   tiktok_ads: 'tiktok_ads_kpis',
   ga4: 'ga4_kpis',
+  search_console: SEARCH_CONSOLE_JOB_TYPE,
 };
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -103,23 +110,57 @@ async function loadConnections() {
 async function syncConnection(connection) {
   const label = `${connection.display_name || connection.id} (${connection.platform})`;
 
-  // Search Console lives on ad_platform_connections for its OAuth tokens, but
-  // it is not a marketing_kpis_daily feed: its grain is query/page, not
-  // campaign, and it has no JOB_TYPES entry. Skip it by NAME rather than
-  // letting it fall through -- startJob() would insert a null job_type and
-  // fail the CHECK, turning "this platform isn't wired yet" into a nightly
-  // error on a connection that is working exactly as intended.
-  if (connection.platform === 'search_console') {
-    console.log(`[skip] ${label}: Search Console has no KPI sync — connection is for the SEO tooling`);
-    return { connection: label, skipped: 'not_a_kpi_platform' };
+  if (connection.platform === 'search_console' && SKIP_SEARCH_CONSOLE) {
+    console.log(`[skip] ${label}: ADS_SKIP_SEARCH_CONSOLE — final data moves daily, not hourly`);
+    return { connection: label, skipped: 'ADS_SKIP_SEARCH_CONSOLE' };
   }
 
-  if ((connection.platform === 'google_ads' || connection.platform === 'ga4') && !googleEnvReady()) {
+  const needsGoogle = connection.platform === 'google_ads' || connection.platform === 'ga4'
+    || connection.platform === 'search_console';
+  if (needsGoogle && !googleEnvReady()) {
     console.log(`[skip] ${label}: GOOGLE_CLIENT_ID/SECRET not set — add the repo secrets to activate`);
     return { connection: label, skipped: 'google_env_missing' };
   }
 
   const jobId = await startJob(connection);
+
+  // Search Console shares the OAuth client and the connection row with the
+  // other Google platforms but is NOT a marketing_kpis_daily feed: its grain
+  // is site/page/query per day, so it has its own tables and its own sync
+  // (search-console-sync-core), branched here before runConnectionSync, which
+  // knows only the campaign-grain platforms.
+  if (connection.platform === 'search_console') {
+    try {
+      const result = await runSearchConsoleSync(supabase, GOOGLE_ENV, connection, {
+        batchId: BATCH_ID,
+        daysBackOverride: DAYS_BACK,
+        onTokenRefresh: async (accessToken, expiresAt) => {
+          await supabase
+            .from('ad_platform_connections')
+            .update({ access_token: accessToken, token_expires_at: expiresAt, updated_at: new Date().toISOString() })
+            .eq('id', connection.id);
+        },
+      });
+      const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at };
+      await supabase
+        .from('ad_platform_connections')
+        .update({ meta, updated_at: new Date().toISOString() })
+        .eq('id', connection.id);
+      await finishJob(jobId, 'success', result);
+      const pct = (v) => (v == null ? 'n/a' : `${(v * 100).toFixed(1)}%`);
+      console.log(`[ok] ${label}: ${result.days_with_data} days (${result.window.startDate}..${result.window.endDate}) — `
+        + `${result.page_rows_upserted} page rows, ${result.query_rows_upserted} query rows; `
+        + `query cut attributes ${pct(result.query_attributed_click_share)} of clicks`
+        + (result.truncated.page || result.truncated.query ? ' [TRUNCATED — window too wide for one call]' : ''));
+      return { connection: label, ...result };
+    } catch (err) {
+      const message = err?.message || String(err);
+      await finishJob(jobId, 'error', { error: message });
+      console.error(`[error] ${label}: ${message}`);
+      throw err;
+    }
+  }
+
   try {
     const result = await runConnectionSync(supabase, GOOGLE_ENV, connection, {
       batchId: BATCH_ID,

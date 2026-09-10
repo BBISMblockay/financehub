@@ -302,6 +302,130 @@ Search Console API in the existing Cloud project → Connect (a fresh consent
 is required; an existing refresh token does not carry a newly added scope)
 → Test to list properties → paste the identifier → run the probe.
 
+### Step 2b — connected and probed (2026-09-10)
+
+Connected the same day Search Console access arrived. What the connect
+sequence actually hit, in order, so the next tenant's setup is not a
+guessing game:
+
+1. OAuth consent accepted `webmasters.readonly` with no re-verification
+   event — the existing consent screen was fine.
+2. First Test returned **403 `accessNotConfigured`** naming Cloud project
+   `109468771479`: the Search Console API was not enabled there. It is the
+   same project as the Google Ads / GA4 client (one `GOOGLE_CLIENT_ID` serves
+   every Google platform in `google-oauth-start`), so whoever administers that
+   project enables it. One click; no credential or consent change.
+3. A second Connect while diagnosing created a **duplicate connection row**.
+   Connect always INSERTs; there is no replace-in-place for Google platforms
+   the way there is for the Meta token. The older row was deleted by hand.
+4. After enablement, a **400 `INVALID_ARGUMENT`** from `searchAnalytics` —
+   a malformed property string in the account field (a 403 "insufficient
+   permission" is what a well-formed-but-wrong property returns instead).
+   The Integrations Test button did not display the property list the tester
+   returns (it read only the Ads/GA4/Meta/TikTok result shapes), which is
+   what made the string a guess; fixed on `claude/current-project-repo-6qmj5o`.
+5. Test OK with `https://www.baseballism.com/`.
+
+**Property:** exactly one verified, `https://www.baseballism.com/`, a
+URL-PREFIX property (`siteFullUser`). There is no `sc-domain:` property, so
+`www`-only is the whole measured surface — traffic to any other host or
+scheme is invisible here, not zero.
+
+**Probe results** (`search-console-probe.yml` run 1, 28-day window
+2026-08-12 → 2026-09-08, `dataState=final`):
+
+| Measurement | Result | Consequence |
+|---|---|---|
+| Lag | newest **final** day is 2 days back (2026-09-08 on 2026-09-10); `all` reaches today but is partial | ingestion window ends `today - 2` Pacific and requests `dataState=final`; anything fresher is provisional and must be labelled so |
+| Retention | 498 final days, back to 2025-04-29 | a full backfill is feasible; any comparison older than ~16 months is unmeasurable, not flat |
+| Row cap | 25,000 per page; pagination works (date×query needed 6 pages, 125,846 rows) | tables can be COMPLETE lists of what Google returns, not top-N slices — the `shopify_landing_pages_daily` trap does not recur here |
+| **Query attribution** | query cut recovers **56.9% of clicks** (10,200 of 17,913) and 70.5% of impressions; **43.1% of clicks belong to no query row** (anonymised for privacy) | a "no query brought traffic to X" claim is unsafe by 43 points. Every query-grain surface must carry the unattributed share, per day |
+| Page attribution | page cut recovers **102.8% of clicks** and 172.2% of impressions | IN AGGREGATE the page cut recovers at least the site total. **That is not a per-row guarantee**: Google documents that the Search Analytics API does not return every row, even with pagination, so a page absent on a day is not-returned, never zero. Over 100% is Google's per-page counting: one query showing two of our URLs is one site impression but two page impressions, so page-level CTR and position are NOT comparable to site-level |
+| Cross-dimension loss | query×page recovers 58.2% of clicks — no worse than query alone | the loss is entirely the anonymised-query withholding, not the cross. Still: 41.8% of clicks cannot be tied to a query×page pair |
+
+**Schema consequences, decided by the numbers rather than recalled:**
+
+- **Three grains, three tables**, never joined into one figure: a site-daily
+  total (undimensioned — the denominator that makes the other two honest), a
+  page-daily table (recovering ~all clicks in aggregate, with no per-row
+  guarantee; impressions/CTR/position are page-level semantics), and a
+  query-daily table (57% of clicks; the
+  remainder is a per-day `unattributed_clicks` computed against the site
+  total and stored, not inferred later).
+- The catalog entry for the query table states the 43% as a number, which
+  is what the probe existed to make possible.
+- A query×page table is not needed for measurement and would invite the
+  exact inference the withheld rows make unsupportable. If one is ever built
+  it is for drill-down only and carries the same unattributed share.
+- `search_console_site_url` stays the verbatim `sites.list` string, so the
+  ingestion request is the same one the probe made.
+- Not yet measured: URL Inspection quota (a separate API with its own
+  limits), which decides whether indexing checks are on-demand or a slow
+  background crawl. The probe does not touch it.
+
+### Step 2c — tables and ingestion (built 2026-09-10, verification pending)
+
+Built the same afternoon, to the numbers above. **Implementation complete,
+verification pending** — nothing below has run against production yet.
+
+What exists:
+
+- `supabase/migrations/20260910180000_search_console_daily.sql` — the three
+  tables, RLS (select company-scoped, no client writes), the generated
+  unattributed columns, `page_path` generated from the URL, the stamp
+  trigger, the `sync_jobs.job_type` value, and the catalog entries carrying
+  the 43% as a number. The job_type CHECK is extended by READING the live
+  constraint and appending, so a value that exists only in production
+  survives — tested by seeding a scratch Postgres with a value no migration
+  contains and confirming it was still accepted afterwards. Applied twice to
+  the same database: idempotent.
+- `scripts/lib/search-console-sync-core.mjs` — one window: fetch site, page
+  and query cuts (all `dataState=final`, paged by `startRow`), build rows
+  with per-day attribution from the same fetch, upsert page → query → **site
+  last**. A chunk is all-fetched then written, so a fetch failure writes
+  nothing and a detail-upsert failure never leaves a site row describing
+  rows that are not there. Query × page is never requested.
+- `scripts/ad-platforms-sync.mjs` — Search Console connections now sync
+  nightly instead of being skipped by name; `ADS_SKIP_SEARCH_CONSOLE` on the
+  2-hourly cron. The Integrations Sync toggle is live for the row and it is
+  currently **off** — it must be switched on for the nightly to pick it up.
+- `scripts/search-console-backfill.mjs` + `search-console-backfill.yml` —
+  history, newest-first in 28-day chunks, each written before the next is
+  fetched, reporting exactly which days landed on failure.
+- `scripts/tests/search-console-sync.test.mjs` — 57 assertions, in CI via
+  `sync-tests.yml`.
+
+**Corrected in review (PR #666, 2026-09-10):** the first cut of the page
+table's catalog text said a missing page row "genuinely had no search clicks",
+reasoning from the aggregate 102.8%. Google explicitly does not guarantee
+every row is returned, so that sentence taught the model the exact
+negative-claim-from-a-partial-list error this project exists to prevent --
+and it shipped in a migration that was applied before the review landed.
+Fixed forward by `20260910190000`, which replaces the sentence on both the
+page and site rows, with a verify check that goes CRITICAL if it returns.
+The lesson is the one already written above about the landing-pages table:
+a caveat covers only the failure it names, and "complete in aggregate" is
+not "complete per row".
+
+**Still unverified, in the order it will be found out:**
+
+1. ~~Apply the migration in production~~ (done 2026-09-10) and apply
+   `20260910190000` after it; `verify_v2_schema.sql`'s
+   `search_console_daily_tables` must be `ok`.
+2. Switch the row's Sync toggle on, dispatch `ad-platforms-sync.yml` with
+   `platform = search_console`, and read the `[ok]` line: it prints the
+   window's query-attributed share, which should land near the probe's
+   56.9%. A share near 100% means the query cut is being summed against the
+   wrong denominator; a share near 0% means the query fetch returned
+   nothing.
+3. Dispatch `search-console-backfill.yml` with defaults. ~18 chunks.
+4. Only then: point Ask SILO at it. **`silo-chat/index.ts` still says "SILO
+   holds NO Search Console data"** and two test files pin that sentence
+   (`prompt.test.mjs`, `seo-orchestration.test.mjs` §5). Until the prompt is
+   changed and the function deployed, the model has the catalog telling it
+   the tables exist and the prompt telling it they do not. That contradiction
+   is the next step's whole job, not a bug in this one.
+
 ## Step 5 — project workflow schema (shipped 2026-09-09)
 
 ### Why new tables rather than the existing task system
@@ -707,7 +831,7 @@ does not exist. Each line is a claim about the SYSTEM, not about intent.
 | **Shopify evidence** | **Operational** | `shopify_landing_pages_daily` holds 730 days (2024-09-09 → 2026-09-08), 182,502 rows, 7,162 paths for the DTC store. `shopify_sessions_daily` holds 744 days of store-level totals. `shopify_collections` registry is complete and swept nightly. |
 | **Page inspection** | **Operational** | `page-inspect` v1 deployed, `verify_jwt: true`, host allowlist read under the caller's JWT from `shopify_shop_domains`. Verified live against `/collections/mlb`. |
 | **Candidate selection** | **Operational (new)** | `seo_collection_candidates(p_days, p_shop_domain)` returns collection landing pages with a shop-scoped `inspect_url` already built. |
-| **Search Console** | **Awaiting access / OAuth** | Connection plumbing shipped (`search_console` platform + scope). No property connected, no data. **No queries, impressions, clicks, CTR, positions or indexing status exist anywhere in SILO.** |
+| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). Tables + nightly + backfill written (Step 2c) but **not yet applied, enabled or run** — until the migration is applied and the Sync toggle is on, **no queries, impressions, clicks, CTR or positions exist anywhere in SILO**, and Ask SILO's prompt still says so. Indexing status is a separate API, unprobed. |
 | **Competitor SERP monitoring** | **Not integrated** | No SERP data source of any kind. Competitor rank snapshots cannot be produced. |
 | **Google Ads search-term / keyword / ad-asset grains** | **Not integrated** | `marketing_kpis_daily` is CAMPAIGN grain only — 8 Google campaigns. No search terms, keywords, negatives or RSA assets. |
 | **Draft → approval → baseline → 30d → 90d workflow** | **Schema only, not built** | `20260909240000` created the tables and invariants; nothing writes to them and there is no UI. Recommendations today are chat output, not tracked projects. |

@@ -7,7 +7,7 @@ on:
         description: Optional company UUID (limit to one entity)
         required: false
       platform:
-        description: Optional single platform (google_ads | meta_ads | tiktok_ads | ga4)
+        description: Optional single platform (google_ads | meta_ads | tiktok_ads | ga4 | search_console)
         required: false
       connection_id:
         description: Optional ad_platform_connections.id
@@ -82,6 +82,9 @@ jobs:
       ADS_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
       ADS_DAYS_BACK: ${{ github.event.inputs.days_back || (github.event.schedule == '0 */2 * * *' && '3') || '' }}
       ADS_SKIP_ORGANIC: ${{ (github.event.schedule == '0 */2 * * *' && 'true') || 'false' }}
+      # Search Console is FINAL two days back and does not move within a day;
+      # the 2-hourly spend refresh skips it and the nightly/catch-up run it.
+      ADS_SKIP_SEARCH_CONSOLE: ${{ (github.event.schedule == '0 */2 * * *' && 'true') || 'false' }}
       ADS_IG_POST_LIMIT: ${{ github.event.inputs.ig_post_limit || '' }}
 
     steps:

@@ -1894,15 +1894,17 @@
           <td><input class="bcn-field bcn-field--mono" style="min-width:150px;" value="${escAttr(acctVal)}"
             placeholder="${AD_ACCOUNT_PLACEHOLDER[row.platform]}"
             onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" /></td>
-          ${row.platform === 'search_console'
-            // Search Console feeds no nightly KPI job (its grain is query/page,
-            // not campaign), and ad-platforms-sync skips it by name. Showing a
-            // live toggle would offer a switch that does nothing.
-            ? `<td><span class="int-sync-status" title="Search Console has no nightly KPI sync — the connection exists for the SEO tooling">n/a</span></td>`
-            : `<td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"
+              ${row.platform === 'search_console'
+                // Since 2026-09-10 the nightly ad-platforms sync ingests
+                // Search Console too (search_console_{site,page,query}_daily,
+                // its own tables -- never marketing_kpis_daily), so the
+                // toggle is live for it like every other platform.
+                ? 'title="Nightly: site/page/query performance into the search_console_*_daily tables (final data, 2 days back)"'
+                : ''}>
             <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
               onchange="updateAdConnection('${row.id}', { sync_enabled: this.checked })" />
-            ${row.sync_enabled ? 'On' : 'Off'}</label></td>`}
+            ${row.sync_enabled ? 'On' : 'Off'}</label></td>
           <td>${test}</td>
           <td style="white-space:nowrap;">
             <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>

@@ -1,0 +1,72 @@
+name: Search Console Backfill
+
+# One-shot history load of search_console_{site,page,query}_daily. Manual
+# only (workflow_dispatch, no cron) — the nightly ad-platforms-sync.yml keeps
+# the tables current with a trailing window; this fills everything before it.
+# Search Console retains ~16 months (498 final days measured 2026-09-10), so
+# the default 500-day range covers all of it and older days return nothing.
+#
+# Walks the range in chunks, newest first, each written before the next is
+# fetched — a failure keeps every completed chunk and the log names the days
+# that landed. Idempotent upsert on the nightly's identity, so re-running any
+# range or overlapping the nightly is safe. See
+# scripts/search-console-backfill.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      backfill_days:
+        description: Days back from the newest final day (default 500 ≈ everything Google keeps). Ignored if start/end are set
+        required: false
+        default: "500"
+      start_date:
+        description: Explicit range start (YYYY-MM-DD) — set both dates or neither
+        required: false
+      end_date:
+        description: Explicit range end (YYYY-MM-DD)
+        required: false
+      chunk_days:
+        description: Days per fetch+write chunk (default 28; 28 days of date×query was 6 pages of 25k rows on the probe)
+        required: false
+        default: "28"
+      connection_id:
+        description: Optional ad_platform_connections.id (blank = every active search_console connection)
+        required: false
+      company_entity_id:
+        description: Optional company UUID
+        required: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # ~18 chunks of ~10 requests each for the full history; minutes, not
+    # hours. The ceiling is generous so a rate-limited walk finishes rather
+    # than being killed with chunks still to write.
+    timeout-minutes: 120
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      SC_BACKFILL_DAYS: ${{ inputs.backfill_days }}
+      SC_BACKFILL_START: ${{ inputs.start_date }}
+      SC_BACKFILL_END: ${{ inputs.end_date }}
+      SC_BACKFILL_CHUNK_DAYS: ${{ inputs.chunk_days }}
+      SC_CONNECTION_ID: ${{ inputs.connection_id }}
+      SC_COMPANY_ID: ${{ inputs.company_entity_id }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Search Console backfill
+        run: node scripts/search-console-backfill.mjs

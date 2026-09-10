@@ -2650,6 +2650,80 @@ select
     else 'ok'
   end as search_console_connection;
 
+-- ── Search Console daily tables (20260910180000) ────────────────────────────
+-- Three grains, three tables, and the site table carrying the per-day
+-- attribution the probe measured (query cut recovers 56.9% of clicks). The
+-- checks are about what makes the tables HONEST, not merely present: the
+-- generated unattributed columns, service-role-only writes, the job_type
+-- value the nightly inserts, and the catalog caveats the model reads.
+select
+  case
+    when (select count(*) from information_schema.tables
+          where table_schema = 'public'
+            and table_name in ('search_console_site_daily', 'search_console_page_daily', 'search_console_query_daily')) < 3
+      then 'MISSING — run 20260910180000_search_console_daily.sql'
+    when (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relrowsecurity
+            and c.relname in ('search_console_site_daily', 'search_console_page_daily', 'search_console_query_daily')) < 3
+      then 'CRITICAL — a search_console_* table has RLS disabled'
+    when exists (select 1 from pg_policies
+                 where schemaname = 'public' and tablename like 'search\_console\_%\_daily'
+                   and cmd <> 'SELECT')
+      then 'CRITICAL — a search_console_* table has a client write policy; writes are the sync''s alone'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema = 'public' and table_name = 'search_console_site_daily'
+                       and column_name = 'unattributed_query_click_share'
+                       and is_generated = 'ALWAYS')
+      then 'MISSING — search_console_site_daily.unattributed_query_click_share is not a generated column'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema = 'public' and table_name = 'search_console_page_daily'
+                       and column_name = 'page_path' and is_generated = 'ALWAYS')
+      then 'MISSING — search_console_page_daily.page_path is not a generated column'
+    when not exists (select 1 from pg_constraint
+                     where conname = 'sync_jobs_job_type_check'
+                       and pg_get_constraintdef(oid) like '%search_console_daily%')
+      then 'MISSING — sync_jobs rejects job_type=search_console_daily; the nightly cannot record a run'
+    -- The constraint is rewritten from its live definition; if that ever
+    -- regresses to a retyped list, an older value goes missing first.
+    when not exists (select 1 from pg_constraint
+                     where conname = 'sync_jobs_job_type_check'
+                       and pg_get_constraintdef(oid) like '%collections_sync%'
+                       and pg_get_constraintdef(oid) like '%landing_pages_sync%'
+                       and pg_get_constraintdef(oid) like '%ga4_kpis%')
+      then 'MISSING — extending sync_jobs_job_type_check dropped an existing value'
+    when (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid
+          where t.tgname = 'stamp_company_entity_id' and not t.tgisinternal
+            and c.relname in ('search_console_site_daily', 'search_console_page_daily', 'search_console_query_daily')) < 3
+      then 'MISSING — a search_console_* table has no stamp_company_entity_id trigger; run attach_stamp_company_entity_id_triggers()'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname = 'search_console_site_daily'
+                       and description like '%QUERY ATTRIBUTION IS PARTIAL%')
+      then 'MISSING — search_console_site_daily lost its partial-attribution caveat'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname = 'search_console_query_daily'
+                       and description like '%DELIBERATELY INCOMPLETE%')
+      then 'MISSING — search_console_query_daily lost its deliberately-incomplete caveat'
+    -- 20260910180000 shipped the PAGE row saying a missing page row "genuinely
+    -- had no search clicks". Google does not guarantee every row is returned,
+    -- so that sentence teaches the exact negative-claim-from-a-partial-list
+    -- error this project exists to prevent. 20260910190000 replaces it; this
+    -- fails if the wrong sentence is ever back or the correction is absent.
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname in ('search_console_page_daily', 'search_console_site_daily')
+                   and (description like '%genuinely had no search clicks%'
+                        or description like '%Page attribution is complete on clicks%'))
+      then 'CRITICAL — a search_console_* catalog row again claims page absence means zero clicks; run 20260910190000_search_console_page_absence_caveat.sql'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname = 'search_console_page_daily'
+                       and description like '%ABSENCE IS NOT ZERO%')
+      then 'MISSING — search_console_page_daily lacks its absence-is-not-zero caveat; run 20260910190000_search_console_page_absence_caveat.sql'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname like 'search\_console\_%\_daily'
+                   and jsonb_array_length(coalesce(columns, '[]'::jsonb)) = 0)
+      then 'MISSING — a search_console_* catalog entry has no columns; run select public.refresh_chat_schema_catalog()'
+    else 'ok'
+  end as search_console_daily_tables;
+
 -- ── Per-shop product/SKU mapping (20260909200000) ───────────────────────────
 -- products_master is one row per (company, sku), so its shopify_product_id is
 -- whichever store synced last -- measured 2026-09-09: 26.9% of sold SKUs exist
