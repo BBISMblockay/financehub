@@ -224,8 +224,40 @@ See CLAUDE.md for the full mechanism — this section tracks only what is left.
       (`baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`)
 - [ ] One canonical URL per tool (`/v2/...` preferred)
 - [ ] Same error/status pattern on all v2 pages
-- [ ] `v2/profile.html`'s `LANDING_OPTIONS` still offers `/finance.html` and
-      `/ops.html`; neither exists, so picking either 404s on next login
+- [x] `v2/profile.html`'s `LANDING_OPTIONS` offered `/finance.html` and
+      `/ops.html`; neither exists, so picking either 404'd on next login.
+      Fixed 2026-09-10, and the same class of bug in `index.html`'s
+      signed-in router (ops / planning / marketing / retail departments
+      sent to root pages that do not exist) went with it
+
+### Built but not surfaced (audited 2026-09-10)
+
+A ledger, not a to-do list. Each item has a documented reason for being
+hidden; the point of listing them together is that the shelf is growing
+faster than it is clearing, and a capability with no user is not finished.
+For each: surface it, or record the decision to leave it and stop counting
+it as shipped.
+
+- [ ] **Product Concepts** — `/v2/product-concepts.html` and the Ask SILO
+      branch, gated to a hardcoded tester allowlist in the edge function
+- [ ] **Concept → PO** — fully wired in `/v2/po-builder.html` behind a
+      `hidden` button (see "Decided" below; needs an explicit yes)
+- [ ] **Returns Overview** — `/v2/returns-overview.html`, out of nav until
+      Redo coverage is complete; no date or criterion recorded for "complete"
+- [ ] **Dashboards / Saved reports / Report builder** — in nav since
+      2026-09-08 behind the `EXEC_ROLES` gate and absent from the standard
+      profile; no adoption measure exists (Ask SILO has `silo_chat_health_v`,
+      nothing equivalent counts dashboard views or report runs)
+- [ ] **Ask SILO** — exec-only in the sidebar during soft launch, with no
+      stated exit criterion for the soft launch
+- [ ] **SEO project workflow** — `seo_projects` / `seo_tasks` /
+      `seo_task_publications` / `seo_measurements` schema shipped
+      2026-09-09; nothing writes to it and there is no page. Search Console,
+      which `docs/ops/seo-project.md` calls the long pole, is still
+      unconnected and needs a human OAuth consent, not more code
+- [ ] **`wow_paid_media_reality()`** was in this state for eleven days
+      (built 2026-08-27, surfaced 2026-09-07) — the pattern this list exists
+      to catch earlier
 
 ---
 

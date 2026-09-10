@@ -740,7 +740,7 @@ than this section.
 ### Multi-tenant isolation — Phase 1 complete
 DB-level company isolation is live. Users in multiple companies pick a company at login; all data reads are scoped to `profiles.active_company_id`. See `supabase/README.md` for migration details.
 
-**Deferred:** `inventory_on_hand` and `sales_by_day` backfill, per-company sync pipelines, company switcher in sidebar.
+**Deferred:** per-company sync pipelines, company switcher in sidebar. (The `inventory_on_hand` / `sales_by_day` backfill that older versions of this line listed was completed — see "Isolation status" above.)
 
 **Attribution:** every table with a `created_by`/`changed_by` column has a `stamp_created_by`/`stamp_changed_by` BEFORE INSERT trigger (auth.uid() when not explicitly passed; service-role syncs stay null). Rows created before 2026-07-14 are unattributed and unrecoverable.
 
@@ -787,9 +787,14 @@ Not bugs to fix blind — context so you don't mistake leftovers for live code:
 - **`checkwriter` is kept on purpose** as an internal tool, even though it has no nav entry today and
   its wrapper's `finance/checkwriter` active id no longer exists in `nav-config.js`. Do not sweep it
   up as an orphan
-- **`v2/profile.html`'s `LANDING_OPTIONS` list still offers `/finance.html` and `/ops.html`** — neither
-  file exists, so picking either sets a `profiles.default_page` that 404s on next login. Pre-existing,
-  left alone in the 2026-08-16 cleanup; worth fixing next time that file is open
+- **`v2/profile.html`'s `LANDING_OPTIONS` offered `/finance.html` and `/ops.html` until 2026-09-10** —
+  neither file exists, so picking either set a `profiles.default_page` that 404'd on next login. Fixed:
+  the list now holds only pages that exist, and a stored value that is no longer offered renders as a
+  flagged option rather than silently collapsing to "(department default)". `index.html`'s signed-in
+  router had the same bug for the ops / planning / marketing / retail departments (root `/ops.html`
+  etc.) and now lands everyone on `/v2/finance.html`, matching `pages/login.html`. Any profile that
+  still STORES one of the dead paths keeps 404-ing until its owner re-saves — a one-line
+  `update profiles set default_page = null where default_page in ('/finance.html','/ops.html')` clears it
 - **Orphan CSS:** `v2/po-builder-beacon.css` and `v2/purchasing-hub-shell.css` have zero references
 - **`v2/hidden/`** is parked-on-purpose (not in nav, no inbound links). **`v2/licensing/`** is a
   standalone microsite. **`config.json`** (JotForm routes) has no reader anywhere in the repo
