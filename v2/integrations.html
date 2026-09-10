@@ -2019,6 +2019,18 @@
               + list.map((x) => typeof x === 'string' ? x : (x.id || x.property || '') + (x.display_name || x.name ? ` (${x.display_name || x.name})` : '')).join(', ')
               + ' — paste one into the account field');
           }
+          // Search Console only: with no property configured the tester
+          // returns the verified-site list. The identifier must be pasted
+          // VERBATIM — a URL-prefix property (https://www.baseballism.com/)
+          // and a domain property (sc-domain:baseballism.com) cover
+          // different traffic and are not interchangeable, so the list is
+          // the only safe source for it. Without this branch the button read
+          // "✓ Connection OK" and never showed what to paste.
+          if (data.sites && data.sites.length) {
+            parts.push('Search Console properties: '
+              + data.sites.map((s) => `${s.site_url} (${s.permission_level}${s.readable === false ? ', unverified' : ''})`).join(', ')
+              + ' — paste one, verbatim, into the account field');
+          }
           // Meta only: pages the token can manage, with each Page's linked
           // Instagram account — fills the two Organic fields from a real
           // list instead of Graph API Explorer.
