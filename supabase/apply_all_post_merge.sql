@@ -18639,3 +18639,11 @@ $c$select (select count(*) from v_po_header_summary
 -- from.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910140000_initiative_delete_cascades_tasks.sql
+
+-- ---------------------------------------------------------------------------
+-- Two Ask SILO catalog caveats (CLAIMED, NOT ACTUAL on marketing_kpis_daily;
+-- ABSENCE IS NOT NONEXISTENCE on shopify_landing_pages_daily) were dropped by
+-- later migrations that replaced the description instead of appending.
+-- Re-appended, guarded. Found by the first scheduled drift check.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910150000_restore_lost_catalog_caveats.sql

@@ -57,28 +57,25 @@ if (notReadOnly.length) {
 }
 console.log(`${statements.length} statements in ${SQL_PATH}, project ${REF}\n`);
 
-// The endpoint accepts { query }. Newer API versions also accept
-// { read_only: true }; it is tried first because it is a second lock on the
-// same door, and dropped on a 400 that names it, so an older API does not
-// turn a safety flag into a total outage of the check.
-let sendReadOnlyFlag = true;
+// The endpoint accepts { query } and, optionally, { read_only: true }. The
+// flag is NOT sent, and the reason is a first-run finding (2026-09-10): it
+// is honoured by running the statement as a restricted role, and that role
+// sees a different database. information_schema.check_constraints hides
+// constraints on tables the role has no privilege on, and a function granted
+// only to `authenticated` is "permission denied" -- so two checks that read
+// ok in the SQL editor came back MISSING / ERROR here for nothing. The
+// verify script is written to be run as the SQL editor role (`postgres`),
+// and that is what it is run as; the read-only guarantee comes from the
+// SELECT/WITH check above, which is enforced before anything is sent.
 async function runStatement(text) {
-  for (;;) {
-    const body = sendReadOnlyFlag ? { query: text, read_only: true } : { query: text };
-    const res = await fetch(API, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const raw = await res.text();
-    if (res.status === 400 && sendReadOnlyFlag && /read_only/i.test(raw)) {
-      console.log('  (API rejected read_only flag; continuing without it)');
-      sendReadOnlyFlag = false;
-      continue;
-    }
-    if (!res.ok) return { error: `HTTP ${res.status}: ${raw.slice(0, 300)}` };
-    try { return { rows: JSON.parse(raw) }; } catch { return { error: `unparseable response: ${raw.slice(0, 200)}` }; }
-  }
+  const res = await fetch(API, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: text }),
+  });
+  const raw = await res.text();
+  if (!res.ok) return { error: `HTTP ${res.status}: ${raw.slice(0, 300)}` };
+  try { return { rows: JSON.parse(raw) }; } catch { return { error: `unparseable response: ${raw.slice(0, 200)}` }; }
 }
 
 let failed = 0;

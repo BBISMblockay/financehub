@@ -53,6 +53,18 @@ same caveats where the model actually reads schema facts. The old landing-pages
 description warned against *summing* and that warning worked; it said nothing
 about negative claims, and a caveat only covers the failure it names.
 
+**The catalog half of step 1 was lost the next day and nobody noticed for
+two days.** `20260909140000` and `20260909360000` both rewrote
+`shopify_landing_pages_daily`'s description with `set description = '...'` to
+add their truncation and sweep notes, and neither carried the
+`ABSENCE IS NOT NONEXISTENCE` caveat forward — so from 2026-09-09 the model
+was again reading a description that never said absence is not
+nonexistence, while the prompt rule (which lives in the edge function, not
+the catalog) still did. Found by the first scheduled run of
+`deployment-drift-check.yml` on 2026-09-10; the verify check written for it
+had been MISSING the whole time. Restored by `20260910150000`, as an append.
+Edit catalog rows by appending, never by replacing.
+
 Deployed as silo-chat **v59** on 2026-09-09 via
 `.github/workflows/deploy-edge-function.yml` (the CLI reads the file off the
 checkout; deploying a 123KB function inline through an API client is what
