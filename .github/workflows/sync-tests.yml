@@ -21,6 +21,8 @@ on:
       - 'scripts/tests/**'
       - 'scripts/shopify-sync.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
+      - 'scripts/ad-platforms-sync.mjs'
+      - 'scripts/search-console-backfill.mjs'
       - 'supabase/functions/shopify-oauth-start/**'
       # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
       # function directory, so a change there must run these tests. Without
@@ -79,6 +81,17 @@ jobs:
 
       - name: Ask SILO prompt assembly
         run: node supabase/functions/silo-chat/prompt.test.mjs
+
+      # Search Console ingestion. Pins what the probe measurements decided:
+      # every request dataState=final with the window ending 2 days back in
+      # PACIFIC, per-day attribution computed from the same fetch (a day with
+      # a total and no query rows is attributed ZERO, never null), the site
+      # row written LAST so it never describes detail rows that did not land,
+      # paging by startRow with the guard flagging truncation, query x page
+      # never requested, and the backfill keeping completed chunks when a
+      # later one fails.
+      - name: Search Console sync
+        run: node scripts/tests/search-console-sync.test.mjs
 
       # products_master is one row per (company, sku), so its shopify_product_id
       # is decided by nightly sync ORDER for the 26.9% of sold SKUs that exist

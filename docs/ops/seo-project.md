@@ -362,6 +362,56 @@ scheme is invisible here, not zero.
   limits), which decides whether indexing checks are on-demand or a slow
   background crawl. The probe does not touch it.
 
+### Step 2c — tables and ingestion (built 2026-09-10, verification pending)
+
+Built the same afternoon, to the numbers above. **Implementation complete,
+verification pending** — nothing below has run against production yet.
+
+What exists:
+
+- `supabase/migrations/20260910180000_search_console_daily.sql` — the three
+  tables, RLS (select company-scoped, no client writes), the generated
+  unattributed columns, `page_path` generated from the URL, the stamp
+  trigger, the `sync_jobs.job_type` value, and the catalog entries carrying
+  the 43% as a number. The job_type CHECK is extended by READING the live
+  constraint and appending, so a value that exists only in production
+  survives — tested by seeding a scratch Postgres with a value no migration
+  contains and confirming it was still accepted afterwards. Applied twice to
+  the same database: idempotent.
+- `scripts/lib/search-console-sync-core.mjs` — one window: fetch site, page
+  and query cuts (all `dataState=final`, paged by `startRow`), build rows
+  with per-day attribution from the same fetch, upsert page → query → **site
+  last**. A chunk is all-fetched then written, so a fetch failure writes
+  nothing and a detail-upsert failure never leaves a site row describing
+  rows that are not there. Query × page is never requested.
+- `scripts/ad-platforms-sync.mjs` — Search Console connections now sync
+  nightly instead of being skipped by name; `ADS_SKIP_SEARCH_CONSOLE` on the
+  2-hourly cron. The Integrations Sync toggle is live for the row and it is
+  currently **off** — it must be switched on for the nightly to pick it up.
+- `scripts/search-console-backfill.mjs` + `search-console-backfill.yml` —
+  history, newest-first in 28-day chunks, each written before the next is
+  fetched, reporting exactly which days landed on failure.
+- `scripts/tests/search-console-sync.test.mjs` — 57 assertions, in CI via
+  `sync-tests.yml`.
+
+**Still unverified, in the order it will be found out:**
+
+1. Apply the migration in production, then run `verify_v2_schema.sql`
+   (`search_console_daily_tables` must be `ok`).
+2. Switch the row's Sync toggle on, dispatch `ad-platforms-sync.yml` with
+   `platform = search_console`, and read the `[ok]` line: it prints the
+   window's query-attributed share, which should land near the probe's
+   56.9%. A share near 100% means the query cut is being summed against the
+   wrong denominator; a share near 0% means the query fetch returned
+   nothing.
+3. Dispatch `search-console-backfill.yml` with defaults. ~18 chunks.
+4. Only then: point Ask SILO at it. **`silo-chat/index.ts` still says "SILO
+   holds NO Search Console data"** and two test files pin that sentence
+   (`prompt.test.mjs`, `seo-orchestration.test.mjs` §5). Until the prompt is
+   changed and the function deployed, the model has the catalog telling it
+   the tables exist and the prompt telling it they do not. That contradiction
+   is the next step's whole job, not a bug in this one.
+
 ## Step 5 — project workflow schema (shipped 2026-09-09)
 
 ### Why new tables rather than the existing task system
@@ -767,7 +817,7 @@ does not exist. Each line is a claim about the SYSTEM, not about intent.
 | **Shopify evidence** | **Operational** | `shopify_landing_pages_daily` holds 730 days (2024-09-09 → 2026-09-08), 182,502 rows, 7,162 paths for the DTC store. `shopify_sessions_daily` holds 744 days of store-level totals. `shopify_collections` registry is complete and swept nightly. |
 | **Page inspection** | **Operational** | `page-inspect` v1 deployed, `verify_jwt: true`, host allowlist read under the caller's JWT from `shopify_shop_domains`. Verified live against `/collections/mlb`. |
 | **Candidate selection** | **Operational (new)** | `seo_collection_candidates(p_days, p_shop_domain)` returns collection landing pages with a shop-scoped `inspect_url` already built. |
-| **Search Console** | **Awaiting access / OAuth** | Connection plumbing shipped (`search_console` platform + scope). No property connected, no data. **No queries, impressions, clicks, CTR, positions or indexing status exist anywhere in SILO.** |
+| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). Tables + nightly + backfill written (Step 2c) but **not yet applied, enabled or run** — until the migration is applied and the Sync toggle is on, **no queries, impressions, clicks, CTR or positions exist anywhere in SILO**, and Ask SILO's prompt still says so. Indexing status is a separate API, unprobed. |
 | **Competitor SERP monitoring** | **Not integrated** | No SERP data source of any kind. Competitor rank snapshots cannot be produced. |
 | **Google Ads search-term / keyword / ad-asset grains** | **Not integrated** | `marketing_kpis_daily` is CAMPAIGN grain only — 8 Google campaigns. No search terms, keywords, negatives or RSA assets. |
 | **Draft → approval → baseline → 30d → 90d workflow** | **Schema only, not built** | `20260909240000` created the tables and invariants; nothing writes to them and there is no UI. Recommendations today are chat output, not tracked projects. |

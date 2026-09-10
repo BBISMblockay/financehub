@@ -431,3 +431,18 @@ supabase/
   update) never ran in production; by decision it stays that way until the Slack
   rebuild defines notifications deliberately. Verify checks 28 and 33 assert this
   shape now. A no-op when applied
+
+- `20260910180000_search_console_daily.sql` — Search Console performance data,
+  three grains in three tables (`search_console_site_daily` / `_page_daily` /
+  `_query_daily`), built to what `scripts/search-console-probe.mjs` measured on
+  2026-09-10 rather than recalled: final data ends 2 days back, 498 days of
+  history, 25k-row pages, the page cut complete on clicks, the query cut
+  recovering only 56.9% of clicks (Google anonymises the rest). The site row
+  stores the per-day attributed sums from the same fetch and derives
+  `unattributed_query_clicks` / `_share` as generated columns (NULL = never
+  measured, never 0). Service-role writes only. Extends `sync_jobs.job_type`
+  with `search_console_daily` by reading the LIVE constraint definition and
+  appending, so a value that exists only in production survives. Seeds the
+  Ask SILO catalog entries as guarded appends and refreshes columns. Verify
+  check `search_console_daily_tables`. Tested twice over against a scratch
+  Postgres (idempotent; a prod-only job_type value survived the rewrite)
