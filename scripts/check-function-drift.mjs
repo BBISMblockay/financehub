@@ -44,16 +44,32 @@ const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'notif
 // But a bare list of slugs would be worse than the red: it would also
 // swallow the NEXT, different drift in the same function -- a truncated hand
 // deploy, a rollback, a repo edit nobody shipped -- which is exactly what
-// this check exists to catch. So each entry is PINNED to the `ezbr_sha256`
-// of the deployed bundle at the moment the decision was taken. It forgives
-// that one state of production and nothing else: redeploy the function and
-// the hash moves, the pin breaks, and the run fails again.
+// this check exists to catch. So each entry is PINNED to BOTH SIDES of the
+// difference it forgives, and both must still match:
+//
+//   deployedSha256  the `ezbr_sha256` of the deployed bundle. Moves whenever
+//                   PRODUCTION changes.
+//   repoBlobs       the git blob sha of every repo file the deferral covers,
+//                   read from HEAD. Moves whenever the REPO changes.
+//
+// Pinning production alone is not enough, and that was the first version of
+// this: a change merged to the function and never deployed leaves the
+// deployed hash untouched, so the deferral would go on forgiving a
+// difference that had grown into something nobody looked at. "Merged but
+// not deployed" is drift in the other direction and is exactly what this
+// check caught `silo-chat` on twice.
+//
+// A deferral therefore forgives one recorded state of the world and nothing
+// else. It expires by itself the moment either side moves.
 //
 // Delete the entry when the difference is reconciled.
 const DEFERRED_DRIFT = new Map([
   ['card-categorize', {
     since: '2026-09-10',
     deployedSha256: '2f4a4bc09f8c688b837841748f34481a752fc5a4023339047f0c23697ff58ba0', // v9
+    repoBlobs: {
+      'supabase/functions/card-categorize/index.ts': '1401c4b3153e0648d98e1a2fc345b390bc10ed5c',
+    },
     why: 'the difference is a prompt RULE, not a merge -- production says a card-name '
       + 'match should set the location, main says only name a location when the merchant '
       + 'or card clearly belongs to one store. Deferred until there is enough real card '
@@ -116,19 +132,67 @@ for (const line of status) {
   const tracked = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
   if (deployed.trimEnd() === tracked.trimEnd()) newlineOnly.push(path); else modified.push(path);
 }
-// Pull out drift that was deferred BY DECISION -- but only while the pin
-// still holds. A pin that cannot be checked (no ezbr_sha256 came back for
-// the slug) fails closed: the path stays in `modified` and the run fails.
+/**
+ * Why this deferral no longer applies, or '' if it still does.
+ *
+ * Judged per FUNCTION rather than per file, because a deferral has to
+ * account for every file drifting under it -- a second file appearing is
+ * new drift, not deferred drift.
+ *
+ * The repo side reads `git rev-parse HEAD:<path>`, which is the COMMIT's
+ * blob and so is unaffected by `supabase functions download` having just
+ * overwritten the working tree with the deployed source.
+ */
+function deferralBreak(slug, paths, d) {
+  const live = shaBySlug.get(slug);
+  // Fail closed: a pin that cannot be checked is not a pin.
+  if (!live) return `the Management API reported no ezbr_sha256 for ${slug}, so the deferral's pin could not be verified`;
+  if (live !== d.deployedSha256) {
+    return `PRODUCTION CHANGED since the deferral was recorded on ${d.since}: the deployed bundle is `
+      + `${live.slice(0, 12)}, pinned at ${d.deployedSha256.slice(0, 12)}`;
+  }
+  const covered = Object.keys(d.repoBlobs || {});
+  const uncovered = paths.filter((path) => !covered.includes(path));
+  if (uncovered.length) {
+    return `the deferral does not cover ${uncovered.join(', ')} -- it names only ${covered.join(', ')}`;
+  }
+  for (const [path, blob] of Object.entries(d.repoBlobs || {})) {
+    let liveBlob;
+    try {
+      liveBlob = execFileSync('git', ['rev-parse', `HEAD:${path}`], { encoding: 'utf8' }).trim();
+    } catch {
+      return `${path} is no longer in HEAD, so the deferral's pin is meaningless`;
+    }
+    if (liveBlob !== blob) {
+      return `THE REPO CHANGED since the deferral was recorded on ${d.since}: ${path} is blob `
+        + `${liveBlob.slice(0, 12)}, pinned at ${blob.slice(0, 12)}. A change merged to a deferred `
+        + 'function and never deployed is drift too, and is not what was deferred';
+    }
+  }
+  return '';
+}
+
+// Pull out drift that was deferred BY DECISION -- but only while its pin
+// still holds on BOTH sides. Grouped by function first, so a deferral is
+// judged against every file drifting under it at once.
+const modifiedBySlug = new Map();
+for (const path of modified) {
+  const slug = path.split('/')[2];
+  if (!modifiedBySlug.has(slug)) modifiedBySlug.set(slug, []);
+  modifiedBySlug.get(slug).push(path);
+}
 const deferredDrift = [];
 const brokenPins = [];
-for (let i = modified.length - 1; i >= 0; i -= 1) {
-  const slug = modified[i].split('/')[2];
+const stillModified = [];
+for (const [slug, paths] of modifiedBySlug) {
   const d = DEFERRED_DRIFT.get(slug);
-  if (!d) continue;
-  const live = shaBySlug.get(slug);
-  if (live && live === d.deployedSha256) deferredDrift.push(...modified.splice(i, 1));
-  else brokenPins.push({ path: modified[i], slug, live });
+  if (!d) { stillModified.push(...paths); continue; }
+  const why = deferralBreak(slug, paths, d);
+  if (why) { brokenPins.push({ slug, paths, why }); stillModified.push(...paths); }
+  else deferredDrift.push(...paths);
 }
+modified.length = 0;
+modified.push(...stillModified);
 
 const notDeployed = [...repoSlugs].filter((s) => !deployedSlugs.has(s));
 
@@ -151,10 +215,11 @@ if (brokenPins.length) {
   // the reason legible instead of looking like brand-new drift.
   console.log('\nA DEFERRED DIFFERENCE IS NO LONGER THE ONE THAT WAS DEFERRED:');
   for (const b of brokenPins) {
-    const d = DEFERRED_DRIFT.get(b.slug);
-    console.log(`::error file=${b.path}::${b.slug} was deferred on ${d.since} against deployed bundle `
-      + `${d.deployedSha256.slice(0, 12)}, but production now reports ${String(b.live || 'no ezbr_sha256').slice(0, 12)}. `
-      + 'Re-read the difference, then either reconcile it or re-pin the deferral in scripts/check-function-drift.mjs.');
+    console.log(`  ${b.slug}: ${b.why}`);
+    for (const path of b.paths) {
+      console.log(`::error file=${path}::${b.why}. Re-read the difference, then either reconcile it `
+        + 'or re-pin the deferral in scripts/check-function-drift.mjs.');
+    }
   }
 }
 if (newlineOnly.length) {
