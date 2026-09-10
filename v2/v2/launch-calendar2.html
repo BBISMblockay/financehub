@@ -513,6 +513,60 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
  @media(max-width:700px) { .lc2-hero img { width:130px; } .cal-cell { padding:7px; } }
 }
 </style>
+<style>
+/* Brief and Document need reading/writing space rather than a narrow inspector. */
+@media screen {
+ .lc2-workspace:has(#detailDrawer.open #dp-brief.active) .lc2-views,
+ .lc2-workspace:has(#detailDrawer.open #dp-document.active) .lc2-views { display:none; }
+ .lc2-workspace #detailDrawer:has(#detailDrawer.open #dp-brief.active),
+ .lc2-workspace #detailDrawer:has(#detailDrawer.open #dp-document.active) { width:100%;min-width:0;border-left:0; }
+ #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-panel-head,
+ #detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-panel-head { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+ #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-head-row,
+ #detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-head-row { flex:1; }
+ #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-actions,
+ #detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-actions { margin:0; }
+ #dp-brief,#dp-document { max-width:1000px;width:100%;box-sizing:border-box;margin:0 auto;padding:24px;gap:20px; }
+ #dp-brief .dp-section { padding:22px;border-radius:10px; }
+ #dp-brief .dp-title { font-size:17px; }
+ #dp-brief .dp-sub { font-size:12px;line-height:1.55; }
+ #dp-brief .bcn-field { font-size:14px;padding:10px 12px;border-radius:6px;line-height:1.6; }
+ #dp-brief textarea { resize:vertical;min-height:100px; }
+ #dp-brief .dp-g2,#dp-brief .dp-g3 { gap:18px; }
+ #dp-brief .bcn-label { font-size:11px;margin-bottom:7px; }
+ .lc2-brief-save { position:sticky;top:0;z-index:8;padding:12px 16px;background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:8px;box-shadow:0 3px 12px rgb(0 0 0 / .05); }
+ #dp-document { max-width:940px; }
+ #releaseDocument { background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:10px;padding:28px 36px;box-shadow:0 3px 15px rgb(0 0 0 / .035); }
+ #releaseDocument .reldoc-sec { padding:22px 0;margin:0;border:0;border-radius:0;border-top:1px solid var(--bcn-border); }
+ #releaseDocument .reldoc-sec-title { font-family:var(--bcn-font);font-size:17px;letter-spacing:0;text-transform:none;color:var(--bcn-ink);margin-bottom:14px; }
+ #releaseDocument .reldoc-row { display:grid;grid-template-columns:minmax(160px,35%) 1fr;gap:24px;border:0;padding:7px 0;font-size:13px;line-height:1.65; }
+ #releaseDocument .reldoc-k { white-space:normal; }
+ #releaseDocument .reldoc-v { text-align:left;font-weight:500; }
+ #releaseDocument .reldoc-block { font-size:14px;line-height:1.75; }
+ #releaseDocument .reldoc-block-label { margin-top:15px; }
+ #releaseDocument:not(.lc2-show-empty) .reldoc-row--empty { display:none; }
+ .lc2-doc-title { margin:0 0 5px;font-size:27px;line-height:1.3; }
+ .lc2-doc-date { color:var(--bcn-ink-3);margin:0 0 24px;font-size:13px; }
+ .lc2-doc-empty-toggle { display:flex;align-items:center;gap:7px;font-size:12px;color:var(--bcn-ink-2); }
+ @media(max-width:700px) {
+  #dp-brief,#dp-document { padding:12px; }
+  #dp-brief .dp-section,#releaseDocument { padding:16px; }
+  #releaseDocument .reldoc-row { grid-template-columns:1fr;gap:2px; }
+  #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-panel-head,#detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-panel-head { display:block; }
+ }
+}
+@media print {
+ .silo-app,.silo-main,.lc2-workspace { display:block!important;height:auto!important;overflow:visible!important; }
+ .silo-main>:not(.lc2-workspace),.lc2-views,.lc2-doc-screen-head,.lc2-doc-empty-toggle { display:none!important; }
+}
+</style>
+<style>@media screen {
+ .lc2-drag-hint { margin-left:auto;font-size:10px;color:var(--bcn-ink-3); }
+ .ev-chip[draggable="true"] { cursor:grab; }
+ .ev-chip.lc2-dragging { opacity:.45;cursor:grabbing; }
+ .cal-cell.lc2-drop-target { background:var(--bcn-accent-soft)!important;box-shadow:inset 0 0 0 2px var(--bcn-accent); }
+ @media(pointer:coarse) { .lc2-drag-hint { display:none; } }
+}</style>
 </head>
 <body class="silo-brand">
 
@@ -1591,6 +1645,7 @@ function renderMonth(){
     const moreInits=(initByDate.get(key)||[]).length-inits.length;
     const isOff=d.getMonth()!==m, isToday=key===todayStr;
     const cell=document.createElement('div');
+    cell.dataset.date=key;
     cell.className='cal-cell'+(isOff?' off':'')+(isToday?' today':'');
     const shown=items.slice(0,3);
     const more=items.length-shown.length;
@@ -2878,6 +2933,108 @@ function applyProductToProductForm(r){ openProductForm(null); pendingProductSour
   switchTab=function(tab){oldSwitch(tab);render();['prevMonth','monthTitle','nextMonth','todayMonth'].forEach(id=>$(id).hidden=tab!=='calendar');document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));};
 })();
 
+</script>
+<script>
+(function(){
+ const save=$('briefSaveBtn').parentElement;
+ save.classList.add('lc2-brief-save');
+ $('dp-brief').prepend(save);
+ // Moving the existing control preserves its save handler and every form value.
+ const docTools=$('dp-document').firstElementChild;
+ const toggle=document.createElement('label');toggle.className='lc2-doc-empty-toggle';
+ const cb=document.createElement('input');cb.type='checkbox';
+ toggle.append(cb,document.createTextNode('Show empty fields'));docTools.append(toggle);
+ cb.onchange=()=>$('releaseDocument').classList.toggle('lc2-show-empty',cb.checked);
+ const renderDoc=renderReleaseDocument;
+ renderReleaseDocument=function(...args){
+  renderDoc(...args);
+  if(!args[0])return;
+  const header=document.createElement('header');header.className='lc2-doc-screen-head';
+  const title=document.createElement('h1');title.className='lc2-doc-title';title.textContent=args[0].title||'Release document';
+  const date=document.createElement('p');date.className='lc2-doc-date';date.textContent=fmt(args[0].launch_date);
+  header.append(title,date);$('releaseDocument').prepend(header);
+ };
+ // Closing the expanded view returns to the unchanged calendar selection.
+ $('closeDrawer').title='Back to calendar';
+})();
+</script>
+<script>
+/* Rescheduling changes launch dates only; independently scheduled work stays put. */
+function lc2MoveDates(launch, targetDate) {
+  const day = value => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) throw new Error('Invalid launch date.');
+    const n = Date.parse(value + 'T00:00:00Z');
+    if (!Number.isFinite(n) || new Date(n).toISOString().slice(0,10) !== value) throw new Error('Invalid launch date.');
+    return n;
+  };
+  const delta = day(targetDate) - day(launch.launch_date);
+  const patch = { launch_date: targetDate };
+  if (launch.launch_end_date) patch.launch_end_date = new Date(day(launch.launch_end_date) + delta).toISOString().slice(0,10);
+  return patch;
+}
+(function(){
+  let dragging = null, busy = false;
+  const grid = $('calendarGrid');
+  const hint=document.createElement('span');hint.className='lc2-drag-hint';
+  hint.textContent='Drag launches to move dates';$('calMeta').after(hint);
+  function clearTargets(){grid.querySelectorAll('.lc2-drop-target').forEach(el=>el.classList.remove('lc2-drop-target'));}
+  function bindDragCards(){
+    grid.querySelectorAll('.ev-chip[data-lid]').forEach(el=>{
+      el.draggable=true;el.title=(el.textContent||'Launch').trim()+' — drag to move its date. Initiatives keep their dates.';
+      el.querySelectorAll('img').forEach(img=>img.draggable=false);
+    });
+  }
+  const oldRender=renderMonth;
+  renderMonth=function(){oldRender();bindDragCards();};
+  grid.addEventListener('dragstart',e=>{
+    const card=e.target.closest('.ev-chip[data-lid]');
+    if(!card||busy||e.target.closest('[data-edit]')){e.preventDefault();return;}
+    dragging=card.dataset.lid;e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',dragging);
+    card.classList.add('lc2-dragging');
+  });
+  grid.addEventListener('dragend',()=>{
+    dragging=null;clearTargets();grid.querySelectorAll('.lc2-dragging').forEach(el=>el.classList.remove('lc2-dragging'));
+  });
+  grid.addEventListener('dragover',e=>{
+    const cell=e.target.closest('.cal-cell[data-date]');
+    if(!dragging||busy||!cell)return;
+    e.preventDefault();e.dataTransfer.dropEffect='move';clearTargets();cell.classList.add('lc2-drop-target');
+  });
+  grid.addEventListener('drop',async e=>{
+    const cell=e.target.closest('.cal-cell[data-date]'),id=dragging;
+    if(!cell||!id||busy)return;
+    e.preventDefault();dragging=null;clearTargets();
+    await moveLaunch(id,cell.dataset.date,true);
+  });
+  async function moveLaunch(id,date,offerUndo){
+    const launch=launches.find(x=>String(x.id)===String(id));
+    if(busy||!launch||launch.launch_date===date)return;
+    const oldDate=launch.launch_date, selectedId=activeLaunch?.id;
+    const currentTab=document.querySelector('.drawer-tab.active')?.dataset.dp;
+    busy=true;grid.setAttribute('aria-busy','true');setStatus('Moving launch…','info');
+    try{
+      const patch=lc2MoveDates(launch,date);
+      let query=db.from('launch_calendar').update(patch).eq('id',id);
+      // Reject a stale drag if another person has moved this launch meanwhile.
+      if(!__SILO_DEMO__)query=query.eq('launch_date',oldDate).select('id');
+      const result=await query;
+      if(result.error)throw result.error;
+      if(!__SILO_DEMO__&&!result.data?.length)throw new Error('The launch changed or you cannot edit it. Refresh and try again.');
+      await loadAll();
+      if(selectedId){openDrawer(selectedId);if(currentTab)switchDrawerTab(currentTab);}
+      const moved=launches.find(x=>String(x.id)===String(id));
+      if(!moved||moved.launch_date!==date)throw new Error('Could not confirm the new date. Refresh to check the launch.');
+      setStatus('Moved to '+fmt(date)+'. Initiatives and tasks keep their dates.','pos',20000);
+      if(offerUndo){
+        const undo=document.createElement('button');undo.type='button';undo.className='bcn-btn bcn-btn--ghost';
+        undo.textContent='Undo';undo.style.marginLeft='12px';
+        undo.onclick=()=>moveLaunch(id,oldDate,false);$('page-status').append(undo);
+      }
+    }catch(error){setStatus('Move failed: '+(error?.message||error),'neg',12000);}
+    finally{busy=false;grid.removeAttribute('aria-busy');}
+  }
+})();
 </script>
 </body>
 </html>
