@@ -726,7 +726,12 @@ Enforced in the prompt and asserted in `scripts/tests/seo-orchestration.test.mjs
   (per-page, truncated) are different grains and are **never added together**.
 - Landing-page data is truncated to the top ranked pages per day — on this
   store **every one of 730 days hit the cap** — so a page's absence is never
-  evidence of zero traffic, and the coverage window must be stated.
+  evidence of zero traffic, and the coverage window must be stated. The cap is
+  `LANDING_TOP_N = 250` in `scripts/lib/shopify-sync-core.mjs`; 7,162 distinct
+  paths appear across the window against 250 slots a day, so the tail that
+  falls out is large. Raising it would leave old days capped and new days not,
+  with nothing in the table marking the seam — widening coverage means a
+  re-backfill at the new N, not a bump.
 - These are **on-site sessions**, never "organic traffic".
 - No queries, keywords, indexing status, rankings, impressions, CTR or
   organic-search attribution. A page fetching successfully is **not** evidence
@@ -778,3 +783,40 @@ than being folded into this one.
   `/collections/cleveland-guardians` (empty).
 - **One test assertion could not fail** (`cond === false || true`). Replaced
   with the actual expected behaviour: dedupe is reported ahead of the cap.
+- **A set size was stated without being counted.** The third live run opened
+  "across all 96 collection pages"; the function returns **85**, and no window
+  produces 96 (checked at 30/60/90/180/365/730 days, per-shop and across
+  shops). The superlative rule shipped the day before did not catch it: a
+  superlative names a *member* of the set, this named the set's *size*. Now a
+  third rule — a count is reportable only from rows a query returned in that
+  conversation, otherwise describe the set without a number — under a heading
+  that frames all three by where the number came from
+  (`MEASURED VS GENERATED NUMBERS`). Asserted in
+  `scripts/tests/seo-orchestration.test.mjs` §15; all seven assertions
+  mutation-tested.
+
+### What has never executed (as of 2026-09-09)
+
+Four paths in this feature are written, reviewed and asserted where possible,
+but have **never run against real inputs**. Recorded because the feature works,
+which is exactly the state in which someone later assumes these were exercised.
+
+| Path | Why it never ran | How it would be reached |
+|---|---|---|
+| The five-page cap refusal | No live question shortlisted more than four pages | Ask for a review of six or more collections in one question |
+| A null `inspect_url` | Every shop with `/collections/` traffic has a verified host | Only reachable if a shop has landing rows and no `shopify_shop_domains` row |
+| Inspecting a `not_in_registry` page | The prompt correctly routes these to "redirect finding" and stops | Would require the model to ignore `candidate_status` |
+| The multi-shop host join | **Correct behaviour, not a gap:** no non-DTC shop has any `/collections/` traffic, so the join has only ever had one shop to pick from | A second shop would need real collection landing sessions |
+
+The last one is the load-bearing wrong-store guard. It is asserted in
+`supabase/verify_v2_schema.sql` and in the migration, and it has never had two
+candidate hosts to choose between in production. Treat a future multi-shop
+result as first-run, not as a regression check.
+
+**Related operational finding, worth someone's attention outside SILO:**
+`baseballismwholesale.myshopify.com` (→ `baseballismb2b.com`) has recorded
+exactly **two** landing paths, ever: `/password` with 122 sessions and `/` with
+6. The B2B storefront appears to be password-gated. That
+is also why it contributes only 32 landing rows against the DTC store's
+182,502, and why the multi-shop path above has never fired. Whoever manages the
+Shopify connections should confirm the gate is deliberate.
