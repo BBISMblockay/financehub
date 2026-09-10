@@ -2703,6 +2703,20 @@ select
                      where relname = 'search_console_query_daily'
                        and description like '%DELIBERATELY INCOMPLETE%')
       then 'MISSING — search_console_query_daily lost its deliberately-incomplete caveat'
+    -- 20260910180000 shipped the PAGE row saying a missing page row "genuinely
+    -- had no search clicks". Google does not guarantee every row is returned,
+    -- so that sentence teaches the exact negative-claim-from-a-partial-list
+    -- error this project exists to prevent. 20260910190000 replaces it; this
+    -- fails if the wrong sentence is ever back or the correction is absent.
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname in ('search_console_page_daily', 'search_console_site_daily')
+                   and (description like '%genuinely had no search clicks%'
+                        or description like '%Page attribution is complete on clicks%'))
+      then 'CRITICAL — a search_console_* catalog row again claims page absence means zero clicks; run 20260910190000_search_console_page_absence_caveat.sql'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname = 'search_console_page_daily'
+                       and description like '%ABSENCE IS NOT ZERO%')
+      then 'MISSING — search_console_page_daily lacks its absence-is-not-zero caveat; run 20260910190000_search_console_page_absence_caveat.sql'
     when exists (select 1 from public.silo_chat_schema_catalog
                  where relname like 'search\_console\_%\_daily'
                    and jsonb_array_length(coalesce(columns, '[]'::jsonb)) = 0)

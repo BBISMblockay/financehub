@@ -446,3 +446,14 @@ supabase/
   Ask SILO catalog entries as guarded appends and refreshes columns. Verify
   check `search_console_daily_tables`. Tested twice over against a scratch
   Postgres (idempotent; a prod-only job_type value survived the rewrite)
+
+- `20260910190000_search_console_page_absence_caveat.sql` — forward-corrective.
+  The migration above shipped the `search_console_page_daily` catalog row saying
+  a page with no row on a day "genuinely had no search clicks", from the probe's
+  aggregate 102.8% page recovery. That is a per-row guarantee Google explicitly
+  does not make (the Search Analytics API does not promise every row, even with
+  pagination), and it teaches Ask SILO the negative-claim-from-a-partial-list
+  error the SEO project exists to prevent. Replaces the sentence on the page
+  and site rows with an ABSENCE IS NOT ZERO caveat; idempotent. Verify's
+  `search_console_daily_tables` goes CRITICAL if the wrong sentence returns.
+  Found in review of PR #666 after 20260910180000 was already applied

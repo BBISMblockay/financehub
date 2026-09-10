@@ -273,7 +273,11 @@ values
 on conflict (relname) do update
   set description = case
         when coalesce(public.silo_chat_schema_catalog.description, '') like '%QUERY ATTRIBUTION IS PARTIAL%'
-          or coalesce(public.silo_chat_schema_catalog.description, '') like '%COMPLETE on clicks%'
+          -- The page marker is a phrase that survives 20260910190000's
+          -- correction of this row's (wrong) completeness sentence; keying
+          -- on that sentence would re-append the whole paragraph on any
+          -- re-run of apply_all_post_merge.sql after the fix.
+          or coalesce(public.silo_chat_schema_catalog.description, '') like '%page-to-page join%'
           or coalesce(public.silo_chat_schema_catalog.description, '') like '%DELIBERATELY INCOMPLETE%'
         then public.silo_chat_schema_catalog.description
         else coalesce(public.silo_chat_schema_catalog.description, '') || excluded.description

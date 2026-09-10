@@ -12,13 +12,18 @@
 //   site  (dimensions: date)        the undimensioned daily total -- the
 //                                   DENOMINATOR that makes the other two
 //                                   honest.
-//   page  (dimensions: date, page)  recovered 102.8% of clicks: complete on
-//                                   clicks. Over 100% because Google counts
-//                                   one site impression per QUERY but one
-//                                   page impression per URL shown, so page-
-//                                   level impressions/CTR/position are a
-//                                   different measure from site-level ones,
-//                                   not a breakdown of them.
+//   page  (dimensions: date, page)  recovered 102.8% of clicks IN AGGREGATE
+//                                   over 28 days. That is NOT a per-row
+//                                   guarantee: Google documents that the API
+//                                   does not return every row, even when
+//                                   paging, so a page absent on a day is
+//                                   "not returned", never "zero clicks".
+//                                   Over 100% because Google counts one site
+//                                   impression per QUERY but one page
+//                                   impression per URL shown, so page-level
+//                                   impressions/CTR/position are a different
+//                                   measure from site-level ones, not a
+//                                   breakdown of them.
 //   query (dimensions: date, query) recovered 56.9% of clicks. The other
 //                                   43.1% are ANONYMISED by Google for privacy
 //                                   and belong to no query row, ever. A query

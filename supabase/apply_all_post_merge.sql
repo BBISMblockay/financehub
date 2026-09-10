@@ -18664,3 +18664,12 @@ $c$select (select count(*) from v_po_header_summary
 -- rather than retyping it. Seeds the Ask SILO catalog with the numbers.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910180000_search_console_daily.sql
+
+-- ---------------------------------------------------------------------------
+-- Forward-corrective for the row above: 20260910180000's page catalog text
+-- said a missing page row "genuinely had no search clicks". Google does not
+-- guarantee every row is returned, so absence is not zero. Replaces the
+-- sentence on both the page and site rows; idempotent. Found in review of
+-- PR #666 after the migration was already applied.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910190000_search_console_page_absence_caveat.sql

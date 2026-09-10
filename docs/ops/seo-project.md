@@ -340,15 +340,16 @@ scheme is invisible here, not zero.
 | Retention | 498 final days, back to 2025-04-29 | a full backfill is feasible; any comparison older than ~16 months is unmeasurable, not flat |
 | Row cap | 25,000 per page; pagination works (date×query needed 6 pages, 125,846 rows) | tables can be COMPLETE lists of what Google returns, not top-N slices — the `shopify_landing_pages_daily` trap does not recur here |
 | **Query attribution** | query cut recovers **56.9% of clicks** (10,200 of 17,913) and 70.5% of impressions; **43.1% of clicks belong to no query row** (anonymised for privacy) | a "no query brought traffic to X" claim is unsafe by 43 points. Every query-grain surface must carry the unattributed share, per day |
-| Page attribution | page cut recovers **102.8% of clicks** and 172.2% of impressions | page grain is complete on clicks. Over 100% is Google's per-page counting: one query showing two of our URLs is one site impression but two page impressions, so page-level CTR and position are NOT comparable to site-level |
+| Page attribution | page cut recovers **102.8% of clicks** and 172.2% of impressions | IN AGGREGATE the page cut recovers at least the site total. **That is not a per-row guarantee**: Google documents that the Search Analytics API does not return every row, even with pagination, so a page absent on a day is not-returned, never zero. Over 100% is Google's per-page counting: one query showing two of our URLs is one site impression but two page impressions, so page-level CTR and position are NOT comparable to site-level |
 | Cross-dimension loss | query×page recovers 58.2% of clicks — no worse than query alone | the loss is entirely the anonymised-query withholding, not the cross. Still: 41.8% of clicks cannot be tied to a query×page pair |
 
 **Schema consequences, decided by the numbers rather than recalled:**
 
 - **Three grains, three tables**, never joined into one figure: a site-daily
   total (undimensioned — the denominator that makes the other two honest), a
-  page-daily table (complete on clicks; impressions/CTR/position are
-  page-level semantics), and a query-daily table (57% of clicks; the
+  page-daily table (recovering ~all clicks in aggregate, with no per-row
+  guarantee; impressions/CTR/position are page-level semantics), and a
+  query-daily table (57% of clicks; the
   remainder is a per-day `unattributed_clicks` computed against the site
   total and stored, not inferred later).
 - The catalog entry for the query table states the 43% as a number, which
@@ -394,10 +395,23 @@ What exists:
 - `scripts/tests/search-console-sync.test.mjs` — 57 assertions, in CI via
   `sync-tests.yml`.
 
+**Corrected in review (PR #666, 2026-09-10):** the first cut of the page
+table's catalog text said a missing page row "genuinely had no search clicks",
+reasoning from the aggregate 102.8%. Google explicitly does not guarantee
+every row is returned, so that sentence taught the model the exact
+negative-claim-from-a-partial-list error this project exists to prevent --
+and it shipped in a migration that was applied before the review landed.
+Fixed forward by `20260910190000`, which replaces the sentence on both the
+page and site rows, with a verify check that goes CRITICAL if it returns.
+The lesson is the one already written above about the landing-pages table:
+a caveat covers only the failure it names, and "complete in aggregate" is
+not "complete per row".
+
 **Still unverified, in the order it will be found out:**
 
-1. Apply the migration in production, then run `verify_v2_schema.sql`
-   (`search_console_daily_tables` must be `ok`).
+1. ~~Apply the migration in production~~ (done 2026-09-10) and apply
+   `20260910190000` after it; `verify_v2_schema.sql`'s
+   `search_console_daily_tables` must be `ok`.
 2. Switch the row's Sync toggle on, dispatch `ad-platforms-sync.yml` with
    `platform = search_console`, and read the `[ok]` line: it prints the
    window's query-attributed share, which should land near the probe's
