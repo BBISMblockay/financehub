@@ -3115,14 +3115,15 @@ select
                      where table_schema='public' and table_name='launch_tasks'
                        and column_name='channel_item_id')
       then 'MISSING — launch_tasks.channel_item_id; a task cannot be attached to an initiative'
-    -- SET NULL, never CASCADE: deleting an initiative must not silently delete
-    -- somebody's task, nor block the delete.
+    -- CASCADE, by the owner's decision (20260910140000): deleting an initiative
+    -- deletes its tasks, the same gesture as deleting a launch. A task tied to
+    -- neither survives both, which needs no rule -- it references nothing.
     when not exists (select 1 from pg_constraint
                      where conrelid='public.launch_tasks'::regclass and contype='f'
                        and conname='launch_tasks_channel_item_id_fkey'
-                       and pg_get_constraintdef(oid) ilike '%on delete set null%')
-      then 'CRITICAL — the initiative link is not ON DELETE SET NULL; removing an initiative '
-        || 'would take its tasks with it'
+                       and pg_get_constraintdef(oid) ilike '%on delete cascade%')
+      then 'CRITICAL — the initiative link is not ON DELETE CASCADE; deleting an initiative '
+        || 'would strand its tasks instead of removing them'
     when not exists (select 1 from pg_trigger
                      where tgrelid='public.launch_tasks'::regclass
                        and tgname='trg_task_launch_from_initiative')

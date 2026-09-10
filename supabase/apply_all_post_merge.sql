@@ -18630,3 +18630,12 @@ $c$select (select count(*) from v_po_header_summary
 -- silo_chat_managers. Found while adding the grant button to backend.html.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910130000_seo_approvers_stamp_and_granted_by.sql
+
+-- ---------------------------------------------------------------------------
+-- Deleting an initiative deletes its tasks (owner's call). 20260910120000
+-- shipped this link as SET NULL; a launch has always CASCADEd, so an
+-- initiative behaving differently meant two rules for one gesture. A task
+-- tied to neither still survives both -- it references nothing to cascade
+-- from.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910140000_initiative_delete_cascades_tasks.sql

@@ -382,14 +382,15 @@ supabase/
     20260909420000_seo_candidates_top_n_day_names.sql
     20260910120000_tasks_on_initiatives.sql
     20260910130000_seo_approvers_stamp_and_granted_by.sql
+    20260910140000_initiative_delete_cascades_tasks.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
 
 - `20260910120000_tasks_on_initiatives.sql` — a task can be attached to an
   **initiative** (`launch_channel_items`), not only a launch. Adds
-  `launch_tasks.channel_item_id` (`ON DELETE SET NULL` — removing an initiative
-  must not delete somebody's task), a BEFORE trigger deriving `launch_id` from the
+  `launch_tasks.channel_item_id` (`ON DELETE CASCADE` since
+  `20260910140000` — see below; it shipped as SET NULL), a BEFORE trigger deriving `launch_id` from the
   initiative so the two columns can never disagree about which launch a task is on,
   an AFTER trigger on `launch_channel_items` so moving an initiative moves its
   tasks, and `tasks_v` (**`security_invoker`** — `launch_tasks` hides private tasks
@@ -403,3 +404,11 @@ supabase/
   idempotent and never overwrites an explicitly passed company. Also defaults
   `seo_approvers.granted_by` to `auth.uid()`, matching `silo_chat_managers`.
   Surfaced by wiring the SEO approver grant into `/v2/backend.html`
+
+- `20260910140000_initiative_delete_cascades_tasks.sql` — deleting an initiative
+  deletes its tasks. Deleting a **launch** has always done this
+  (`launch_tasks_launch_id_fkey` has been CASCADE since the table existed), so an
+  initiative behaving differently meant two rules for the same gesture. A task tied
+  to **neither** survives both deletes — that needs no rule, since an unattached task
+  references nothing to cascade from. Applied when zero tasks carried a
+  `channel_item_id`, so it rewrote a rule rather than deleting anything.
