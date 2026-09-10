@@ -27,6 +27,9 @@ on:
       # this path the allowlist could be edited and nothing would run.
       - 'supabase/functions/page-inspect/**'
       - 'supabase/functions/silo-chat/**'
+      # The splitter is tested against the real verify file, so a change to
+      # the file must re-run that test.
+      - 'supabase/verify_v2_schema.sql'
       - '.github/workflows/sync-tests.yml'
   pull_request:
     paths: *sync_paths
@@ -102,3 +105,11 @@ jobs:
       # it. No network egress, no install.
       - name: Page inspection pinned-TLS shape
         run: node scripts/tests/page-inspect-tls.test.mjs
+
+      # The scheduled production check (deployment-drift-check.yml) splits
+      # verify_v2_schema.sql into statements before sending them. A statement
+      # cut inside a literal runs as two broken ones (red for nothing); two
+      # glued together return only the second's rows (green without looking).
+      # Pinned against the real file, not only toy inputs.
+      - name: Remote schema verify splits the real file correctly
+        run: node scripts/tests/verify-schema-remote.test.mjs
