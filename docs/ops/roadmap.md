@@ -263,7 +263,14 @@ it as shipped.
 
 ## Later (platform)
 
-- [ ] Smoke tests (auth + one read per critical page)
+- [x] **Deployment drift check** (`deployment-drift-check.yml`, 2026-09-10):
+      `verify_v2_schema.sql` run against production daily and on every push
+      to `main` under `supabase/`, plus every deployed edge function diffed
+      against `main`. The push-triggered suites could not see either. First
+      scheduled run pending — see the CLAUDE.md row for what it has to prove
+- [ ] Smoke tests (auth + one read per critical page) — the remaining half of
+      "is prod in the state the repo claims": the drift check covers schema
+      and functions, nothing yet loads a page as a real user
 - [ ] Sync health page — `sync_jobs` and `silo_chat_health_v` hold the data,
       nothing surfaces it
 - [ ] Retire unused `legacy/` pages after v2 parity
