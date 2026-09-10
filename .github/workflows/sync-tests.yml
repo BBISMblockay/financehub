@@ -113,3 +113,8 @@ jobs:
       # Pinned against the real file, not only toy inputs.
       - name: Remote schema verify splits the real file correctly
         run: node scripts/tests/verify-schema-remote.test.mjs
+
+      # The Management API rate-limits; run #2 lost 28 of 148 statements to a
+      # 429 and reported them as "could not run". Pins the retry shape.
+      - name: Remote schema verify survives the API rate limit
+        run: node scripts/tests/management-api.test.mjs
