@@ -328,6 +328,19 @@ Deno.serve(async (req: Request) => {
         slackText = `:memo: *Sample requested* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
       }
     } else if (type === 'SAMPLE_RECEIVED') {
+      // PPS (pre-production sample) and the full production run are two
+      // different physical arrivals in the real workflow — someone logs
+      // PPS in, comes back later when the full run shows up, and the two
+      // events need to read as distinct in Slack/email, not both as a
+      // generic "Sample received" (Blake/Chris, 2026-08-18). Legacy rows
+      // still saved as plain 'received' (pre-20260818190000) keep the
+      // generic label since there's no way to know after the fact which
+      // of the two they actually were.
+      const stageLabel = record.sample_status === 'full_run_received'
+        ? 'Full run received'
+        : record.sample_status === 'pps_received'
+        ? 'PPS received'
+        : 'Sample received';
       if (record.request_source === 'catalog_photo_request') {
         // Same distinction as SAMPLE_REQUESTED: a photo-pull from bulk/
         // on-hand stock is logged as already-received the moment it's
@@ -342,14 +355,14 @@ Deno.serve(async (req: Request) => {
         });
         slackText = `:camera: *${who} logged a photo sample as received* (bulk/on-hand pull) — ${title}${ref}\n${link}`;
       } else {
-        subject = `Sample received: ${title}`;
+        subject = `${stageLabel}: ${title}`;
         html = emailHtml({
-          headline: 'Sample received',
-          body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} was logged as received${record.factory_name ? ` from ${esc(record.factory_name)}` : ''}.`,
+          headline: stageLabel,
+          body: `<strong style="color:#fff">${esc(title)}</strong>${esc(ref)} was logged as ${esc(stageLabel.toLowerCase())}${record.factory_name ? ` from ${esc(record.factory_name)}` : ''}.`,
           link,
           imageUrl: photoUrl,
         });
-        slackText = `:package: *Sample received* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+        slackText = `:package: *${stageLabel}* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
       }
     } else if (type === 'SAMPLE_WAREHOUSE_READY') {
       subject = `Sample ready: ${title}`;
