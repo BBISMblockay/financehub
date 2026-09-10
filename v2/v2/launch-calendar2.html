@@ -518,14 +518,14 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
 @media screen {
  .lc2-workspace:has(#detailDrawer.open #dp-brief.active) .lc2-views,
  .lc2-workspace:has(#detailDrawer.open #dp-document.active) .lc2-views { display:none; }
- .lc2-workspace #detailDrawer:has(#detailDrawer.open #dp-brief.active),
- .lc2-workspace #detailDrawer:has(#detailDrawer.open #dp-document.active) { width:100%;min-width:0;border-left:0; }
- #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-panel-head,
- #detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-panel-head { display:flex;align-items:center;justify-content:space-between;gap:16px; }
- #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-head-row,
- #detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-head-row { flex:1; }
- #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-actions,
- #detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-actions { margin:0; }
+ .lc2-workspace #detailDrawer.open:has(#dp-brief.active),
+ .lc2-workspace #detailDrawer.open:has(#dp-document.active) { width:100%;min-width:0;border-left:0; }
+ #detailDrawer.open:has(#dp-brief.active) .ed-panel-head,
+ #detailDrawer.open:has(#dp-document.active) .ed-panel-head { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+ #detailDrawer.open:has(#dp-brief.active) .ed-head-row,
+ #detailDrawer.open:has(#dp-document.active) .ed-head-row { flex:1; }
+ #detailDrawer.open:has(#dp-brief.active) .ed-actions,
+ #detailDrawer.open:has(#dp-document.active) .ed-actions { margin:0; }
  #dp-brief,#dp-document { max-width:1000px;width:100%;box-sizing:border-box;margin:0 auto;padding:24px;gap:20px; }
  #dp-brief .dp-section { padding:22px;border-radius:10px; }
  #dp-brief .dp-title { font-size:17px; }
@@ -544,7 +544,10 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
  #releaseDocument .reldoc-v { text-align:left;font-weight:500; }
  #releaseDocument .reldoc-block { font-size:14px;line-height:1.75; }
  #releaseDocument .reldoc-block-label { margin-top:15px; }
- #releaseDocument:not(.lc2-show-empty) .reldoc-row--empty { display:none; }
+ #releaseDocument:not(.lc2-show-empty) .reldoc-row--empty,
+ #releaseDocument:not(.lc2-show-empty) .reldoc-sec--empty { display:none; }
+ #releaseDocument .reldoc-k,#releaseDocument .reldoc-v { min-width:0;overflow-wrap:anywhere; }
+ #releaseDocument .reldoc-sec:nth-of-type(2) .reldoc-row { grid-template-columns:minmax(0,3fr) minmax(0,2fr); }
  .lc2-doc-title { margin:0 0 5px;font-size:27px;line-height:1.3; }
  .lc2-doc-date { color:var(--bcn-ink-3);margin:0 0 24px;font-size:13px; }
  .lc2-doc-empty-toggle { display:flex;align-items:center;gap:7px;font-size:12px;color:var(--bcn-ink-2); }
@@ -552,7 +555,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
   #dp-brief,#dp-document { padding:12px; }
   #dp-brief .dp-section,#releaseDocument { padding:16px; }
   #releaseDocument .reldoc-row { grid-template-columns:1fr;gap:2px; }
-  #detailDrawer:has(#detailDrawer.open #dp-brief.active) .ed-panel-head,#detailDrawer:has(#detailDrawer.open #dp-document.active) .ed-panel-head { display:block; }
+  #detailDrawer.open:has(#dp-brief.active) .ed-panel-head,#detailDrawer.open:has(#dp-document.active) .ed-panel-head { display:block; }
  }
 }
 @media print {
@@ -2140,13 +2143,13 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
 
   doc.innerHTML=`
     <div class="reldoc-sec">
-      <div class="reldoc-sec-title">Release Overview</div>
-      ${row('Sale / Collection / Promo Event', esc(x.title||'—'))}
-      ${row('Preview Start Date & Time', previewDate)}
-      ${row('Launch Date(s) & Time', launchDate)}
+      <div class="reldoc-sec-title">Launch schedule</div>
+      
+      ${row('Preview begins', previewDate)}
+      ${row('Launch date & time', launchDate)}
       ${linkRow('Product Release PDF', x.release_pdf_url)}
       ${linkRow('Landing Page', x.landing_page_url)}
-      <div class="reldoc-block-label" style="margin-top:8px;">Deliverables</div>
+      <div class="reldoc-block-label" style="margin-top:8px;">Initiative schedule</div>
       ${deliverables}
     </div>
 
