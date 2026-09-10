@@ -468,3 +468,17 @@ supabase/
   row means a top-N day). The stored unattributed share was honest already —
   it is total minus RETURNED clicks — so only the stated cause changes. Guarded
   append; verify's `search_console_daily_tables` goes MISSING without it
+
+- `20260910210000_search_console_overview_rpcs.sql` — three read-only RPCs
+  behind `/v2/seo-overview.html`: `search_console_overview(p_days, p_end)`
+  (freshness, window, current + prior totals with POOLED ctr and
+  impression-weighted position, the unattributed share over measured days,
+  capped/truncated day counts, a daily series), `search_console_top_pages` and
+  `search_console_top_queries` (top rows with the same row's prior-window
+  figures; `prior_*` NULL = not returned, never 0; a prior of 0 clicks gives a
+  NULL percent change). The window ends on the NEWEST INGESTED day, not
+  today−2, so a missed nightly reads as lag, not as a collapse. SECURITY
+  INVOKER, `authenticated` only, `anon` revoked. Behaviour test
+  `scripts/sql/verify_search_console_overview.sql` (16 assertions, fixture
+  rows, rolled back); verify's `search_console_daily_tables` checks existence
+  and grants

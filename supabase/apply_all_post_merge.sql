@@ -18680,3 +18680,12 @@ $c$select (select count(*) from v_po_header_summary
 -- signal (query_rows = 5,000) to the query and site catalog rows; guarded.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910200000_search_console_query_cap_caveat.sql
+
+-- ---------------------------------------------------------------------------
+-- SEO overview RPCs behind /v2/seo-overview.html: window totals with a prior
+-- period and daily series, top returned pages, top returned queries -- each
+-- carrying the freshness and coverage facts beside the numbers. SECURITY
+-- INVOKER, granted to authenticated, revoked from anon. Behaviour test:
+-- scripts/sql/verify_search_console_overview.sql.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910210000_search_console_overview_rpcs.sql

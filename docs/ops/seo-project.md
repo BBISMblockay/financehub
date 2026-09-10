@@ -467,6 +467,38 @@ by 1 desc limit 5` — the top row should be 5,000 with a large day count.
    traffic (an absent page must read as not-returned, with the day's
    page_attributed_clicks share, never as zero).
 
+### SEO overview page (built 2026-09-10, verification pending)
+
+`/v2/seo-overview.html`, Pattern 1, exec-only in the Marketing nav during
+soft launch. Three RPCs (`20260910210000`) do the aggregation server-side,
+under the caller's RLS, and return the qualifying facts in the same statement
+as the numbers so the page cannot show one without the other:
+
+- **Freshness strip above the KPI band**, on every load including the empty
+  one: data through which day, how many days behind today (2 is expected;
+  more is a missed nightly and says so), history range, last sync, the
+  window and its prior window, query coverage for the window, and how many
+  days hit the 5,000-row query cap.
+- **KPIs** with prior-period deltas in words as well as sign: counts as
+  percent change, CTR in percentage points, position as "better/worse".
+  NULL prior renders "no prior-period data", never a zero delta.
+- **Chart**: clicks/impressions or CTR/position (position axis inverted, said
+  so in the legend), capped days marked. A day with no row is not drawn and
+  the footer says it is not ingested, not zero.
+- **Top returned pages / queries** with the same row's prior figures; an
+  absent prior row renders **"not returned"** with a tooltip saying why that
+  is not zero. The queries card's footer carries the window's unattributed
+  share and the cap-day count, and says the rows are never joined to pages.
+
+Rates are pooled and position is impression-weighted in SQL, not in the
+browser. `scripts/sql/verify_search_console_overview.sql` pins the window
+anchoring, the pooling, the measured-days-only share, the cap count, the
+NULL-not-zero prior, the zero-prior division guard, and company scoping (16
+assertions). **Not yet verified live**: apply the migration, open the page as
+an exec, and compare the 28-day KPI band to the first nightly's `[ok]` line
+(19,825 clicks over 31 days; the 28-day figure must be lower, and query
+coverage must read ~56–57%).
+
 ## Step 5 — project workflow schema (shipped 2026-09-09)
 
 ### Why new tables rather than the existing task system
@@ -872,7 +904,7 @@ does not exist. Each line is a claim about the SYSTEM, not about intent.
 | **Shopify evidence** | **Operational** | `shopify_landing_pages_daily` holds 730 days (2024-09-09 → 2026-09-08), 182,502 rows, 7,162 paths for the DTC store. `shopify_sessions_daily` holds 744 days of store-level totals. `shopify_collections` registry is complete and swept nightly. |
 | **Page inspection** | **Operational** | `page-inspect` v1 deployed, `verify_jwt: true`, host allowlist read under the caller's JWT from `shopify_shop_domains`. Verified live against `/collections/mlb`. |
 | **Candidate selection** | **Operational (new)** | `seo_collection_candidates(p_days, p_shop_domain)` returns collection landing pages with a shop-scoped `inspect_url` already built. |
-| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). Tables applied, sync enabled, first nightly run landed 31 days (2026-08-09 → 2026-09-08: 19,825 clicks, 70,413 page rows, 140,846 query rows, query cut 56.6% of clicks) — reconciling with the probe. Backfill pending. Ask SILO's prompt rewritten to use it; **function deploy pending**. Indexing status is a separate API, unprobed. |
+| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). **`/v2/seo-overview.html` built 2026-09-10** (RPCs `20260910210000`; behaviour-tested against a scratch Postgres, not yet applied/opened in production). Tables applied, sync enabled, first nightly run landed 31 days (2026-08-09 → 2026-09-08: 19,825 clicks, 70,413 page rows, 140,846 query rows, query cut 56.6% of clicks) — reconciling with the probe. Backfill pending. Ask SILO's prompt rewritten to use it; **function deploy pending**. Indexing status is a separate API, unprobed. |
 | **Competitor SERP monitoring** | **Not integrated** | No SERP data source of any kind. Competitor rank snapshots cannot be produced. |
 | **Google Ads search-term / keyword / ad-asset grains** | **Not integrated** | `marketing_kpis_daily` is CAMPAIGN grain only — 8 Google campaigns. No search terms, keywords, negatives or RSA assets. |
 | **Draft → approval → baseline → 30d → 90d workflow** | **Schema only, not built** | `20260909240000` created the tables and invariants; nothing writes to them and there is no UI. Recommendations today are chat output, not tracked projects. |

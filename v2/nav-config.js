@@ -149,6 +149,12 @@
     { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
+    // SEO overview over the search_console_*_daily tables (2026-09-10). Soft
+    // launch: exec-only in the sidebar while the first reports are reviewed
+    // -- the same EXEC_ROLES gate Ask SILO and the v3 workspace carry, and
+    // for the same reason (who sees it first, not who may read it; RLS is
+    // the boundary). Widen `roles` (or drop it) once the overview is trusted.
+    { roles: EXEC_ROLES, id: 'reports/seo-overview', section: 'Marketing', label: 'SEO', href: '/v2/seo-overview.html', profiles: ['grandfathered'] },
 
     // Deliberately left in its own 'Reports' section by the Sales/Marketing
     // split above, not moved and not promoted, because it is still in soft
