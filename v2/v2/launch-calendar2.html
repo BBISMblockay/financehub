@@ -486,6 +486,33 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
 @media print { .lc2-workspace,.lc2-views { display:block;overflow:visible; } }
 
 </style>
+<style>
+/* Softer event hierarchy and room for the artwork in the comparison view. */
+@media screen {
+ .cal-grid { height:auto;min-height:100%;grid-auto-rows:minmax(140px,auto); }
+ .cal-cell { min-height:140px;padding:10px;container-type:inline-size; }
+ .cal-events { flex:none;overflow:visible;gap:6px; }
+ .cal-cell.today,.cal-cell:has(.lc2-selected) { background:var(--bcn-surface); }
+ .cal-cell-head { margin-bottom:8px; }
+ .ev-chip { padding:8px 9px;gap:8px;background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:8px;box-shadow:0 1px 3px rgb(0 0 0 / .035);align-items:flex-start; }
+ .ev-chip::before { display:none; }
+ .ev-chip:hover { background:var(--bcn-sunken);border-color:var(--bcn-accent-border); }
+ .ev-chip.lc2-selected { outline:none;border-color:var(--bcn-accent);background:var(--bcn-accent-soft); }
+ .ev-chip-thumb-wrap { width:36px;height:36px;border-radius:6px; }
+ .ev-chip-title { font-size:12px;line-height:1.45;font-weight:650;-webkit-line-clamp:3;overflow-wrap:normal; }
+ .ev-chip-meta { margin-top:4px;font-size:10px;line-height:1.4; }
+ .ev-chip-init,.ev-chip-init:hover,:root[data-theme="dark"] .ev-chip-init,:root[data-theme="dark"] .ev-chip-init:hover { background:transparent;border:0;border-radius:5px;padding:4px 5px 4px 14px; }
+ .ev-chip-init:hover { box-shadow:inset 0 0 0 1px var(--bcn-border); }
+ .ev-chip-init::before { width:5px;height:5px;left:3px;top:10px;bottom:auto;border-radius:50%; }
+ .ev-chip-init-title { font-size:11px;line-height:1.4;font-weight:500;-webkit-line-clamp:2; }
+ .ev-chip-init-meta { font-size:10px;margin-top:2px; }
+ .lc2-hero { gap:16px;align-items:center; }
+ .lc2-hero img { width:clamp(130px,40%,180px);height:auto;aspect-ratio:1;flex-shrink:0;object-fit:contain;border-radius:10px;padding:5px;box-sizing:border-box; }
+ .lc2-hero>div { min-width:0;flex:1; }
+ @container(max-width:130px) { .ev-chip-thumb-wrap { display:none; } .ev-chip { padding:7px; } .ev-chip-title { font-size:11px; } }
+ @media(max-width:700px) { .lc2-hero img { width:130px; } .cal-cell { padding:7px; } }
+}
+</style>
 </head>
 <body class="silo-brand">
 
@@ -2845,7 +2872,7 @@ function applyProductToProductForm(r){ openProductForm(null); pendingProductSour
   const oldClose=closeDrawer;
   closeDrawer=function(){oldClose();highlight();};
   const oldMonth=renderMonth;
-  renderMonth=function(){oldMonth();const n=$('calendarGrid').querySelectorAll('.cal-cell').length/7;$('calendarGrid').style.gridTemplateRows=`30px repeat(${n}, minmax(116px, 1fr))`;highlight();$('calendarGrid').querySelectorAll('[data-lid]').forEach(el=>{el.tabIndex=0;el.setAttribute('role','button');el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};});};
+  renderMonth=function(){oldMonth();const n=$('calendarGrid').querySelectorAll('.cal-cell').length/7;$('calendarGrid').style.gridTemplateRows=`30px repeat(${n}, minmax(140px, auto))`;highlight();$('calendarGrid').querySelectorAll('[data-lid]').forEach(el=>{el.tabIndex=0;el.setAttribute('role','button');el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};});};
   // The month controls are irrelevant in Agenda, whose own two-week controls remain.
   const oldSwitch=switchTab;
   switchTab=function(tab){oldSwitch(tab);render();['prevMonth','monthTitle','nextMonth','todayMonth'].forEach(id=>$(id).hidden=tab!=='calendar');document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));};
