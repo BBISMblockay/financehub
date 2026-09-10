@@ -571,10 +571,15 @@ select
         select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'admin_list_profiles'
           and pg_get_functiondef(p.oid) ilike '%entity_memberships%')
+     -- The GUARD, not the comment that used to sit above it: 20260804200000
+     -- redefined admin_update_profile with the same guard and without the
+     -- comment, and this check read MISSING for five weeks over a correct
+     -- function (found by the first scheduled run, 2026-09-10).
      and exists (
         select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'admin_update_profile'
-          and pg_get_functiondef(p.oid) ilike '%Cross-tenant guard%')
+          and pg_get_functiondef(p.oid) ilike '%em.entity_id = public.active_company_id()%'
+          and pg_get_functiondef(p.oid) ilike '%not authorized%')
     then 'ok'
     else 'MISSING — run 20260714190000_new_org_signup_flow.sql'
   end as new_org_signup_flow;

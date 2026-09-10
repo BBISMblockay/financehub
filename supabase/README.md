@@ -383,6 +383,7 @@ supabase/
     20260910120000_tasks_on_initiatives.sql
     20260910130000_seo_approvers_stamp_and_granted_by.sql
     20260910140000_initiative_delete_cascades_tasks.sql
+    20260910150000_restore_lost_catalog_caveats.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
@@ -412,3 +413,12 @@ supabase/
   to **neither** survives both deletes — that needs no rule, since an unattached task
   references nothing to cascade from. Applied when zero tasks carried a
   `channel_item_id`, so it rewrote a rule rather than deleting anything.
+
+- `20260910150000_restore_lost_catalog_caveats.sql` — two Ask SILO catalog
+  caveats were lost to later migrations that wrote `set description = '...'`
+  instead of appending: `CLAIMED, NOT ACTUAL` on `marketing_kpis_daily`
+  (dropped by `20260908150000`) and `ABSENCE IS NOT NONEXISTENCE` on
+  `shopify_landing_pages_daily` (the SEO project's step 1, dropped the next day
+  by `20260909140000` and `20260909360000`). Re-appended, guarded. Found by the
+  first scheduled run of `deployment-drift-check.yml`, whose verify checks had
+  been reporting MISSING since the rewrites. Edit these rows by appending

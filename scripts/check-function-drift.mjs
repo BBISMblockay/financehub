@@ -24,7 +24,7 @@
  * Env: SUPABASE_ACCESS_TOKEN (Management API), SUPABASE_PROJECT_REF.
  */
 import { execFileSync } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const REF = process.env.SUPABASE_PROJECT_REF || 'mkquclffrvlzyecnabyf';
@@ -50,14 +50,25 @@ if (!res.ok) {
 const deployed = await res.json();
 const deployedSlugs = new Set(deployed.map((f) => f.slug));
 
+// TRACKED directories only. This runs after `supabase functions download`
+// has written every deployed function over the checkout, so reading the
+// filesystem here would count the just-downloaded unsourced functions as
+// "in the repo" -- which is exactly what the first live run did (2026-09-10):
+// all four known-unsourced functions were reported as extra files inside
+// repo functions instead of as functions with no source. git's index is the
+// only honest answer to "what does the repo contain".
 const repoSlugs = new Set(
-  readdirSync(FN_DIR).filter((d) => statSync(`${FN_DIR}/${d}`).isDirectory()),
+  execFileSync('git', ['ls-files', '--', FN_DIR], { encoding: 'utf8' })
+    .split('\n').filter(Boolean)
+    .map((p) => p.split('/')[2])
+    .filter(Boolean),
 );
 
 const status = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', FN_DIR], { encoding: 'utf8' })
   .split('\n').filter(Boolean);
 
-const modified = [];       // deployed source differs from repo
+const modified = [];       // deployed source differs from repo in CONTENT
+const newlineOnly = [];    // differs only by a trailing newline at EOF
 const extraFiles = [];     // deployed bundle carries a file the repo does not
 const unsourced = new Set(); // deployed, no directory in repo
 for (const line of status) {
@@ -66,9 +77,16 @@ for (const line of status) {
   const slug = path.split('/')[2];
   if (code === '??') {
     if (repoSlugs.has(slug)) extraFiles.push(path); else unsourced.add(slug);
-  } else {
-    modified.push(path);
+    continue;
   }
+  // Every function deployed before the sources were checked in (2026-09-02)
+  // is stored WITHOUT a trailing newline, and every file in the repo ends
+  // with one -- so six functions showed a 2-line diff on the first run that
+  // was no difference at all. Compared with trailing whitespace stripped;
+  // anything else is real.
+  const deployed = readFileSync(path, 'utf8');
+  const tracked = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
+  if (deployed.trimEnd() === tracked.trimEnd()) newlineOnly.push(path); else modified.push(path);
 }
 const notDeployed = [...repoSlugs].filter((s) => !deployedSlugs.has(s));
 
@@ -78,11 +96,22 @@ for (const f of deployed.sort((a, b) => a.slug.localeCompare(b.slug))) {
 }
 
 let failed = false;
+if (newlineOnly.length) {
+  console.log('\nDiffers only by a trailing newline at end of file (not drift):');
+  for (const p of newlineOnly) console.log(`  ${p}`);
+}
 if (modified.length) {
   failed = true;
   console.log('\nDEPLOYED SOURCE DIFFERS FROM THIS CHECKOUT:');
   for (const p of modified) { console.log(`  ${p}`); console.log(`::error file=${p}::deployed source differs from main`); }
-  console.log('\n' + execFileSync('git', ['diff', '--stat', '--', FN_DIR], { encoding: 'utf8' }));
+  console.log('\n' + execFileSync('git', ['diff', '--stat', '--', ...modified], { encoding: 'utf8' }));
+  // The diff itself, capped: a 2-line change in six functions is a CLI
+  // re-emission quirk, an 80-line change in one is a deploy that never
+  // happened, and only the hunks tell them apart.
+  const diff = execFileSync('git', ['diff', '--', ...modified], { encoding: 'utf8' });
+  const lines = diff.split('\n');
+  console.log(lines.slice(0, 400).join('\n'));
+  if (lines.length > 400) console.log(`... (${lines.length - 400} more diff lines; run the download locally for the rest)`);
 }
 if (extraFiles.length) {
   failed = true;
