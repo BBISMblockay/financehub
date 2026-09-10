@@ -36,11 +36,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { splitSqlStatements, isReadOnlyStatement, findFailures } from './lib/sql-statements.mjs';
+import { queryWithRetry, makePacer, DEFAULT_MIN_GAP_MS } from './lib/management-api.mjs';
 
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const REF = process.env.SUPABASE_PROJECT_REF || 'mkquclffrvlzyecnabyf';
 const SQL_PATH = process.env.VERIFY_SQL_PATH || 'supabase/verify_v2_schema.sql';
-const API = `https://api.supabase.com/v1/projects/${REF}/database/query`;
 
 if (!TOKEN) {
   console.error('::error::SUPABASE_ACCESS_TOKEN is not set. It is the same secret the Deploy Edge Function workflow uses.');
@@ -67,25 +67,27 @@ console.log(`${statements.length} statements in ${SQL_PATH}, project ${REF}\n`);
 // verify script is written to be run as the SQL editor role (`postgres`),
 // and that is what it is run as; the read-only guarantee comes from the
 // SELECT/WITH check above, which is enforced before anything is sent.
+//
+// Calls are paced and 429s are retried: the SECOND run lost 28 of 148
+// statements to the API's rate limit once they stopped being slowed down by
+// the read-only role. See scripts/lib/management-api.mjs.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const pace = makePacer(DEFAULT_MIN_GAP_MS, sleep);
 async function runStatement(text) {
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: text }),
-  });
-  const raw = await res.text();
-  if (!res.ok) return { error: `HTTP ${res.status}: ${raw.slice(0, 300)}` };
-  try { return { rows: JSON.parse(raw) }; } catch { return { error: `unparseable response: ${raw.slice(0, 200)}` }; }
+  await pace();
+  return queryWithRetry({ fetch, sleep, token: TOKEN, ref: REF, query: text, log: (m) => console.log(m) });
 }
 
 let failed = 0;
 let errored = 0;
+let retried = 0;
 let okCells = 0;
 let lastSection = null;
 
 for (const [idx, s] of statements.entries()) {
   const label = `#${idx + 1} (line ${s.line})`;
   const result = await runStatement(s.text);
+  if (result.retries) retried++;
   if (result.error) {
     errored++;
     if (s.section !== lastSection) { console.log(`\n-- ${s.section ?? '(no section header)'}`); lastSection = s.section; }
@@ -106,7 +108,7 @@ for (const [idx, s] of statements.entries()) {
   }
 }
 
-console.log(`\n${statements.length} statements, ${okCells} ok cells, ${failed} with a failing row, ${errored} that could not run.`);
+console.log(`\n${statements.length} statements, ${okCells} ok cells, ${failed} with a failing row, ${errored} that could not run, ${retried} retried after a rate limit.`);
 if (failed || errored) {
   console.log('\nProduction does not match what the repo claims. Usually this means a merged migration was never applied: run supabase/apply_all_post_merge.sql (or the named migration) in the SQL editor, then re-run this workflow.');
   process.exit(1);
