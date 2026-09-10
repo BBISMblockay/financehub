@@ -2717,6 +2717,28 @@ select
                      where relname = 'search_console_page_daily'
                        and description like '%ABSENCE IS NOT ZERO%')
       then 'MISSING — search_console_page_daily lacks its absence-is-not-zero caveat; run 20260910190000_search_console_page_absence_caveat.sql'
+    -- Preserve uncertainty about repeated row counts.
+    when (select count(*) from public.silo_chat_schema_catalog
+          where relname in ('search_console_query_daily', 'search_console_site_daily')
+            and description like '%QUERY ROW OBSERVATION%') < 2
+      then 'MISSING — search_console query/site rows lack the query row observation caveat; run 20260910200000_search_console_query_cap_caveat.sql'
+    when exists (select 1 from public.silo_chat_schema_catalog
+                 where relname in ('search_console_query_daily', 'search_console_site_daily')
+                   and description like '%PER-DAY ROW CAP:%')
+      then 'CRITICAL — unsupported 5,000-row cap claim has returned'
+    -- /v2/seo-overview.html reads through three RPCs (20260910210000). They
+    -- must exist, be callable by authenticated, and NOT by anon -- Supabase's
+    -- default privileges re-grant EXECUTE on new public functions to anon.
+    when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public'
+            and p.proname in ('search_console_overview', 'search_console_top_pages', 'search_console_top_queries')) < 3
+      then 'MISSING — an SEO overview RPC is absent; run 20260910210000_search_console_overview_rpcs.sql'
+    when has_function_privilege('anon', 'public.search_console_overview(integer, date)', 'execute')
+      or has_function_privilege('anon', 'public.search_console_top_pages(integer, date, integer)', 'execute')
+      or has_function_privilege('anon', 'public.search_console_top_queries(integer, date, integer)', 'execute')
+      then 'CRITICAL — anon can execute an SEO overview RPC; revoke it (20260910210000 does)'
+    when not has_function_privilege('authenticated', 'public.search_console_overview(integer, date)', 'execute')
+      then 'MISSING — authenticated cannot execute search_console_overview; the SEO overview page cannot load'
     when exists (select 1 from public.silo_chat_schema_catalog
                  where relname like 'search\_console\_%\_daily'
                    and jsonb_array_length(coalesce(columns, '[]'::jsonb)) = 0)

@@ -24,13 +24,17 @@
 //                                   impressions/CTR/position are a different
 //                                   measure from site-level ones, not a
 //                                   breakdown of them.
-//   query (dimensions: date, query) recovered 56.9% of clicks. The other
-//                                   43.1% are ANONYMISED by Google for privacy
-//                                   and belong to no query row, ever. A query
-//                                   table therefore looks complete and is not
-//                                   -- the same trap as shopify_landing_pages_
-//                                   daily's top-250 slice, and worse because
-//                                   nothing about the rows says so.
+//   query (dimensions: date, query) recovered 56.9% of site clicks in the
+//                                   probe window. The remainder has no
+//                                   returned query row; anonymisation and
+//                                   internal API limits may both contribute.
+//                                   Repeated 5,000-row daily averages in the
+//                                   backfill are an observed pattern, not a
+//                                   confirmed cap or proof of a top-N day.
+//                                   Google documents a 50,000-row daily
+//                                   maximum per search type, without a
+//                                   completeness guarantee.
+// https://developers.google.com/webmaster-tools/v1/how-tos/all-your-data
 //
 // So each sync computes, PER DAY, how many clicks and impressions the page
 // and query cuts recovered, and writes those sums onto the site row next to

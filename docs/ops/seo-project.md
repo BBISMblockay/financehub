@@ -338,10 +338,10 @@ scheme is invisible here, not zero.
 |---|---|---|
 | Lag | newest **final** day is 2 days back (2026-09-08 on 2026-09-10); `all` reaches today but is partial | ingestion window ends `today - 2` Pacific and requests `dataState=final`; anything fresher is provisional and must be labelled so |
 | Retention | 498 final days, back to 2025-04-29 | a full backfill is feasible; any comparison older than ~16 months is unmeasurable, not flat |
-| Row cap | 25,000 per page; pagination works (date×query needed 6 pages, 125,846 rows) | tables can be COMPLETE lists of what Google returns, not top-N slices — the `shopify_landing_pages_daily` trap does not recur here |
-| **Query attribution** | query cut recovers **56.9% of clicks** (10,200 of 17,913) and 70.5% of impressions; **43.1% of clicks belong to no query row** (anonymised for privacy) | a "no query brought traffic to X" claim is unsafe by 43 points. Every query-grain surface must carry the unattributed share, per day |
+| Row cap | 25,000 per page; pagination works (date×query needed 6 pages, 125,846 rows) | pagination exhausts offered rows; Google may still withhold rows internally |
+| **Query attribution** | query cut recovers **56.9% of clicks** (10,200 of 17,913) and 70.5% of impressions; **43.1% of clicks belong to no query row** (the cause of omitted rows is unknown) | a "no query brought traffic to X" claim is unsafe by 43 points. Every query-grain surface must carry the unattributed share, per day |
 | Page attribution | page cut recovers **102.8% of clicks** and 172.2% of impressions | IN AGGREGATE the page cut recovers at least the site total. **That is not a per-row guarantee**: Google documents that the Search Analytics API does not return every row, even with pagination, so a page absent on a day is not-returned, never zero. Over 100% is Google's per-page counting: one query showing two of our URLs is one site impression but two page impressions, so page-level CTR and position are NOT comparable to site-level |
-| Cross-dimension loss | query×page recovers 58.2% of clicks — no worse than query alone | the loss is entirely the anonymised-query withholding, not the cross. Still: 41.8% of clicks cannot be tied to a query×page pair |
+| Cross-dimension loss | query×page recovers 58.2% of clicks — no worse than query alone | the aggregate comparison does not establish why rows are missing. 41.8% of clicks cannot be tied to a query×page pair |
 
 **Schema consequences, decided by the numbers rather than recalled:**
 
@@ -407,6 +407,34 @@ The lesson is the one already written above about the landing-pages table:
 a caveat covers only the failure it names, and "complete in aggregate" is
 not "complete per row".
 
+### Backfill result and observed query-row pattern (2026-09-10)
+
+Backfill run 1 completed 18 chunks across the requested 2025-04-27 through
+2026-09-08 window: 498 days with data, 1,258,728 page rows and 2,448,876 query
+rows. No local page guard fired.
+
+Nine 28-day chunks returned exactly 140,000 query rows; the 22-day tail
+returned 110,000. Those totals imply averages of 5,000 rows per populated day,
+not proof that every day has that count or that Google enforces a 5,000-row
+cap. Inspect per-day counts and compare equivalent single-day and multi-day
+requests before attributing the pattern to a cause. Even an exact count is
+not proof of truncation. Non-round page totals likewise do not prove that
+the page cut escaped internal limits.
+
+Google documents a 50,000-row daily maximum per search type and explicitly
+does not guarantee all rows:
+https://developers.google.com/webmaster-tools/v1/how-tos/all-your-data
+
+The stored remainder is total clicks minus returned query clicks. Describe
+it as clicks with no returned query row, not anonymised clicks alone.
+Window shares must use summed clicks for the same company/property/window,
+rather than averaging daily percentages. Missing measurements and locally
+truncated runs must remain visible in the claim.
+
+Candidate page joins must first establish the same company, selected Search
+Console property and verified storefront host. Paths alone do not identify
+a shop. Do not sum overlapping properties or multiply daily rows in a join.
+
 **Still unverified, in the order it will be found out:**
 
 1. ~~Apply the migration in production~~ (done 2026-09-10) and apply
@@ -419,12 +447,58 @@ not "complete per row".
    wrong denominator; a share near 0% means the query fetch returned
    nothing.
 3. Dispatch `search-console-backfill.yml` with defaults. ~18 chunks.
-4. Only then: point Ask SILO at it. **`silo-chat/index.ts` still says "SILO
-   holds NO Search Console data"** and two test files pin that sentence
-   (`prompt.test.mjs`, `seo-orchestration.test.mjs` §5). Until the prompt is
-   changed and the function deployed, the model has the catalog telling it
-   the tables exist and the prompt telling it they do not. That contradiction
-   is the next step's whole job, not a bug in this one.
+4. ~~Point Ask SILO at it~~ **Prompt rewritten 2026-09-10, deploy pending.**
+   `silo-chat/index.ts` no longer says "SILO holds NO Search Console data";
+   the SEO paragraph now names the three tables and binds the two failure
+   modes into the rules (query data partial by construction, cite the stored
+   per-day unattributed share; a missing page row is not-returned, never
+   zero), states the 2-day lag and the backfill horizon check, forbids the
+   query x page join, and keeps indexing status as unavailable (no URL
+   Inspection data). The workflow gained step 1b (per-candidate search
+   performance from `search_console_page_daily`, page-to-page join) and the
+   output spec carries clicks/impressions/position or "not returned". Both
+   test files now pin the NEW sentences and assert the old ones are absent;
+   three mutations (old claim restored, share binding dropped, absence read
+   as zero) each fail exactly one assertion. **Until `silo-chat` is deployed
+   through `deploy-edge-function.yml`, production still runs the old prompt**
+   and the daily drift check will show it as differing from `main`. The live
+   smoke test after deploy: ask which queries bring the most clicks over the
+   last four weeks (the answer must carry the unattributed share in the
+   claim sentence), and whether a specific collection page gets search
+   traffic (an absent page must read as not-returned, with the day's
+   page_attributed_clicks share, never as zero).
+
+### SEO overview page (built 2026-09-10, verification pending)
+
+`/v2/seo-overview.html`, Pattern 1, exec-only in the Marketing nav during
+soft launch. Three RPCs (`20260910210000`) do the aggregation server-side,
+under the caller's RLS, and return the qualifying facts in the same statement
+as the numbers so the page cannot show one without the other:
+
+- **Freshness strip above the KPI band**, on every load including the empty
+  one: data through which day, how many days behind today (2 is expected;
+  more is a missed nightly and says so), history range, last sync, the
+  window and its prior window, query coverage for the window, and how many
+  days returned exactly 5,000 query rows (not proof of a cap).
+- **KPIs** with prior-period deltas in words as well as sign: counts as
+  percent change, CTR in percentage points, position as "better/worse".
+  NULL prior renders "no prior-period data", never a zero delta.
+- **Chart**: clicks/impressions or CTR/position (position axis inverted, said
+  so in the legend), 5,000-row observations marked. A day with no row is not drawn and
+  the footer says it is not ingested, not zero.
+- **Top returned pages / queries** with the same row's prior figures; an
+  absent prior row renders **"not returned"** with a tooltip saying why that
+  is not zero. The queries card's footer carries the window's unattributed
+  share and the 5,000-row observation count, and says the rows are never joined to pages.
+
+Rates are pooled and position is impression-weighted in SQL, not in the
+browser. `scripts/sql/verify_search_console_overview.sql` pins the window
+anchoring, the pooling, the withheld share for unmeasured days, the observed row count, the
+NULL-not-zero prior, the zero-prior division guard, and company scoping (16
+assertions). **Not yet verified live**: apply the migration, open the page as
+an exec, and compare the 28-day KPI band to the first nightly's `[ok]` line
+(19,825 clicks over 31 days; the 28-day figure must be lower, and query
+coverage must read ~56–57%).
 
 ## Step 5 — project workflow schema (shipped 2026-09-09)
 
@@ -831,7 +905,7 @@ does not exist. Each line is a claim about the SYSTEM, not about intent.
 | **Shopify evidence** | **Operational** | `shopify_landing_pages_daily` holds 730 days (2024-09-09 → 2026-09-08), 182,502 rows, 7,162 paths for the DTC store. `shopify_sessions_daily` holds 744 days of store-level totals. `shopify_collections` registry is complete and swept nightly. |
 | **Page inspection** | **Operational** | `page-inspect` v1 deployed, `verify_jwt: true`, host allowlist read under the caller's JWT from `shopify_shop_domains`. Verified live against `/collections/mlb`. |
 | **Candidate selection** | **Operational (new)** | `seo_collection_candidates(p_days, p_shop_domain)` returns collection landing pages with a shop-scoped `inspect_url` already built. |
-| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). Tables + nightly + backfill written (Step 2c) but **not yet applied, enabled or run** — until the migration is applied and the Sync toggle is on, **no queries, impressions, clicks, CTR or positions exist anywhere in SILO**, and Ask SILO's prompt still says so. Indexing status is a separate API, unprobed. |
+| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). **`/v2/seo-overview.html` built 2026-09-10** (RPCs `20260910210000`; behaviour-tested against a scratch Postgres, not yet applied/opened in production). Tables applied, sync enabled, first nightly run landed 31 days (2026-08-09 → 2026-09-08: 19,825 clicks, 70,413 page rows, 140,846 query rows, query cut 56.6% of clicks) — reconciling with the probe. Backfill pending. Ask SILO's prompt rewritten to use it; **function deploy pending**. Indexing status is a separate API, unprobed. |
 | **Competitor SERP monitoring** | **Not integrated** | No SERP data source of any kind. Competitor rank snapshots cannot be produced. |
 | **Google Ads search-term / keyword / ad-asset grains** | **Not integrated** | `marketing_kpis_daily` is CAMPAIGN grain only — 8 Google campaigns. No search terms, keywords, negatives or RSA assets. |
 | **Draft → approval → baseline → 30d → 90d workflow** | **Schema only, not built** | `20260909240000` created the tables and invariants; nothing writes to them and there is no UI. Recommendations today are chat output, not tracked projects. |

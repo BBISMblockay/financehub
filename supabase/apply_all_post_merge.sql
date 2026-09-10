@@ -18659,8 +18659,7 @@ $c$select (select count(*) from v_po_header_summary
 -- ---------------------------------------------------------------------------
 -- Search Console performance tables, built to what the probe MEASURED on
 -- 2026-09-10: site / page / query per day, dataState=final, and the site row
--- carrying per-day attribution because Google anonymises 43% of clicks away
--- from any query. Extends sync_jobs.job_type by reading the live constraint
+-- carrying per-day attribution because some clicks have no returned query row. Extends sync_jobs.job_type by reading the live constraint
 -- rather than retyping it. Seeds the Ask SILO catalog with the numbers.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910180000_search_console_daily.sql
@@ -18673,3 +18672,18 @@ $c$select (select count(*) from v_po_header_summary
 -- PR #666 after the migration was already applied.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910190000_search_console_page_absence_caveat.sql
+
+-- ---------------------------------------------------------------------------
+-- Backfill row counts are observations, not proof of a universal API cap.
+-- Append the uncertainty and weighted-window coverage rules to the catalog.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910200000_search_console_query_cap_caveat.sql
+
+-- ---------------------------------------------------------------------------
+-- SEO overview RPCs behind /v2/seo-overview.html: window totals with a prior
+-- period and daily series, top returned pages, top returned queries -- each
+-- carrying the freshness and coverage facts beside the numbers. SECURITY
+-- INVOKER, granted to authenticated, revoked from anon. Behaviour test:
+-- scripts/sql/verify_search_console_overview.sql.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910210000_search_console_overview_rpcs.sql

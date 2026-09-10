@@ -457,3 +457,21 @@ supabase/
   and site rows with an ABSENCE IS NOT ZERO caveat; idempotent. Verify's
   `search_console_daily_tables` goes CRITICAL if the wrong sentence returns.
   Found in review of PR #666 after 20260910180000 was already applied
+
+- `20260910200000_search_console_query_cap_caveat.sql` — records the repeated
+  5,000-row daily averages as an observed pattern, not a confirmed cap.
+  Missing rows have unknown causes; use weighted window coverage for the same
+  company/property, withholding the share for unmeasured or truncated days.
+- `20260910210000_search_console_overview_rpcs.sql` — three read-only RPCs
+  behind `/v2/seo-overview.html`: `search_console_overview(p_days, p_end)`
+  (freshness, window, current + prior totals with POOLED ctr and
+  impression-weighted position, the unattributed share over measured days,
+  observed 5,000-row/truncated day counts, a daily series), `search_console_top_pages` and
+  `search_console_top_queries` (top rows with the same row's prior-window
+  figures; `prior_*` NULL = not returned, never 0; a prior of 0 clicks gives a
+  NULL percent change). The window ends on the NEWEST INGESTED day, not
+  today−2, so a missed nightly reads as lag, not as a collapse. SECURITY
+  INVOKER, `authenticated` only, `anon` revoked. Behaviour test
+  `scripts/sql/verify_search_console_overview.sql` (16 assertions, fixture
+  rows, rolled back); verify's `search_console_daily_tables` checks existence
+  and grants

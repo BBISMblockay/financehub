@@ -110,7 +110,11 @@ export const REQUIRED_SEO_QUALIFIERS = [
   'an absent page is not a page with zero traffic',
   'landing-page rows and store-session totals are different grains and are never added together',
   'these are on-site sessions, not organic search traffic',
-  'SILO holds no Search Console data, so no queries, impressions, CTR, rankings or indexing status',
+  // Search Console is ingested since 2026-09-10 (search_console_{site,page,query}_daily).
+  // The qualifiers changed from "we have none" to the two ways its data misleads.
+  'query-level search data contains only returned rows; cite the weighted window share of clicks with no returned query row from the same company and property',
+  'a page absent from search_console_page_daily is not returned by Google, never zero clicks',
+  'indexing status is not available (no URL Inspection data)',
   'a successful page fetch is not evidence the page is indexed',
   'recommendations are drafts for human review, nothing is published',
 ];

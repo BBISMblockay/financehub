@@ -139,20 +139,85 @@ test('...and forbidding the inference that produced the false claim', () => {
   has(GENERAL, 'never "X doesn\'t exist" or "the platform doesn\'t provide X"');
 });
 
-console.log('\n-- SEO/search honesty before Search Console is connected --');
+console.log('\n-- SEO/search honesty with Search Console ingested (2026-09-10) --');
 
-test('no Search Console data is stated plainly', () => {
-  has(GENERAL, 'SILO holds NO Search Console data');
+// The sentence that held from 2026-09-08 to 2026-09-10 -- "SILO holds NO
+// Search Console data" -- is now FALSE, and a prompt that keeps it while the
+// catalog describes three populated tables gives the model two contradicting
+// instructions. It must be gone, and the three tables must be named.
+test('the old "no Search Console data" claim is gone', () => {
+  lacks(GENERAL, 'SILO holds NO Search Console data', 'general prompt');
+  lacks(GENERAL, 'Search Console is not connected yet', 'general prompt');
+  lacks(GENERAL, 'That data does not exist here', 'general prompt');
+});
+test('the three tables are named, with the site table as the denominator', () => {
+  has(GENERAL, 'search_console_site_daily');
+  has(GENERAL, 'search_console_page_daily');
+  has(GENERAL, 'search_console_query_daily');
+  has(GENERAL, 'the DENOMINATOR');
+  has(GENERAL, 'NEVER joined into one figure');
+});
+// The two ways Search Console data misleads, each measured on the live
+// property: 43% of clicks belong to no query row (query attribution is
+// partial by construction), and Google does not guarantee every page row is
+// returned (review of PR #666 caught a catalog sentence reading absence as
+// zero). Both must be bound into the claim, per the simplification rule.
+test('query-level data is stated as partial, with the stored per-day share', () => {
+  has(GENERAL, 'QUERY DATA IS PARTIAL BY CONSTRUCTION');
+  has(GENERAL, 'unattributed_query_click_share');
+  has(GENERAL, 'never say a page, product or topic gets "no search traffic" from the absence of a query');
+});
+test('observed row patterns are not promoted into a confirmed cap', () => {
+  has(GENERAL, 'OBSERVED PATTERN, NOT A CONFIRMED CAP');
+  has(GENERAL, 'does not prove truncation');
+  has(GENERAL, '50,000 rows per day per search type');
+  has(GENERAL, 'no returned query row');
+  lacks(GENERAL, 'query_rows is exactly 5,000 hit the cap', 'general prompt');
+  lacks(GENERAL, 'at most about 5,000', 'general prompt');
+});
+test('candidate search data stays with its verified storefront and property', () => {
+  has(GENERAL, 'SAME company and VERIFIED STOREFRONT HOST');
+  has(GENERAL, 'ONLY AFTER company, property and host matching');
+  has(GENERAL, 'never combine overlapping URL-prefix/domain properties');
+  has(GENERAL, 'Aggregate the search rows to one candidate/window before joining');
+});
+test('window coverage uses weighted totals and discloses missing measurement', () => {
+  has(GENERAL, 'never average daily percentages');
+  has(GENERAL, 'any included share is null or any day is locally truncated');
+});
+test('a missing page row is not-returned, never zero', () => {
+  has(GENERAL, 'IS NOT RETURNED, NEVER ZERO');
+  has(GENERAL, 'Google does not guarantee that every row is returned');
+  has(GENERAL, 'page_attributed_clicks');
+});
+test('the lag, the backfill horizon and the not-ingested fallback are stated', () => {
+  has(GENERAL, 'ENDS 2 DAYS BACK');
+  has(GENERAL, 'check min(day_date) and max(day_date) on search_console_site_daily');
+  has(GENERAL, 'not ingested for that window');
+});
+test('position is an average and page impressions are a different measure', () => {
+  has(GENERAL, 'position IS AN AVERAGE');
+  has(GENERAL, 'never add page impressions to site impressions');
+});
+test('query x page is never joined, and indexing is still unavailable', () => {
+  has(GENERAL, 'NEVER join the page and query tables');
+  has(GENERAL, 'INDEXING STATUS IS STILL NOT AVAILABLE');
+  has(GENERAL, 'no URL Inspection data');
 });
 test('GA4 organic is bounded to channel-level session volume', () => {
   has(GENERAL, 'Organic Search SESSIONS at channel level only');
 });
-test('sessions are never attributable to individual queries', () => {
+test('sessions are never attributable to individual queries, nor joined to GSC', () => {
   has(GENERAL, 'sessions can NEVER be attributed to individual search queries');
+  has(GENERAL, 'do not join them to Search Console rows');
 });
-test('copy prep stays allowed, just not dressed up as measured opportunity', () => {
-  has(GENERAL, 'You can still help prepare page copy');
-  has(GENERAL, 'never present that work as a measured search opportunity');
+test('copy prep stays allowed, with its search evidence labelled by source', () => {
+  has(GENERAL, 'remain legitimate work');
+  has(GENERAL, 'never present a ranking claim without a position figure from these tables');
+});
+test('the hard-limit bullet sources search numbers from the tables only', () => {
+  has(GENERAL, 'come ONLY from the search_console_* tables');
+  has(GENERAL, 'never infer them from sessions, sales or a page fetch');
 });
 
 console.log('\n-- page inspection is on-page fact, and is not a crawler --');
@@ -176,8 +241,8 @@ test('the general prompt tells the model the tool exists and what it is not', ()
   has(GENERAL, 'inspect_storefront_page');
   has(GENERAL, 'it is not a crawler');
 });
-// The whole point of the SEO paragraph is that SILO has no search data. A
-// page-fetch tool is the most tempting thing to mistake for one.
+// Search performance now lives in the search_console_* tables; a page-fetch
+// tool is still the most tempting thing to mistake for indexing evidence.
 test('...and that reading a page is not search performance', () => {
   has(GENERAL, 'on-page fact, not search performance');
   has(GENERAL, 'never evidence that anything indexed or ranked it');
