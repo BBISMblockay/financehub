@@ -2525,6 +2525,19 @@ export async function runSessionsSync(supabase, connection, { batchId, sinceDays
  * would clip without saying so. One day at a time with an explicit LIMIT
  * keeps every result well clear of the ceiling and makes the top-N explicit
  * rather than accidental.
+ *
+ * THE CAP BINDS ON EVERY DAY, and that is the fact to carry into any reading
+ * of this table. After the 730-day backfill (2024-09-09 -> 2026-09-08) all 730
+ * days for the DTC store are flagged is_truncated -- not most, not the busy
+ * ones: every one. So this table is a top-250 SAMPLE of each day, never that
+ * day's page list, and a path's absence is a statement about its RANK, never
+ * about its traffic. 7,162 distinct paths appear across the window against 250
+ * slots a day, so the tail that falls out is large.
+ *
+ * Raising this number is therefore a real decision, not a tuning knob: it
+ * changes what every historical comparison means, since old days stay capped
+ * at 250 and new days do not, and nothing in the table would mark the seam.
+ * The honest way to widen coverage is a re-backfill at the new N, not a bump.
  */
 const LANDING_TOP_N = 250;
 

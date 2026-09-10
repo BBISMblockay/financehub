@@ -218,4 +218,159 @@ const MIG_BODY = MIG.slice(MIG.indexOf('as $$'), MIG.indexOf('$$;') + 3);
     'and copy is explicitly not drafted for the non-reviewable statuses');
 }
 
+
+// ── 13. A first-appearance date is not a launch date ────────────────────────
+// The first live run (silo-chat v63, 2026-09-09) produced, from correct data:
+//   "38,286 sessions since launch on 2026-08-13"   (uncrustables-collection)
+//   "41,264 sessions in just 8 days"               (sonic-the-hedgehog)
+// Both false. Checked against sales_by_day: uncrustables had sold 352 units
+// over 10 days BEFORE that date, sonic 85 units over 6 days. page_first_day
+// was only the first day the page ranked into the truncated top-N.
+//
+// The answer had stated the truncation caveat correctly in its own header and
+// then contradicted it -- the general rule did not generalise to the specific
+// inference. So the fix is in the NAME (which cannot be misread without
+// ignoring it), in the per-row coverage_note, and in the prompt.
+{
+  const MIG13 = readFileSync(new URL(
+    '../../supabase/migrations/20260909420000_seo_candidates_top_n_day_names.sql', import.meta.url), 'utf8');
+  const BODY13 = MIG13.slice(MIG13.indexOf('as $$'), MIG13.indexOf('$$;') + 3);
+
+  ok(/page_first_day_in_top_n/.test(BODY13), 'the column carries the caveat in its own name');
+  ok(/page_last_day_in_top_n/.test(BODY13), 'and so does its pair');
+  ok(!/\bpage_first_day\b(?!_in_top_n)/.test(BODY13.replace(/page_first_day_in_top_n/g, 'X')),
+    'the bare page_first_day name is gone from the SQL -- it invited the launch-date reading');
+
+  // The warning must travel IN THE ROW, not only in a prompt that has to be
+  // remembered at each claim.
+  ok(/IS NOT A LAUNCH DATE/.test(BODY13), 'coverage_note says so outright');
+  ok(/since launch/.test(BODY13) && /in just N days/.test(BODY13),
+    'and names the exact phrasings that were produced');
+
+  ok(/ARE NOT LAUNCH OR END DATES/.test(SRC), 'the prompt states the rule');
+  ok(/NEVER write "since launch"/.test(SRC), 'and forbids the phrasing that appeared');
+  ok(/check sales_by_day/i.test(SRC), 'and names where a real start date comes from');
+}
+
+
+// ── 14. Two things the model cannot measure and must not assert ─────────────
+// Both found on the second live run (silo-chat v64, 2026-09-09), on an answer
+// that was otherwise accurate to the digit.
+{
+  // (a) Character counts. A token-based model cannot count characters, and
+  // "try harder" produces confident wrong numbers rather than none. The
+  // measured failure: a meta description stated as "159 chars" was 169 -- the
+  // SAME length as one flagged on that answer as too long, so the checklist
+  // said trim one and publish the other.
+  // The rule splits by WHERE THE NUMBER COMES FROM, and the first version got
+  // this wrong: it banned character counts outright, which would have stopped
+  // SILO reporting title_length / meta_description_length -- values
+  // inspect-lib.mjs computes as `title.length` and which match Postgres
+  // length() exactly (verified 32/32, 42/42, 29/29). Suppressing a real
+  // measurement is not caution.
+  ok(/For an EXISTING page, REPORT the count/i.test(SRC),
+    'a measured length from the inspection IS reported');
+  ok(/title_length and meta_description_length/.test(SRC),
+    'and the rule names the fields that carry it');
+  ok(/quote them as given, never recompute/i.test(SRC),
+    'quoted as given, not recomputed by the model');
+  ok(/read a null as "the page has no such tag"/i.test(SRC),
+    'and a null length is an absent tag, not a length of zero');
+
+  ok(/For copy YOU wrote, NEVER calculate or assert a count/i.test(SRC),
+    'while a count for its OWN draft is refused');
+  ok(/159 chars/.test(SRC) && /was 169/.test(SRC),
+    'and the rule carries the measurement that produced it, so it is not mistaken for caution');
+  ok(/confirm meta description length before publishing/i.test(SRC),
+    'the check on proposed copy is handed to the human, who has a character counter');
+  ok(/TARGET rather than a measurement/i.test(SRC),
+    'and 150-160 is named as a target, not a measured value');
+
+  // The blanket ban must not come back.
+  ok(!/NEVER give a character count/i.test(SRC),
+    'the blanket ban is gone -- it suppressed a real measurement the tool already returns');
+
+  // (b) Superlatives. "Lowest of any reviewable candidate, 0.39%" was false --
+  // ~25 candidates sat at 0.00%, one at 0.37%, and the framing hid a page with
+  // 497 sessions and no completed checkouts.
+  ok(/NEVER claim a superlative/i.test(SRC), 'unscoped superlatives are refused');
+  ok(/ORDERED THE WHOLE CANDIDATE SET/i.test(SRC),
+    'unless the whole set was actually ordered');
+  ok(/the lowest of the five I reviewed/i.test(SRC),
+    'and the correct scoped phrasing is given, not just the prohibition');
+  ok(/497 sessions/.test(SRC),
+    'and the rule records the finding the false superlative concealed');
+}
+
+// ── 15. A set size is a number too ─────────────────────────────────────────
+// Found on the third live run (silo-chat v65, 2026-09-09), on the multi-shop
+// question. The answer opened "across all 96 collection pages"; the function
+// returns 85, and no window produces 96 -- checked at 30, 60, 90, 180, 365 and
+// 730 days, per-shop and across shops.
+//
+// It is the SAME failure as the superlative in section 14: a claim about the
+// whole set, made without looking at the whole set. Rule 14(b) did not catch
+// it because a superlative names a member ("the lowest") while this names the
+// set's size, so the rule had to be widened rather than re-read. The word
+// "all" is what made it dangerous: it converts a number nobody counted into an
+// exhaustiveness guarantee.
+{
+  ok(/NEVER state a SET SIZE you did not count/i.test(SRC),
+    'an uncounted set size is refused');
+  ok(/rows a query returned in THIS conversation/i.test(SRC),
+    'and the only admissible source is rows this conversation actually got back');
+  ok(/count the rows in front of you, or run a count\(\*\)/i.test(SRC),
+    'with the two ways to get one named, so the rule is followable and not just a ban');
+  ok(/all 96 collection pages/.test(SRC) && /had returned 85/.test(SRC),
+    'the rule carries the measurement that produced it');
+  ok(/describe it without a number/i.test(SRC),
+    'and gives the fallback phrasing -- otherwise the pressure is to invent a number anyway');
+
+  // The three rules share one cause and are stated as one family. If the
+  // heading reverts to "TWO THINGS", a rule was dropped.
+  ok(/MEASURED VS GENERATED NUMBERS/.test(SRC),
+    'the three rules are framed by where the number came from');
+  ok(!/TWO THINGS YOU CANNOT MEASURE/i.test(SRC),
+    'the two-rule heading is gone -- it would leave the third rule unheaded');
+  // A set size IS measurable, unlike a character count. The old heading
+  // asserted the opposite, which is why it could not simply be extended.
+  ok(/quote a number a tool actually returned, or state none/i.test(SRC),
+    'and the shared fix is stated once at the top');
+}
+
+
+// ── 16. The set you assembled yourself is a set too ────────────────────────
+// The first live run under the §15 rule (silo-chat v67, 2026-09-10). Every one
+// of the thirteen figures in that answer was correct to the digit, 85 included
+// -- and it still wrote "the lowest completed-checkout rate of these five"
+// directly above a list of FOUR pages, then "three of these four" three
+// sentences later.
+//
+// §15 did not cover it, and the reason is instructive: every example in it
+// pointed at QUERY RESULTS ("all 96 collection pages", "there are 12 such
+// SKUs"), so a count of the model's own prose does not obviously fall under
+// "rows a query returned". The narrower a rule's examples, the narrower it
+// gets read.
+//
+// What made it matter is not the arithmetic. 0.39% genuinely was the lowest of
+// the four shown, so the FINDING was true and only its SCOPE was wrong -- and
+// the scope is the whole reason §14(b) allows a scoped superlative at all. A
+// wrong scope label puts the superlative straight back where it started.
+{
+  ok(/THIS COVERS A SET YOU ASSEMBLED YOURSELF/i.test(SRC),
+    'a self-assembled set is counted like any other');
+  ok(/not only query results/i.test(SRC),
+    'stated as a widening of the rule, since the query-result framing is what let it through');
+  ok(/COUNT THE ITEMS YOU ACTUALLY LISTED/i.test(SRC),
+    'and the check is the cheapest possible one: count what you wrote');
+  ok(/"these five", "the four above" or "three of these"/.test(SRC),
+    'the phrasings that trigger it are named, not left to be recognised');
+  ok(/of these five" directly above a list of FOUR pages/.test(SRC),
+    'the rule carries the measurement that produced it');
+  ok(/only the SCOPE was wrong/i.test(SRC),
+    'and says the finding was TRUE -- this is not a rule about arithmetic');
+  ok(/the scope is the entire reason a scoped superlative is honest/i.test(SRC),
+    'and ties it back to the superlative rule it silently undoes');
+}
+
 console.log(`seo-orchestration: ${passed} assertions passed`);
