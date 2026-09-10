@@ -18624,6 +18624,14 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260910120000_tasks_on_initiatives.sql
 
 -- ---------------------------------------------------------------------------
+-- seo_approvers backstops: re-run attach_stamp_company_entity_id_triggers()
+-- (12 tables created 2026-09-09 had no stamp trigger, seo_approvers among
+-- them) and default seo_approvers.granted_by to auth.uid(), matching
+-- silo_chat_managers. Found while adding the grant button to backend.html.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910130000_seo_approvers_stamp_and_granted_by.sql
+
+-- ---------------------------------------------------------------------------
 -- Deleting an initiative deletes its tasks (owner's call). 20260910120000
 -- shipped this link as SET NULL; a launch has always CASCADEd, so an
 -- initiative behaving differently meant two rules for one gesture. A task

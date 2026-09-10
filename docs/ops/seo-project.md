@@ -377,6 +377,17 @@ and those seven already pass without a grant. The table exists so access can be
 handed to someone specific later without promoting them to `executive`
 company-wide.
 
+**Granting is in the UI as of 2026-09-10**: the profile edit dialog on
+`/v2/backend.html` carries an "SEO approver" grant/revoke button beside the
+existing "Ask SILO access" one, same pattern, same `is_exec_or_owner()` RLS on
+the write. Blake's stated sequence is to set the approver list once this
+existed, so the list is still empty at the time of writing. Two things the
+button had to handle that the Ask SILO one does not, both found against the
+live schema: `company_entity_id` is NOT NULL and had no stamp trigger (none of
+the 2026-09-09 tables did — `20260910130000` re-attaches it everywhere), and
+`granted_by` had no default. The insert passes both explicitly, so the button
+works whether or not that migration has been applied.
+
 Who passes today (2026-09-09): Blake Evetts (owner), Ben Atkinson, Chris
 Clements, Kalin Boodman, Jon Loomis, Travis Chock, and **Daniel Lopez
 (`dlopez.wpv@gmail.com`)** — the only non-`baseballism.com` address in the set,
