@@ -18647,3 +18647,11 @@ $c$select (select count(*) from v_po_header_summary
 -- Re-appended, guarded. Found by the first scheduled drift check.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910150000_restore_lost_catalog_caveats.sql
+
+-- ---------------------------------------------------------------------------
+-- notify_sample_events() as production actually runs it (hand-edited, found
+-- by the drift check): requested/received on insert, size-request for
+-- catalog photo pulls only. ASSIGNED / WAREHOUSE_READY deferred to the Slack
+-- rebuild by decision. Runs AFTER the 20260818 versions so it wins.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910160000_notify_sample_events_as_deployed.sql

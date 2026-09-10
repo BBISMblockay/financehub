@@ -906,12 +906,18 @@ select
     when not exists (select 1 from information_schema.views
                      where table_schema='public' and table_name='product_samples_v')
       then 'MISSING — product_samples_v view'
+    -- Since 20260910160000 the trigger is deliberately the cut-down version
+    -- production runs (SAMPLE_REQUESTED / SAMPLE_RECEIVED on insert, and
+    -- SAMPLE_SIZE_REQUEST for catalog photo pulls only). SAMPLE_ASSIGNED and
+    -- SAMPLE_WAREHOUSE_READY are deferred to the Slack rebuild. This asserts
+    -- the recorded shape, not the wider one 20260818130000 wrote.
     when not exists (
       select 1 from pg_proc p join pg_language l on l.oid = p.prolang
       where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
-        and pg_get_functiondef(p.oid) ilike '%SAMPLE_ASSIGNED%'
+        and pg_get_functiondef(p.oid) ilike '%SAMPLE_SIZE_REQUEST%'
+        and pg_get_functiondef(p.oid) ilike '%new.request_source = ''catalog_photo_request''%'
     )
-      then 'MISSING — notify_sample_events() not updated with SAMPLE_REQUESTED/WAREHOUSE_READY/ASSIGNED'
+      then 'MISSING — notify_sample_events() is not the recorded production shape; run 20260910160000_notify_sample_events_as_deployed.sql'
     else 'ok'
   end as product_samples_assignee_notifications;
 
@@ -969,14 +975,18 @@ select
   end as sample_pps_full_run_received;
 
 -- 33. Sample received transition within family (migration 20260818200000)
+-- Superseded by 20260910160000: production never ran the received-on-UPDATE
+-- path and the decision is to leave it to the Slack rebuild. The check now
+-- guards the opposite drift -- someone re-applying the 20260818 version by
+-- hand and reintroducing a notification path nobody decided on.
 select
   case
-    when not exists (
+    when exists (
       select 1 from pg_proc p join pg_language l on l.oid = p.prolang
       where p.proname = 'notify_sample_events' and l.lanname = 'plpgsql'
-        and pg_get_functiondef(p.oid) ilike '%old.sample_status is distinct from new.sample_status%'
+        and pg_get_functiondef(p.oid) ilike '%SAMPLE_WAREHOUSE_READY%'
     )
-      then 'MISSING — run 20260818200000_sample_received_transition_within_family.sql'
+      then 'UNEXPECTED — notify_sample_events() fires SAMPLE_WAREHOUSE_READY/ASSIGNED again; that is the Slack rebuild''s decision, see 20260910160000'
     else 'ok'
   end as sample_received_transition_within_family;
 

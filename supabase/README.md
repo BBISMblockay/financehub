@@ -384,6 +384,7 @@ supabase/
     20260910130000_seo_approvers_stamp_and_granted_by.sql
     20260910140000_initiative_delete_cascades_tasks.sql
     20260910150000_restore_lost_catalog_caveats.sql
+    20260910160000_notify_sample_events_as_deployed.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
@@ -422,3 +423,11 @@ supabase/
   by `20260909140000` and `20260909360000`). Re-appended, guarded. Found by the
   first scheduled run of `deployment-drift-check.yml`, whose verify checks had
   been reporting MISSING since the rewrites. Edit these rows by appending
+
+- `20260910160000_notify_sample_events_as_deployed.sql` — the trigger function
+  production actually runs, verbatim: SAMPLE_REQUESTED / SAMPLE_RECEIVED on
+  insert, SAMPLE_SIZE_REQUEST for catalog photo pulls only. The wider version in
+  `20260818130000` → `20260818200000` (ASSIGNED, WAREHOUSE_READY, received on
+  update) never ran in production; by decision it stays that way until the Slack
+  rebuild defines notifications deliberately. Verify checks 28 and 33 assert this
+  shape now. A no-op when applied
