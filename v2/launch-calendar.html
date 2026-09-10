@@ -388,7 +388,197 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
-</head>
+<style>
+/* Launch workspace layout. Shared Beacon assets and live workflows are retained. */
+@media screen {
+body.silo-brand .silo-main { overflow:hidden; min-width:0; }
+.lc2-note { font-size:11px;color:var(--bcn-ink-3); }
+.lc2-note a { color:var(--bcn-accent);text-decoration:none; }
+body.silo-brand .bcn-header { padding:14px 20px;min-height:0; }
+body.silo-brand .bcn-header h1 { font-size:23px; }
+body.silo-brand .bcn-header-sub { margin-top:5px; }
+body.silo-brand .bcn-kpi-band { display:flex;flex-wrap:wrap;flex-shrink:0;padding:0 20px;gap:0; }
+body.silo-brand .bcn-kpi { display:flex;flex-direction:row;align-items:baseline;gap:8px;padding:12px 22px 12px 0;flex:1;min-width:180px;border:0;background:transparent; }
+body.silo-brand .bcn-kpi-label { font-size:10px;order:1; }
+body.silo-brand .bcn-kpi-value { font-size:19px;order:0;line-height:1; }
+body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-ink-3); }
+.lc2-toolbar { display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid var(--bcn-border);background:var(--bcn-surface);flex-shrink:0;flex-wrap:wrap; }
+.lc2-toolbar [hidden] { display:none!important; }
+.lc2-toolbar #monthTitle { background:none;border:0;color:var(--bcn-ink);font-family:var(--bcn-font);font-size:17px;font-weight:700;letter-spacing:-.03em;white-space:nowrap; }
+.lc2-toolbar .pg-tab-bar { margin:0!important;border:1px solid var(--bcn-border);border-radius:7px;overflow:hidden;margin-left:auto!important; }
+.lc2-toolbar .pg-tab { height:32px;padding:0 14px;font-family:var(--bcn-font);letter-spacing:0;font-size:12px;border:0; }
+.lc2-toolbar .pg-tab--active { background:var(--bcn-accent);color:white; }
+.lc2-toolbar #q { min-width:120px!important;width:210px;border:1px solid var(--bcn-border);background:var(--bcn-surface);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--bcn-ink); }
+.lc2-filters[hidden] { display:none!important; }
+.lc2-filters { flex-wrap:wrap;flex-shrink:0; }
+.lc2-workspace { display:flex;flex:1;min-height:0;min-width:0;overflow:hidden; }
+.lc2-views { flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden; }
+#pane-calendar { margin:0!important;min-height:0; }
+#pane-calendar>.bcn-card { border:0;border-radius:0;box-shadow:none; }
+#pane-calendar>.bcn-card>.bcn-card-header { min-height:28px;padding:5px 16px;background:var(--bcn-surface); }
+#calMeta { font-size:10px; }
+.cal-scroll { padding:0; }
+.cal-grid { gap:0;min-width:620px;height:100%;grid-template-rows:30px repeat(5,minmax(116px,1fr));grid-auto-rows:116px;align-content:start; }
+.cal-dow { min-height:0;padding:8px 10px;border-bottom:1px solid var(--bcn-border);font-size:10px; }
+.cal-cell { min-height:0;border:0;border-right:1px solid var(--bcn-border);border-bottom:1px solid var(--bcn-border);border-radius:0;padding:8px; }
+.cal-cell.today { box-shadow:none;background:var(--bcn-accent-soft); }
+.cal-cell:has(.lc2-selected) { background:var(--bcn-accent-soft); }
+.cal-cell.off { opacity:.45; }
+.cal-daynum { width:22px;height:22px;font-size:11px; }
+.cal-events { overflow:auto; }
+.ev-chip,.ev-chip-init { flex-shrink:0; }
+.ev-chip { border-radius:5px;padding-right:8px; }
+.ev-chip-title { font-size:11px;line-height:1.35;-webkit-line-clamp:2; }
+.ev-chip.lc2-selected { outline:1px solid var(--bcn-accent); }
+.ev-chip-init { border:0;background:var(--bcn-sunken);border-radius:4px;padding:4px 7px 4px 9px; }
+.ev-chip-init-title { font-size:10px; }
+[data-lid]:focus-visible { outline:2px solid var(--bcn-accent);outline-offset:1px; }
+.lc2-workspace #detailDrawer { position:relative;inset:auto;width:clamp(370px,34%,550px);min-width:370px;flex-shrink:0;transform:none;transition:none;box-shadow:none;z-index:5;display:none; }
+.lc2-workspace #detailDrawer.open { display:flex; }
+#drawerOverlay { display:none; }
+.ed-panel-head { background:var(--bcn-surface);padding:14px 16px;border-color:var(--bcn-border); }
+.ed-panel-title { color:var(--bcn-ink);font-size:17px;line-height:1.4; }
+.ed-panel-label,.ed-panel-sub { color:var(--bcn-ink-3); }
+.ed-panel-label { font-size:9px;margin-bottom:5px; }
+.ed-close-btn { color:var(--bcn-ink-2);background:var(--bcn-sunken);border:1px solid var(--bcn-border); }
+.ed-actions { margin-top:10px; }
+.ed-ghost-btn { color:var(--bcn-ink-2);border-color:var(--bcn-border); }
+.drawer-tab-bar { flex-wrap:wrap;overflow:visible; }
+.drawer-tab { padding:0 10px;height:33px;font-size:9px; }
+.dp { padding:14px;gap:12px; }
+.dp-section { border-radius:8px; }
+.lc2-hero { display:flex;gap:12px;align-items:center; }
+.lc2-hero img { width:86px;height:86px;object-fit:contain;border-radius:7px;background:var(--bcn-sunken); }
+.lc2-hero .dp-item-meta { line-height:1.6; }
+.lc2-section-head { display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px; }
+.lc2-readiness { display:grid;grid-template-columns:1fr 1fr;gap:8px; }
+.lc2-readiness>div { border:1px solid var(--bcn-border);padding:9px;border-radius:6px; }
+.lc2-readiness small { display:block;color:var(--bcn-ink-3);font-size:10px;margin-bottom:5px; }
+.lc2-readiness strong { font-size:12px; }
+.lc2-next { margin-top:10px;background:var(--bcn-accent-soft);border:1px solid var(--bcn-accent-border);padding:12px;border-radius:7px; }
+.lc2-next p { font-size:12px;margin:4px 0 10px;color:var(--bcn-ink-2); }
+.lc2-init { display:flex;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--bcn-border); }
+.lc2-init:last-child { border:0; }
+.lc2-init-title { flex:1;min-width:0;font-size:12px;font-weight:600; }
+.lc2-init small { font-size:10px;color:var(--bcn-ink-3); }
+.lc2-ref>summary { cursor:pointer;font-size:12px;color:var(--bcn-ink-2);padding:10px 0; }
+.lc2-ref .dp-section { border:0;padding:0; }
+#pane-agenda { overflow:auto;min-height:0;margin:0!important; }
+@media(max-width:1100px) {
+ .lc2-workspace:has(#detailDrawer.open) .lc2-views { display:none; }
+ .lc2-workspace #detailDrawer { width:100%;min-width:0; }
+ .lc2-toolbar #q { width:170px; }
+}
+@media(max-width:700px) {
+ body.silo-brand .bcn-header { padding:12px; }
+ body.silo-brand .bcn-header h1 { font-size:19px; }
+ body.silo-brand .bcn-kpi-band { padding:0 12px; }
+ body.silo-brand .bcn-kpi { min-width:45%;padding:8px 0;gap:5px; }
+ .bcn-kpi-delta { display:none; }
+ .lc2-toolbar { padding:9px;gap:6px; }
+ .lc2-toolbar #q { flex:1;width:100%; }
+ .lc2-toolbar .pg-tab-bar { margin-left:0!important; }
+ .cal-grid { min-width:620px; }
+ .lc2-note { max-width:270px;line-height:1.5; }
+}
+}
+@media print { .lc2-workspace,.lc2-views { display:block;overflow:visible; } }
+
+</style>
+<style>
+/* Event hierarchy and launch artwork sizing. */
+@media screen {
+ .cal-grid { height:auto;min-height:100%;grid-auto-rows:minmax(140px,auto); }
+ .cal-cell { min-height:140px;padding:10px;container-type:inline-size; }
+ .cal-events { flex:none;overflow:visible;gap:6px; }
+ .cal-cell.today,.cal-cell:has(.lc2-selected) { background:var(--bcn-surface); }
+ .cal-cell-head { margin-bottom:8px; }
+ .ev-chip { padding:8px 9px;gap:8px;background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:8px;box-shadow:0 1px 3px rgb(0 0 0 / .035);align-items:flex-start; }
+ .ev-chip::before { display:none; }
+ .ev-chip:hover { background:var(--bcn-sunken);border-color:var(--bcn-accent-border); }
+ .ev-chip.lc2-selected { outline:none;border-color:var(--bcn-accent);background:var(--bcn-accent-soft); }
+ .ev-chip-thumb-wrap { width:36px;height:36px;border-radius:6px; }
+ .ev-chip-title { font-size:12px;line-height:1.45;font-weight:650;-webkit-line-clamp:3;overflow-wrap:normal; }
+ .ev-chip-meta { margin-top:4px;font-size:10px;line-height:1.4; }
+ .ev-chip-init,.ev-chip-init:hover,:root[data-theme="dark"] .ev-chip-init,:root[data-theme="dark"] .ev-chip-init:hover { background:transparent;border:0;border-radius:5px;padding:4px 5px 4px 14px; }
+ .ev-chip-init:hover { box-shadow:inset 0 0 0 1px var(--bcn-border); }
+ .ev-chip-init::before { width:5px;height:5px;left:3px;top:10px;bottom:auto;border-radius:50%; }
+ .ev-chip-init-title { font-size:11px;line-height:1.4;font-weight:500;-webkit-line-clamp:2; }
+ .ev-chip-init-meta { font-size:10px;margin-top:2px; }
+ .lc2-hero { gap:16px;align-items:center; }
+ .lc2-hero img { width:clamp(130px,40%,180px);height:auto;aspect-ratio:1;flex-shrink:0;object-fit:contain;border-radius:10px;padding:5px;box-sizing:border-box; }
+ .lc2-hero>div { min-width:0;flex:1; }
+ @container(max-width:130px) { .ev-chip-thumb-wrap { display:none; } .ev-chip { padding:7px; } .ev-chip-title { font-size:11px; } }
+ @media(max-width:700px) { .lc2-hero img { width:130px; } .cal-cell { padding:7px; } }
+}
+</style>
+<style>
+/* Brief and Document need reading/writing space rather than a narrow inspector. */
+@media screen {
+ .lc2-workspace:has(#detailDrawer.open #dp-brief.active) .lc2-views,
+ .lc2-workspace:has(#detailDrawer.open #dp-document.active) .lc2-views { display:none; }
+ .lc2-workspace #detailDrawer.open:has(#dp-brief.active),
+ .lc2-workspace #detailDrawer.open:has(#dp-document.active) { width:100%;min-width:0;border-left:0; }
+ #detailDrawer.open:has(#dp-brief.active) .ed-panel-head,
+ #detailDrawer.open:has(#dp-document.active) .ed-panel-head { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+ #detailDrawer.open:has(#dp-brief.active) .ed-head-row,
+ #detailDrawer.open:has(#dp-document.active) .ed-head-row { flex:1; }
+ #detailDrawer.open:has(#dp-brief.active) .ed-actions,
+ #detailDrawer.open:has(#dp-document.active) .ed-actions { margin:0; }
+ #dp-brief,#dp-document { max-width:1000px;width:100%;box-sizing:border-box;margin:0 auto;padding:24px;gap:20px; }
+ #dp-brief .dp-section { padding:22px;border-radius:10px; }
+ #dp-brief .dp-title { font-size:17px; }
+ #dp-brief .dp-sub { font-size:12px;line-height:1.55; }
+ #dp-brief .bcn-field { font-size:14px;padding:10px 12px;border-radius:6px;line-height:1.6; }
+ #dp-brief textarea { resize:vertical;min-height:100px; }
+ #dp-brief .dp-g2,#dp-brief .dp-g3 { gap:18px; }
+ #dp-brief .bcn-label { font-size:11px;margin-bottom:7px; }
+ .lc2-brief-save { position:sticky;top:0;z-index:8;padding:12px 16px;background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:8px;box-shadow:0 3px 12px rgb(0 0 0 / .05); }
+ #dp-document { max-width:940px; }
+ #releaseDocument { background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:10px;padding:28px 36px;box-shadow:0 3px 15px rgb(0 0 0 / .035); }
+ #releaseDocument .reldoc-sec { padding:22px 0;margin:0;border:0;border-radius:0;border-top:1px solid var(--bcn-border); }
+ #releaseDocument .reldoc-sec-title { font-family:var(--bcn-font);font-size:17px;letter-spacing:0;text-transform:none;color:var(--bcn-ink);margin-bottom:14px; }
+ #releaseDocument .reldoc-row { display:grid;grid-template-columns:minmax(160px,35%) 1fr;gap:24px;border:0;padding:7px 0;font-size:13px;line-height:1.65; }
+ #releaseDocument .reldoc-k { white-space:normal; }
+ #releaseDocument .reldoc-v { text-align:left;font-weight:500; }
+ #releaseDocument .reldoc-block { font-size:14px;line-height:1.75; }
+ #releaseDocument .reldoc-block-label { margin-top:15px; }
+ #releaseDocument:not(.lc2-show-empty) .reldoc-row--empty,
+ #releaseDocument:not(.lc2-show-empty) .reldoc-sec--empty { display:none; }
+ #releaseDocument .reldoc-k,#releaseDocument .reldoc-v { min-width:0;overflow-wrap:anywhere; }
+ #releaseDocument .reldoc-sec:nth-of-type(2) .reldoc-row { grid-template-columns:minmax(0,3fr) minmax(0,2fr); }
+ .lc2-doc-title { margin:0 0 5px;font-size:27px;line-height:1.3; }
+ .lc2-doc-date { color:var(--bcn-ink-3);margin:0 0 24px;font-size:13px; }
+ .lc2-doc-empty-toggle { display:flex;align-items:center;gap:7px;font-size:12px;color:var(--bcn-ink-2); }
+ @media(max-width:700px) {
+  #dp-brief,#dp-document { padding:12px; }
+  #dp-brief .dp-section,#releaseDocument { padding:16px; }
+  #releaseDocument .reldoc-row { grid-template-columns:1fr;gap:2px; }
+  #detailDrawer.open:has(#dp-brief.active) .ed-panel-head,#detailDrawer.open:has(#dp-document.active) .ed-panel-head { display:block; }
+ }
+}
+@media print {
+ .silo-app,.silo-main,.lc2-workspace { display:block!important;height:auto!important;overflow:visible!important; }
+ .silo-main>:not(.lc2-workspace),.lc2-views,.lc2-doc-screen-head,.lc2-doc-empty-toggle { display:none!important; }
+}
+</style>
+<style>@media screen {
+ .lc2-drag-hint { margin-left:auto;font-size:10px;color:var(--bcn-ink-3); }
+ .ev-chip[draggable="true"] { cursor:grab; }
+ .ev-chip.lc2-dragging { opacity:.45;cursor:grabbing; }
+ .cal-cell.lc2-drop-target { background:var(--bcn-accent-soft)!important;box-shadow:inset 0 0 0 2px var(--bcn-accent); }
+ @media(pointer:coarse) { .lc2-drag-hint { display:none; } }
+}</style>
+<style>
+/* Cover artwork leads the overview; supporting metadata follows beneath. */
+#drawerLaunchMeta .lc2-hero{display:flex;flex-direction:column;align-items:stretch;gap:16px}
+#drawerLaunchMeta .lc2-hero>img{display:block;width:180px;height:180px;max-width:100%;aspect-ratio:1;object-fit:contain;padding:0;border-radius:10px}
+#drawerLaunchMeta .lc2-hero>div{width:100%;flex:none}
+.lc4-document-cover{margin:0 0 28px;break-inside:avoid;text-align:center}
+.lc4-document-cover img{display:block;margin:0 auto;max-width:100%;width:180px;height:180px;object-fit:contain;border-radius:10px}
+@media screen and (max-width:700px){#drawerLaunchMeta .lc2-hero>img,.lc4-document-cover img{width:120px;height:120px}}
+@media print{.lc4-document-cover img{width:180px;height:180px;max-width:100%}}
+</style></head>
 <body class="silo-brand">
 
 <div class="silo-app" id="silo-app">
@@ -719,6 +909,8 @@
           <button class="bcn-btn bcn-btn--mono" type="button" id="showSystemLinkFormBtn">+ LINK</button>
         </div>
         <form id="systemLinkForm" style="display:none;">
+          <input type="hidden" id="linkEditId" value="" />
+          <div class="dp-title" id="linkFormTitle">New Silo link</div>
           <div class="dp-inline-form">
             <div class="dp-g2">
               <div class="bcn-field-group"><label class="bcn-label">LINK TYPE</label><select class="bcn-field" id="linkType"><option value="product">Product</option><option value="po">PO</option><option value="inventory_tag">Inventory Tag</option><option value="planning_scenario">Planning Scenario</option><option value="report">Report</option><option value="collection">Collection</option><option value="campaign">Campaign</option><option value="other">Other</option></select></div>
@@ -1228,7 +1420,7 @@ function bind(){
 
   // brief + release document
   $('briefSaveBtn').onclick = saveBrief;
-  $('printDocBtn').onclick  = () => window.print();
+  // Print control is bound by the standalone document enhancement below.
   // beforeprint rather than the button alone, so Ctrl/Cmd-P and the browser
   // menu get the masthead too — not just our button.
   window.addEventListener('beforeprint', () => { if (activeLaunch) buildDocPrintHeader(activeLaunch); });
@@ -1466,6 +1658,7 @@ function renderMonth(){
     const moreInits=(initByDate.get(key)||[]).length-inits.length;
     const isOff=d.getMonth()!==m, isToday=key===todayStr;
     const cell=document.createElement('div');
+    cell.dataset.date=key;
     cell.className='cal-cell'+(isOff?' off':'')+(isToday?' today':'');
     const shown=items.slice(0,3);
     const more=items.length-shown.length;
@@ -1960,13 +2153,13 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
 
   doc.innerHTML=`
     <div class="reldoc-sec">
-      <div class="reldoc-sec-title">Release Overview</div>
-      ${row('Sale / Collection / Promo Event', esc(x.title||'—'))}
-      ${row('Preview Start Date & Time', previewDate)}
-      ${row('Launch Date(s) & Time', launchDate)}
+      <div class="reldoc-sec-title">Launch schedule</div>
+      
+      ${row('Preview begins', previewDate)}
+      ${row('Launch date & time', launchDate)}
       ${linkRow('Product Release PDF', x.release_pdf_url)}
       ${linkRow('Landing Page', x.landing_page_url)}
-      <div class="reldoc-block-label" style="margin-top:8px;">Deliverables</div>
+      <div class="reldoc-block-label" style="margin-top:8px;">Initiative schedule</div>
       ${deliverables}
     </div>
 
@@ -2706,5 +2899,225 @@ function applyPOToProductForm(r){ openProductForm(null); pendingProductSource={k
 function applyProductToProductForm(r){ openProductForm(null); pendingProductSource={kind:'master',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
 
 </script>
-</body>
+<script>
+// Launch workspace: preserve existing auth, company scope, forms and queries.
+(function () {
+  const main=document.querySelector('.silo-main');
+  const toolbar=document.createElement('div'); toolbar.className='lc2-toolbar';
+  const filterBar=document.querySelector('.bcn-filter-bar');
+  filterBar.classList.add('lc2-filters'); filterBar.id='lc2-filters';filterBar.hidden=true;
+  filterBar.before(toolbar);
+  ['prevMonth','monthTitle','nextMonth','todayMonth'].forEach(id=>toolbar.append($(id)));
+  $('prevMonth').textContent='‹';$('prevMonth').setAttribute('aria-label','Previous month');
+  $('nextMonth').textContent='›';$('nextMonth').setAttribute('aria-label','Next month');
+  $('todayMonth').textContent='Today';
+  toolbar.append(document.querySelector('.pg-tab-bar'));
+  const search=$('q');search.placeholder='Search launches…';search.setAttribute('aria-label','Search launches');
+  const oldSearch=search.closest('.bcn-filter');toolbar.append(search);oldSearch.remove();
+  const filters=document.createElement('button');filters.type='button';filters.className='bcn-btn bcn-btn--ghost';filters.textContent='Filters';
+  filters.setAttribute('aria-controls',filterBar.id);filters.setAttribute('aria-expanded','false');toolbar.append(filters);
+  filters.onclick=()=>{filterBar.hidden=!filterBar.hidden;filters.setAttribute('aria-expanded',String(!filterBar.hidden));};
+  const workspace=document.createElement('div');workspace.className='lc2-workspace';
+  const views=document.createElement('div');views.className='lc2-views';
+  main.append(workspace);workspace.append(views,$('detailDrawer'));views.append($('pane-calendar'),$('pane-agenda'));
+  $('detailDrawer').setAttribute('aria-label','Launch details');
+  document.querySelector('.ed-panel-label').textContent='LAUNCH OVERVIEW';
+  const originalOverview=renderOverview;
+  renderOverview=function(prods,chans,tsks) {
+    originalOverview(prods,chans,tsks);
+    const x=activeLaunch, open=tsks.filter(t=>!['done','complete'].includes(t.status));
+    const label=v=>String(v||'Not reviewed').replaceAll('_',' ');
+    $('drawerLaunchMeta').innerHTML=`<div class="lc2-hero">${x.launch_image_url?`<img src="${esc(x.launch_image_url)}" alt="Launch artwork">`:''}<div><div style="display:flex;gap:5px;flex-wrap:wrap"><span class="bcn-pill">${esc(label(x.status||'planned'))}</span><span class="bcn-pill">${esc(label(x.launch_readiness))}</span>${x.launch_type?`<span class="bcn-pill">${esc(x.launch_type)}</span>`:''} </div><div class="dp-item-meta">${prods.length} products · ${chans.length} initiatives · ${open.length} open tasks</div>${x.designer?`<div class="dp-item-meta">Designer: ${esc(x.designer)}</div>`:''}${x.marketing_channel?`<div class="dp-item-meta">Channel: ${esc(x.marketing_channel)}</div>`:''}</div></div>`;
+    let summary=$('lc2-summary');if(!summary){summary=document.createElement('div');summary.id='lc2-summary';$('drawerLaunchMeta').after(summary);}
+    const scheduled=[...chans].sort((a,b)=>String(a.scheduled_date||'9999').localeCompare(String(b.scheduled_date||'9999'))||String(a.scheduled_time||'').localeCompare(String(b.scheduled_time||'')));
+    summary.innerHTML=`<section class="dp-section"><div class="lc2-section-head"><strong>Readiness</strong></div><div class="lc2-readiness"><div><small>Launch status</small><strong>${esc(label(x.launch_readiness))}</strong></div><div><small>Checklist</small><strong>${open.length} open tasks</strong></div></div><div class="lc2-next"><strong>${x.launch_readiness==='ready'?'Launch marked ready':'Review launch readiness'}</strong><p>Review product readiness and the launch checklist.</p><button class="bcn-btn bcn-btn--primary" data-lc2-tab="dp-products">Review products →</button></div></section><section class="dp-section" style="margin-top:12px"><div class="lc2-section-head"><strong>Initiatives (${chans.length})</strong><button class="bcn-btn bcn-btn--ghost" data-lc2-tab="dp-channels">View all →</button></div>${scheduled.slice(0,3).map(c=>`<div class="lc2-init"><span class="bcn-pill pill-ch ${chClass(c.channel)}">${esc(c.channel||'other')}</span><span class="lc2-init-title">${esc(c.item_title||'Initiative')}</span><small>${c.scheduled_date?esc(fmt(c.scheduled_date)):'Unscheduled'}${c.scheduled_time?' · '+esc(c.scheduled_time.slice(0,5)):''}</small></div>`).join('')||'<div class="dp-sub">No initiatives yet.</div>'}</section><section class="dp-section" style="margin-top:12px"><div class="lc2-section-head"><strong>Open tasks (${open.length})</strong><button class="bcn-btn bcn-btn--ghost" data-lc2-tab="dp-tasks">View tasks →</button></div>${open.slice(0,3).map(t=>`<div class="dp-item-meta">${esc(t.task_title||t.title||'Task')}</div>`).join('')||'<div class="dp-sub">No open tasks.</div>'}</section>${x.details||x.notes?`<section class="dp-section" style="margin-top:12px"><strong>Launch notes</strong><div class="dp-item-meta">${esc(x.details||x.notes)}</div></section>`:''}`;
+    summary.querySelectorAll('[data-lc2-tab]').forEach(b=>b.onclick=()=>switchDrawerTab(b.dataset.lc2Tab));
+    if(!$('drawerSystemMeta').closest('details')){const details=document.createElement('details');details.className='lc2-ref';details.innerHTML='<summary>Product and PO references</summary>';$('drawerSystemMeta').before(details);details.append($('drawerSystemMeta'));}
+    highlight();
+  };
+  function highlight(){ document.querySelectorAll('#calendarGrid [data-lid]').forEach(el=>el.classList.toggle('lc2-selected',!!activeLaunch&&String(el.dataset.lid)===String(activeLaunch.id))); }
+  const oldClose=closeDrawer;
+  closeDrawer=function(){oldClose();highlight();};
+  const oldMonth=renderMonth;
+  renderMonth=function(){oldMonth();const n=$('calendarGrid').querySelectorAll('.cal-cell').length/7;$('calendarGrid').style.gridTemplateRows=`30px repeat(${n}, minmax(140px, auto))`;highlight();$('calendarGrid').querySelectorAll('[data-lid]').forEach(el=>{el.tabIndex=0;el.setAttribute('role','button');el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};});};
+  // The month controls are irrelevant in Agenda, whose own two-week controls remain.
+  const oldSwitch=switchTab;
+  switchTab=function(tab){oldSwitch(tab);render();['prevMonth','monthTitle','nextMonth','todayMonth'].forEach(id=>$(id).hidden=tab!=='calendar');document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));};
+})();
+
+</script>
+<script>
+(function(){
+ const save=$('briefSaveBtn').parentElement;
+ save.classList.add('lc2-brief-save');
+ $('dp-brief').prepend(save);
+ // Moving the existing control preserves its save handler and every form value.
+ const docTools=$('dp-document').firstElementChild;
+ const toggle=document.createElement('label');toggle.className='lc2-doc-empty-toggle';
+ const cb=document.createElement('input');cb.type='checkbox';
+ toggle.append(cb,document.createTextNode('Show empty fields'));docTools.append(toggle);
+ cb.onchange=()=>$('releaseDocument').classList.toggle('lc2-show-empty',cb.checked);
+ const renderDoc=renderReleaseDocument;
+ renderReleaseDocument=function(...args){
+  renderDoc(...args);
+  if(!args[0])return;
+  const header=document.createElement('header');header.className='lc2-doc-screen-head';
+  const title=document.createElement('h1');title.className='lc2-doc-title';title.textContent=args[0].title||'Release document';
+  const date=document.createElement('p');date.className='lc2-doc-date';date.textContent=fmt(args[0].launch_date);
+  header.append(title,date);$('releaseDocument').prepend(header);
+  if(args[0].launch_image_url){
+    const cover=document.createElement('figure');cover.className='lc4-document-cover';
+    const img=document.createElement('img');img.src=args[0].launch_image_url;img.alt=args[0].title||'Launch artwork';
+    cover.append(img);header.after(cover);
+  }
+ };
+ // Closing the expanded view returns to the unchanged calendar selection.
+ $('closeDrawer').title='Back to calendar';
+})();
+</script>
+<script>
+/* Rescheduling changes launch dates only; independently scheduled work stays put. */
+function lc2MoveDates(launch, targetDate) {
+  const day = value => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) throw new Error('Invalid launch date.');
+    const n = Date.parse(value + 'T00:00:00Z');
+    if (!Number.isFinite(n) || new Date(n).toISOString().slice(0,10) !== value) throw new Error('Invalid launch date.');
+    return n;
+  };
+  const delta = day(targetDate) - day(launch.launch_date);
+  const patch = { launch_date: targetDate };
+  if (launch.launch_end_date) patch.launch_end_date = new Date(day(launch.launch_end_date) + delta).toISOString().slice(0,10);
+  return patch;
+}
+(function(){
+  let dragging = null, busy = false;
+  const grid = $('calendarGrid');
+  const hint=document.createElement('span');hint.className='lc2-drag-hint';
+  hint.textContent='Drag launches to move dates';$('calMeta').after(hint);
+  function clearTargets(){grid.querySelectorAll('.lc2-drop-target').forEach(el=>el.classList.remove('lc2-drop-target'));}
+  function bindDragCards(){
+    grid.querySelectorAll('.ev-chip[data-lid]').forEach(el=>{
+      el.draggable=true;el.title=(el.textContent||'Launch').trim()+' — drag to move its date. Initiatives keep their dates.';
+      el.querySelectorAll('img').forEach(img=>img.draggable=false);
+    });
+  }
+  const oldRender=renderMonth;
+  renderMonth=function(){oldRender();bindDragCards();};
+  grid.addEventListener('dragstart',e=>{
+    const card=e.target.closest('.ev-chip[data-lid]');
+    if(!card||busy||e.target.closest('[data-edit]')){e.preventDefault();return;}
+    dragging=card.dataset.lid;e.dataTransfer.effectAllowed='move';
+    e.dataTransfer.setData('text/plain',dragging);
+    card.classList.add('lc2-dragging');
+  });
+  grid.addEventListener('dragend',()=>{
+    dragging=null;clearTargets();grid.querySelectorAll('.lc2-dragging').forEach(el=>el.classList.remove('lc2-dragging'));
+  });
+  grid.addEventListener('dragover',e=>{
+    const cell=e.target.closest('.cal-cell[data-date]');
+    if(!dragging||busy||!cell)return;
+    e.preventDefault();e.dataTransfer.dropEffect='move';clearTargets();cell.classList.add('lc2-drop-target');
+  });
+  grid.addEventListener('drop',async e=>{
+    const cell=e.target.closest('.cal-cell[data-date]'),id=dragging;
+    if(!cell||!id||busy)return;
+    e.preventDefault();dragging=null;clearTargets();
+    await moveLaunch(id,cell.dataset.date,true);
+  });
+  async function moveLaunch(id,date,offerUndo){
+    const launch=launches.find(x=>String(x.id)===String(id));
+    if(busy||!launch||launch.launch_date===date)return;
+    const oldDate=launch.launch_date, selectedId=activeLaunch?.id;
+    const currentTab=document.querySelector('.drawer-tab.active')?.dataset.dp;
+    busy=true;grid.setAttribute('aria-busy','true');setStatus('Moving launch…','info');
+    try{
+      const patch=lc2MoveDates(launch,date);
+      let query=db.from('launch_calendar').update(patch).eq('id',id);
+      // Reject a stale drag if another person has moved this launch meanwhile.
+      if(!__SILO_DEMO__)query=query.eq('launch_date',oldDate).select('id');
+      const result=await query;
+      if(result.error)throw result.error;
+      if(!__SILO_DEMO__&&!result.data?.length)throw new Error('The launch changed or you cannot edit it. Refresh and try again.');
+      await loadAll();
+      if(selectedId){openDrawer(selectedId);if(currentTab)switchDrawerTab(currentTab);}
+      const moved=launches.find(x=>String(x.id)===String(id));
+      if(!moved||moved.launch_date!==date)throw new Error('Could not confirm the new date. Refresh to check the launch.');
+      setStatus('Moved to '+fmt(date)+'. Initiatives and tasks keep their dates.','pos',20000);
+      if(offerUndo){
+        const undo=document.createElement('button');undo.type='button';undo.className='bcn-btn bcn-btn--ghost';
+        undo.textContent='Undo';undo.style.marginLeft='12px';
+        undo.onclick=()=>moveLaunch(id,oldDate,false);$('page-status').append(undo);
+      }
+    }catch(error){setStatus('Move failed: '+(error?.message||error),'neg',12000);}
+    finally{busy=false;grid.removeAttribute('aria-busy');}
+  }
+})();
+</script>
+<style>
+#dp-brief{max-width:1000px;gap:12px}
+#dp-brief .lc3-brief-hero{display:flex;align-items:center;gap:24px;padding:4px 0 10px}
+.lc3-brief-hero img{width:180px;height:180px;object-fit:contain;border-radius:10px;background:var(--bcn-surface)}
+.lc3-brief-hero h2{font-size:22px;margin:0 0 8px}.lc3-brief-hero p{color:var(--bcn-ink-3);margin:0}
+#dp-brief .lc3-essentials{padding:18px;display:grid;gap:10px}
+#dp-brief textarea{min-height:68px}
+#dp-brief .lc3-optional{border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface)}
+#dp-brief .lc3-optional summary{padding:14px 18px;font-size:13px;font-weight:600;cursor:pointer}
+#dp-brief .lc3-optional .dp-section{border:0;padding:0 18px 18px}
+@media(max-width:700px){.lc3-brief-hero img{width:120px;height:120px}.lc3-brief-hero h2{font-size:18px}}
+</style><script>
+(function(){
+ const brief=$('dp-brief');
+ const sections=[...brief.querySelectorAll(':scope > .dp-section')];
+ const hero=document.createElement('div');hero.className='lc3-brief-hero';brief.querySelector('.lc2-brief-save').after(hero);
+ const essentials=document.createElement('section');essentials.className='dp-section lc3-essentials';
+ essentials.innerHTML='<div class="dp-title">Creative direction</div><div class="dp-sub">Start with the story, audience, and key product details. Everything else is optional.</div>';
+ hero.after(essentials);
+ ['briefMarketingAngle','briefAudience','briefProductCallouts'].forEach(id=>essentials.append($(id).closest('.bcn-field-group')));
+ $('briefMarketingAngle').rows=3;
+ $('briefMarketingAngle').placeholder='What is the story, and why should someone care?';
+ $('briefAudience').placeholder='Who is this launch for?';
+ $('briefAudience').previousElementSibling.textContent='AUDIENCE';
+ const titles=['Schedule & release links','Design details','Copy, creative & audience details','Budget & forecast','Post-launch results'];
+ sections.forEach((section,i)=>{
+  const details=document.createElement('details');details.className='lc3-optional';
+  const summary=document.createElement('summary');summary.textContent=titles[i];details.append(summary);
+  section.before(details);details.append(section);
+  section.querySelector('.dp-sec-head')?.remove();
+ });
+ const oldBrief=renderBrief;
+ renderBrief=function(x){
+  oldBrief(x);if(!x)return;
+  hero.replaceChildren();
+  if(x.launch_image_url){const img=document.createElement('img');img.src=x.launch_image_url;img.alt=x.title||'Container image';hero.append(img);}
+  const meta=document.createElement('div'),title=document.createElement('h2'),sub=document.createElement('p');
+  title.textContent=x.title||'Launch brief';sub.textContent=fmt(x.launch_date)+(x.designer?' · '+x.designer:'');
+  meta.append(title,sub);hero.append(meta);
+ };
+ // Use a separate document so application overflow and drawer rules cannot clip printing.
+ function printMarkup(){
+  const clone=$('releaseDocument').cloneNode(true);
+  clone.querySelectorAll('.reldoc-row--empty,.reldoc-sec--empty,.reldoc-print-none,.reldoc-print-header').forEach(el=>el.remove());
+  clone.querySelectorAll('a').forEach(a=>{try{if(!/^https?:$/.test(new URL(a.href).protocol))a.removeAttribute('href');}catch{a.removeAttribute('href');}});
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(activeLaunch?.title||'Launch document')+'</title><style>body{font:14px/1.6 Arial,sans-serif;color:#17202a;max-width:850px;margin:32px auto;padding:0 28px}h1{font-size:28px;line-height:1.25}.lc2-doc-date{color:#667085}.reldoc-sec{border-top:1px solid #ddd;margin-top:24px;padding-top:20px}.reldoc-sec-title{font-size:19px;font-weight:bold;margin-bottom:12px}.reldoc-row{display:grid;grid-template-columns:1fr 1.3fr;gap:24px;padding:6px 0;break-inside:avoid}.reldoc-k{color:#667085}.reldoc-v{overflow-wrap:anywhere}.reldoc-block{white-space:pre-wrap;margin:14px 0}.reldoc-block-label{font-weight:bold;margin:14px 0 6px}.lc4-document-cover{margin:20px 0;break-inside:avoid;text-align:center}.lc4-document-cover img{max-width:100%;width:180px;height:180px;object-fit:contain}.print-tools{background:#f2f5fa;padding:16px;margin-bottom:24px}button{padding:10px 18px;cursor:pointer} @page{size:auto;margin:16mm}@media print{body{margin:0;padding:0;max-width:none}.print-tools{display:none}.reldoc-sec-title{break-after:avoid}a{color:inherit}}</style></head><body><div class="print-tools"><button onclick="window.print()">Print / Save as PDF</button><p>If no print dialog opens, open this document in Chrome or Edge and print there.</p></div>'+clone.outerHTML+'</body></html>';
+ }
+ const button=$('printDocBtn');button.textContent='PRINT DOCUMENT';
+ const download=document.createElement('button');download.type='button';download.className='bcn-btn bcn-btn--mono';download.textContent='DOWNLOAD PRINT COPY';button.after(download);
+ download.onclick=()=>{
+  if(!activeLaunch)return;
+  const url=URL.createObjectURL(new Blob([printMarkup()],{type:'text/html;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download=(activeLaunch.title||'launch').replace(/[^a-z0-9 -]/gi,'').slice(0,100)+'-print.html';
+  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+ };
+ button.onclick=()=>{
+  if(!activeLaunch)return;
+  let win;try{win=window.open('','_blank');}catch{}
+  if(!win){setStatus('Print window blocked. Use Download print copy, then open it in Chrome or Edge.','info',15000);return;}
+  win.document.open();win.document.write(printMarkup());win.document.close();
+  win.opener=null;win.focus();
+  const imageReady=[...win.document.images].map(img=>img.complete?Promise.resolve():new Promise(resolve=>{img.onload=resolve;img.onerror=resolve;}));
+  Promise.race([Promise.all(imageReady),new Promise(resolve=>setTimeout(resolve,8000))]).then(()=>{if(!win.closed){try{win.print();}catch{}}});
+  setStatus('Opened a printable document. If no dialog appears, use Download print copy and print it from Chrome or Edge.','info',15000);
+ };
+})();
+</script></body>
 </html>
