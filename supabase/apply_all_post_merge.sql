@@ -18622,3 +18622,12 @@ $c$select (select count(*) from v_po_header_summary
 -- tasks_v -- security_invoker, since launch_tasks hides private tasks.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910120000_tasks_on_initiatives.sql
+
+-- ---------------------------------------------------------------------------
+-- Deleting an initiative deletes its tasks (owner's call). 20260910120000
+-- shipped this link as SET NULL; a launch has always CASCADEd, so an
+-- initiative behaving differently meant two rules for one gesture. A task
+-- tied to neither still survives both -- it references nothing to cascade
+-- from.
+-- ---------------------------------------------------------------------------
+\i migrations/20260910140000_initiative_delete_cascades_tasks.sql
