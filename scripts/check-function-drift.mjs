@@ -50,7 +50,10 @@ const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'notif
 //   deployedSha256  the `ezbr_sha256` of the deployed bundle. Moves whenever
 //                   PRODUCTION changes.
 //   repoBlobs       the git blob sha of every repo file the deferral covers,
-//                   read from HEAD. Moves whenever the REPO changes.
+//                   read from HEAD. Moves whenever a covered file changes.
+//   repoTree        the whole function directory's tree in HEAD, including
+//                   names and modes. Also catches additions and renames that
+//                   the production download leaves untouched in the checkout.
 //
 // Pinning production alone is not enough, and that was the first version of
 // this: a change merged to the function and never deployed leaves the
@@ -67,6 +70,7 @@ const DEFERRED_DRIFT = new Map([
   ['card-categorize', {
     since: '2026-09-10',
     deployedSha256: '2f4a4bc09f8c688b837841748f34481a752fc5a4023339047f0c23697ff58ba0', // v9
+    repoTree: 'fe96e373c6619839a939d9684d37a57e68e2cc31', // HEAD:supabase/functions/card-categorize
     repoBlobs: {
       'supabase/functions/card-categorize/index.ts': '1401c4b3153e0648d98e1a2fc345b390bc10ed5c',
     },
@@ -151,6 +155,19 @@ function deferralBreak(slug, paths, d) {
     return `PRODUCTION CHANGED since the deferral was recorded on ${d.since}: the deployed bundle is `
       + `${live.slice(0, 12)}, pinned at ${d.deployedSha256.slice(0, 12)}`;
   }
+  // Git status cannot see a newly committed file that the download leaves
+  // untouched. Pin the complete directory, not just the files that drift.
+  let liveTree;
+  try {
+    liveTree = execFileSync('git', ['rev-parse', `HEAD:${FN_DIR}/${slug}`], { encoding: 'utf8' }).trim();
+  } catch {
+    return `${FN_DIR}/${slug} is no longer in HEAD, so the deferral's pin could not be verified`;
+  }
+  if (!d.repoTree || liveTree !== d.repoTree) {
+    return `THE REPO CHANGED since the deferral was recorded on ${d.since}: ${slug} has tree `
+      + `${liveTree.slice(0, 12)}, pinned at ${d.repoTree || 'no repo tree'}. `
+      + 'Changes to the function directory are new drift, even when the download leaves those files untouched';
+  }
   const covered = Object.keys(d.repoBlobs || {});
   const uncovered = paths.filter((path) => !covered.includes(path));
   if (uncovered.length) {
@@ -203,7 +220,7 @@ for (const f of deployed.sort((a, b) => a.slug.localeCompare(b.slug))) {
 
 let failed = false;
 if (deferredDrift.length) {
-  console.log('\nDeferred by decision (deployed bundle still matches the pin, so this is the SAME difference that was deferred):');
+  console.log('\nDeferred by decision (deployed bundle and repository directory still match their pins, so this is the SAME difference that was deferred):');
   for (const path of deferredDrift) {
     const d = DEFERRED_DRIFT.get(path.split('/')[2]);
     console.log(`  ${path}\n    deferred ${d.since}: ${d.why}`);
