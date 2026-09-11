@@ -1138,3 +1138,68 @@ body[data-density="compact"] .v3-canvas { padding-top: 4px; }
    at equal specificity. Without this the Dashboards pane stays on screen
    under the Saved reports pane. */
 .bcn-card[hidden] { display: none; }
+/* Live summary cards use table selection/paging; only the reading shape
+   changes. Long results and caveats must never be line-clamped. */
+.dw-summary-list { display: grid; gap: 16px; padding: 8px 4px; }
+.dw-summary-card { padding: 18px 20px; background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 8px; break-inside: avoid; }
+.dw-summary-card h3 { margin: 0 0 12px; font-size: 18px; line-height: 1.4; color: var(--bcn-ink); }
+.dw-summary-card dl { margin: 0; display: grid; gap: 12px; }
+.dw-summary-card dt { font-size: 12px; color: var(--bcn-ink-3); margin-bottom: 4px; }
+.dw-summary-card dd { margin: 0; font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bcn-ink); }
+
+/* Reader-only layout: override the DOM boxes, never GridStack's nodes.
+   Every full-width detail follows the canvas's (y,x) reading order. */
+.grid-stack.is-report-layout { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; height: auto !important; min-height: 0 !important; }
+.grid-stack.is-report-layout > .grid-stack-item { position: relative !important; inset: auto !important; transform: none !important; width: auto !important; height: auto !important; min-width: 0 !important; min-height: 0 !important; grid-column: span 12; }
+.grid-stack.is-report-layout > .grid-stack-item[hidden] { display: none !important; }
+.is-report-layout > .grid-stack-item[data-report-kind="kpi"] { grid-column: span 4; }
+.is-report-layout > .grid-stack-item > .grid-stack-item-content { position: relative !important; inset: auto !important; height: auto !important; overflow: visible; }
+.is-report-layout .dw { height: auto; min-height: 0; }
+.is-report-layout .dw-head { padding: 18px 22px 8px; }
+.is-report-layout .dw-title { font-size: 17px; white-space: normal; }
+.is-report-layout .dw-sub { font-size: 11px; white-space: normal; }
+.is-report-layout .dw-body { padding: 12px 22px 22px; overflow: visible; flex: none; }
+.is-report-layout .dw-chart { height: 340px; min-height: 340px; }
+.is-report-layout .dw-kpi { min-height: 145px; }
+.is-report-layout .dw-kpi-value { font-size: clamp(26px, 3vw, 42px); }
+.is-report-layout .dw-kpi-delta { flex-wrap: wrap; gap: 8px; }
+.is-report-layout .dw-kpi-delta-note { font-size: 12px; line-height: 1.5; }
+.is-report-layout .dw-table-wrap { max-height: none; overflow-x: auto; }
+.is-report-layout .dw-table { font-size: 13px; }
+.is-report-layout .dw-table td { padding: 10px 12px; }
+.is-report-layout .dw-foot { font-size: 12px; line-height: 1.5; }
+.dw-saved-answer-note { display: none; }
+.is-report-layout .dw-saved-answer-note { display: block; font-size: 12px; line-height: 1.5; color: var(--bcn-ink-2); }
+.is-report-layout .dw-collapse, .is-report-layout .ui-resizable-handle { display: none !important; }
+.is-report-view .silo-sidebar, .is-report-view .v3-slicer-actions, .is-report-view #btnDensity { display: none !important; }
+.is-report-view .silo-main { margin-left: 0 !important; width: 100%; }
+body.is-report-view, .is-report-view .silo-app, .is-report-view .silo-main { height: auto; min-height: 100vh; overflow: visible; }
+.is-report-view .v3-canvas { overflow: visible; flex: none; }
+.is-report-layout > [data-report-kind="section"] > .grid-stack-item-content { background: transparent; border: 0; box-shadow: none; }
+.is-report-layout .dw-head--section { padding: 12px 0 0; }
+.is-report-layout .dw-section-title { font-family: var(--bcn-font); font-size: 22px; text-transform: none; color: var(--bcn-ink); }
+.is-report-layout .dw-body--section { padding: 0; }
+.is-report-layout .dw-summary-card { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 4fr); gap: 20px; }
+.is-report-view .v3-header, .is-report-view .v3-slicer-bar { position: static; }
+.is-report-view #grid { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+@media (max-width: 760px) {
+  .is-report-layout > .grid-stack-item[data-report-kind="kpi"] { grid-column: span 12; }
+  .is-report-view #grid { padding: 0 12px; }
+  .is-report-layout .dw-summary-card { grid-template-columns: 1fr; gap: 4px; }
+}
+@media print {
+  @page { size: landscape; margin: 12mm; }
+  body.is-report-view, .is-report-view .silo-app, .is-report-view .silo-main { display: block !important; height: auto !important; overflow: visible !important; background: white; }
+  .is-report-view .v3-canvas { height: auto; overflow: visible !important; padding: 0; }
+  .is-report-view .bcn-header-actions, .is-report-view .silo-topbar, .is-report-view .dw-head-actions,
+  .is-report-view .dw-table-tools, .is-report-view .dw-loadmore button,
+  .is-report-view .v3-slicer-row, .is-report-view #metaBar, .is-report-view #dirtyPill { display: none !important; }
+  .is-report-view #grid { max-width: none; padding: 0; margin: 12px 0; }
+  .is-report-layout .dw { box-shadow: none; border: 1px solid #ccc; color: #111; }
+  .is-report-layout .dw-table-wrap { overflow: visible; }
+  .is-report-layout table { width: 100%; table-layout: fixed; }
+  .is-report-layout th, .is-report-layout td { white-space: normal !important; overflow-wrap: anywhere; }
+  .is-report-layout tr, .is-report-layout .dw-summary-card, .is-report-layout .dw-kpi { break-inside: avoid; }
+  .is-report-layout .dw-head { break-after: avoid; }
+  .is-report-layout .dw-chart { break-inside: avoid; }
+}

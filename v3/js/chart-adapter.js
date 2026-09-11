@@ -307,7 +307,7 @@
     const abs = Math.abs(n);
     const unit = abs >= 1e9 ? ['e9', 1e9] : abs >= 1e6 ? ['M', 1e6] : abs >= 1e3 ? ['k', 1e3] : ['', 1];
     const short = `${(n / unit[1]).toLocaleString(undefined, { maximumFractionDigits: unit[1] === 1 ? 0 : 1 })}${unit[0] === 'e9' ? 'B' : unit[0]}`;
-    return semantic === 'currency' ? `$${short}` : semantic === 'percent' ? formatValue(n, 'percent') : short;
+    return semantic === 'currency' ? (n < 0 ? `-$${short.slice(1)}` : `$${short}`) : semantic === 'percent' ? formatValue(n, 'percent') : short;
   }
 
   // ── Shaping ──────────────────────────────────────────────────────────
@@ -1575,6 +1575,22 @@
     // tabindex + role make the horizontal scroller reachable by keyboard:
     // a wide table whose rightmost columns can only be reached by dragging
     // is unusable without a mouse.
+    if (cfg.table_layout === 'summary') {
+      // The same selected rows and columns as the table and CSV. This is
+      // live query content, not saved AI prose. Never shorten a caveat or
+      // infer a recommendation from a numeric change.
+      const heading = cols.find((c) => c.name === cfg.summary_heading) || cols[0];
+      if (!heading) return '<div class="dw-empty">No columns to show.</div>';
+      const text = (r, c) => r[c.name] == null ? 'Not returned' : cellText(r[c.name], c, semanticOf(c.name, semantics, prof));
+      const cards = shown.map((r) => `<article class="dw-summary-card">
+          <h3>${esc(text(r, heading))}</h3>
+          <dl>${cols.filter((c) => c !== heading).map((c) => `<div>
+            <dt>${esc(columnLabel(c.name, semantics))}</dt>
+            <dd>${esc(text(r, c))}</dd></div>`).join('')}</dl>
+        </article>`).join('');
+      return tools + `<div class="dw-summary-list">${cards || '<div class="dw-empty">No matching rows</div>'}</div>`
+        + (foot ? `<div class="dw-table-wrap"><table class="dw-table"><thead><tr>${head}</tr></thead>${foot}</table></div>` : '') + note;
+    }
     return tools + `<div class="dw-table-wrap" tabindex="0" role="region"
         aria-label="Table, scroll horizontally for more columns"><table class="dw-table">
       <thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}</table></div>${note}`;
@@ -1738,6 +1754,7 @@
       compareRefusal = `"${cfg.compare_field}" is not in this result any more`;
     }
 
+    if (prior !== null && cfg.compare_label) priorLabel = String(cfg.compare_label);
     let delta = '';
     if (prior !== null) {
       const ch = M ? M.change(value, prior, valueSemantic) : null;
