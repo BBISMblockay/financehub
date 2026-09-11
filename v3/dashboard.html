@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260909a" />
+  <link rel="stylesheet" href="dashboard.css?v=20260911a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -43,6 +43,8 @@
       </div>
       <div class="bcn-header-actions">
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh" title="Re-run every widget query against live data">Refresh</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnReportView" aria-pressed="false">Report view</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnPrintReport" hidden>Print / PDF</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnDensity" title="Switch between comfortable and compact spacing">Compact</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Widget</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddSection" hidden>+ Section</button>
@@ -193,19 +195,19 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260909a"></script>
-<script src="js/field-semantics.js?v=20260909a"></script>
-<script src="js/metrics.js?v=20260909a"></script>
-<script src="js/chart-adapter.js?v=20260909a"></script>
-<script src="js/filter-bar.js?v=20260909a"></script>
+<script src="js/report-params.js?v=20260911a"></script>
+<script src="js/field-semantics.js?v=20260911a"></script>
+<script src="js/metrics.js?v=20260911a"></script>
+<script src="js/chart-adapter.js?v=20260911a"></script>
+<script src="js/filter-bar.js?v=20260911a"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260909a"></script>
-<script src="js/dashboard-renderer.js?v=20260909a"></script>
-<script src="js/dashboard-builder.js?v=20260909a"></script>
+<script src="js/report-builder.js?v=20260911a"></script>
+<script src="js/dashboard-renderer.js?v=20260911a"></script>
+<script src="js/dashboard-builder.js?v=20260911a"></script>
 <script>
 (function () {
   'use strict';
@@ -255,6 +257,7 @@
   }
 
   function setMode(next) {
+    if (next) setReportView(false);
     editing = !!next && canEdit;
     runtime.setEditable(editing);
     el('btnSettings').hidden = !editing;
@@ -275,6 +278,41 @@
     if (editing) url.searchParams.set('edit', '1'); else url.searchParams.delete('edit');
     history.replaceState(null, '', url);
   }
+
+  let reportView = false;
+  function setReportView(next) {
+    if (!runtime) return;
+    if (next) closeFullscreen();
+    if (next && editing) setMode(false);
+    reportView = !!next;
+    runtime.setReportLayout(reportView);
+    document.body.classList.toggle('is-report-view', reportView);
+    el('btnReportView').textContent = reportView ? 'Dashboard view' : 'Report view';
+    el('btnReportView').setAttribute('aria-pressed', String(reportView));
+    el('btnPrintReport').hidden = !reportView;
+    const url = new URL(location.href);
+    if (reportView) url.searchParams.set('view', 'report'); else url.searchParams.delete('view');
+    history.replaceState(null, '', url);
+  }
+
+  // Printing is a temporary reading state, never a layout save. Include
+  // expanded sections and leave pagination/error notes on the printed copy.
+  let beforePrintState = null;
+  window.addEventListener('beforeprint', () => {
+    if (!runtime || beforePrintState) return;
+    beforePrintState = { reportView, editing };
+    setReportView(true);
+    runtime.resizeCharts();
+  });
+  window.addEventListener('afterprint', () => {
+    if (!beforePrintState) return;
+    const previous = beforePrintState;
+    beforePrintState = null;
+    setReportView(previous.reportView);
+    if (previous.editing) setMode(true);
+  });
+  el('btnReportView').addEventListener('click', () => setReportView(!reportView));
+  el('btnPrintReport').addEventListener('click', () => window.print());
 
   function syncBlankState() {
     const empty = !runtime.getWidgets().length;
@@ -595,6 +633,7 @@
 
     const params = new URLSearchParams(location.search);
     if (canEdit && params.get('edit') === '1') setMode(true);
+    else if (params.get('view') === 'report') setReportView(true);
 
     // Drill-through arrives as filter values in the URL. Applied on top of
     // the board's own position, never instead of it, and reported in the

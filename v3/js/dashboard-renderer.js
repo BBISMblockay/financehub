@@ -423,7 +423,8 @@
         // answer TEXT, not anything queries_run returned. loadWidget() never
         // fetches for this type; it either got here with report_answer set
         // or with a notice already rendered, so this is the only path left.
-        body.innerHTML = window.SiloChart.answerHtml(widget.report_answer);
+        body.innerHTML = '<p class="dw-saved-answer-note">Saved answer — wording does not update with filters or Refresh.</p>'
+          + window.SiloChart.answerHtml(widget.report_answer);
         return;
       }
       if (!rows.length) {
@@ -1070,6 +1071,28 @@
       for (const id of Array.from(collapsed)) toggleSection(id);
     }
 
+    // Reader-only flow layout. GridStack's nodes remain the saved canvas;
+    // CSS lays out their existing bodies so filters, paging and chart
+    // instances keep one lifecycle. No queries and no geometry writes.
+    function setReportLayout(enabled) {
+      if (enabled) {
+        expandAllSections();
+        const positions = layout();
+        widgets.slice().sort((a, b) => {
+          const p = positions.get(a.id) || a.layout || {};
+          const q = positions.get(b.id) || b.layout || {};
+          return (p.y || 0) - (q.y || 0) || (p.x || 0) - (q.x || 0);
+        }).forEach((w) => {
+          const item = tileEl(w.id);
+          if (!item) return;
+          item.dataset.reportKind = w.visual_type;
+          gridEl.appendChild(item);
+        });
+      }
+      gridEl.classList.toggle('is-report-layout', !!enabled);
+      requestAnimationFrame(resizeCharts);
+    }
+
     /**
      * Swap between view and edit chrome in place. Only the head actions and
      * GridStack's drag/resize flags change -- the bodies (and their live
@@ -1126,7 +1149,7 @@
       layout, getWidgets, updateWidget, retheme, rowsFor, setEditable, semanticsFor,
       parameterDeclarations, getParamValues, setParamValues, resolveSql,
       ensureParamDefaults, participationFor, widgetParamKeys,
-      setDensity, resizeCharts, toggleSection, sectionMembers, expandAllSections, sizeFor,
+      setDensity, resizeCharts, toggleSection, sectionMembers, expandAllSections, sizeFor, setReportLayout,
       setTableView, getTableView, tableCsvFor, applyConstraints,
       get grid() { return grid; },
     };

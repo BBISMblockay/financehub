@@ -769,6 +769,20 @@
         </label>`).join('');
 
       const visualBlock = `
+        ${w.visual_type === 'table' ? `
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspTableLayout">Reading layout</label>
+          <select class="bcn-field" id="inspTableLayout">
+            <option value="">Table — compare rows and columns</option>
+            <option value="summary"${cfg.table_layout === 'summary' ? ' selected' : ''}>Summary — read each result as a card</option>
+          </select>
+          <span class="v3-insp-hint">Summary uses the same live rows and selected columns. Long explanations wrap in full; no AI wording is generated.</span>
+        </div>
+        ${cfg.table_layout === 'summary' ? `<div class="bcn-field-group">
+          <label class="bcn-label" for="inspSummaryHeading">Card heading</label>
+          <select class="bcn-field" id="inspSummaryHeading"><option value="">First visible column</option>${options(prof, cfg.summary_heading)}</select>
+          <span class="v3-insp-hint">Choose columns in Format. Use Report view to read the full cards without a fixed tile height.</span>
+        </div>` : ''}` : ''}
         <div class="bcn-field-group">
           <span class="bcn-label">Visualization</span>
           <div class="v3-visual-opts">${visualOpts}</div>
@@ -839,6 +853,11 @@
           <span class="v3-insp-hint">A rate's change is shown in percentage POINTS, with the relative change
             in brackets — 4% to 5% is +1pp, not +25%. A comparison with nothing to compare to says so instead
             of printing a number.</span>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="inspCompareLabel">Comparison label</label>
+          <input class="bcn-field" id="inspCompareLabel" value="${esc(cfg.compare_label || '')}" placeholder="Uses the comparison column's label" />
+          <span class="v3-insp-hint">For example, Previous month. Match the period the report actually returns; this does not change its calculation.</span>
         </div>` : ''}
         ${(w.visual_type === 'table' || isGrid2d) ? `
         <div class="bcn-field-group">
@@ -1335,6 +1354,9 @@
           return;
         }
         if (t.id === 'inspNote') patchConfig({ note: t.value || undefined });
+        else if (t.id === 'inspTableLayout') { patchConfig({ table_layout: t.value || undefined }); renderInspector(); }
+        else if (t.id === 'inspSummaryHeading') patchConfig({ summary_heading: t.value || undefined });
+        else if (t.id === 'inspCompareLabel') patchConfig({ compare_label: t.value || undefined });
         else if (t.id === 'inspSpark') patchConfig({ sparkline: t.checked || undefined });
         else if (t.id === 'inspAxisLabel') patchConfig({ axis_label: t.value || undefined });
         else if (t.id === 'inspLegend') patchConfig({ legend: t.value || undefined });

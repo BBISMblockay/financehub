@@ -1136,6 +1136,24 @@ Named here so nobody reads their absence as an oversight:
 
 ## Testing
 
+### Report reading mode (2026-09-11)
+
+`Report view` reflows existing widget bodies into a document layout, with a
+three-column KPI band and full-width detail. `view=report` preserves that
+reading choice in a link. Edit mode takes precedence and restores the
+canvas; neither mode changes saved geometry or SQL. `Print / PDF` uses the
+same layout and keeps applied-filter, missing-data and pagination notes.
+It prints loaded rows, not an implicit fetch of the rest of a report.
+
+A table widget can opt into `visual_config.table_layout = 'summary'`, with
+an optional `summary_heading` column. It reads the same live rows selected
+by `tableRows`, displays full text and uses the same columns/CSV/pagination.
+This differs from an Answer widget: saved answer wording is static and is
+labelled as such in report mode. KPI `compare_label` is a wording override,
+not a new comparison calculation.
+
+See [preflight and authoring steps](../docs/ops/dashboard-report-presentation.md).
+
 ```bash
 node v3/tests/run.js --unit      # needs nothing installed
 node v3/tests/run.js             # everything
