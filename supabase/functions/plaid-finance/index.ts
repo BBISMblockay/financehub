@@ -203,6 +203,7 @@ Deno.serve(async (req) => {
       if (!validId(input.account_id)) return json({ error: 'Choose an account to preview its history.' }, 400);
       const previewAccount = await checked(db.from('plaid_accounts').select('*')
         .eq('id', input.account_id).eq('company_entity_id', companyId).maybeSingle(), 'account_not_found');
+      if (Date.parse(previewAccount.sync_lease_expires_at || '') > Date.now()) return json({ error: 'A sync is running. Wait for it to finish and retry the history preview, or acknowledge unknown history when mapping.' }, 409);
       const connection = await loadConnection(previewAccount.connection_id);
       if (connection.status !== 'active') return json({ error: 'Reconnect this account before previewing history.' }, 409);
       const token = await loadToken(connection);

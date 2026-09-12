@@ -390,7 +390,7 @@ Deno.serve(async (req) => {
       ...(bankMode ? {direction} : {}),
     };
     merchant.count++;
-    merchant.total += Number(row.amount);
+    merchant.total += bankMode ? Math.abs(Number(row.amount)) : Number(row.amount);
     byStoredMerchant.set(key, merchant);
   }
   const merchants = [...byStoredMerchant.values()];
@@ -599,6 +599,7 @@ Deno.serve(async (req) => {
       if (bankMode && ((treatment==='purchase' && m.direction!=='outflow') || (treatment==='refund' && m.direction!=='inflow'))) treatment='unknown';
       const canSuggestAccount = ['purchase','refund'].includes(treatment);
       const acct = canSuggestAccount && s.account_name && validAccounts.has(s.account_name) ? s.account_name : null;
+      const disallowedAccount = !canSuggestAccount && !!s.account_name;
       const invented = canSuggestAccount && !!s.account_name && !acct;
       const loc = canSuggestAccount && s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
 
@@ -612,7 +613,7 @@ Deno.serve(async (req) => {
         confidence: invented ? 0 : Math.max(0, Math.min(1, Number(s.confidence) || 0)),
         reasoning: invented
           ? `Suggested "${s.account_name}", which is not in the chart of accounts — needs coding by hand.`
-          : String(s.reasoning || '').slice(0, 400),
+          : `${disallowedAccount ? 'Model account suggestion discarded: this treatment requires manual account selection. ' : ''}${String(s.reasoning || '')}`.slice(0, 400),
       });
     }
   });

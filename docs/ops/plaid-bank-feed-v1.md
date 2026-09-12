@@ -115,3 +115,8 @@ Audit records store before/after values, including provider payloads. Retention 
 The PR runs real PostgreSQL migration/RLS/RPC tests with PGlite, actual Edge handler execution with synthetic HTTP/database IO, real page callback tests, and sync protocol/crypto/scheduler tests. No financial credentials are required. These verify failure handling and database invariants; they do not claim a live Plaid institution/OAuth connection was exercised. Live Sandbox and first production account checks belong to rollout above.
 
 Primary API contracts: [Link](https://plaid.com/docs/api/link/), [OAuth](https://plaid.com/docs/link/oauth/), [update mode](https://plaid.com/docs/link/update-mode/), [Transactions Sync](https://plaid.com/docs/api/products/transactions/), [transaction lifecycle](https://plaid.com/docs/transactions/transactions-data/).
+
+History preview failure does not prevent mapping: after an attempted preview fails,
+the dialog requires explicit acknowledgement of unknown available history together
+with the permanent cutover date. Users may retry preview instead. An active sync
+lease prevents starting a preview; pagination errors never advance a saved cursor.

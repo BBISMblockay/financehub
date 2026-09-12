@@ -97,7 +97,7 @@ select
   count(*)::int as stamped_tables,
   case
     when count(*) >= (
-      select count(*) - 2
+      select count(*)
       from information_schema.columns c
       join information_schema.tables t
         on t.table_schema = c.table_schema and t.table_name = c.table_name
@@ -105,7 +105,7 @@ select
         and c.column_name = 'company_entity_id'
         and t.table_type = 'BASE TABLE'
         -- Service-owned finance records require explicit NOT NULL companies.
-        and c.table_name not in ('plaid_connections','plaid_connection_secrets','plaid_accounts','plaid_sync_exceptions','finance_audit_events')
+        and c.table_name not in ('inventory_on_hand','sales_by_day','plaid_connections','plaid_connection_secrets','plaid_accounts','plaid_sync_exceptions','finance_audit_events')
     ) then 'ok'
     else 'MISSING — run attach_stamp_company_entity_id_triggers()'
   end as status

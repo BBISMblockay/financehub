@@ -382,3 +382,21 @@ await test('CSV statement path parses, imports, codes, saves and builds a balanc
   assert.ok(h.fetches.every(f=>!f.url.includes('quickbooks-post-journal')));
 });
 console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);
+
+await test('failed history preview permits mapping only after unknown-history acknowledgement', async()=>{
+  for (const error of ['sync_page_limit','sync_update_limit','request_timeout']) {
+    for (const accepted of [false,true]) {
+      const h=harness({invokeError:error});
+      await h.el('bankAccounts').fire('click',{target:target(h.row,'[data-bank-preview]')});
+      h.calls.length=0;
+      h.window.SiloFinanceDialog.ask=async(options)=>{
+        assert.match(options.message,/UNKNOWN/);
+        assert.match(options.confirmation,/available history is unknown/);
+        assert.match(options.confirmation,/2026-09-01/);
+        return accepted;
+      };
+      await h.el('bankAccounts').fire('click',{target:target(h.row,'[data-bank-map]')});
+      assert.equal(h.calls.filter(c=>c.rpc==='configure_plaid_account').length,accepted?1:0);
+    }
+  }
+});

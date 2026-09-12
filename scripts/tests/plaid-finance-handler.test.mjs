@@ -528,6 +528,12 @@ for (const options of [{ providerError: `UNRECOGNIZED_${accessToken}` }, { netwo
   scenarios++;
 }
 {
+  const f=await fixture({account:{sync_lease_expires_at:'2099-01-01T00:00:00Z'}});
+  const out=await f.request({action:'history_preview',account_id:ids.account});
+  assert.equal(out.status,409);assert.equal(f.calls('/transactions/sync').length,0);
+  assert.equal(f.rpcs('plaid_claim_sync').length,0);scenarios++;
+}
+{
   const f=await fixture();
   const out=await f.request({action:'exchange',public_token:'public-token',link_state:await f.state({daysRequested:180})});
   assert.equal(out.status,200);assert.equal(f.records.plaid_connections[0].history_days_requested,180);

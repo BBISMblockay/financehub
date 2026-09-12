@@ -122,6 +122,7 @@ test('bank clearing, deposit and unknown treatments strip model account/location
     const result=await h.run(), s=result.body.suggestions[0];
     assert.equal(result.status,200); assert.equal(s.account_name,null,accounting_treatment); assert.equal(s.location_name,null);
     assert.equal(s.accounting_treatment,accounting_treatment==='invented'?'unknown':accounting_treatment);
+    assert.match(s.reasoning,/Model account suggestion discarded/);
     assert.equal(h.writes.length,0);
   }
 });

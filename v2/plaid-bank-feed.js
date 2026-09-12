@@ -110,7 +110,7 @@
             <label class="cc-field">Plaid starts on<input type="date" class="bcn-field" data-bank-cutover value="${esc(source?.authoritative_from || '')}" ${disabled ? 'disabled' : ''} /></label>
           </div><div class="bcn-status bcn-status--info" style="margin-top:8px">${source ? 'Permanent import start: '+esc(source.authoritative_from) : 'This start date cannot be changed after mapping. Transactions dated before it will never be imported for this account. Choose a date after your last already-accounted-for statement.'}
             Item history requested: ${connection?.history_days_requested ? esc(connection.history_days_requested)+' days' : 'not recorded for this older connection'}. The institution may return less history.</div>
-          ${!source ? `<div class="cc-note" data-bank-history>${previews.has(account.id) ? 'Earliest date actually returned: '+esc(previews.get(account.id).earliest_date || 'No transactions returned yet') : 'Preview provider history before confirming this account.'}</div>
+          ${!source ? `<div class="cc-note" data-bank-history>${previews.get(account.id)?.unavailable ? 'Available history is unknown. Retry preview or explicitly acknowledge unknown history when saving mapping.' : previews.has(account.id) ? 'Earliest date actually returned: '+esc(previews.get(account.id).earliest_date || 'No transactions returned yet') : 'Preview provider history before confirming this account.'}</div>
             <button class="bcn-btn" data-bank-preview ${disabled?'disabled':''}>Preview available history</button>` : ''}
           </div><div class="cc-foot">
           ${!source ? `<button class="bcn-btn" data-bank-map ${disabled ? 'disabled' : ''}>Review account mapping</button>` : ''}
@@ -220,7 +220,14 @@
       if (!row) return;
       const accountId = row.dataset.bankAccount;
       if (event.target.closest('[data-bank-preview]')) return run(async () => {
-        const preview = await invoke('history_preview', { account_id: accountId });
+        let preview;
+        try { preview = await invoke('history_preview', { account_id: accountId }); }
+        catch (error) {
+          const account = accounts.find(value => value.id === accountId);
+          previews.set(accountId, { unavailable: true, history_days_requested: connections.find(value => value.id === account?.connection_id)?.history_days_requested ?? null });
+          row.querySelector('[data-bank-history]').textContent = 'Available history is unknown: the preview could not finish. Retry the preview, or save mapping after acknowledging the unknown history and permanent cutover.';
+          throw error;
+        }
         if (preview.account_id !== accountId) throw new Error('History preview could not be confirmed. Try again.');
         previews.set(accountId, preview);
         row.querySelector('[data-bank-history]').textContent = `Earliest date actually returned: ${preview.earliest_date || 'No transactions returned yet'}. ${preview.returned_count} transactions returned; checked ${preview.checked_at}. More history may still be loading.`;
@@ -232,8 +239,8 @@
         const preview = previews.get(accountId);
         if (!preview) throw new Error('Preview available history first, then review the mapping.');
         const confirmed = await win.SiloFinanceDialog.ask({ title:'Confirm permanent import start',
-          message:`Transactions dated before ${cutover} will never be imported for this account. This date cannot be changed after mapping.\nEarliest date actually returned: ${preview.earliest_date || 'No transactions returned yet; history may still be loading'}.\nItem history requested: ${preview.history_days_requested ? preview.history_days_requested+' days' : 'not recorded'}. More history may arrive later within the provider window.`,
-          confirmation:`I confirm ${cutover} as this account’s permanent import start date.`, label:'Save account mapping' });
+          message:`Transactions dated before ${cutover} will never be imported for this account. This date cannot be changed after mapping.\nEarliest date actually returned: ${preview.unavailable ? 'UNKNOWN — the preview could not complete. Older transactions may be permanently excluded by your chosen date' : preview.earliest_date || 'No transactions returned yet; history may still be loading'}.\nItem history requested: ${preview.history_days_requested ? preview.history_days_requested+' days' : 'not recorded'}. More history may arrive later within the provider window.`,
+          confirmation:`${preview.unavailable ? 'I acknowledge that available history is unknown and older transactions may be lost. ' : ''}I confirm ${cutover} as this account’s permanent import start date.`, label:'Save account mapping' });
         if (!window.SiloBankWorkspace.cutoverConfirmed(cutover, confirmed === true, row.querySelector('[data-bank-cutover]').value)) return;
         const { data, error } = await db.rpc('configure_plaid_account', {
           p_account_id: accountId, p_qbo_connection_id: connectionId, p_qbo_account_id: qboAccountId,

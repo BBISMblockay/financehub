@@ -19,7 +19,7 @@ clearing treatments, cutover confirmation is bypassed, or stale detection is
 removed. Existing posting and Plaid failure-path suites also pass.
 
 Read-only production verification: 157 statements executed. All 156 pre-existing
-checks pass after correcting obsolete verifier expectations. The only missing
+checks pass with the production drift-check repairs in this PR. The only missing
 check is the new history column: its migration is intentionally unapplied.
 The migration applies twice and its check passes in disposable local PostgreSQL.
 No production migration, deployment, journal, mapping, sync or coding write was
@@ -37,3 +37,19 @@ synthetic fixture from the actual page and scripts, including light/dark pages,
 390×844 phone iframe previews and a two-row CSV. It has no real credentials and
 no external banking or accounting operations. The regular test suite verifies
 the upload callbacks; the fixture is for the outstanding browser/visual pass.
+
+## Review follow-up: production drift and build gate
+
+The verifier repairs address real failing production checks introduced by #670
+and #671: the replaced posting-claim index, renamed draft-write policy and five
+service-owned tables without insert-stamp triggers. They are not cosmetic.
+The stamp coverage check now names all seven exceptions, including
+inventory_on_hand and sales_by_day, instead of an unexplained minus-two allowance.
+The finance checks still verify the stronger active-claim and draft-only guards.
+
+Shared Plaid types now declare the nullable history input and typed sync arrays.
+A failed history preview can proceed only after explicit acknowledgement that
+available history is unknown and the selected cutover is permanent. Tests cover
+page/update/time limits and refused acknowledgement. An already leased account
+refuses preview before contacting Plaid; a sync starting after that read may still
+race with a preview, which writes neither transactions nor a cursor.
