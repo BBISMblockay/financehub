@@ -12,6 +12,8 @@
 
 ## Individual migrations (same content, split)
 
+**Plaid bank feeds:** `migrations/20260912052930_plaid_bank_feed.sql` follows the Finance V1 posting controls. It adds encrypted service-only Plaid credentials, account mapping, account-scoped atomic sync, provider lifecycle exceptions, CSV authority enforcement and finance audit events. It does not connect an institution or post a journal. Deploy `plaid-finance` and the updated `card-categorize` separately; see [the rollout and recovery runbook](../docs/ops/plaid-bank-feed-v1.md). Scheduled ingestion remains off until explicitly enabled.
+
 Run in order:
 
 1. **`migrations/20260521110000_po_builder_module.sql`** — required first  

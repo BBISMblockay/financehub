@@ -22,6 +22,10 @@
     .cc-pane { flex: 1; min-width: 0; min-height: 0; display: flex;
       flex-direction: column; gap: 12px; }
     .cc-pane[hidden] { display: none; }
+    .cc-pane[data-pane="feeds"] { overflow-y: auto; }
+    .cc-pane[data-pane="feeds"] > * { flex: none; }
+    #bankAccounts { display: flex; flex-direction: column; gap: 12px; }
+    #bankExceptions[hidden] { display: none; }
 
     .cc-card { display: flex; flex-direction: column; min-height: 0; min-width: 0;
       background: var(--bcn-panel); border: 1px solid var(--bcn-border);
@@ -171,7 +175,7 @@
     <header class="bcn-header">
       <div>
         <div class="bcn-header-title">Card Coding</div>
-        <div class="bcn-header-sub" id="ccSub">Upload a card export, code it, post the entry</div>
+        <div class="bcn-header-sub" id="ccSub">Import bank or card transactions, code them, post the entry</div>
       </div>
       <div class="bcn-header-actions">
         <button class="bcn-btn" id="btnRefresh">Refresh</button>
@@ -181,6 +185,7 @@
     <div class="cc-page">
       <nav class="bcn-tabs cc-tabbar" id="ccTabs" role="tablist">
         <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="import">Import</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="feeds">Bank feeds</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="coding">Coding</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="entry">Journal entry</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="rules">Rules</button>
@@ -250,6 +255,20 @@
           </div>
         </section>
 
+        <!-- ================= BANK FEEDS ================= -->
+        <section class="cc-pane" data-pane="feeds" hidden>
+          <div class="cc-card">
+            <div class="cc-card-head"><div><div class="cc-title">Bank feeds</div>
+              <div class="cc-sub">Transactions arrive in the existing coding queue. Review and approval remain yours.</div></div>
+              <button class="bcn-btn bcn-btn--primary" id="btnLinkBank">Connect bank or card</button></div>
+            <div id="bankConnections"></div>
+          </div>
+          <div id="bankAccounts"></div>
+          <div class="cc-card cc-warn" id="bankExceptions" hidden></div>
+          <div class="cc-hint">Sync retrieves updates available from your bank through Plaid; it does not force a bank refresh.
+            Transfers and card payments use clearing accounts. Shopify and payroll settlements clear amounts already recorded elsewhere.</div>
+        </section>
+
         <!-- ================= CODING ================= -->
         <section class="cc-pane" data-pane="coding" hidden>
           <div class="cc-kpis" id="codeKpis"></div>
@@ -290,6 +309,7 @@
               <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
               <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Categorise with AI</button>
               <button class="bcn-btn" id="btnSaveCoding">Save coding</button>
+              <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
               <button class="bcn-btn" id="btnLearnRules">Learn rules from coded rows</button>
               <span class="cc-note" id="codeStatus"></span>
             </div>
@@ -349,6 +369,9 @@
               </select>
               <input class="bcn-field bcn-field--mono" id="rulePattern"
                      placeholder="e.g. sugar hill" style="width:200px" />
+              <select class="bcn-field bcn-field--mono" id="ruleSource" aria-label="Rule source" style="width:170px"></select>
+              <select class="bcn-field bcn-field--mono" id="ruleDirection" aria-label="Rule direction" style="width:130px"><option value="outflow">Money out</option><option value="inflow">Money in</option></select>
+              <select class="bcn-field bcn-field--mono" id="ruleTreatment" aria-label="Accounting treatment" style="width:170px"></select>
               <select class="bcn-field bcn-field--mono" id="ruleAccount" style="width:250px"></select>
               <select class="bcn-field bcn-field--mono" id="ruleEntity" style="width:200px"></select>
               <select class="bcn-field bcn-field--mono" id="ruleLocation" style="width:170px"></select>
@@ -407,6 +430,8 @@
 
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="je-composer.js"></script>
+<script src="plaid-bank-feed.js"></script>
 <script>
 (function () {
   'use strict';
@@ -440,7 +465,22 @@
     if (ms) setTimeout(() => { s.hidden = true; }, ms);
   }
 
+  const bank = window.SiloBankFeeds;
+  const TREATMENTS = { unknown: 'Choose treatment', purchase: 'Purchase', refund: 'Refund', deposit: 'Deposit',
+    transfer: 'Transfer', card_payment: 'Card payment', payroll_settlement: 'Payroll settlement', shopify_settlement: 'Shopify settlement' };
+  const treatmentOptions = (selected) => Object.entries(TREATMENTS).map(([value, label]) =>
+    `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join('');
   let _co = null;
+  let bankFeeds = null;
+  const batchSource = () => state.sources.find((source) => source.id === state.batch?.source_id);
+  const editable = () => bank.canEditBatch(state.batch) && !state.codingBusy;
+  function requireEditable() {
+    if (editable()) return true;
+    setStatus(state.codingBusy
+      ? 'Wait for coding to finish before making changes.'
+      : 'This batch is read-only. Reopen its approval before changing coding.', 'neg', 6000);
+    return false;
+  }
   const state = {
     sources: [],
     accounts: [],      // codeable QBO accounts
@@ -452,6 +492,7 @@
     batch: null,       // open batch
     txns: [],
     parsed: null,      // { headers, rows, file }
+    codingBusy: false,
     dirty: new Set(),
     selected: new Set(),
   };
@@ -559,14 +600,17 @@
         .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type, is_active, connection_id')
         .eq('is_active', true).order('fully_qualified_name'),
       sb.from('quickbooks_locations')
-        .select('qbo_location_id, name, fully_qualified_name')
+        .select('qbo_location_id, name, fully_qualified_name, connection_id')
         .eq('is_active', true).order('name'),
       sb.from('quickbooks_customers')
-        .select('qbo_customer_id, display_name').eq('is_active', true).order('display_name'),
+        .select('qbo_customer_id, display_name, connection_id').eq('is_active', true).order('display_name'),
       sb.from('quickbooks_vendors')
-        .select('qbo_vendor_id, display_name').eq('is_active', true).order('display_name'),
+        .select('qbo_vendor_id, display_name, connection_id').eq('is_active', true).order('display_name'),
     ]);
 
+    for (const result of [srcRes, acctRes, locRes, custRes, vendRes]) {
+      if (result.error) throw new Error(`Reference data could not be loaded: ${result.error.message}`);
+    }
     state.sources = srcRes.data || [];
     state.allAccounts = (acctRes.data || []).map((a) => ({
       id: a.qbo_account_id,
@@ -585,18 +629,19 @@
 
     state.entities = [
       ...(custRes.data || []).map((c) => ({
-        id: c.qbo_customer_id, name: c.display_name, type: 'Customer' })),
+        id: c.qbo_customer_id, name: c.display_name, type: 'Customer', connectionId: c.connection_id })),
       ...(vendRes.data || []).map((v) => ({
-        id: v.qbo_vendor_id, name: v.display_name, type: 'Vendor' })),
+        id: v.qbo_vendor_id, name: v.display_name, type: 'Vendor', connectionId: v.connection_id })),
     ];
     state.locations = (locRes.data || []).map((l) => ({
-      id: l.qbo_location_id, name: l.fully_qualified_name || l.name,
+      id: l.qbo_location_id, name: l.fully_qualified_name || l.name, connectionId: l.connection_id,
     }));
   }
 
   async function loadBatches() {
-    const { data } = await sb.from('card_import_batches_v')
+    const { data, error } = await sb.from('card_import_batches_v')
       .select('*').order('created_at', { ascending: false }).limit(60);
+    if (error) throw new Error(error.message);
     state.batches = data || [];
   }
 
@@ -609,9 +654,16 @@
   }
 
   async function loadTxns(batchId) {
-    const { data } = await sb.from('card_transactions')
-      .select('*').eq('batch_id', batchId).order('row_no');
-    state.txns = data || [];
+    const rows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await sb.from('card_transactions')
+        .select('*').eq('batch_id', batchId).eq('company_entity_id', _co.id)
+        .order('row_no').order('id').range(offset, offset + 999);
+      if (error) throw new Error(error.message);
+      rows.push(...(data || []));
+      if ((data || []).length < 1000) break;
+    }
+    state.txns = rows;
     state.dirty.clear();
   }
 
@@ -620,15 +672,18 @@
   // 124 accounts x 400 rows is 50,000 option elements if built per row. The
   // markup is built once and the selection applied afterwards.
   let _acctOptions = '', _locOptions = '', _allAcctOptions = '', _entityOptions = '';
+  function refsForConnection(list, connectionId = batchSource()?.qbo_connection_id) {
+    return connectionId ? list.filter((item) => item.connectionId === connectionId) : list;
+  }
   function buildOptionCache() {
-    _acctOptions = state.accounts
+    _acctOptions = refsForConnection(state.accounts)
       .map((a) => `<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.type)}</option>`).join('');
-    _entityOptions = state.entities
+    _entityOptions = refsForConnection(state.entities)
       .map((e) => `<option value="${esc(e.type)}:${esc(e.id)}">${esc(e.name)} · ${esc(e.type)}</option>`)
       .join('');
     _allAcctOptions = state.allAccounts
-      .map((a) => `<option value="${esc(a.id)}">${esc(a.name)} · ${esc(a.type)}</option>`).join('');
-    _locOptions = state.locations
+      .map((a) => `<option value="${esc(a.connectionId)}:${esc(a.id)}">${esc(a.name)} · ${esc(a.type)}</option>`).join('');
+    _locOptions = refsForConnection(state.locations)
       .map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
   }
   function applySelections(root) {
@@ -649,12 +704,11 @@
   // line on an AR or AP account unless the line names an Entity, so this has to
   // be known while coding, not discovered at post time.
   const NEEDS_ENTITY = new Set(['Accounts Receivable', 'Accounts Payable']);
-  const acctType = (id) => state.allAccounts.find((a) => a.id === id)?.type || null;
+  const acctType = (id) => refsForConnection(state.allAccounts).find((a) => a.id === id)?.type || null;
   const needsEntity = (t) => NEEDS_ENTITY.has(acctType(t.qbo_account_id) || '');
 
-  const acctName = (id) => state.accounts.find((a) => a.id === id)?.name
-    || state.allAccounts.find((a) => a.id === id)?.name || null;
-  const locName = (id) => state.locations.find((l) => l.id === id)?.name || null;
+  const acctName = (id) => refsForConnection(state.accounts).find((a) => a.id === id)?.name || null;
+  const locName = (id) => refsForConnection(state.locations).find((l) => l.id === id)?.name || null;
 
   // ---------------------------------------------------------------- tabs
 
@@ -789,8 +843,9 @@
   }
 
   async function doImport() {
+    if (state.dirty.size || state.codingBusy) return setStatus('Save coding and wait for current work before importing another file.', 'neg', 6000);
     const src = currentSource();
-    if (!src) return setStatus('Pick a card first.', 'neg', 5000);
+    if (!src) return setStatus('Pick a source first.', 'neg', 5000);
     if (!_co?.id) return setStatus('No active company resolved — reload the page.', 'neg', 6000);
 
     const map = readColumnMap();
@@ -804,11 +859,6 @@
     el('impStatus').textContent = 'Importing…';
 
     try {
-      // Remember the mapping so this card never has to be mapped again.
-      await sb.from('card_sources')
-        .update({ column_map: map, updated_at: new Date().toISOString() })
-        .eq('id', src.id);
-
       const staged = [];
       for (let i = 0; i < state.parsed.rows.length; i++) {
         const r = state.parsed.rows[i];
@@ -843,9 +893,17 @@
             ? String(r[map.clean_merchant] || '').trim() || null : null,
           last4: map.last4 ? String(r[map.last4] || '').replace(/\D/g, '').slice(-4) || null : null,
           raw: r,
+          origin: 'csv',
           dedupe_hash: await dedupeHash(src.id, txnDate, amount, description),
         });
       }
+
+      if (bank.csvOverlaps(src, staged)) {
+        throw new Error(`Plaid is authoritative for ${src.display_name} from ${src.authoritative_from || 'its cutover date'}. CSV rows on or after that date cannot be imported.`);
+      }
+      const { error: mapError } = await sb.from('card_sources')
+        .update({ column_map: map, updated_at: new Date().toISOString() }).eq('id', src.id);
+      if (mapError) throw new Error(mapError.message);
 
       // Compare against what this card has already imported, across batches.
       // Only PREVIOUSLY STORED rows count: two identical charges inside one
@@ -980,7 +1038,7 @@
         <td class="cc-note">${b.qbo_journal_entry_id ? `JE ${esc(b.qbo_doc_number || b.qbo_journal_entry_id)}` : '—'}</td>
         <td>
           <button class="bcn-btn" data-open-batch="${esc(b.id)}">Open</button>
-          ${b.status !== 'posted'
+          ${['draft', 'categorized'].includes(b.status) && state.sources.find((source) => source.id === b.source_id)?.ingest_mode !== 'plaid'
             ? `<button class="bcn-btn bcn-btn--danger" data-discard-batch="${esc(b.id)}">Discard</button>`
             : ''}
         </td>
@@ -1006,6 +1064,9 @@
   async function discardBatch(id) {
     const b = state.batches.find((x) => x.id === id);
     if (!b) return;
+    if (!bank.canEditBatch(b) || state.sources.find((source) => source.id === b.source_id)?.ingest_mode === 'plaid') {
+      return setStatus('Bank feed history and approved batches cannot be discarded.', 'neg', 7000);
+    }
     if (!confirm(
       `Discard this ${b.source_name} batch (${b.txn_count} rows, ${money(b.total_amount)})?\n\n`
       + (b.qbo_journal_entry_id
@@ -1024,12 +1085,17 @@
   }
 
   async function openBatch(id) {
+    if (state.dirty.size || state.codingBusy) return setStatus('Save coding and wait for current work before opening another batch.', 'neg', 6000);
     state.batch = state.batches.find((b) => b.id === id) || null;
     if (!state.batch) {
-      await loadBatches();
-      state.batch = state.batches.find((b) => b.id === id) || null;
+      const { data, error } = await sb.from('card_import_batches_v').select('*')
+        .eq('id', id).eq('company_entity_id', _co.id).single();
+      if (error || !data) throw new Error(error?.message || 'Batch is unavailable.');
+      state.batch = data;
     }
     await loadTxns(id);
+    buildOptionCache();
+    for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity']) el(id).innerHTML = '';
     state.selected.clear();
     el('codeSearch').value = '';
     renderCoding();
@@ -1054,7 +1120,7 @@
 
     const live = state.rules
       .filter((r) => r.is_active !== false)
-      .filter((r) => !r.source_id || r.source_id === state.batch?.source_id);
+      .filter((r) => bank.ruleScopeMatches(r, txn, batchSource()));
 
     const best = (list) => list.sort((a, b) =>
       (b.priority - a.priority) || ((b.source_id ? 1 : 0) - (a.source_id ? 1 : 0)))[0] || null;
@@ -1112,11 +1178,11 @@
   }
 
   async function applyRules(silent) {
-    if (!state.batch) return;
+    if (!state.batch || !requireEditable()) return;
     let hits = 0;
     let conflicts = 0;
     for (const t of state.txns) {
-      if (t.status === 'excluded') continue;
+      if (t.status === 'excluded' || !bank.isAvailable(t)) continue;
       if (t.qbo_account_id && t.coding_source === 'manual') continue;
       const { rule, conflict } = ruleMatches(t);
 
@@ -1140,6 +1206,7 @@
       t.entity_name = rule.entity_name || null;
       t.entity_type = rule.entity_type || null;
       t.vendor_name = rule.vendor_name || t.vendor_name;
+      if (t.origin === 'plaid') t.accounting_treatment = rule.accounting_treatment || 'unknown';
       t.coding_source = 'rule';
       t.confidence = 1;
       t.ai_reasoning = null;
@@ -1181,6 +1248,12 @@
   }
 
   function renderCoding() {
+    const locked = !editable();
+    for (const id of ['btnApplyRules', 'btnSaveCoding']) el(id).disabled = locked;
+    el('btnLearnRules').disabled = state.codingBusy;
+    el('btnReloadCoding').disabled = state.codingBusy;
+    el('btnReloadCoding').hidden = state.dirty.size === 0;
+    el('btnAiCode').disabled = locked || !state.txns.some((txn) => bank.eligibleForAi(txn, batchSource()));
     if (!state.batch) {
       el('tblCoding').innerHTML = '<tr><td class="cc-empty">Open a batch from the Import tab.</td></tr>';
       el('codeKpis').innerHTML = '';
@@ -1190,7 +1263,7 @@
 
     el('codeTitle').textContent = `${state.batch.source_name} — ${state.batch.label || ''}`;
     el('codeSub').textContent =
-      `${state.txns.length} rows · ${state.batch.file_name || ''}`;
+      `${state.txns.length} rows · ${state.batch.file_name || 'Bank feed'}${state.codingBusy ? ' · Coding in progress' : locked ? ' · Read-only approved content' : ''}`;
 
     const coded = state.txns.filter((t) => t.status === 'coded').length;
     const uncoded = state.txns.filter((t) => t.status === 'uncoded').length;
@@ -1229,7 +1302,7 @@
               ${allChecked ? 'checked' : ''} title="Select everything shown" /></th>
         <th>Date</th><th>Description</th><th class="num">Amount</th>
         <th style="min-width:220px">Account</th><th style="min-width:150px">Location</th>
-        <th style="min-width:150px">Entity</th><th>Why</th><th></th>
+        <th style="min-width:150px">Entity</th><th>Treatment</th><th>Why</th><th></th>
       </tr></thead><tbody>` + rows.map((t) => `
       <tr class="${t.status === 'excluded' ? 'cc-row--excluded' : ''}" data-txn="${esc(t.id)}">
         <td><input type="checkbox" class="cc-check" data-pick
@@ -1246,6 +1319,7 @@
         <td data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
         <td data-cell="location">${cellButton(t.qbo_location_name, 'location')}</td>
         <td data-cell="entity">${entityCell(t)}</td>
+        <td>${t.origin === 'plaid' ? `<select class="bcn-field" data-field="treatment" aria-label="Accounting treatment" ${locked || !bank.isAvailable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select><div class="cc-note">${esc(t.provider_status)} · ${bank.directionOf(t) === 'outflow' ? 'Money out' : 'Money in'}</div>` : '<span class="cc-note">CSV</span>'}</td>
         <td>${confidenceChip(t)}</td>
         <td style="white-space:nowrap">
           <button class="bcn-btn" data-raw title="Show every column from the file">⋯</button>
@@ -1253,6 +1327,13 @@
         </td>
       </tr>`).join('') + '</tbody>';
 
+    for (const row of el('tblCoding').querySelectorAll('[data-txn]')) {
+      const transaction = state.txns.find((value) => value.id === row.dataset.txn);
+      if (locked || !bank.isAvailable(transaction)) {
+        for (const control of row.querySelectorAll('[data-edit], [data-toggle-exclude], [data-pick], select')) control.disabled = true;
+      }
+    }
+    if (el('codeAll')) el('codeAll').disabled = locked;
     el('codeSearch').placeholder =
       `Search ${state.txns.length} rows — merchant, account, location, cardholder, card…`;
   }
@@ -1304,7 +1385,7 @@
   }
 
   // One <select> exists at a time, built on click from the cached option HTML.
-  function openEditor(td, txn, field) {
+  function openEditor(td, txn, field, connectionId = batchSource()?.qbo_connection_id) {
     const isAcct = field === 'account';
     const isEntity = field === 'entity';
     const selected = isEntity
@@ -1314,7 +1395,7 @@
       : isAcct ? (txn.qbo_account_name || '') : (txn.qbo_location_name || '');
     td.innerHTML = `<select class="bcn-field bcn-field--mono" data-field="${field}">
         <option value="">${isAcct || isEntity ? '— none —' : '— card default —'}</option>
-        ${isEntity ? _entityOptions : isAcct ? _acctOptions : _locOptions}
+        ${(isEntity ? refsForConnection(state.entities, connectionId) : isAcct ? refsForConnection(state.accounts, connectionId) : refsForConnection(state.locations, connectionId)).map((item) => `<option value="${esc(isEntity ? `${item.type}:${item.id}` : item.id)}">${esc(item.name)}</option>`).join('')}
       </select>`;
     const sel = td.querySelector('select');
     sel.value = selected;
@@ -1390,7 +1471,8 @@
 
   function renderBulkBar() {
     const n = state.selected.size;
-    el('codeBulk').hidden = n === 0;
+    el('codeBulk').hidden = n === 0 || !editable();
+    for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity', 'btnBulkInclude', 'btnBulkExclude']) el(id).disabled = !editable();
     if (!n) return;
     el('bulkCount').textContent = `${n} selected`;
     if (!el('bulkAccount').options.length) {
@@ -1401,10 +1483,11 @@
   }
 
   function selectedTxns() {
-    return state.txns.filter((t) => state.selected.has(t.id));
+    return editable() ? state.txns.filter((t) => state.selected.has(t.id) && bank.isAvailable(t)) : [];
   }
 
   el('bulkAccount').addEventListener('change', (e) => {
+    if (!requireEditable()) return;
     const id = e.target.value;
     if (!id) return;
     for (const t of selectedTxns()) {
@@ -1429,6 +1512,7 @@
   });
 
   el('bulkLocation').addEventListener('change', (e) => {
+    if (!requireEditable()) return;
     const id = e.target.value;
     if (!id) return;
     for (const t of selectedTxns()) {
@@ -1442,9 +1526,10 @@
   });
 
   el('bulkEntity').addEventListener('change', (e) => {
+    if (!requireEditable()) return;
     const [type, id] = (e.target.value || '').split(':');
     if (!id) return;
-    const name = state.entities.find((x) => x.id === id && x.type === type)?.name || null;
+    const name = refsForConnection(state.entities).find((x) => x.id === id && x.type === type)?.name || null;
     const rows = selectedTxns();
     for (const t of rows) {
       t.entity_type = type; t.entity_qbo_id = id; t.entity_name = name;
@@ -1467,6 +1552,7 @@
   });
 
   el('btnBulkExclude').addEventListener('click', () => {
+    if (!requireEditable()) return;
     const rows = selectedTxns();
     if (!rows.length) return;
     const why = prompt(`Why are these ${rows.length} rows not part of the entry?`, '');
@@ -1481,6 +1567,7 @@
   });
 
   el('btnBulkInclude').addEventListener('click', () => {
+    if (!requireEditable()) return;
     for (const t of selectedTxns()) {
       t.status = t.qbo_account_id ? 'coded' : 'uncoded';
       t.exclude_reason = null;
@@ -1496,12 +1583,17 @@
   });
 
   el('tblCoding').addEventListener('change', (e) => {
+    if (!requireEditable()) return;
     const tr = e.target.closest('[data-txn]');
     if (!tr) return;
     const t = state.txns.find((x) => x.id === tr.dataset.txn);
     if (!t) return;
+    if (!bank.isAvailable(t)) return;
     const field = e.target.dataset.field;
-    if (field === 'account') {
+    if (field === 'treatment') {
+      t.accounting_treatment = e.target.value;
+      t.coding_source = 'manual';
+    } else if (field === 'account') {
       t.qbo_account_id = e.target.value || null;
       t.qbo_account_name = acctName(t.qbo_account_id);
       t.coding_source = 'manual';
@@ -1520,7 +1612,7 @@
       t.entity_type = id ? type : null;
       t.entity_qbo_id = id || null;
       t.entity_name = id
-        ? (state.entities.find((x) => x.id === id && x.type === type)?.name || null) : null;
+        ? (refsForConnection(state.entities).find((x) => x.id === id && x.type === type)?.name || null) : null;
     }
     state.dirty.add(t.id);
     renderCoding();
@@ -1529,6 +1621,7 @@
 
   el('tblCoding').addEventListener('click', (e) => {
     if (e.target.id === 'codeAll') {
+      if (!requireEditable()) return;
       const rows = codingRows();
       if (e.target.checked) for (const r of rows) state.selected.add(r.id);
       else for (const r of rows) state.selected.delete(r.id);
@@ -1542,6 +1635,7 @@
     if (!t0) return;
 
     if (e.target.matches('[data-pick]')) {
+      if (!requireEditable() || !bank.isAvailable(t0)) return;
       if (e.target.checked) state.selected.add(t0.id);
       else state.selected.delete(t0.id);
       renderBulkBar();
@@ -1561,6 +1655,7 @@
       return;
     }
 
+    if (!requireEditable() || !bank.isAvailable(t0)) return;
     const edit = e.target.closest('[data-edit]');
     if (edit) {
       openEditor(edit.closest('td'), t0, edit.dataset.edit);
@@ -1594,11 +1689,15 @@
       : `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`;
 
     const raw = t.raw && typeof t.raw === 'object' ? t.raw : {};
-    const rawRows = Object.entries(raw).map(([k, v]) => kv(k, v)).join('');
+    const rawRows = Object.entries(raw).map(([k, v]) => kv(k, typeof v === 'object' ? JSON.stringify(v) : v)).join('');
 
     el('rawSub').textContent = `Row ${t.row_no} · ${state.batch?.source_name || ''}`;
     el('rawBody').innerHTML = `<dl class="cc-kv">
       <div class="cc-kv-head">As imported</div>
+      ${kv('Origin', t.origin || 'csv')}
+      ${kv('Provider status', t.provider_status)}
+      ${kv('Treatment', t.accounting_treatment)}
+      ${kv('External transaction', t.external_transaction_id)}
       ${kv('Date', t.txn_date)}
       ${kv('Description', t.description)}
       ${kv('Clean merchant', t.clean_merchant)}
@@ -1632,14 +1731,17 @@
   });
 
   async function saveCoding() {
+    if (!requireEditable()) return;
     if (!state.dirty.size) return setStatus('Nothing changed.', 'info', 3000);
     if (!_co?.id) {
       setStatus('No active company resolved — reload the page and try again.', 'neg', 6000);
       return;
     }
 
-    el('btnSaveCoding').disabled = true;
+    state.codingBusy = true;
     try {
+      renderCoding();
+      renderEntry();
       // Only the coding fields. This goes through apply_card_coding, which does
       // a real UPDATE -- an upsert would send INSERT .. ON CONFLICT and so
       // propose a COMPLETE row, which is what made saving fail twice: once on
@@ -1647,6 +1749,8 @@
       // absent). Nothing here needs the row's identity beyond its id.
       const rows = state.txns.filter((t) => state.dirty.has(t.id)).map((t) => ({
         id: t.id,
+        accounting_treatment: t.accounting_treatment || undefined,
+        expected_provider_updated_at: t.origin === 'plaid' ? t.provider_updated_at : undefined,
         qbo_account_id: t.qbo_account_id,
         qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id,
@@ -1692,15 +1796,20 @@
       await loadBatches();
       renderBatches();
     } catch (e) {
-      setStatus(`Save failed — ${e.message}`, 'neg', 8000);
+      const stale = /provider.*(changed|stale)|stale.*provider/i.test(e.message);
+      setStatus(stale ? 'Bank transaction data changed while you were coding. Your unsaved edits are retained. Discard unsaved changes to reload, then review and code the updated bank rows.' : `Save failed — ${e.message}`, 'neg', 12000);
+      renderCoding();
     } finally {
-      el('btnSaveCoding').disabled = false;
+      state.codingBusy = false;
+      renderCoding();
+      renderEntry();
     }
   }
 
   async function aiCategorise() {
-    if (!state.batch) return;
-    const pending = state.txns.filter((t) => t.status === 'uncoded' && !t.qbo_account_id);
+    if (!state.batch || !requireEditable()) return;
+    if (batchSource()?.ingest_mode === 'plaid' && state.dirty.size) return setStatus('Save coding and treatment changes before asking AI.', 'neg', 6000);
+    const pending = state.txns.filter((t) => t.status === 'uncoded' && !t.qbo_account_id && bank.eligibleForAi(t, batchSource()));
     if (!pending.length) return setStatus('Nothing left to categorise.', 'info', 4000);
 
     // One question per merchant, not per row.
@@ -1721,10 +1830,12 @@
     }
     const merchants = [...byMerchant.values()];
 
-    el('btnAiCode').disabled = true;
+    state.codingBusy = true;
     el('codeStatus').textContent = `Asking about ${merchants.length} merchant${merchants.length === 1 ? '' : 's'}…`;
 
     try {
+      renderCoding();
+      renderEntry();
       const { data: { session } } = await sb.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/card-categorize`, {
         method: 'POST',
@@ -1732,7 +1843,7 @@
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session?.access_token}`,
         },
-        body: JSON.stringify({ merchants, source_name: state.batch.source_name }),
+        body: JSON.stringify({ merchants, source_name: state.batch.source_name, batch_id: state.batch.id, transaction_ids: pending.filter((txn) => merchantKey(txn)).map((txn) => txn.id) }),
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
@@ -1747,11 +1858,11 @@
         t.confidence = s.confidence ?? 0;
         t.vendor_name = s.vendor_name || t.vendor_name;
         if (s.account_name) {
-          const acct = state.accounts.find((a) => a.name === s.account_name);
+          const acct = refsForConnection(state.accounts).find((a) => a.name === s.account_name);
           if (acct) {
             t.qbo_account_id = acct.id;
             t.qbo_account_name = acct.name;
-            const loc = s.location_name && state.locations.find((l) => l.name === s.location_name);
+            const loc = s.location_name && refsForConnection(state.locations).find((l) => l.name === s.location_name);
             t.qbo_location_id = loc ? loc.id : defaultLocationId();
             t.qbo_location_name = locName(t.qbo_location_id);
             t.coding_source = 'ai';
@@ -1777,7 +1888,9 @@
       setStatus(`Categorisation failed — ${e.message}`, 'neg', 8000);
     } finally {
       el('codeStatus').textContent = '';
-      el('btnAiCode').disabled = false;
+      state.codingBusy = false;
+      renderCoding();
+      renderEntry();
     }
   }
 
@@ -1786,24 +1899,31 @@
   // AND saved. An unsaved suggestion teaches nothing.
   async function learnRules() {
     if (!state.batch) return;
+    if (state.codingBusy) return setStatus('Wait for coding to finish before learning rules.', 'neg', 6000);
     if (state.dirty.size) {
       return setStatus('Save coding first — unsaved rows are not confirmed yet.', 'neg', 6000);
     }
 
     const confirmed = state.txns.filter((t) =>
-      t.status === 'coded' && t.qbo_account_id
+      t.status === 'coded' && t.qbo_account_id && bank.isAvailable(t)
+      && (t.origin !== 'plaid' || t.accounting_treatment !== 'unknown')
       && (t.coding_source === 'manual' || t.coding_source === 'ai'));
 
     // Merchant rules. Conflicting codings for one merchant teach nothing
     // rather than picking a winner.
     const byMerchant = new Map();
     for (const t of confirmed) {
-      const key = merchantKey(t);
-      if (!key) continue;
+      const pattern = merchantKey(t);
+      const key = `${pattern}|${bank.directionOf(t)}`;
+      if (!pattern) continue;
       const cur = byMerchant.get(key);
-      if (cur) { if (cur.qbo_account_id !== t.qbo_account_id) cur.conflict = true; continue; }
+      if (cur) {
+        if (cur.qbo_account_id !== t.qbo_account_id || (cur.entity_qbo_id || null) !== (t.entity_qbo_id || null)
+          || (cur.entity_type || null) !== (t.entity_type || null) || cur.accounting_treatment !== t.accounting_treatment) cur.conflict = true;
+        continue;
+      }
       byMerchant.set(key, {
-        match_field: 'merchant', priority: 100, pattern: key,
+        match_field: 'merchant', priority: 100, pattern, direction: bank.directionOf(t), accounting_treatment: t.accounting_treatment,
         qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
         entity_qbo_id: t.entity_qbo_id, entity_name: t.entity_name, entity_type: t.entity_type,
@@ -1816,18 +1936,20 @@
     // saying otherwise would mis-code the next month silently.
     const byCard = new Map();
     for (const t of confirmed) {
-      const key = String(t.card_name || '').trim();
-      if (!key) continue;
+      const pattern = String(t.card_name || '').trim();
+      const key = `${pattern}|${bank.directionOf(t)}`;
+      if (!pattern) continue;
       const cur = byCard.get(key);
       if (cur) {
         if (cur.qbo_account_id !== t.qbo_account_id
-            || (cur.entity_qbo_id || null) !== (t.entity_qbo_id || null)) cur.conflict = true;
+            || (cur.entity_qbo_id || null) !== (t.entity_qbo_id || null)
+            || cur.accounting_treatment !== t.accounting_treatment) cur.conflict = true;
         continue;
       }
       byCard.set(key, {
         match_field: 'card_name',
         // Below merchant rules: knowing the vendor beats knowing the card.
-        priority: 50, pattern: key,
+        priority: 50, pattern, direction: bank.directionOf(t), accounting_treatment: t.accounting_treatment,
         qbo_account_id: t.qbo_account_id, qbo_account_name: t.qbo_account_name,
         qbo_location_id: t.qbo_location_id, qbo_location_name: t.qbo_location_name,
         entity_qbo_id: t.entity_qbo_id, entity_name: t.entity_name, entity_type: t.entity_type,
@@ -1839,13 +1961,15 @@
       .filter((r) => !r.conflict)
       .filter((r) => !state.rules.some((x) =>
         x.pattern === r.pattern && (x.match_field || 'merchant') === r.match_field
-        && (x.source_id === state.batch.source_id || !x.source_id)));
+        && x.source_id === state.batch.source_id && x.direction === r.direction));
 
     if (!fresh.length) return setStatus('No new rules to learn.', 'info', 4000);
 
     const rows = fresh.map((r) => ({
       company_entity_id: _co.id,
-      source_id: r.match_field === 'card_name' ? state.batch.source_id : null,
+      source_id: state.batch.source_id,
+      direction: r.direction,
+      accounting_treatment: r.accounting_treatment || 'unknown',
       match_field: r.match_field,
       match_type: r.match_field === 'card_name' ? 'exact' : 'normalized',
       pattern: r.pattern,
@@ -1876,6 +2000,18 @@
   el('btnApplyRules').addEventListener('click', () => applyRules(false));
   el('btnAiCode').addEventListener('click', aiCategorise);
   el('btnSaveCoding').addEventListener('click', saveCoding);
+  el('btnReloadCoding').addEventListener('click', async () => {
+    if (!state.batch || state.codingBusy || !state.dirty.size) return;
+    if (!confirm('Discard unsaved coding changes and reload the latest saved transactions?')) return;
+    try {
+      await loadBatches();
+      state.batch = state.batches.find((batch) => batch.id === state.batch.id) || state.batch;
+      await loadTxns(state.batch.id);
+      state.selected.clear();
+      renderBatches(); renderCoding(); renderEntry();
+      setStatus('Reloaded saved transactions. Review any bank changes before coding again.', 'info', 8000);
+    } catch (error) { setStatus(`Reload failed — ${error.message}`, 'neg', 8000); }
+  });
   el('btnLearnRules').addEventListener('click', learnRules);
 
   // -------------------------------------------------------------- entry
@@ -1979,6 +2115,10 @@
     // Everything that would make a post fail or be wrong, said before the
     // button is pressed rather than as a QuickBooks error afterwards.
     const blockers = [];
+    const unavailable = state.txns.filter((txn) => txn.status !== 'excluded' && !bank.isAvailable(txn)).length;
+    if (unavailable) blockers.push(`${unavailable} bank rows are pending or removed`);
+    const treatments = state.txns.filter((txn) => txn.origin === 'plaid' && txn.status === 'coded' && (!txn.accounting_treatment || txn.accounting_treatment === 'unknown')).length;
+    if (treatments) blockers.push(`${treatments} bank rows need an accounting treatment`);
     if (!e.src?.credit_qbo_account_id) blockers.push('the card has no balancing account set (Cards tab)');
     if (/Accounts (Payable|Receivable)/i.test(e.src?.credit_qbo_account_type || '')
         && !e.src?.credit_vendor_qbo_id) {
@@ -2000,6 +2140,7 @@
     if (!balanced) blockers.push('the entry does not balance');
     if (!state.batch.entry_date) blockers.push('no entry date is set');
     if (state.dirty.size) blockers.push('there are unsaved coding changes');
+    if (state.codingBusy) blockers.push('coding changes are still running');
 
     const posted = state.batch.status === 'posted';
     const approved = state.batch.status === 'approved';
@@ -2062,6 +2203,7 @@
     await loadBatches();
     state.batch = state.batches.find((b) => b.id === state.batch.id);
     renderBatches();
+    renderCoding();
     renderEntry();
     setStatus('Approved.', 'pos', 4000);
   });
@@ -2079,7 +2221,9 @@
     if (error) return setStatus(`Reopen failed — ${error.message}`, 'neg', 8000);
     await loadBatches();
     state.batch = state.batches.find((b) => b.id === state.batch.id);
+    await loadTxns(state.batch.id);
     renderBatches();
+    renderCoding();
     renderEntry();
     setStatus('Approval reopened. Review changes and approve again.', 'pos', 6000);
   });
@@ -2189,6 +2333,11 @@
   function renderRules() {
     el('rulesCount').textContent = `${state.rules.length} rules`;
 
+    const selectedSource = el('ruleSource').value;
+    el('ruleSource').innerHTML = '<option value="">Choose a source…</option>' + state.sources.map((source) =>
+      `<option value="${esc(source.id)}">${esc(source.display_name)}</option>`).join('');
+    el('ruleSource').value = selectedSource;
+    if (!el('ruleTreatment').options.length) el('ruleTreatment').innerHTML = treatmentOptions('unknown');
     if (!el('ruleAccount').options.length) {
       el('ruleAccount').innerHTML = `<option value="">Account…</option>${_acctOptions}`;
       el('ruleEntity').innerHTML = `<option value="">Entity (AR/AP only)…</option>${_entityOptions}`;
@@ -2204,7 +2353,7 @@
     el('tblRules').innerHTML = `<thead><tr>
         <th>Matches on</th><th>Pattern</th><th style="min-width:220px">Account</th>
         <th style="min-width:150px">Entity</th><th style="min-width:150px">Location</th>
-        <th>Card</th><th class="num">Used</th><th></th>
+        <th>Source / direction / treatment</th><th class="num">Used</th><th></th>
       </tr></thead><tbody>` + state.rules.map((r) => `<tr data-rule="${esc(r.id)}">
         <td><span class="cc-chip ${r.match_field === 'card_name' ? 'cc-chip--ai' : 'cc-chip--rule'}">${
           r.match_field === 'card_name' ? 'card name' : 'merchant'}</span>
@@ -2213,7 +2362,7 @@
         <td data-rcell="account">${cellButton(r.qbo_account_name, 'account')}</td>
         <td data-rcell="entity">${cellButton(r.entity_name, 'entity')}</td>
         <td data-rcell="location">${cellButton(r.qbo_location_name, 'location')}</td>
-        <td class="cc-note">${esc(state.sources.find((x) => x.id === r.source_id)?.display_name || 'any')}</td>
+        <td class="cc-note">${esc(state.sources.find((x) => x.id === r.source_id)?.display_name || 'Legacy CSV cards')}<div>${esc(r.direction || 'any')} · ${esc(r.accounting_treatment || 'unknown')}</div></td>
         <td class="num">${r.hit_count || 0}</td>
         <td><button class="bcn-btn" data-del-rule>Delete</button></td>
       </tr>`).join('') + '</tbody>';
@@ -2222,6 +2371,9 @@
   async function addRule() {
     const pattern = el('rulePattern').value.trim();
     const accountId = el('ruleAccount').value;
+    const sourceId = el('ruleSource').value;
+    const connectionId = state.sources.find((source) => source.id === sourceId)?.qbo_connection_id;
+    if (!sourceId) return setStatus('Choose the source this rule belongs to.', 'neg', 5000);
     if (!pattern) return setStatus('Give the rule something to match on.', 'neg', 5000);
     if (!accountId) return setStatus('Pick an account for the rule.', 'neg', 5000);
 
@@ -2236,19 +2388,21 @@
 
     const row = {
       company_entity_id: _co.id,
-      source_id: null,
+      source_id: sourceId,
+      direction: el('ruleDirection').value,
+      accounting_treatment: el('ruleTreatment').value,
       match_field: field,
       match_type: field === 'card_name' && el('ruleMatch').value === 'normalized'
         ? 'exact' : el('ruleMatch').value,
       pattern: stored,
       priority: field === 'card_name' ? 50 : 100,
       qbo_account_id: accountId,
-      qbo_account_name: acctName(accountId),
+      qbo_account_name: refsForConnection(state.allAccounts, connectionId).find((account) => account.id === accountId)?.name || null,
       qbo_location_id: locId,
-      qbo_location_name: locName(locId),
+      qbo_location_name: refsForConnection(state.locations, connectionId).find((location) => location.id === locId)?.name || null,
       entity_qbo_id: entId || null,
       entity_name: entId
-        ? (state.entities.find((x) => x.id === entId && x.type === entType)?.name || null) : null,
+        ? (refsForConnection(state.entities, connectionId).find((x) => x.id === entId && x.type === entType)?.name || null) : null,
       entity_type: entId ? entType : null,
       note: 'Added by hand',
     };
@@ -2262,6 +2416,15 @@
     setStatus(`Rule added: ${stored} → ${row.qbo_account_name}.`, 'pos', 5000);
   }
 
+  el('ruleSource').addEventListener('change', () => {
+    const source = state.sources.find((value) => value.id === el('ruleSource').value);
+    const opts = (list) => refsForConnection(list, source?.qbo_connection_id).map((item) =>
+      `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+    el('ruleAccount').innerHTML = '<option value="">Account…</option>' + opts(state.allAccounts);
+    el('ruleLocation').innerHTML = '<option value="">Location…</option>' + opts(state.locations);
+    el('ruleEntity').innerHTML = '<option value="">Entity…</option>' + refsForConnection(state.entities, source?.qbo_connection_id).map((item) =>
+      `<option value="${esc(item.type)}:${esc(item.id)}">${esc(item.name)} · ${esc(item.type)}</option>`).join('');
+  });
   el('btnAddRule').addEventListener('click', addRule);
   el('rulePattern').addEventListener('keydown', (e) => { if (e.key === 'Enter') addRule(); });
 
@@ -2276,7 +2439,7 @@
       qbo_account_id: r.qbo_account_id, qbo_account_name: r.qbo_account_name,
       qbo_location_id: r.qbo_location_id, qbo_location_name: r.qbo_location_name,
       entity_qbo_id: r.entity_qbo_id, entity_name: r.entity_name, entity_type: r.entity_type,
-    }, edit.dataset.edit);
+    }, edit.dataset.edit, state.sources.find((source) => source.id === r.source_id)?.qbo_connection_id);
   });
 
   el('tblRules').addEventListener('change', async (e) => {
@@ -2285,19 +2448,20 @@
     const r = state.rules.find((x) => x.id === tr.dataset.rule);
     if (!r) return;
 
+    const connectionId = state.sources.find((source) => source.id === r.source_id)?.qbo_connection_id;
     const patch = {};
     if (e.target.dataset.field === 'account') {
       patch.qbo_account_id = e.target.value || null;
-      patch.qbo_account_name = acctName(patch.qbo_account_id);
+      patch.qbo_account_name = refsForConnection(state.allAccounts, connectionId).find((account) => account.id === patch.qbo_account_id)?.name || null;
     } else if (e.target.dataset.field === 'location') {
       patch.qbo_location_id = e.target.value || null;
-      patch.qbo_location_name = locName(patch.qbo_location_id);
+      patch.qbo_location_name = refsForConnection(state.locations, connectionId).find((location) => location.id === patch.qbo_location_id)?.name || null;
     } else {
       const [type, id] = (e.target.value || '').split(':');
       patch.entity_qbo_id = id || null;
       patch.entity_type = id ? type : null;
       patch.entity_name = id
-        ? (state.entities.find((x) => x.id === id && x.type === type)?.name || null) : null;
+        ? (refsForConnection(state.entities, connectionId).find((x) => x.id === id && x.type === type)?.name || null) : null;
     }
 
     const { error } = await sb.from('card_coding_rules')
@@ -2325,18 +2489,18 @@
   // Accounts Receivable one -- picking the wrong kind is rejected. So the list
   // is scoped by what the chosen balancing account actually accepts, rather
   // than offering both and failing at post time.
-  function entitiesFor(accountType) {
+  function entitiesFor(accountType, connectionId) {
     if (/Accounts Payable/i.test(accountType || '')) {
-      return { kind: 'Vendor', list: state.entities.filter((e) => e.type === 'Vendor') };
+      return { kind: 'Vendor', list: refsForConnection(state.entities, connectionId).filter((e) => e.type === 'Vendor') };
     }
     if (/Accounts Receivable/i.test(accountType || '')) {
-      return { kind: 'Customer', list: state.entities.filter((e) => e.type === 'Customer') };
+      return { kind: 'Customer', list: refsForConnection(state.entities, connectionId).filter((e) => e.type === 'Customer') };
     }
     return { kind: null, list: [] };
   }
 
   function vendorPicker(s) {
-    const { kind, list } = entitiesFor(s.credit_qbo_account_type);
+    const { kind, list } = entitiesFor(s.credit_qbo_account_type, s.qbo_connection_id);
     if (!kind) {
       return '<span class="cc-note">not needed</span>'
         + (s.credit_vendor_name
@@ -2369,14 +2533,14 @@
       return `<tr data-card="${esc(s.id)}">
         <td><b>${esc(s.display_name)}</b>${s.notes ? `<div class="cc-note">${esc(s.notes)}</div>` : ''}</td>
         <td><select class="bcn-field bcn-field--mono" data-card-field="credit"
-              data-selected="${esc(s.credit_qbo_account_id || '')}"
+              data-selected="${esc(s.credit_qbo_account_id ? `${s.qbo_connection_id}:${s.credit_qbo_account_id}` : '')}"
               data-selected-label="${esc(s.credit_qbo_account_name || '')}">
               <option value="">— not set —</option>${_allAcctOptions}</select></td>
         <td data-vendor-cell>${vendorPicker(s)}</td>
         <td><select class="bcn-field bcn-field--mono" data-card-field="location"
               data-selected="${esc(s.default_qbo_location_id || '')}"
               data-selected-label="${esc(s.default_qbo_location_name || '')}">
-              <option value="">— none —</option>${_locOptions}</select></td>
+              <option value="">— none —</option>${refsForConnection(state.locations, s.qbo_connection_id).map((location) => `<option value="${esc(location.id)}">${esc(location.name)}</option>`).join('')}</select></td>
         <td><label class="cc-note" style="display:flex;gap:6px;align-items:center">
               <input type="checkbox" data-card-field="posting" ${s.posting_enabled ? 'checked' : ''} />
               ${s.posting_enabled ? 'on' : 'off'}</label></td>
@@ -2387,6 +2551,12 @@
       </tr>`;
     }).join('') + '</tbody>';
     applySelections(el('tblCards'));
+    for (const row of el('tblCards').querySelectorAll('[data-card]')) {
+      if (state.sources.find((source) => source.id === row.dataset.card)?.ingest_mode === 'plaid') {
+        row.querySelector('[data-card-field="credit"]').disabled = true;
+        row.querySelector('[data-del-card]').disabled = true;
+      }
+    }
 
     // Checks the id, which is what the post and the Approve blocker require.
     // Checking the name told you a card was ready while Approve stayed blocked.
@@ -2415,24 +2585,25 @@
       const rows = [...el('tblCards').querySelectorAll('[data-card]')].map((tr) => {
         const s = state.sources.find((x) => x.id === tr.dataset.card);
         const get = (f) => tr.querySelector(`[data-card-field="${f}"]`);
-        const creditId = get('credit').value || null;
-        const acct = state.allAccounts.find((a) => a.id === creditId);
+        const [connectionId, selectedCredit] = get('credit').value.split(':');
+        const creditId = selectedCredit || null;
+        const acct = state.allAccounts.find((a) => a.id === creditId && a.connectionId === connectionId);
         const vendorField = get('vendor');
         const vendorId = vendorField && vendorField.tagName === 'SELECT'
           ? (vendorField.value || null) : null;
         const locId = get('location').value || null;
         return {
-          ...s,
+          id: s.id, company_entity_id: _co.id, source_key: s.source_key, display_name: s.display_name,
           qbo_connection_id: acct?.connectionId || s.qbo_connection_id || null,
           credit_qbo_account_id: creditId,
           credit_qbo_account_name: acct?.name || null,
           credit_qbo_account_type: acct?.type || null,
           credit_vendor_qbo_id: vendorId || null,
           credit_vendor_name: vendorId
-            ? (state.entities.find((x) => x.id === vendorId)?.name || null)
+            ? (refsForConnection(state.entities, connectionId).find((x) => x.id === vendorId)?.name || null)
             : null,
           default_qbo_location_id: locId,
-          default_qbo_location_name: locName(locId),
+          default_qbo_location_name: refsForConnection(state.locations, connectionId).find((location) => location.id === locId)?.name || null,
           posting_enabled: get('posting').checked,
           is_active: get('active').checked,
           updated_at: new Date().toISOString(),
@@ -2508,6 +2679,7 @@
     const id = btn.dataset.delCard;
     const src = state.sources.find((x) => x.id === id);
     if (!src) return;
+    if (src.ingest_mode === 'plaid') return setStatus('Stop syncing this account in Bank feeds. Its history is retained.', 'neg', 6000);
 
     const { count } = await sb.from('card_import_batches')
       .select('id', { count: 'exact', head: true }).eq('source_id', id);
@@ -2537,15 +2709,20 @@
   el('tblCards').addEventListener('change', (e) => {
     if (e.target.dataset.cardField !== 'credit') return;
     const tr = e.target.closest('[data-card]');
-    const acct = state.allAccounts.find((a) => a.id === e.target.value);
+    const [connectionId, accountId] = e.target.value.split(':');
+    const acct = state.allAccounts.find((a) => a.id === accountId && a.connectionId === connectionId);
     const src = state.sources.find((x) => x.id === tr.dataset.card);
     if (!src) return;
     src.credit_qbo_account_type = acct?.type || null;
+    src.qbo_connection_id = acct?.connectionId || src.qbo_connection_id;
     tr.querySelector('[data-vendor-cell]').innerHTML = vendorPicker(src);
   });
 
   el('btnSaveCards').addEventListener('click', saveCards);
-  el('btnRefresh').addEventListener('click', () => boot());
+  el('btnRefresh').addEventListener('click', () => {
+    if (state.dirty.size || state.codingBusy) return setStatus('Save coding and wait for current work before refreshing.', 'neg', 6000);
+    boot().catch((error) => setStatus(error.message, 'neg'));
+  });
 
   // --------------------------------------------------------------- boot
 
@@ -2553,7 +2730,10 @@
     const { data: { session } } = await sb.auth.getSession();
     if (!session) { window.location.href = '/pages/login.html'; return; }
 
+    const previousCompany = _co?.id;
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    if (!_co?.id) throw new Error('Choose an active company before opening Card Coding.');
+    if (previousCompany && previousCompany !== _co.id) { state.batch = null; state.txns = []; state.dirty.clear(); }
 
     const { data: profile } = await sb.from('profiles')
       .select('name, email, role, department').eq('id', session.user.id).maybeSingle();
@@ -2569,6 +2749,13 @@
     await loadReference();
     buildOptionCache();
     await Promise.all([loadBatches(), loadRules()]);
+    if (state.batch) {
+      const { data, error } = await sb.from('card_import_batches_v').select('*').eq('id', state.batch.id).eq('company_entity_id', _co.id).single();
+      if (error) throw new Error(error.message);
+      state.batch = data;
+      if (state.batch) await loadTxns(state.batch.id); else state.txns = [];
+      buildOptionCache();
+    }
 
     renderSourceSelect();
     renderBatches();
@@ -2578,6 +2765,23 @@
     renderEntry();
     renderMeta();
 
+    if (!bankFeeds) bankFeeds = bank.create({ db: sb, company: () => _co, references: () => state,
+      dirty: () => state.dirty.size > 0 || state.codingBusy, status: setStatus,
+      changed: async () => {
+        if (state.dirty.size || state.codingBusy) throw new Error('Bank updates were saved. Save your coding before refreshing the queue.');
+        await loadReference(); await loadBatches(); await loadRules();
+        if (state.batch) {
+          state.batch = state.batches.find((batch) => batch.id === state.batch.id) || state.batch;
+          await loadTxns(state.batch.id);
+        }
+        buildOptionCache(); renderSourceSelect(); renderBatches(); renderCards(); renderRules(); renderCoding(); renderEntry(); renderMeta();
+      },
+      openBatch: async (id) => { await openBatch(id); showPane('coding'); },
+    });
+    let resumingBank = false;
+    try { await bankFeeds.load(); resumingBank = await bankFeeds.resume(); }
+    catch (error) { el('bankConnections').textContent = error.message; }
+
     if (!el('impPeriod').value) {
       const d = new Date();
       d.setMonth(d.getMonth() - 1);
@@ -2586,7 +2790,7 @@
 
     let saved = null;
     try { saved = sessionStorage.getItem(PANE_KEY); } catch { /* private mode */ }
-    showPane(saved || 'import');
+    showPane(resumingBank ? 'feeds' : saved || 'import');
 
     if (!state.allAccounts.length) {
       setStatus('No QuickBooks accounts pulled yet — connect and pull in Integrations first.', 'neg', 0);
