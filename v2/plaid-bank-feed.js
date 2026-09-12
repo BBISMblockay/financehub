@@ -158,6 +158,7 @@
               : await invoke('exchange', { public_token: publicToken, link_state: record.linkState, institution_name: metadata?.institution?.name || null });
             if (!result.connection_id || (record.connectionId && result.connection_id !== record.connectionId)) throw new Error('Bank connection result could not be confirmed. Refresh accounts before retrying.');
             storage.removeItem(LINK_KEY);
+            storage.removeItem('silo-plaid-legacy-return');
             if (new URL(win.location.href).searchParams.has('oauth_state_id')) {
               const cleanUrl = new URL(win.location.href); cleanUrl.searchParams.delete('oauth_state_id');
               win.history.replaceState(null, '', cleanUrl.href);
@@ -169,6 +170,7 @@
         },
         onExit: (error) => {
           storage.removeItem(LINK_KEY);
+            storage.removeItem('silo-plaid-legacy-return');
           if (error) status('Bank connection was not completed. Reopen Link to try again.', 'neg');
         },
       });
@@ -188,7 +190,13 @@
       let record;
       try { record = JSON.parse(storage.getItem(LINK_KEY)); } catch { /* expired/corrupt state */ }
       if (!record?.token || !record?.linkState) throw new Error('No matching bank connection session. Start Connect bank or card again.');
-      await launch(record, url.href);
+      let receivedRedirectUri = url.href;
+      try {
+        const legacy = new URL(storage.getItem('silo-plaid-legacy-return'));
+        if (legacy.origin === url.origin && legacy.pathname === '/v2/card-coding.html'
+          && legacy.search === url.search && legacy.hash === url.hash) receivedRedirectUri = legacy.href;
+      } catch { /* No legacy redirect, or invalid saved URI: use the current URL. */ }
+      await launch(record, receivedRedirectUri);
       return true;
     }
     byId('btnLinkBank').addEventListener('click', () => run(() => connect()));

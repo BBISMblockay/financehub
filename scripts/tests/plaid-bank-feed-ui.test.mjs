@@ -7,7 +7,7 @@ import {webcrypto} from 'node:crypto';
 // Supabase, Link, and DOM are fakes; accounting/UI decision code is not copied.
 const moduleSource = await readFile(new URL('../../v2/plaid-bank-feed.js', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../../v2/bank-workspace.js', import.meta.url), 'utf8');
-const html = await readFile(new URL('../../v2/card-coding.html', import.meta.url), 'utf8');
+const html = await readFile(new URL('../../v2/transactions.html', import.meta.url), 'utf8');
 const inlineSource = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>', html.indexOf('<script>')));
 class Element {
   constructor() { this.listeners = {}; this.dataset = {}; this.value = ''; this.options = []; this.disabled = false; this.hidden = false; this.textContent = ''; this.fields = new Map(); this.classList = { toggle() {}, add() {}, remove() {} }; }
@@ -57,7 +57,7 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
     } },
     from: (table) => query(data, writes, table), rpc: async (name, args) => { calls.push({ rpc: name, args: clone(args) }); return { data: { source_id: source.id } }; },
   };
-  const window = { location: { href: 'https://silo.test/v2/card-coding.html' }, history: { replaceState() {} },
+  const window = { location: { href: 'https://silo.test/v2/transactions.html' }, history: { replaceState() {} },
     SiloFinanceDialog:{ask:async()=>true},
     Plaid: { create(options) { links.push(options); return { open() {}, destroy() {} }; } } };
   const storage = { getItem: (key) => storageData.get(key), setItem: (key, value) => storageData.set(key, value), removeItem: (key) => storageData.delete(key) };
@@ -76,7 +76,7 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
     bank: window.SiloBankFeeds, get changed() { return changed; } };
 }
 async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl } = {}) {
-  const d = dom(), calls = [], writes = [], fetches = [], window = { addEventListener(){}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
+  const d = dom(), calls = [], writes = [], fetches = [], window = { listeners:{}, addEventListener(type,fn){this.listeners[type]=fn;}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
   const db = { auth: { getSession: async () => ({ data: { session: { access_token: 'fake-token' } } }) },
     from: (table) => query({}, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
   window.supabase = { createClient: () => db };
@@ -92,7 +92,7 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
     batch: { id: 'batch-one', source_id: source.id, status, source_name: 'Checking', entry_date: '2026-09-30' },
     txns: [{ ...transaction, origin, amount, accounting_treatment: treatment }] });
   d.el('codeFilter').value = 'all';
-  return { ...d, page, db, calls, writes, fetches };
+  return { ...d, page, db, calls, writes, fetches, window };
 }
 let tests = 0;
 async function test(name, callback) { await callback(); tests++; console.log(`ok - ${name}`); }
@@ -423,4 +423,25 @@ await test('money direction and required entities stay visible in compact rows',
   h.page.state.allAccounts.push({id:'ap',name:'Payables',type:'Accounts Payable',connectionId:'qbo-one'});
   h.page.state.txns[0].qbo_account_id='ap';h.page.renderCoding();
   assert.match(h.el('tblCoding').innerHTML,/Entity required/);
+});
+
+await test('canonical route resumes a matching legacy OAuth callback and rejects unrelated saved URLs',async()=>{
+  for(const legacy of ['https://silo.test/v2/card-coding.html?oauth_state_id=callback','https://attacker.invalid/v2/card-coding.html?oauth_state_id=callback','https://silo.test/v2/card-coding.html?oauth_state_id=other']){
+    const h=harness();await h.el('btnLinkBank').fire('click');
+    h.window.location.href='https://silo.test/v2/transactions.html?oauth_state_id=callback';
+    h.storageData.set('silo-plaid-legacy-return',legacy);
+    await h.controller.resume();
+    assert.equal(h.links[1].receivedRedirectUri,legacy==='https://silo.test/v2/card-coding.html?oauth_state_id=callback'?legacy:h.window.location.href);
+  }
+});
+
+await test('leaving Transactions protects pending edits and in-flight coding only',async()=>{
+  const h=await pageHarness();
+  for(const [dirty,busy,blocked] of [[false,false,false],[true,false,true],[false,true,true]]){
+    h.page.state.dirty.clear();if(dirty)h.page.state.dirty.add('txn-one');h.page.state.codingBusy=busy;
+    let prevented=false;const event={preventDefault(){prevented=true;}};
+    h.window.listeners.beforeunload(event);
+    assert.equal(prevented,blocked);
+    assert.equal(event.returnValue,blocked?'':undefined);
+  }
 });

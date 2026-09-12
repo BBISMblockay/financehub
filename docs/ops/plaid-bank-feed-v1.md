@@ -1,6 +1,6 @@
 # Plaid bank and card feeds — V1
 
-Plaid feeds the **Transactions** workspace at the existing `/v2/card-coding.html` URL. Choose an account to see its balances, sync state and monthly activity together. Each mapped account still feeds `card_transactions` and monthly `card_import_batches`; `quickbooks-post-journal` remains the only journal writer. Nothing syncs to Clarity.
+Plaid feeds the **Transactions** workspace at `/v2/transactions.html` (the former `/v2/card-coding.html` redirects here). Choose an account to see its balances, sync state and monthly activity together. Each mapped account still feeds `card_transactions` and monthly `card_import_batches`; `quickbooks-post-journal` remains the only journal writer. Nothing syncs to Clarity.
 
 ## Account workspace rollout (separate from the PR)
 
@@ -120,3 +120,17 @@ History preview failure does not prevent mapping: after an attempted preview fai
 the dialog requires explicit acknowledgement of unknown available history together
 with the permanent cutover date. Users may retry preview instead. An active sync
 lease prevents starting a preview; pagination errors never advance a saved cursor.
+
+## Accounting workspace navigation
+
+The sidebar has one Accounting entry. Its shared workspace links preserve the
+existing Transactions, Sales & journals, Reports, Schedules, Fixed assets and
+Cash forecast pages. Each retains its own permissions, calculations, storage,
+approval and posting paths; this is navigation consolidation, not a combined ledger.
+
+Existing Plaid redirect registration can remain `/v2/card-coding.html`. The alias
+preserves query/fragment and records the exact callback URI in tab-local storage.
+Transactions uses that URI for Link only when origin, legacy path, query and
+fragment match the current OAuth return. User/company and expiry checks still run.
+Normal navigation uses `/v2/transactions.html`. No Edge deployment or migration
+is needed for this frontend change.
