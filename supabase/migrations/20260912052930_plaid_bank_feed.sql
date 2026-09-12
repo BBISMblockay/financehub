@@ -588,6 +588,14 @@ begin
       end if;
       return jsonb_build_object('exception',not v_no_accounting_impact,'batch_id',v_old.batch_id);
     end if;
+    -- Enrichment must not erase draft coding or invalidate an open editor.
+    -- provider_updated_at is the accounting-facts revision used by the save
+    -- RPC; updated_at/audit record metadata arrivals without changing it.
+    if public.plaid_accounting_facts(v_old.raw)=public.plaid_accounting_facts(v_payload)
+      and v_old.provider_status=v_provider_status then
+      update public.card_transactions set raw=v_payload,updated_at=now() where id=v_old.id;
+      return jsonb_build_object('metadata_updated',true,'batch_id',v_old.batch_id);
+    end if;
     -- Explicit human exclusions survive normal provider edits; system exclusions
     -- for pending/removed/currency/cutover are recalculated from the provider.
     if v_old.status='excluded' and v_old.provider_status='posted' and v_old.currency='USD'
@@ -764,7 +772,7 @@ declare v_batch public.card_import_batches%rowtype; begin
   end if;
   if exists(select 1 from public.plaid_sync_exceptions e join public.plaid_accounts a on a.id=e.account_id
     where a.source_id=v_batch.source_id and e.status='open') then
-    raise exception 'Resolve the bank feed change before a new posting attempt';
+    raise exception 'Resolve the bank feed change before a new posting attempt' using errcode='PBF01';
   end if;
   return new;
 end $$;

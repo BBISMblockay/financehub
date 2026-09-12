@@ -447,6 +447,9 @@
   }
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Keep journal payloads server-side: a 60-batch list must not download every
+  // approval_snapshot. Shared by list, older-batch and active-batch refreshes.
+  const BATCH_FIELDS = 'id,company_entity_id,source_id,source_name,source_key,label,file_name,status,created_at,entry_date,period_start,period_end,total_amount,txn_count,uncoded_count,excluded_count,coded_amount,qbo_journal_entry_id,qbo_doc_number,posting_status,posting_id,qbo_connection_id,origin,feed_sequence,approved_at,approved_by,approval_version,approval_hash,source_posting_enabled,credit_account_name,credit_account_type';
 
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
@@ -640,7 +643,7 @@
 
   async function loadBatches() {
     const { data, error } = await sb.from('card_import_batches_v')
-      .select('*').order('created_at', { ascending: false }).limit(60);
+      .select(BATCH_FIELDS).order('created_at', { ascending: false }).limit(60);
     if (error) throw new Error(error.message);
     state.batches = data || [];
   }
@@ -1088,7 +1091,7 @@
     if (state.dirty.size || state.codingBusy) return setStatus('Save coding and wait for current work before opening another batch.', 'neg', 6000);
     state.batch = state.batches.find((b) => b.id === id) || null;
     if (!state.batch) {
-      const { data, error } = await sb.from('card_import_batches_v').select('*')
+      const { data, error } = await sb.from('card_import_batches_v').select(BATCH_FIELDS)
         .eq('id', id).eq('company_entity_id', _co.id).single();
       if (error || !data) throw new Error(error?.message || 'Batch is unavailable.');
       state.batch = data;
@@ -2750,7 +2753,7 @@
     buildOptionCache();
     await Promise.all([loadBatches(), loadRules()]);
     if (state.batch) {
-      const { data, error } = await sb.from('card_import_batches_v').select('*').eq('id', state.batch.id).eq('company_entity_id', _co.id).single();
+      const { data, error } = await sb.from('card_import_batches_v').select(BATCH_FIELDS).eq('id', state.batch.id).eq('company_entity_id', _co.id).single();
       if (error) throw new Error(error.message);
       state.batch = data;
       if (state.batch) await loadTxns(state.batch.id); else state.txns = [];

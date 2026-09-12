@@ -77,7 +77,7 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
-    + 'window.testPage = { state, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns };\n})();';
+    + 'window.testPage = { state, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches };\n})();';
   vm.runInNewContext(testable, { window, document: d.document, console, setTimeout() {}, clearTimeout() {},
     fetch: async (url, args) => { fetches.push({ url, body: JSON.parse(args.body) }); return fetchImpl ? fetchImpl(url, args) : { ok: true, json: async () => ({ suggestions: [] }) }; },
     confirm() { throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
@@ -306,6 +306,27 @@ await test('monthly bank batch loads beyond the API1000-row limit', async () => 
   const h = await pageHarness(); const rows = Array.from({ length: 1001 }, (_, index) => ({ ...transaction, id: `txn-${index}`, row_no: index + 1 }));
   h.db.from = (table) => query({ card_transactions: rows }, h.writes, table);
   await h.page.loadTxns('batch-one'); assert.equal(h.page.state.txns.length, 1001); assert.equal(h.page.state.txns.at(-1).id, 'txn-1000');
+});
+
+await test('list and older-batch requests omit approval payloads while retaining coding fields', async () => {
+  const h = await pageHarness(); let single = false; const requests = [];
+  const batch = { ...h.page.state.batch, id: 'older-batch' };
+  h.db.from = (table) => {
+    const q = query({ card_import_batches_v: single ? batch : [batch] }, h.writes, table);
+    q.select = (fields) => {
+      if (table === 'card_import_batches_v') {
+        requests.push(fields);
+        assert.ok(!fields.includes('*') && !fields.includes('approval_snapshot'));
+        assert.ok(fields.includes('source_id') && fields.includes('entry_date'));
+      }
+      return q;
+    };
+    return q;
+  };
+  await h.page.loadBatches(); assert.equal(h.page.state.batches[0].id, batch.id);
+  h.page.state.batches = []; single = true;
+  await h.page.openBatch(batch.id);
+  assert.equal(h.page.state.batch.id, batch.id); assert.equal(requests.length, 2);
 });
 
 console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);

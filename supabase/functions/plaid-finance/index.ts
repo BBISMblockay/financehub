@@ -16,7 +16,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   status, headers: { ...cors, 'Content-Type': 'application/json' },
 });
 const fail = (code: string, status = 502) => { throw Object.assign(new Error(code), { code, status }); };
-const validId = (id: unknown) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id);
+const validId = (id: unknown) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 async function checked(result: any, code: string) {
   const { data, error } = await result;
   if (error || data === null || data === undefined) {

@@ -350,6 +350,42 @@ try {
     assert.equal((await load('plaid_accounts', b.id)).cursor, null);
   });
 
+  await test('mutable metadata enrichment preserves saved coding and an open editor revision', async () => {
+    for (const status of ['draft', 'categorized']) {
+      const account = await bankAccount();
+      const raw = providerTransaction(account);
+      await apply(account, { added: [raw] });
+      const row = await transaction(account, raw.transaction_id);
+      await code(row, { memo: 'Reviewed purchase', vendor_name: 'Reviewed vendor', confidence: 0.9 });
+      await asFinance(() => q('update card_import_batches set status=$1 where id=$2', [status, row.batch_id]));
+      const before = await load('card_transactions', row.id);
+      const enriched = { ...raw, logo_url: 'https://example.test/logo.png', location: { city: 'Portland' },
+        counterparties: [{ name: 'Synthetic merchant', confidence_level: 'VERY_HIGH' }] };
+      await apply(account, { modified: [enriched] });
+      const after = await load('card_transactions', row.id);
+      assert.deepEqual(after.raw, enriched);
+      assert.deepEqual({ ...after, raw: before.raw, updated_at: before.updated_at }, before,
+        'Every coding field, attribution and accounting revision survives metadata-only sync');
+      assert.equal((await load('card_import_batches', row.batch_id)).status, status);
+      assert.ok(await scalar("select count(*)::integer from finance_audit_events where object_id=$1 and new_values->'raw'=$2::jsonb", [row.id, JSON.stringify(enriched)]));
+      await code(before, { memo: 'Unsaved edit from before enrichment' });
+      assert.equal((await load('card_transactions', row.id)).memo, 'Unsaved edit from before enrichment');
+      await apply(account, { modified: [{ ...enriched, amount: 40 }] });
+      const changed = await load('card_transactions', row.id);
+      assert.equal(changed.status, 'uncoded');
+      assert.equal(changed.qbo_account_id, null);
+      await assert.rejects(code(before), /provider_transaction_changed/);
+    }
+  });
+
+  await test('batch page projection excludes journal payloads and uses real view columns', async () => {
+    const html = await readFile(new URL('v2/card-coding.html', root), 'utf8');
+    const fields = html.match(/const BATCH_FIELDS = '([^']+)'/)[1];
+    assert.ok(!fields.includes('*') && !fields.includes('approval_snapshot'));
+    assert.ok(fields.includes('source_id') && fields.includes('posting_status'));
+    await q(`select ${fields} from public.card_import_batches_v limit 1`);
+  });
+
   await test('coding cannot overwrite an unseen provider update from a stale browser row', async () => {
     const account = await bankAccount();
     const raw = providerTransaction(account);
@@ -583,10 +619,10 @@ try {
     await asService(() => q("update quickbooks_journal_postings set payload_hash=$1 where id=$2", ['0'.repeat(64), postingId]));
     assert.equal(await verifyHash(), false, 'An unrelated or corrupted attempt cannot authorize recovery');
     await asService(() => q('update quickbooks_journal_postings set payload_hash=$1 where id=$2', [approval.approval_hash, postingId]));
-    await assert.rejects(newClaim(), /bank feed change|new posting|resolve/i);
+    await assert.rejects(newClaim(), (error) => error.code === 'PBF01' && /bank feed change/i.test(error.message));
     await asService(() => q("update quickbooks_journal_postings set status='failed' where id=$1", [postingId]));
     assert.equal(await verifyHash(), false, 'Released claims no longer authorize recovery');
-    await assert.rejects(newClaim(), /bank feed change|new posting|resolve/i);
+    await assert.rejects(newClaim(), (error) => error.code === 'PBF01' && /bank feed change/i.test(error.message));
     assert.equal(await scalar('select count(*)::integer from quickbooks_journal_postings where source_ref=$1', [row.batch_id]), 1);
   });
 

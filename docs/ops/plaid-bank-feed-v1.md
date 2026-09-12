@@ -15,10 +15,10 @@ Plaid adds an ingestion source to **Card Coding**. Each mapped account feeds `ca
 
 1. Review and merge the draft through the normal process. Apply `20260912052930_plaid_bank_feed.sql` after the Finance V1 control migration. Run `verify_v2_schema.sql`. Historical approvals and posted entries remain intact.
 2. Configure the **Silo** Edge Function secrets below. Start with Plaid Sandbox. The new function does not reuse Clarity credentials or connections.
-3. Deploy `plaid-finance` and the updated `card-categorize` with the existing manual Deploy Edge Function workflow. Retain JWT verification. Publish the normal static frontend update.
+3. After the migration and view verification pass, publish the updated Card Coding page and deploy `plaid-finance`, `card-categorize` and `quickbooks-post-journal` in the same rollout window using the existing manual workflow. Retain JWT verification. The migration is a hard dependency: the new categorizer queries new transaction-view columns. Publish the page before deploying the categorizer: the new page works with the old function, but the new function requires `batch_id`/`transaction_ids` that an old page does not send. Ask users to reload any previously open Card Coding tabs after deployment.
 4. In Card Coding → Bank feeds, connect a test institution, map one account, set the authority cutover date, and sync manually. Verify pending replacement, modified/removed rows, a repeated sync, and the coding/review flow. Keep new sources' posting disabled until mapping and balances are reviewed.
 5. Configure production Plaid separately when ready. Connect real accounts only then. Select a cutover date after the last authoritative CSV period. Review the first batch before enabling posting on its source.
-6. Enable scheduled ingestion only after manual sync passes: Edge secret `PLAID_BACKGROUND_SYNC_ENABLED=true` and GitHub repository variable `PLAID_SYNC_ENABLED=true`. Both default off. The workflow uses existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` secrets, which never enter the browser.
+6. Complete the size and import checks below, then enable scheduled ingestion: Edge secret `PLAID_BACKGROUND_SYNC_ENABLED=true` and GitHub repository variable `PLAID_SYNC_ENABLED=true`. Both default off. The workflow uses existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` secrets, which never enter the browser.
 
 | Edge secret | Value / purpose |
 |---|---|
@@ -50,7 +50,7 @@ Bank rows start with `unknown` treatment and require explicit review before appr
 ## Changed transactions and recovery
 
 - Pending and removed rows remain excluded. Pending-to-posted replacements use the provider's stable IDs and link, even across pages. A missing or malformed lifecycle field fails the sync rather than guessing that a row is posted.
-- Before approval, provider changes update the ledger and invalidate affected coding for review; date changes move mutable rows into the correct monthly batch. A frozen row is preserved. Changes to accounting facts become exceptions; proven metadata-only changes and still-unpostable excluded rows are audited without artificial correcting journals. Open exceptions block new approval/posting claims while recovery of an existing exact QBO claim remains available.
+- Before approval, changes to accounting facts invalidate affected coding; date changes move mutable rows into the correct monthly batch. Metadata-only enrichment updates `raw` and its audit record while preserving all coding and `provider_updated_at`, which serves as the accounting-facts revision for open editors. Merchant identity, primary category, amount, date, currency and lifecycle changes remain subject to review. A frozen row is preserved. Accounting changes become exceptions; proven metadata-only changes and still-unpostable excluded rows are audited without artificial correcting journals. Open exceptions block new approval/posting claims while recovery of an existing exact QBO claim remains available.
 - For an approved, unposted batch, reopen it explicitly, then resolve the exception and review again. For an already posted contribution, create and post the correction through the existing JE composer, then link that correction and a reason to the exception. Excluded frozen rows with no accounting effect do not need artificial correcting journals.
 - A timeout before the atomic apply leaves the old cursor. A lost response after commit is safe to retry: stable IDs and cursor comparison prevent duplicate ingestion. Do not reset cursors or delete ledger rows as a recovery shortcut. A cycle is bounded to 20,000 changes and 50 pages; an oversized cycle requires operator review of the import limit/history plan and does not advance its cursor.
 - A sync lease lasts five minutes. A crashed worker may need that interval before retry; an old worker cannot release a newer lease. The scheduler reports partial account failures as failures.
@@ -58,6 +58,21 @@ Bank rows start with `unknown` treatment and require explicit review before appr
 - **Stop syncing** pauses Silo ingestion; it does not revoke Plaid consent or remove the Item. Resume uses Link repair. To revoke access, use Plaid/institution controls and then stop syncing in Silo. Pausing does not release the account's historical authority or permit overlapping CSV imports.
 
 ## Validation evidence
+
+Before enabling the schedule, measure a representative approximately 400-row CSV import through the normal page in staging after migration. Record row count, upload/save duration, failure/retry behavior and audit-table size before/after; compare with the pre-migration baseline. Per-row integrity locks also apply to CSV, so the synthetic correctness suites are not evidence of production import latency. Run one authorized real import as part of rollout and record its timing; do not create duplicate production transactions just to benchmark.
+
+Check audit growth after initial sync, coding and a repeated sync using read-only database queries:
+
+```sql
+select pg_size_pretty(pg_total_relation_size('public.finance_audit_events')) as total_size,
+       pg_total_relation_size('public.finance_audit_events') as total_bytes;
+select created_at::date as day, object_type, count(*) as events
+from public.finance_audit_events
+where created_at >= now() - interval '7 days'
+group by 1,2 order by 1,2;
+```
+
+Audit records store before/after values, including provider payloads. Retention is append-only with no automatic pruning in V1. The immutability trigger rejects deletion, updates and truncation even by the table owner; service-role mutation grants are also revoked. Any future archival/retention operation requires a separately reviewed maintenance migration, verified archive and explicit controlled suspension/restoration of the trigger. Do not weaken this control to make routine sync or cleanup work. Record measured growth and an agreed storage budget before enabling the six-hour schedule.
 
 The PR runs real PostgreSQL migration/RLS/RPC tests with PGlite, actual Edge handler execution with synthetic HTTP/database IO, real page callback tests, and sync protocol/crypto/scheduler tests. No financial credentials are required. These verify failure handling and database invariants; they do not claim a live Plaid institution/OAuth connection was exercised. Live Sandbox and first production account checks belong to rollout above.
 

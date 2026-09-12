@@ -509,6 +509,14 @@ for (const options of [{ providerError: `UNRECOGNIZED_${accessToken}` }, { netwo
   assert.equal(f.calls('/item/remove').length, 0, 'pause is explicitly local and preserves provider credentials');
   scenarios++;
 }
+{
+  const f = await fixture();
+  const malformed = '12345678-' + '-'.repeat(27);
+  const out = await f.request({ action: 'sync', account_id: malformed });
+  assert.equal(out.status, 400);
+  assert.equal(f.events.filter(event => event.rpc === 'plaid_claim_sync').length, 0);
+  scenarios++;
+}
 if (!selectedMutation) {
   for (const mutation of Object.keys(mutations)) {
     const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {

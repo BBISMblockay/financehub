@@ -40,6 +40,8 @@ function fixture(options = {}) {
     quickbooks_connections: [{ id: 'connection-1', company_entity_id: 'company-1',
       realm_id: 'synthetic-realm', environment: 'sandbox', is_active: true,
       access_token: 'synthetic-token', token_expires_at: '2999-01-01T00:00:00Z' }],
+    plaid_accounts: options.bankException ? [{ id: 'bank-account-1', source_id: 'source-1', company_entity_id: 'company-1' }] : [],
+    plaid_sync_exceptions: options.bankException ? [{ id: 'exception-1', account_id: 'bank-account-1', company_entity_id: 'company-1', status: 'open' }] : [],
     quickbooks_journal_postings: options.claimStatus ? [{
       id: 'claim-1', company_entity_id: 'company-1', connection_id: 'connection-1',
       source: sourceName, source_ref: 'parent-1', payload_hash: hash,
@@ -73,6 +75,9 @@ function fixture(options = {}) {
       }
       let selected = rows.filter(row => this.filters.every(([key, values]) => values.includes(row[key])));
       if (this.op === 'insert') {
+        if (options.bankExceptionAtClaim && this.table === 'quickbooks_journal_postings') {
+          return { data: null, error: { code: 'PBF01', message: 'Resolve the bank feed change before a new posting attempt' } };
+        }
         if (options.concurrentClaim && this.table === 'quickbooks_journal_postings') {
           return { data: null, error: { code: '23505', message: 'active claim already exists' } };
         }
@@ -164,6 +169,16 @@ for (const options of [{ hashMatches: false }, { hashError: true }, { canManage:
   const f = fixture(options);
   const out = await f.request();
   assert.equal(out.status, options.canManage === false ? 403 : 409);
+  assert.equal(f.posts(), 0);
+  assert.equal(f.records.quickbooks_journal_postings.length, 0);
+  scenarios++;
+}
+for (const options of [{ hashMatches: false, bankException: true }, { bankExceptionAtClaim: true }]) {
+  const f = fixture({ kind: 'card', ...options });
+  const out = await f.request();
+  assert.equal(out.status, 409);
+  assert.equal(out.body.code, 'BANK_FEED_REVIEW_REQUIRED');
+  assert.match(out.body.error, /Bank feeds/);
   assert.equal(f.posts(), 0);
   assert.equal(f.records.quickbooks_journal_postings.length, 0);
   scenarios++;
