@@ -181,6 +181,7 @@
       background: var(--bcn-sunken); cursor: pointer; }
     .cc-drop--over { border-color: var(--bcn-accent); background: rgba(37,99,235,.06); }
   </style>
+  <link rel="stylesheet" href="./transactions-workspace.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -295,7 +296,7 @@
           </div>
           <div id="workspaceSummary"></div>
           <div class="cc-kpis" id="codeKpis"></div>
-          <div class="cc-card cc-card--grow">
+          <div class="cc-card cc-card--grow transaction-list">
             <div class="cc-card-head">
               <div>
                 <div class="cc-title" id="codeTitle">Transactions</div>
@@ -333,7 +334,7 @@
               <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Suggest coding</button>
               <button class="bcn-btn" id="btnSaveCoding">Save coding</button>
               <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
-              <button class="bcn-btn" id="btnLearnRules">Learn rules from coded rows</button>
+              <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from coded rows</button></div></details>
               <span class="cc-note" id="codeStatus"></span>
             </div>
           </div>
@@ -1287,6 +1288,7 @@
     });
   }
 
+  let expandedTransaction = null;
   function renderCoding() {
     const locked = !editable();
     for (const id of ['btnApplyRules', 'btnSaveCoding']) el(id).disabled = locked;
@@ -1303,7 +1305,7 @@
       return;
     }
 
-    el('codeTitle').textContent = `${state.batch.source_name} — ${state.batch.label || ''}`;
+    el('codeTitle').textContent = 'Activity';
     el('codeSub').textContent =
       `${state.txns.length} rows · ${state.batch.file_name || 'Bank feed'}${state.codingBusy ? ' · Coding in progress' : locked ? ' · Read-only approved content' : ''}`;
 
@@ -1315,7 +1317,7 @@
     const conflicted = state.txns.filter((t) => t.coding_conflict).length;
 
     el('codeKpis').innerHTML = [
-      ['Coded', coded], ['Needs coding', uncoded],
+      ['Categorized', coded], ['To categorize', uncoded],
       ['Card vs merchant', conflicted],
       ['Low confidence', low], ['Excluded', excluded],
     ].map(([l, v]) => `<div class="cc-kpi">
@@ -1340,34 +1342,28 @@
     const allChecked = rows.every((r) => state.selected.has(r.id));
 
     el('tblCoding').innerHTML = `<thead><tr>
-        <th style="width:26px"><input type="checkbox" class="cc-check" id="codeAll"
-              ${allChecked ? 'checked' : ''} title="Select everything shown" /></th>
-        <th>Date</th><th>Description</th><th class="num">Amount</th>
-        <th style="min-width:220px">Account</th><th style="min-width:150px">Location</th>
-        <th style="min-width:150px">Entity</th><th>Treatment</th><th>Why</th><th></th>
-      </tr></thead><tbody>` + rows.map((t) => `
-      <tr class="${t.status === 'excluded' ? 'cc-row--excluded' : ''}" data-txn="${esc(t.id)}">
-        <td><input type="checkbox" class="cc-check" data-pick
-              ${state.selected.has(t.id) ? 'checked' : ''} /></td>
-        <td class="cc-note">${esc(t.txn_date || '—')}</td>
-        <td>
-          <div class="cc-desc" title="${esc(t.description)}">${esc(t.description)}</div>
-          <div class="cc-note"><span class="cc-merch" data-merch
-            title="Search for this merchant">${esc(merchantKey(t))}</span>${
-            t.card_name ? ' · <span class="cc-card-chip" data-card-name'
-              + ` title="Search this card">${esc(t.card_name)}</span>` : ''}</div>
-        </td>
-        <td class="num">${money(t.amount)}</td>
-        <td data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
-        <td data-cell="location">${cellButton(t.qbo_location_name, 'location')}</td>
-        <td data-cell="entity">${entityCell(t)}</td>
-        <td>${t.origin === 'plaid' ? `<select class="bcn-field" data-field="treatment" aria-label="Accounting treatment" ${locked || !bank.isAvailable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select><div class="cc-note">Bank ${esc(t.provider_status)} · ${bank.directionOf(t) === 'outflow' ? 'Money out' : 'Money in'}</div>` : '<span class="cc-note">CSV</span>'}</td>
-        <td>${suggestionCell(t) || confidenceChip(t)}</td>
-        <td style="white-space:nowrap">
-          <button class="bcn-btn" data-raw title="Show every column from the file">⋯</button>
-          <button class="bcn-btn" data-toggle-exclude>${t.status === 'excluded' ? 'Include' : 'Exclude'}</button>
-        </td>
-      </tr>`).join('') + '</tbody>';
+        <th class="txn-select"><input type="checkbox" class="cc-check" id="codeAll" ${allChecked ? 'checked' : ''} title="Select everything shown" /></th>
+        <th class="txn-date">Date</th><th class="txn-description">Transaction</th><th class="txn-amount num">Amount</th>
+        <th class="txn-treatment">Treatment</th><th class="txn-category">Category</th><th class="txn-review"><span class="txn-sr-only">Review transaction</span></th>
+      </tr></thead><tbody>` + rows.map((t) => {
+      const expanded = expandedTransaction === t.id;
+      const suggestion = suggestions.get(t.id);
+      const entityMissing = needsEntity(t) && !t.entity_qbo_id;
+      return `<tr class="txn-row ${t.status === 'excluded' ? 'cc-row--excluded' : ''} ${expanded?'txn-row--open':''}" data-txn="${esc(t.id)}">
+        <td class="txn-select"><input type="checkbox" class="cc-check" data-pick aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
+        <td class="txn-date">${esc(t.txn_date || '—')}</td>
+        <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${suggestion?'Suggestion ready':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+        <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
+        <td class="txn-treatment">${t.origin === 'plaid' ? `<select class="bcn-field" data-field="treatment" aria-label="Accounting treatment" ${locked || !bank.isAvailable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select>` : '<span class="txn-secondary">Statement</span>'}</td>
+        <td class="txn-category" data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
+      </tr>
+      <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
+        <section class="txn-explanation"><h3>${suggestion?'Suggested treatment':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>View source details</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
+        <section><h3>Additional dimensions</h3><table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button></section>
+      </div></td></tr>`;
+    }).join('') + '</tbody>';
 
     for (const row of el('tblCoding').querySelectorAll('[data-txn]')) {
       const transaction = state.txns.find((value) => value.id === row.dataset.txn);
@@ -1423,7 +1419,7 @@
     return name
       ? `<button class="cc-cell" data-edit="${field}">${esc(name)}</button>`
       : `<button class="cc-cell cc-cell--empty" data-edit="${field}">${
-          field === 'account' ? 'set account' : 'account default'}</button>`;
+          field === 'account' ? 'Choose category' : 'Account default'}</button>`;
   }
 
   // One <select> exists at a time, built on click from the cached option HTML.
@@ -1675,6 +1671,14 @@
     if (!tr0) return;
     const t0 = state.txns.find((x) => x.id === tr0.dataset.txn);
     if (!t0) return;
+
+    if (e.target.closest('[data-review]')) {
+      expandedTransaction = expandedTransaction === t0.id ? null : t0.id;
+      renderCoding();
+      const button = el('tblCoding').querySelector('[data-txn="'+t0.id+'"] [data-review]');
+      button?.focus();
+      return;
+    }
 
     if (e.target.matches('[data-pick]')) {
       if (!requireEditable() || !bank.isAvailable(t0)) return;

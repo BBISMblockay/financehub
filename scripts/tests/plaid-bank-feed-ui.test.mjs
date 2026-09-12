@@ -400,3 +400,27 @@ await test('failed history preview permits mapping only after unknown-history ac
     }
   }
 });
+
+await test('expanded review is read-only and retains access to secondary dimensions',async()=>{
+  for(const status of ['draft','approved','posted']){
+    const h=await pageHarness({status});h.page.renderCoding();
+    const before=clone(h.page.state.txns),row=new Element();row.dataset.txn='txn-one';
+    const click={target:{closest:s=>s==='[data-txn]'?row:s==='[data-review]'?{}:null,matches:()=>false}};
+    assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+    await h.el('tblCoding').fire('click',click);
+    assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" >/);
+    assert.match(h.el('tblCoding').innerHTML,/data-cell="location"/);
+    assert.match(h.el('tblCoding').innerHTML,/data-cell="entity"/);
+    assert.deepEqual(clone(h.page.state.txns),before);assert.equal(h.page.state.dirty.size,0);
+    assert.equal(h.calls.length,0);assert.equal(h.fetches.length,0);
+    await h.el('tblCoding').fire('click',click);
+    assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+  }
+});
+await test('money direction and required entities stay visible in compact rows',async()=>{
+  const h=await pageHarness({amount:-45});h.page.renderCoding();
+  assert.match(h.el('tblCoding').innerHTML,/\+\$45\.00<span>Money in/);
+  h.page.state.allAccounts.push({id:'ap',name:'Payables',type:'Accounts Payable',connectionId:'qbo-one'});
+  h.page.state.txns[0].qbo_account_id='ap';h.page.renderCoding();
+  assert.match(h.el('tblCoding').innerHTML,/Entity required/);
+});
