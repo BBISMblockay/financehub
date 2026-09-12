@@ -42,5 +42,14 @@ test('account headers render state actions and CSV upload is secondary and CSV-o
     workspace.render();const html=doc.getElementById('workspaceSummary').innerHTML;
     assert.ok(html.includes('data-workspace-action="'+expected.action+'"'),state);assert.ok(html.includes(expected.cta),state);
     assert.equal(html.includes('Upload statement'),state==='csv');
+    if(['syncing','lease'].includes(state)) {
+      assert.ok(html.includes('class="workspace-progress"'),state);
+      assert.ok(!html.includes('class="workspace-attention"'),state);
+    } else if(['never','stale','login','disconnected'].includes(state)) {
+      assert.ok(html.includes('class="workspace-attention"'),state);
+    } else {
+      assert.ok(!html.includes('class="workspace-attention"'),state);
+      assert.ok(!html.includes('class="workspace-progress"'),state);
+    }
   }
 });
