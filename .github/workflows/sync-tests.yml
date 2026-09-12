@@ -24,6 +24,8 @@ on:
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
       - 'scripts/qbo-sandbox-validation.mjs'
+      - 'scripts/plaid-sync.mjs'
+      - '.github/workflows/plaid-sync.yml'
       - 'supabase/functions/shopify-oauth-start/**'
       # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
       # function directory, so a change there must run these tests. Without
@@ -31,8 +33,12 @@ on:
       - 'supabase/functions/page-inspect/**'
       - 'supabase/functions/silo-chat/**'
       - 'supabase/functions/quickbooks-post-journal/**'
+      - 'supabase/functions/plaid-finance/**'
+      - 'supabase/functions/card-categorize/**'
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
+      - 'supabase/migrations/*plaid_bank_feed.sql'
       - 'v2/card-coding.html'
+      - 'v2/plaid-bank-feed.js'
       - 'v2/je-composer.js'
       # The splitter is tested against the real verify file, so a change to
       # the file must re-run that test.
@@ -76,6 +82,21 @@ jobs:
 
       - name: JE composer review regressions
         run: node scripts/tests/je-composer-review.test.mjs
+
+      - name: Plaid protocol and encrypted credential binding
+        run: node scripts/tests/plaid-core.test.mjs
+
+      - name: Plaid authenticated request handler
+        run: node scripts/tests/plaid-finance-handler.test.mjs
+
+      - name: Bank feed coding and Link callbacks
+        run: node scripts/tests/plaid-bank-feed-ui.test.mjs
+
+      - name: Card AI bank-feed admission
+        run: node scripts/tests/card-categorize-bank-guard.test.mjs
+
+      - name: Plaid scheduled sync failure handling
+        run: node scripts/tests/plaid-sync.test.mjs
 
       # A manual 730-day backfill once finished GREEN in two minutes having
       # written nothing (run #354, 2026-09-09): Shopify refused with HTTP 200
@@ -149,6 +170,17 @@ jobs:
       - name: Remote schema verify survives the API rate limit
         run: node scripts/tests/management-api.test.mjs
 
+  plaid-typecheck:
+    name: Plaid Edge Function typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check actual Edge imports and types
+        run: npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts
+
   finance-database:
     name: Finance database regressions
     runs-on: ubuntu-latest
@@ -161,3 +193,5 @@ jobs:
         run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
       - name: Execute finance migration, approval and void regressions
         run: node scripts/tests/finance-v1-database.test.mjs
+      - name: Execute Plaid authority, lifecycle and audit regressions
+        run: node scripts/tests/plaid-bank-feed-database.test.mjs

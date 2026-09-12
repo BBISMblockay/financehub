@@ -1,9 +1,9 @@
 // Suggests a QuickBooks account and location for card transactions that no
 // learned rule could answer.
 //
-// The caller applies its rules first and sends only the leftovers, keyed by
-// normalised merchant AND card name, so a file with 400 Amazon charges asks
-// about "amazon" once.
+// The caller applies rules first and sends the remaining transaction IDs.
+// Stored, eligible rows are grouped by merchant AND card name server-side, so
+// a caller cannot disguise a bank transfer as a card purchase in model input.
 //
 // READ ONLY with respect to QuickBooks. Nothing here posts.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -289,9 +289,14 @@ Deno.serve(async (req) => {
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
   const body = await req.json().catch(() => ({}));
-  const merchants: Merchant[] = Array.isArray(body.merchants) ? body.merchants : [];
-  const sourceName: string = body.source_name || 'card';
-  if (!merchants.length) return json({ ok: true, suggestions: [] });
+  const validId = (value: unknown) => typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  const transactionIds = body?.transaction_ids;
+  if (!validId(body?.batch_id) || !Array.isArray(transactionIds) || !transactionIds.length
+      || transactionIds.length > 5000 || transactionIds.some((id: unknown) => !validId(id))
+      || new Set(transactionIds).size !== transactionIds.length) {
+    return json({ error: 'Select saved transactions from a card batch, then try again.' }, 400);
+  }
 
   // Resolve the caller's company first, then read that company's chart --
   // service-role bypasses RLS, so scoping is this function's job.
@@ -321,12 +326,73 @@ Deno.serve(async (req) => {
       || ['finance', 'exec'].includes(String(profile.department));
   if (!allowed) return json({ error: 'Finance access required' }, 403);
 
+  const { data: batch, error: batchError } = await supabase.from('card_import_batches')
+    .select('id,source_id,status,origin,qbo_connection_id').eq('id', body.batch_id)
+    .eq('company_entity_id', companyId).maybeSingle();
+  if (batchError) return json({ error: 'Could not load the card batch.' }, 503);
+  if (!batch) return json({ error: 'Card batch not found.' }, 404);
+  if (!['draft', 'categorized'].includes(batch.status)) {
+    return json({ error: 'Reopen the batch before requesting coding suggestions.' }, 409);
+  }
+  const { data: source, error: sourceError } = await supabase.from('card_sources')
+    .select('id,display_name,source_type,ingest_mode,is_active,qbo_connection_id')
+    .eq('id', batch.source_id).eq('company_entity_id', companyId).maybeSingle();
+  if (sourceError) return json({ error: 'Could not load the card source.' }, 503);
+  if (!source || !source.is_active || source.source_type !== 'card') {
+    return json({ error: 'AI expense suggestions are available only for active card sources. Review bank activity using rules or manual coding.' }, 409);
+  }
+  const connectionId = source.qbo_connection_id;
+  if (!connectionId || (batch.qbo_connection_id && batch.qbo_connection_id !== connectionId)) {
+    return json({ error: 'Bind the card source to the correct QuickBooks connection before requesting suggestions.' }, 409);
+  }
+  const { data: connection, error: connectionError } = await supabase.from('quickbooks_connections')
+    .select('id').eq('id', connectionId).eq('company_entity_id', companyId)
+    .eq('is_active', true).maybeSingle();
+  if (connectionError) return json({ error: 'Could not verify the QuickBooks connection.' }, 503);
+  if (!connection) return json({ error: 'The card source QuickBooks connection is not active.' }, 409);
+
+  const selectedRows: any[] = [];
+  // Keep each ID filter below URL/gateway limits and Supabase's row cap.
+  for (let offset = 0; offset < transactionIds.length; offset += 100) {
+    const { data: rows, error } = await supabase.from('card_transactions_v')
+      .select('id,merchant_norm,card_name,description,amount,currency,status,qbo_account_id,origin,provider_status,accounting_treatment')
+      .eq('company_entity_id', companyId).eq('batch_id', batch.id)
+      .in('id', transactionIds.slice(offset, offset + 100));
+    if (error || !rows) return json({ error: 'Could not load the selected card transactions.' }, 503);
+    selectedRows.push(...rows);
+  }
+  if (selectedRows.length !== transactionIds.length) {
+    return json({ error: 'Some selected transactions are no longer in this batch. Reload it and try again.' }, 409);
+  }
+  if (selectedRows.some((row) => row.status !== 'uncoded' || row.qbo_account_id
+      || !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0 || row.currency !== 'USD'
+      || row.origin !== batch.origin || (row.origin === 'plaid'
+        && (row.provider_status !== 'posted' || row.accounting_treatment !== 'purchase')))) {
+    return json({ error: 'AI suggestions require uncoded purchase outflows. Save changes and review transfers, payments, deposits or pending rows separately.' }, 409);
+  }
+  const byStoredMerchant = new Map<string, Merchant>();
+  for (const row of selectedRows) {
+    if (!row.merchant_norm) continue;
+    const key = `${row.merchant_norm}||${row.card_name || ''}`;
+    const merchant = byStoredMerchant.get(key) || {
+      merchant: row.merchant_norm, card_name: row.card_name || null,
+      sample: row.description || '', count: 0, total: 0,
+    };
+    merchant.count++;
+    merchant.total += Number(row.amount);
+    byStoredMerchant.set(key, merchant);
+  }
+  const merchants = [...byStoredMerchant.values()];
+  const sourceName: string = source.display_name || 'card';
+  if (!merchants.length) return json({ ok: true, suggestions: [] });
+
   // Only accounts a card charge could legitimately land in. Offering the model
   // all 450 accounts invites it to expense a purchase to a revenue account.
   const { data: accountRows } = await supabase
     .from('quickbooks_accounts')
     .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type')
     .eq('company_entity_id', companyId)
+    .eq('connection_id', connectionId)
     .eq('is_active', true)
     .in('account_type', [
       'Expense', 'Other Expense', 'Cost of Goods Sold',
@@ -340,6 +406,7 @@ Deno.serve(async (req) => {
     .from('quickbooks_report_runs')
     .select('raw_response, start_date, end_date')
     .eq('company_entity_id', companyId)
+    .eq('connection_id', connectionId)
     .in('report_name', ['ProfitAndLoss', 'ProfitAndLossDetail'])
     .eq('status', 'ok')
     .order('fetched_at', { ascending: false })
@@ -366,6 +433,7 @@ Deno.serve(async (req) => {
     .from('quickbooks_accounts')
     .select('name, account_type')
     .eq('company_entity_id', companyId)
+    .eq('connection_id', connectionId)
     .eq('is_active', true)
     .in('account_type', ['Accounts Receivable', 'Accounts Payable']);
 
@@ -375,7 +443,8 @@ Deno.serve(async (req) => {
   const { data: cardAccts } = await supabase
     .from('card_sources')
     .select('credit_qbo_account_name')
-    .eq('company_entity_id', companyId);
+    .eq('company_entity_id', companyId)
+    .eq('qbo_connection_id', connectionId);
   const cardAccountNames = new Set((cardAccts || [])
     .map((c: any) => String(c.credit_qbo_account_name || '').toLowerCase().trim())
     .filter(Boolean));
@@ -401,11 +470,12 @@ Deno.serve(async (req) => {
     .from('quickbooks_locations')
     .select('name, fully_qualified_name')
     .eq('company_entity_id', companyId)
+    .eq('connection_id', connectionId)
     .eq('is_active', true);
   const locations = (locationRows || []).map((l: any) => l.fully_qualified_name || l.name);
 
   // A sample of what humans have already confirmed, most-used first.
-  const { data: ruleRows } = await supabase
+  let ruleQuery = supabase
     .from('card_coding_rules')
     .select('pattern, qbo_account_name, qbo_location_name, hit_count')
     .eq('company_entity_id', companyId)
@@ -413,11 +483,16 @@ Deno.serve(async (req) => {
     .not('qbo_account_name', 'is', null)
     .order('hit_count', { ascending: false })
     .limit(120);
+  ruleQuery = batch.origin === 'plaid' ? ruleQuery.eq('source_id', source.id)
+    : ruleQuery.or(`source_id.is.null,source_id.eq.${source.id}`);
+  const { data: ruleRows } = await ruleQuery;
 
-  const examples = (ruleRows || []).map((r: any) => ({
+  const examples = (ruleRows || [])
+    .filter((r: any) => accounts.some((a) => a.name === r.qbo_account_name))
+    .map((r: any) => ({
     merchant: r.pattern,
     account: r.qbo_account_name,
-    location: r.qbo_location_name,
+    location: locations.includes(r.qbo_location_name) ? r.qbo_location_name : null,
   }));
 
   // The company's own name, not a name baked into this function.

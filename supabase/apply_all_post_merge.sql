@@ -18694,3 +18694,6 @@ $c$select (select count(*) from v_po_header_summary
 -- recovery, and stable source identity for generated journal entries.
 -- ---------------------------------------------------------------------------
 \i migrations/20260912000000_finance_v1_posting_controls.sql
+
+-- Plaid ingestion reuses Card Coding; no institution connection or posting.
+\i migrations/20260912052930_plaid_bank_feed.sql

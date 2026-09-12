@@ -3369,3 +3369,55 @@ select case
     then 'CRITICAL — adjustment void does not bind its exact posting and preserve the reason'
   else 'ok'
 end as finance_adjustment_void_contract;
+
+-- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
+with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
+  ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
+select name as plaid_table,
+  case when c.oid is null then 'MISSING — Plaid table'
+    when not c.relrowsecurity then 'CRITICAL — Plaid RLS disabled'
+    when has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE') then 'CRITICAL — anonymous Plaid table access'
+    when name='plaid_connection_secrets' and has_table_privilege('authenticated',c.oid,'SELECT,INSERT,UPDATE,DELETE')
+      then 'CRITICAL — browser credential access'
+    when has_table_privilege('authenticated',c.oid,'INSERT,UPDATE,DELETE') then 'CRITICAL — direct browser Plaid writes'
+    when name<>'plaid_connection_secrets' and not has_table_privilege('authenticated',c.oid,'SELECT') then 'MISSING — Plaid metadata read grant'
+    else 'ok' end as status
+from expected left join pg_class c on c.oid=to_regclass('public.'||name);
+
+with expected(signature,browser) as (values
+  ('public.plaid_finance_context()',true),
+  ('public.configure_plaid_account(uuid,uuid,text,date,uuid)',true),
+  ('public.resolve_plaid_exception(uuid,text,uuid)',true),
+  ('public.plaid_register_connection(uuid,text,text,text,jsonb,jsonb,uuid)',false),
+  ('public.plaid_claim_sync(uuid,uuid)',false),
+  ('public.plaid_apply_sync(uuid,uuid,text,text,jsonb,jsonb,jsonb,jsonb)',false),
+  ('public.plaid_release_sync(uuid,uuid,text)',false))
+select signature as plaid_rpc,
+  case when p.oid is null then 'MISSING — Plaid RPC'
+    when has_function_privilege('anon',p.oid,'EXECUTE') then 'CRITICAL — anonymous Plaid RPC'
+    when has_function_privilege('authenticated',p.oid,'EXECUTE') is distinct from browser then 'CRITICAL — Plaid RPC authorization grant'
+    when signature='public.plaid_finance_context()' and has_function_privilege('service_role',p.oid,'EXECUTE')
+      then 'CRITICAL — finance context must use the caller identity'
+    when signature<>'public.plaid_finance_context()' and not has_function_privilege('service_role',p.oid,'EXECUTE') then 'MISSING — Plaid service RPC grant'
+    else 'ok' end as status
+from expected left join pg_proc p on p.oid=to_regprocedure(signature);
+
+with expected(relation,trigger_name) as (values
+  ('public.card_sources','plaid_source_authority'),
+  ('public.card_transactions','plaid_transaction_integrity'),
+  ('public.card_import_batches','plaid_batch_integrity'),
+  ('public.quickbooks_journal_postings','plaid_new_posting_claim'),
+  ('public.finance_audit_events','finance_audit_immutable'))
+select relation as plaid_guard_table,trigger_name,
+  case when exists(select 1 from pg_trigger t where t.tgrelid=to_regclass(relation)
+    and t.tgname=trigger_name and t.tgenabled<>'D' and not t.tgisinternal)
+    then 'ok' else 'MISSING — Plaid integrity trigger' end as status
+from expected;
+
+select case when to_regclass('public.uq_plaid_transaction_identity') is null
+  or to_regclass('public.uq_plaid_monthly_batch') is null
+  or to_regclass('public.uq_plaid_open_exception') is null
+  then 'MISSING — Plaid identity or exception uniqueness'
+  when has_table_privilege('service_role','public.finance_audit_events','INSERT,UPDATE,DELETE,TRUNCATE')
+  then 'CRITICAL — direct service audit mutation'
+  else 'ok' end as plaid_identity_and_audit_contract;

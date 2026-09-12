@@ -28,6 +28,10 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   headers: { ...corsHeaders, 'Content-Type': 'application/json' },
 });
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value);
+const bankChangeRequired = () => json({
+  error: 'A bank feed change needs review. Open Card Coding → Bank feeds, inspect the exception, then use its reopen or correction workflow before posting.',
+  code: 'BANK_FEED_REVIEW_REQUIRED',
+}, 409);
 
 async function checkedUpdate(query: any, label: string) {
   const { data, error } = await query.select('id').maybeSingle();
@@ -182,6 +186,16 @@ Deno.serve(async (req) => {
       p_expected_hash: parent.approval_hash, p_expected_version: parent.approval_version,
     });
   if (hashError || hashMatches !== true) {
+    if (!hashError && hashMatches === false && batch_id) {
+      const account = await supabase.from('plaid_accounts').select('id')
+        .eq('source_id', parent.source_id).eq('company_entity_id', companyId).maybeSingle();
+      if (!account.error && account.data?.id) {
+        const exception = await supabase.from('plaid_sync_exceptions').select('id')
+          .eq('account_id', account.data.id).eq('company_entity_id', companyId)
+          .eq('status', 'open').limit(1).maybeSingle();
+        if (!exception.error && exception.data?.id) return bankChangeRequired();
+      }
+    }
     return json({ error: 'Approved content changed after approval; reopen and approve it again' }, 409);
   }
   if (snapshot.qbo_connection_id !== parent.qbo_connection_id) {
@@ -341,6 +355,7 @@ Deno.serve(async (req) => {
       last_attempt_at: new Date().toISOString(), created_by: user.id, posted_by: user.id,
     }).select('*').single();
   if (claimError) {
+    if ((claimError as any).code === 'PBF01') return bankChangeRequired();
     if ((claimError as any).code === '23505') {
       return json({
         error: 'Another posting attempt already owns this entry; retry to recover it',
