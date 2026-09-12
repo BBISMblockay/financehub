@@ -38,10 +38,31 @@ test('one sidebar entry retains the existing finance department visibility',()=>
 test('legacy route retains query/hash and records the original OAuth callback only for OAuth',async()=>{
   const html=await read('v2/card-coding.html'),script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   for(const search of ['','?batch=example','?oauth_state_id=callback&extra=one']){
-    const saved=new Map();let next;
+    const saved=new Map(),anchor={};let next;
     const location={href:'https://silo.test/v2/card-coding.html'+search+'#review',search,hash:'#review',replace:url=>next=url};
-    vm.runInNewContext(script,{location,URLSearchParams,sessionStorage:{setItem:(k,v)=>saved.set(k,v)}});
+    vm.runInNewContext(script,{document:{getElementById:()=>anchor},location,URLSearchParams,sessionStorage:{setItem:(k,v)=>saved.set(k,v)}});
     assert.equal(next,'./transactions.html'+search+'#review');
+    assert.equal(anchor.href,next);
     assert.equal(saved.get('silo-plaid-legacy-return'),search.includes('oauth_state_id')?location.href:undefined);
   }
+});
+
+test('storage access and write failures cannot strand an OAuth callback',async()=>{
+  const html=await read('v2/card-coding.html'),script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  for(const failure of ['get','set']) {
+    const anchor={};let next;
+    const location={href:'https://silo.test/v2/card-coding.html?oauth_state_id=callback#return',search:'?oauth_state_id=callback',hash:'#return',replace:url=>next=url};
+    const context={document:{getElementById:()=>anchor},location,URLSearchParams};
+    Object.defineProperty(context,'sessionStorage',{get(){if(failure==='get')throw new Error('Storage denied');return{setItem(){throw new Error('Quota exceeded');}};}});
+    vm.runInNewContext(script,context);
+    assert.equal(next,'./transactions.html?oauth_state_id=callback#return');
+    assert.equal(anchor.href,next);
+  }
+});
+test('fallback link retains the callback when automatic navigation fails',async()=>{
+  const html=await read('v2/card-coding.html'),script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const anchor={};
+  const context={document:{getElementById:()=>anchor},URLSearchParams,sessionStorage:{setItem(){}},location:{href:'https://silo.test/v2/card-coding.html?oauth_state_id=callback#return',search:'?oauth_state_id=callback',hash:'#return',replace(){throw new Error('Navigation unavailable');}}};
+  assert.throws(()=>vm.runInNewContext(script,context),/Navigation unavailable/);
+  assert.equal(anchor.href,'./transactions.html?oauth_state_id=callback#return');
 });

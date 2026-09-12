@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SILO · Transactions</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SILO · Transactions</title></head>
+<body><p>Transactions has moved. <a id="transactionsLink" href="./transactions.html">Open Transactions</a>.</p>
+<noscript>Enable JavaScript to continue your bank connection. Keep this callback URL intact when reloading.</noscript>
 <script>
-// Preserve Plaid's registered callback URI through the route rename. The new
-// page validates this same-origin URI against the returned OAuth state.
-if (new URLSearchParams(location.search).has('oauth_state_id')) {
-  sessionStorage.setItem('silo-plaid-legacy-return', location.href);
-}
-location.replace('./transactions.html' + location.search + location.hash);
-</script></head><body><p>Transactions has moved. <a href="./transactions.html">Open Transactions</a>.</p></body></html>
+// Plaid is registered to redirect here. Do not delete this file unless the
+// redirect URI is first re-registered with Plaid and updated in Silo settings.
+// The compatibility key name is retained for in-progress Link sessions.
+const destination = './transactions.html' + location.search + location.hash;
+document.getElementById('transactionsLink').href = destination;
+try {
+  if (new URLSearchParams(location.search).has('oauth_state_id')) {
+    sessionStorage.setItem('silo-plaid-legacy-return', location.href);
+  }
+} catch { /* Storage can be unavailable; never strand the callback here. */ }
+location.replace(destination);
+</script></body></html>
