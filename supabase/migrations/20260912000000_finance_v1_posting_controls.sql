@@ -278,6 +278,55 @@ $$;
 revoke all on function public.finance_approval_snapshot_hash(jsonb) from public, anon;
 grant execute on function public.finance_approval_snapshot_hash(jsonb) to authenticated, service_role;
 
+-- Verify the stored jsonb value inside Postgres. Sending the snapshot through
+-- JavaScript first loses numeric scale (35.00 -> 35) and changes jsonb::text's
+-- hash despite unchanged accounting values. The caller supplies only the row
+-- identity and revision it loaded, never a reserialized snapshot.
+create or replace function public.finance_approval_hash_matches(
+  p_source_type text,
+  p_source_id uuid,
+  p_expected_hash text,
+  p_expected_version bigint
+)
+returns boolean
+language plpgsql
+stable
+security invoker
+set search_path to 'public', 'pg_temp'
+as $$
+begin
+  if p_source_id is null or p_expected_hash is null or p_expected_version is null then
+    return false;
+  end if;
+  if p_source_type = 'card_import_batches' then
+    return exists (
+      select 1 from public.card_import_batches b
+      where b.id = p_source_id and b.status = 'approved'
+        and b.approval_hash = p_expected_hash
+        and b.approval_version = p_expected_version
+        and b.approval_snapshot is not null
+        and public.finance_approval_snapshot_hash(b.approval_snapshot) = b.approval_hash
+    );
+  elsif p_source_type = 'journal_adjustments' then
+    return exists (
+      select 1 from public.journal_adjustments a
+      where a.id = p_source_id and a.status = 'approved'
+        and a.approval_hash = p_expected_hash
+        and a.approval_version = p_expected_version
+        and a.approval_snapshot is not null
+        and public.finance_approval_snapshot_hash(a.approval_snapshot) = a.approval_hash
+    );
+  end if;
+  return false;
+end;
+$$;
+
+-- Supabase default privileges include anon/authenticated; revoke both explicitly.
+revoke all on function public.finance_approval_hash_matches(text, uuid, text, bigint)
+  from public, anon, authenticated;
+grant execute on function public.finance_approval_hash_matches(text, uuid, text, bigint)
+  to service_role;
+
 create or replace function public.approve_card_import_batch(p_batch_id uuid)
 returns jsonb
 language plpgsql
@@ -647,6 +696,105 @@ begin
   where id = p_adjustment_id;
 end;
 $$;
+
+-- Keep the existing reasoned "Mark unposted" path compatible with typed
+-- accounting sources. This changes SILO's record only; it never deletes in QBO.
+create or replace function public.void_journal_adjustment(p_adjustment_id uuid, p_reason text)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_company uuid := public.active_company_id();
+  v_adj public.journal_adjustments%rowtype;
+  v_posting public.quickbooks_journal_postings%rowtype;
+  v_source text;
+  v_source_ref text;
+  v_connection uuid;
+  v_legacy boolean;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  if v_user is null or not (public.can_manage_journal_entries() or public.is_exec_or_owner()) then
+    raise exception 'Finance access required to void a posting';
+  end if;
+  if v_company is null then raise exception 'No active company'; end if;
+  if v_reason is null then raise exception 'A reason is required to void a posting'; end if;
+
+  -- Same parent-first lock order as approval/reopen; two voids cannot release
+  -- the same claim twice. The posting write also checks its prior status.
+  select * into v_adj from public.journal_adjustments
+  where id = p_adjustment_id and company_entity_id = v_company for update;
+  if not found then raise exception 'Adjustment not found'; end if;
+  if v_adj.status not in ('approved', 'posted') then
+    raise exception 'Adjustment has no posted entry to void';
+  end if;
+
+  v_legacy := v_adj.approval_snapshot is null
+    and v_adj.accounting_source is null and v_adj.accounting_source_ref is null;
+  v_source := coalesce(v_adj.approval_snapshot->>'source', v_adj.accounting_source,
+    case when v_legacy then 'journal_adjustment' end);
+  v_source_ref := coalesce(v_adj.approval_snapshot->>'source_ref', v_adj.accounting_source_ref,
+    case when v_legacy then p_adjustment_id::text end);
+  v_connection := coalesce((v_adj.approval_snapshot->>'qbo_connection_id')::uuid,
+    v_adj.qbo_connection_id);
+  if v_source is null or v_source_ref is null or (not v_legacy and v_connection is null) then
+    raise exception 'Adjustment posting identity is incomplete';
+  end if;
+  if v_adj.approval_snapshot is not null and (
+    v_adj.approval_snapshot->>'kind' is distinct from 'journal_adjustment'
+    or v_adj.approval_hash is null
+    or public.finance_approval_snapshot_hash(v_adj.approval_snapshot) is distinct from v_adj.approval_hash
+    or v_source is distinct from v_adj.accounting_source
+    or v_source_ref is distinct from v_adj.accounting_source_ref
+    or v_connection is distinct from v_adj.qbo_connection_id
+  ) then raise exception 'Approved posting identity is inconsistent'; end if;
+
+  select p.* into v_posting from public.quickbooks_journal_postings p
+  where p.company_entity_id = v_company
+    and p.source = v_source and p.source_ref = v_source_ref
+    and p.status = 'posted'
+    and (p.connection_id = v_connection or (v_legacy and v_connection is null))
+    and (
+      -- A generated source_ref may be only a month. Never substitute another
+      -- posting when this adjustment already names its exact posting row.
+      (v_adj.posting_id is not null and p.id = v_adj.posting_id)
+      or (v_adj.posting_id is null and v_legacy)
+      -- QBO succeeded and the posting row was saved, but saving the parent
+      -- failed. Only the exact approved payload may bridge that missing link.
+      or (v_adj.posting_id is null and v_adj.status = 'approved'
+        and v_adj.approval_snapshot is not null
+        and p.payload_hash = v_adj.approval_hash)
+    )
+    and (v_adj.approval_snapshot is null or p.payload_hash = v_adj.approval_hash)
+  for update;
+  if not found then raise exception 'No posted entry found for this adjustment'; end if;
+  if v_posting.connection_id is not null and not exists (
+    select 1 from public.quickbooks_connections c
+    where c.id = v_posting.connection_id and c.company_entity_id = v_company
+  ) then raise exception 'Posting connection belongs to another company'; end if;
+
+  update public.quickbooks_journal_postings
+  set status = 'voided',
+    error_message = left('Voided in SILO: ' || v_reason, 500),
+    recovery_note = concat_ws(E'\n', nullif(recovery_note, ''),
+      format('Voided in SILO by %s at %s: %s', v_user, now(), left(v_reason, 500)))
+  where id = v_posting.id and company_entity_id = v_company and status = 'posted';
+  if not found then raise exception 'Posting changed while it was being voided'; end if;
+
+  update public.journal_adjustments
+  set status = 'approved', posting_id = null, updated_at = now()
+  where id = p_adjustment_id and company_entity_id = v_company;
+
+  return jsonb_build_object('ok', true,
+    'qbo_journal_entry_id', v_posting.qbo_journal_entry_id,
+    'doc_number', v_posting.qbo_doc_number);
+end;
+$$;
+
+revoke all on function public.void_journal_adjustment(uuid, text) from public, anon;
+grant execute on function public.void_journal_adjustment(uuid, text) to authenticated;
 
 revoke all on function public.approve_card_import_batch(uuid) from public, anon;
 revoke all on function public.approve_journal_adjustment(uuid) from public, anon;

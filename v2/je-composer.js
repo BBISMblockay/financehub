@@ -60,6 +60,12 @@
         .select('qbo_vendor_id, display_name, connection_id').eq('is_active', true).order('display_name'),
     ]);
 
+    for (const [label, result] of [
+      ['accounts', acct], ['locations', loc], ['customers', cust], ['vendors', vend],
+    ]) {
+      if (result.error) throw new Error(`QuickBooks ${label} could not be loaded: ${result.error.message}`);
+    }
+
     ref = {
       accounts: (acct.data || []).map((a) => ({
         id: a.qbo_account_id, name: a.fully_qualified_name || a.name, type: a.account_type,
@@ -433,6 +439,51 @@
     // QuickBooks. Re-staging an already-staged entry replaces its lines rather
     // than minting a second adjustment, so editing a draft twice does not
     // scatter one entry across several rows.
+    function stageError(error) {
+      // Only translate this particular uniqueness rule. Other 23505 errors
+      // describe different faults and must retain their own explanation.
+      const constraint = 'uq_journal_adjustments_active_source';
+      if (error.code === '23505' && (error.constraint === constraint
+          || (error.message || '').includes(`"${constraint}"`))) {
+        const period = accountingSourceRef ? ` for ${accountingSourceRef}` : ' for this period';
+        return new Error(`An entry${period} already exists as a draft, approved, or posted entry. `
+          + 'Open the existing entry under Adjustments. It has not been changed.');
+      }
+      return new Error(error.message);
+    }
+
+    function newEntryConnection() {
+      if (!ref.accounts.length) {
+        throw new Error('No active QuickBooks accounts are available. Sync accounts in Integrations, '
+          + 'then reload this page before saving.');
+      }
+      const connectionIds = new Set();
+      for (const [i, line] of state.lines.entries()) {
+        if (!line.accountId) throw new Error(`Select an account for line ${i + 1} before saving.`);
+        const matches = ref.accounts.filter((account) => account.id === line.accountId);
+        if (!matches.length) {
+          throw new Error(`The account on line ${i + 1} (${line.accountId}) is not in the active QuickBooks chart. `
+            + 'Sync accounts in Integrations, reload this page, and select an active account.');
+        }
+        const matchedConnections = new Set(matches.map((account) => account.connectionId).filter(Boolean));
+        if (!matchedConnections.size) {
+          throw new Error(`The account on line ${i + 1} has no QuickBooks connection. `
+            + 'Sync accounts in Integrations and reload this page before saving.');
+        }
+        if (matchedConnections.size > 1) {
+          throw new Error(`The account on line ${i + 1} appears in more than one QuickBooks connection. `
+            + 'Resolve the account connection before saving.');
+        }
+        connectionIds.add([...matchedConnections][0]);
+      }
+      if (connectionIds.size !== 1) {
+        throw new Error(connectionIds.size
+          ? 'The entry mixes accounts from different QuickBooks connections. Use accounts from one connection.'
+          : 'Select accounts for the entry before saving.');
+      }
+      return [...connectionIds][0];
+    }
+
     async function stage() {
       const payload = {
         entry_date: $('jeDate').value,
@@ -440,12 +491,7 @@
         source_context: context || null,
       };
       if (!state.id) {
-        const connectionIds = new Set(state.lines
-          .map((line) => acct(line.accountId)?.connectionId).filter(Boolean));
-        if (connectionIds.size !== 1) {
-          throw new Error('Every line must use one QuickBooks connection');
-        }
-        payload.qbo_connection_id = [...connectionIds][0];
+        payload.qbo_connection_id = newEntryConnection();
         payload.accounting_source = accountingSource || null;
         payload.accounting_source_ref = accountingSourceRef || null;
       }
@@ -453,14 +499,14 @@
       if (state.id) {
         const { error } = await db.from('journal_adjustments')
           .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', state.id);
-        if (error) throw new Error(error.message);
+        if (error) throw stageError(error);
         const { error: dErr } = await db.from('journal_adjustment_lines')
           .delete().eq('adjustment_id', state.id);
         if (dErr) throw new Error(dErr.message);
       } else {
         const { data, error } = await db.from('journal_adjustments')
           .insert({ company_entity_id: companyId, ...payload }).select('id').single();
-        if (error) throw new Error(error.message);
+        if (error) throw stageError(error);
         state.id = data.id;
       }
 

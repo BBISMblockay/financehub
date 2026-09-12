@@ -3313,3 +3313,59 @@ select
       then 'CRITICAL — browser writes can still create an approved adjustment'
     else 'ok'
   end as finance_v1_posting_controls;
+
+-- The edge function verifies the stored approval, without reserializing jsonb.
+with hash_rpc as (
+  select p.* from pg_proc p
+  where p.oid = to_regprocedure('public.finance_approval_hash_matches(text,uuid,text,bigint)')
+)
+select case
+  when not exists (select 1 from hash_rpc)
+    then 'MISSING — stored approval hash verification RPC'
+  when exists (select 1 from hash_rpc p where p.prosecdef or p.prorettype <> 'boolean'::regtype)
+    then 'CRITICAL — approval verification must be an invoker boolean RPC'
+  when exists (select 1 from hash_rpc p where
+    has_function_privilege('anon', p.oid, 'execute')
+    or has_function_privilege('authenticated', p.oid, 'execute')
+    or not has_function_privilege('service_role', p.oid, 'execute')
+    or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
+    then 'CRITICAL — stored approval verification must be service-role only'
+  when not exists (select 1 from hash_rpc p where
+    pg_get_functiondef(p.oid) like '%finance_approval_snapshot_hash(b.approval_snapshot)%'
+    and pg_get_functiondef(p.oid) like '%finance_approval_snapshot_hash(a.approval_snapshot)%'
+    and pg_get_functiondef(p.oid) like '%approval_hash = p_expected_hash%'
+    and pg_get_functiondef(p.oid) like '%approval_version = p_expected_version%')
+    then 'CRITICAL — approval verification must bind the stored snapshot to its loaded revision'
+  else 'ok'
+end as finance_approval_stored_hash;
+
+-- Typed generated sources and legacy adjustment UUIDs share the same void RPC.
+with void_rpc as (
+  select p.* from pg_proc p
+  where p.oid = to_regprocedure('public.void_journal_adjustment(uuid,text)')
+)
+select case
+  when not exists (select 1 from void_rpc)
+    then 'MISSING — reasoned adjustment void RPC'
+  when exists (select 1 from void_rpc p where
+    has_function_privilege('anon', p.oid, 'execute')
+    or not has_function_privilege('authenticated', p.oid, 'execute')
+    or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
+    then 'CRITICAL — adjustment void authorization grant is incorrect'
+  when not exists (select 1 from void_rpc p where
+    pg_get_functiondef(p.oid) like '%v_user is null%'
+    and pg_get_functiondef(p.oid) like '%can_manage_journal_entries()%'
+    and pg_get_functiondef(p.oid) like '%approval_snapshot->>''source''%'
+    and pg_get_functiondef(p.oid) like '%accounting_source_ref%'
+    and pg_get_functiondef(p.oid) like '%''journal_adjustment''%'
+    and pg_get_functiondef(p.oid) like '%p.id = v_adj.posting_id%'
+    and pg_get_functiondef(p.oid) like '%p.payload_hash = v_adj.approval_hash%'
+    and pg_get_functiondef(p.oid) like '%p.connection_id = v_connection%'
+    and pg_get_functiondef(p.oid) like '%for update%'
+    and pg_get_functiondef(p.oid) like '%v_reason is null%'
+    and pg_get_functiondef(p.oid) like '%recovery_note = concat_ws%')
+    then 'CRITICAL — adjustment void does not bind its exact posting and preserve the reason'
+  else 'ok'
+end as finance_adjustment_void_contract;

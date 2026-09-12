@@ -101,8 +101,8 @@ check(!composer.includes("status: 'approved',\n          approved_at:"),
   'composer no longer authors approval fields');
 check(posting.includes(".eq('id', parent.qbo_connection_id)"),
   'posting uses the approved connection id');
-check(posting.includes(".rpc('finance_approval_snapshot_hash'"),
-  'posting rejects a snapshot whose hash no longer matches');
+check(posting.includes(".rpc('finance_approval_hash_matches'"),
+  'posting verifies the stored snapshot and approval revision in the database');
 check(!posting.includes(".eq('company_entity_id', companyId).limit(1)"),
   'posting no longer picks an arbitrary company connection');
 check(posting.includes("status: 'unknown'"),

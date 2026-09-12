@@ -174,9 +174,14 @@ Deno.serve(async (req) => {
   if (!snapshot || !parent.approval_hash || !parent.qbo_connection_id) {
     return json({ error: 'This approval predates the posting controls; reopen and approve it again' }, 409);
   }
-  const { data: calculatedHash, error: hashError } = await supabase
-    .rpc('finance_approval_snapshot_hash', { p_snapshot: snapshot });
-  if (hashError || calculatedHash !== parent.approval_hash) {
+  // Verify the stored JSONB in Postgres. A JS round trip drops numeric scale
+  // (35.00 becomes 35), so hashing the parsed snapshot rejects valid approvals.
+  const { data: hashMatches, error: hashError } = await supabase
+    .rpc('finance_approval_hash_matches', {
+      p_source_type: parentTable, p_source_id: parentId,
+      p_expected_hash: parent.approval_hash, p_expected_version: parent.approval_version,
+    });
+  if (hashError || hashMatches !== true) {
     return json({ error: 'Approved content changed after approval; reopen and approve it again' }, 409);
   }
   if (snapshot.qbo_connection_id !== parent.qbo_connection_id) {
@@ -234,7 +239,7 @@ Deno.serve(async (req) => {
       readback_matches: matches, intuit_tid: intuitTid,
       confirmed_at: new Date().toISOString(), posted_at: new Date().toISOString(),
       posted_by: user.id, error_message: null, recovery_note: note,
-    }).eq('id', claim.id), 'posting_confirmation_persist_failed');
+    }).eq('id', claim.id).in('status', ['submitting', 'unknown', 'posted']), 'posting_confirmation_persist_failed');
     try {
       await checkedUpdate(supabase.from(parentTable).update({
         status: 'posted', posting_id: claim.id, updated_at: new Date().toISOString(),
@@ -284,12 +289,20 @@ Deno.serve(async (req) => {
         return await finalize(claim, found[0], claim.intuit_tid,
           'Recovered by deterministic DocNumber after an ambiguous outcome.');
       }
+      // A confirmed post stays confirmed even if QBO can no longer return it.
+      // Only the explicit, reasoned Mark unposted workflow may void that claim.
+      if (claim.status === 'posted') {
+        return json({
+          error: 'A previously confirmed QuickBooks entry could not be uniquely recovered. Verify it in QuickBooks and use Mark unposted if it was removed.',
+          code: 'POSTED_ENTRY_REQUIRES_REVIEW', doc_number: docNumber,
+        }, 409);
+      }
       if (found.length > 1) {
         await checkedUpdate(supabase.from('quickbooks_journal_postings').update({
           status: 'unknown', last_attempt_at: new Date().toISOString(),
           attempt_count: Number(claim.attempt_count || 0) + 1,
           recovery_note: `Recovery found ${found.length} entries with DocNumber ${docNumber}; manual QBO review required.`,
-        }).eq('id', claim.id), 'ambiguous_recovery_persist_failed');
+        }).eq('id', claim.id).in('status', ['submitting', 'unknown']), 'ambiguous_recovery_persist_failed');
         return json({
           error: 'Multiple QuickBooks entries share the recovery DocNumber; manual review required',
           code: 'UNKNOWN_OUTCOME',
@@ -300,7 +313,7 @@ Deno.serve(async (req) => {
           status: 'unknown', last_attempt_at: new Date().toISOString(),
           attempt_count: Number(claim.attempt_count || 0) + 1,
           recovery_note: `No entry found for ${docNumber}; do not retry until absence is verified in QBO.`,
-        }).eq('id', claim.id), 'unknown_recovery_persist_failed');
+        }).eq('id', claim.id).in('status', ['submitting', 'unknown']), 'unknown_recovery_persist_failed');
         return json({
           error: 'Prior outcome is unknown. No matching QBO entry was found; verify it is absent, then use the recovery confirmation.',
           code: 'UNKNOWN_OUTCOME', can_confirm_absent: true, doc_number: docNumber,
@@ -358,7 +371,7 @@ Deno.serve(async (req) => {
       await checkedUpdate(supabase.from('quickbooks_journal_postings').update({
         status: 'unknown', error_message: message.slice(0, 500),
         recovery_note: `Retry will search QBO for ${docNumber} before any new post.`,
-      }).eq('id', claim.id), 'unknown_outcome_persist_failed');
+      }).eq('id', claim.id).in('status', ['submitting', 'unknown']), 'unknown_outcome_persist_failed');
     } catch (persistError) {
       return json({
         error: `${message}; ${errorText(persistError)}`, code: 'UNKNOWN_OUTCOME',
@@ -377,7 +390,7 @@ Deno.serve(async (req) => {
         status, intuit_tid: intuitTid, error_message: message.slice(0, 500),
         recovery_note: status === 'unknown'
           ? `Retry will search QBO for ${docNumber} before any new post.` : null,
-      }).eq('id', claim.id), 'post_failure_persist_failed');
+      }).eq('id', claim.id).in('status', ['submitting', 'unknown']), 'post_failure_persist_failed');
     } catch (persistError) {
       return json({
         error: `${message}; ${errorText(persistError)}`,
@@ -399,7 +412,7 @@ Deno.serve(async (req) => {
       await checkedUpdate(supabase.from('quickbooks_journal_postings').update({
         status: 'unknown', intuit_tid: intuitTid, error_message: message,
         recovery_note: `Retry will search QBO for ${docNumber} before any new post.`,
-      }).eq('id', claim.id), 'missing_id_outcome_persist_failed');
+      }).eq('id', claim.id).in('status', ['submitting', 'unknown']), 'missing_id_outcome_persist_failed');
     } catch (persistError) {
       return json({
         error: `${message}; ${errorText(persistError)}`, code: 'UNKNOWN_OUTCOME',

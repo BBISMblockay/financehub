@@ -485,3 +485,13 @@ supabase/
   now distinguish `submitting`, `unknown`, `posted`, and `failed`.
   Unknown Intuit outcomes recover by deterministic DocNumber before a retry,
   while local persistence failures remain recoverable from the same path.
+  Approval verification hashes the stored JSONB inside Postgres via a
+  service-role-only RPC, binding the exact hash/version the posting function
+  loaded; JavaScript serialization never determines approval validity.
+  `void_journal_adjustment` supports both typed source identities and legacy
+  adjustment IDs, preserving the exact posting link and the operator's reason.
+  Confirmed postings remain locked when recovery cannot find the QBO entry.
+  Native `confirm`/`prompt` dialogs remain in the controlled finance recovery
+  and reopen actions; replacing them with styled dialogs is deferred.
+  This migration retains snapshots and posting/reopen/void metadata. A separate
+  append-only finance event ledger is still a Finance V1 prerequisite.

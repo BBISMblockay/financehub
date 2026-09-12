@@ -10,8 +10,8 @@ name: Sync logic tests
 # it is not visible in a diff -- the wrong version looks perfectly
 # reasonable.
 #
-# No secrets, no install: everything is stubbed in-memory, which is what
-# makes it safe on pull requests.
+# No secrets. The unit job has no install and stubs IO in memory; the separate
+# finance database job installs pinned PGlite to execute PostgreSQL locally.
 
 on:
   push:
@@ -66,6 +66,12 @@ jobs:
 
       - name: Finance V1 approval and QBO recovery controls
         run: node scripts/tests/finance-v1-controls.test.mjs
+
+      - name: Finance V1 posting request handler regressions
+        run: node scripts/tests/finance-v1-posting-handler.test.mjs
+
+      - name: JE composer review regressions
+        run: node scripts/tests/je-composer-review.test.mjs
 
       # A manual 730-day backfill once finished GREEN in two minutes having
       # written nothing (run #354, 2026-09-09): Shopify refused with HTTP 200
@@ -138,3 +144,16 @@ jobs:
       # 429 and reported them as "could not run". Pins the retry shape.
       - name: Remote schema verify survives the API rate limit
         run: node scripts/tests/management-api.test.mjs
+
+  finance-database:
+    name: Finance database regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated PostgreSQL test dependency
+        run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - name: Execute finance migration, approval and void regressions
+        run: node scripts/tests/finance-v1-database.test.mjs
