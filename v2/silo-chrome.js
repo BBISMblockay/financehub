@@ -448,7 +448,8 @@
     document.documentElement.setAttribute('data-theme', theme);
 
     opts.avatarUrl = opts.avatarUrl || getCachedAvatarUrl();
-    const sidebar = el(renderSidebar(opts));
+    const navActive = window.SiloAccounting?.contains(opts.active) ? 'finance/accounting' : opts.active;
+    const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
     appEl.prepend(backdrop);
@@ -458,6 +459,7 @@
       const util = el(renderUtility(opts));
       mainEl.prepend(util);
       updateThemeIcon();
+      window.SiloAccounting?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render
@@ -466,7 +468,7 @@
       resolveDepartment(opts.supabaseClient).then((dept) => {
         if (!dept) return;
         const navEl = sidebar.querySelector('#siloSbNav');
-        if (navEl) navEl.innerHTML = renderNavSections(opts.active, dept, opts.user && opts.user.role);
+        if (navEl) navEl.innerHTML = renderNavSections(navActive, dept, opts.user && opts.user.role);
       });
     }
 

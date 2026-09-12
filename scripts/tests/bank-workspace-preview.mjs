@@ -42,7 +42,7 @@ window.__SILO_CONFIG__={SUPABASE_URL:'https://offline.invalid',SUPABASE_ANON_KEY
 window.supabase={createClient:()=>db};window.SiloChrome={mount:()=>{}};
 window.fetch=async()=>({ok:true,json:async()=>({suggestions:[]})});
 `;
-let html=await readFile(path.join(root,'v2/card-coding.html'),'utf8');
+let html=await readFile(path.join(root,'v2/transactions.html'),'utf8');
 html=html.replace(/<script\b[^>]*src="([^"]+)"[^>]*><\/script>/g,(tag,src)=>src==='../pages/config.js'?'<script>'+fixture+'</script>':/^https:/.test(src)||['silo-chrome.js','nav-config.js','avatar.js','v2-shell.js'].includes(src)?'':tag);
 for(const match of [...html.matchAll(/<script src="([^"]+)"><\/script>/g)]) html=html.replace(match[0],'<script>'+await readFile(path.join(root,'v2',match[1]),'utf8')+'</script>');
 for(const match of [...html.matchAll(/<link rel="stylesheet" href="([^"]+)"\s*\/>/g)]) html=html.replace(match[0],'<style>'+await readFile(path.join(root,'v2',match[1]),'utf8')+'</style>');

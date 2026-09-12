@@ -64,12 +64,7 @@
     { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
 
 
-    { departments: FINANCE_DEPTS, id: 'finance/accounting-export', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting Export', href: '/v2/accounting-export.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/qbo-reports', section: 'Accounting', sectionStandard: 'Operations', label: 'QuickBooks Reports', href: '/v2/qbo-reports.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/schedules', section: 'Accounting', sectionStandard: 'Operations', label: 'Schedules', href: '/v2/schedules.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/fixed-assets', section: 'Accounting', sectionStandard: 'Operations', label: 'Fixed Assets', href: '/v2/fixed-assets.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/cash-forecast', section: 'Accounting', sectionStandard: 'Operations', label: 'Cash Flow Forecast', href: '/v2/cash-forecast.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/card-coding', section: 'Accounting', sectionStandard: 'Operations', label: 'Transactions', href: '/v2/card-coding.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
 
     // Requests (AP intake/approval + mail handling) was split out of

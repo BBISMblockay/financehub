@@ -118,11 +118,13 @@
       letter-spacing: .04em; color: var(--bcn-ink-3); }
     .qr-je-meta strong { font-size: 12.5px; font-weight: 650; }
   </style>
+  <link rel="stylesheet" href="accounting-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
+  <script src="accounting-suite.js"></script>
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
@@ -724,7 +726,7 @@
       + section('Staged — not yet in QuickBooks', staged, (a) => a.kind === 'adjustment'
         ? `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
           + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`
-        : `<a class="bcn-btn" href="/v2/card-coding.html">Review in Card Coding</a>`)
+        : `<a class="bcn-btn" href="/v2/transactions.html">Review transactions</a>`)
       + section('Posted to QuickBooks', posted, (a) =>
         `<button class="bcn-btn" data-void="${esc(a.id)}" data-void-kind="${esc(a.kind)}">Void</button>`)
       + '</tbody>';

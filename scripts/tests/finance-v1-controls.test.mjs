@@ -63,7 +63,7 @@ check(qboQueryForDocNumber('SILO-ABC').includes("DocNumber = 'SILO-ABC'"),
 
 const [migration, cardPage, composer, posting] = await Promise.all([
   readFile(new URL('../../supabase/migrations/20260912000000_finance_v1_posting_controls.sql', import.meta.url), 'utf8'),
-  readFile(new URL('../../v2/card-coding.html', import.meta.url), 'utf8'),
+  readFile(new URL('../../v2/transactions.html', import.meta.url), 'utf8'),
   readFile(new URL('../../v2/je-composer.js', import.meta.url), 'utf8'),
   readFile(new URL('../../supabase/functions/quickbooks-post-journal/index.ts', import.meta.url), 'utf8'),
 ]);

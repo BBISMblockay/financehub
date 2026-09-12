@@ -38,6 +38,10 @@ on:
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
       - 'supabase/migrations/*plaid_bank_feed.sql'
       - 'v2/card-coding.html'
+      - 'v2/transactions.html'
+      - 'v2/accounting-suite*'
+      - 'v2/nav-config.js'
+      - 'v2/silo-chrome.js'
       - 'v2/plaid-bank-feed.js'
       - 'v2/je-composer.js'
       # The splitter is tested against the real verify file, so a change to
@@ -97,6 +101,9 @@ jobs:
 
       - name: Account workspace states and cutover confirmation
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
+
+      - name: Accounting suite navigation and legacy routes
+        run: node --test scripts/tests/accounting-suite.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
