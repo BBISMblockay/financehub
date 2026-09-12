@@ -238,7 +238,11 @@
 
     function setMsg(text, kind) {
       $('jeMsg').textContent = text;
-      $('jeMsg').className = 'je-msg' + (kind ? ` je-${kind}` : '');
+      $('jeMsg').className = 'bcn-status bcn-status--' + (kind === 'bad' ? 'neg' : kind === 'ok' ? 'pos' : 'info');
+    }
+    async function askFinance(options) {
+      if (!window.SiloFinanceDialog) await import('./finance-dialog.js');
+      return window.SiloFinanceDialog.ask(options);
     }
 
     function addLine(seed) {
@@ -692,11 +696,10 @@
         let out = await res.json();
         postErrorCode = out.code || null;
         if (!res.ok && out.code === 'UNKNOWN_OUTCOME' && out.can_confirm_absent) {
-          const confirmed = confirm(
-            `SILO could not determine the prior outcome. It searched QuickBooks for ${out.doc_number} and found nothing.\n\n`
-            + 'Only continue after independently verifying that journal entry is absent in QuickBooks.');
-          if (confirmed) {
-            const note = prompt('Record how you verified the entry is absent from QuickBooks:', '');
+          const note = await askFinance({ title:'Recover an unknown posting outcome',
+            message:`Silo searched QuickBooks for ${out.doc_number} and found nothing. Independently verify the journal is absent. Continuing checks QuickBooks again and retries posting only if the entry is still absent.`,
+            reason:true,minLength:10,confirmation:'I independently verified the journal is absent and authorize the posting retry.',label:'Confirm absence and retry' });
+          if (note !== null) {
             if (note && note.trim().length >= 10) {
               const retry = await fetch(url, {
                 method: 'POST',
@@ -726,7 +729,7 @@
         setTimeout(() => { close(); if (onPosted) onPosted(out); }, 900);
       } catch (e) {
         if (approved && !['UNKNOWN_OUTCOME', 'LOCAL_PERSISTENCE_FAILURE'].includes(postErrorCode)
-            && confirm('Posting failed before QuickBooks confirmed the entry. Reopen the approval so you can edit it?')) {
+            && await askFinance({title:'Reopen approval',message:'Posting failed before QuickBooks confirmed the entry. Reopen the approval to edit it, then review and approve again.',label:'Reopen for edits'})) {
           const { error: reopenError } = await db.rpc('reopen_journal_adjustment', {
             p_adjustment_id: state.id,
             p_reason: `Posting failed: ${e.message}`.slice(0, 500),

@@ -95,6 +95,9 @@ jobs:
       - name: Card AI bank-feed admission
         run: node scripts/tests/card-categorize-bank-guard.test.mjs
 
+      - name: Account workspace states and cutover confirmation
+        run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
+
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
 

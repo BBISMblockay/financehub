@@ -493,7 +493,12 @@ supabase/
   `void_journal_adjustment` supports both typed source identities and legacy
   adjustment IDs, preserving the exact posting link and the operator's reason.
   Confirmed postings remain locked when recovery cannot find the QBO entry.
-  Native `confirm`/`prompt` dialogs remain in the controlled finance recovery
-  and reopen actions; replacing them with styled dialogs is deferred.
+  Recovery and reopen actions use explicit finance dialogs in the account workspace.
   This migration retains snapshots and posting/reopen/void metadata. A separate
   append-only finance event ledger is still a Finance V1 prerequisite.
+
+- `20260912203725_bank_feed_workspace_history.sql` — records the history requested
+  at new Plaid Item initialization. Existing Items remain NULL (not recorded),
+  never backfilled from today's configuration. No policy, approval, cursor, or
+  posting changes. Apply separately after review; deploy plaid-finance and
+  card-categorize with the workspace frontend. See the Plaid runbook.

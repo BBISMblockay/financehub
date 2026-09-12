@@ -106,13 +106,17 @@ async function linkStateKey(keyBase64) {
   return crypto.subtle.importKey('raw', derived, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
-/** Bind a Link operation to its initiating user/company without exposing tokens. */
-export async function createLinkState({ userId, companyId, connectionId = null, expiresAt }, keyBase64) {
+/** Bind a Link operation to its initiating user/company without exposing tokens.
+ * @param {{userId: string|null, companyId: string, connectionId?: string|null, expiresAt: string|number, daysRequested?: number|null}} options
+ * @param {string} keyBase64
+ */
+export async function createLinkState({ userId, companyId, connectionId = null, expiresAt, daysRequested = null }, keyBase64) {
   const expiration = typeof expiresAt === 'string' ? Date.parse(expiresAt) : expiresAt;
   const now = Date.now();
   if (!identifier(userId) || !identifier(companyId) || (connectionId !== null && !identifier(connectionId)) || !Number.isSafeInteger(expiration) || expiration <= now || expiration > now + 4 * 60 * 60 * 1000 + 5000) return fail('invalid_link_state');
   const key = await linkStateKey(keyBase64);
-  const payload = toBase64Url(encoder.encode(JSON.stringify({ v: 1, userId, companyId, connectionId, expiresAt: expiration })));
+  if (daysRequested !== null && (!Number.isInteger(daysRequested) || daysRequested < 1 || daysRequested > 730)) return fail('invalid_link_state');
+  const payload = toBase64Url(encoder.encode(JSON.stringify({ v: 1, userId, companyId, connectionId, expiresAt: expiration, daysRequested })));
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`silo-plaid-link-state-v1.${payload}`));
   return `${payload}.${toBase64Url(new Uint8Array(signature))}`;
 }
@@ -128,7 +132,8 @@ export async function verifyLinkState(token, keyBase64, { userId, companyId, now
     if (signature.byteLength !== 32 || !await crypto.subtle.verify('HMAC', key, signature, encoder.encode(`silo-plaid-link-state-v1.${parts[0]}`))) throw new Error('signature');
     const claims = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(fromBase64Url(parts[0])));
     if (claims.v !== 1 || claims.userId !== userId || claims.companyId !== companyId || !Number.isSafeInteger(claims.expiresAt) || claims.expiresAt <= now || (claims.connectionId !== null && !identifier(claims.connectionId))) throw new Error('claims');
-    return { userId: claims.userId, companyId: claims.companyId, connectionId: claims.connectionId, expiresAt: claims.expiresAt };
+    return { userId: claims.userId, companyId: claims.companyId, connectionId: claims.connectionId, expiresAt: claims.expiresAt,
+      ...(claims.daysRequested != null ? { daysRequested: claims.daysRequested } : {}) };
   } catch { return fail('invalid_link_state'); }
 }
 
@@ -204,6 +209,10 @@ export function inferAccountingTreatment(raw, accountType) {
  * together. No intermediate cursor leaves this function. On mutation, abandon
  * the entire cycle and restart from its original committed cursor.
  * request(path, body) returns parsed Plaid JSON and throws an Error with .code.
+ * @typedef {{transaction_id: string, account_id: string, [key: string]: unknown}} SyncTransaction
+ * @typedef {{added: SyncTransaction[], modified: SyncTransaction[], removed: SyncTransaction[], next_cursor: string|null}} SyncResult
+ * @param {{request: Function, accessToken: string, accountId: string, cursor?: string|null, maxPages?: number, maxRestarts?: number, maxUpdates?: number}} options
+ * @returns {Promise<SyncResult>}
  */
 export async function collectTransactionSync({ request, accessToken, accountId, cursor = null, maxPages = 50, maxRestarts = 2, maxUpdates = 25000 }) {
   if (typeof request !== 'function' || typeof accessToken !== 'string' || !accessToken || !identifier(accountId)) return fail('invalid_sync_input');
@@ -211,6 +220,7 @@ export async function collectTransactionSync({ request, accessToken, accountId, 
   if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 1000 || !Number.isInteger(maxRestarts) || maxRestarts < 0 || maxRestarts > 5 || !Number.isInteger(maxUpdates) || maxUpdates < 1 || maxUpdates > 100000) return fail('invalid_sync_limits');
   for (let restart = 0; restart <= maxRestarts; restart++) {
     let currentCursor = cursor;
+    /** @type {SyncResult} */
     const result = { added: [], modified: [], removed: [], next_cursor: cursor };
     const seenCursors = new Set(cursor === null ? [] : [cursor]);
     try {

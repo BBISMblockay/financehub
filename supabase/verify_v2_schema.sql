@@ -97,13 +97,15 @@ select
   count(*)::int as stamped_tables,
   case
     when count(*) >= (
-      select count(*) - 2
+      select count(*)
       from information_schema.columns c
       join information_schema.tables t
         on t.table_schema = c.table_schema and t.table_name = c.table_name
       where c.table_schema = 'public'
         and c.column_name = 'company_entity_id'
         and t.table_type = 'BASE TABLE'
+        -- Service-owned finance records require explicit NOT NULL companies.
+        and c.table_name not in ('inventory_on_hand','sales_by_day','plaid_connections','plaid_connection_secrets','plaid_accounts','plaid_sync_exceptions','finance_audit_events')
     ) then 'ok'
     else 'MISSING — run attach_stamp_company_entity_id_triggers()'
   end as status
@@ -168,7 +170,7 @@ select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_report_runs') then 'ok' else 'MISSING' end as quickbooks_report_runs,
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='quickbooks_journal_postings') then 'ok' else 'MISSING' end as quickbooks_journal_postings,
   -- The database-level double-post guard. Without it a UI disable is the only thing stopping a duplicate period.
-  case when exists (select 1 from pg_indexes where schemaname='public' and indexname='uq_quickbooks_postings_source_ref_posted') then 'ok' else 'MISSING' end as posting_double_post_guard;
+  case when exists (select 1 from pg_indexes where schemaname='public' and indexname='uq_quickbooks_postings_active_claim' and indexdef like 'CREATE UNIQUE INDEX%' and indexdef like '%unknown%' and indexdef like '%submitting%' and indexdef like '%posted%') then 'ok' else 'MISSING' end as posting_double_post_guard;
 
 -- 7d6. Balance sheet schedules (20260827220000_schedule_items.sql)
 select
@@ -1838,9 +1840,10 @@ select
       then 'MISSING — card_import_batches_v absent'
     when not exists (select 1 from pg_policies
                       where schemaname='public' and tablename='card_transactions'
-                        and policyname='card_transactions_write'
-                        and qual like '%status <> ''posted''%')
-      then 'MISSING — card_transactions_write no longer blocks edits to a posted batch'
+                        and policyname='card_transactions_write_draft'
+                        and qual like '%draft%' and qual like '%categorized%'
+                        and with_check like '%draft%' and with_check like '%categorized%')
+      then 'MISSING — transaction writes must be restricted to draft and categorized batches'
     else 'ok'
   end as card_coding;
 
@@ -3376,6 +3379,8 @@ with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'
 select name as plaid_table,
   case when c.oid is null then 'MISSING — Plaid table'
     when not c.relrowsecurity then 'CRITICAL — Plaid RLS disabled'
+    when not exists(select 1 from pg_attribute a where a.attrelid=c.oid and a.attname='company_entity_id' and a.attnotnull)
+      then 'CRITICAL — service-owned finance records require explicit NOT NULL companies'
     when has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE') then 'CRITICAL — anonymous Plaid table access'
     when name='plaid_connection_secrets' and has_table_privilege('authenticated',c.oid,'SELECT,INSERT,UPDATE,DELETE')
       then 'CRITICAL — browser credential access'
@@ -3421,3 +3426,10 @@ select case when to_regclass('public.uq_plaid_transaction_identity') is null
   when has_table_privilege('service_role','public.finance_audit_events','INSERT,UPDATE,DELETE,TRUNCATE')
   then 'CRITICAL — direct service audit mutation'
   else 'ok' end as plaid_identity_and_audit_contract;
+
+-- Bank workspace: unknown historical request is NULL, never a guessed default.
+select case when exists(select 1 from information_schema.columns
+  where table_schema='public' and table_name='plaid_connections'
+    and column_name='history_days_requested' and data_type='integer'
+    and is_nullable='YES' and column_default is null)
+  then 'ok' else 'MISSING — apply bank_feed_workspace_history after review' end as status;
