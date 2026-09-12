@@ -1,6 +1,44 @@
 # Plaid bank and card feeds — V1
 
-Plaid adds an ingestion source to **Card Coding**. Each mapped account feeds `card_transactions` and monthly `card_import_batches`. Users code, review and approve there; `quickbooks-post-journal` remains the only journal writer. Nothing syncs to Clarity.
+Plaid feeds the **Transactions** workspace at the existing `/v2/card-coding.html` URL. Choose an account to see its balances, sync state and monthly activity together. Each mapped account still feeds `card_transactions` and monthly `card_import_batches`; `quickbooks-post-journal` remains the only journal writer. Nothing syncs to Clarity.
+
+## Account workspace rollout (separate from the PR)
+
+Apply `20260912203725_bank_feed_workspace_history.sql`, then deploy the changed
+`plaid-finance` and `card-categorize` functions with the workspace frontend. Reload
+open tabs. This PR does not apply migrations, deploy functions, or post journals.
+
+- Transactions is the landing surface; account selection opens its newest mutable
+  period (or newest historical period when all are frozen). Journal entry, Rules
+  and Accounts remain separate surfaces. CSV sources retain Upload statement on
+  their account header. Bank connections/mapping is reached from that header or
+  Accounts; it keeps the finance permission boundary.
+- Before mapping, Preview available history reads the provider's independent
+  account stream from the beginning without claiming a lease, writing ledger rows
+  or advancing any saved cursor. The earliest date is what was returned at that
+  time, not a guarantee that initial history has finished loading. Empty history
+  says so. Existing connections have an unknown requested window; new connections
+  persist the request from signed Link state, not the current environment value.
+- Mapping requires a dialog confirming the exact irreversible cutover date.
+  Transactions before that date are outside the feed's authority. Previously
+  imported CSV activity remains; this is not a backfill or cursor-reset tool.
+- Bank AI suggests movement treatment first. Only purchase/refund can receive an
+  account suggestion; all other treatments return no account or location. The
+  reviewer explicitly accepts or dismisses suggestions, then saves. Pending,
+  removed, non-USD, already coded and frozen rows remain ineligible. Source and
+  merchant grouping are rebuilt from stored IDs, with inflow/outflow separated.
+- Recent means a successful sync within 24 hours, not a claim that the bank has
+  no newer data. Never-synced, stale, local syncing, held lease, login required,
+  stopped and error states each show an action. A held lease offers Check sync
+  status after the displayed expiry; it never resets the cursor.
+- Unknown QBO recovery uses an explicit confirmation and a recorded reason.
+  Confirming absence authorizes the existing writer to check again and retry if
+  still absent. Approval freeze, provider revision checks and audit rules remain.
+
+Offline verification: `node scripts/tests/bank-workspace-preview.mjs <scratch-dir>`
+generates synthetic light/dark desktop pages and 390×844 iframe phone previews
+from the actual page and scripts. It contains no real credentials or provider IO.
+The fixture does not verify production permissions or real institution behavior.
 
 ## Included and deliberately bounded
 
@@ -45,7 +83,7 @@ The authority boundary is company + QBO connection + balancing account, across *
 | Payroll withdrawal | Payroll settlement to clearing/liability; approved payroll output owns wage/tax expense |
 | Prepaid / fixed asset purchase | Asset account; existing schedules own amortization/depreciation |
 
-Bank rows start with `unknown` treatment and require explicit review before approval. Purchase AI accepts only eligible card purchase outflows. Plaid rules must be scoped to the exact source and direction; CSV global rules cannot silently code bank transactions. Treatment validation supplements human review; it cannot infer whether another system already accounted for a transaction.
+Bank rows start with `unknown` treatment and require explicit review before approval. Bank AI proposes treatments; card purchase AI retains its conservative outflow eligibility. Plaid rules must be scoped to the exact source and direction; CSV global rules cannot silently code bank transactions. Treatment validation supplements human review; it cannot infer whether another system already accounted for a transaction.
 
 ## Changed transactions and recovery
 

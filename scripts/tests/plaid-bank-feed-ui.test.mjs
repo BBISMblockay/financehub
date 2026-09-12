@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
 
 // Execute the shipped module and Card Coding's actual callbacks. Network,
 // Supabase, Link, and DOM are fakes; accounting/UI decision code is not copied.
 const moduleSource = await readFile(new URL('../../v2/plaid-bank-feed.js', import.meta.url), 'utf8');
+const workspaceSource = await readFile(new URL('../../v2/bank-workspace.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../../v2/card-coding.html', import.meta.url), 'utf8');
 const inlineSource = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>', html.indexOf('<script>')));
 class Element {
@@ -26,7 +28,7 @@ function dom() {
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const chart = [{ id: '1', name: 'Cash', type: 'Bank', connectionId: 'qbo-one' }, { id: '2', name: 'Expense', type: 'Expense', connectionId: 'qbo-one' }];
 const source = { id: 'source-one', display_name: 'Checking', source_type: 'bank', ingest_mode: 'plaid', qbo_connection_id: 'qbo-one', authoritative_from: '2026-09-01' };
-const transaction = { id: 'txn-one', origin: 'plaid', provider_status: 'posted', amount: 10, description: 'Merchant', status: 'uncoded', accounting_treatment: 'unknown', txn_date: '2026-09-12' };
+const transaction = { id: 'txn-one', origin: 'plaid', provider_status: 'posted', amount: 10, currency:'USD', description: 'Merchant', status: 'uncoded', accounting_treatment: 'unknown', txn_date: '2026-09-12' };
 function target(row, selector) { return { closest(value) { return value === selector ? this : value === '[data-bank-account]' || value === '[data-bank-exception]' ? row : null; } }; }
 function query(data, writes, table) {
   let window = null;
@@ -49,15 +51,18 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
       if (invokeError) return { error: new Error(invokeError) };
       const action = request.body.action;
       const result = action === 'link_token' ? { link_token: 'link-token', link_state: 'signed-state', expires_at: '2099-01-01T00:00:00Z', environment: 'sandbox' }
+        : action === 'history_preview' ? {account_id:'account-one',earliest_date:'2026-08-01',returned_count:22,history_days_requested:90}
         : action === 'exchange' ? exchangeResult : action === 'sync' ? syncResult : action === 'refresh_accounts' ? { connection_id: 'connection-one' } : {};
       return { data: result, error: null };
     } },
     from: (table) => query(data, writes, table), rpc: async (name, args) => { calls.push({ rpc: name, args: clone(args) }); return { data: { source_id: source.id } }; },
   };
   const window = { location: { href: 'https://silo.test/v2/card-coding.html' }, history: { replaceState() {} },
+    SiloFinanceDialog:{ask:async()=>true},
     Plaid: { create(options) { links.push(options); return { open() {}, destroy() {} }; } } };
   const storage = { getItem: (key) => storageData.get(key), setItem: (key, value) => storageData.set(key, value), removeItem: (key) => storageData.delete(key) };
   vm.runInNewContext(moduleSource, { window, URL, Date, console });
+  vm.runInNewContext(workspaceSource, {window});
   let changed = 0;
   const controller = window.SiloBankFeeds.create({ db, company: () => company,
     references: () => ({ sources: [source], allAccounts: chart }), dirty: () => dirty,
@@ -71,14 +76,14 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
     bank: window.SiloBankFeeds, get changed() { return changed; } };
 }
 async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl } = {}) {
-  const d = dom(), calls = [], writes = [], fetches = [], window = { __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
+  const d = dom(), calls = [], writes = [], fetches = [], window = { addEventListener(){}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
   const db = { auth: { getSession: async () => ({ data: { session: { access_token: 'fake-token' } } }) },
     from: (table) => query({}, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
-    + 'window.testPage = { state, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches };\n})();';
-  vm.runInNewContext(testable, { window, document: d.document, console, setTimeout() {}, clearTimeout() {},
+    + 'window.testPage = { state, suggestions, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches };\n})();';
+  vm.runInNewContext(testable, { window, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
     fetch: async (url, args) => { fetches.push({ url, body: JSON.parse(args.body) }); return fetchImpl ? fetchImpl(url, args) : { ok: true, json: async () => ({ suggestions: [] }) }; },
     confirm() { throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
   const page = window.testPage;
@@ -162,7 +167,10 @@ await test('unsaved coding stops connector changes before API call', async () =>
   assert.equal(h.calls.length, 0); assert.match(h.statuses.at(-1).message, /Save your coding/);
 });
 await test('account mapping sends explicit connection, source, account, cutover only', async () => {
-  const h = harness(); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-map]') });
+  const h = harness();
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-preview]') });
+  h.calls.length=0;
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-map]') });
   assert.deepEqual(h.calls[0], { rpc: 'configure_plaid_account', args: { p_account_id: 'account-one', p_qbo_connection_id: 'qbo-one', p_qbo_account_id: '1', p_authoritative_from: '2026-09-01', p_source_id: 'source-one' } });
   assert.equal(h.calls.length, 1); // Mapping neither syncs nor posts.
 });
@@ -182,8 +190,8 @@ await test('failed or malformed sync never claims success or reloads coding', as
     assert.equal(h.opened.length, 0); assert.equal(h.changed, 0); assert.equal(h.statuses.at(-1).kind, 'neg');
   }
 });
-await test('bank, inflow, and transfer rows never reach card AI', async () => {
-  for (const options of [{}, { sourceType: 'card', amount: -10, treatment: 'refund' }, { sourceType: 'card', treatment: 'transfer' }, { sourceType: 'card', treatment: 'card_payment' }]) {
+await test('card inflow and transfer rows never reach card expense AI', async () => {
+  for (const options of [{ sourceType: 'card', amount: -10, treatment: 'refund' }, { sourceType: 'card', treatment: 'transfer' }, { sourceType: 'card', treatment: 'card_payment' }]) {
     const h = await pageHarness(options); await h.page.aiCategorise(); assert.equal(h.fetches.length, 0);
   }
 });
@@ -297,6 +305,8 @@ await test('pending AI prevents manual edits and competing requests before apply
   assert.equal(h.fetches.length, 1); assert.equal(h.calls.length, 0); assert.equal(h.writes.length, 0);
   gate.resolve({ ok: true, json: async () => ({ suggestions: [{ merchant: 'merchant', account_name: 'Expense', confidence: 0.9 }] }) });
   await categorising;
+  assert.deepEqual(clone(h.page.state.txns),before); assert.equal(h.page.state.dirty.size,0);
+  assert.equal(h.page.suggestions.size,1); h.page.acceptSuggestion('txn-one');
   assert.equal(h.page.state.txns[0].qbo_account_id, '2'); assert.equal(h.page.state.txns[0].coding_source, 'ai');
   assert.equal(h.page.state.txns[0].accounting_treatment, 'purchase'); assert.equal(h.page.state.dirty.size, 1);
   assert.equal(h.page.state.codingBusy, false); assert.equal(h.el('btnSaveCoding').disabled, false);
@@ -329,4 +339,46 @@ await test('list and older-batch requests omit approval payloads while retaining
   assert.equal(h.page.state.batch.id, batch.id); assert.equal(requests.length, 2);
 });
 
+await test('mapping unconfirmed or changed date cannot call configure RPC',async()=>{
+  for(const answer of [null,false,'changed']){
+    const h=harness();
+    await h.el('bankAccounts').fire('click',{target:target(h.row,'[data-bank-preview]')});
+    h.calls.length=0;
+    h.window.SiloFinanceDialog.ask=async()=>{
+      if(answer==='changed')h.row.fields.get('[data-bank-cutover]').value='2026-08-01';
+      return answer==='changed'?true:answer;
+    };
+    await h.el('bankAccounts').fire('click',{target:target(h.row,'[data-bank-map]')});
+    assert.equal(h.calls.length,0);
+  }
+});
+await test('CSV statement path parses, imports, codes, saves and builds a balanced preview without posting',async()=>{
+  const h=await pageHarness({sourceType:'card',origin:'csv'});
+  const src=h.page.state.sources[0];src.is_active=true;src.ingest_mode='csv';src.credit_qbo_account_id='1';src.credit_qbo_account_name='Cash';src.posting_enabled=true;
+  h.page.renderSourceSelect();assert.match(h.el('impSource').innerHTML,/source-one/);
+  h.el('impSource').value=src.id;h.el('impPeriod').value='2026-09';h.el('impEntryDate').value='2026-09-30';
+  h.el('impMap').querySelectorAll=()=>['txn_date','description','amount'].map((col,i)=>({dataset:{col},value:['Date','Description','Amount'][i]}));
+  h.page.state.parsed={...h.page.parseCsv('Date,Description,Amount\n2026-09-10,Office Depot,25.00\n2026-09-11,Shipping supplies,12.50\n'),file:{name:'statement.csv'}};
+  const stored={card_transactions:[],card_import_batches:[]};
+  h.db.from=(table)=>{
+    const base=table.replace(/_v$/,'');let operation='read',payload,single=false;
+    const q={select(){return q;},eq(){return q;},in(){return q;},order(){return q;},limit(){return q;},range(){return q;},single(){single=true;return q;},
+      insert(value){operation='insert';payload=value;return q;},update(value){operation='update';payload=value;return q;},
+      then(resolve,reject){
+        if(operation==='insert'){
+          const rows=(Array.isArray(payload)?payload:[payload]).map((r,i)=>({id:base==='card_import_batches'?'csv-batch':'csv-'+i,status:base==='card_import_batches'?'draft':'uncoded',currency:'USD',source_name:'CSV fixture',...r}));
+          stored[base].push(...rows);
+        }
+        const rows=stored[base]||[];return Promise.resolve({data:single?rows[0]:rows,error:null}).then(resolve,reject);
+      }};return q;
+  };
+  await h.page.doImport();
+  assert.equal(stored.card_transactions.length,2,h.el('status').textContent);
+  assert.equal(h.page.state.batch.id,'csv-batch');assert.equal(h.page.state.batch.status,'draft');
+  for(const row of h.page.state.txns){Object.assign(row,{qbo_account_id:'2',qbo_account_name:'Expense',status:'coded',coding_source:'manual'});h.page.state.dirty.add(row.id);}
+  await h.page.saveCoding();assert.equal(h.calls.at(-1).name,'apply_card_coding');
+  const entry=h.page.buildEntry(),lines=[...entry.lines,entry.creditLine];
+  assert.equal(lines.reduce((n,l)=>n+l.debit,0),37.5);assert.equal(lines.reduce((n,l)=>n+l.credit,0),37.5);
+  assert.ok(h.fetches.every(f=>!f.url.includes('quickbooks-post-journal')));
+});
 console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);

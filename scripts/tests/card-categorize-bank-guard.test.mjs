@@ -6,7 +6,8 @@ import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 
 const source = await readFile(new URL('../../supabase/functions/card-categorize/index.ts', import.meta.url), 'utf8');
-const runnable = stripTypeScriptTypes(source.replace(/import \{ createClient \} from 'https:[^']+';/, ''), { mode: 'strip' });
+const effectiveSource=process.env.BANK_AI_MUTATION==='clearing-account' ? source.replace("const canSuggestAccount = ['purchase','refund'].includes(treatment);",'const canSuggestAccount = true;') : source;
+const runnable = stripTypeScriptTypes(effectiveSource.replace(/import \{ createClient \} from 'https:[^']+';/, ''), { mode: 'strip' });
 const ids = { batch: '00000000-0000-4000-8000-000000000001', source: '00000000-0000-4000-8000-000000000002',
   tx: '00000000-0000-4000-8000-000000000003', otherTx: '00000000-0000-4000-8000-000000000004',
   connection: '00000000-0000-4000-8000-000000000005', company: '00000000-0000-4000-8000-000000000006' };
@@ -82,7 +83,7 @@ function fixture(options = {}) {
       assert.equal(url, 'https://api.anthropic.com/v1/messages');
       modelCalls.push(JSON.parse(init.body));
       return Response.json({ content: [{ type: 'text', text: JSON.stringify({ suggestions: [{ merchant: 'store', card_name: 'Supplies',
-        account_name: 'Supplies expense', location_name: 'HQ', vendor_name: 'Store', confidence: 0.9, reasoning: 'Synthetic purchase.' }] }) }], stop_reason: 'end_turn' });
+        direction: 'outflow', accounting_treatment: 'purchase', account_name: 'Supplies expense', location_name: 'HQ', vendor_name: 'Store', confidence: 0.9, reasoning: 'Synthetic purchase.', ...options.suggestion }] }) }], stop_reason: 'end_turn' });
     },
   });
   return { records, queries, modelCalls, writes, async run(body = {}) {
@@ -107,9 +108,29 @@ test('actual Plaid purchase rebuilds merchant/source context from scoped stored 
   assert.equal(h.writes.length, 0);
 });
 
-test('bank source cannot dispatch the card expense model even with forged purchase rows', async () => {
+test('bank source dispatches treatment-first model with stored context', async () => {
   const h = fixture({ source: { source_type: 'bank' } });
-  assert.equal((await h.run()).status, 409); assert.equal(h.modelCalls.length, 0);
+  const result=await h.run();
+  assert.equal(result.status, 200); assert.equal(h.modelCalls.length, 1);
+  assert.match(h.modelCalls[0].system,/First identify accounting_treatment/);
+  assert.equal(result.body.suggestions[0].accounting_treatment,'purchase');
+});
+
+test('bank clearing, deposit and unknown treatments strip model account/location suggestions', async () => {
+  for(const accounting_treatment of ['transfer','card_payment','payroll_settlement','shopify_settlement','deposit','unknown','invented']) {
+    const h=fixture({source:{source_type:'bank'},suggestion:{accounting_treatment}});
+    const result=await h.run(), s=result.body.suggestions[0];
+    assert.equal(result.status,200); assert.equal(s.account_name,null,accounting_treatment); assert.equal(s.location_name,null);
+    assert.equal(s.accounting_treatment,accounting_treatment==='invented'?'unknown':accounting_treatment);
+    assert.equal(h.writes.length,0);
+  }
+});
+test('bank inflow refunds can suggest an account but contradictory purchase direction cannot',async()=>{
+  for(const treatment of ['refund','purchase']) {
+    const h=fixture({source:{source_type:'bank'},transaction:{amount:-25,accounting_treatment:'unknown'},suggestion:{direction:'inflow',accounting_treatment:treatment}});
+    const s=(await h.run()).body.suggestions[0];
+    assert.equal(s.account_name,treatment==='refund'?'Supplies expense':null);
+  }
 });
 
 test('Plaid inflow, transfer, card payment, pending, removed and excluded rows never reach the model', async () => {

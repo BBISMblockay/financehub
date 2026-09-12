@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
       }));
       if (typeof result.link_token !== 'string' || !Number.isFinite(Date.parse(result.expiration))) fail('invalid_link_response');
       const linkState = await createLinkState({ userId, companyId, connectionId: connection?.id ?? null,
-        expiresAt: result.expiration }, key);
+        expiresAt: result.expiration, daysRequested: connection ? null : Number(env('PLAID_DAYS_REQUESTED') || 90) }, key);
       return json({ link_token: result.link_token, link_state: linkState, environment, expires_at: result.expiration });
     }
 
@@ -172,6 +172,9 @@ Deno.serve(async (req) => {
         }
       }
       try {
+        // Only signed initialization metadata may describe this Item's window.
+        if (state.daysRequested != null) await updateConnection(db, saved.connection_id, companyId,
+          { history_days_requested: state.daysRequested });
         const accounts = await fetchAccounts(exchanged.access_token, exchanged.item_id);
         await register(exchanged.item_id, ciphertext, accounts, institutionName);
         return json(saved);
@@ -195,6 +198,26 @@ Deno.serve(async (req) => {
           .eq('updated_at', connection.updated_at).select('id').maybeSingle(), 'connection_changed_during_repair');
       }
       return json(await register(connection.item_id, ciphertext, accounts, connection.institution_name));
+    }
+    if (input.action === 'history_preview') {
+      if (!validId(input.account_id)) return json({ error: 'Choose an account to preview its history.' }, 400);
+      const previewAccount = await checked(db.from('plaid_accounts').select('*')
+        .eq('id', input.account_id).eq('company_entity_id', companyId).maybeSingle(), 'account_not_found');
+      const connection = await loadConnection(previewAccount.connection_id);
+      if (connection.status !== 'active') return json({ error: 'Reconnect this account before previewing history.' }, 409);
+      const token = await loadToken(connection);
+      // Independent read from the beginning; NEVER commit this preview cursor.
+      // Fold modifications/removals so the date describes the returned live set.
+      const changes = await collectTransactionSync({ request, accessToken: token,
+        accountId: previewAccount.provider_account_id, cursor: null, maxUpdates: 20_000 });
+      const rows = new Map();
+      for (const row of [...changes.added, ...changes.modified]) rows.set(row.transaction_id, row);
+      for (const row of changes.removed) rows.delete(row.transaction_id);
+      const dates = [...rows.values()].map((row: any) => row.date).filter((date: any) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+      return json({ account_id: previewAccount.id, earliest_date: dates[0] || null,
+        latest_date: dates.at(-1) || null, returned_count: rows.size,
+        history_days_requested: connection.history_days_requested ?? null,
+        checked_at: new Date().toISOString() });
     }
     if (input.action === 'disconnect') {
       const connection = await loadConnection(input.connection_id);

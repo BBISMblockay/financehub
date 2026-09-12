@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · Card Coding</title>
+  <title>SILO · Transactions</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
@@ -26,6 +26,25 @@
     .cc-pane[data-pane="feeds"] > * { flex: none; }
     #bankAccounts { display: flex; flex-direction: column; gap: 12px; }
     #bankExceptions[hidden] { display: none; }
+    .workspace-facts { display:grid; grid-template-columns:repeat(5,minmax(120px,1fr));gap:14px; }
+    .workspace-facts span {display:block;color:var(--bcn-ink-3);font-size:11px;margin-bottom:5px;}
+    .workspace-facts strong {font:600 20px var(--bcn-mono);}
+    .workspace-facts b {font-size:12px;font-weight:500;}
+    .workspace-selectors {display:flex;gap:16px;align-items:end;flex-wrap:wrap;}
+    .workspace-selectors label {flex:1;min-width:200px;}
+    #workspaceSummary {flex:none;}
+    .cc-pane[data-pane="coding"] {overflow:auto;}
+    .cc-pane[data-pane="coding"] > * {flex-shrink:0;}
+    .cc-pane[data-pane="coding"] .cc-card--grow {min-height:300px;}
+    @media(max-width:700px) {
+      .workspace-facts {grid-template-columns:repeat(2,minmax(0,1fr));}
+      .cc-content {padding:10px;}
+      .cc-card-head {align-items:flex-start;flex-wrap:wrap;}
+      #codeSearch {width:100%!important;max-width:100%;}
+      .cc-tabbar {overflow-x:auto;flex-wrap:nowrap;}
+      .cc-tabbar .bcn-tab {white-space:nowrap;}
+      #ccMeta {display:none;}
+    }
 
     .cc-card { display: flex; flex-direction: column; min-height: 0; min-width: 0;
       background: var(--bcn-panel); border: 1px solid var(--bcn-border);
@@ -174,8 +193,8 @@
   <main class="silo-main">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">Card Coding</div>
-        <div class="bcn-header-sub" id="ccSub">Import bank or card transactions, code them, post the entry</div>
+        <div class="bcn-header-title">Transactions</div>
+        <div class="bcn-header-sub" id="ccSub">Review bank and card activity in Silo</div>
       </div>
       <div class="bcn-header-actions">
         <button class="bcn-btn" id="btnRefresh">Refresh</button>
@@ -184,12 +203,10 @@
 
     <div class="cc-page">
       <nav class="bcn-tabs cc-tabbar" id="ccTabs" role="tablist">
-        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="import">Import</button>
-        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="feeds">Bank feeds</button>
-        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="coding">Coding</button>
+        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="coding">Transactions</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="entry">Journal entry</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="rules">Rules</button>
-        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="cards">Cards</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="cards">Accounts</button>
         <span class="bcn-tabs-meta" id="ccMeta"></span>
       </nav>
 
@@ -197,18 +214,18 @@
 
       <div class="cc-content">
         <!-- ================= IMPORT ================= -->
-        <section class="cc-pane" data-pane="import">
+        <section class="cc-pane" data-pane="import" hidden>
           <div class="cc-card">
             <div class="cc-card-head">
               <div>
-                <div class="cc-title">New import</div>
+                <div class="cc-title">Upload statement</div>
                 <div class="cc-sub">One upload becomes one journal entry</div>
               </div>
             </div>
             <div class="cc-pad">
               <div class="cc-grid">
                 <div class="cc-field">
-                  <label for="impSource">Card</label>
+                  <label for="impSource">Account</label>
                   <select class="bcn-field bcn-field--mono" id="impSource"></select>
                 </div>
                 <div class="cc-field">
@@ -271,12 +288,18 @@
 
         <!-- ================= CODING ================= -->
         <section class="cc-pane" data-pane="coding" hidden>
+          <div class="workspace-selectors">
+            <label class="cc-field">Account<select id="workspaceAccount" class="bcn-field" aria-label="Account"></select></label>
+            <label class="cc-field">Period<select id="workspacePeriod" class="bcn-field" aria-label="Period"></select></label>
+            <button class="bcn-btn" id="btnManageBank">Connect / manage accounts</button>
+          </div>
+          <div id="workspaceSummary"></div>
           <div class="cc-kpis" id="codeKpis"></div>
           <div class="cc-card cc-card--grow">
             <div class="cc-card-head">
               <div>
-                <div class="cc-title" id="codeTitle">No batch open</div>
-                <div class="cc-sub" id="codeSub">Open a batch from the Import tab</div>
+                <div class="cc-title" id="codeTitle">Transactions</div>
+                <div class="cc-sub" id="codeSub">Choose an account and period above</div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                 <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
@@ -307,7 +330,7 @@
             </div>
             <div class="cc-foot">
               <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
-              <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Categorise with AI</button>
+              <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Suggest coding</button>
               <button class="bcn-btn" id="btnSaveCoding">Save coding</button>
               <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
               <button class="bcn-btn" id="btnLearnRules">Learn rules from coded rows</button>
@@ -388,10 +411,11 @@
 
         <!-- ================= CARDS ================= -->
         <section class="cc-pane" data-pane="cards" hidden>
+          <div class="cc-foot"><button class="bcn-btn" id="btnAccountConnections">Bank connections and mapping</button></div>
           <div class="cc-card cc-card--grow">
             <div class="cc-card-head">
               <div>
-                <div class="cc-title">Cards</div>
+                <div class="cc-title">Accounts</div>
                 <div class="cc-sub">The balancing account each feed settles to</div>
               </div>
             </div>
@@ -399,11 +423,11 @@
               <table class="cc-tbl" id="tblCards"></table>
             </div>
             <div class="cc-foot">
-              <button class="bcn-btn bcn-btn--primary" id="btnSaveCards">Save cards</button>
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveCards">Save accounts</button>
               <span class="cc-sep"></span>
               <input class="bcn-field bcn-field--mono" id="newCardName"
                      placeholder="New card name, e.g. Ramp" style="width:220px" />
-              <button class="bcn-btn" id="btnAddCard">Add card</button>
+              <button class="bcn-btn" id="btnAddCard">Add statement account</button>
               <span class="cc-note" id="cardsStatus"></span>
             </div>
           </div>
@@ -432,6 +456,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="je-composer.js"></script>
 <script src="plaid-bank-feed.js"></script>
+<script src="finance-dialog.js"></script>
+<script src="bank-workspace.js"></script>
 <script>
 (function () {
   'use strict';
@@ -475,6 +501,9 @@
     `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join('');
   let _co = null;
   let bankFeeds = null;
+  let workspace = null;
+  const suggestions = new Map();
+  const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find((source) => source.id === state.batch?.source_id);
   const editable = () => bank.canEditBatch(state.batch) && !state.codingBusy;
   function requireEditable() {
@@ -723,7 +752,7 @@
       p.hidden = !on;
       matched = matched || on;
     }
-    if (!matched) return showPane('import');
+    if (!matched) return showPane('coding');
     for (const t of el('ccTabs').querySelectorAll('.bcn-tab')) {
       const on = t.dataset.pane === name;
       t.classList.toggle('bcn-tab--active', on);
@@ -740,14 +769,15 @@
   function renderMeta() {
     el('ccMeta').textContent = state.batch
       ? `${state.batch.source_name} · ${state.batch.label || ''} · ${state.txns.length} rows`
-      : `${state.sources.length} cards · ${state.batches.length} batches`;
+      : `${state.sources.length} accounts · ${state.batches.length} periods`;
+    workspace?.followBatch();
   }
 
   // -------------------------------------------------------------- import
 
   function renderSourceSelect() {
     el('impSource').innerHTML = state.sources
-      .filter((s) => s.is_active)
+      .filter((s) => s.is_active && s.ingest_mode !== 'plaid')
       .map((s) => `<option value="${esc(s.id)}">${esc(s.display_name)}</option>`).join('');
   }
 
@@ -1089,6 +1119,9 @@
 
   async function openBatch(id) {
     if (state.dirty.size || state.codingBusy) return setStatus('Save coding and wait for current work before opening another batch.', 'neg', 6000);
+    const previousBatch=state.batch, previousRows=state.txns;
+    state.codingBusy=true;renderCoding();renderEntry();
+    try {
     state.batch = state.batches.find((b) => b.id === id) || null;
     if (!state.batch) {
       const { data, error } = await sb.from('card_import_batches_v').select(BATCH_FIELDS)
@@ -1096,11 +1129,14 @@
       if (error || !data) throw new Error(error?.message || 'Batch is unavailable.');
       state.batch = data;
     }
+    suggestions.clear();
     await loadTxns(id);
     buildOptionCache();
     for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity']) el(id).innerHTML = '';
     state.selected.clear();
     el('codeSearch').value = '';
+    } catch(error) {state.batch=previousBatch;state.txns=previousRows;throw error;}
+    finally {state.codingBusy=false;renderCoding();renderEntry();renderMeta();}
     renderCoding();
     renderEntry();
     renderMeta();
@@ -1219,6 +1255,7 @@
       hits++;
     }
     renderCoding();
+    el('btnApplyRules').textContent = `Apply rules · ${hits} matched`;
     renderEntry();
     const conflictNote = conflicts
       ? ` ${conflicts} left for you — the card and the merchant disagree.` : '';
@@ -1258,7 +1295,9 @@
     el('btnReloadCoding').hidden = state.dirty.size === 0;
     el('btnAiCode').disabled = locked || !state.txns.some((txn) => bank.eligibleForAi(txn, batchSource()));
     if (!state.batch) {
-      el('tblCoding').innerHTML = '<tr><td class="cc-empty">Open a batch from the Import tab.</td></tr>';
+      el('codeTitle').textContent = 'Transactions';
+      el('codeSub').textContent = 'Choose an account and period above';
+      el('tblCoding').innerHTML = '<tr><td class="cc-empty">No activity for this account yet. Sync bank transactions or upload a statement to begin.</td></tr>';
       el('codeKpis').innerHTML = '';
       el('codeBulk').hidden = true;
       return;
@@ -1294,7 +1333,7 @@
 
     if (!rows.length) {
       el('tblCoding').innerHTML =
-        '<tr><td class="cc-empty">Nothing matches this filter.</td></tr>';
+        '<tr><td class="cc-empty">Nothing matches. Clear your search or choose All rows.</td></tr>';
       return;
     }
 
@@ -1322,8 +1361,8 @@
         <td data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
         <td data-cell="location">${cellButton(t.qbo_location_name, 'location')}</td>
         <td data-cell="entity">${entityCell(t)}</td>
-        <td>${t.origin === 'plaid' ? `<select class="bcn-field" data-field="treatment" aria-label="Accounting treatment" ${locked || !bank.isAvailable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select><div class="cc-note">${esc(t.provider_status)} · ${bank.directionOf(t) === 'outflow' ? 'Money out' : 'Money in'}</div>` : '<span class="cc-note">CSV</span>'}</td>
-        <td>${confidenceChip(t)}</td>
+        <td>${t.origin === 'plaid' ? `<select class="bcn-field" data-field="treatment" aria-label="Accounting treatment" ${locked || !bank.isAvailable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select><div class="cc-note">Bank ${esc(t.provider_status)} · ${bank.directionOf(t) === 'outflow' ? 'Money out' : 'Money in'}</div>` : '<span class="cc-note">CSV</span>'}</td>
+        <td>${suggestionCell(t) || confidenceChip(t)}</td>
         <td style="white-space:nowrap">
           <button class="bcn-btn" data-raw title="Show every column from the file">⋯</button>
           <button class="bcn-btn" data-toggle-exclude>${t.status === 'excluded' ? 'Include' : 'Exclude'}</button>
@@ -1384,7 +1423,7 @@
     return name
       ? `<button class="cc-cell" data-edit="${field}">${esc(name)}</button>`
       : `<button class="cc-cell cc-cell--empty" data-edit="${field}">${
-          field === 'account' ? 'set account' : 'card default'}</button>`;
+          field === 'account' ? 'set account' : 'account default'}</button>`;
   }
 
   // One <select> exists at a time, built on click from the cached option HTML.
@@ -1397,7 +1436,7 @@
     const label = isEntity ? (txn.entity_name || '')
       : isAcct ? (txn.qbo_account_name || '') : (txn.qbo_location_name || '');
     td.innerHTML = `<select class="bcn-field bcn-field--mono" data-field="${field}">
-        <option value="">${isAcct || isEntity ? '— none —' : '— card default —'}</option>
+        <option value="">${isAcct || isEntity ? '— none —' : '— account default —'}</option>
         ${(isEntity ? refsForConnection(state.entities, connectionId) : isAcct ? refsForConnection(state.accounts, connectionId) : refsForConnection(state.locations, connectionId)).map((item) => `<option value="${esc(isEntity ? `${item.type}:${item.id}` : item.id)}">${esc(item.name)}</option>`).join('')}
       </select>`;
     const sel = td.querySelector('select');
@@ -1809,11 +1848,41 @@
     }
   }
 
+  function suggestionCell(t) {
+    const s = suggestions.get(t.id);
+    if (!s) return '';
+    return `<div class="cc-note"><b>Suggestion · ${Math.round((s.confidence || 0)*100)}%</b><br>${esc(TREATMENTS[s.accounting_treatment] || 'Purchase')}${s.account_name?' · '+esc(s.account_name):' · Choose account manually'}<br>${esc(s.reasoning || '')}</div>
+      <button class="bcn-btn" data-accept-suggestion ${!editable()?'disabled':''}>Accept suggestion</button>
+      <button class="bcn-btn" data-dismiss-suggestion ${!editable()?'disabled':''}>Dismiss</button>`;
+  }
+  function acceptSuggestion(id) {
+    if (!requireEditable()) return;
+    const t = state.txns.find(t=>t.id===id), s = suggestions.get(id);
+    if (!t || !s) return;
+    if (s.revision !== JSON.stringify(t) || !bank.eligibleForAi(t,batchSource())) {
+      suggestions.delete(id); renderCoding(); return setStatus('This row changed. Request a fresh suggestion.', 'neg');
+    }
+    const treatment = s.accounting_treatment || (Number(t.amount)>0?'purchase':'refund');
+    t.accounting_treatment = treatment;
+    const acct = ['purchase','refund'].includes(treatment) && refsForConnection(state.accounts).find(a=>a.name===s.account_name);
+    t.qbo_account_id = acct?.id || null; t.qbo_account_name = acct?.name || null;
+    t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null;
+    const loc = acct && refsForConnection(state.locations).find(l=>l.name===s.location_name);
+    t.qbo_location_id = loc?.id || null; t.qbo_location_name = loc?.name || null;
+    t.ai_reasoning = s.reasoning; t.confidence = s.confidence; t.coding_source = 'ai';
+    t.vendor_name = s.vendor_name || t.vendor_name; t.status = acct ? 'coded' : 'uncoded';
+    state.dirty.add(id); suggestions.delete(id); renderCoding(); renderEntry();
+  }
+  el('tblCoding').addEventListener('click', event=>{
+    const row=event.target.closest('[data-txn]'); if(!row)return;
+    if(event.target.closest('[data-accept-suggestion]')) acceptSuggestion(row.dataset.txn);
+    if(event.target.closest('[data-dismiss-suggestion]') && editable()){suggestions.delete(row.dataset.txn);renderCoding();}
+  });
   async function aiCategorise() {
     if (!state.batch || !requireEditable()) return;
     if (batchSource()?.ingest_mode === 'plaid' && state.dirty.size) return setStatus('Save coding and treatment changes before asking AI.', 'neg', 6000);
     const pending = state.txns.filter((t) => t.status === 'uncoded' && !t.qbo_account_id && bank.eligibleForAi(t, batchSource()));
-    if (!pending.length) return setStatus('Nothing left to categorise.', 'info', 4000);
+    if (!pending.length) return setStatus('No eligible uncategorized transactions. Review existing suggestions or choose another period.', 'info', 4000);
 
     // One question per merchant, not per row.
     const byMerchant = new Map();
@@ -1846,34 +1915,19 @@
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session?.access_token}`,
         },
-        body: JSON.stringify({ merchants, source_name: state.batch.source_name, batch_id: state.batch.id, transaction_ids: pending.filter((txn) => merchantKey(txn)).map((txn) => txn.id) }),
+        body: JSON.stringify({ batch_id: state.batch.id, transaction_ids: pending.filter((txn) => merchantKey(txn)).map((txn) => txn.id) }),
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
 
       const byKey = new Map((out.suggestions || [])
-        .map((s) => [`${s.merchant}||${s.card_name || ''}`, s]));
+        .map((s) => [`${s.merchant}||${s.card_name || ''}${batchSource()?.source_type==='bank'?'||'+s.direction:''}`, s]));
       let applied = 0;
       for (const t of pending) {
-        const s = byKey.get(`${merchantKey(t)}||${t.card_name || ''}`);
+        const s = byKey.get(`${merchantKey(t)}||${t.card_name || ''}${batchSource()?.source_type==='bank'?'||'+bank.directionOf(t):''}`);
         if (!s) continue;
-        t.ai_reasoning = s.reasoning || null;
-        t.confidence = s.confidence ?? 0;
-        t.vendor_name = s.vendor_name || t.vendor_name;
-        if (s.account_name) {
-          const acct = refsForConnection(state.accounts).find((a) => a.name === s.account_name);
-          if (acct) {
-            t.qbo_account_id = acct.id;
-            t.qbo_account_name = acct.name;
-            const loc = s.location_name && refsForConnection(state.locations).find((l) => l.name === s.location_name);
-            t.qbo_location_id = loc ? loc.id : defaultLocationId();
-            t.qbo_location_name = locName(t.qbo_location_id);
-            t.coding_source = 'ai';
-            t.status = 'coded';
-            applied++;
-          }
-        }
-        state.dirty.add(t.id);
+        suggestions.set(t.id, { ...s, revision: JSON.stringify(t) });
+        applied++;
       }
 
       renderCoding();
@@ -1882,13 +1936,13 @@
       setStatus(
         `${applied} row${applied === 1 ? '' : 's'} suggested from ${merchants.length} merchants.`
         + (low ? ` ${low} came back under 60% — read those before approving.` : '')
-        + ' Nothing is saved until you hit Save coding.',
+        + ' Accept or dismiss each suggestion. Accepted changes still require Save coding.',
         low ? 'info' : 'pos', 9000);
       if (out.errors?.length) {
         setStatus(`Some merchants failed: ${out.errors[0]}`, 'neg', 9000);
       }
     } catch (e) {
-      setStatus(`Categorisation failed — ${e.message}`, 'neg', 8000);
+      setStatus(`Suggestions could not load — ${e.message}. Retry or review these transactions manually.`, 'neg', 8000);
     } finally {
       el('codeStatus').textContent = '';
       state.codingBusy = false;
@@ -2080,8 +2134,9 @@
   function renderEntry() {
     const e = buildEntry();
     if (!e) {
-      el('tblEntry').innerHTML = '<tr><td class="cc-empty">Open a batch first.</td></tr>';
+      el('tblEntry').innerHTML = '<tr><td class="cc-empty">Choose an account and period in Transactions to preview its journal.</td></tr>';
       el('entryKpis').innerHTML = '';
+      for(const id of ['btnApprove','btnPost','btnEntryCsv'])el(id).disabled=true;
       return;
     }
 
@@ -2093,7 +2148,7 @@
 
     el('entryKpis').innerHTML = [
       ['Debits', money(dr)], ['Credits', money(cr)],
-      ['Balanced', balanced ? 'yes' : money(dr - cr)],
+      ['Balanced', !e.included ? 'Awaiting coding' : balanced ? 'yes' : money(dr - cr)],
       ['Lines', String(all.length)],
     ].map(([l, v]) => `<div class="cc-kpi">
         <div class="cc-kpi-label">${l}</div><div class="cc-kpi-value">${esc(v)}</div></div>`).join('');
@@ -2122,13 +2177,13 @@
     if (unavailable) blockers.push(`${unavailable} bank rows are pending or removed`);
     const treatments = state.txns.filter((txn) => txn.origin === 'plaid' && txn.status === 'coded' && (!txn.accounting_treatment || txn.accounting_treatment === 'unknown')).length;
     if (treatments) blockers.push(`${treatments} bank rows need an accounting treatment`);
-    if (!e.src?.credit_qbo_account_id) blockers.push('the card has no balancing account set (Cards tab)');
+    if (!e.src?.credit_qbo_account_id) blockers.push('choose a balancing account in Accounts');
     if (/Accounts (Payable|Receivable)/i.test(e.src?.credit_qbo_account_type || '')
         && !e.src?.credit_vendor_qbo_id) {
       blockers.push(e.src?.credit_vendor_name
         ? `the balancing account needs a ${/Receivable/i.test(e.src.credit_qbo_account_type || '')
             ? 'customer' : 'vendor'} record — “${e.src.credit_vendor_name}” is stored as typed text, `
-          + 'so re-pick it from the list on the Cards tab'
+          + 'so re-pick it from the list in Accounts'
         : `the balancing account is ${e.src?.credit_qbo_account_type}, which QuickBooks requires an entity on`);
     }
     if (uncoded) blockers.push(`${uncoded} row${uncoded === 1 ? ' is' : 's are'} still uncoded`);
@@ -2158,7 +2213,7 @@
         + ' If it was deleted in QuickBooks, mark it unposted so it can be posted again.'
       : blockers.length ? `Blocked: ${blockers.join('; ')}.`
       : !approved ? 'Ready to approve.'
-      : !e.src?.posting_enabled ? 'Approved. Posting is off for this card — turn it on in the Cards tab.'
+      : !e.src?.posting_enabled ? 'Approved. Posting is off for this account — enable it in Accounts when ready.'
       : 'Approved and ready to post.';
   }
 
@@ -2213,9 +2268,7 @@
 
   el('btnReopen').addEventListener('click', async () => {
     if (!state.batch || state.batch.status !== 'approved') return;
-    const reason = prompt(
-      'Reopen this approval? The approved snapshot will be discarded and the batch must be approved again.\n\nWhy?',
-      '');
+    const reason = await askFinance({ title:'Reopen approval', message:'The approved snapshot will be discarded. Review the changes and approve this period again before posting.', reason:true, label:'Reopen for edits' });
     if (reason === null) return;
     if (!reason.trim()) return setStatus('A reopen reason is required.', 'neg', 5000);
     const { error } = await sb.rpc('reopen_card_import_batch', {
@@ -2294,11 +2347,10 @@
       });
       let out = await res.json();
       if (!res.ok && out.code === 'UNKNOWN_OUTCOME' && out.can_confirm_absent) {
-        const confirmed = confirm(
-          `SILO could not determine the prior outcome. It searched QuickBooks for ${out.doc_number} and found nothing.\n\n`
-          + 'Only continue after independently verifying that journal entry is absent in QuickBooks.');
-        if (confirmed) {
-          const note = prompt('Record how you verified the entry is absent from QuickBooks:', '');
+        const note = await askFinance({ title:'Recover an unknown posting outcome',
+          message:`Silo searched QuickBooks for ${out.doc_number} and found nothing. Independently verify that this journal is absent. Continuing checks QuickBooks again and retries posting only if the entry is still absent.`,
+          confirmation:'I independently verified the journal is absent and authorize the posting retry.', reason:true, minLength:10, label:'Confirm absence and retry' });
+        if (note !== null) {
           if (note && note.trim().length >= 10) {
             const retry = await fetch(`${SUPABASE_URL}/functions/v1/quickbooks-post-journal`, {
               method: 'POST',
@@ -2735,7 +2787,7 @@
 
     const previousCompany = _co?.id;
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
-    if (!_co?.id) throw new Error('Choose an active company before opening Card Coding.');
+    if (!_co?.id) throw new Error('Choose an active company before opening Transactions.');
     if (previousCompany && previousCompany !== _co.id) { state.batch = null; state.txns = []; state.dirty.clear(); }
 
     const { data: profile } = await sb.from('profiles')
@@ -2745,7 +2797,7 @@
       appEl: '#silo-app',
       active: 'finance/card-coding',
       user: { email: profile?.email || session.user.email, role: profile?.role },
-      crumbs: ['Finance', 'Card Coding'],
+      crumbs: ['Finance', 'Transactions'],
       supabaseClient: sb,
     });
 
@@ -2785,6 +2837,30 @@
     try { await bankFeeds.load(); resumingBank = await bankFeeds.resume(); }
     catch (error) { el('bankConnections').textContent = error.message; }
 
+    if (!workspace) workspace = window.SiloBankWorkspace.create({ references:()=>state, feeds:()=>bankFeeds,
+      status:setStatus, dirty:()=>state.dirty.size>0 || state.codingBusy,
+      manage:()=>showPane('feeds'),
+      upload: id=>{renderSourceSelect(); el('impSource').value=id; renderColumnMap(); showPane('import');},
+      openBatch:async id=>{await openBatch(id);showPane('coding');},
+      selectSource:async id=>{
+        suggestions.clear(); state.batch=null;state.txns=[];state.selected.clear();renderCoding();renderEntry();
+        if (!id) return;
+        const periods=[];
+        for(let offset=0;;offset+=500){
+          const {data,error}=await sb.from('card_import_batches_v').select(BATCH_FIELDS)
+            .eq('company_entity_id',_co.id).eq('source_id',id).order('period_start',{ascending:false})
+            .order('created_at',{ascending:false}).range(offset,offset+499);
+          if(error)throw new Error('Could not load periods. Refresh the account and try again.');
+          periods.push(...(data||[]));if(!data || data.length<500)break;
+        }
+        state.batches=[...state.batches.filter(b=>b.source_id!==id),...periods];
+        const current=periods.find(b=>['draft','categorized'].includes(b.status)) || periods[0];
+        if(current)await openBatch(current.id);
+      }
+    });
+    workspace.render();
+    if(!state.batch && workspace.selected())await workspace.choose(workspace.selected());
+
     if (!el('impPeriod').value) {
       const d = new Date();
       d.setMonth(d.getMonth() - 1);
@@ -2793,12 +2869,16 @@
 
     let saved = null;
     try { saved = sessionStorage.getItem(PANE_KEY); } catch { /* private mode */ }
-    showPane(resumingBank ? 'feeds' : saved || 'import');
+    showPane(resumingBank ? 'feeds' : 'coding');
 
     if (!state.allAccounts.length) {
       setStatus('No QuickBooks accounts pulled yet — connect and pull in Integrations first.', 'neg', 0);
     }
   }
+
+  el('btnManageBank').addEventListener('click',()=>showPane('feeds'));
+  el('btnAccountConnections').addEventListener('click',()=>showPane('feeds'));
+  window.addEventListener('silo-bank-feeds-updated',()=>workspace?.render());
 
   boot().catch((err) => {
     console.error(err);

@@ -31,6 +31,7 @@ const json = (body: unknown, status = 200) =>
   });
 
 type Merchant = {
+  direction?: string;
   merchant: string;        // normalised key
   card_name?: string | null; // the issuer's card / cost centre, where there is one
   sample: string;          // one raw descriptor, for context
@@ -39,6 +40,8 @@ type Merchant = {
 };
 
 type Suggestion = {
+  direction?: string;
+  accounting_treatment?: string;
   merchant: string;
   card_name?: string | null;
   account_name: string | null;
@@ -56,6 +59,7 @@ function systemPrompt(
   relatedEntities: string[],
   companyName: string,
   cardNames: string[],
+  bankMode = false,
 ) {
   // Sorted by what the company actually posts to, and annotated with it. A
   // flat alphabetical list is why "Shipping" got picked over "COGS - Shipping"
@@ -89,11 +93,11 @@ function systemPrompt(
   // connects QuickBooks -- and telling a model that a credit union is an
   // apparel brand is not a harmless inaccuracy, it steers every borderline
   // account choice.
-  return `You are coding credit-card transactions for ${companyName} into their QuickBooks Online chart of accounts. The card feed is "${sourceName}".
+  return `${bankMode ? 'You review bank movements, identifying treatment before considering an account.' : 'You review credit-card purchases.'} The company is ${companyName} and the account is "${sourceName}".
 
 You are not told what trade this company is in. Infer it from the accounts, locations and merchants below rather than assuming one.
 
-Return, for each line you are given, the account it should be expensed to.
+${bankMode ? 'First identify accounting_treatment: purchase, refund, deposit, transfer, card_payment, payroll_settlement, shopify_settlement, or unknown. Only purchase and refund may have account_name. All other treatments MUST return account_name:null and location_name:null. Deposits are not automatically revenue. Transfers, card payments, payroll settlements and Shopify settlements must never become expenses. Use unknown when evidence is insufficient. Echo direction exactly; never combine an inflow with an outflow. Purchase requires outflow and refund requires inflow.' : 'Suggest an account for each purchase, or decline when uncertain.'}
 
 # Related entities -- the ONLY names that mean "not this company's expense"
 ${relatedEntities.length ? relatedEntities.map((e) => `- ${e}`).join('\n') : '(none on file)'}
@@ -130,7 +134,7 @@ ${exampleList}
 - A payment processor is not a merchant. "MELIO*AIR TIGER EXPRESS", "BILL.COM* WASHINGTON P", "SQ *BLUE BOTTLE" -- read past the processor to the actual payee, and code THAT. Where the descriptor names no payee at all, the card name is your only evidence; if that does not settle it either, return null rather than guessing.
 
 Respond with JSON only, no prose, no code fence:
-{"suggestions":[{"merchant":"...","card_name":null,"account_name":"...","location_name":null,"vendor_name":"...","confidence":0.0,"reasoning":"..."}]}
+{"suggestions":[{"merchant":"...","card_name":null,${bankMode?'"direction":"outflow","accounting_treatment":"unknown",':''}"account_name":null,"location_name":null,"vendor_name":"...","confidence":0.0,"reasoning":"..."}]}
 Every line you were given must appear exactly once.`;
 }
 
@@ -143,10 +147,12 @@ async function askModel(
   relatedEntities: string[],
   companyName: string,
   cardNames: string[],
+  bankMode = false,
 ): Promise<Suggestion[]> {
   const userMsg = merchants
     .map((m) =>
       `- merchant: "${m.merchant}" | card: ${m.card_name ? `"${m.card_name}"` : 'none'}`
+      + (bankMode ? ` | direction: ${m.direction}` : '')
       + ` | example descriptor: "${m.sample}" | ${m.count} charge(s) | $${m.total.toFixed(2)} total`
     )
     .join('\n');
@@ -162,7 +168,7 @@ async function askModel(
       model: MODEL,
       max_tokens: 24000,
       system: systemPrompt(
-        accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames),
+        accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames, bankMode),
       messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
     }),
   });
@@ -320,10 +326,10 @@ Deno.serve(async (req) => {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  const allowed = membership
+  const allowed = String(profile.role) === 'executive' || (membership
     ? membership.role === 'owner_admin' || ['finance', 'exec'].includes(String(profile.department))
     : ['owner', 'executive'].includes(String(profile.role))
-      || ['finance', 'exec'].includes(String(profile.department));
+      || ['finance', 'exec'].includes(String(profile.department)));
   if (!allowed) return json({ error: 'Finance access required' }, 403);
 
   const { data: batch, error: batchError } = await supabase.from('card_import_batches')
@@ -338,9 +344,10 @@ Deno.serve(async (req) => {
     .select('id,display_name,source_type,ingest_mode,is_active,qbo_connection_id')
     .eq('id', batch.source_id).eq('company_entity_id', companyId).maybeSingle();
   if (sourceError) return json({ error: 'Could not load the card source.' }, 503);
-  if (!source || !source.is_active || source.source_type !== 'card') {
-    return json({ error: 'AI expense suggestions are available only for active card sources. Review bank activity using rules or manual coding.' }, 409);
+  if (!source || !source.is_active || !['bank','card'].includes(source.source_type)) {
+    return json({ error: 'Choose an active bank or card account before requesting suggestions.' }, 409);
   }
+  const bankMode = source.source_type === 'bank';
   const connectionId = source.qbo_connection_id;
   if (!connectionId || (batch.qbo_connection_id && batch.qbo_connection_id !== connectionId)) {
     return json({ error: 'Bind the card source to the correct QuickBooks connection before requesting suggestions.' }, 409);
@@ -365,18 +372,22 @@ Deno.serve(async (req) => {
     return json({ error: 'Some selected transactions are no longer in this batch. Reload it and try again.' }, 409);
   }
   if (selectedRows.some((row) => row.status !== 'uncoded' || row.qbo_account_id
-      || !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0 || row.currency !== 'USD'
+      || !Number.isFinite(Number(row.amount)) || Number(row.amount) === 0 || (!bankMode && Number(row.amount) < 0) || row.currency !== 'USD'
       || row.origin !== batch.origin || (row.origin === 'plaid'
-        && (row.provider_status !== 'posted' || row.accounting_treatment !== 'purchase')))) {
-    return json({ error: 'AI suggestions require uncoded purchase outflows. Save changes and review transfers, payments, deposits or pending rows separately.' }, 409);
+        && (row.provider_status !== 'posted' || (!bankMode && row.accounting_treatment !== 'purchase'))))) {
+    return json({ error: bankMode
+      ? 'Select uncoded, settled USD bank transactions. Reload this period to remove changed or unavailable rows.'
+      : 'Card suggestions require uncoded purchase outflows. Save changes and review payments or pending rows separately.' }, 409);
   }
   const byStoredMerchant = new Map<string, Merchant>();
   for (const row of selectedRows) {
     if (!row.merchant_norm) continue;
-    const key = `${row.merchant_norm}||${row.card_name || ''}`;
+    const direction = Number(row.amount)<0?'inflow':'outflow';
+    const key = `${row.merchant_norm}||${row.card_name || ''}${bankMode?'||'+direction:''}`;
     const merchant = byStoredMerchant.get(key) || {
       merchant: row.merchant_norm, card_name: row.card_name || null,
       sample: row.description || '', count: 0, total: 0,
+      ...(bankMode ? {direction} : {}),
     };
     merchant.count++;
     merchant.total += Number(row.amount);
@@ -534,7 +545,7 @@ Deno.serve(async (req) => {
       try {
         results[i] = await askModel(
           slices[i], accounts, locations, examples, sourceName, relatedEntities,
-          companyName, cardNames);
+          companyName, cardNames, bankMode);
       } catch (e) {
         results[i] = e instanceof Error ? e : new Error(String(e));
       }
@@ -549,6 +560,7 @@ Deno.serve(async (req) => {
       for (const m of slice) {
         out.push({
           merchant: m.merchant,
+          ...(bankMode ? {direction:m.direction,accounting_treatment:'unknown'} : {}),
           card_name: m.card_name ?? null,
           account_name: null,
           location_name: null,
@@ -562,15 +574,16 @@ Deno.serve(async (req) => {
 
     // Answers are matched back on the merchant AND card pair, since the same
     // merchant can legitimately appear twice with different cards.
-    const key = (merchant: unknown, card: unknown) =>
-      `${String(merchant ?? '')}||${card == null ? '' : String(card)}`;
-    const byMerchant = new Map((result || []).map((s) => [key(s.merchant, s.card_name), s]));
+    const key = (merchant: unknown, card: unknown, direction?: string) =>
+      `${String(merchant ?? '')}||${card == null ? '' : String(card)}${bankMode?'||'+direction:''}`;
+    const byMerchant = new Map((result || []).map((s) => [key(s.merchant, s.card_name, s.direction), s]));
 
     for (const m of slice) {
-      const s = byMerchant.get(key(m.merchant, m.card_name));
+      const s = byMerchant.get(key(m.merchant, m.card_name, m.direction));
       if (!s) {
         out.push({
           merchant: m.merchant,
+          ...(bankMode ? {direction:m.direction,accounting_treatment:'unknown'} : {}),
           card_name: m.card_name ?? null,
           account_name: null,
           location_name: null,
@@ -581,12 +594,17 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const acct = s.account_name && validAccounts.has(s.account_name) ? s.account_name : null;
-      const invented = !!s.account_name && !acct;
-      const loc = s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
+      const vocabulary = ['purchase','refund','deposit','transfer','card_payment','payroll_settlement','shopify_settlement','unknown'];
+      let treatment = bankMode && vocabulary.includes(s.accounting_treatment || '') ? s.accounting_treatment! : bankMode ? 'unknown' : 'purchase';
+      if (bankMode && ((treatment==='purchase' && m.direction!=='outflow') || (treatment==='refund' && m.direction!=='inflow'))) treatment='unknown';
+      const canSuggestAccount = ['purchase','refund'].includes(treatment);
+      const acct = canSuggestAccount && s.account_name && validAccounts.has(s.account_name) ? s.account_name : null;
+      const invented = canSuggestAccount && !!s.account_name && !acct;
+      const loc = canSuggestAccount && s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
 
       out.push({
         merchant: m.merchant,
+        ...(bankMode ? {direction:m.direction,accounting_treatment:treatment} : {}),
         card_name: m.card_name ?? null,
         account_name: acct,
         location_name: loc,

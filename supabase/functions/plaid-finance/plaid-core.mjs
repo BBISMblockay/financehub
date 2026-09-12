@@ -107,12 +107,13 @@ async function linkStateKey(keyBase64) {
 }
 
 /** Bind a Link operation to its initiating user/company without exposing tokens. */
-export async function createLinkState({ userId, companyId, connectionId = null, expiresAt }, keyBase64) {
+export async function createLinkState({ userId, companyId, connectionId = null, expiresAt, daysRequested = null }, keyBase64) {
   const expiration = typeof expiresAt === 'string' ? Date.parse(expiresAt) : expiresAt;
   const now = Date.now();
   if (!identifier(userId) || !identifier(companyId) || (connectionId !== null && !identifier(connectionId)) || !Number.isSafeInteger(expiration) || expiration <= now || expiration > now + 4 * 60 * 60 * 1000 + 5000) return fail('invalid_link_state');
   const key = await linkStateKey(keyBase64);
-  const payload = toBase64Url(encoder.encode(JSON.stringify({ v: 1, userId, companyId, connectionId, expiresAt: expiration })));
+  if (daysRequested !== null && (!Number.isInteger(daysRequested) || daysRequested < 1 || daysRequested > 730)) return fail('invalid_link_state');
+  const payload = toBase64Url(encoder.encode(JSON.stringify({ v: 1, userId, companyId, connectionId, expiresAt: expiration, daysRequested })));
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`silo-plaid-link-state-v1.${payload}`));
   return `${payload}.${toBase64Url(new Uint8Array(signature))}`;
 }
@@ -128,7 +129,8 @@ export async function verifyLinkState(token, keyBase64, { userId, companyId, now
     if (signature.byteLength !== 32 || !await crypto.subtle.verify('HMAC', key, signature, encoder.encode(`silo-plaid-link-state-v1.${parts[0]}`))) throw new Error('signature');
     const claims = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(fromBase64Url(parts[0])));
     if (claims.v !== 1 || claims.userId !== userId || claims.companyId !== companyId || !Number.isSafeInteger(claims.expiresAt) || claims.expiresAt <= now || (claims.connectionId !== null && !identifier(claims.connectionId))) throw new Error('claims');
-    return { userId: claims.userId, companyId: claims.companyId, connectionId: claims.connectionId, expiresAt: claims.expiresAt };
+    return { userId: claims.userId, companyId: claims.companyId, connectionId: claims.connectionId, expiresAt: claims.expiresAt,
+      ...(claims.daysRequested != null ? { daysRequested: claims.daysRequested } : {}) };
   } catch { return fail('invalid_link_state'); }
 }
 
