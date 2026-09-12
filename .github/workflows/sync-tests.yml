@@ -23,6 +23,7 @@ on:
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
+      - 'scripts/qbo-sandbox-validation.mjs'
       - 'supabase/functions/shopify-oauth-start/**'
       # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
       # function directory, so a change there must run these tests. Without
@@ -69,6 +70,9 @@ jobs:
 
       - name: Finance V1 posting request handler regressions
         run: node scripts/tests/finance-v1-posting-handler.test.mjs
+
+      - name: QBO sandbox probe safety and failure handling (mock IO)
+        run: node scripts/tests/qbo-sandbox-validation.test.mjs
 
       - name: JE composer review regressions
         run: node scripts/tests/je-composer-review.test.mjs
