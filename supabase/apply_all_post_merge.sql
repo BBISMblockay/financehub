@@ -18687,3 +18687,10 @@ $c$select (select count(*) from v_po_header_summary
 -- scripts/sql/verify_search_console_overview.sql.
 -- ---------------------------------------------------------------------------
 \i migrations/20260910210000_search_console_overview_rpcs.sql
+
+-- ---------------------------------------------------------------------------
+-- Finance V1 prerequisites: server-owned approval snapshots, immutable
+-- approved inputs, explicit QBO connection binding, durable unknown-outcome
+-- recovery, and stable source identity for generated journal entries.
+-- ---------------------------------------------------------------------------
+\i migrations/20260912000000_finance_v1_posting_controls.sql

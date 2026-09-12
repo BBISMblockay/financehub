@@ -3264,3 +3264,52 @@ select
       then 'CRITICAL — a task disagrees with its initiative about the launch'
     else 'ok'
   end as tasks_on_initiatives;
+
+-- ── Finance V1 approval + posting controls (20260912000000) ───────────────
+select
+  case
+    when not exists (select 1 from information_schema.columns
+      where table_schema='public' and table_name='card_import_batches'
+        and column_name='approval_snapshot')
+      then 'MISSING — card approval snapshots'
+    when not exists (select 1 from information_schema.columns
+      where table_schema='public' and table_name='journal_adjustments'
+        and column_name='approval_snapshot')
+      then 'MISSING — adjustment approval snapshots'
+    when not exists (select 1 from information_schema.columns
+      where table_schema='public' and table_name='quickbooks_journal_postings'
+        and column_name='request_key')
+      then 'MISSING — durable QBO request identity'
+    when not exists (select 1 from pg_indexes
+      where schemaname='public' and indexname='uq_quickbooks_postings_active_claim'
+        and indexdef ilike '%submitting%' and indexdef ilike '%unknown%'
+        and indexdef ilike '%posted%')
+      then 'CRITICAL — QBO unknown/submitting outcomes do not retain the duplicate-post lock'
+    when not exists (select 1 from pg_indexes
+      where schemaname='public' and indexname='uq_journal_adjustments_active_source')
+      then 'MISSING — generated journal source identity is not unique'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public' and p.proname='approve_card_import_batch')
+      then 'MISSING — server-side card approval RPC'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public' and p.proname='approve_journal_adjustment')
+      then 'MISSING — server-side adjustment approval RPC'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public'
+        and p.proname in ('approve_card_import_batch','approve_journal_adjustment',
+          'reopen_card_import_batch','reopen_journal_adjustment')
+        and (has_function_privilege('anon', p.oid, 'execute')
+          or has_function_privilege('public', p.oid, 'execute')))
+      then 'CRITICAL — a finance approval RPC is callable by anon/PUBLIC'
+    when not exists (select 1 from pg_policies
+      where schemaname='public' and tablename='card_import_batches'
+        and policyname='card_import_batches_update_draft'
+        and with_check ilike '%status = ANY%draft%categorized%')
+      then 'CRITICAL — browser writes can still create an approved card batch'
+    when not exists (select 1 from pg_policies
+      where schemaname='public' and tablename='journal_adjustments'
+        and policyname='journal_adjustments_update_draft'
+        and with_check ilike '%status = ''draft''%')
+      then 'CRITICAL — browser writes can still create an approved adjustment'
+    else 'ok'
+  end as finance_v1_posting_controls;

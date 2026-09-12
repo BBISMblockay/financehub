@@ -17,6 +17,8 @@
  *   SiloJE.open({
  *     db, companyId,
  *     context: 'qbo-reports:GeneralLedger',   // where it was raised from
+ *     accountingSource: 'manual_adjustment', // stable producer identity
+ *     accountingSourceRef: '...',            // stable run/period identity
  *     prefill: { entryDate, memo, lines: [{ accountId, postingType, amount }] },
  *     adjustmentId: '...',                    // resume a staged draft instead
  *     onStaged: (id) => { ... },              // refresh a drafts list
@@ -47,27 +49,35 @@
     if (ref) return ref;
     const [acct, loc, cust, vend] = await Promise.all([
       db.from('quickbooks_accounts')
-        .select('qbo_account_id, name, fully_qualified_name, account_type')
+        .select('qbo_account_id, name, fully_qualified_name, account_type, connection_id')
         .eq('is_active', true).order('fully_qualified_name'),
       db.from('quickbooks_locations')
-        .select('qbo_location_id, name, fully_qualified_name')
+        .select('qbo_location_id, name, fully_qualified_name, connection_id')
         .eq('is_active', true).order('name'),
       db.from('quickbooks_customers')
-        .select('qbo_customer_id, display_name').eq('is_active', true).order('display_name'),
+        .select('qbo_customer_id, display_name, connection_id').eq('is_active', true).order('display_name'),
       db.from('quickbooks_vendors')
-        .select('qbo_vendor_id, display_name').eq('is_active', true).order('display_name'),
+        .select('qbo_vendor_id, display_name, connection_id').eq('is_active', true).order('display_name'),
     ]);
 
     ref = {
       accounts: (acct.data || []).map((a) => ({
         id: a.qbo_account_id, name: a.fully_qualified_name || a.name, type: a.account_type,
+        connectionId: a.connection_id,
       })),
       locations: (loc.data || []).map((l) => ({
         id: l.qbo_location_id, name: l.fully_qualified_name || l.name,
+        connectionId: l.connection_id,
       })),
       entities: [
-        ...(cust.data || []).map((c) => ({ id: c.qbo_customer_id, name: c.display_name, type: 'Customer' })),
-        ...(vend.data || []).map((v) => ({ id: v.qbo_vendor_id, name: v.display_name, type: 'Vendor' })),
+        ...(cust.data || []).map((c) => ({
+          id: c.qbo_customer_id, name: c.display_name, type: 'Customer',
+          connectionId: c.connection_id,
+        })),
+        ...(vend.data || []).map((v) => ({
+          id: v.qbo_vendor_id, name: v.display_name, type: 'Vendor',
+          connectionId: v.connection_id,
+        })),
       ],
     };
     return ref;
@@ -145,7 +155,10 @@
   }
 
   function open(opts) {
-    const { db, companyId, context, prefill, adjustmentId, onPosted, onStaged } = opts;
+    const {
+      db, companyId, context, accountingSource, accountingSourceRef,
+      prefill, adjustmentId, onPosted, onStaged,
+    } = opts;
     injectStyles();
 
     const state = {
@@ -426,6 +439,16 @@
         memo: $('jeMemo').value.trim(),
         source_context: context || null,
       };
+      if (!state.id) {
+        const connectionIds = new Set(state.lines
+          .map((line) => acct(line.accountId)?.connectionId).filter(Boolean));
+        if (connectionIds.size !== 1) {
+          throw new Error('Every line must use one QuickBooks connection');
+        }
+        payload.qbo_connection_id = [...connectionIds][0];
+        payload.accounting_source = accountingSource || null;
+        payload.accounting_source_ref = accountingSourceRef || null;
+      }
 
       if (state.id) {
         const { error } = await db.from('journal_adjustments')
@@ -598,16 +621,17 @@
 
       $('jePost').disabled = true;
       setMsg('Posting…');
+      let approved = false;
+      let postErrorCode = null;
 
       try {
         // Approving is a separate write from posting so a failure at Intuit
         // leaves a retryable approved entry rather than an untouched draft.
-        const { error: apErr } = await db.from('journal_adjustments').update({
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-          approved_by: (await db.auth.getUser()).data.user?.id || null,
-        }).eq('id', state.id);
+        const { error: apErr } = await db.rpc('approve_journal_adjustment', {
+          p_adjustment_id: state.id,
+        });
         if (apErr) throw new Error(apErr.message);
+        approved = true;
 
         const { data: { session } } = await db.auth.getSession();
         const url = (window.__SILO_CONFIG__?.SUPABASE_URL || '') + '/functions/v1/quickbooks-post-journal';
@@ -619,15 +643,57 @@
           },
           body: JSON.stringify({ adjustment_id: state.id }),
         });
-        const out = await res.json();
+        let out = await res.json();
+        postErrorCode = out.code || null;
+        if (!res.ok && out.code === 'UNKNOWN_OUTCOME' && out.can_confirm_absent) {
+          const confirmed = confirm(
+            `SILO could not determine the prior outcome. It searched QuickBooks for ${out.doc_number} and found nothing.\n\n`
+            + 'Only continue after independently verifying that journal entry is absent in QuickBooks.');
+          if (confirmed) {
+            const note = prompt('Record how you verified the entry is absent from QuickBooks:', '');
+            if (note && note.trim().length >= 10) {
+              const retry = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${session?.access_token}`,
+                },
+                body: JSON.stringify({
+                  adjustment_id: state.id,
+                  recovery_action: 'confirm_not_posted',
+                  recovery_note: note.trim(),
+                }),
+              });
+              out = await retry.json();
+              postErrorCode = out.code || null;
+              if (!retry.ok) throw new Error(out.error || `HTTP ${retry.status}`);
+            } else if (note !== null) {
+              throw new Error('A specific recovery note of at least 10 characters is required');
+            }
+          }
+        }
         // The staged adjustment survives a failed post on purpose: it keeps the
         // reason and the lines, so a fixed entry is a retry rather than a retype.
-        if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+        if (!res.ok && !out.ok) throw new Error(out.error || `HTTP ${res.status}`);
 
         setMsg(`Posted as journal entry ${out.doc_number || out.qbo_journal_entry_id}.`, 'ok');
         setTimeout(() => { close(); if (onPosted) onPosted(out); }, 900);
       } catch (e) {
-        setMsg(`Post failed — ${e.message}. The entry is still staged; fix it and try again.`, 'bad');
+        if (approved && !['UNKNOWN_OUTCOME', 'LOCAL_PERSISTENCE_FAILURE'].includes(postErrorCode)
+            && confirm('Posting failed before QuickBooks confirmed the entry. Reopen the approval so you can edit it?')) {
+          const { error: reopenError } = await db.rpc('reopen_journal_adjustment', {
+            p_adjustment_id: state.id,
+            p_reason: `Posting failed: ${e.message}`.slice(0, 500),
+          });
+          if (!reopenError) {
+            showStep('edit');
+            renderTotals();
+            setMsg(`Approval reopened — fix the entry and approve it again. ${e.message}`, 'bad');
+            $('jePost').disabled = false;
+            return;
+          }
+        }
+        setMsg(`Post failed — ${e.message}. The approved entry remains staged; retry recovery without editing it.`, 'bad');
         $('jePost').disabled = false;
       }
     });

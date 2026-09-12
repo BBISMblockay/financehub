@@ -29,6 +29,10 @@ on:
       # this path the allowlist could be edited and nothing would run.
       - 'supabase/functions/page-inspect/**'
       - 'supabase/functions/silo-chat/**'
+      - 'supabase/functions/quickbooks-post-journal/**'
+      - 'supabase/migrations/*finance_v1_posting_controls.sql'
+      - 'v2/card-coding.html'
+      - 'v2/je-composer.js'
       # The splitter is tested against the real verify file, so a change to
       # the file must re-run that test.
       - 'supabase/verify_v2_schema.sql'
@@ -59,6 +63,9 @@ jobs:
 
       - name: Shopify stays read-only
         run: node scripts/tests/shopify-readonly.test.mjs
+
+      - name: Finance V1 approval and QBO recovery controls
+        run: node scripts/tests/finance-v1-controls.test.mjs
 
       # A manual 730-day backfill once finished GREEN in two minutes having
       # written nothing (run #354, 2026-09-09): Shopify refused with HTTP 200

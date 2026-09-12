@@ -475,3 +475,13 @@ supabase/
   `scripts/sql/verify_search_console_overview.sql` (16 assertions, fixture
   rows, rolled back); verify's `search_console_daily_tables` checks existence
   and grants
+
+- `20260912000000_finance_v1_posting_controls.sql` — Finance V1 posting
+  prerequisites without a second approval surface: approval moves to
+  authorization-checked RPCs that validate QBO references and freeze a hashed,
+  QBO-ready snapshot; RLS makes approved card/adjustment content immutable;
+  each approval binds one active QBO connection; generated Shopify, prepaid,
+  and depreciation entries carry stable source identity; and posting claims
+  now distinguish `submitting`, `unknown`, `posted`, and `failed`.
+  Unknown Intuit outcomes recover by deterministic DocNumber before a retry,
+  while local persistence failures remain recoverable from the same path.
