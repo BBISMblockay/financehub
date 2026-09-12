@@ -3433,3 +3433,27 @@ select case when exists(select 1 from information_schema.columns
     and column_name='history_days_requested' and data_type='integer'
     and is_nullable='YES' and column_default is null)
   then 'ok' else 'MISSING — apply bank_feed_workspace_history after review' end as status;
+
+-- Accounting foundation: local opening history and least-privilege onboarding.
+select 'Accounting foundation tables' as check_name,
+ case when count(*)=3 and bool_and(c.relrowsecurity) then 'ok' else 'MISSING: accounting foundation migration / RLS' end as status
+ from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public'
+ and c.relname in ('accounting_settings','accounting_accounts','accounting_opening_balances');
+select 'Accounting foundation client grants' as check_name,
+ case when count(*)=3 and bool_and(not has_table_privilege('anon',c.oid,'SELECT')
+ and not has_table_privilege('authenticated',c.oid,'INSERT')
+ and not has_table_privilege('authenticated',c.oid,'UPDATE')
+ and not has_table_privilege('authenticated',c.oid,'DELETE')
+ and has_table_privilege('authenticated',c.oid,'SELECT')) then 'ok' else 'MISSING: RPC-only accounting writes' end as status
+ from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public'
+ and c.relname in ('accounting_settings','accounting_accounts','accounting_opening_balances');
+select 'Accounting onboarding RPC grants' as check_name,
+ case when count(*)=3 and bool_and(not has_function_privilege('anon',p.oid,'EXECUTE')
+ and has_function_privilege('authenticated',p.oid,'EXECUTE') and p.prosecdef) then 'ok'
+ else 'MISSING: accounting RPC authorization' end as status
+ from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
+ and p.proname in ('seed_accounting_from_qbo','accept_accounting_opening_balances','accounting_qbo_connections');
+select 'Accounting register invoker' as check_name,
+ case when exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+ where n.nspname='public' and c.relname='accounting_journal_register' and c.reloptions @> array['security_invoker=true'])
+ then 'ok' else 'MISSING: accounting register invoker view' end as status;

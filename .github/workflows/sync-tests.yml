@@ -33,6 +33,8 @@ on:
       - 'supabase/functions/page-inspect/**'
       - 'supabase/functions/silo-chat/**'
       - 'supabase/functions/quickbooks-post-journal/**'
+      - 'supabase/functions/quickbooks-report/**'
+      - 'v2/accounting-books*'
       - 'supabase/functions/plaid-finance/**'
       - 'supabase/functions/card-categorize/**'
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
@@ -103,7 +105,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/accounting-suite.test.mjs
+        run: node --test scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
@@ -189,7 +191,7 @@ jobs:
         with:
           node-version: '22'
       - name: Check actual Edge imports and types
-        run: npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts
+        run: npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
 
   finance-database:
     name: Finance database regressions
@@ -205,3 +207,6 @@ jobs:
         run: node scripts/tests/finance-v1-database.test.mjs
       - name: Execute Plaid authority, lifecycle and audit regressions
         run: node scripts/tests/plaid-bank-feed-database.test.mjs
+
+      - name: Execute QBO-seeded accounting foundation regressions
+        run: node scripts/tests/accounting-foundation-database.test.mjs

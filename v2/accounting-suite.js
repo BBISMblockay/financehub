@@ -1,14 +1,7 @@
 /* Accounting navigation only. Each destination retains its page and data logic. */
 (function () {
   'use strict';
-  const pages = [
-    ['finance/card-coding','Transactions','transactions.html'],
-    ['finance/accounting-export','Sales & journals','accounting-export.html'],
-    ['finance/qbo-reports','Reports','qbo-reports.html'],
-    ['finance/schedules','Schedules','schedules.html'],
-    ['finance/fixed-assets','Fixed assets','fixed-assets.html'],
-    ['finance/cash-forecast','Cash forecast','cash-forecast.html'],
-  ];
+  const pages = window.SiloNav.ACCOUNTING_PAGES;
   function contains(active) { return pages.some(([id])=>id===active); }
   function mount(main, active) {
     if (!contains(active) || main.querySelector('[data-accounting-suite]')) return;

@@ -22,6 +22,16 @@
   // Departments that see finance-sensitive links. Employee-facing forms
   // (Payment Request) are NOT gated — everyone submits those. Nav hiding is
   // UX only; the data itself is gated by department-aware RLS.
+  const ACCOUNTING_PAGES = [
+    ['finance/card-coding','Transactions','transactions.html'],
+    ['finance/accounting-export','Sales & journals','accounting-export.html'],
+    ['finance/qbo-reports','Reports','qbo-reports.html'],
+    ['finance/schedules','Schedules','schedules.html'],
+    ['finance/fixed-assets','Fixed assets','fixed-assets.html'],
+    ['finance/books','Books & setup','accounting-books.html'],
+    ['finance/cash-forecast','Cash forecast','cash-forecast.html'],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -255,6 +265,7 @@
   }
 
   global.SiloNav = {
+    ACCOUNTING_PAGES,
     resolveNavProfile,
     navSectionsForProfile,
     navSectionsForCompany,

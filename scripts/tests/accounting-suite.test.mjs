@@ -13,13 +13,14 @@ class Element {
 }
 test('all accounting destinations are one click away and the current page is identified',()=>{
   const document={createElement:tag=>new Element(tag)},window={};
+  vm.runInNewContext(nav,{window});
   vm.runInNewContext(suite,{window,document});
   for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast']){
     let mounted;
     const main={querySelector:()=>mounted,firstElementChild:{after:node=>{mounted=node;}}};
     window.SiloAccounting.mount(main,active);
     const links=mounted.children[1].children;
-    assert.equal(links.length,6);assert.equal(links.filter(l=>l.attributes['aria-current']==='page').length,1);
+    assert.equal(links.length,7);assert.equal(links.filter(l=>l.attributes['aria-current']==='page').length,1);
     assert.ok(links.every(l=>l.href.startsWith('/v2/')));
     const first=mounted;window.SiloAccounting.mount(main,active);assert.equal(first,mounted);
   }
