@@ -957,6 +957,8 @@
       db: sb,
       companyId: _co.id,
       context: context || 'schedules:prepaid',
+      accountingSource: 'prepaid_amortization',
+      accountingSourceRef: context?.split(':').at(-1) || null,
       prefill,
       adjustmentId,
       onStaged: loadAmortAdjustments,

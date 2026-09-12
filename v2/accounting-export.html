@@ -967,7 +967,7 @@
       entryDate: periodEntryDate(),
       memo: `Shopify sales & payout fees — ${state.period}`,
       lines,
-    });
+    }, null, { accountingSource: 'shopify_monthly', accountingSourceRef: state.period });
   }
 
   function render() {
@@ -1792,13 +1792,15 @@
     return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
   }
 
-  function openComposer(prefill, adjustmentId) {
+  function openComposer(prefill, adjustmentId, identity = {}) {
     if (!window.SiloJE) { setStatus('Journal composer failed to load.', 'neg', 8000); return; }
     if (!_co?.id) { setStatus('No active company — sign in again.', 'neg', 8000); return; }
     window.SiloJE.open({
       db: sb,
       companyId: _co.id,
       context: `accounting-export:${el.month.value || 'no-period'}`,
+      accountingSource: identity.accountingSource,
+      accountingSourceRef: identity.accountingSourceRef,
       prefill,
       adjustmentId,
       onStaged: loadAdjustments,

@@ -475,3 +475,23 @@ supabase/
   `scripts/sql/verify_search_console_overview.sql` (16 assertions, fixture
   rows, rolled back); verify's `search_console_daily_tables` checks existence
   and grants
+
+- `20260912000000_finance_v1_posting_controls.sql` — Finance V1 posting
+  prerequisites without a second approval surface: approval moves to
+  authorization-checked RPCs that validate QBO references and freeze a hashed,
+  QBO-ready snapshot; RLS makes approved card/adjustment content immutable;
+  each approval binds one active QBO connection; generated Shopify, prepaid,
+  and depreciation entries carry stable source identity; and posting claims
+  now distinguish `submitting`, `unknown`, `posted`, and `failed`.
+  Unknown Intuit outcomes recover by deterministic DocNumber before a retry,
+  while local persistence failures remain recoverable from the same path.
+  Approval verification hashes the stored JSONB inside Postgres via a
+  service-role-only RPC, binding the exact hash/version the posting function
+  loaded; JavaScript serialization never determines approval validity.
+  `void_journal_adjustment` supports both typed source identities and legacy
+  adjustment IDs, preserving the exact posting link and the operator's reason.
+  Confirmed postings remain locked when recovery cannot find the QBO entry.
+  Native `confirm`/`prompt` dialogs remain in the controlled finance recovery
+  and reopen actions; replacing them with styled dialogs is deferred.
+  This migration retains snapshots and posting/reopen/void metadata. A separate
+  append-only finance event ledger is still a Finance V1 prerequisite.

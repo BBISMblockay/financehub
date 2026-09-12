@@ -315,6 +315,7 @@
             <div class="cc-foot">
               <button class="bcn-btn" id="btnEntryCsv">Download CSV</button>
               <button class="bcn-btn" id="btnApprove">Approve</button>
+              <button class="bcn-btn" id="btnReopen" hidden>Reopen approval</button>
               <button class="bcn-btn bcn-btn--dark" id="btnPost" disabled>Post to QuickBooks</button>
               <button class="bcn-btn bcn-btn--danger" id="btnVoid" hidden>Mark unposted</button>
               <span class="cc-note" id="entryStatus"></span>
@@ -555,7 +556,7 @@
     const [srcRes, acctRes, locRes, custRes, vendRes] = await Promise.all([
       sb.from('card_sources').select('*').order('display_name'),
       sb.from('quickbooks_accounts')
-        .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type, is_active')
+        .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type, is_active, connection_id')
         .eq('is_active', true).order('fully_qualified_name'),
       sb.from('quickbooks_locations')
         .select('qbo_location_id, name, fully_qualified_name')
@@ -571,6 +572,7 @@
       id: a.qbo_account_id,
       name: a.fully_qualified_name || a.name,
       type: a.account_type,
+      connectionId: a.connection_id,
     }));
     // A person may code to ANY account. The narrow expense-ish list is what the
     // MODEL is offered, never what a bookkeeper may choose: card spend on
@@ -2002,7 +2004,8 @@
     const posted = state.batch.status === 'posted';
     const approved = state.batch.status === 'approved';
     el('btnVoid').hidden = !posted;
-    el('btnApprove').disabled = posted || blockers.length > 0;
+    el('btnReopen').hidden = !approved;
+    el('btnApprove').disabled = approved || posted || blockers.length > 0;
     el('btnPost').disabled = posted || !approved || blockers.length > 0
       || !e.src?.posting_enabled;
 
@@ -2052,17 +2055,33 @@
 
   el('btnApprove').addEventListener('click', async () => {
     if (!state.batch) return;
-    const { error } = await sb.from('card_import_batches').update({
-      status: 'approved',
-      approved_at: new Date().toISOString(),
-      approved_by: (await sb.auth.getUser()).data.user?.id || null,
-    }).eq('id', state.batch.id);
+    const { error } = await sb.rpc('approve_card_import_batch', {
+      p_batch_id: state.batch.id,
+    });
     if (error) return setStatus(`Approve failed — ${error.message}`, 'neg', 8000);
     await loadBatches();
     state.batch = state.batches.find((b) => b.id === state.batch.id);
     renderBatches();
     renderEntry();
     setStatus('Approved.', 'pos', 4000);
+  });
+
+  el('btnReopen').addEventListener('click', async () => {
+    if (!state.batch || state.batch.status !== 'approved') return;
+    const reason = prompt(
+      'Reopen this approval? The approved snapshot will be discarded and the batch must be approved again.\n\nWhy?',
+      '');
+    if (reason === null) return;
+    if (!reason.trim()) return setStatus('A reopen reason is required.', 'neg', 5000);
+    const { error } = await sb.rpc('reopen_card_import_batch', {
+      p_batch_id: state.batch.id, p_reason: reason.trim(),
+    });
+    if (error) return setStatus(`Reopen failed — ${error.message}`, 'neg', 8000);
+    await loadBatches();
+    state.batch = state.batches.find((b) => b.id === state.batch.id);
+    renderBatches();
+    renderEntry();
+    setStatus('Approval reopened. Review changes and approve again.', 'pos', 6000);
   });
 
   // Deleting an entry in QuickBooks is ordinary. Until this existed, doing so
@@ -2126,8 +2145,34 @@
         },
         body: JSON.stringify({ batch_id: state.batch.id }),
       });
-      const out = await res.json();
-      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+      let out = await res.json();
+      if (!res.ok && out.code === 'UNKNOWN_OUTCOME' && out.can_confirm_absent) {
+        const confirmed = confirm(
+          `SILO could not determine the prior outcome. It searched QuickBooks for ${out.doc_number} and found nothing.\n\n`
+          + 'Only continue after independently verifying that journal entry is absent in QuickBooks.');
+        if (confirmed) {
+          const note = prompt('Record how you verified the entry is absent from QuickBooks:', '');
+          if (note && note.trim().length >= 10) {
+            const retry = await fetch(`${SUPABASE_URL}/functions/v1/quickbooks-post-journal`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session?.access_token}`,
+              },
+              body: JSON.stringify({
+                batch_id: state.batch.id,
+                recovery_action: 'confirm_not_posted',
+                recovery_note: note.trim(),
+              }),
+            });
+            out = await retry.json();
+            if (!retry.ok) throw new Error(out.error || `HTTP ${retry.status}`);
+          } else if (note !== null) {
+            throw new Error('A specific recovery note of at least 10 characters is required');
+          }
+        }
+      }
+      if (!res.ok && !out.ok) throw new Error(out.error || `HTTP ${res.status}`);
       await loadBatches();
       state.batch = state.batches.find((b) => b.id === state.batch.id);
       renderBatches();
@@ -2378,6 +2423,7 @@
         const locId = get('location').value || null;
         return {
           ...s,
+          qbo_connection_id: acct?.connectionId || s.qbo_connection_id || null,
           credit_qbo_account_id: creditId,
           credit_qbo_account_name: acct?.name || null,
           credit_qbo_account_type: acct?.type || null,

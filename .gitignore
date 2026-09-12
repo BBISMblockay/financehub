@@ -3,6 +3,7 @@ data/legacy-payment-requests*.csv
 data/legacy-payment-requests*.tsv
 node_modules/
 package-lock.json
+!scripts/tests/finance-db/package-lock.json
 supabase/.temp/
 
 # v3 test dependencies (installed with `cd v3/tests && npm install`)

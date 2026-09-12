@@ -583,6 +583,8 @@
       db: sb,
       companyId: _co.id,
       context: context || 'fixed-assets:depreciation',
+      accountingSource: 'fixed_asset_depreciation',
+      accountingSourceRef: context?.split(':').at(-1) || null,
       prefill,
       adjustmentId,
       onStaged: loadDepAdjustments,

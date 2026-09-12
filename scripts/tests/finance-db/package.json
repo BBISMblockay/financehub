@@ -1,0 +1,8 @@
+{
+  "name": "silo-finance-database-tests",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8"
+  }
+}
