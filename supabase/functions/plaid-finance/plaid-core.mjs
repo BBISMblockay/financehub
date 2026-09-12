@@ -107,7 +107,7 @@ async function linkStateKey(keyBase64) {
 }
 
 /** Bind a Link operation to its initiating user/company without exposing tokens.
- * @param {{userId: string, companyId: string, connectionId?: string|null, expiresAt: string|number, daysRequested?: number|null}} options
+ * @param {{userId: string|null, companyId: string, connectionId?: string|null, expiresAt: string|number, daysRequested?: number|null}} options
  * @param {string} keyBase64
  */
 export async function createLinkState({ userId, companyId, connectionId = null, expiresAt, daysRequested = null }, keyBase64) {
