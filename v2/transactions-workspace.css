@@ -261,3 +261,60 @@
   .wper-label { flex: 1; }
   .wper-pop { width: 100%; }
 }
+
+/* Compact register: account context is on demand, activity owns the height. */
+.wtile-wrap {position:relative;flex:0 0 222px;scroll-snap-align:start;}
+.wtile-wrap .wtile {width:100%;height:100%;padding:10px;gap:7px;}
+.wtile-wrap .wtile-name {padding-right:16px;}
+.wtile-info {position:absolute;top:8px;right:7px;border:0;background:transparent;color:var(--bcn-ink-3);cursor:pointer;font:14px var(--bcn-font);padding:2px 4px;}
+.wtile-info:focus-visible {outline:2px solid var(--bcn-accent);}
+.wtiles.is-expanded {grid-template-columns:repeat(auto-fill,minmax(222px,1fr));}
+.txn-account-dialog {max-width:760px;width:calc(100% - 32px);max-height:85vh;overflow:auto;padding:12px;border:1px solid var(--bcn-border);border-radius:12px;background:var(--bcn-panel);color:var(--bcn-ink);}
+.txn-account-dialog::backdrop {background:rgba(0,0,0,.3);}
+.txn-account-dialog > form {display:flex;justify-content:flex-end;margin-bottom:8px;}
+.txn-dates {display:flex;gap:8px;align-items:center;padding:7px 9px;border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-panel);flex-wrap:wrap;}
+.txn-presets {display:flex;gap:5px;margin-right:auto;}
+.txn-dates label {display:flex;align-items:center;gap:5px;font-size:11px;color:var(--bcn-ink-3);}
+.txn-dates .bcn-field {height:29px;padding:3px 6px;font:12px var(--bcn-font);width:135px;color-scheme:light dark;}
+.txn-dates .bcn-btn,.transaction-list .bcn-btn {min-height:29px;padding:5px 9px;font-size:11px;}
+#codeKpis {display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:0;padding:0;border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-panel);}
+#codeKpis .cc-kpi {flex-direction:column;align-items:flex-start;gap:3px;padding:8px 12px;border-right:1px solid var(--bcn-border);}
+#codeKpis .cc-kpi:last-child {border-right:0;}
+#codeKpis .cc-kpi-label {font:10px var(--bcn-mono);text-transform:uppercase;letter-spacing:.06em;}
+#codeKpis .cc-kpi-value {font:650 17px var(--bcn-font);padding:0;background:none;}
+#tblCoding > tbody > .txn-row > td {padding:4px 9px;line-height:1.25;}
+#tblCoding .txn-description-button {font-size:12px;line-height:1.25;}
+#tblCoding .txn-secondary {font-size:9px;margin-top:2px;line-height:1.2;}
+#tblCoding .txn-amount span {display:none;}
+#tblCoding .txn-treatment select {min-height:26px;height:26px;padding:2px 5px;font-size:11px;}
+#tblCoding .txn-category .cc-cell {font-size:12px;line-height:1.25;padding:3px 5px;}
+.txn-review-button {height:26px;width:26px;border-radius:6px;font-size:15px;}
+.transaction-list .cc-foot {position:sticky;bottom:0;z-index:5;padding:7px 10px;gap:6px;}
+.transaction-list .cc-foot .cc-bulk {padding:0;border:0;background:none;gap:5px;flex:1;}
+.transaction-list .cc-foot .cc-bulk select {width:140px!important;height:28px;padding:3px 5px;font-size:11px;}
+#unsavedCount {margin-left:auto;color:var(--bcn-warn);}
+#btnSaveCoding {background:var(--bcn-accent);color:white;margin-left:0;}
+.txn-flow {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-panel);padding:10px 0;}
+.txn-flow-step {display:flex;align-items:center;gap:9px;padding:3px 12px;border-right:1px solid var(--bcn-border);font-size:12px;}
+.txn-flow-step:last-child {border-right:0;}
+.txn-flow-step small {display:block;color:var(--bcn-ink-3);font-size:10px;margin-top:3px;}
+.txn-flow-dot {display:grid;place-items:center;width:22px;height:22px;flex:none;border:1px solid var(--bcn-border-strong);border-radius:50%;color:var(--bcn-ink-3);font-size:11px;}
+.txn-flow-dot.is-done {background:var(--bcn-pos);border-color:var(--bcn-pos);color:white;}
+.workspace-selectors--fallback:focus-within {position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto;}
+@media(min-width:1001px) {
+ .cc-pane[data-pane="coding"] {overflow:hidden;gap:9px;}
+ .cc-pane[data-pane="coding"] .transaction-list {flex:1;min-height:170px;flex-shrink:1;}
+ .transaction-list .cc-body {overflow:auto;}
+ .wtiles.is-expanded {max-height:280px;overflow-y:auto;}
+}
+@media(max-width:1000px) {
+ .txn-dates {gap:6px;}
+ .txn-presets {width:100%;overflow:auto;}
+ .txn-dates .bcn-field {width:126px;}
+ .txn-flow {grid-template-columns:repeat(2,minmax(0,1fr));row-gap:10px;}
+ #codeKpis {grid-template-columns:repeat(2,minmax(0,1fr));}
+ #tblCoding > tbody > .txn-row {padding:9px;gap:4px 8px;}
+ #tblCoding > tbody > .txn-row > td {padding:0;}
+ #tblCoding .txn-status {grid-column:2;grid-row:3;font-size:10px;}
+ .transaction-list .cc-foot .cc-bulk {flex-basis:100%;}
+}

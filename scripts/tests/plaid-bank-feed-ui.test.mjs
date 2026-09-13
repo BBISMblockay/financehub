@@ -6,6 +6,7 @@ import {webcrypto} from 'node:crypto';
 // Execute the shipped module and Card Coding's actual callbacks. Network,
 // Supabase, Link, and DOM are fakes; accounting/UI decision code is not copied.
 const moduleSource = await readFile(new URL('../../v2/plaid-bank-feed.js', import.meta.url), 'utf8');
+const datesSource = await readFile(new URL('../../v2/transaction-dates.js', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../../v2/bank-workspace.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../../v2/transactions.html', import.meta.url), 'utf8');
 const inlineSource = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>', html.indexOf('<script>')));
@@ -81,8 +82,9 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
     from: (table) => query({}, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
+  vm.runInNewContext(datesSource, { window });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
-    + 'window.testPage = { state, suggestions, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches };\n})();';
+    + 'window.testPage = { state, suggestions, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
   vm.runInNewContext(testable, { window, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
     fetch: async (url, args) => { fetches.push({ url, body: JSON.parse(args.body) }); return fetchImpl ? fetchImpl(url, args) : { ok: true, json: async () => ({ suggestions: [] }) }; },
     confirm() { throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
@@ -444,4 +446,31 @@ await test('leaving Transactions protects pending edits and in-flight coding onl
     assert.equal(prevented,blocked);
     assert.equal(event.returnValue,blocked?'':undefined);
   }
+});
+
+await test('date browsing refuses dirty edits and discards late results after a newer date request', async () => {
+  const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id});
+  h.el('dateStart').value='2026-09-01';h.el('dateEnd').value='2026-09-30';
+  const pending=[];h.window.SiloTransactionDates.read=()=>{const d=deferred();pending.push(d);return d.promise;};
+  h.page.state.dirty.add('txn-one');await h.page.browseDates();assert.equal(pending.length,0);
+  assert.equal(h.page.state.dirty.size,1);h.page.state.dirty.clear();
+  const old=h.page.browseDates();const newer=h.page.browseDates();
+  pending[1].resolve([{...transaction,id:'new',batch_id:'batch-one'}]);await newer;
+  pending[0].resolve([{...transaction,id:'old',batch_id:'batch-one'}]);await old;
+  assert.equal(h.page.dateState().dateRows[0].id,'new');assert.equal(h.page.dateState().dateLoading,false);
+  assert.equal(h.el('btnSaveCoding').disabled,true,'date browsing cannot submit another import accidentally');
+  assert.match(h.el('tblCoding').innerHTML,/data-date-open="new"/);
+});
+await test('opening a date result loads its own batch through existing review and never posts',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+ const result={...transaction,id:'txn-other',batch_id:'batch-other'};
+ h.page.state.batches=[{id:'batch-other',source_id:source.id,status:'draft',company_entity_id:'company-one'}];
+ h.window.SiloTransactionDates.read=async()=>[result];
+ await h.page.browseDates();
+ h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[result]})}};return q;};
+ const button={dataset:{dateOpen:result.id}};
+ await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?button:null}});
+ assert.equal(h.page.state.batch.id,'batch-other');assert.equal(h.page.state.txns[0].id,'txn-other');
+ assert.equal(h.page.dateState().dateBrowse,false);assert.equal(h.el('btnDateBack').hidden,false);
+ assert.equal(h.calls.length,0);assert.equal(h.fetches.length,0);assert.equal(h.writes.length,0);
 });

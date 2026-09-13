@@ -182,7 +182,7 @@
     .cc-drop--over { border-color: var(--bcn-accent); background: rgba(37,99,235,.06); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=06796e7798dc" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=0efc709e2dd1" />
   <link rel="stylesheet" href="accounting-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -201,6 +201,8 @@
         <div class="bcn-header-sub" id="ccSub">Review bank and card activity in Silo</div>
       </div>
       <div class="bcn-header-actions">
+        <button class="bcn-btn" id="btnImportTop">Import CSV</button>
+        <button class="bcn-btn" id="btnManageBank">Connect account</button>
         <button class="bcn-btn" id="btnRefresh">Refresh</button>
       </div>
     </header>
@@ -305,11 +307,19 @@
             </p>
             <div class="wtiles" id="workspaceTiles" role="radiogroup" aria-label="Account"></div>
           </div>
-          <div class="wper">
-            <div class="wper-bar" id="workspacePeriodBar"></div>
-            <button class="bcn-btn" id="btnManageBank">Connect / manage accounts</button>
-          </div>
-          <div id="workspaceSummary"></div>
+          <form class="txn-dates" id="dateForm">
+            <div class="txn-presets" aria-label="Date shortcuts">
+              <button type="button" class="bcn-btn" data-date-preset="month">This month</button>
+              <button type="button" class="bcn-btn" data-date-preset="last">Last month</button>
+              <button type="button" class="bcn-btn" data-date-preset="quarter">Quarter</button>
+              <button type="button" class="bcn-btn" data-date-preset="year">Year to date</button>
+            </div>
+            <label>From <input class="bcn-field" type="date" id="dateStart" required aria-label="Start date"></label>
+            <label>To <input class="bcn-field" type="date" id="dateEnd" required aria-label="End date"></label>
+            <button class="bcn-btn" type="submit">Apply dates</button>
+          </form>
+          <div id="workspacePeriodBar" hidden></div>
+          <dialog id="accountInfo" class="txn-account-dialog"><form method="dialog"><button class="bcn-btn">Close</button></form><div id="workspaceSummary"></div></dialog>
           <div class="cc-kpis" id="codeKpis"></div>
           <div class="cc-card cc-card--grow transaction-list">
             <div class="cc-card-head">
@@ -329,9 +339,15 @@
                   <option value="ai">AI-suggested</option>
                   <option value="excluded">Excluded</option>
                 </select>
+                <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
+                <button class="bcn-btn" id="btnAiCode">Suggest categories</button>
               </div>
             </div>
             <div class="cc-variants" id="codeVariants"></div>
+            <div class="cc-body">
+              <table class="cc-tbl" id="tblCoding"></table>
+            </div>
+            <div class="cc-foot">
             <div class="cc-bulk" id="codeBulk" hidden>
               <span class="cc-bulk-count" id="bulkCount"></span>
               <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
@@ -341,18 +357,15 @@
               <button class="bcn-btn" id="btnBulkInclude">Include</button>
               <button class="bcn-btn" id="btnBulkClear">Clear selection</button>
             </div>
-            <div class="cc-body">
-              <table class="cc-tbl" id="tblCoding"></table>
-            </div>
-            <div class="cc-foot">
-              <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
-              <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Suggest categories</button>
+              <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
+              <span id="unsavedCount" class="cc-note"></span>
               <button class="bcn-btn" id="btnSaveCoding">Save categories</button>
               <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
               <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button></div></details>
               <span class="cc-note" id="codeStatus"></span>
             </div>
           </div>
+          <div id="transactionFlow" class="txn-flow" aria-label="Review workflow"></div>
         </section>
 
         <!-- ================= ENTRY ================= -->
@@ -474,7 +487,8 @@
 <script src="plaid-bank-feed.js"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transactions-tiles.js?v=fdc6d55d9629"></script>
+<script src="transaction-dates.js?v=17e9b6803a76"></script>
+<script src="transactions-tiles.js?v=f31c5f2f08ed"></script>
 <script>
 (function () {
   'use strict';
@@ -520,6 +534,8 @@
   let bankFeeds = null;
   let workspace = null;
   let tilesUi = null;
+  let dateBrowse = false, dateRows = [], dateLoading = false, dateError = '', dateGeneration = 0;
+  const dateRange = () => ({start:el('dateStart').value,end:el('dateEnd').value});
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find((source) => source.id === state.batch?.source_id);
@@ -1312,6 +1328,10 @@
   });
   let expandedTransaction = null;
   function renderCoding() {
+    if(dateBrowse) { renderDateBrowse(); return; }
+    el('btnDateBack').hidden = !el('dateStart').value;
+    el('unsavedCount').textContent = state.dirty.size ? `${state.dirty.size} unsaved` : '';
+    renderWorkflow(state.txns, state.batch ? [state.batch] : []);
     const locked = !editable();
     for (const id of ['btnApplyRules', 'btnSaveCoding']) el(id).disabled = locked;
     el('btnLearnRules').disabled = state.codingBusy;
@@ -1327,9 +1347,9 @@
       return;
     }
 
-    el('codeTitle').textContent = 'Activity';
+    el('codeTitle').textContent = batchSource()?.display_name || 'Activity';
     el('codeSub').textContent =
-      `${state.txns.length} rows · ${state.batch.file_name || 'Bank feed'}${state.codingBusy ? ' · Coding in progress' : locked ? ' · Read-only approved content' : ''}`;
+      `${state.txns.length} rows in review · ${state.batch.label || state.batch.file_name || 'Bank feed'}${state.codingBusy ? ' · Coding in progress' : locked ? ' · Read-only approved content' : ''}`;
 
     const coded = state.txns.filter((t) => t.status === 'coded').length;
     const uncoded = state.txns.filter((t) => t.status === 'uncoded').length;
@@ -1493,6 +1513,73 @@
     }
     return '<span class="cc-chip">—</span>';
   }
+
+  function renderWorkflow(rows, batches) {
+    const s=window.SiloTransactionDates.summary(rows);
+    const reviewed=batches.length>0 && batches.every(b=>['approved','posted'].includes(b.status));
+    const posted=batches.length>0 && batches.every(b=>b.posting_status==='posted' || b.qbo_journal_entry_id);
+    el('transactionFlow').innerHTML=[
+      ['Imported', `${s.count} transactions`, !!s.count],
+      ['Categorized', `${s.coded} of ${s.count}`, !!s.count && s.uncoded===0],
+      ['Human review', reviewed?'Approved':dateBrowse?'Open a transaction to review':(state.batch?.status || 'Not started'), reviewed],
+      ['QuickBooks posting', posted?'Posted':batchSource()?.posting_enabled?'Approval required':'Off for account',posted],
+    ].map(([title,detail,done],i)=>`<div class="txn-flow-step"><span class="txn-flow-dot ${done?'is-done':''}">${done?'✓':i+1}</span><span><b>${esc(title)}</b><small>${esc(detail)}</small></span></div>`).join('');
+  }
+  function renderDateBrowse() {
+    for(const id of ['btnApplyRules','btnAiCode','btnSaveCoding','btnLearnRules','btnReloadCoding']) el(id).disabled=true;
+    el('btnReloadCoding').hidden=true; el('btnDateBack').hidden=true;
+    el('codeBulk').hidden=true; el('codeVariants').innerHTML=''; el('unsavedCount').textContent='';
+    el('codeStatus').textContent='Open a transaction to categorize and review its import.';
+    const source=state.sources.find(s=>s.id===workspace?.selected());
+    el('codeTitle').textContent=source?.display_name || 'Activity';
+    el('codeSub').textContent=dateLoading?'Loading date range…':dateError?'Could not load date range':`${dateRows.length} transactions · ${dateRange().start} – ${dateRange().end}`;
+    const totals=window.SiloTransactionDates.summary(dateRows);
+    el('codeKpis').innerHTML=[['Money out',money(totals.out)],['Money in',money(totals.in)],['Transactions',totals.count],['Needs categorizing',totals.uncoded]]
+      .map(([label,value])=>`<div class="cc-kpi"><div class="cc-kpi-label">${label}</div><div class="cc-kpi-value">${value}</div></div>`).join('');
+    const batches=state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id));
+    renderWorkflow(dateRows,batches);
+    if(dateLoading || dateError) {
+      el('tblCoding').innerHTML=`<tr><td class="cc-empty">${esc(dateError || 'Loading transactions…')}</td></tr>`;return;
+    }
+    const f=el('codeFilter').value,q=codeSearchTerm();
+    const rows=dateRows.filter(t=>matchesSearch(t,q) && (f==='all' || f==='uncoded' && t.status==='uncoded' || f==='excluded' && t.status==='excluded' || f==='conflict' && t.coding_conflict || f==='low' && t.status!=='excluded' && (t.confidence??1)<.6 || f==='ai' && t.coding_source==='ai'));
+    el('tblCoding').innerHTML=rows.length?`<thead><tr><th class="txn-date">Date</th><th class="txn-description">Transaction</th><th class="txn-amount num">Amount</th><th class="txn-category">Category</th><th>Status</th><th class="txn-review">Review</th></tr></thead><tbody>`+rows.map(t=>`<tr class="txn-row" data-date-transaction="${esc(t.id)}"><td class="txn-date">${esc(t.txn_date)}</td><td class="txn-description"><button class="txn-description-button" data-date-open="${esc(t.id)}">${esc(t.description)}</button><div class="txn-secondary">${esc(t.card_name || t.clean_merchant || '')}</div></td><td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}</td><td class="txn-category">${esc(t.qbo_account_name || 'Needs category')}</td><td class="txn-status">${esc(t.status==='coded'?'Categorized':t.status==='uncoded'?'Uncategorized':t.status)}</td><td class="txn-review"><button class="txn-review-button" data-date-open="${esc(t.id)}" aria-label="Review ${esc(t.description)}">›</button></td></tr>`).join('')+'</tbody>':'<tr><td class="cc-empty">No transactions match these dates and filters.</td></tr>';
+  }
+  async function browseDates(sourceId=workspace?.selected()) {
+    if(state.dirty.size || state.codingBusy) return setStatus('Save or discard your edits before changing dates.', 'neg');
+    if(!window.SiloTransactionDates.valid(dateRange())) return setStatus('Choose a valid start and end date.', 'neg');
+    const generation=++dateGeneration,company=_co?.id;
+    dateBrowse=true;dateLoading=true;dateError='';dateRows=[];state.selected.clear();renderCoding();
+    try {
+      const rows=sourceId && !sourceId.startsWith('plaid:') ? await window.SiloTransactionDates.read(sb,company,sourceId,state.batches,dateRange()) : [];
+      if(generation!==dateGeneration || company!==_co?.id)return;
+      dateRows=rows;
+    } catch(error) {if(generation===dateGeneration) dateError=error.message;}
+    finally {if(generation===dateGeneration){dateLoading=false;renderCoding();}}
+  }
+  const initialDates=window.SiloTransactionDates.preset('month');
+  el('dateStart').value=initialDates.start;el('dateEnd').value=initialDates.end;
+  el('dateForm').addEventListener('submit',event=>{event.preventDefault();browseDates();});
+  el('dateForm').addEventListener('click',event=>{
+    const button=event.target.closest('[data-date-preset]');if(!button)return;
+    if(state.dirty.size || state.codingBusy)return setStatus('Save or discard your edits before changing dates.','neg');
+    const range=window.SiloTransactionDates.preset(button.dataset.datePreset);
+    el('dateStart').value=range.start;el('dateEnd').value=range.end;browseDates();
+  });
+  el('btnDateBack').addEventListener('click',()=>browseDates());
+  el('tblCoding').addEventListener('click',async event=>{
+    const button=event.target.closest('[data-date-open]');if(!button || !dateBrowse || dateLoading)return;
+    const transaction=dateRows.find(t=>t.id===button.dataset.dateOpen);if(!transaction)return;
+    if(state.dirty.size || state.codingBusy)return;
+    ++dateGeneration;
+    try {
+      await openBatch(transaction.batch_id);
+      if(state.batch?.id!==transaction.batch_id)return;
+      dateBrowse=false;expandedTransaction=transaction.id;state.selected.clear();renderCoding();renderEntry();
+      el('codeStatus').textContent='Review applies to this import. All activity in dates returns to the calendar view.';
+      el('tblCoding').querySelector(`[data-txn="${transaction.id}"] [data-review]`)?.focus();
+    } catch(error){setStatus(error.message,'neg');}
+  });
 
   // -------------------------------------------------------- search + bulk
 
@@ -2865,10 +2952,11 @@
 
     if (!workspace) workspace = window.SiloBankWorkspace.create({ references:()=>state, feeds:()=>bankFeeds,
       status:setStatus, dirty:()=>state.dirty.size>0 || state.codingBusy,
-      manage:()=>showPane('feeds'),
-      upload: id=>{renderSourceSelect(); el('impSource').value=id; renderColumnMap(); showPane('import');},
+      manage:()=>{el('accountInfo').close();showPane('feeds');},
+      upload: id=>{el('accountInfo').close();renderSourceSelect(); el('impSource').value=id; renderColumnMap(); showPane('import');},
       openBatch:async id=>{await openBatch(id);showPane('coding');},
       selectSource:async id=>{
+        ++dateGeneration; dateBrowse=false; dateRows=[];
         suggestions.clear(); state.batch=null;state.txns=[];state.selected.clear();renderCoding();renderEntry();
         if (!id) return;
         const periods=[];
@@ -2882,13 +2970,19 @@
         state.batches=[...state.batches.filter(b=>b.source_id!==id),...periods];
         const current=periods.find(b=>['draft','categorized'].includes(b.status)) || periods[0];
         if(current)await openBatch(current.id);
+        await browseDates(id);
       }
     });
     workspace.render();
     // Presentation layer over the two selects. It observes them, so it needs no
     // further calls — and if it fails to construct the selects still work.
-    if (!tilesUi && window.SiloTransactionTiles) tilesUi = window.SiloTransactionTiles.create();
+    if (!tilesUi && window.SiloTransactionTiles) tilesUi = window.SiloTransactionTiles.create({info: async id => {
+      if(state.dirty.size || state.codingBusy) return setStatus('Save or discard edits before opening another account.', 'neg');
+      if(workspace.selected()!==id) await workspace.choose(id);
+      el('accountInfo').showModal();
+    }});
     if(!state.batch && workspace.selected())await workspace.choose(workspace.selected());
+    else if(workspace.selected()) await browseDates(workspace.selected());
 
     if (!el('impPeriod').value) {
       const d = new Date();
@@ -2905,6 +2999,7 @@
     }
   }
 
+  el('btnImportTop').addEventListener('click',()=>showPane('import'));
   el('btnManageBank').addEventListener('click',()=>showPane('feeds'));
   el('btnAccountConnections').addEventListener('click',()=>showPane('feeds'));
   window.addEventListener('silo-bank-feeds-updated',()=>workspace?.render());
