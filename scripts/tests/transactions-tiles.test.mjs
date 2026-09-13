@@ -13,7 +13,7 @@ const source = await readFile(new URL('v2/transactions-tiles.js', root), 'utf8')
 test('workspace asset URLs change with their contents so cached pre-tile assets cannot mix with the new page', async () => {
   const html = await readFile(new URL('v2/transactions.html', root), 'utf8');
   const urls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map(match => new URL(match[1], 'https://silo.test/v2/transactions.html'));
-  for (const name of ['transactions-workspace.css', 'bank-workspace.js', 'transactions-tiles.js']) {
+  for (const name of ['transactions-workspace.css', 'bank-workspace.js', 'transactions-tiles.js', 'transaction-dates.js']) {
     const bytes = await readFile(new URL('v2/' + name, root));
     const digest = createHash('sha256').update(bytes).digest('hex').slice(0, 12);
     const matches = urls.filter(url => url.pathname === '/v2/' + name);
@@ -98,7 +98,7 @@ test('clicking a tile drives the select and fires change, so existing listeners 
   let changed = null;
   listeners.set('workspaceAccount:change', (e) => { changed = e.target.value; });
   listeners.get('workspaceTiles:click')({
-    target: { closest: () => ({ dataset: { value: 'src-2' }, disabled: false }) },
+    target: { closest: s => s==='[data-value]' ? ({ dataset: { value: 'src-2' }, disabled: false }) : null },
   });
   assert.equal(account.value, 'src-2', 'select is the state');
   assert.equal(changed, 'src-2', 'a change event reached the existing handler');
@@ -110,7 +110,7 @@ test('a disabled select is never driven by a tile click', () => {
   let fired = false;
   listeners.set('workspaceAccount:change', () => { fired = true; });
   listeners.get('workspaceTiles:click')({
-    target: { closest: () => ({ dataset: { value: 'src-2' }, disabled: false }) },
+    target: { closest: s => s==='[data-value]' ? ({ dataset: { value: 'src-2' }, disabled: false }) : null },
   });
   assert.equal(fired, false, 'navigation in flight must not be interrupted');
 });

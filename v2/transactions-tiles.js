@@ -58,7 +58,7 @@
     return 'warn';
   }
 
-  function create({ document: doc = document, now = () => Date.now() } = {}) {
+  function create({ document: doc = document, now = () => Date.now(), info = () => {} } = {}) {
     const el = id => doc.getElementById(id);
     const account = el('workspaceAccount');
     const period = el('workspacePeriod');
@@ -96,7 +96,7 @@
         const d = o.dataset;
         const n = Number(d.pending) || 0;
         const rel = relative(d.synced, stamp);
-        return `<button type="button" class="wtile${o.selected ? ' is-on' : ''}"
+        return `<div class="wtile-wrap"><button type="button" class="wtile${o.selected ? ' is-on' : ''}"
           role="radio" aria-checked="${o.selected ? 'true' : 'false'}" data-value="${esc(o.value)}"
           ${account.disabled ? 'disabled' : ''}>
           <span class="wtile-top">
@@ -109,10 +109,10 @@
           <span class="wtile-bal"><small>${esc(d.balanceLabel || 'Balance')}</small>${esc(d.balance || d.balanceFallback || '')}</span>
           <span class="wtile-ft">
             <span class="wtile-sync" title="${esc(d.healthLabel || '')}">
-              <i class="wtile-dot" data-tone="${tone(d.health)}"></i>${esc(rel || d.healthLabel || '')}</span>
+              <i class="wtile-dot" data-tone="${tone(d.health)}"></i>${esc(tone(d.health)==='ok' ? (rel || d.healthLabel || '') : (d.healthLabel || rel))}</span>
             <span class="wtile-pending${n ? '' : ' is-clear'}">${n ? n + ' to categorize' : 'All done'}</span>
           </span>
-        </button>`;
+        </button><button type="button" class="wtile-info" data-account-info="${esc(o.value)}" aria-label="Account details for ${esc(d.name || o.text)}" ${account.disabled ? 'disabled' : ''}>ⓘ</button></div>`;
       }).join('');
     }
 
@@ -165,6 +165,8 @@
     }
 
     tiles.addEventListener('click', (e) => {
+      const details = e.target.closest('[data-account-info]');
+      if(details) { if(!account.disabled) info(details.dataset.accountInfo); return; }
       const t = e.target.closest('[data-value]');
       if (t && !t.disabled) pick(account, t.dataset.value);
     });
