@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 
 const source = await readFile(new URL('../../supabase/functions/card-categorize/index.ts', import.meta.url), 'utf8');
-const effectiveSource=process.env.BANK_AI_MUTATION==='clearing-account' ? source.replace("const canSuggestAccount = ['purchase','refund'].includes(treatment);",'const canSuggestAccount = true;') : source;
+const effectiveSource=process.env.BANK_AI_MUTATION==='clearing-account' ? source.replace("const canSuggestAccount = !!candidate && (allowedTypes[treatment] || []).includes(candidate.type);",'const canSuggestAccount = true;') : source;
 const runnable = stripTypeScriptTypes(effectiveSource.replace(/import \{ createClient \} from 'https:[^']+';/, ''), { mode: 'strip' });
 const ids = { batch: '00000000-0000-4000-8000-000000000001', source: '00000000-0000-4000-8000-000000000002',
   tx: '00000000-0000-4000-8000-000000000003', otherTx: '00000000-0000-4000-8000-000000000004',
@@ -108,17 +108,17 @@ test('actual Plaid purchase rebuilds merchant/source context from scoped stored 
   assert.equal(h.writes.length, 0);
 });
 
-test('bank source dispatches treatment-first model with stored context', async () => {
+test('bank source requests a COA category with transaction type as supporting metadata', async () => {
   const h = fixture({ source: { source_type: 'bank' } });
   const result=await h.run();
   assert.equal(result.status, 200); assert.equal(h.modelCalls.length, 1);
-  assert.match(h.modelCalls[0].system,/First identify accounting_treatment/);
+  assert.match(h.modelCalls[0].system,/Suggest an actual account_name from the chart/);
   assert.equal(result.body.suggestions[0].accounting_treatment,'purchase');
 });
 
-test('bank clearing, deposit and unknown treatments strip model account/location suggestions', async () => {
+test('incompatible expense suggestions are stripped for clearing, deposit and unknown treatments', async () => {
   for(const accounting_treatment of ['transfer','card_payment','payroll_settlement','shopify_settlement','deposit','unknown','invented']) {
-    const h=fixture({source:{source_type:'bank'},suggestion:{accounting_treatment}});
+    const h=fixture({source:{source_type:'bank'},transaction:{amount:accounting_treatment==='deposit'?-20:20},suggestion:{accounting_treatment,direction:accounting_treatment==='deposit'?'inflow':'outflow'}});
     const result=await h.run(), s=result.body.suggestions[0];
     assert.equal(result.status,200); assert.equal(s.account_name,null,accounting_treatment); assert.equal(s.location_name,null);
     assert.equal(s.accounting_treatment,accounting_treatment==='invented'?'unknown':accounting_treatment);
@@ -187,4 +187,34 @@ test('failed source or transaction reads never fall back to caller merchant data
   for (const queryFailure of ['card_import_batches', 'card_sources', 'card_transactions_v', 'quickbooks_connections']) {
     const h = fixture({ queryFailure }); assert.ok((await h.run()).status >= 400); assert.equal(h.modelCalls.length, 0);
   }
+});
+
+test('bank categories return a scoped COA ID for supported revenue, clearing, and card destinations',async()=>{
+ for(const [treatment,type,name,amount] of [
+  ['deposit','Income','Retail sales',-20],['transfer','Other Current Asset','Transfer clearing',20],
+  ['payroll_settlement','Other Current Liability','Payroll clearing',20],
+  ['shopify_settlement','Other Current Asset','Shopify clearing',-20],
+  ['card_payment','Credit Card','Amex payable',20],['card_payment','Accounts Payable','Divvy payable',20]
+ ]) {
+  const h=fixture({source:{source_type:'bank'},transaction:{amount,accounting_treatment:'unknown'},suggestion:{accounting_treatment:treatment,direction:amount<0?'inflow':'outflow',account_name:name}});
+  h.records.quickbooks_accounts.push({company_entity_id:ids.company,connection_id:ids.connection,qbo_account_id:'destination',name,account_type:type,is_active:true});
+  const s=(await h.run()).body.suggestions[0];
+  assert.equal(s.account_name,name);assert.equal(s.account_id,'destination');assert.equal(s.accounting_treatment,treatment);
+  assert.match(h.modelCalls[0].system,new RegExp(name));assert.equal(h.writes.length,0);
+ }
+});
+test('invented, duplicate, inactive, and foreign destination accounts cannot become COA suggestions',async()=>{
+ for(const kind of ['invented','duplicate','inactive','foreign']) {
+  const h=fixture({source:{source_type:'bank'},suggestion:{accounting_treatment:'card_payment',account_name:'Amex payable'}});
+  const account={company_entity_id:ids.company,connection_id:ids.connection,qbo_account_id:'card',name:'Amex payable',account_type:'Credit Card',is_active:true};
+  if(kind==='duplicate')h.records.quickbooks_accounts.push(account,{...account,qbo_account_id:'other'});
+  if(kind==='inactive')h.records.quickbooks_accounts.push({...account,is_active:false});
+  if(kind==='foreign')h.records.quickbooks_accounts.push({...account,connection_id:'foreign-connection'});
+  const s=(await h.run()).body.suggestions[0];assert.equal(s.account_name,null);assert.equal(s.account_id,null);assert.equal(s.confidence,0);
+ }
+});
+test('bank deposit outflows cannot be suggested as revenue',async()=>{
+ const h=fixture({source:{source_type:'bank'},suggestion:{accounting_treatment:'deposit',account_name:'Revenue'}});
+ h.records.quickbooks_accounts.push({company_entity_id:ids.company,connection_id:ids.connection,qbo_account_id:'income',name:'Revenue',account_type:'Income',is_active:true});
+ const s=(await h.run()).body.suggestions[0];assert.equal(s.account_name,null);assert.equal(s.accounting_treatment,'unknown');
 });

@@ -45,6 +45,7 @@ type Suggestion = {
   merchant: string;
   card_name?: string | null;
   account_name: string | null;
+  account_id?: string | null;
   location_name: string | null;
   vendor_name: string | null;
   confidence: number;
@@ -93,16 +94,16 @@ function systemPrompt(
   // connects QuickBooks -- and telling a model that a credit union is an
   // apparel brand is not a harmless inaccuracy, it steers every borderline
   // account choice.
-  return `${bankMode ? 'You review bank movements, identifying treatment before considering an account.' : 'You review credit-card purchases.'} The company is ${companyName} and the account is "${sourceName}".
+  return `${bankMode ? 'You suggest chart-of-accounts categories for bank transactions, with transaction type as supporting metadata.' : 'You review credit-card purchases.'} The company is ${companyName} and the account is "${sourceName}".
 
 You are not told what trade this company is in. Infer it from the accounts, locations and merchants below rather than assuming one.
 
-${bankMode ? 'First identify accounting_treatment: purchase, refund, deposit, transfer, card_payment, payroll_settlement, shopify_settlement, or unknown. Only purchase and refund may have account_name. All other treatments MUST return account_name:null and location_name:null. Deposits are not automatically revenue. Transfers, card payments, payroll settlements and Shopify settlements must never become expenses. Use unknown when evidence is insufficient. Echo direction exactly; never combine an inflow with an outflow. Purchase requires outflow and refund requires inflow.' : 'Suggest an account for each purchase, or decline when uncertain.'}
+${bankMode ? 'Suggest an actual account_name from the chart below whenever the stored transaction evidence supports one. Also identify accounting_treatment: purchase, refund, deposit, transfer, card_payment, payroll_settlement, shopify_settlement, or unknown. Purchase/outflow and refund/inflow use expense or asset accounts. Deposit/inflow may use Income or Other Income only when evidence establishes revenue; a bank deposit alone is not revenue. Transfers and payroll/Shopify settlements use a specifically supported Other Current Asset or Other Current Liability clearing account, never an expense account. Card payments use the identified Credit Card or Accounts Payable account, never an expense account. Do not guess a clearing or card account from account type alone: require a named destination, explicit settlement evidence, or a confirmed coding example. If the COA destination is ambiguous, return account_name:null and explain what is missing, even if the transaction type is clear. Unknown treatment must return account_name:null. Echo direction exactly; never combine an inflow with an outflow.' : 'Suggest an account for each purchase, or decline when uncertain.'}
 
 # Related entities -- the ONLY names that mean "not this company's expense"
 ${relatedEntities.length ? relatedEntities.map((e) => `- ${e}`).join('\n') : '(none on file)'}
 
-These are separate businesses this company carries an intercompany balance with. If a CARD NAME clearly refers to one of them, the charge is NOT this company's expense -- it is money that entity owes, and it belongs on an intercompany account that is deliberately NOT in the account list below. For those lines return account_name: null and name the entity in reasoning. A utility bill on a related entity's card is not this company's utilities; coding it that way is plausible, silent, and wrong.
+These are separate businesses this company carries an intercompany balance with. If a CARD NAME clearly refers to one of them, the charge is NOT this company's expense -- it is money that entity owes, and it requires a reviewed intercompany account. For those lines return account_name: null and name the entity in reasoning. A utility bill on a related entity's card is not this company's utilities; coding it that way is plausible, silent, and wrong.
 
 # The card names actually in this file
 ${cardNames.length ? cardNames.map((c) => `- ${c}`).join('\n') : '(this file has no card names)'}
@@ -130,7 +131,7 @@ ${exampleList}
 - vendor_name is the real company behind the descriptor in plain form ("AMZN Mktp US" -> "Amazon"). Null if you cannot tell.
 - confidence is 0.0-1.0 and must reflect real uncertainty. Use below 0.6 whenever the merchant is ambiguous, generic, or could reasonably be two different accounts. A wrong code at high confidence is worse than an honest low one, because low confidence is what gets a human to look.
 - reasoning is one short sentence a bookkeeper would accept. Say what the merchant is, not what you did. Where the card name is what decided it, say so.
-- If a line looks like a card payment, transfer, or the card issuer itself rather than a purchase, set account_name to null and say so in reasoning -- those do not belong in an expense entry.
+${bankMode ? '- Card payments and transfers may have a supported balance-sheet category as described above; never categorize them as expenses.' : '- If a line looks like a card payment, transfer, or the card issuer itself rather than a purchase, set account_name to null and say so in reasoning -- those do not belong in an expense entry.'}
 - A payment processor is not a merchant. "MELIO*AIR TIGER EXPRESS", "BILL.COM* WASHINGTON P", "SQ *BLUE BOTTLE" -- read past the processor to the actual payee, and code THAT. Where the descriptor names no payee at all, the card name is your only evidence; if that does not settle it either, return null rather than guessing.
 
 Respond with JSON only, no prose, no code fence:
@@ -397,8 +398,8 @@ Deno.serve(async (req) => {
   const sourceName: string = source.display_name || 'card';
   if (!merchants.length) return json({ ok: true, suggestions: [] });
 
-  // Only accounts a card charge could legitimately land in. Offering the model
-  // all 450 accounts invites it to expense a purchase to a revenue account.
+  // Bank suggestions include revenue and clearing/card destinations. The response
+  // validator still requires a category type compatible with the movement.
   const { data: accountRows } = await supabase
     .from('quickbooks_accounts')
     .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type')
@@ -408,6 +409,7 @@ Deno.serve(async (req) => {
     .in('account_type', [
       'Expense', 'Other Expense', 'Cost of Goods Sold',
       'Fixed Asset', 'Other Current Asset',
+      ...(bankMode ? ['Other Asset','Income','Other Income','Other Current Liability','Credit Card','Accounts Payable'] : []),
     ]);
 
   // Which accounts this company actually posts to, from the most recent P&L
@@ -427,6 +429,7 @@ Deno.serve(async (req) => {
   const usage = plRun?.raw_response ? accountUsage(plRun.raw_response) : null;
 
   const accounts = (accountRows || []).map((a: any) => ({
+    id: String(a.qbo_account_id),
     name: a.fully_qualified_name || a.name,
     type: a.account_type,
     sub: a.account_sub_type,
@@ -596,24 +599,36 @@ Deno.serve(async (req) => {
 
       const vocabulary = ['purchase','refund','deposit','transfer','card_payment','payroll_settlement','shopify_settlement','unknown'];
       let treatment = bankMode && vocabulary.includes(s.accounting_treatment || '') ? s.accounting_treatment! : bankMode ? 'unknown' : 'purchase';
-      if (bankMode && ((treatment==='purchase' && m.direction!=='outflow') || (treatment==='refund' && m.direction!=='inflow'))) treatment='unknown';
-      const canSuggestAccount = ['purchase','refund'].includes(treatment);
-      const acct = canSuggestAccount && s.account_name && validAccounts.has(s.account_name) ? s.account_name : null;
-      const disallowedAccount = !canSuggestAccount && !!s.account_name;
-      const invented = canSuggestAccount && !!s.account_name && !acct;
-      const loc = canSuggestAccount && s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
+      if (bankMode && ((treatment==='purchase' && m.direction!=='outflow') || (['refund','deposit'].includes(treatment) && m.direction!=='inflow'))) treatment='unknown';
+      const allowedTypes: Record<string, string[]> = {
+        purchase: ['Expense','Other Expense','Cost of Goods Sold','Fixed Asset','Other Asset','Other Current Asset'],
+        refund: ['Expense','Other Expense','Cost of Goods Sold','Fixed Asset','Other Asset','Other Current Asset'],
+        deposit: ['Income','Other Income'],
+        transfer: ['Other Current Asset','Other Current Liability'],
+        payroll_settlement: ['Other Current Asset','Other Current Liability'],
+        shopify_settlement: ['Other Current Asset','Other Current Liability'],
+        card_payment: ['Credit Card','Accounts Payable'],
+      };
+      const matchingAccounts = accounts.filter(a=>a.name===s.account_name);
+      const candidate = matchingAccounts.length===1 ? matchingAccounts[0] : null;
+      const canSuggestAccount = !!candidate && (allowedTypes[treatment] || []).includes(candidate.type);
+      const acct = canSuggestAccount ? candidate!.name : null;
+      const disallowedAccount = !!s.account_name && !canSuggestAccount;
+      const invented = !!s.account_name && !validAccounts.has(s.account_name);
+      const loc = acct && s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
 
       out.push({
         merchant: m.merchant,
         ...(bankMode ? {direction:m.direction,accounting_treatment:treatment} : {}),
         card_name: m.card_name ?? null,
         account_name: acct,
+        account_id: acct ? candidate!.id : null,
         location_name: loc,
         vendor_name: s.vendor_name || null,
-        confidence: invented ? 0 : Math.max(0, Math.min(1, Number(s.confidence) || 0)),
+        confidence: disallowedAccount ? 0 : Math.max(0, Math.min(1, Number(s.confidence) || 0)),
         reasoning: invented
           ? `Suggested "${s.account_name}", which is not in the chart of accounts — needs coding by hand.`
-          : `${disallowedAccount ? 'Model account suggestion discarded: this treatment requires manual account selection. ' : ''}${String(s.reasoning || '')}`.slice(0, 400),
+          : `${disallowedAccount ? 'Model account suggestion discarded: the category is ambiguous or incompatible with this transaction type. ' : ''}${String(s.reasoning || '')}`.slice(0, 400),
       });
     }
   });

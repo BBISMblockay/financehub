@@ -59,5 +59,18 @@
     if(['Income','Other Income','Accounts Receivable'].includes(type) && Number(t.amount)<0)return 'deposit';
     return 'unknown';
   }
-  window.SiloTransactionDates={inferTreatment,preset,valid,read,summary,preferences,fingerprint};
+  // Resolve only a real account in the source connection, including older name-only responses.
+  function suggestionAccount(t,s,accounts) {
+    const matches=accounts.filter(a=>s.account_id ? a.id===s.account_id && a.name===s.account_name : a.name===s.account_name);
+    if(matches.length!==1)return null;
+    const treatment=s.accounting_treatment || (Number(t.amount)>0?'purchase':'refund');
+    if((treatment==='purchase' && Number(t.amount)<=0) || (['refund','deposit'].includes(treatment) && Number(t.amount)>=0))return null;
+    const types={purchase:['Expense','Other Expense','Cost of Goods Sold','Fixed Asset','Other Asset','Other Current Asset'],
+      refund:['Expense','Other Expense','Cost of Goods Sold','Fixed Asset','Other Asset','Other Current Asset'],
+      deposit:['Income','Other Income'],transfer:['Other Current Asset','Other Current Liability'],
+      payroll_settlement:['Other Current Asset','Other Current Liability'],shopify_settlement:['Other Current Asset','Other Current Liability'],
+      card_payment:['Credit Card','Accounts Payable']};
+    return (types[treatment] || []).includes(matches[0].type)?matches[0]:null;
+  }
+  window.SiloTransactionDates={suggestionAccount,inferTreatment,preset,valid,read,summary,preferences,fingerprint};
 })();
