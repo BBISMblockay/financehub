@@ -517,3 +517,26 @@ controls. The RPC validates stored, unfiltered GL/TB reports, preserves independ
 copies, and records per-account reconciliation exceptions. It creates no journals.
 Apply only this new migration after review; no Edge Function change is required.
 See [QBO history operations](../docs/ops/qbo-history.md) for limits and test gates.
+
+### Profiles active-company scope (20260913054723)
+
+`20260913054723_profiles_active_company_scope.sql` scopes profile visibility to
+the caller's ACTIVE company. `profiles` carried three OR'd SELECT policies, none
+of which constrained the ROW being read to a company, and `is_owner_admin()` has
+no `entity_id` filter — so an owner of one tenant read every profile in the
+database while active in another. Reported as Baseballism people appearing in
+Test Company's assignee dropdown on `/v2/tasks.html`; twelve people-pickers read
+`profiles` directly and all relied on RLS for scoping.
+
+`profiles` has no `company_entity_id` of its own, so the scope comes from
+`entity_memberships` via `shares_active_company(uuid)` — SECURITY DEFINER with
+`row_security = off`, because a policy on `profiles` reading
+`entity_memberships` directly would re-enter that table's RLS. The UPDATE side
+becomes self-only: the only client writes are the two self-edits in
+`/v2/profile.html`, and `admin_update_profile()` is SECURITY DEFINER.
+
+Measured against production first: Baseballism 34 → 33 visible (losing only a
+Test-Company-only account referenced by no Baseballism row), Test Company
+34 → 2, zero profiles orphaned. Regressions in
+`scripts/tests/profiles-tenant-scope.test.mjs`; `verify_v2_schema.sql` asserts
+exactly one SELECT policy.

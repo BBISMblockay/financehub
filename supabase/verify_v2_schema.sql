@@ -48,7 +48,9 @@ order by e.kind, e.name;
 select
   want.polname as policy_name,
   case when pol.policyname is not null then 'ok' else 'MISSING — run section 3 in apply_all_post_merge.sql' end as status
-from (values ('profiles_select_own'), ('profiles_update_own')) as want(polname)
+-- Renamed by 20260913054723: profiles_select_own/profiles_update_own were
+-- replaced by the company-scoped read policy and the self-only write policy.
+from (values ('profiles_select_active_company'), ('profiles_update_self')) as want(polname)
 left join pg_policies pol
   on pol.schemaname = 'public'
  and pol.tablename = 'profiles'
@@ -3485,3 +3487,18 @@ select 'QBO history retention and audit' as check_name,
  then 'CRITICAL: archive depends on live connection or report cache'
  when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D')
  then 'CRITICAL: history import audit missing' else 'ok' end as status;
+
+-- Profiles tenant isolation. Policies are OR'd, so one unscoped SELECT policy
+-- re-opens the cross-tenant leak that put Baseballism people in Test Company's
+-- assignee dropdowns. Assert the count, not just the presence.
+select 'Profiles active-company scope' as check_name,
+ case when to_regprocedure('public.shares_active_company(uuid)') is null then 'MISSING: shares_active_company helper'
+ when (select count(*) from pg_policy where polrelid='public.profiles'::regclass and polcmd='r') <> 1
+   then 'CRITICAL: profiles has more than one SELECT policy; an unscoped one re-opens the tenant leak'
+ when not exists(select 1 from pg_policy where polrelid='public.profiles'::regclass and polcmd='r'
+   and pg_get_expr(polqual,polrelid) like '%shares_active_company%')
+   then 'CRITICAL: profiles SELECT policy is not company-scoped'
+ when exists(select 1 from pg_policy where polrelid='public.profiles'::regclass and polcmd='w'
+   and pg_get_expr(polqual,polrelid) like '%is_owner_admin%')
+   then 'CRITICAL: profiles UPDATE policy admits any-tenant owner/admin'
+ else 'ok' end as status;

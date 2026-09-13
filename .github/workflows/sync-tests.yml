@@ -46,6 +46,7 @@ on:
       - 'supabase/functions/card-categorize/**'
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
       - 'supabase/migrations/*plaid_bank_feed.sql'
+      - 'supabase/migrations/*profiles_active_company_scope.sql'
       - 'v2/card-coding.html'
       - 'v2/transactions.html'
       - 'v2/transactions-tiles.js'
@@ -224,3 +225,6 @@ jobs:
 
       - name: Execute retained QBO ledger and reconciliation regressions
         run: node scripts/tests/qbo-history-database.test.mjs
+
+      - name: Execute profiles tenant-isolation regressions
+        run: node --test scripts/tests/profiles-tenant-scope.test.mjs
