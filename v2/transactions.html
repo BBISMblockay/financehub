@@ -182,7 +182,7 @@
     .cc-drop--over { border-color: var(--bcn-accent); background: rgba(37,99,235,.06); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=0efc709e2dd1" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=32665c90d3a4" />
   <link rel="stylesheet" href="accounting-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -325,13 +325,14 @@
             <div class="cc-card-head">
               <div>
                 <div class="cc-title" id="codeTitle">Transactions</div>
-                <div class="cc-sub" id="codeSub">Choose an account and period above</div>
+                <div class="cc-sub" id="codeSub">Choose an account and dates above</div>
+                <div class="cc-note" id="codeStatus" role="status"></div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                 <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
                        placeholder="Search merchant, account, location, cardholder, card…"
                        style="width:340px" />
-                <select class="bcn-field bcn-field--mono" id="codeFilter" style="width:auto">
+                <select id="codeFilter" hidden aria-hidden="true" tabindex="-1">
                   <option value="all">All rows</option>
                   <option value="uncoded">Needs categorizing</option>
                   <option value="conflict">Card vs merchant</option>
@@ -339,6 +340,9 @@
                   <option value="ai">AI-suggested</option>
                   <option value="excluded">Excluded</option>
                 </select>
+                <div id="codeFilterSegments" class="txn-filters" role="group" aria-label="Transaction filters"></div>
+                <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
+                <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button></div></details>
                 <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
                 <button class="bcn-btn" id="btnAiCode">Suggest categories</button>
               </div>
@@ -347,7 +351,7 @@
             <div class="cc-body">
               <table class="cc-tbl" id="tblCoding"></table>
             </div>
-            <div class="cc-foot">
+            <div class="cc-foot" id="codeActionBar" hidden>
             <div class="cc-bulk" id="codeBulk" hidden>
               <span class="cc-bulk-count" id="bulkCount"></span>
               <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
@@ -357,12 +361,9 @@
               <button class="bcn-btn" id="btnBulkInclude">Include</button>
               <button class="bcn-btn" id="btnBulkClear">Clear selection</button>
             </div>
-              <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
               <span id="unsavedCount" class="cc-note"></span>
               <button class="bcn-btn" id="btnSaveCoding">Save categories</button>
               <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
-              <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button></div></details>
-              <span class="cc-note" id="codeStatus"></span>
             </div>
           </div>
           <div id="transactionFlow" class="txn-flow" aria-label="Review workflow"></div>
@@ -487,7 +488,7 @@
 <script src="plaid-bank-feed.js"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transaction-dates.js?v=17e9b6803a76"></script>
+<script src="transaction-dates.js?v=5fb5bafcf2db"></script>
 <script src="transactions-tiles.js?v=f31c5f2f08ed"></script>
 <script>
 (function () {
@@ -1327,8 +1328,25 @@
     event.preventDefault(); event.returnValue = '';
   });
   let expandedTransaction = null;
+  function renderFilterSegments(rows) {
+    const counts={all:rows.length,uncoded:0,conflict:0,low:0,ai:0,excluded:0};
+    for(const t of rows) {
+      if(t.status==='uncoded')counts.uncoded++;
+      if(t.coding_conflict)counts.conflict++;
+      if(t.status!=='excluded' && (t.confidence??1)<.6)counts.low++;
+      if(t.coding_source==='ai')counts.ai++;
+      if(t.status==='excluded')counts.excluded++;
+    }
+    const filters=[['all','All'],['uncoded','Needs categorizing'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']];
+    el('codeFilterSegments').innerHTML=filters.map(([value,label])=>`<button type="button" data-code-filter="${value}" aria-pressed="${el('codeFilter').value===value}">${label} <span>${counts[value]}</span></button>`).join('');
+  }
+  function renderSaveBar() {
+    el('codeActionBar').hidden=dateBrowse || !state.batch || (!state.selected.size && !state.dirty.size);
+  }
   function renderCoding() {
+    renderSaveBar();
     if(dateBrowse) { renderDateBrowse(); return; }
+    renderFilterSegments(state.txns);
     el('btnDateBack').hidden = !el('dateStart').value;
     el('unsavedCount').textContent = state.dirty.size ? `${state.dirty.size} unsaved` : '';
     renderWorkflow(state.txns, state.batch ? [state.batch] : []);
@@ -1340,7 +1358,7 @@
     el('btnAiCode').disabled = locked || !state.txns.some((txn) => bank.eligibleForAi(txn, batchSource()));
     if (!state.batch) {
       el('codeTitle').textContent = 'Transactions';
-      el('codeSub').textContent = 'Choose an account and period above';
+      el('codeSub').textContent = 'Choose an account and dates above';
       el('tblCoding').innerHTML = '<tr><td class="cc-empty">No activity for this account yet. Sync bank transactions or upload a statement to begin.</td></tr>';
       el('codeKpis').innerHTML = '';
       el('codeBulk').hidden = true;
@@ -1526,6 +1544,7 @@
     ].map(([title,detail,done],i)=>`<div class="txn-flow-step"><span class="txn-flow-dot ${done?'is-done':''}">${done?'✓':i+1}</span><span><b>${esc(title)}</b><small>${esc(detail)}</small></span></div>`).join('');
   }
   function renderDateBrowse() {
+    renderFilterSegments(dateRows);
     for(const id of ['btnApplyRules','btnAiCode','btnSaveCoding','btnLearnRules','btnReloadCoding']) el(id).disabled=true;
     el('btnReloadCoding').hidden=true; el('btnDateBack').hidden=true;
     el('codeBulk').hidden=true; el('codeVariants').innerHTML=''; el('unsavedCount').textContent='';
@@ -1606,6 +1625,12 @@
     _searchTimer = setTimeout(renderCoding, 120);
   });
   el('codeFilter').addEventListener('change', renderCoding);
+  el('codeFilterSegments').addEventListener('click',event=>{
+    const button=event.target.closest('[data-code-filter]');if(!button)return;
+    el('codeFilter').value=button.dataset.codeFilter;
+    renderCoding();
+    el('codeFilterSegments').querySelector(`[data-code-filter="${button.dataset.codeFilter}"]`)?.focus();
+  });
 
   // A card-name chip toggles that card as the filter.
   el('codeVariants').addEventListener('click', (e) => {
@@ -1617,6 +1642,7 @@
   });
 
   function renderBulkBar() {
+    renderSaveBar();
     const n = state.selected.size;
     el('codeBulk').hidden = n === 0 || !editable();
     for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity', 'btnBulkInclude', 'btnBulkExclude']) el(id).disabled = !editable();

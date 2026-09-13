@@ -474,3 +474,19 @@ await test('opening a date result loads its own batch through existing review an
  assert.equal(h.page.dateState().dateBrowse,false);assert.equal(h.el('btnDateBack').hidden,false);
  assert.equal(h.calls.length,0);assert.equal(h.fetches.length,0);assert.equal(h.writes.length,0);
 });
+await test('counted filter buttons drive the real filter and selection keeps the save bar contextual',async()=>{
+ const h=await pageHarness();
+ h.page.state.txns.push({...transaction,id:'coded',status:'coded',coding_source:'ai',confidence:.4});
+ h.page.renderCoding();
+ assert.match(h.el('codeFilterSegments').innerHTML,/data-code-filter="all" aria-pressed="true">All <span>2/);
+ assert.match(h.el('codeFilterSegments').innerHTML,/Needs categorizing <span>1/);
+ assert.equal(h.el('codeActionBar').hidden,true);
+ h.page.state.selected.add('coded');h.page.renderCoding();assert.equal(h.el('codeActionBar').hidden,false);
+ await h.el('codeFilterSegments').fire('click',{target:{closest:()=>({dataset:{codeFilter:'uncoded'}})}});
+ assert.equal(h.el('codeFilter').value,'uncoded');
+ assert.match(h.el('tblCoding').innerHTML,/data-txn="txn-one"/);
+ assert.ok(!h.el('tblCoding').innerHTML.includes('data-txn="coded"'));
+ assert.equal(h.page.state.selected.size,0);assert.equal(h.el('codeActionBar').hidden,true);
+ h.page.state.dirty.add('txn-one');h.page.renderCoding();assert.equal(h.el('codeActionBar').hidden,false);
+ h.page.state.dirty.clear();h.page.renderCoding();assert.equal(h.el('codeActionBar').hidden,true);
+});
