@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: plaid-bank-feed-sync
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   sync:
     # Opt in only after migration, function, secrets and first manual sync pass.
-    if: vars.PLAID_SYNC_ENABLED == 'true'
+    if: vars.PLAID_SYNC_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -26,5 +27,4 @@ jobs:
       - name: Sync mapped active accounts
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/plaid-sync.mjs

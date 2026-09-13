@@ -56,7 +56,7 @@ The fixture does not verify production permissions or real institution behavior.
 3. After the migration and view verification pass, publish the updated Card Coding page and deploy `plaid-finance`, `card-categorize` and `quickbooks-post-journal` in the same rollout window using the existing manual workflow. Retain JWT verification. The migration is a hard dependency: the new categorizer queries new transaction-view columns. Publish the page before deploying the categorizer: the new page works with the old function, but the new function requires `batch_id`/`transaction_ids` that an old page does not send. Ask users to reload any previously open Card Coding tabs after deployment.
 4. In Card Coding → Bank feeds, connect a test institution, map one account, set the authority cutover date, and sync manually. Verify pending replacement, modified/removed rows, a repeated sync, and the coding/review flow. Keep new sources' posting disabled until mapping and balances are reviewed.
 5. Configure production Plaid separately when ready. Connect real accounts only then. Select a cutover date after the last authoritative CSV period. Review the first batch before enabling posting on its source.
-6. Complete the size and import checks below, then enable scheduled ingestion: Edge secret `PLAID_BACKGROUND_SYNC_ENABLED=true` and GitHub repository variable `PLAID_SYNC_ENABLED=true`. Both default off. The workflow uses existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` secrets, which never enter the browser.
+6. Complete the size and import checks below, then enable scheduled ingestion: Edge secret `PLAID_BACKGROUND_SYNC_ENABLED=true` and GitHub repository variable `PLAID_SYNC_ENABLED=true`. Both default off. Deploy `plaid-scheduled-sync` using the manual Deploy Edge Function workflow before running the schedule on `main`. The scheduler uses `SUPABASE_URL` and a short-lived GitHub OIDC token; it no longer reads `SUPABASE_SERVICE_ROLE_KEY`. Other workflows still use that repository secret, so do not delete or rotate it as part of this rollout.
 
 | Edge secret | Value / purpose |
 |---|---|
@@ -134,3 +134,52 @@ Transactions uses that URI for Link only when origin, legacy path, query and
 fragment match the current OAuth return. User/company and expiry checks still run.
 Normal navigation uses `/v2/transactions.html`. No Edge deployment or migration
 is needed for this frontend change.
+
+## Scheduled sync authentication (September 2026)
+
+The former scheduler discovered accounts directly with a repository service key,
+then compared that bearer byte-for-byte with the function's built-in service key.
+Live runs could discover all four Test Co accounts but failed that comparison.
+The replacement authenticates the job's GitHub-issued RS256 OIDC token at a
+dedicated endpoint. GitHub holds no Supabase database credential for this job.
+
+Trust is pinned to the repository and owner IDs, the exact plaid-sync.yml workflow
+on main, the project-specific endpoint audience, and schedule/workflow_dispatch
+events. Forks, PRs, other branches/workflows, expired and forged tokens are rejected
+before database access. Both standard and immutable GitHub subject formats are
+accepted with the same repository/owner ID checks. Custom subject formats fail
+closed and require a reviewed trust-policy change.
+
+`plaid-scheduled-sync` uses custom JWT verification, so ONLY this new endpoint is
+deployed with `--no-verify-jwt`; it verifies the GitHub signature itself. Existing
+`plaid-finance` keeps its Supabase JWT gateway verification and browser permission
+checks. The new endpoint calls the existing ingestion handler in-process with a
+server-owned credential; it cannot accept arbitrary actions, journal payloads,
+company IDs or account IDs. Account discovery selects mapped active connections
+matching the server Plaid environment, one account per invocation. The runner
+renews its token before each request and keeps the original 45-minute job limit.
+
+Retries restart enumeration but reuse saved transaction cursors and the existing
+five-minute account leases. Account failures are reported and the runner continues;
+an uncertain endpoint response fails the job without claiming completion. No
+automatic approval/posting, cursor resets, token rotation or environment switch.
+
+Rollout: merge, deploy `plaid-scheduled-sync` from main using Deploy Edge Function,
+then run Plaid bank feed sync from main. The extracted `plaid-finance/handler.ts`
+is bundled with the new endpoint; deploying the original `plaid-finance` also
+reconciles its source move but is not needed to activate the scheduler. No migration
+or new shared secret is needed. Existing enable flags remain required.
+
+Preflight: call sites are the scheduled/manual workflow, its Node runner, the
+new endpoint and the existing ingestion handler. Database policies/grants and
+atomic ingestion RPCs are unchanged. Existing leases govern concurrent runs and
+partial writes. No destructive operations are added. Tests planned before the
+change: real signed/forged/expired tokens and every trust claim, no IO before
+authentication, fixed action scope, mapped/environment account filters, cursor
+progression, partial failures, token renewal and the existing handler regression
+suite. Live verification still required: deployed gateway acceptance of the
+custom header, actual GitHub token claims, enable flag and successful account
+timestamps. Synthetic tests do not prove production synchronization.
+
+References: [GitHub OIDC claims](https://docs.github.com/en/actions/reference/security/oidc)
+and [Supabase function authentication](https://supabase.com/docs/guides/functions/auth).

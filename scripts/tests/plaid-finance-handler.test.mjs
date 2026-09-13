@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import * as core from '../../supabase/functions/plaid-finance/plaid-core.mjs';
 
-const source = await readFile(new URL('../../supabase/functions/plaid-finance/index.ts', import.meta.url), 'utf8');
+const source = await readFile(new URL('../../supabase/functions/plaid-finance/handler.ts', import.meta.url), 'utf8');
 const mutations = {
   tenant: s => s.replaceAll(".eq('company_entity_id', companyId)", ''),
   state: s => s.replace('await verifyLinkState(input.link_state, key, { userId, companyId })', '{ connectionId: null }'),
@@ -17,7 +17,8 @@ const mutations = {
   context: s => s.replace('companyId = context.data;', "companyId = (await db.from('profiles').select('active_company_id').eq('id', userId).maybeSingle()).data.active_company_id;"),
 };
 const selectedMutation = process.env.PLAID_HANDLER_MUTATION;
-const effectiveSource = selectedMutation ? mutations[selectedMutation](source) : source;
+const effectiveSource = (selectedMutation ? mutations[selectedMutation](source) : source)
+  .replace('export async function handlePlaidFinance', 'async function handlePlaidFinance') + '\nDeno.serve(handlePlaidFinance);';
 const runnable = stripTypeScriptTypes(effectiveSource
   .replace(/import \{ createClient \} from 'https:[^']+';/, '')
   .replace(/import \{[\s\S]*?\} from '\.\/plaid-core\.mjs';/, ''), { mode: 'strip' });
@@ -169,7 +170,7 @@ async function fixture(options = {}) {
       },
     } : service,
     Deno: { env: { get: key => config[key] }, serve: callback => { handler = callback; } },
-  }, { filename: 'plaid-finance/index.ts' });
+  }, { filename: 'plaid-finance/handler.ts' });
   return {
     records, events,
     calls: path => events.filter(event => event.fetch === path),
