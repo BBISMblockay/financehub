@@ -1,6 +1,14 @@
 // Scheduled ingestion only. This script cannot approve or post journals.
 import { pathToFileURL } from 'node:url';
 
+// Emit only fixed local labels, never arbitrary response bodies or credentials.
+function safeSyncError(status, body) {
+  if (status === 403 && body?.error === 'Background syncing is disabled or action is not allowed') return 'background_sync_disabled';
+  if (status === 403 && body?.error === 'Service access required') return 'service_key_mismatch';
+  if (status === 401) return 'authentication_rejected';
+  return 'sync_request_failed';
+}
+
 export async function runPlaidSync({ url, serviceKey, fetchImpl = fetch }) {
   const base = new URL(url);
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) throw new Error('Invalid Supabase URL');
@@ -29,7 +37,8 @@ export async function runPlaidSync({ url, serviceKey, fetchImpl = fetch }) {
         });
         const body = await sync.json().catch(() => null);
         if (!sync.ok || !body || !Array.isArray(body.batch_ids) || !Number.isInteger(body.exceptions)) {
-          results.push({ account_id: account.id, ok: false, status: sync.status });
+          results.push({ account_id: account.id, ok: false, status: sync.status,
+            error_code: safeSyncError(sync.status, body) });
         } else results.push({ account_id: account.id, ok: true, exceptions: body.exceptions });
       } catch { results.push({ account_id: account.id, ok: false, status: 'unconfirmed' }); }
     }
