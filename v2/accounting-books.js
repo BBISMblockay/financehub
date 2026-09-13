@@ -22,7 +22,7 @@
     baseline=opening;
     if(settings){el('connection').value=settings.qbo_connection_id;el('connection').disabled=true;}
     el('report').innerHTML='<option value="">Select a saved trial balance</option>'+reports.filter(r=>r.connection_id===el('connection').value).map(r=>`<option value="${esc(r.id)}">${esc(r.end_date)} · fetched ${esc(r.fetched_at)}</option>`).join('');
-    el('accountsTable').innerHTML=accounts.length?table(['Account','Type','QBO mapping','Status'],accounts.map(a=>`<tr><td title="Silo ID: ${esc(a.id)}">${esc(a.name)}</td><td>${esc(a.account_type)}</td><td>${esc(a.qbo_account_id)}</td><td>${a.is_active?'Active':'Inactive'}</td></tr>`)):'Fetch and prepare a QBO trial balance in Setup to seed your chart of accounts.';
+    el('accountsTable').innerHTML=accounts.length?table(['Account','Type','QBO mapping','Status at import'],accounts.map(a=>`<tr><td title="Silo ID: ${esc(a.id)}">${esc(a.name)}</td><td>${esc(a.account_type)}</td><td>${esc(a.qbo_account_id)}</td><td>${a.is_active?'Active':'Inactive'}</td></tr>`)):'Fetch and prepare a QBO trial balance in Setup to seed your chart of accounts.';
     if(settings){el('fiscal').value=settings.fiscal_year_start_month;el('basis').value=settings.accounting_basis;el('connection').value=settings.qbo_connection_id;}
     el('opening').hidden=!opening;
     if(opening){const s=opening.snapshot;el('baselineTitle').textContent=opening.status==='accepted'?'Your starting balances are accepted.':'Review before you begin.';
@@ -50,7 +50,10 @@
     const connections=await result(db.rpc('accounting_qbo_connections'));
     el('connection').innerHTML=connections.length?connections.map(c=>`<option value="${esc(c.id)}">${esc(c.company_name||c.realm_id)} · ${esc(c.environment)}</option>`).join(''):'<option value="">Connect QuickBooks first</option>';
     el('fiscal').innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i,1).toLocaleString('en-US',{month:'long'})}</option>`).join('');
-    const yesterday=new Date();yesterday.setUTCDate(yesterday.getUTCDate()-1);el('cutoff').value=yesterday.toISOString().slice(0,10);
+    // Use Silo's business date, not the browser's UTC date near Pacific midnight.
+    const businessToday=await result(db.rpc('silo_business_today'));
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(businessToday))throw new Error('Could not resolve the company business date');
+    const yesterday=new Date(businessToday+'T00:00:00Z');yesterday.setUTCDate(yesterday.getUTCDate()-1);el('cutoff').value=yesterday.toISOString().slice(0,10);
     await load();await register(true);
     status(connections.length?'Start from QuickBooks, then review your opening balances.':'Ask your company administrator to connect QuickBooks, then return here.');
     el('seedForm').addEventListener('submit',e=>{e.preventDefault();work(async()=>{status('Fetching a read-only trial balance from QuickBooks…');

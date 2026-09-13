@@ -54,7 +54,7 @@ returns jsonb language plpgsql security definer set search_path=public,pg_temp a
 declare
   co uuid:=public.active_company_id(); r public.quickbooks_report_runs%rowtype;
   s public.accounting_settings%rowtype; b public.accounting_opening_balances%rowtype;
-  item jsonb; totals jsonb; cols jsonb; lines jsonb:='[]'; snap jsonb; account public.accounting_accounts%rowtype;
+  item jsonb; n_totals integer; totals jsonb; cols jsonb; lines jsonb:='[]'; snap jsonb; account public.accounting_accounts%rowtype;
   currency text; basis text; cutoff date; debit numeric; credit numeric;
   debits numeric:=0; credits numeric:=0; seen text[]:='{}'; qid text;
 begin
@@ -110,8 +110,14 @@ begin
   if cardinality(seen)=0 or debits<>credits then raise exception 'Trial balance must contain accounts and balance exactly; no plug entries are created'; end if;
   -- A balanced subset is not a company trial balance. Tie every parsed row
   -- back to the provider's top-level TOTAL, in addition to rejecting filters.
-  if jsonb_array_length(r.raw_response#>'{Rows,Row}') is distinct from 1 then raise exception 'Expected one company trial balance section'; end if;
-  totals:=r.raw_response#>'{Rows,Row,0,Summary,ColData}';
+  -- QBO's flat format has untyped ColData rows followed by a GrandTotal
+  -- section. Find that marker; do not confuse its array position with identity.
+  -- Retain support for a single ungrouped summary in a nested section.
+  select count(*), jsonb_agg(e.value#>'{Summary,ColData}')->0
+    into n_totals, totals
+    from jsonb_array_elements(r.raw_response#>'{Rows,Row}') e
+    where e.value ? 'Summary' and coalesce(e.value->>'group','GrandTotal')='GrandTotal';
+  if n_totals<>1 then raise exception 'Expected exactly one provider grand total'; end if;
   if jsonb_array_length(totals) is distinct from 3
     or totals#>>'{0,value}' is distinct from 'TOTAL'
     or coalesce(totals#>>'{1,value}','') !~ '^[0-9]+([.][0-9]{1,2})?$'

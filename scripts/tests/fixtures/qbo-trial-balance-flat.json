@@ -1,0 +1,73 @@
+{
+  "Header": {
+    "ReportName": "TrialBalance",
+    "Currency": "USD",
+    "EndPeriod": "2026-08-31",
+    "ReportBasis": "Accrual"
+  },
+  "Columns": {
+    "Column": [
+      {
+        "ColType": "Account",
+        "ColTitle": ""
+      },
+      {
+        "ColType": "Money",
+        "ColTitle": "Debit"
+      },
+      {
+        "ColType": "Money",
+        "ColTitle": "Credit"
+      }
+    ]
+  },
+  "Rows": {
+    "Row": [
+      {
+        "ColData": [
+          {
+            "id": "bank",
+            "value": "Synthetic checking"
+          },
+          {
+            "value": "35.00"
+          },
+          {
+            "value": ""
+          }
+        ]
+      },
+      {
+        "ColData": [
+          {
+            "id": "equity",
+            "value": "Synthetic equity"
+          },
+          {
+            "value": ""
+          },
+          {
+            "value": "35.00"
+          }
+        ]
+      },
+      {
+        "type": "Section",
+        "group": "GrandTotal",
+        "Summary": {
+          "ColData": [
+            {
+              "value": "TOTAL"
+            },
+            {
+              "value": "35.00"
+            },
+            {
+              "value": "35.00"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

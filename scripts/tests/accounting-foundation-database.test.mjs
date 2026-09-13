@@ -25,7 +25,10 @@ const one=async(sql,params=[])=>(await q(sql,params))[0];
 const co=randomUUID(),other=randomUUID(),finance=randomUUID(),outsider=randomUUID(),otherUser=randomUUID(),conn=randomUUID(),otherConn=randomUUID();
 async function as(user,fn,role='authenticated'){await db.exec('set role '+role);await q("select set_config('request.jwt.claim.sub',$1,false)",[user||'']);try{return await fn();}finally{await db.exec('reset role');}}
 const rpc=async(name,args)=>(Object.values(await one(`select ${name}(${args.map((_,i)=>'$'+(i+1)).join(',')})`,args)))[0];
-const report=()=>({Header:{ReportName:'TrialBalance',Currency:'USD',EndPeriod:'2026-08-31',ReportBasis:'Accrual'},Columns:{Column:[{ColType:'Account',ColTitle:''},{ColType:'Money',ColTitle:'Debit'},{ColType:'Money',ColTitle:'Credit'}]},Rows:{Row:[{type:'Section',Summary:{ColData:[{value:'TOTAL'},{value:'35.00'},{value:'35.00'}]},Rows:{Row:[{type:'Data',ColData:[{id:'bank',value:'Checking'},{value:'35.00'},{value:''}]},{type:'Data',ColData:[{id:'equity',value:'Equity'},{value:''},{value:'35.00'}]}]}}]}});
+// Reduced, synthetic values; structure verified against two stored QBO reports:
+// flat untyped account rows and a final Section/group=GrandTotal summary.
+const realShape=JSON.parse(await readFile(new URL('./fixtures/qbo-trial-balance-flat.json',import.meta.url),'utf8'));
+const report=()=>structuredClone(realShape);
 async function storeReport(raw=report(),company=co,connection=conn){const id=randomUUID();await q("insert into quickbooks_report_runs(id,company_entity_id,connection_id,report_name,end_date,raw_response,status) values($1,$2,$3,'TrialBalance','2026-08-31',$4,'ok')",[id,company,connection,raw]);return id;}
 const seed=id=>as(finance,()=>rpc('seed_accounting_from_qbo',[id,1]));
 try{
@@ -42,13 +45,19 @@ try{
  await assert.rejects(as(outsider,()=>rpc('seed_accounting_from_qbo',[id,1])),/Finance access/);
  await assert.rejects(as(otherUser,()=>rpc('seed_accounting_from_qbo',[id,1])),/successful trial balance/);
  await assert.rejects(seed(await storeReport(report(),co,otherConn)),/active QBO connection/);
- const malformed=report();malformed.Rows.Row[0].Rows.Row[1].ColData[2].value='34.99';await assert.rejects(seed(await storeReport(malformed)),/balance exactly/);
+ const malformed=report();malformed.Rows.Row[1].ColData[2].value='34.99';await assert.rejects(seed(await storeReport(malformed)),/balance exactly/);
  assert.equal(Number((await one('select count(*) as n from accounting_accounts')).n),0,'Failed seed is fully atomic');
- const duplicate=report();duplicate.Rows.Row[0].Rows.Row.push(duplicate.Rows.Row[0].Rows.Row[0]);await assert.rejects(seed(await storeReport(duplicate)),/duplicate account/);
- const foreign=report();foreign.Rows.Row[0].Rows.Row[0].ColData[0].id='missing';await assert.rejects(seed(await storeReport(foreign)),/missing from/);
+ const duplicate=report();duplicate.Rows.Row.push(duplicate.Rows.Row[0]);await assert.rejects(seed(await storeReport(duplicate)),/duplicate account/);
+ const foreign=report();foreign.Rows.Row[0].ColData[0].id='missing';await assert.rejects(seed(await storeReport(foreign)),/missing from/);
  const wrongdate=report();wrongdate.Header.EndPeriod='2026-09-01';await assert.rejects(seed(await storeReport(wrongdate)),/Report header/);
- const partial=report();partial.Rows.Row[0].Summary.ColData[1].value='70.00';await assert.rejects(seed(await storeReport(partial)),/provider trial balance total/);
+ const partial=report();partial.Rows.Row[2].Summary.ColData[1].value='70.00';await assert.rejects(seed(await storeReport(partial)),/provider trial balance total/);
  const filtered=await storeReport();await q(`update quickbooks_report_runs set params='{"department":"1"}' where id=$1`,[filtered]);await assert.rejects(seed(filtered),/Filtered trial balances/);
+ const missingTotal=report();missingTotal.Rows.Row.pop();await assert.rejects(seed(await storeReport(missingTotal)),/exactly one provider grand total/);
+ const duplicateTotal=report();duplicateTotal.Rows.Row.push(duplicateTotal.Rows.Row[2]);await assert.rejects(seed(await storeReport(duplicateTotal)),/exactly one provider grand total/);
+ const subtotalOnly=report();subtotalOnly.Rows.Row[2].group='Subtotal';await assert.rejects(seed(await storeReport(subtotalOnly)),/exactly one provider grand total/);
+ const misplaced=report();misplaced.Rows.Row.unshift(misplaced.Rows.Row.pop());await seed(await storeReport(misplaced));
+ const withSubtotal=report();withSubtotal.Rows.Row.unshift({group:'Subtotal',Summary:{ColData:[{value:'TOTAL'},{value:'999.00'},{value:'999.00'}]}});await seed(await storeReport(withSubtotal));
+ const nested=report();const total=nested.Rows.Row.pop();delete total.group;total.Rows={Row:nested.Rows.Row};nested.Rows.Row=[total];await seed(await storeReport(nested));
  const s=await seed(id);const first=await one('select * from accounting_opening_balances');assert.equal(first.snapshot.lines.length,2);assert.equal(first.snapshot.debits,35);assert.equal(first.snapshot.destination,'silo_opening_history');
  assert.equal((await one('select accounting_start_date::text as d from accounting_settings')).d,'2026-09-01');
  const accountIds=(await q('select id from accounting_accounts order by id')).map(r=>r.id);await seed(id);assert.deepEqual((await q('select id from accounting_accounts order by id')).map(r=>r.id),accountIds);

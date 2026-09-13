@@ -67,3 +67,11 @@ test('fallback link retains the callback when automatic navigation fails',async(
   assert.throws(()=>vm.runInNewContext(script,context),/Navigation unavailable/);
   assert.equal(anchor.href,'./transactions.html?oauth_state_id=callback#return');
 });
+
+test('cached navigation metadata cannot throw and newly available metadata is used',()=>{
+ const window={SiloNav:{}};vm.runInNewContext(suite,{window});
+ assert.equal(window.SiloAccounting.contains('finance/books'),false);
+ window.SiloAccounting.mount({querySelector:()=>null},'finance/books');
+ vm.runInNewContext(nav,{window});
+ assert.equal(window.SiloAccounting.contains('finance/books'),true);
+});
