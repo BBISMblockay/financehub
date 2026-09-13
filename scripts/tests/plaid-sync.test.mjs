@@ -38,4 +38,19 @@ await assert.rejects(runPlaidSync({ url: 'https://synthetic.supabase.co', servic
   fetchImpl: async () => new Response('secret provider payload', { status: 500 }) }), /Account discovery failed \(500\)/);
 await assert.rejects(runPlaidSync({ url: 'http://synthetic.supabase.co', serviceKey: 'synthetic' }), /Invalid Supabase URL/);
 await assert.rejects(runPlaidSync({ url: 'https://synthetic.supabase.co', serviceKey: '' }), /Missing Supabase service key/);
-console.log('Plaid scheduler: partial failures, response validation, pagination, authorization scope and safe errors passed');
+for (const [status, body, expected] of [
+  [403, { error: 'Background syncing is disabled or action is not allowed' }, 'background_sync_disabled'],
+  [403, { error: 'Service access required' }, 'service_key_mismatch'],
+  [401, { message: 'Invalid JWT' }, 'authentication_rejected'],
+  [403, { error: 'private-bank-data', code: 'private-token' }, 'sync_request_failed'],
+  [502, { error: 'Service access required' }, 'sync_request_failed'],
+]) {
+  const diagnostic = await runPlaidSync({ url: 'https://synthetic.supabase.co', serviceKey: 'synthetic-service',
+    fetchImpl: async (url) => url.pathname.startsWith('/rest/')
+      ? Response.json([{ id: 'one' }]) : Response.json(body, { status }),
+  });
+  assert.equal(diagnostic.failed, 1);
+  assert.equal(diagnostic.results[0].error_code, expected);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /private-bank-data|private-token|synthetic-service/);
+}
+console.log('Plaid scheduler: partial failures, response validation, pagination, authorization scope and safe diagnostics passed');
