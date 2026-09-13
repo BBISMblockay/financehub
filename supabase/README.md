@@ -517,3 +517,30 @@ controls. The RPC validates stored, unfiltered GL/TB reports, preserves independ
 copies, and records per-account reconciliation exceptions. It creates no journals.
 Apply only this new migration after review; no Edge Function change is required.
 See [QBO history operations](../docs/ops/qbo-history.md) for limits and test gates.
+
+### Profiles active-company scope (20260913054723)
+
+`20260913054723_profiles_active_company_scope.sql` scopes profile visibility to
+the caller's ACTIVE company. `profiles` carried three OR'd SELECT policies —
+`profiles_select_own`, `profiles_select_self_or_admin`,
+`profiles_internal_assignment_select` — none of which constrained the ROW being
+read to a company. `is_owner_admin()` has no `entity_id` filter, so an owner of
+one tenant matched it while active in another and read every profile in the
+database; reported live as Baseballism people appearing in Test Company's
+assignee dropdown on `/v2/tasks.html`. Twelve people-pickers read `profiles`
+directly and all relied on RLS for scoping.
+
+`profiles` has no `company_entity_id` of its own (a person can belong to several
+companies), so the scope comes from `entity_memberships` via a new
+`shares_active_company(uuid)` — SECURITY DEFINER with `row_security = off`,
+matching `is_owner_admin()`/`active_company_id()`, because a policy on
+`profiles` reading `entity_memberships` directly would re-enter that table's RLS.
+The same root cause is closed on the UPDATE side. Backend admin screens are
+unaffected: `admin_update_profile()` is SECURITY DEFINER and bypasses RLS.
+
+Measured against production before writing: Baseballism 34 → 33 visible (losing
+only a Test-Company-only account with zero references in any Baseballism row),
+Test Company 34 → 2, zero profiles orphaned. Every viewer keeps their own row.
+Regressions in `scripts/tests/profiles-tenant-scope.test.mjs` (PGlite, real
+migration, real role switching); `verify_v2_schema.sql` asserts exactly one
+SELECT policy, since policies are OR'd and one unscoped survivor re-opens it.

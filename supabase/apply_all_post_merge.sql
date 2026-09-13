@@ -18704,3 +18704,7 @@ $c$select (select count(*) from v_po_header_summary
 
 -- Immutable QBO report history; no outbound journals or deployment.
 \i migrations/20260913022606_qbo_historical_ledger.sql
+
+-- Scopes profile visibility to the caller's active company. Replaces three
+-- OR'd SELECT policies that constrained the CALLER but never the row.
+\i migrations/20260913054723_profiles_active_company_scope.sql

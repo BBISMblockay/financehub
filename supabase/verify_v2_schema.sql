@@ -3485,3 +3485,24 @@ select 'QBO history retention and audit' as check_name,
  then 'CRITICAL: archive depends on live connection or report cache'
  when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D')
  then 'CRITICAL: history import audit missing' else 'ok' end as status;
+
+-- Profiles tenant isolation. Policies are OR'd, so a single unscoped SELECT
+-- policy re-opens the cross-tenant leak that put Baseballism people in Test
+-- Company's assignee dropdowns. Assert the shape, not just the presence.
+select 'Profiles active-company scope' as check_name,
+ case when to_regprocedure('public.shares_active_company(uuid)') is null then 'MISSING: shares_active_company helper'
+ when not (select p.prosecdef and p.proconfig @> array['row_security=off']
+   and has_function_privilege('authenticated',p.oid,'EXECUTE')
+   and not has_function_privilege('anon',p.oid,'EXECUTE')
+   from pg_proc p where p.oid=to_regprocedure('public.shares_active_company(uuid)'))
+   then 'CRITICAL: shares_active_company posture or grants'
+ when (select count(*) from pg_policy where polrelid='public.profiles'::regclass and polcmd='r') <> 1
+   then 'CRITICAL: profiles has more than one SELECT policy; an unscoped one re-opens the tenant leak'
+ when not exists(select 1 from pg_policy where polrelid='public.profiles'::regclass and polcmd='r'
+   and pg_get_expr(polqual,polrelid) like '%shares_active_company%')
+   then 'CRITICAL: profiles SELECT policy is not company-scoped'
+ when exists(select 1 from pg_policy where polrelid='public.profiles'::regclass and polcmd='w'
+   and pg_get_expr(polqual,polrelid) like '%is_owner_admin%'
+   and pg_get_expr(polqual,polrelid) not like '%shares_active_company%')
+   then 'CRITICAL: profiles UPDATE policy admits any-tenant owner/admin'
+ else 'ok' end as status;
