@@ -25,6 +25,8 @@
     overrideEditing = null,
     busy = false,
     ready = false;
+  let whatIf = [],
+    whatIfSequence = 0;
   let filters = {
     currency: "USD",
     selected: "all",
@@ -33,6 +35,10 @@
     horizon: 3,
     lookback: 90,
     trend: true,
+    timing: true,
+    projectionEnabled: false,
+    collectionPercent: 100,
+    collectionLag: 0,
   };
   const result = async (q) => {
     const r = await q;
@@ -89,8 +95,22 @@
         horizon: [3, 6],
         lookback: [30, 90],
         trend: [true, false],
+        timing: [true, false],
+        projectionEnabled: [true, false],
       }))
         if (allowed.includes(f[key])) filters[key] = f[key];
+      if (
+        Number.isFinite(f.collectionPercent) &&
+        f.collectionPercent >= 0 &&
+        f.collectionPercent <= 100
+      )
+        filters.collectionPercent = f.collectionPercent;
+      if (
+        Number.isInteger(f.collectionLag) &&
+        f.collectionLag >= 0 &&
+        f.collectionLag <= 60
+      )
+        filters.collectionLag = f.collectionLag;
       if (/^[A-Z]{3}$/.test(f.currency)) filters.currency = f.currency;
       if (typeof f.selected === "string") filters.selected = f.selected;
     } catch {}
@@ -109,6 +129,9 @@
     el("matrix").innerHTML = "";
     el("liquidity").innerHTML = "";
     el("charts").innerHTML = "";
+    el("flowTotals").innerHTML = "";
+    el("patterns").innerHTML = "";
+    el("projectionStatus").textContent = "Loading planning inputs…";
     try {
       const active = await cfg.ensureActiveCompany(db);
       if (active?.id !== company.id)
@@ -123,6 +146,7 @@
         plans,
         overrides,
         settings,
+        revenue,
       ] = await Promise.all([
         pages(
           "plaid_accounts",
@@ -150,6 +174,18 @@
             .select("base_currency")
             .eq("company_entity_id", company.id)
             .maybeSingle(),
+        ),
+        pages(
+          "revenue_projections",
+          "id,projection_date,location_id,projected_sales,scenario",
+          (q) =>
+            q
+              .eq("scenario", "active")
+              .gte("projection_date", M.addDays(today, 1))
+              .lte("projection_date", M.addMonths(today, 6)),
+        ).then(
+          (rows) => ({ rows, error: null }),
+          (e) => ({ rows: [], error: e.message }),
         ),
       ]);
       const conn = new Map(connections.map((c) => [c.id, c]));
@@ -186,6 +222,8 @@
         overrides,
         transactions,
         baseCurrency: settings?.base_currency || "USD",
+        projections: revenue.rows,
+        projectionError: revenue.error,
       };
       const currencies = [
         ...new Set(
@@ -207,6 +245,8 @@
       el("currency").innerHTML = currencies
         .map((c) => `<option>${esc(c)}</option>`)
         .join("");
+      if (filters.projectionEnabled && data.projectionError)
+        throw new Error("Revenue projections: " + data.projectionError);
       ready = true;
       render();
       if (!model.invalidAssignments.length)
@@ -215,9 +255,22 @@
         );
     } catch (e) {
       ready = false;
-      for (const id of ["summary", "matrix", "liquidity", "charts"])
+      for (const id of [
+        "summary",
+        "matrix",
+        "liquidity",
+        "charts",
+        "flowTotals",
+        "patterns",
+      ])
         el(id).innerHTML = "";
       status("Cashflow unavailable: " + e.message);
+      if (data?.projectionError && filters.projectionEnabled) {
+        el("projectionEnabled").checked = true;
+        el("projectionEnabled").disabled = false;
+        el("projectionStatus").textContent =
+          "Projections unavailable. Uncheck Add projections to planning to continue without that layer, or refresh to retry.";
+      }
       el("overrides").innerHTML = "";
       el("accounts").innerHTML = "";
       el("plans").innerHTML = "";
@@ -257,12 +310,12 @@
       )
     )
       filters.selected = "all";
-    model = M.build({ ...data, ...filters, today });
+    model = M.build({ ...data, ...filters, whatIf, today });
     persist();
     el("charts").innerHTML = window.SiloCashflowCharts.render(
       filters.unit === "month"
         ? model
-        : M.build({ ...data, ...filters, unit: "month", today }),
+        : M.build({ ...data, ...filters, whatIf, unit: "month", today }),
       filters.currency,
     );
     for (const key of ["currency", "group", "unit", "horizon", "lookback"])
@@ -348,6 +401,7 @@
     el("planScope").textContent =
       `Company plans · ${data.baseCurrency}${model.companyPlans ? "" : " · switch to All cash accounts / " + data.baseCurrency + " to include and edit"}`;
     renderOverrides();
+    renderPlanning();
     el("plans").innerHTML = data.plans.length
       ? data.plans
           .map(
@@ -535,7 +589,11 @@
       .map((a) => total(esc(a.label), a.ending, "cf-balance-row"))
       .join("");
     if (model.unallocatedEnding.some((n) => n))
-      body += total("Unassigned cash movements", model.unallocatedEnding, "cf-balance-row");
+      body += total(
+        "Unassigned cash movements",
+        model.unallocatedEnding,
+        "cf-balance-row",
+      );
     body += total("Total cash", model.liquidityTotal);
     body += model.liquidity
       .filter((a) => a.type !== "depository")
@@ -736,6 +794,12 @@
     if (!row || !col) return;
     el("detailTitle").textContent =
       row.label + " · " + short(col.start) + " – " + short(col.end);
+    if (row.flow === "What if") {
+      el("detailBody").innerHTML =
+        "<p>This is an unsaved scenario movement. Remove or replace it in the What if strip, or use Add movement to save an assumption.</p>";
+      el("detailDialog").showModal();
+      return;
+    }
     if (col.kind === "actual")
       el("detailBody").innerHTML =
         row.transactions[i]
@@ -758,9 +822,91 @@
               : o.category_key === row.categoryKey),
       );
       el("detailBody").innerHTML =
-        `<p>Bank trend: ${money(row.trend[i])}</p><p>Planned movements: ${money(row.planned[i])}</p><p>Manual override: ${money(row.manual[i])}</p><p><b>Projected total: ${money(row.forecast[i])}</b></p><div class="cf-detail-actions">${model.companyPlans ? (overlapping.length ? overlapping.map((o) => `<button class="bcn-btn" data-edit-override="${esc(o.id)}">Edit ${esc(o.category_label)} · ${short(o.start_date)}–${short(o.end_date)}</button>`).join("") : `<button class="bcn-btn bcn-btn--primary" data-new-override="${r}:${i}">Override this total</button>`) : "<p>Switch to All cash accounts in the base currency to edit assumptions.</p>"}</div>`;
+        `<p>Bank trend: ${money(row.trend[i])}</p><p>Planned movements: ${money(row.planned[i])}</p><p>Manual override: ${money(row.manual[i])}</p><p>Revenue projections: ${money(row.projection[i])}</p><p>What-if scenario: ${money(row.whatif[i])}</p><p><b>Projected total: ${money(row.forecast[i])}</b></p><div class="cf-detail-actions">${model.companyPlans ? (overlapping.length ? overlapping.map((o) => `<button class="bcn-btn" data-edit-override="${esc(o.id)}">Edit ${esc(o.category_label)} · ${short(o.start_date)}–${short(o.end_date)}</button>`).join("") : `<button class="bcn-btn bcn-btn--primary" data-new-override="${r}:${i}">Override this total</button>`) : "<p>Switch to All cash accounts in the base currency to edit assumptions.</p>"}</div>`;
     }
     el("detailDialog").showModal();
+  }
+  function renderPlanning() {
+    const future = model.cols
+        .map((c, i) => (c.kind === "forecast" ? i : -1))
+        .filter((i) => i >= 0),
+      sum = (values) => future.reduce((n, i) => n + values[i], 0);
+    el("flowTotals").innerHTML =
+      `<span>${short(model.futureStart)}–${short(model.futureEnd)}</span><span>Money in<strong>${money(sum(model.inflow))}</strong></span><span>Money out<strong>${money(-sum(model.outflow))}</strong></span><span>Net<strong>${money(sum(model.net))}</strong></span><span>Projections<strong>${money(model.projectionInfo.total)}</strong></span><span>What-if impact<strong>${money(model.whatIfTotal)}</strong></span>`;
+    el("timing").checked = filters.timing;
+    el("timingSummary").textContent =
+      `Recurring timing · ${filters.timing ? model.patterns.length + " patterns detected" : "daily averages selected"}`;
+    el("patterns").innerHTML =
+      model.patterns
+        .map(
+          (p) =>
+            `<div class="cf-pattern"><span>${esc(p.merchant)} · ${esc(p.category)}<br>${esc(p.cadence)} · ${p.samples} observed payments</span><span>${p.nextDate ? short(p.nextDate) : "Outside horizon"} · ${money(p.amount)}</span></div>`,
+        )
+        .join("") ||
+      "<p>No reliable recurring pattern in this history window. Irregular activity uses daily averages.</p>";
+    el("projectionEnabled").checked = filters.projectionEnabled;
+    el("collectionPercent").value = filters.collectionPercent;
+    el("collectionLag").value = filters.collectionLag;
+    for (const id of [
+      "projectionEnabled",
+      "collectionPercent",
+      "collectionLag",
+    ])
+      el(id).disabled = !model.companyPlans || !!data.projectionError;
+    el("projectionStatus").textContent = data.projectionError
+      ? "Projections unavailable: " + data.projectionError
+      : `${data.projections.length} future active location/date projections available · ${data.baseCurrency}. ${model.projectionInfo.enabled ? model.projectionInfo.count + " receipts included in this horizon." : "Planning layer off in this view."}`;
+    for (const id of [
+      "whatIfAdd",
+      "whatIfLabel",
+      "whatIfDirection",
+      "whatIfAmount",
+      "whatIfDate",
+    ])
+      el(id).disabled = !model.companyPlans;
+    if (!el("whatIfDate").value) el("whatIfDate").value = model.futureStart;
+    el("whatIfDate").min = model.futureStart;
+    el("whatIfDate").max = M.addMonths(today, 6);
+    el("whatIfItems").innerHTML = whatIf
+      .map(
+        (w) =>
+          `<span class="cf-whatif-chip">${esc(w.label)} · ${esc(w.date)} · ${esc(new Intl.NumberFormat("en-US", { style: "currency", currency: w.currency }).format(w.amount))}${w.date > model.futureEnd ? " · outside horizon" : ""}<button type="button" data-remove-whatif="${esc(w.id)}" aria-label="Remove ${esc(w.label)}">×</button></span>`,
+      )
+      .join("");
+    el("whatIfStatus").textContent = model.companyPlans
+      ? "Preview only · cleared when you reload this page. Use Add movement to save an assumption."
+      : "Use All cash accounts in the base currency to preview custom movements.";
+  }
+  function addWhatIf() {
+    if (!ready || !model.companyPlans) return;
+    const amount = Number(el("whatIfAmount").value),
+      date = el("whatIfDate").value,
+      label = el("whatIfLabel").value.trim();
+    if (
+      !label ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !M.validDate(date) ||
+      date <= today ||
+      date > M.addMonths(today, 6)
+    ) {
+      el("whatIfStatus").textContent =
+        "Enter a description, positive amount and a future date within six months.";
+      return;
+    }
+    whatIf.push({
+      id: "preview-" + ++whatIfSequence,
+      currency: filters.currency,
+      date,
+      label,
+      amount:
+        ((el("whatIfDirection").value === "out" ? -1 : 1) *
+          Math.round(amount * 100)) /
+        100,
+    });
+    render();
+    el("whatIfLabel").value = "";
+    el("whatIfAmount").value = "";
   }
   async function boot() {
     if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY)
@@ -789,6 +935,60 @@
     });
     restore();
     el("refresh").addEventListener("click", load);
+    el("timing").addEventListener("change", () => {
+      if (!ready) return;
+      filters.timing = el("timing").checked;
+      render();
+    });
+    el("projectionControls").addEventListener("change", (e) => {
+      if (
+        !ready &&
+        data?.projectionError &&
+        e.target.id === "projectionEnabled" &&
+        !e.target.checked
+      ) {
+        filters.projectionEnabled = false;
+        persist();
+        load();
+        return;
+      }
+      if (!ready || !model.companyPlans || data.projectionError) return;
+      const id = e.target.id;
+      if (id === "projectionEnabled")
+        filters.projectionEnabled = e.target.checked;
+      else if (["collectionPercent", "collectionLag"].includes(id)) {
+        const n = Number(e.target.value);
+        if (
+          e.target.value === "" ||
+          !Number.isFinite(n) ||
+          n < 0 ||
+          n > (id === "collectionLag" ? 60 : 100) ||
+          (id === "collectionLag" && !Number.isInteger(n))
+        ) {
+          el("projectionStatus").textContent =
+            "Enter a collection percentage from 0–100 and a whole-day delay from 0–60.";
+          return;
+        }
+        filters[id] = n;
+      } else return;
+      render();
+    });
+    el("whatIfForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      addWhatIf();
+    });
+    el("whatIfClear").addEventListener("click", () => {
+      whatIf = [];
+      render();
+    });
+    el("whatIfItems").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-remove-whatif]");
+      if (b) {
+        whatIf = whatIf.filter((w) => w.id !== b.dataset.removeWhatif);
+        render();
+      }
+    });
+
     el("add").addEventListener("click", () => openPlan());
     el("overrideAdd").addEventListener("click", () => openOverride());
     el("overrides").addEventListener("click", (e) => {

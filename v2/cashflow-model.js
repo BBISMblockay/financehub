@@ -85,6 +85,146 @@
     }
     return out;
   }
+  const median = (values) => {
+    const v = [...values].sort((a, b) => a - b),
+      i = Math.floor(v.length / 2);
+    return v.length % 2 ? v[i] : (v[i - 1] + v[i]) / 2;
+  };
+  function merchantKey(t) {
+    const name = String(t.clean_merchant || t.description || "")
+      .toLowerCase()
+      .replace(/\b\d{1,4}[/-]\d{1,2}(?:[/-]\d{1,4})?\b/g, " ")
+      .replace(/\b[a-z0-9]*\d[a-z0-9]{5,}\b/g, " ")
+      .replace(/[^a-z ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return /^(payment|deposit|withdrawal|transfer|purchase|unknown)?$/.test(
+      name,
+    )
+      ? ""
+      : name;
+  }
+  function detectTiming(observations, today) {
+    // Three monthly cycles or four weekly/fortnightly cycles, with no missing
+    // cycle, are required. Amounts are estimated from the median observed bill.
+    const sorted = [...observations].sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+    if (
+      sorted.length < 3 ||
+      new Set(sorted.map((o) => o.date)).size !== sorted.length
+    )
+      return null;
+    const gaps = sorted
+        .slice(1)
+        .map((o, i) => days(sorted[i].date, o.date) - 1),
+      last = sorted.at(-1).date;
+    const monthIndex = (d) =>
+      Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7));
+    const dom = sorted.map((o) => Number(o.date.slice(8)));
+    const monthEnd = sorted.every(
+      (o) =>
+        days(
+          o.date,
+          iso(
+            new Date(
+              Date.UTC(
+                date(o.date).getUTCFullYear(),
+                date(o.date).getUTCMonth() + 1,
+                0,
+              ),
+            ),
+          ),
+        ) <= 3,
+    );
+    let cadence, anchor;
+    if (
+      gaps.every((g) => g >= 26 && g <= 35) &&
+      sorted
+        .slice(1)
+        .every(
+          (o, i) => monthIndex(o.date) - monthIndex(sorted[i].date) === 1,
+        ) &&
+      (monthEnd || Math.max(...dom) - Math.min(...dom) <= 3)
+    ) {
+      cadence = "monthly";
+      const next = addMonths(last.slice(0, 8) + "01", 1),
+        day = monthEnd ? 31 : Math.round(median(dom));
+      const end = Number(
+        iso(
+          new Date(
+            Date.UTC(
+              date(next).getUTCFullYear(),
+              date(next).getUTCMonth() + 1,
+              0,
+            ),
+          ),
+        ).slice(8),
+      );
+      anchor = next.slice(0, 8) + String(Math.min(day, end)).padStart(2, "0");
+      if (days(last, today) - 1 > 35) return null;
+    } else if (sorted.length >= 4 && gaps.every((g) => g >= 6 && g <= 8)) {
+      cadence = "weekly";
+      anchor = addDays(last, 7);
+      if (days(last, today) - 1 > 10) return null;
+    } else if (sorted.length >= 4 && gaps.every((g) => g >= 13 && g <= 15)) {
+      cadence = "biweekly";
+      anchor = addDays(last, 14);
+      if (days(last, today) - 1 > 17) return null;
+    } else return null;
+    const amounts = sorted.map((o) => Math.abs(o.movement)),
+      amount = Math.round(median(amounts));
+    if (
+      !amount ||
+      Math.max(...amounts) > amount * 3 ||
+      Math.min(...amounts) < amount * 0.2
+    )
+      return null;
+    return {
+      cadence,
+      anchor,
+      monthEnd,
+      day: Math.round(median(dom)),
+      amount,
+      samples: sorted.length,
+      last,
+    };
+  }
+  function timedDates(pattern, start, end) {
+    if (pattern.cadence !== "monthly")
+      return occurrences(
+        {
+          kind: "recurring",
+          cadence: pattern.cadence,
+          start_date: pattern.anchor,
+        },
+        start,
+        end,
+      );
+    const out = [];
+    let month = addMonths(pattern.last.slice(0, 8) + "01", 1);
+    while (month <= end) {
+      const monthLast = iso(
+        new Date(
+          Date.UTC(
+            date(month).getUTCFullYear(),
+            date(month).getUTCMonth() + 1,
+            0,
+          ),
+        ),
+      );
+      const d = pattern.monthEnd
+        ? monthLast
+        : month.slice(0, 8) +
+          String(Math.min(pattern.day, Number(monthLast.slice(8)))).padStart(
+            2,
+            "0",
+          );
+      if (d >= start && d <= end) out.push(d);
+      month = addMonths(month, 1);
+    }
+    return out;
+  }
   function flowFor(type, treatment) {
     if (treatment === "transfer" || type === "Bank") return "Transfers";
     if (treatment === "card_payment" || type === "Credit Card")
@@ -127,6 +267,12 @@
     overrides = [],
     baseCurrency = "USD",
     trend = true,
+    timing = true,
+    projections = [],
+    projectionEnabled = false,
+    collectionPercent = 100,
+    collectionLag = 0,
+    whatIf = [],
   }) {
     if (
       !validDate(today) ||
@@ -243,15 +389,26 @@
         t.accounting_treatment === "transfer"
       )
         continue;
-      const key = t.plaid_account_id + "|" + direction + "|" + category.key;
+      const merchant = merchantKey(t);
+      const key =
+        t.plaid_account_id +
+        "|" +
+        direction +
+        "|" +
+        category.key +
+        "|" +
+        merchant;
       if (!series.has(key))
         series.set(key, {
           account: t.plaid_account_id,
           direction,
           category,
           total: 0,
+          merchant,
+          observations: [],
         });
       series.get(key).total += movement;
+      series.get(key).observations.push({ date: t.txn_date, movement });
     }
     const companyPlans = selected === "all" && currency === baseCurrency;
     const planItems =
@@ -330,14 +487,34 @@
         });
       }
     }
-    const trendDays = days(futureStart, futureEnd);
+    const trendDays = days(futureStart, futureEnd),
+      patterns = [],
+      bankEvents = [];
     for (const s of series.values()) {
+      const pattern =
+        timing && s.merchant ? detectTiming(s.observations, today) : null;
+      const scheduled = pattern
+        ? new Set(timedDates(pattern, futureStart, futureEnd))
+        : null;
+      if (pattern && selectedIds.has(s.account))
+        patterns.push({
+          ...pattern,
+          merchant: s.merchant,
+          category: s.category.name,
+          account: s.account,
+          direction: s.direction,
+          nextDate: [...scheduled][0] || null,
+        });
       const denominator = days(coverage.get(s.account), addDays(today, -1));
       let previous = 0;
       for (let n = 1; n <= trendDays; n++) {
         const d = addDays(futureStart, n - 1),
-          cumulative = Math.round((s.total * n) / denominator),
-          amount = cumulative - previous;
+          cumulative = Math.round((s.total * n) / denominator);
+        const amount = pattern
+          ? scheduled.has(d)
+            ? (s.direction === "out" ? -1 : 1) * pattern.amount
+            : 0
+          : cumulative - previous;
         previous = cumulative;
         const replaced = resolvedPlans.some(
           (p) =>
@@ -349,15 +526,67 @@
             (!p.end_date || p.end_date >= d) &&
             (!p.account_id || p.account_id === s.account),
         );
-        if (trend && !replaced)
-          events.push({
+        if (trend && amount) {
+          const event = {
             date: d,
             account: s.account,
             movement: amount,
             category: s.category,
             direction: s.direction,
             source: "trend",
-          });
+          };
+          bankEvents.push(event);
+          if (!replaced) events.push(event);
+        }
+      }
+    }
+    const projectionInfo = {
+      count: 0,
+      total: 0,
+      enabled:
+        projectionEnabled && currency === baseCurrency && selected === "all",
+    };
+    if (projectionInfo.enabled) {
+      if (
+        !Number.isFinite(collectionPercent) ||
+        collectionPercent < 0 ||
+        collectionPercent > 100 ||
+        !Number.isInteger(collectionLag) ||
+        collectionLag < 0 ||
+        collectionLag > 60
+      )
+        throw new Error("Invalid projection collection assumptions.");
+      const seenProjections = new Set();
+      for (const p of projections) {
+        if (
+          p.scenario !== "active" ||
+          !validDate(p.projection_date) ||
+          p.projection_date <= today
+        )
+          continue;
+        const identity = p.id || p.location_id + "|" + p.projection_date;
+        if (seenProjections.has(identity)) continue;
+        seenProjections.add(identity);
+        const receiptDate = addDays(p.projection_date, collectionLag);
+        if (receiptDate < futureStart || receiptDate > futureEnd) continue;
+        const sales = cents(p.projected_sales);
+        if (sales === null || sales < 0)
+          throw new Error("A revenue projection has an invalid amount.");
+        const amount = Math.round((sales * collectionPercent) / 100);
+        projectionInfo.count++;
+        projectionInfo.total += amount;
+        appendMovement(
+          events,
+          { id: "projection|" + identity },
+          receiptDate,
+          amount,
+          {
+            key: "flow|Revenue projections",
+            name: "Revenue projections",
+            flow: "Revenue projections",
+          },
+          "projection",
+        );
       }
     }
     for (const p of resolvedPlans) {
@@ -426,6 +655,36 @@
           "override",
         );
     }
+    const savedEvents = events.slice();
+    let whatIfTotal = 0,
+      whatIfCount = 0;
+    for (const w of whatIf) {
+      if (
+        selected !== "all" ||
+        w.currency !== currency ||
+        !validDate(w.date) ||
+        w.date < futureStart ||
+        w.date > futureEnd
+      )
+        continue;
+      const amount = cents(w.amount);
+      if (amount === null || !amount)
+        throw new Error("A what-if amount is invalid.");
+      appendMovement(
+        events,
+        { id: w.id },
+        w.date,
+        amount,
+        {
+          key: "whatif|" + w.id,
+          name: "What if · " + w.label,
+          flow: "What if",
+        },
+        "whatif",
+      );
+      whatIfTotal += amount;
+      whatIfCount++;
+    }
     const visible = (e) =>
       !e.nonCash && (selected === "all" || e.account === selected);
     const rows = new Map(),
@@ -448,6 +707,8 @@
           planned: Array(cols.length).fill(0),
           trend: Array(cols.length).fill(0),
           manual: Array(cols.length).fill(0),
+          projection: Array(cols.length).fill(0),
+          whatif: Array(cols.length).fill(0),
           overrides: Array.from({ length: cols.length }, () => []),
           transactions: Array.from({ length: cols.length }, () => []),
         });
@@ -600,6 +861,12 @@
       ...path,
       baselineEnding: baseline.ending,
       baselineDaily: baseline.daily,
+      bankDaily: trajectory(bankEvents).daily,
+      savedDaily: trajectory(savedEvents).daily,
+      patterns,
+      projectionInfo,
+      whatIfTotal,
+      whatIfCount,
       liquidity,
       liquidityTotal,
       unallocatedEnding,
@@ -633,5 +900,7 @@
     coaKey,
     catalog,
     flowFor,
+    detectTiming,
+    timedDates,
   };
 })();
