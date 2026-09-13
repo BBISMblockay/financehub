@@ -3502,3 +3502,10 @@ select 'Profiles active-company scope' as check_name,
    and pg_get_expr(polqual,polrelid) like '%is_owner_admin%')
    then 'CRITICAL: profiles UPDATE policy admits any-tenant owner/admin'
  else 'ok' end as status;
+
+select 'Cashflow override controls' as check_name,
+ case when to_regclass('public.cash_forecast_overrides') is null then 'MISSING: cashflow override migration'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.cash_forecast_overrides')) then 'CRITICAL: cashflow override RLS disabled'
+ when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.cash_forecast_overrides') and conname='cash_override_no_overlap') then 'CRITICAL: override overlap guard missing'
+ when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.cash_forecast_overrides') and tgname='finance_audit_event' and tgenabled<>'D') then 'CRITICAL: override audit missing'
+ else 'ok' end as status;

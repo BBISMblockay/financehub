@@ -39,6 +39,8 @@ on:
       - 'v2/cash-forecast.html'
       - 'v2/cashflow*'
       - 'scripts/tests/cashflow.test.mjs'
+      - 'scripts/tests/cashflow-database.test.mjs'
+      - 'supabase/migrations/*cashflow_overrides_liquidity.sql'
       - 'v2/schedules.html'
       - 'v2/fixed-assets.html'
       - 'v2/accounting-export.html'
@@ -230,3 +232,6 @@ jobs:
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs
+
+      - name: Execute cashflow override, liquidity and audit regressions
+        run: node scripts/tests/cashflow-database.test.mjs

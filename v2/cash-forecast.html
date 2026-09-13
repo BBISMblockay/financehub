@@ -1,42 +1,338 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" data-theme="light">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SILO · Cashflow</title>
-<link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-suite.css?v=2578100541d8">
-<link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
-<link rel="stylesheet" href="cashflow.css?v=f8d0a9200ed6">
-<script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script><script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="cashflow-model.js?v=b0a2d88ad33f" defer></script><script src="cashflow.js?v=bc418cff6c03" defer></script>
-</head>
-<body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
-<header class="bcn-header"><div class="bcn-header-title">Cashflow <div class="bcn-header-sub">Bank activity → trends → your plan</div></div><div class="bcn-header-actions"><a class="bcn-btn" href="transactions.html">Manage accounts</a><button class="bcn-btn" id="refresh">Refresh</button><button class="bcn-btn bcn-btn--primary" id="add" disabled>Add plan</button></div></header>
-<div class="cf-page">
-<p id="status" role="status" aria-live="polite">Loading connected accounts…</p>
-<section aria-label="Connected Plaid accounts" id="accounts" class="cf-accounts"></section>
-<div class="cf-controls" id="controls">
-<label>Currency <select id="currency" aria-label="Currency"></select></label>
-<label>Rows <select id="group"><option value="coa">COA buckets</option><option value="cashflow">Cashflow categories</option></select></label>
-<label>Columns <select id="unit"><option value="day">Day</option><option value="week" selected>Week</option><option value="month">Month</option></select></label>
-<label>Forecast <select id="horizon"><option value="3">3 months</option><option value="6">6 months</option></select></label>
-<label>History <select id="lookback"><option value="30">30 days</option><option value="90" selected>90 days</option></select></label>
-<label class="cf-check"><input type="checkbox" id="trend" checked> Use bank trends</label>
-<button class="bcn-btn" id="jump">Go to forecast →</button>
-</div>
-<section class="cf-summary" id="summary" aria-label="Cash outlook"></section>
-<div class="cf-matrix" id="matrix" tabindex="0" aria-label="Cashflow by category and date"></div>
-<div class="cf-foot"><span id="coverage"></span><span>Actuals · <b>Forecast = trends + plans</b></span></div>
-<details class="cf-method"><summary>How this forecast works</summary><p>Saved Plaid current balances anchor tomorrow’s forecast. Posted bank transactions count even when uncategorized or excluded from coding. Pending and removed transactions are omitted. Credit cards, loans and investments are shown for context, outside cash totals; their bank payments affect cash.</p><p>Trends use completed days from each account’s first observed transaction in the selected history through yesterday. Identified transfers are excluded from trends. Short histories can overstate a run rate; estimates do not predict seasonality or payment timing. Recurring plans replace their category’s trend in the same direction during their active dates. One-time plans are additional. Plans apply to all cash accounts in the company’s base currency. No currency conversion or ledger posting occurs.</p></details>
-<section class="cf-plans"><div class="cf-section-head"><h2>Planned movements</h2><span id="planScope"></span></div><div id="plans"></div></section>
-</div></main></div>
-<dialog id="planDialog"><form id="planForm"><div class="cf-dialog-head"><h2 id="planTitle">Add planned movement</h2><button type="button" class="bcn-btn" data-close="planDialog" aria-label="Close">×</button></div><div class="cf-fields">
-<label>Name<input id="label" required maxlength="160"></label>
-<label>Bucket<select id="category" required></select></label>
-<div class="cf-pair"><label>Direction<select id="direction"><option value="out">Money out</option><option value="in">Money in</option></select></label><label>Amount<input id="amount" type="number" min="0.01" step="0.01" required></label></div>
-<div class="cf-pair"><label>Plan type<select id="kind"><option value="one_time">One-time · additional</option><option value="recurring">Recurring · replaces trend</option></select></label><label>Repeat<select id="cadence" disabled><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="biweekly">Every 2 weeks</option><option value="quarterly">Quarterly</option><option value="annual">Annually</option></select></label></div>
-<div class="cf-pair"><label>Start date<input id="start" type="date" required></label><label>End date (optional)<input id="end" type="date" disabled></label></div>
-<p>Recurring plans replace the selected bucket’s trend for the same direction between these dates. One-time plans add to it.</p><p id="planError" role="alert"></p></div><div class="cf-dialog-foot"><button type="button" class="bcn-btn" id="archive" hidden>Archive</button><button type="button" class="bcn-btn" data-close="planDialog">Cancel</button><button class="bcn-btn bcn-btn--primary" id="save">Save plan</button></div></form></dialog>
-<dialog id="detailDialog"><div class="cf-dialog-head"><h2 id="detailTitle">Bank movements</h2><button class="bcn-btn" data-close="detailDialog" aria-label="Close">×</button></div><div id="detailBody" class="cf-fields"></div></dialog>
-</body></html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>SILO · Cashflow</title>
+    <link rel="stylesheet" href="beacon.css" />
+    <link rel="stylesheet" href="silo-brand.css" />
+    <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
+    <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+    <link rel="stylesheet" href="v2-mobile.css" />
+    <link rel="stylesheet" href="cashflow.css?v=28400cf67508" />
+    <script src="v2-shell.js" defer></script>
+    <script src="nav-config.js"></script>
+    <script src="avatar.js"></script>
+    <script src="accounting-suite.js"></script>
+    <script src="silo-chrome.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/pages/config.js"></script>
+    <script src="cashflow-model.js?v=6489653f7906" defer></script>
+    <script src="cashflow-charts.js?v=c715d24fabe2" defer></script>
+    <script src="cashflow.js?v=ac32f7b6c7d8" defer></script>
+  </head>
+  <body>
+    <div class="silo-app" id="silo-app">
+      <main class="silo-main accounting-workspace">
+        <header class="bcn-header">
+          <div class="bcn-header-title">
+            Cashflow
+            <div class="bcn-header-sub">Bank activity → trends → your plan</div>
+          </div>
+          <div class="bcn-header-actions">
+            <a class="bcn-btn" href="transactions.html">Manage accounts</a
+            ><button class="bcn-btn" id="refresh">Refresh</button
+            ><button class="bcn-btn" id="overrideAdd" disabled>
+              Override forecast</button
+            ><button class="bcn-btn bcn-btn--primary" id="add" disabled>
+              Add movement
+            </button>
+          </div>
+        </header>
+        <div class="cf-page">
+          <p id="status" role="status" aria-live="polite">
+            Loading connected accounts…
+          </p>
+          <section
+            aria-label="Connected Plaid accounts"
+            id="accounts"
+            class="cf-accounts"
+          ></section>
+          <div class="cf-controls" id="controls">
+            <label
+              >Currency
+              <select id="currency" aria-label="Currency"></select
+            ></label>
+            <label
+              >Rows
+              <select id="group">
+                <option value="coa">COA buckets</option>
+                <option value="cashflow">Cashflow categories</option>
+              </select></label
+            >
+            <label
+              >Columns
+              <select id="unit">
+                <option value="day">Day</option>
+                <option value="week" selected>Week</option>
+                <option value="month">Month</option>
+              </select></label
+            >
+            <label
+              >Forecast
+              <select id="horizon">
+                <option value="3">3 months</option>
+                <option value="6">6 months</option>
+              </select></label
+            >
+            <label
+              >History
+              <select id="lookback">
+                <option value="30">30 days</option>
+                <option value="90" selected>90 days</option>
+              </select></label
+            >
+            <label class="cf-check"
+              ><input type="checkbox" id="trend" checked /> Use bank
+              trends</label
+            >
+            <button class="bcn-btn" id="jump">Go to forecast →</button>
+          </div>
+          <section
+            class="cf-summary"
+            id="summary"
+            aria-label="Cash outlook"
+          ></section>
+          <section
+            class="cf-charts"
+            id="charts"
+            aria-label="Cashflow dashboard charts"
+          ></section>
+          <div class="cf-section-head">
+            <h2>Cashflow forecast</h2>
+            <span>Click a forecast cell to adjust its total</span>
+          </div>
+          <div
+            class="cf-matrix"
+            id="matrix"
+            tabindex="0"
+            aria-label="Cashflow by category and date"
+          ></div>
+          <div class="cf-foot">
+            <span id="coverage"></span
+            ><span>Actuals · <b>Forecast = trends + plans</b></span>
+          </div>
+          <div class="cf-section-head">
+            <h2>Liquidity by account</h2>
+            <span>Same dates · ending balances</span>
+          </div>
+          <div
+            class="cf-matrix cf-liquidity"
+            id="liquidity"
+            tabindex="0"
+            aria-label="Liquidity balances by account and date"
+          ></div>
+          <p class="cf-liquidity-note">
+            Cash rows reconcile to the forecast, including unassigned movements.
+            Historical cash balances are reconstructed from the saved balance
+            and imported activity. Card, loan and investment forecasts include
+            linked planned movements only; future card spending and market
+            returns are not estimated.
+          </p>
+          <details class="cf-method">
+            <summary>How this forecast works</summary>
+            <p>
+              Saved Plaid current balances anchor tomorrow’s forecast. Posted
+              bank transactions count even when uncategorized or excluded from
+              coding. Pending and removed transactions are omitted. Credit
+              cards, loans and investments sit outside cash totals. Linking a
+              bank movement to a card or another account updates both sides in
+              the liquidity table.
+            </p>
+            <p>
+              Trends use completed days from each account’s first observed
+              transaction in the selected history through yesterday. Identified
+              transfers are excluded from trends. Short histories can overstate
+              a run rate; estimates do not predict seasonality or payment
+              timing. Recurring plans replace their category’s trend in the same
+              direction during their active dates. One-time plans are
+              additional. Overrides replace the full category and direction
+              total over their saved dates, even when you change the column
+              view. A cashflow-group override takes precedence over individual
+              COA bucket overrides. Reset restores the underlying trends and
+              plans. Assumptions use the company’s base currency;
+              account-assigned movements also appear in that account’s view. No
+              currency conversion or ledger posting occurs.
+            </p>
+          </details>
+          <section class="cf-plans">
+            <div class="cf-section-head">
+              <h2>Manual overrides</h2>
+              <span
+                >Saved until reset · actual transactions stay unchanged</span
+              >
+            </div>
+            <div id="overrides"></div>
+          </section>
+          <section class="cf-plans">
+            <div class="cf-section-head">
+              <h2>Planned movements</h2>
+              <span id="planScope"></span>
+            </div>
+            <div id="plans"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <dialog id="planDialog">
+      <form id="planForm">
+        <div class="cf-dialog-head">
+          <h2 id="planTitle">Add planned movement</h2>
+          <button
+            type="button"
+            class="bcn-btn"
+            data-close="planDialog"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div class="cf-fields">
+          <label>Name<input id="label" required maxlength="160" /></label>
+          <label>Bucket<select id="category" required></select></label>
+          <div class="cf-pair">
+            <label>Cash account<select id="planAccount"></select></label
+            ><label
+              >Linked account (optional)<select id="planCounter"></select
+            ></label>
+          </div>
+          <p>
+            For a card paydown or transfer, link the other account. Money out
+            decreases this cash account; the linked balance updates
+            automatically.
+          </p>
+          <div class="cf-pair">
+            <label
+              >Direction<select id="direction">
+                <option value="out">Money out</option>
+                <option value="in">Money in</option>
+              </select></label
+            ><label
+              >Amount<input
+                id="amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+            /></label>
+          </div>
+          <div class="cf-pair">
+            <label
+              >Plan type<select id="kind">
+                <option value="one_time">One-time · additional</option>
+                <option value="recurring">Recurring · replaces trend</option>
+              </select></label
+            ><label
+              >Repeat<select id="cadence" disabled>
+                <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Every 2 weeks</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="annual">Annually</option>
+              </select></label
+            >
+          </div>
+          <div class="cf-pair">
+            <label>Start date<input id="start" type="date" required /></label
+            ><label
+              >End date (optional)<input id="end" type="date" disabled
+            /></label>
+          </div>
+          <p>
+            Recurring plans replace the selected bucket’s trend for the same
+            direction between these dates. One-time plans add to it.
+          </p>
+          <p id="planError" role="alert"></p>
+        </div>
+        <div class="cf-dialog-foot">
+          <button type="button" class="bcn-btn" id="archive" hidden>
+            Archive</button
+          ><button type="button" class="bcn-btn" data-close="planDialog">
+            Cancel</button
+          ><button class="bcn-btn bcn-btn--primary" id="save">Save plan</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="overrideDialog">
+      <form id="overrideForm">
+        <div class="cf-dialog-head">
+          <h2 id="overrideTitle">Override forecast</h2>
+          <button
+            type="button"
+            class="bcn-btn"
+            data-close="overrideDialog"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div class="cf-fields">
+          <p id="overrideContext"></p>
+          <div class="cf-pair">
+            <label
+              >Rows<select id="overrideGroup">
+                <option value="coa">COA bucket</option>
+                <option value="cashflow">Cashflow category</option>
+              </select></label
+            ><label
+              >Direction<select id="overrideDirection">
+                <option value="out">Money out</option>
+                <option value="in">Money in</option>
+              </select></label
+            >
+          </div>
+          <label>Bucket<select id="overrideCategory" required></select></label>
+          <div class="cf-pair">
+            <label>From<input id="overrideStart" type="date" required /></label
+            ><label
+              >Through<input id="overrideEnd" type="date" required
+            /></label>
+          </div>
+          <div class="cf-pair">
+            <label
+              >Replacement total<input
+                id="overrideAmount"
+                type="number"
+                min="0"
+                step="0.01"
+                required /></label
+            ><label
+              >Expected payment / receipt date<input
+                id="overrideDate"
+                type="date"
+                required
+            /></label>
+          </div>
+          <div class="cf-pair">
+            <label>Cash account<select id="overrideAccount"></select></label
+            ><label
+              >Linked account (optional)<select id="overrideCounter"></select
+            ></label>
+          </div>
+          <p>
+            This total replaces the bucket’s trend and plans for these dates.
+            Zero removes the estimate. Choose a linked card or bank for a
+            paydown or transfer; both account balances will update.
+          </p>
+          <p id="overrideError" role="alert"></p>
+        </div>
+        <div class="cf-dialog-foot">
+          <button type="button" class="bcn-btn" id="resetOverride" hidden>
+            Reset to forecast</button
+          ><button type="button" class="bcn-btn" data-close="overrideDialog">
+            Cancel</button
+          ><button class="bcn-btn bcn-btn--primary">Save override</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="detailDialog">
+      <div class="cf-dialog-head">
+        <h2 id="detailTitle">Bank movements</h2>
+        <button class="bcn-btn" data-close="detailDialog" aria-label="Close">
+          ×
+        </button>
+      </div>
+      <div id="detailBody" class="cf-fields"></div>
+    </dialog>
+  </body>
+</html>
