@@ -487,7 +487,7 @@
 <script src="plaid-bank-feed.js"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transaction-dates.js?v=c08e445c56aa"></script>
+<script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
 <script src="transactions-tiles.js?v=1494aaabbb31"></script>
 <script>
 (function () {
@@ -1455,18 +1455,19 @@
       </tr></thead><tbody>` + rows.map((t) => {
       const expanded = expandedTransaction === t.id;
       const suggestion = suggestions.get(t.id);
+      const suggestedCategory=suggestion && resolveSuggestedAccount(t,suggestion);
       const entityMissing = needsEntity(t) && !t.entity_qbo_id;
       return `<tr class="txn-row ${t.status === 'excluded' ? 'cc-row--excluded' : ''} ${expanded?'txn-row--open':''} ${state.selected.has(t.id)?'txn-row--selected':''}" data-txn="${esc(t.id)}">
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?'Suggestion ready':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
-        <td class="txn-category" data-cell="account">${suggestion?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">Review suggestion${suggestion.account_name?' · '+esc(suggestion.account_name):''}</button>`:cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:cellButton(t.qbo_account_name, 'account')}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
       <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="6"><div class="txn-detail-panel">
-        <section class="txn-explanation"><h3>${suggestion?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
+        <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
         <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button></section>
       </div></td></tr>`;
     }).join('') + '</tbody>';
@@ -1604,7 +1605,7 @@
     const current=()=>_co?.id===company && workspace?.selected()===sourceId && dateGeneration===generation;
     const batches=new Map();
     for(const t of candidates){if(!batches.has(t.batch_id))batches.set(t.batch_id,[]);batches.get(t.batch_id).push(t);}
-    let suggested=0,failures=0,completed=0;
+    let suggested=0,needsCategory=0,failures=0,completed=0;
     state.codingBusy=true;
     try {
       const {data:{session}}=await sb.auth.getSession();
@@ -1623,14 +1624,14 @@
             const byKey=new Map(out.suggestions.map(s=>[`${s.merchant}||${s.card_name || ''}${source.source_type==='bank'?'||'+s.direction:''}`,s]));
             for(const t of pending){
               const s=byKey.get(`${merchantKey(t)}||${t.card_name || ''}${source.source_type==='bank'?'||'+bank.directionOf(t):''}`);
-              if(s){suggestions.set(t.id,{...s,dateRevision:window.SiloTransactionDates.fingerprint(t)});suggested++;}
+              if(s){suggestions.set(t.id,{...s,dateRevision:window.SiloTransactionDates.fingerprint(t)});if(resolveSuggestedAccount(t,s))suggested++;else needsCategory++;}
             }
             if(out.errors?.length)failures++;
           } catch(error) {if(!current())return;failures++;}
         }
         completed++;
       }
-      if(current())setStatus(`${suggested} suggestions ready.${failures?` ${failures} requests had errors; retry remaining transactions.`:''} Open a transaction to review and accept.`,failures?'info':'pos',9000);
+      if(current())setStatus(`${suggested} COA category suggestions ready.${needsCategory?` ${needsCategory} still need a category chosen manually.`:''}${failures?` ${failures} requests had errors; retry remaining transactions.`:''} Review a suggested category before applying it.`,failures || needsCategory?'info':'pos',9000);
     } catch(error) {
       if(current())setStatus(`Suggestions could not load — ${error.message}. Retry when ready.`,'neg',8000);
     } finally {
@@ -1733,6 +1734,7 @@
     const id = e.target.value;
     if (!id) return;
     for (const t of selectedTxns()) {
+      suggestions.delete(t.id);
       t.qbo_account_id = id;
       t.qbo_account_name = acctName(id);
       t.accounting_treatment=window.SiloTransactionDates.inferTreatment(t,acctType(id),batchSource()?.source_type);
@@ -1837,6 +1839,7 @@
       t.accounting_treatment = e.target.value;
       t.coding_source = 'manual';
     } else if (field === 'account') {
+      suggestions.delete(t.id);
       t.qbo_account_id = e.target.value || null;
       t.qbo_account_name = acctName(t.qbo_account_id);
       t.accounting_treatment=window.SiloTransactionDates.inferTreatment(t,acctType(t.qbo_account_id),batchSource()?.source_type);
@@ -2065,12 +2068,14 @@
     }
   }
 
+  const resolveSuggestedAccount=(t,s)=>window.SiloTransactionDates.suggestionAccount(t,s,refsForConnection(state.accounts));
   function suggestionCell(t) {
     const s = suggestions.get(t.id);
     if (!s) return '';
-    return `<div class="cc-note"><b>Suggestion · ${Math.round((s.confidence || 0)*100)}%</b><br>${esc(TREATMENTS[s.accounting_treatment] || 'Purchase')}${s.account_name?' · '+esc(s.account_name):' · Choose account manually'}<br>${esc(s.reasoning || '')}</div>
-      <button class="bcn-btn" data-accept-suggestion ${!editable()?'disabled':''}>Accept suggestion</button>
-      <button class="bcn-btn" data-dismiss-suggestion ${!editable()?'disabled':''}>Dismiss</button>`;
+    const account=resolveSuggestedAccount(t,s);
+    return `<div class="cc-note"><b>${account?esc(account.name):'No COA category suggested'}</b>${account?' · '+Math.round((s.confidence || 0)*100)+'% confidence':''}<br>${esc(s.reasoning || '')}${account?'':'<br>Choose a category from your chart of accounts.'}</div>
+      ${account?`<button class="bcn-btn" data-accept-suggestion ${!rowEditable(t)?'disabled':''}>Use category</button>`:''}
+      <button class="bcn-btn" data-dismiss-suggestion ${!rowEditable(t)?'disabled':''}>Dismiss</button>`;
   }
   function acceptSuggestion(id) {
     if (!requireEditable()) return;
@@ -2079,9 +2084,10 @@
     if ((s.dateRevision ? s.dateRevision!==window.SiloTransactionDates.fingerprint(t) : s.revision!==JSON.stringify(t)) || !bank.eligibleForAi(t,batchSource())) {
       suggestions.delete(id); renderCoding(); return setStatus('This row changed. Request a fresh suggestion.', 'neg');
     }
+    const acct=resolveSuggestedAccount(t,s);
+    if(!acct)return setStatus('No COA category was suggested. Choose a category manually.','info');
     const treatment = s.accounting_treatment || (Number(t.amount)>0?'purchase':'refund');
     t.accounting_treatment = treatment;
-    const acct = ['purchase','refund'].includes(treatment) && refsForConnection(state.accounts).find(a=>a.name===s.account_name);
     t.qbo_account_id = acct?.id || null; t.qbo_account_name = acct?.name || null;
     t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null;
     const loc = acct && refsForConnection(state.locations).find(l=>l.name===s.location_name);
@@ -2140,19 +2146,19 @@
 
       const byKey = new Map((out.suggestions || [])
         .map((s) => [`${s.merchant}||${s.card_name || ''}${batchSource()?.source_type==='bank'?'||'+s.direction:''}`, s]));
-      let applied = 0;
+      let applied = 0,needsCategory=0;
       for (const t of pending) {
         const s = byKey.get(`${merchantKey(t)}||${t.card_name || ''}${batchSource()?.source_type==='bank'?'||'+bank.directionOf(t):''}`);
         if (!s) continue;
         suggestions.set(t.id, { ...s, revision: JSON.stringify(t) });
-        applied++;
+        if(resolveSuggestedAccount(t,s))applied++;else needsCategory++;
       }
 
       renderCoding();
       renderEntry();
       const low = state.txns.filter((t) => t.coding_source === 'ai' && (t.confidence ?? 0) < 0.6).length;
       setStatus(
-        `${applied} row${applied === 1 ? '' : 's'} suggested from ${merchants.length} merchants.`
+        `${applied} COA category suggestions from ${merchants.length} merchants.${needsCategory?` ${needsCategory} still need a category chosen manually.`:''}`
         + (low ? ` ${low} came back under 60% — read those before approving.` : '')
         + ' Accept or dismiss each suggestion. Accepted changes still require Save coding.',
         low ? 'info' : 'pos', 9000);

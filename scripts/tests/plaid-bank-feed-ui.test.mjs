@@ -599,3 +599,29 @@ await test('journal review explicitly loads the full import while retaining the 
  assert.equal(h.el('btnEntryCsv').disabled,false);assert.equal(h.calls.length,0);
 });
 console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);
+
+await test('a payment-type-only response is never accepted or displayed as a COA category',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.page.suggestions.set(row.id,{accounting_treatment:'card_payment',account_name:null,reasoning:'Card payment detected',revision:JSON.stringify(row)});
+ h.page.renderCoding();assert.match(h.el('tblCoding').innerHTML,/No COA category suggested/);
+ assert.ok(!h.el('tblCoding').innerHTML.includes('data-accept-suggestion'));
+ assert.match(h.el('tblCoding').innerHTML,/data-edit="account"/);
+ const before=JSON.stringify(row);h.page.acceptSuggestion(row.id);assert.equal(JSON.stringify(row),before);assert.equal(h.page.state.dirty.size,0);
+});
+await test('COA suggestions apply category and transaction type together for supported bank movements',async()=>{
+ for(const [treatment,type,amount] of [['deposit','Income',-20],['transfer','Other Current Asset',20],['card_payment','Credit Card',20]]) {
+  const h=await pageHarness({amount});const row=h.page.state.txns[0];
+  h.page.state.accounts=[...chart,{id:'destination',name:'Chosen COA',type,connectionId:'qbo-one'}];
+  h.page.suggestions.set(row.id,{accounting_treatment:treatment,account_id:'destination',account_name:'Chosen COA',revision:JSON.stringify(row)});
+  h.page.acceptSuggestion(row.id);assert.equal(row.qbo_account_id,'destination');assert.equal(row.qbo_account_name,'Chosen COA');
+  assert.equal(row.accounting_treatment,treatment);assert.equal(row.status,'coded');assert.equal(h.page.state.dirty.has(row.id),true);
+  assert.equal(h.calls.length,0,'Acceptance is local until saved');
+ }
+});
+await test('choosing a COA category manually dismisses an unresolved type-only suggestion',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.page.suggestions.set(row.id,{accounting_treatment:'purchase',account_name:null,revision:JSON.stringify(row)});
+ await h.el('tblCoding').fire('change',{target:{dataset:{field:'account'},value:'2',closest:()=>({dataset:{txn:row.id}})}});
+ assert.equal(row.qbo_account_id,'2');assert.equal(h.page.suggestions.has(row.id),false);
+});
+console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);
