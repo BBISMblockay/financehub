@@ -68,6 +68,8 @@
     document.querySelectorAll('[data-surface]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.books-surface').forEach(s=>s.hidden=s.id!==button.dataset.surface);document.querySelectorAll('[data-surface]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));}));
     const openJournal=id=>window.SiloJE.open({db,companyId:company.id,context:'accounting:register',adjustmentId:id,onStaged:()=>work(()=>register(true)),onPosted:()=>work(()=>register(true))});
     el('newJournal').addEventListener('click',()=>openJournal());el('registerTable').addEventListener('click',e=>{const b=e.target.closest('[data-journal]');if(b)openJournal(b.dataset.journal);});el('more').addEventListener('click',()=>work(()=>register()));
+    // History loading must not delay or disable the existing Books controls.
+    window.SiloQboHistory?.mount({db,companyId:company.id}).catch(e=>{el('historyStatus').textContent=`History could not load: ${e.message}. Refresh saved history or contact your administrator.`;});
   }
   boot().catch(e=>{status(`${e.message}. Reload after the accounting foundation migration is applied, or contact your administrator.`,true);el('seedForm').inert=true;});
 })();
