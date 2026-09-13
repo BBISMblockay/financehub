@@ -490,3 +490,55 @@ await test('counted filter buttons drive the real filter and selection keeps the
  h.page.state.dirty.add('txn-one');h.page.renderCoding();assert.equal(h.el('codeActionBar').hidden,false);
  h.page.state.dirty.clear();h.page.renderCoding();assert.equal(h.el('codeActionBar').hidden,true);
 });
+await test('editing an uncoded checked row preserves its checkbox, visibility and active dates',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+ h.el('dateStart').value='2026-09-12';h.el('dateEnd').value='2026-09-12';
+ const result={...transaction,batch_id:'batch-one'};
+ h.window.SiloTransactionDates.read=async()=>[result];
+ h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];
+ await h.page.browseDates();
+ h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[result,{...result,id:'outside',txn_date:'2026-09-11'}]})}};return q;};
+ await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?{dataset:{dateOpen:'txn-one'}}:null}});
+ h.el('codeFilter').value='uncoded';h.page.state.selected.add('txn-one');
+ Object.assign(h.page.state.txns[0],{status:'coded',qbo_account_id:'2'});h.page.state.dirty.add('txn-one');h.page.renderCoding();
+ assert.equal(h.el('dateStart').value,'2026-09-12');assert.equal(h.el('dateEnd').value,'2026-09-12');
+ assert.equal(h.page.state.selected.has('txn-one'),true);assert.match(h.el('tblCoding').innerHTML,/data-txn="txn-one"/);
+ assert.ok(!h.el('tblCoding').innerHTML.includes('data-txn="outside"'));
+ h.page.state.dirty.clear();h.page.renderCoding();assert.equal(h.page.state.selected.has('txn-one'),true,'saving does not uncheck the row');
+ assert.match(h.el('tblCoding').innerHTML,/data-txn="txn-one"/);
+});
+await test('date-list suggestions send separate eligible batch requests and survive opening review without writing',async()=>{
+ const h=await pageHarness({fetchImpl:async()=>({ok:true,json:async()=>({suggestions:[{merchant:'merchant',direction:'outflow',account_name:'Expense',confidence:.9}]})})});
+ h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+ const rows=[{...transaction,batch_id:'batch-one'},{...transaction,id:'txn-two',batch_id:'batch-two'}, {...transaction,id:'locked',batch_id:'approved'}];
+ h.page.state.batches=['batch-one','batch-two','approved'].map(id=>({id,source_id:source.id,company_entity_id:'company-one',status:id==='approved'?'approved':'draft'}));
+ h.window.SiloTransactionDates.read=async()=>rows;
+ await h.page.browseDates();assert.equal(h.el('btnAiCode').disabled,false);
+ await h.page.aiCategorise();
+ assert.deepEqual(h.fetches.map(f=>f.body.batch_id),['batch-one','batch-two']);
+ assert.deepEqual(h.fetches.map(f=>f.body.transaction_ids),[['txn-one'],['txn-two']]);
+ assert.equal(h.page.suggestions.size,2);assert.equal(h.page.state.dirty.size,0);assert.equal(h.writes.length,0);assert.equal(h.calls.length,0);
+ h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[rows[1]]})}};return q;};
+ await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?{dataset:{dateOpen:'txn-two'}}:null}});
+ assert.equal(h.page.state.batch.id,'batch-two');assert.ok(h.page.suggestions.get('txn-two').revision);
+ h.page.acceptSuggestion('txn-two');assert.equal(h.page.state.txns[0].qbo_account_id,'2');assert.equal(h.page.state.dirty.has('txn-two'),true);
+ assert.equal(h.writes.length,0);assert.equal(h.calls.length,0,'acceptance stays local until Save');
+});
+await test('dirty review refuses date changes and restores the applied dates',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id});
+ h.el('dateStart').value='2026-08-01';h.el('dateEnd').value='2026-08-31';
+ h.window.SiloTransactionDates.read=async()=>[];await h.page.browseDates();
+ h.page.state.dirty.add('txn-one');h.el('dateStart').value='2026-09-01';h.el('dateEnd').value='2026-09-30';
+ await h.page.browseDates();assert.equal(h.el('dateStart').value,'2026-08-01');assert.equal(h.el('dateEnd').value,'2026-08-31');
+ assert.equal(h.page.state.dirty.size,1);
+});
+await test('a provider change invalidates a date suggestion before review acceptance',async()=>{
+ const h=await pageHarness({fetchImpl:async()=>({ok:true,json:async()=>({suggestions:[{merchant:'merchant',direction:'outflow',account_name:'Expense'}]})})});
+ h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+ const row={...transaction,batch_id:'batch-one',provider_updated_at:'2026-09-12T01:00:00Z'};
+ h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];h.window.SiloTransactionDates.read=async()=>[row];
+ await h.page.browseDates();await h.page.aiCategorise();assert.equal(h.page.suggestions.size,1);
+ h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[{...row,amount:20,provider_updated_at:'2026-09-12T02:00:00Z'}]})}};return q;};
+ await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?{dataset:{dateOpen:'txn-one'}}:null}});
+ assert.equal(h.page.suggestions.has('txn-one'),false);h.page.acceptSuggestion('txn-one');assert.equal(h.page.state.dirty.size,0);
+});
