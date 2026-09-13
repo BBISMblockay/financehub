@@ -18698,3 +18698,6 @@ $c$select (select count(*) from v_po_header_summary
 -- Plaid ingestion reuses Card Coding; no institution connection or posting.
 \i migrations/20260912052930_plaid_bank_feed.sql
 \i migrations/20260912203725_bank_feed_workspace_history.sql
+
+-- QBO-seeded local opening history; never posts balances back to QBO.
+\i migrations/20260912231606_accounting_foundation.sql

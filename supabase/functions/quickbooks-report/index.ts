@@ -231,14 +231,17 @@ Deno.serve(async (req) => {
     if (anyMembership) return json({ error: 'Not a member of this company' }, 403);
   }
 
-  const { data: conn, error: connErr } = await supabase
+  let connectionQuery = supabase
     .from('quickbooks_connections')
     .select(
       'id, company_entity_id, realm_id, environment, access_token, refresh_token, token_expires_at, refresh_token_expires_at',
     )
     .eq('company_entity_id', companyId)
-    .limit(1)
-    .maybeSingle();
+    .eq('is_active', true);
+  // Onboarding binds its source explicitly; legacy report callers retain their
+  // existing default selection until migrated to an explicit connection.
+  if (body.connection_id) connectionQuery = connectionQuery.eq('id', body.connection_id);
+  const { data: conn, error: connErr } = await connectionQuery.limit(1).maybeSingle();
 
   if (connErr || !conn) return json({ error: 'No QuickBooks connection' }, 404);
 

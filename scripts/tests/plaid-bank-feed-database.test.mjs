@@ -183,6 +183,7 @@ try {
     await db.exec(migration);
     const historyMigration = await readFile(new URL('supabase/migrations/20260912203725_bank_feed_workspace_history.sql', root), 'utf8');
     await db.exec(historyMigration); await db.exec(historyMigration);
+    await db.exec(await readFile(new URL('supabase/migrations/20260912231606_accounting_foundation.sql', root), 'utf8'));
     assert.equal(await scalar("select count(*)::integer from pg_class where relname='plaid_accounts' and relrowsecurity"), 1);
   });
   await test('committed Plaid health checks execute against the migrated database', async () => {

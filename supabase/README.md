@@ -502,3 +502,7 @@ supabase/
   never backfilled from today's configuration. No policy, approval, cursor, or
   posting changes. Apply separately after review; deploy plaid-finance and
   card-categorize with the workspace frontend. See the Plaid runbook.
+
+### Accounting foundation (20260912231606)
+
+`20260912231606_accounting_foundation.sql` adds QBO-seeded Silo account identities, accounting settings, reviewed immutable local opening history and the existing-source journal register. Apply after the Plaid history migration. Deploy `quickbooks-report` for explicit connection selection. See `docs/ops/accounting-foundation.md` for scope and rollout gates. This is not an independent Silo ledger cutover.

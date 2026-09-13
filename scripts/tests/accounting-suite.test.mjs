@@ -13,13 +13,14 @@ class Element {
 }
 test('all accounting destinations are one click away and the current page is identified',()=>{
   const document={createElement:tag=>new Element(tag)},window={};
+  vm.runInNewContext(nav,{window});
   vm.runInNewContext(suite,{window,document});
   for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast']){
     let mounted;
     const main={querySelector:()=>mounted,firstElementChild:{after:node=>{mounted=node;}}};
     window.SiloAccounting.mount(main,active);
     const links=mounted.children[1].children;
-    assert.equal(links.length,6);assert.equal(links.filter(l=>l.attributes['aria-current']==='page').length,1);
+    assert.equal(links.length,7);assert.equal(links.filter(l=>l.attributes['aria-current']==='page').length,1);
     assert.ok(links.every(l=>l.href.startsWith('/v2/')));
     const first=mounted;window.SiloAccounting.mount(main,active);assert.equal(first,mounted);
   }
@@ -65,4 +66,12 @@ test('fallback link retains the callback when automatic navigation fails',async(
   const context={document:{getElementById:()=>anchor},URLSearchParams,sessionStorage:{setItem(){}},location:{href:'https://silo.test/v2/card-coding.html?oauth_state_id=callback#return',search:'?oauth_state_id=callback',hash:'#return',replace(){throw new Error('Navigation unavailable');}}};
   assert.throws(()=>vm.runInNewContext(script,context),/Navigation unavailable/);
   assert.equal(anchor.href,'./transactions.html?oauth_state_id=callback#return');
+});
+
+test('cached navigation metadata cannot throw and newly available metadata is used',()=>{
+ const window={SiloNav:{}};vm.runInNewContext(suite,{window});
+ assert.equal(window.SiloAccounting.contains('finance/books'),false);
+ window.SiloAccounting.mount({querySelector:()=>null},'finance/books');
+ vm.runInNewContext(nav,{window});
+ assert.equal(window.SiloAccounting.contains('finance/books'),true);
 });
