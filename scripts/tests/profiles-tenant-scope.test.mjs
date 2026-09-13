@@ -115,40 +115,20 @@ test('an unauthenticated caller reads nothing', async () => {
     (await q('select name from public.profiles')).map(r => r.name)), []);
 });
 
-test('cross-tenant UPDATE is refused; self-edit and same-company admin still work', async () => {
-  // An RLS refusal on UPDATE is a success with zero rows, not an error.
-  //
-  // Counted with affectedRows and NO `returning` on purpose. Asking for
-  // RETURNING makes Postgres apply the SELECT policy to the same statement, so
-  // a `returning` version of this test passes on the read guard while claiming
-  // to prove the write guard — it stayed green when the UPDATE policy was
-  // deliberately weakened back to a bare is_owner_admin().
+test('a client can only ever update its own row', async () => {
+  // Counted with affectedRows and NO `returning`: asking for RETURNING makes
+  // Postgres apply the SELECT policy to the same statement, so a `returning`
+  // version passes on the read guard while claiming to prove the write guard.
+  // An unqualified UPDATE setting a LITERAL reads no existing column, so the
+  // UPDATE policy is the only thing in front of it -- this is the assertion
+  // that fails if the policy is ever widened back to is_owner_admin().
   const updated = async (sql, params) => (await db.query(sql, params)).affectedRows;
-
-  // An UPDATE whose WHERE reads a column also has the SELECT policy applied to
-  // locating the row, so every filtered statement below is guarded twice and
-  // cannot, on its own, prove the UPDATE policy does anything. An unqualified
-  // UPDATE setting a literal reads no existing column, so the UPDATE policy is
-  // the ONLY thing standing in front of it — measured: with the policy weakened
-  // back to a bare is_owner_admin() this rewrites 3 rows including Tester.
-  // (Setting a LITERAL matters: `set name = name` would reference an existing
-  // column and pull the SELECT policy back into the statement.)
   await as(OWNER, async () => {
-    assert.equal(await updated(`update public.profiles set email='rewritten@acme.test'`), 2,
-      'an unqualified update must reach the active company only, never every tenant');
+    assert.equal(await updated(`update public.profiles set email='rewritten@acme.test'`), 1,
+      "an unqualified update must reach the caller's own row and nothing else");
   });
-  assert.equal(await scalar('select email from public.profiles where id=$1', [TESTER]), null,
-    'the Test-Company profile was not touched');
-
-  await as(OWNER, async () => {
-    assert.equal(await updated(`update public.profiles set name='hijacked' where id=$1`, [TESTER]), 0,
-      'an Acme owner must not rewrite a Test-Company-only profile');
-    assert.equal(await updated(`update public.profiles set name='Owner' where id=$1`, [OWNER]), 1,
-      'self-edit still works');
-    assert.equal(await updated(`update public.profiles set name='Staff' where id=$1`, [STAFF]), 1,
-      'an owner still administers their own company');
-  });
-  assert.equal(await scalar('select name from public.profiles where id=$1', [TESTER]), 'Tester');
+  assert.equal(await scalar('select email from public.profiles where id=$1', [TESTER]), null);
+  assert.equal(await scalar('select email from public.profiles where id=$1', [STAFF]), null);
 });
 
 after(() => db.close());
