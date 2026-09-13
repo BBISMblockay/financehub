@@ -43,6 +43,9 @@ on:
       - 'supabase/migrations/*plaid_bank_feed.sql'
       - 'v2/card-coding.html'
       - 'v2/transactions.html'
+      - 'v2/transactions-tiles.js'
+      - 'v2/transactions-workspace.css'
+      - 'v2/bank-workspace.js'
       - 'v2/accounting-suite*'
       - 'v2/nav-config.js'
       - 'v2/silo-chrome.js'
@@ -107,7 +110,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/qbo-history-ui.test.mjs
+        run: node --test scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/qbo-history-ui.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs

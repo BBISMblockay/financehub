@@ -27,7 +27,29 @@
       const choices = [...sources.filter(s => s.is_active).map(s => ({id:s.id,name:s.display_name,source:s,account:data.accounts.find(a=>a.source_id===s.id)})),
         ...data.accounts.filter(a=>!a.source_id).map(a=>({id:'plaid:'+a.id,name:a.name,account:a}))];
       if (!choices.some(c=>c.id===selected)) selected = batch?.source_id || choices.find(c=>c.account)?.id || choices[0]?.id || null;
-      el('workspaceAccount').innerHTML = choices.map(c=>`<option value="${esc(c.id)}" ${c.id===selected?'selected':''}>${esc(c.name)}${c.account?.mask?' · '+esc(c.account.mask):''}</option>`).join('');
+      // The tile strip in transactions-tiles.js renders FROM these options, so the
+      // facts it shows travel as data-* here. Value and text are unchanged, which
+      // keeps this a plain <select> for anything that already reads it.
+      const pending = id => batches.filter(b=>b.source_id===id && b.status!=='posted' && b.status!=='voided')
+        .reduce((n,b)=>n+(b.uncoded_count||0),0);
+      el('workspaceAccount').innerHTML = choices.map(c=>{
+        const conn = data.connections.find(x=>x.id===c.account?.connection_id);
+        const st = c.account ? accountState(c.account,conn,{syncing:data.syncing===c.account.id})
+          : c.source?.ingest_mode==='plaid' ? accountState({},null) : null;
+        const bal = c.account ? (c.account.available_balance ?? c.account.current_balance) : null;
+        return `<option value="${esc(c.id)}" ${c.id===selected?'selected':''}`
+          + ` data-name="${esc(c.name)}"`
+          + ` data-mask="${esc(c.account?.mask || '')}"`
+          + ` data-institution="${esc(conn?.institution_name || (c.account?'Bank':'Statement account'))}"`
+          + ` data-balance="${bal==null?'':esc(money(bal,c.account?.iso_currency_code))}"`
+          + ` data-balance-label="${c.account ? (c.account.available_balance!=null?'Available':'Balance') : 'Import method'}"`
+          + ` data-balance-fallback="${c.account?'Not supplied':'Statement upload'}"`
+          + ` data-health="${esc(st?.key || 'csv')}"`
+          + ` data-health-label="${esc(st?.label || 'Statement uploads')}"`
+          + ` data-synced="${esc(c.account?.last_synced_at || '')}"`
+          + ` data-pending="${pending(c.source?.id || '')}"`
+          + `>${esc(c.name)}${c.account?.mask?' · '+esc(c.account.mask):''}</option>`;
+      }).join('');
       el('workspaceAccount').disabled = !choices.length || navigating;
       const choice = choices.find(c=>c.id===selected);
       if (!choice) { el('workspaceSummary').innerHTML='<div class="bcn-status bcn-status--info">Connect a bank to see its transactions, or add a statement account in Accounts.</div>'; el('workspacePeriod').innerHTML=''; return; }
@@ -47,7 +69,12 @@
         </div><p>${esc(s?.help || 'Upload a statement, review its transactions, then approve a journal when ready.')}</p><button class="bcn-btn" data-workspace-action="manage">Account settings</button></details></div>
         ${s && !['synced-recently','csv'].includes(s.key) ? `<div class="${['syncing','lease-held'].includes(s.key)?'workspace-progress':'workspace-attention'}">${esc(s.help)}</div>` : ''}</section>`;
       const periods = batches.filter(b=>b.source_id===source?.id).sort((a,b)=>String(b.period_start).localeCompare(String(a.period_start)) || String(b.created_at).localeCompare(String(a.created_at)));
-      el('workspacePeriod').innerHTML = periods.length ? periods.map(b=>`<option value="${esc(b.id)}" ${b.id===batch?.id?'selected':''}>${esc(b.label || b.period_start)} · ${esc(b.status)} · ${b.uncoded_count || 0} to review</option>`).join('') : '<option value="">No transactions yet — sync or upload a statement</option>';
+      el('workspacePeriod').innerHTML = periods.length ? periods.map(b=>`<option value="${esc(b.id)}" ${b.id===batch?.id?'selected':''}`
+        + ` data-label="${esc(b.label || b.period_start || '')}"`
+        + ` data-start="${esc(b.period_start || '')}"`
+        + ` data-status="${esc(b.status)}"`
+        + ` data-pending="${b.uncoded_count || 0}"`
+        + `>${esc(b.label || b.period_start)} · ${esc(b.status)} · ${b.uncoded_count || 0} to review</option>`).join('') : '<option value="">No transactions yet — sync or upload a statement</option>';
       el('workspacePeriod').disabled = !periods.length || navigating;
     }
     async function choose(id) {
