@@ -213,7 +213,9 @@ jobs:
         with:
           node-version: '22'
       - name: Check actual Edge imports and types
-        run: npx --yes deno@2.9.6 check supabase/functions/plaid-scheduled-sync/index.ts supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
+        run: |
+          npx --yes deno@2.9.6 check --config supabase/functions/plaid-scheduled-sync/deno.json supabase/functions/plaid-scheduled-sync/index.ts
+          npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
 
   finance-database:
     name: Finance database regressions
