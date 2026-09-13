@@ -31,3 +31,14 @@ test('failed date read never returns a misleading partial result',async()=>{
 test('rule coverage counts actual rule coding, not rule match fields',()=>{
  assert.equal(api.summary(['rule','card','merchant','ai','manual',null].map(coding_source=>({coding_source,amount:1}))).rules,1);
 });
+test('date preferences survive reload and are isolated by company and account, with denied storage harmless',()=>{
+ const values=new Map(),storage={getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)};
+ const range={start:'2026-08-01',end:'2026-08-31'};
+ api.preferences(storage).set('co','bank',range);
+ assert.equal(JSON.stringify(api.preferences(storage).get('co','bank')),JSON.stringify(range));
+ assert.equal(api.preferences(storage).get('other','bank'),null);
+ assert.equal(api.preferences(storage).get('co','other'),null);
+ assert.equal(api.preferences(storage).account('co'),'bank');
+ const blocked=api.preferences({getItem(){throw Error('denied')},setItem(){throw Error('denied')}});
+ assert.equal(blocked.get('co','bank'),null);assert.doesNotThrow(()=>blocked.set('co','bank',range));
+});

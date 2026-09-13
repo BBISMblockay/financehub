@@ -14,7 +14,7 @@
     return date(start) && date(end) && start<=end;
   }
   // List-only fields include search/filter inputs; raw payload and editing metadata load on review.
-  const LIST_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason';
+  const LIST_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason,origin,provider_status,provider_updated_at,currency,qbo_account_id,accounting_treatment';
   async function read(db, company, source, batches, range) {
     if(!company || !source || !valid(range)) throw new Error('Choose an account and valid dates.');
     // Batch membership, not a guessed source column on transactions, scopes CSV and bank rows alike.
@@ -36,5 +36,17 @@
       count:rows.length,uncoded:rows.filter(t=>t.status==='uncoded').length,coded:rows.filter(t=>t.status==='coded').length,
       rules:rows.filter(t=>t.coding_source==='rule').length};
   }
-  window.SiloTransactionDates={preset,valid,read,summary};
+  function preferences(storage) {
+    const key=(company,source)=>'silo:transaction-dates:'+company+':'+source;
+    return {
+      get(company,source) {try {const value=JSON.parse(storage?.getItem(key(company,source)) || 'null');return valid(value || {})?value:null;}catch{return null;}},
+      set(company,source,range) {if(!company || !source || !valid(range))return;try{storage?.setItem(key(company,source),JSON.stringify(range));storage?.setItem('silo:transaction-account:'+company,source);}catch{}},
+      account(company) {try{return storage?.getItem('silo:transaction-account:'+company) || null;}catch{return null;}}
+    };
+  }
+  // Same representation in the light date list and the full review row.
+  function fingerprint(t) {
+    return JSON.stringify(['id','batch_id','txn_date','description','amount','status','clean_merchant','card_name','origin','provider_status','provider_updated_at','currency','qbo_account_id','accounting_treatment','coding_source'].map(k=>t[k]??null));
+  }
+  window.SiloTransactionDates={preset,valid,read,summary,preferences,fingerprint};
 })();

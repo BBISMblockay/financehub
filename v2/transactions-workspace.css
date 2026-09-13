@@ -333,3 +333,36 @@
  #codeKpis .cc-kpi:nth-child(2n) {border-right:0;}
  .txn-filters {max-width:100%;}
 }
+
+/* Give the register more height without reducing transaction tap targets. */
+.silo-main > .bcn-header {padding:7px 14px;min-height:0;}
+.silo-main > .bcn-header .bcn-header-title {font-size:18px;line-height:1.2;}
+.silo-main > .bcn-header .bcn-header-sub {display:none;}
+.cc-tabbar .bcn-tab {padding-top:7px;padding-bottom:7px;}
+.cc-content {padding:8px 12px;}
+.cc-pane[data-pane="coding"] {gap:6px;}
+.wsec-lbl {margin-bottom:4px;font-size:9px;}
+.wtile-wrap {flex-basis:214px;}
+.wtile-wrap .wtile {padding:8px 10px;gap:5px;}
+.wtile-bal {font-size:15px;}
+.wtile-bal small {display:inline;font-size:9px;margin:0 7px 0 0;}
+.wtile-ft {padding-top:5px;}
+.txn-dates {padding:4px 7px;gap:5px;}
+#codeKpis .cc-kpi {flex-direction:row;align-items:center;justify-content:space-between;padding:5px 9px;gap:8px;}
+#codeKpis .cc-kpi-label {font-size:9px;}
+#codeKpis .cc-kpi-value {font-size:13px;}
+.transaction-list .cc-card-head {padding:6px 9px;gap:7px;flex-wrap:wrap;}
+.transaction-list .cc-card-head > div:first-child {display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;}
+.transaction-list .cc-card-head > div:last-child {flex:1;justify-content:flex-end;gap:5px!important;}
+.transaction-list #codeSearch {width:190px!important;font-size:11px;height:28px;}
+.txn-filters button {padding:5px 6px;font-size:10px;}
+#codeStatus {flex-basis:100%;font-size:9px;margin:0;}
+.txn-flow {padding:6px 0;}
+.txn-flow-step {font-size:11px;padding:2px 10px;}
+.txn-flow-step small {font-size:9px;margin-top:2px;}
+@media(max-width:1000px) {
+ .cc-content {padding:6px;}
+ .silo-main > .bcn-header {padding:6px 10px;}
+ .transaction-list .cc-card-head > div:last-child {justify-content:flex-start;}
+ .transaction-list #codeSearch {width:100%!important;}
+}
