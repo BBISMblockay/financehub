@@ -76,7 +76,7 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
   return { ...d, db, calls, writes, statuses, opened, links, storageData, window, data, user, company, controller, row,
     bank: window.SiloBankFeeds, get changed() { return changed; } };
 }
-async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl } = {}) {
+async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl, confirmImpl } = {}) {
   const d = dom(), calls = [], writes = [], fetches = [], window = { listeners:{}, addEventListener(type,fn){this.listeners[type]=fn;}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
   const db = { auth: { getSession: async () => ({ data: { session: { access_token: 'fake-token' } } }) },
     from: (table) => query({}, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
@@ -87,7 +87,7 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
     + 'window.testPage = { state, suggestions, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
   vm.runInNewContext(testable, { window, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
     fetch: async (url, args) => { fetches.push({ url, body: JSON.parse(args.body) }); return fetchImpl ? fetchImpl(url, args) : { ok: true, json: async () => ({ suggestions: [] }) }; },
-    confirm() { throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
+    confirm() { if(confirmImpl)return confirmImpl();throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
   const page = window.testPage;
   page.setCompany({ id: 'company-one' });
   Object.assign(page.state, { sources: [{ ...source, source_type: sourceType }], accounts: chart, allAccounts: chart,
@@ -449,7 +449,7 @@ await test('leaving Transactions protects pending edits and in-flight coding onl
 });
 
 await test('date browsing refuses dirty edits and discards late results after a newer date request', async () => {
-  const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id});
+  const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
   h.el('dateStart').value='2026-09-01';h.el('dateEnd').value='2026-09-30';
   const pending=[];h.window.SiloTransactionDates.read=()=>{const d=deferred();pending.push(d);return d.promise;};
   h.page.state.dirty.add('txn-one');await h.page.browseDates();assert.equal(pending.length,0);
@@ -459,19 +459,16 @@ await test('date browsing refuses dirty edits and discards late results after a 
   pending[0].resolve([{...transaction,id:'old',batch_id:'batch-one'}]);await old;
   assert.equal(h.page.dateState().dateRows[0].id,'new');assert.equal(h.page.dateState().dateLoading,false);
   assert.equal(h.el('btnSaveCoding').disabled,true,'date browsing cannot submit another import accidentally');
-  assert.match(h.el('tblCoding').innerHTML,/data-date-open="new"/);
+  assert.match(h.el('tblCoding').innerHTML,/data-txn="new"/);
 });
-await test('opening a date result loads its own batch through existing review and never posts',async()=>{
- const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+await test('date results expose the same editable rows without changing import context',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
  const result={...transaction,id:'txn-other',batch_id:'batch-other'};
  h.page.state.batches=[{id:'batch-other',source_id:source.id,status:'draft',company_entity_id:'company-one'}];
- h.window.SiloTransactionDates.read=async()=>[result];
- await h.page.browseDates();
- h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[result]})}};return q;};
- const button={dataset:{dateOpen:result.id}};
- await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?button:null}});
- assert.equal(h.page.state.batch.id,'batch-other');assert.equal(h.page.state.txns[0].id,'txn-other');
- assert.equal(h.page.dateState().dateBrowse,false);assert.equal(h.el('btnDateBack').hidden,false);
+ h.window.SiloTransactionDates.read=async()=>[result];await h.page.browseDates();
+ assert.match(h.el('tblCoding').innerHTML,/data-pick/);assert.match(h.el('tblCoding').innerHTML,/data-edit="account"/);
+ assert.equal(h.page.state.batch.id,'batch-one');assert.equal(h.page.dateState().dateBrowse,true);
+ assert.equal(h.el('btnSaveCoding').disabled,false);
  assert.equal(h.calls.length,0);assert.equal(h.fetches.length,0);assert.equal(h.writes.length,0);
 });
 await test('counted filter buttons drive the real filter and selection keeps the save bar contextual',async()=>{
@@ -497,17 +494,15 @@ await test('editing an uncoded checked row preserves its checkbox, visibility an
  h.window.SiloTransactionDates.read=async()=>[result];
  h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];
  await h.page.browseDates();
- h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[result,{...result,id:'outside',txn_date:'2026-09-11'}]})}};return q;};
- await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?{dataset:{dateOpen:'txn-one'}}:null}});
  h.el('codeFilter').value='uncoded';h.page.state.selected.add('txn-one');
- Object.assign(h.page.state.txns[0],{status:'coded',qbo_account_id:'2'});h.page.state.dirty.add('txn-one');h.page.renderCoding();
+ Object.assign(h.page.dateState().dateRows[0],{status:'coded',qbo_account_id:'2'});h.page.state.dirty.add('txn-one');h.page.renderCoding();
  assert.equal(h.el('dateStart').value,'2026-09-12');assert.equal(h.el('dateEnd').value,'2026-09-12');
  assert.equal(h.page.state.selected.has('txn-one'),true);assert.match(h.el('tblCoding').innerHTML,/data-txn="txn-one"/);
  assert.ok(!h.el('tblCoding').innerHTML.includes('data-txn="outside"'));
  h.page.state.dirty.clear();h.page.renderCoding();assert.equal(h.page.state.selected.has('txn-one'),true,'saving does not uncheck the row');
  assert.match(h.el('tblCoding').innerHTML,/data-txn="txn-one"/);
 });
-await test('date-list suggestions send separate eligible batch requests and survive opening review without writing',async()=>{
+await test('date-list suggestions send eligible batch requests and accept directly in the list without writing',async()=>{
  const h=await pageHarness({fetchImpl:async()=>({ok:true,json:async()=>({suggestions:[{merchant:'merchant',direction:'outflow',account_name:'Expense',confidence:.9}]})})});
  h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
  const rows=[{...transaction,batch_id:'batch-one'},{...transaction,id:'txn-two',batch_id:'batch-two'}, {...transaction,id:'locked',batch_id:'approved'}];
@@ -518,14 +513,12 @@ await test('date-list suggestions send separate eligible batch requests and surv
  assert.deepEqual(h.fetches.map(f=>f.body.batch_id),['batch-one','batch-two']);
  assert.deepEqual(h.fetches.map(f=>f.body.transaction_ids),[['txn-one'],['txn-two']]);
  assert.equal(h.page.suggestions.size,2);assert.equal(h.page.state.dirty.size,0);assert.equal(h.writes.length,0);assert.equal(h.calls.length,0);
- h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[rows[1]]})}};return q;};
- await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?{dataset:{dateOpen:'txn-two'}}:null}});
- assert.equal(h.page.state.batch.id,'batch-two');assert.ok(h.page.suggestions.get('txn-two').revision);
- h.page.acceptSuggestion('txn-two');assert.equal(h.page.state.txns[0].qbo_account_id,'2');assert.equal(h.page.state.dirty.has('txn-two'),true);
+ assert.ok(h.page.suggestions.get('txn-two').dateRevision);
+ h.page.acceptSuggestion('txn-two');assert.equal(h.page.dateState().dateRows[1].qbo_account_id,'2');assert.equal(h.page.state.dirty.has('txn-two'),true);
  assert.equal(h.writes.length,0);assert.equal(h.calls.length,0,'acceptance stays local until Save');
 });
 await test('dirty review refuses date changes and restores the applied dates',async()=>{
- const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id});
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
  h.el('dateStart').value='2026-08-01';h.el('dateEnd').value='2026-08-31';
  h.window.SiloTransactionDates.read=async()=>[];await h.page.browseDates();
  h.page.state.dirty.add('txn-one');h.el('dateStart').value='2026-09-01';h.el('dateEnd').value='2026-09-30';
@@ -538,7 +531,71 @@ await test('a provider change invalidates a date suggestion before review accept
  const row={...transaction,batch_id:'batch-one',provider_updated_at:'2026-09-12T01:00:00Z'};
  h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];h.window.SiloTransactionDates.read=async()=>[row];
  await h.page.browseDates();await h.page.aiCategorise();assert.equal(h.page.suggestions.size,1);
- h.db.from=()=>{const q={select(){return q},eq(){return q},order(){return q},range(){return Promise.resolve({data:[{...row,amount:20,provider_updated_at:'2026-09-12T02:00:00Z'}]})}};return q;};
- await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-date-open]'?{dataset:{dateOpen:'txn-one'}}:null}});
+ h.window.SiloTransactionDates.read=async()=>[{...row,amount:20,provider_updated_at:'2026-09-12T02:00:00Z'}];await h.page.browseDates();
  assert.equal(h.page.suggestions.has('txn-one'),false);h.page.acceptSuggestion('txn-one');assert.equal(h.page.state.dirty.size,0);
 });
+
+await test('category selection saves across imports, derives treatment, and excludes locked rows',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+ h.page.state.batches=['batch-one','batch-two','locked'].map(id=>({id,source_id:source.id,company_entity_id:'company-one',status:id==='locked'?'posted':'draft'}));
+ h.db.from=table=>query({'card_import_batches_v':h.page.state.batches},h.writes,table);
+ const rows=[{...transaction,batch_id:'batch-one',qbo_location_id:'office',qbo_location_name:'Office',memo:'Keep this memo'}, {...transaction,id:'txn-two',amount:-20,batch_id:'batch-two'}, {...transaction,id:'locked',batch_id:'locked'}];
+ h.window.SiloTransactionDates.read=async()=>rows;await h.page.browseDates();
+ for(const r of rows)h.page.state.selected.add(r.id);
+ await h.el('bulkAccount').fire('change',{target:{value:'2'}});
+ assert.equal(rows[0].accounting_treatment,'purchase');assert.equal(rows[1].accounting_treatment,'refund');
+ assert.equal(rows[0].status,'coded');assert.equal(rows[2].status,'uncoded');
+ assert.equal(h.page.state.selected.has('locked'),false);
+ await h.page.saveCoding();
+ assert.deepEqual(h.calls[0].args.p_rows.map(r=>r.id),['txn-one','txn-two']);
+ assert.equal(h.calls[0].args.p_rows[0].memo,'Keep this memo');assert.equal(h.calls[0].args.p_rows[0].qbo_location_id,'office');
+ assert.equal(h.page.state.dirty.size,0);assert.equal(h.page.state.selected.size,2);
+ assert.equal(h.page.dateState().dateBrowse,true);
+});
+await test('partial and failed cross-import saves retain every unconfirmed edit',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+ h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];
+ h.db.from=table=>query({'card_import_batches_v':h.page.state.batches},h.writes,table);
+ const rows=Array.from({length:401},(_,i)=>({...transaction,id:'txn-'+i,batch_id:'batch-one',status:'coded',qbo_account_id:'2',accounting_treatment:'purchase'}));
+ h.window.SiloTransactionDates.read=async()=>rows;await h.page.browseDates();
+ rows.forEach(r=>h.page.state.dirty.add(r.id));let calls=0;
+ h.db.rpc=async()=>++calls===1?{data:400}:{error:{message:'Network interrupted'}};
+ await h.page.saveCoding();assert.equal(h.page.state.dirty.size,1);assert.equal(h.page.state.dirty.has('txn-400'),true);
+ assert.equal(h.page.dateState().dateRows.length,401);
+ h.db.rpc=async()=>({data:0});await h.page.saveCoding();assert.equal(h.page.state.dirty.size,1);
+ h.db.rpc=async()=>({data:1});await h.page.saveCoding();assert.equal(h.page.state.dirty.size,0);
+});
+await test('refreshing the same date context retains selection and changing dates clears it',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+ h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];
+ h.window.SiloTransactionDates.read=async()=>[{...transaction,batch_id:'batch-one'}];await h.page.browseDates();
+ h.page.state.selected.add('txn-one');await h.page.browseDates();assert.equal(h.page.state.selected.has('txn-one'),true);
+ h.el('dateStart').value='2026-08-01';await h.page.browseDates();assert.equal(h.page.state.selected.size,0);
+});
+
+await test('failed discard reload retains local categories and selected rows',async()=>{
+ const h=await pageHarness({confirmImpl:()=>true});h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+ h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];
+ const row={...transaction,batch_id:'batch-one'};h.window.SiloTransactionDates.read=async()=>[row];await h.page.browseDates();
+ h.page.state.selected.add(row.id);await h.el('bulkAccount').fire('change',{target:{value:'2'}});
+ h.window.SiloTransactionDates.read=async()=>{throw new Error('Offline')};
+ await h.el('btnReloadCoding').fire('click');assert.equal(h.page.state.dirty.has(row.id),true);
+ assert.equal(h.page.state.selected.has(row.id),true);assert.equal(row.qbo_account_id,'2');assert.equal(h.page.state.codingBusy,false);
+});
+await test('journal review explicitly loads the full import while retaining the editable date list',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+ const batch={...h.page.state.batch,id:'other',company_entity_id:'company-one'};h.page.state.batches=[batch];
+ const row={...transaction,batch_id:'other'};h.window.SiloTransactionDates.read=async()=>[row];await h.page.browseDates();
+ h.page.state.selected.add(row.id);h.el('codeSearch').value='Merchant';
+ h.el('btnReopen').hidden=false;h.el('btnVoid').hidden=false;h.page.renderEntry();
+ assert.equal(h.el('btnApprove').disabled,true);assert.equal(h.el('btnReopen').hidden,true);assert.equal(h.el('btnVoid').hidden,true);
+ assert.match(h.el('tblEntry').innerHTML,/data-entry-batch="other"/);
+ h.db.from=table=>query({card_transactions:[row,{...row,id:'outside',txn_date:'2026-08-01'}]},h.writes,table);
+ const pane=new Element();pane.dataset.pane='entry';h.document.querySelectorAll=selector=>selector==='.cc-pane'?[pane]:[];
+ await h.el('tblEntry').fire('click',{target:{closest:()=>({dataset:{entryBatch:'other'}})}});
+ assert.equal(h.page.state.batch.id,'other');assert.equal(h.page.state.txns.length,2);
+ assert.equal(h.page.dateState().dateRows.length,1);assert.equal(h.page.dateState().dateBrowse,true);
+ assert.equal(h.page.state.selected.has(row.id),true);assert.equal(h.el('codeSearch').value,'Merchant');
+ assert.equal(h.el('btnEntryCsv').disabled,false);assert.equal(h.calls.length,0);
+});
+console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);

@@ -112,7 +112,7 @@
               <i class="wtile-dot" data-tone="${tone(d.health)}"></i>${esc(tone(d.health)==='ok' ? (rel || d.healthLabel || '') : (d.healthLabel || rel))}</span>
             <span class="wtile-pending${n ? '' : ' is-clear'}">${n ? n + ' to categorize' : 'All done'}</span>
           </span>
-        </button><button type="button" class="wtile-info" data-account-info="${esc(o.value)}" aria-label="Account details for ${esc(d.name || o.text)}" ${account.disabled ? 'disabled' : ''}>ⓘ</button></div>`;
+        </button><button type="button" class="wtile-info" data-account-info="${esc(o.value)}" aria-label="Account details for ${esc(d.name || o.text)}" ${account.disabled ? 'disabled' : ''}>i</button></div>`;
       }).join('');
     }
 

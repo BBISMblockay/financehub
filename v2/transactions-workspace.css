@@ -366,3 +366,66 @@
  .transaction-list .cc-card-head > div:last-child {justify-content:flex-start;}
  .transaction-list #codeSearch {width:100%!important;}
 }
+
+/* SILO register: a quiet account rail and one primary decision per row. */
+#codeKpis[hidden] {display:none!important;}
+.wtiles {gap:6px;padding:2px 1px 5px;}
+.wtile-wrap {flex-basis:228px;}
+.wtile-wrap .wtile {border-radius:6px;padding:8px 12px;gap:6px;box-shadow:none;}
+.wtile.is-on {border-color:var(--bcn-border-strong);background:var(--bcn-accent-soft);box-shadow:inset 3px 0 var(--bcn-accent);}
+.wtile-mark {background:var(--bcn-sunken);color:var(--bcn-ink-2);border:1px solid var(--bcn-border);border-radius:5px;}
+.wtile.is-on .wtile-mark {color:var(--bcn-accent);background:var(--bcn-panel);}
+.wtile-wrap .wtile-name {font-size:12px;}
+.wtile-bal {display:flex;align-items:baseline;gap:6px;font-size:15px;letter-spacing:-.025em;white-space:nowrap;}
+.wtile-bal small {font-size:8px;letter-spacing:.03em;margin:0;}
+.wtile-info {display:grid;place-items:center;width:16px;height:16px;border:1px solid var(--bcn-border-strong);border-radius:50%;font:11px Georgia,serif;padding:0;}
+.wtile-ft {border-top:0;padding-top:0;}
+.wtile-pending {background:transparent;padding:0;color:var(--bcn-warn);font-family:var(--bcn-font);}
+.wtile-pending.is-clear {background:transparent;color:var(--bcn-ink-3);font-weight:400;}
+.txn-dates {border:0;border-radius:0;background:transparent;padding:2px 0 5px;}
+.txn-presets .bcn-btn {background:transparent;border-color:transparent;}
+.txn-presets .bcn-btn[aria-pressed="true"] {background:var(--bcn-panel);border-color:var(--bcn-border-strong);color:var(--bcn-ink);}
+.txn-presets .bcn-btn:hover {background:var(--bcn-panel);border-color:var(--bcn-border);}
+.transaction-list {border-radius:7px;box-shadow:none;}
+.transaction-list .cc-card-head {padding:9px 10px;}
+.transaction-list .cc-card-head > div:first-child {flex-basis:auto;gap:7px;}
+.transaction-list .cc-title {font-size:14px;letter-spacing:-.025em;}
+.transaction-list .cc-sub {font-size:10px;color:var(--bcn-ink-3);margin:0;}
+.transaction-list .cc-card-head > div:last-child {justify-content:flex-start;}
+.transaction-list #codeSearch {margin-right:auto;}
+.txn-filters {border:0;gap:2px;}
+.txn-filters button {border:0;border-radius:4px;padding:6px 7px;background:transparent;}
+.txn-filters button span {color:var(--bcn-ink-3);}
+.txn-tools summary {padding:5px;font-size:11px;}
+#tblCoding .txn-description {width:38%;}
+#tblCoding .txn-date {width:92px;}
+#tblCoding > tbody > .txn-row > td {height:36px;box-sizing:border-box;padding:4px 10px;}
+#tblCoding .txn-description-button {font-size:12px;font-weight:550;}
+#tblCoding .txn-secondary {font-size:10px;color:var(--bcn-ink-3);}
+#tblCoding .txn-row--selected {background:var(--bcn-accent-soft);}
+#tblCoding .txn-row--selected > td:first-child {box-shadow:inset 2px 0 var(--bcn-accent);}
+#tblCoding .txn-category .cc-cell {padding:4px 6px;border-radius:4px;}
+.txn-review-button {border-color:transparent;background:transparent;}
+.txn-review-button:hover {border-color:var(--bcn-border);background:var(--bcn-panel);}
+.txn-suggestion-button {padding:4px 7px;border:1px solid var(--bcn-border);border-radius:4px;background:var(--bcn-accent-soft);color:var(--bcn-accent);font:500 11px var(--bcn-font);cursor:pointer;text-align:left;}
+.txn-treatment-detail {display:flex;align-items:center;gap:10px;font-size:12px;color:var(--bcn-ink-2);}
+.txn-treatment-detail select {flex:1;min-width:0;max-width:230px;font-size:12px;height:30px;}
+.txn-detail-panel {padding:14px 16px;gap:20px;border-radius:6px;margin:0 8px 8px;}
+.txn-flow {border:0;border-top:1px solid var(--bcn-border);border-radius:0;background:transparent;padding:7px 0 2px;}
+.txn-flow-step {border:0;}
+.txn-flow-dot {width:18px;height:18px;font-size:10px;}
+@media(max-width:1000px) {
+ #tblCoding .txn-description,#tblCoding .txn-date {width:auto;}
+ #tblCoding > tbody > .txn-row > td {height:auto;padding:0;}
+ #tblCoding .txn-category {grid-row:3;}
+ #tblCoding .txn-row--selected > td:first-child {box-shadow:none;}
+ .transaction-list .cc-card-head > div:first-child {gap:4px;}
+ .transaction-list #codeSearch {flex-basis:100%;}
+ .txn-filters {flex-wrap:nowrap;overflow:auto;width:100%;}
+ .txn-filters button {min-height:34px;flex-shrink:0;}
+ .txn-select input {min-width:18px;min-height:18px;}
+ .txn-review-button {min-width:32px;min-height:32px;}
+}
+
+[data-theme="dark"] .txn-dates .bcn-field {color-scheme:dark;}
+[data-theme="light"] .txn-dates .bcn-field {color-scheme:light;}
