@@ -181,7 +181,8 @@
       background: var(--bcn-sunken); cursor: pointer; }
     .cc-drop--over { border-color: var(--bcn-accent); background: rgba(37,99,235,.06); }
   </style>
-  <link rel="stylesheet" href="./transactions-workspace.css" />
+  <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
+  <link rel="stylesheet" href="./transactions-workspace.css?v=06796e7798dc" />
   <link rel="stylesheet" href="accounting-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -472,8 +473,8 @@
 <script src="je-composer.js"></script>
 <script src="plaid-bank-feed.js"></script>
 <script src="finance-dialog.js"></script>
-<script src="bank-workspace.js"></script>
-<script src="transactions-tiles.js"></script>
+<script src="bank-workspace.js?v=a4cb679d3778"></script>
+<script src="transactions-tiles.js?v=fdc6d55d9629"></script>
 <script>
 (function () {
   'use strict';

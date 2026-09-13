@@ -3,11 +3,27 @@
    matters: picking a tile must drive the select the existing listeners read. */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import vm from 'node:vm';
 
 const root = new URL('../../', import.meta.url);
 const source = await readFile(new URL('v2/transactions-tiles.js', root), 'utf8');
+
+test('workspace asset URLs change with their contents so cached pre-tile assets cannot mix with the new page', async () => {
+  const html = await readFile(new URL('v2/transactions.html', root), 'utf8');
+  const urls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map(match => new URL(match[1], 'https://silo.test/v2/transactions.html'));
+  for (const name of ['transactions-workspace.css', 'bank-workspace.js', 'transactions-tiles.js']) {
+    const bytes = await readFile(new URL('v2/' + name, root));
+    const digest = createHash('sha256').update(bytes).digest('hex').slice(0, 12);
+    const matches = urls.filter(url => url.pathname === '/v2/' + name);
+    assert.equal(matches.length, 1, name + ' must be included exactly once');
+    assert.equal(matches[0].searchParams.get('v'), digest,
+      `Update ${name}?v= in transactions.html to ${digest} when this asset changes`);
+    assert.notEqual(matches[0].href, new URL(name, 'https://silo.test/v2/transactions.html').href,
+      'the browser must not reuse the unversioned pre-tile cache entry');
+  }
+});
 
 // Minimal DOM: enough for querySelector/closest/dataset/innerHTML on the few
 // nodes this module touches, without pulling in a browser.
