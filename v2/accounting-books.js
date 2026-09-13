@@ -20,6 +20,14 @@
       allRows('accounting_accounts','id,name,account_type,qbo_account_id,is_active','name'),
       result(db.from('quickbooks_report_runs').select('id,end_date,fetched_at,connection_id').eq('company_entity_id',company.id).eq('report_name','TrialBalance').eq('status','ok').order('fetched_at',{ascending:false}).limit(100))]);
     baseline=opening;
+    const accepted=opening?.status==='accepted';
+    el('booksTitle').textContent=accepted?'Books & setup':'Set up your books';
+    el('booksIntro').textContent=accepted?'Your accounts, opening balances and journal history.':'Start with QuickBooks. Review your opening balances before accepting.';
+    el('booksBadge').textContent=accepted?'Opening balances accepted':opening?'Review opening balances':'Setup needed';
+    el('setupInputs').open=!accepted;
+    el('setupInputsLabel').textContent=accepted?'Connection & opening settings':'Prepare opening balances';
+    el('accept').hidden=accepted;
+    if(opening?.snapshot?.as_of)el('cutoff').value=opening.snapshot.as_of;
     if(settings){el('connection').value=settings.qbo_connection_id;el('connection').disabled=true;}
     el('report').innerHTML='<option value="">Select a saved trial balance</option>'+reports.filter(r=>r.connection_id===el('connection').value).map(r=>`<option value="${esc(r.id)}">${esc(r.end_date)} · fetched ${esc(r.fetched_at)}</option>`).join('');
     el('accountsTable').innerHTML=accounts.length?table(['Account','Type','QBO mapping','Status at import'],accounts.map(a=>`<tr><td title="Silo ID: ${esc(a.id)}">${esc(a.name)}</td><td>${esc(a.account_type)}</td><td>${esc(a.qbo_account_id)}</td><td>${a.is_active?'Active':'Inactive'}</td></tr>`)):'Fetch and prepare a QBO trial balance in Setup to seed your chart of accounts.';
@@ -36,7 +44,7 @@
   async function register(reset=false){if(reset){registerOffset=0;el('registerTable').innerHTML='';}
     const rows=await result(db.from('accounting_journal_register').select('*').eq('company_entity_id',company.id).order('entry_date',{ascending:false}).order('kind').order('id').range(registerOffset,registerOffset+49));
     if(!registerOffset)el('registerTable').innerHTML=rows.length?'':'No journal entries yet. Review Transactions or create a journal entry.';
-    el('registerTable').insertAdjacentHTML('beforeend',rows.length?table(['Date','Source','Description','Review','QBO delivery','Action'],rows.map(r=>`<tr><td>${esc(r.entry_date)}</td><td>${esc(r.source||r.kind)}</td><td>${esc(r.memo)}</td><td>${esc(r.status)}</td><td>${esc(r.posting_status||'Not sent')}</td><td>${r.kind==='journal_adjustment'?`<button class="bcn-btn" data-journal="${esc(r.id)}">Open</button>`:'<a href="transactions.html">Review transactions</a>'}</td></tr>`)):'');
+    el('registerTable').insertAdjacentHTML('beforeend',rows.length?table(['Date','Source','Description','Review','QBO delivery','Action'],rows.map(r=>`<tr><td>${esc(r.entry_date)}</td><td>${esc(r.source||r.kind)}</td><td>${esc(r.memo)}</td><td>${esc(r.status)}</td><td>${esc(r.posting_status||'Not sent')}</td><td>${r.kind==='journal_adjustment'?`<button class="bcn-btn" data-journal="${esc(r.id)}">Open</button>`:`<a href="transactions.html?batch=${encodeURIComponent(r.id)}&amp;company=${encodeURIComponent(company.id)}">Review transactions</a>`}</td></tr>`)):'');
     registerOffset+=rows.length;el('more').hidden=rows.length<50;
   }
   async function boot(){
@@ -55,7 +63,7 @@
     if(!/^\d{4}-\d{2}-\d{2}$/.test(businessToday))throw new Error('Could not resolve the company business date');
     const yesterday=new Date(businessToday+'T00:00:00Z');yesterday.setUTCDate(yesterday.getUTCDate()-1);el('cutoff').value=yesterday.toISOString().slice(0,10);
     await load();await register(true);
-    status(connections.length?'Start from QuickBooks, then review your opening balances.':'Ask your company administrator to connect QuickBooks, then return here.');
+    status(baseline?.status==='accepted'?`Opening balances accepted · Silo starts ${baseline.snapshot.accounting_start_date}.`:connections.length?'Fetch a trial balance, then review and accept your opening balances.':'Ask your company administrator to connect QuickBooks, then return here.');
     el('seedForm').addEventListener('submit',e=>{e.preventDefault();work(async()=>{status('Fetching a read-only trial balance from QuickBooks…');
       const cutoff=el('cutoff').value;const fiscal=Number(el('fiscal').value);const year=Number(cutoff.slice(0,4))-(Number(cutoff.slice(5,7))<fiscal?1:0);
       const startDate=String(year)+'-'+String(fiscal).padStart(2,'0')+'-01';

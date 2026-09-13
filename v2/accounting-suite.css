@@ -1,8 +1,65 @@
-.accounting-suite {flex:none;display:flex;align-items:center;gap:24px;padding:0 24px;background:var(--bcn-panel);border-bottom:1px solid var(--bcn-border);min-width:0;}
-.accounting-suite-label {font-size:13px;font-weight:650;color:var(--bcn-ink);}
-.accounting-suite-links {display:flex;align-items:stretch;gap:20px;overflow-x:auto;min-width:0;}
-.accounting-suite a {font-size:12px;padding:14px 0 12px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);border-bottom:2px solid transparent;}
+/* Shared accounting surfaces. Scoped so other working modules keep their layout. */
+.accounting-suite {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;background:var(--bcn-panel);border-bottom:1px solid var(--bcn-border);min-width:0;}
+.accounting-suite-label {font-size:12px;font-weight:650;color:var(--bcn-ink);}
+.accounting-suite-links {display:flex;align-items:stretch;gap:18px;overflow-x:auto;min-width:0;}
+.accounting-suite a {font-size:12px;padding:10px 0 9px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);border-bottom:2px solid transparent;}
 .accounting-suite a[aria-current="page"] {color:var(--bcn-accent);border-bottom-color:var(--bcn-accent);font-weight:650;}
 .accounting-suite a:hover {color:var(--bcn-ink);}
 .accounting-suite a:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:-2px;}
-@media(max-width:760px){.accounting-suite{padding:0 12px;gap:14px;}.accounting-suite-label{display:none;}.accounting-suite-links{gap:18px;width:100%;}}
+.accounting-workspace > .bcn-header {padding:10px 18px;gap:18px;align-items:center;justify-content:space-between;}
+.accounting-workspace .bcn-header-title {display:block;font-size:18px;font-weight:650;line-height:1.3;letter-spacing:-.025em;margin:0;}
+.accounting-workspace .bcn-header-sub {font-size:12px;font-weight:400;letter-spacing:0;line-height:1.4;margin-top:3px;max-width:80ch;color:var(--bcn-ink-2);}
+.accounting-workspace .bcn-header-actions {align-items:center;flex-wrap:wrap;}
+.accounting-workspace .bcn-btn {border-radius:6px;min-height:30px;font-family:var(--bcn-font);font-size:12px;}
+.accounting-workspace .bcn-field {border-radius:6px;min-height:30px;font-size:12px;}
+.accounting-workspace :is(.qr-page,.sc-page,.fa-page,.cf-page) {padding:12px 18px 28px;}
+.accounting-workspace :is(.qr-card,.sc-card,.fa-card,.cf-card,.ax-card,.books-card) {border-radius:8px;box-shadow:none;}
+.accounting-workspace :is(.qr-card-head,.sc-card-head,.fa-card-head,.cf-card-head,.ax-card-head) {padding:9px 12px;align-items:center;gap:10px;}
+.accounting-workspace :is(.qr-title,.sc-title,.fa-title,.cf-title,.ax-title) {font-size:13px;font-weight:650;letter-spacing:-.015em;}
+.accounting-workspace :is(.qr-sub,.sc-sub,.fa-sub,.cf-sub,.ax-sub) {font-family:var(--bcn-font);font-size:11px;line-height:1.45;color:var(--bcn-ink-2);}
+.accounting-workspace :is(.qr-filters,.sc-filters) {padding:9px 12px;border-radius:8px;gap:8px;margin-bottom:10px;}
+.accounting-workspace .qr-field select,.accounting-workspace .qr-field input {min-width:120px;max-width:100%;}
+.accounting-workspace .qr-field--wide select {min-width:200px;}
+.accounting-workspace :is(.qr-num,.sc-num,.fa-num,.cf-num) {font-family:var(--bcn-font);font-variant-numeric:tabular-nums;}
+.accounting-workspace :is(.qr-table,.sc-table,.fa-table,.cf-table) td {padding:6px 10px;}
+.accounting-workspace :is(.qr-empty,.sc-empty,.fa-empty,.cf-empty,.ax-empty) {padding:28px 16px!important;line-height:1.6;}
+.accounting-workspace :is(.sc-tie,.cf-low) {border-radius:8px;padding:12px 14px;gap:20px;}
+.accounting-workspace .cf-low {background:var(--bcn-panel);border-left:3px solid var(--bcn-border-strong);}
+.accounting-workspace .cf-low--warn {border-left-color:var(--bcn-neg);}
+.accounting-workspace .cf-low--ok {border-left-color:var(--bcn-pos);}
+.accounting-workspace .cf-low-value {font:650 20px var(--bcn-font);letter-spacing:-.025em;font-variant-numeric:tabular-nums;}
+.accounting-workspace .cf-low--warn #lowValue {color:var(--bcn-neg);}
+.accounting-workspace .cf-low-note {flex:1;min-width:180px;color:var(--bcn-ink-2);}
+.accounting-workspace :is(.sc-card,.fa-card,.cf-card) {margin-bottom:10px;}
+.accounting-workspace input[type="checkbox"] {accent-color:var(--bcn-accent);}
+.accounting-workspace :is(button,a,input,select,summary):focus-visible {outline:2px solid var(--bcn-accent);outline-offset:2px;}
+
+/* One toolbar for title, views and actions gives the transaction table another row. */
+.accounting-workspace > .bcn-header:has(#ccTabs) {gap:14px;padding:7px 12px;flex-wrap:wrap;}
+.accounting-workspace #ccTabs {flex:1;min-width:0;border:0;background:transparent;padding:0;height:32px;gap:2px;}
+.accounting-workspace #ccTabs .bcn-tab {border:0;border-radius:5px;padding:6px 9px;font-size:12px;}
+.accounting-workspace #ccTabs .bcn-tab--active {background:var(--bcn-accent-soft);color:var(--bcn-accent);font-weight:600;}
+.accounting-workspace #ccMeta {display:none;}
+.accounting-workspace .wtile-wrap .wtile {padding:7px 10px;gap:4px;}
+.accounting-workspace .transaction-list .cc-card-head {padding:7px 10px;}
+.accounting-workspace .txn-flow {background:var(--bcn-panel);border:1px solid var(--bcn-border);border-radius:7px;padding:7px 0;}
+.accounting-workspace .txn-secondary {margin-top:1px;}
+@media(max-width:1100px) {
+ .accounting-workspace #ccTabs {order:3;flex-basis:100%;}
+ .accounting-workspace .bcn-header-actions {margin-left:auto;}
+}
+@media(max-width:760px) {
+ .accounting-suite{padding:0 12px;gap:14px;}
+ .accounting-suite-label{display:none;}
+ .accounting-suite-links{gap:18px;width:100%;}
+ .accounting-workspace > .bcn-header {padding:10px 12px;flex-wrap:wrap;gap:10px;}
+ .accounting-workspace .bcn-header-sub {max-width:100%;}
+ .accounting-workspace .bcn-btn,.accounting-workspace .bcn-field {min-height:36px;}
+ .accounting-workspace :is(.qr-page,.sc-page,.fa-page,.cf-page) {padding:10px 12px 24px;}
+ .accounting-workspace #ccTabs {overflow-x:auto;flex-wrap:nowrap;height:36px;}
+ .accounting-workspace #ccTabs .bcn-tab {min-height:36px;}
+ .accounting-workspace .qr-field {flex:1;min-width:140px;}
+ .accounting-workspace .qr-field--wide {flex-basis:100%;}
+ .accounting-workspace .qr-field select,.accounting-workspace .qr-field input {width:100%;min-width:0;}
+ .accounting-workspace .cf-low {gap:12px 22px;}
+}

@@ -2,3 +2,30 @@
 .books-hero,.books-row{display:flex;align-items:center;justify-content:space-between;gap:24px}.books-hero{margin:12px 0 30px}.books-hero h1{font-size:clamp(28px,3vw,42px);letter-spacing:-.035em;margin:8px 0}.books-page p{color:var(--bcn-ink-2);line-height:1.6}.books-eyebrow{font:11px var(--bcn-mono);text-transform:uppercase;letter-spacing:.12em}.books-badge{border:1px solid var(--bcn-border);padding:8px 14px;border-radius:30px;white-space:nowrap}.books-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}.books-tabs [aria-pressed=true]{background:var(--bcn-ink);color:var(--bcn-bg)}.books-columns{display:grid;grid-template-columns:1fr 1fr;gap:20px}.books-card{padding:24px;background:var(--bcn-panel);border:1px solid var(--bcn-border);border-radius:16px;margin-bottom:20px;min-width:0}.books-card h2{font-size:21px;letter-spacing:-.02em}.books-card label{display:grid;gap:8px;margin:14px 0;color:var(--bcn-ink-2)}.books-card select,.books-card input{width:100%;min-height:42px}.books-caption{font-size:12px}.books-table-scroll{overflow:auto;max-height:550px}.books-card table{width:100%;border-collapse:collapse;font-size:13px}.books-card td,.books-card th{padding:12px;border-bottom:1px solid var(--bcn-border);text-align:left}.books-card th{font:11px var(--bcn-mono);color:var(--bcn-ink-3)}.books-card td.num{text-align:right;font-variant-numeric:tabular-nums}.books-totals{display:flex;gap:32px;flex-wrap:wrap;font-size:20px;margin:20px 0}.books-totals small{display:block;font-size:11px;color:var(--bcn-ink-3)}.books-page details{margin-top:20px}.books-page [hidden]{display:none!important}@media(max-width:760px){.books-columns{grid-template-columns:1fr}.books-hero{align-items:flex-start}.books-badge{display:none}.books-card{padding:18px}.books-row{flex-wrap:wrap}}
 
 #historyInputs{border:0;margin:0;padding:0;min-width:0}#historyStatus{margin-bottom:20px}#historyAccount{min-width:180px;max-width:100%}#historyRows small{display:block;color:var(--bcn-ink-3);margin-top:5px}#historyRows td{vertical-align:top}#historyRows details{margin-top:6px}#historyRows summary{cursor:pointer}#historySummary strong{color:var(--bcn-ink)}
+
+/* Working books use the same density and hierarchy as the accounting register. */
+.accounting-workspace .books-page{flex:1;min-height:0;padding:12px 18px 28px;}
+.accounting-workspace .books-hero{margin:0 0 10px;gap:16px;}
+.accounting-workspace .books-hero h1{font-size:20px;margin:0 0 4px;line-height:1.3;}
+.accounting-workspace .books-hero p{font-size:12px;margin:0;}
+.accounting-workspace .books-badge{font-size:11px;padding:5px 9px;border-radius:5px;color:var(--bcn-ink-2);background:var(--bcn-panel);}
+.accounting-workspace .books-tabs{gap:4px;margin:12px 0;flex-wrap:nowrap;overflow-x:auto;}
+.accounting-workspace .books-tabs button{white-space:nowrap;border-color:transparent;background:transparent;}
+.accounting-workspace .books-tabs [aria-pressed=true]{background:var(--bcn-accent-soft);color:var(--bcn-accent);border-color:var(--bcn-border);}
+.accounting-workspace .books-columns{gap:12px;align-items:start;}
+.accounting-workspace .books-card{padding:14px;margin-bottom:12px;}
+.accounting-workspace .books-card h2{font-size:15px;margin:0 0 8px;}
+.accounting-workspace .books-card p{font-size:12px;margin:8px 0;line-height:1.5;}
+.accounting-workspace .books-card details{margin-top:0;}
+.accounting-workspace .books-card summary{font-size:13px;font-weight:600;cursor:pointer;}
+.accounting-workspace .books-card label{font-size:11px;gap:5px;margin:10px 0;}
+.accounting-workspace .books-card select,.accounting-workspace .books-card input{min-height:32px;}
+.accounting-workspace .books-card td,.accounting-workspace .books-card th{padding:7px 10px;}
+.accounting-workspace .books-card th{position:sticky;top:0;background:var(--bcn-sunken);z-index:1;}
+.accounting-workspace .books-card td{font-size:12px;}
+.accounting-workspace .books-totals{gap:24px;font-size:20px;margin:12px 0;padding:12px 0;border-block:1px solid var(--bcn-border);font-variant-numeric:tabular-nums;}
+.accounting-workspace #seedForm{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;}
+.accounting-workspace #seedForm label:first-child,.accounting-workspace #seedForm button{grid-column:1/-1;}
+.accounting-workspace #seedForm[inert]{opacity:.7;}
+.accounting-workspace #historyStatus{margin-bottom:12px;}
+@media(max-width:760px){.accounting-workspace .books-page{padding:10px 12px 24px;}.accounting-workspace .books-card{padding:12px;}.accounting-workspace #seedForm{grid-template-columns:1fr;}.accounting-workspace .books-card select,.accounting-workspace .books-card input{min-height:36px;}}

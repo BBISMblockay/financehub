@@ -23,7 +23,7 @@ function harness({disconnected=false,failTb=false,failArchive=false,preloaded=fa
  return {el,calls,boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async()=>{el('historyForm').events.submit({preventDefault(){}});await settle();}};
 }
 test('actual history handler reads scoped GL then TB, archives stored IDs and displays escaped retained details',async()=>{
- const h=harness();await h.boot();assert.equal(h.el('historyFrom').value,'2026-08-01');assert.equal(h.el('historyTo').value,'2026-08-31');await h.submit();
+ const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Choose dates before/);assert.equal(h.el('historyFrom').value,'2026-08-01');assert.equal(h.el('historyTo').value,'2026-08-31');await h.submit();
  const fetch=h.calls.filter(x=>x.name==='quickbooks-report');assert.equal(fetch.length,2);assert.equal(fetch[0].body.report_name,'GeneralLedger');assert.equal(fetch[1].body.report_name,'TrialBalance');
  for(const f of fetch){assert.equal(f.body.connection_id,'connection-test');assert.equal(f.body.params.end_date,'2026-08-31');assert.equal(f.body.params.accounting_method,'Accrual');}assert.equal(fetch[1].body.params.start_date,'2026-01-01');
  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(x=>x.name==='archive_qbo_ledger').args)),{p_gl_run_id:'GeneralLedger-run',p_tb_run_id:'TrialBalance-run'});

@@ -85,7 +85,7 @@
       const pending = opts.reduce((n, o) => n + (Number(o.dataset.pending) || 0), 0);
       el('workspaceAccountMeta').textContent =
         opts.length + (opts.length === 1 ? ' account' : ' accounts')
-        + ' · ' + pending + ' to categorize';
+        + ' · ' + pending + ' to categorize across imports';
       // The toggle only earns its place once one row cannot hold them all.
       el('workspaceAccountExpand').hidden = opts.length <= 4;
       el('workspaceAccountExpand').textContent = expanded ? 'Show less' : 'Show all';
@@ -110,7 +110,7 @@
           <span class="wtile-ft">
             <span class="wtile-sync" title="${esc(d.healthLabel || '')}">
               <i class="wtile-dot" data-tone="${tone(d.health)}"></i>${esc(tone(d.health)==='ok' ? (rel || d.healthLabel || '') : (d.healthLabel || rel))}</span>
-            <span class="wtile-pending${n ? '' : ' is-clear'}">${n ? n + ' to categorize' : 'All done'}</span>
+            <span title="Uncategorized across all imports for this account" class="wtile-pending${n ? '' : ' is-clear'}">${n ? n + ' to categorize' : 'All done'}</span>
           </span>
         </button><button type="button" class="wtile-info" data-account-info="${esc(o.value)}" aria-label="Account details for ${esc(d.name || o.text)}" ${account.disabled ? 'disabled' : ''}>i</button></div>`;
       }).join('');

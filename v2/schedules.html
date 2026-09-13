@@ -91,7 +91,7 @@
     .sc-preview { font-family: var(--bcn-mono); font-size: 11px;
       background: var(--bcn-sunken); border-radius: 8px; padding: 10px; line-height: 1.6; }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css" />
+  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -105,11 +105,11 @@
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main accounting-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Balance Sheet Schedules</div>
-          <div class="bcn-header-sub">Prepaids and other amortised items. Stamping and tie-out are review only — posting a month's recognition is a separate, explicit action below.</div>
+          <div class="bcn-header-sub">Track prepaid balances, review transactions and prepare monthly recognition.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn" id="btnFetch">Fetch transactions</button>
@@ -180,7 +180,7 @@
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <input class="bcn-field bcn-field--mono" id="amMonth" type="month" style="width:130px" />
-              <button class="bcn-btn bcn-btn--dark" id="btnBuildAmort">Build &amp; post amortization entry</button>
+              <button class="bcn-btn bcn-btn--dark" id="btnBuildAmort">Review amortization entry</button>
             </div>
           </div>
           <div class="sc-scroll" style="max-height:26vh;">
@@ -291,6 +291,7 @@
   let excludedIds = new Set();
   let excludedInfo = new Map();  // qbo_txn_id -> { reason, note }
   let ledgerBalance = null;
+  let ledgerLoaded = false;
   let openingBalance = 0;
   let expenseAccountOpts = '';  // <option> markup, built once per accounts load
 
@@ -327,7 +328,7 @@
       sel.appendChild(o);
     }
     // Prepaid is the starting point, so land there when it exists.
-    const pre = bs.find((a) => /^prepaid$/i.test(a.name));
+    const pre = bs.find((a) => /^prepaid(?: expenses?)?$/i.test(a.name));
     if (pre) sel.value = pre.qbo_account_id;
 
     // The recognition side of an amortization entry hits a P&L account, never
@@ -483,7 +484,7 @@
   function renderTxns() {
     const t = el('tblTxns');
     if (!txns.length) {
-      t.innerHTML = '<tbody><tr><td class="sc-empty">No transactions loaded.</td></tr></tbody>';
+      t.innerHTML = `<tbody><tr><td class="sc-empty">${ledgerLoaded?'No transactions returned for this account in the fetched dates.':'Choose an account and fetch its transactions.'}</td></tr></tbody>`;
       el('txnCount').textContent = '';
       return;
     }
@@ -579,7 +580,7 @@
     el('tieOpening').textContent = money(openingBalance);
 
     if (ledgerBalance == null) {
-      el('tieNote').textContent = 'Fetch transactions to read the ledger balance.';
+      el('tieNote').textContent = ledgerLoaded ? 'QuickBooks returned no ledger balance for this account in the fetched dates.' : 'Fetch transactions to read the ledger balance.';
       tie.className = 'sc-tie';
       el('catchup').hidden = true;
       return;
@@ -622,6 +623,7 @@
     const acct = el('account').value;
     if (!acct) return;
     const run = await loadStoredLedger(acct);
+    ledgerLoaded = !!run;
     if (run) {
       const parsed = parseLedger(run.raw_response);
       txns = parsed.rows;

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · Accounting Export</title>
+  <title>SILO · Sales & journals</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="accounting-suite.css" />
+  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -416,10 +416,10 @@
 </head>
 <body>
 <div class="silo-app" id="silo-app">
-  <main class="silo-main">
+  <main class="silo-main accounting-workspace">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">Accounting Export</div>
+        <div class="bcn-header-title">Sales &amp; journals</div>
         <div class="bcn-header-sub" id="subTitle">Journal-ready Shopify sales and payout entries</div>
       </div>
       <div class="bcn-header-actions">
@@ -478,7 +478,7 @@
               </div>
               <div class="ax-right-actions">
                 <span class="ax-chip" id="journalBalanceChip">Balanced: —</span>
-                <button class="bcn-btn bcn-btn--dark" id="btnBuildJournal">Build &amp; post journal entry</button>
+                <button class="bcn-btn bcn-btn--dark" id="btnBuildJournal">Review journal entry</button>
               </div>
             </div>
 
@@ -1071,7 +1071,9 @@
     el.sumLocations.textContent = String(state.buckets.length);
 
     const balanced = Math.abs(totals.diff) < 0.01;
-    el.journalBalanceChip.textContent = balanced ? 'Balanced: yes' : `Balanced: off by ${money(totals.diff)}`;
+    const hasActivity = !!(state.buckets.length || fees.length);
+    el.btnBuildJournal.disabled = !hasActivity;
+    el.journalBalanceChip.textContent = !hasActivity ? 'Awaiting activity' : balanced ? 'Balanced: yes' : `Balanced: off by ${money(totals.diff)}`;
     el.journalBalanceChip.style.color = balanced ? 'var(--ax-green)' : 'var(--ax-red)';
 
     el.registerChip.textContent = `${state.payouts.length} payouts`;
@@ -1938,7 +1940,7 @@
         appEl: '#silo-app',
         active: 'finance/accounting-export',
         user: { email: user?.email || '', role: 'admin' },
-        crumbs: ['Accounting', 'Accounting Export'],
+        crumbs: ['Accounting', 'Sales & journals'],
         supabaseClient: sb,
       });
     }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · QuickBooks Reports</title>
+  <title>SILO · Reports</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
@@ -118,7 +118,7 @@
       letter-spacing: .04em; color: var(--bcn-ink-3); }
     .qr-je-meta strong { font-size: 12.5px; font-weight: 650; }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css" />
+  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -132,11 +132,11 @@
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main accounting-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
-          <div>QuickBooks Reports</div>
-          <div class="bcn-header-sub" id="subTitle">Reports read live from QuickBooks. Adjustments posted here write to the books.</div>
+          <div>Reports</div>
+          <div class="bcn-header-sub" id="subTitle">Run financial statements and explore transaction detail from QuickBooks.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
@@ -278,23 +278,25 @@
     return num < 0 ? `(${s})` : s;
   }
 
-  // A column is numeric only if every non-blank cell across the WHOLE report
-  // parses as a number -- deciding this per-row (as the old `i > 0` shortcut
-  // did) right-aligned and force-nowrapped Transaction Type/Num/Name/Memo
-  // columns just as hard as Amount, which is what forced the drill-down table
-  // wider than its modal.
-  function numericColumns(rows, headerCount) {
-    const flags = new Array(headerCount).fill(null);
-    for (const r of rows) {
-      for (let i = 1; i < headerCount; i++) {
-        if (flags[i] === false) continue;
-        const v = r.cells?.[i]?.value;
-        if (v == null || v === '') continue;
-        const n = Number(String(v).replace(/[^0-9.-]/g, ''));
-        flags[i] = Number.isFinite(n) && String(v).trim() !== '-' ? (flags[i] !== false) : false;
-      }
-    }
-    return flags.map((f) => f === true);
+  function reportNumber(value) {
+    const text = String(value ?? '').trim();
+    if (!/^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(text)) return null;
+    const number = Number(text.replace(/,/g, ''));
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function numericColumns(rows, cols) {
+    return cols.map((col, i) => {
+      const key = (col.MetaData || []).find(m => m.Name === 'ColKey')?.Value || '';
+      const type = String(col.ColType || '').toLowerCase();
+      // IDs, document numbers and metadata stay text even when all values are digits.
+      if (/^(txn_type|doc_num|date|name|memo|account|split|txn_id)$/.test(key)
+          || /^(num|number|transaction type|date|name|memo.*|account.*|split)$/.test(String(col.ColTitle || '').toLowerCase())) return false;
+      if (['money', 'amount'].includes(type) || /^(amount|debit|credit|balance|subt.*)$/.test(key)) return true;
+      if (i === 0 || (type && !['string', ''].includes(type))) return false;
+      const values = rows.map(row => row.cells?.[i]?.value).filter(v => v != null && String(v).trim() !== '');
+      return values.length > 0 && values.every(v => reportNumber(v) !== null);
+    });
   }
 
   function setStatus(msg, type = 'info', ms = 0) {
@@ -348,7 +350,7 @@
       return;
     }
 
-    const numCols = numericColumns(lastRows, headers.length);
+    const numCols = numericColumns(lastRows, cols);
     const thead = `<thead><tr>${headers.map((h, i) =>
       `<th${numCols[i] ? ' class="qr-num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>`;
 
@@ -364,8 +366,8 @@
           return `<td style="padding-left:${10 + r.depth * 14}px">${esc(v)}</td>`;
         }
         if (!numCols[i]) return `<td>${esc(v)}</td>`;
-        const num = Number(String(v).replace(/[^0-9.-]/g, ''));
-        const isNum = v !== '' && Number.isFinite(num);
+        const num = reportNumber(v);
+        const isNum = num !== null;
         return `<td class="qr-num${isNum && num < 0 ? ' qr-neg' : ''}">${isNum ? fmtNum(num) : esc(v)}</td>`;
       }).join('');
       return `<tr class="${cls}${acctId ? ' qr-clickable' : ''}"`
@@ -458,7 +460,7 @@
       return;
     }
 
-    const numCols = numericColumns(rows, headers.length);
+    const numCols = numericColumns(rows, cols);
     const thead = `<thead><tr>${headers.map((h, i) =>
       `<th${numCols[i] ? ' class="qr-num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead>`;
 
@@ -473,8 +475,8 @@
         const cell = r.cells[i];
         const v = cell?.value ?? '';
         if (!numCols[i]) return `<td>${esc(v)}</td>`;
-        const num = Number(String(v).replace(/[^0-9.-]/g, ''));
-        const isNum = v !== '' && Number.isFinite(num);
+        const num = reportNumber(v);
+        const isNum = num !== null;
         return `<td class="qr-num${isNum && num < 0 ? ' qr-neg' : ''}">${isNum ? fmtNum(num) : esc(v)}</td>`;
       }).join('');
       return `<tr class="${cls}${isJe ? ' qr-je-row' : ''}"`

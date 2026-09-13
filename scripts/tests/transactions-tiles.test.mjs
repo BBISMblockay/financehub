@@ -90,7 +90,7 @@ test('tiles render one per account and mark the selected one', () => {
 
 test('the account meta line totals what is actually pending', () => {
   const { doc } = setup();
-  assert.equal(doc.getElementById('workspaceAccountMeta').textContent, '2 accounts · 14 to categorize');
+  assert.equal(doc.getElementById('workspaceAccountMeta').textContent, '2 accounts · 14 to categorize across imports');
 });
 
 test('clicking a tile drives the select and fires change, so existing listeners run', () => {
@@ -159,7 +159,7 @@ test('expand toggle only appears once a row cannot hold the accounts', () => {
   }));
   ui.render();
   assert.equal(doc.getElementById('workspaceAccountExpand').hidden, false);
-  assert.equal(doc.getElementById('workspaceAccountMeta').textContent, '9 accounts · 9 to categorize');
+  assert.equal(doc.getElementById('workspaceAccountMeta').textContent, '9 accounts · 9 to categorize across imports');
 });
 
 test('sync tone: green only when the account is genuinely current', () => {
