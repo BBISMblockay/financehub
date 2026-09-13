@@ -18708,3 +18708,6 @@ $c$select (select count(*) from v_po_header_summary
 -- Scopes profile visibility to the caller's active company. Replaces three
 -- OR'd SELECT policies that constrained the CALLER but never the row.
 \i migrations/20260913054723_profiles_active_company_scope.sql
+
+-- Persistent forecast overrides and account-level liquidity assumptions.
+\i migrations/20260913062551_cashflow_overrides_liquidity.sql
