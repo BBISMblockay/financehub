@@ -35,6 +35,8 @@ on:
       - 'supabase/functions/quickbooks-post-journal/**'
       - 'supabase/functions/quickbooks-report/**'
       - 'v2/accounting-books*'
+      - 'v2/qbo-history.js'
+      - 'supabase/migrations/*qbo_historical_ledger.sql'
       - 'supabase/functions/plaid-finance/**'
       - 'supabase/functions/card-categorize/**'
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
@@ -105,7 +107,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs
+        run: node --test scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/qbo-history-ui.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
@@ -210,3 +212,6 @@ jobs:
 
       - name: Execute QBO-seeded accounting foundation regressions
         run: node scripts/tests/accounting-foundation-database.test.mjs
+
+      - name: Execute retained QBO ledger and reconciliation regressions
+        run: node scripts/tests/qbo-history-database.test.mjs

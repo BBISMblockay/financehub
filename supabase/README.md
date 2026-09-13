@@ -506,3 +506,14 @@ supabase/
 ### Accounting foundation (20260912231606)
 
 `20260912231606_accounting_foundation.sql` adds QBO-seeded Silo account identities, accounting settings, reviewed immutable local opening history and the existing-source journal register. Apply after the Plaid history migration. Deploy `quickbooks-report` for explicit connection selection. See `docs/ops/accounting-foundation.md` for scope and rollout gates. This is not an independent Silo ledger cutover.
+
+
+### QBO historical ledger (20260913022606)
+
+`20260913022606_qbo_historical_ledger.sql` adds immutable `qbo_history_imports`
+and `qbo_history_lines`, finance/company read policies, and the authenticated
+`archive_qbo_ledger(uuid,uuid)` RPC. Depends on accounting foundation and finance
+controls. The RPC validates stored, unfiltered GL/TB reports, preserves independent
+copies, and records per-account reconciliation exceptions. It creates no journals.
+Apply only this new migration after review; no Edge Function change is required.
+See [QBO history operations](../docs/ops/qbo-history.md) for limits and test gates.

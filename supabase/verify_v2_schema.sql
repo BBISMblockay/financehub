@@ -3457,3 +3457,31 @@ select 'Accounting register invoker' as check_name,
  case when exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
  where n.nspname='public' and c.relname='accounting_journal_register' and c.reloptions @> array['security_invoker=true'])
  then 'ok' else 'MISSING: accounting register invoker view' end as status;
+
+-- QBO historical ledger: retained evidence, no journal posting destination.
+with expected(name) as (values ('qbo_history_imports'),('qbo_history_lines'))
+select name as history_table,case when c.oid is null then 'MISSING: QBO history migration'
+ when not c.relrowsecurity then 'CRITICAL: historical ledger RLS disabled'
+ when has_table_privilege('anon',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+ or has_table_privilege('authenticated',c.oid,'INSERT,UPDATE,DELETE,TRUNCATE')
+ or not has_table_privilege('authenticated',c.oid,'SELECT') then 'CRITICAL: historical ledger client grants'
+ when not exists(select 1 from pg_policy p where p.polrelid=c.oid and p.polname='history_finance_read'
+ and pg_get_expr(p.polqual,p.polrelid) like '%active_company_id()%'
+ and pg_get_expr(p.polqual,p.polrelid) like '%can_manage_journal_entries()%'
+ and pg_get_expr(p.polqual,p.polrelid) like '%is_exec_or_owner()%') then 'CRITICAL: historical ledger finance/company policy'
+ when not exists(select 1 from pg_trigger t where t.tgrelid=c.oid and t.tgname='history_immutable'
+ and t.tgenabled<>'D' and (t.tgtype::integer & 58)=58
+ and t.tgfoid=to_regprocedure('public.finance_deny_audit_mutation()')) then 'CRITICAL: historical ledger immutability'
+ else 'ok' end as status from expected left join pg_class c on c.oid=to_regclass('public.'||name);
+select 'QBO history import RPC' as check_name,
+ case when p.oid is null then 'MISSING: archive_qbo_ledger'
+ when not p.prosecdef or has_function_privilege('anon',p.oid,'EXECUTE')
+ or not has_function_privilege('authenticated',p.oid,'EXECUTE') then 'CRITICAL: archive RPC grants'
+ else 'ok' end as status from (select to_regprocedure('public.archive_qbo_ledger(uuid,uuid)') oid) x left join pg_proc p on p.oid=x.oid;
+select 'QBO history retention and audit' as check_name,
+ case when to_regclass('public.qbo_history_imports') is null then 'MISSING: QBO history migration'
+ when exists(select 1 from pg_constraint where conrelid=to_regclass('public.qbo_history_imports') and contype='f'
+ and confrelid in (to_regclass('public.quickbooks_connections'),to_regclass('public.quickbooks_report_runs')))
+ then 'CRITICAL: archive depends on live connection or report cache'
+ when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D')
+ then 'CRITICAL: history import audit missing' else 'ok' end as status;

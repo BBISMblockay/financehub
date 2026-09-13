@@ -18701,3 +18701,6 @@ $c$select (select count(*) from v_po_header_summary
 
 -- QBO-seeded local opening history; never posts balances back to QBO.
 \i migrations/20260912231606_accounting_foundation.sql
+
+-- Immutable QBO report history; no outbound journals or deployment.
+\i migrations/20260913022606_qbo_historical_ledger.sql
