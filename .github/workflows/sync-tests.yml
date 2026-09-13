@@ -37,6 +37,8 @@ on:
       - 'v2/accounting-books*'
       - 'v2/qbo-reports.html'
       - 'v2/cash-forecast.html'
+      - 'v2/cashflow*'
+      - 'scripts/tests/cashflow.test.mjs'
       - 'v2/schedules.html'
       - 'v2/fixed-assets.html'
       - 'v2/accounting-export.html'
@@ -117,7 +119,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs
+        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
