@@ -183,7 +183,7 @@
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
   <link rel="stylesheet" href="./transactions-workspace.css?v=e152f09a7a28" />
-  <link rel="stylesheet" href="accounting-suite.css" />
+  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -194,12 +194,19 @@
 </head>
 <body>
 <div class="silo-app" id="silo-app">
-  <main class="silo-main">
+  <main class="silo-main accounting-workspace">
     <header class="bcn-header">
       <div>
         <div class="bcn-header-title">Transactions</div>
         <div class="bcn-header-sub" id="ccSub">Review bank and card activity in Silo</div>
       </div>
+      <nav aria-label="Transaction workspace" class="bcn-tabs cc-tabbar" id="ccTabs" role="tablist">
+        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="coding">Transactions</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="entry">Journal entry</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="rules">Rules</button>
+        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="cards">Accounts</button>
+        <span class="bcn-tabs-meta" id="ccMeta"></span>
+      </nav>
       <div class="bcn-header-actions">
         <button class="bcn-btn" id="btnImportTop">Import CSV</button>
         <button class="bcn-btn" id="btnManageBank">Connect account</button>
@@ -208,14 +215,6 @@
     </header>
 
     <div class="cc-page">
-      <nav class="bcn-tabs cc-tabbar" id="ccTabs" role="tablist">
-        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="coding">Transactions</button>
-        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="entry">Journal entry</button>
-        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="rules">Rules</button>
-        <button class="bcn-tab" role="tab" aria-selected="false" data-pane="cards">Accounts</button>
-        <span class="bcn-tabs-meta" id="ccMeta"></span>
-      </nav>
-
       <div class="bcn-status" id="status" hidden></div>
 
       <div class="cc-content">
@@ -488,7 +487,7 @@
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
-<script src="transactions-tiles.js?v=1494aaabbb31"></script>
+<script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script>
 (function () {
   'use strict';
@@ -1187,6 +1186,7 @@
     suggestions.clear();
     for(const [key,s] of retainedSuggestions)if(s.dateRevision)suggestions.set(key,s);
     await loadTxns(id);
+    if (!state.batches.some(batch => batch.id === id)) state.batches.push(state.batch);
     for(const t of state.txns) {
       const s=retainedSuggestions.get(t.id);
       if(s && (s.dateRevision ? s.dateRevision===window.SiloTransactionDates.fingerprint(t) : s.revision===JSON.stringify(t)))
@@ -1656,7 +1656,7 @@
       dateRows=rows;
       for(const t of rows){const s=suggestions.get(t.id);if(s?.dateRevision && s.dateRevision!==window.SiloTransactionDates.fingerprint(t))suggestions.delete(t.id);}
     } catch(error) {if(generation===dateGeneration) dateError=error.message;}
-    finally {if(generation===dateGeneration){dateLoading=false;renderCoding();}}
+    finally {if(generation===dateGeneration){dateLoading=false;renderCoding();renderEntry();}}
   }
   const initialDates=window.SiloTransactionDates.preset('month');
   el('dateStart').value=initialDates.start;el('dateEnd').value=initialDates.end;
@@ -1828,13 +1828,15 @@
   });
 
   el('tblCoding').addEventListener('change', (e) => {
+    // Checkbox change events are selection, not accounting edits.
+    const field = e.target.dataset.field;
+    if (!['treatment', 'account', 'location', 'entity'].includes(field)) return;
     if (!requireEditable()) return;
     const tr = e.target.closest('[data-txn]');
     if (!tr) return;
     const t = workingRows().find((x) => x.id === tr.dataset.txn);
     if (!t) return;
     if (!rowEditable(t)) return;
-    const field = e.target.dataset.field;
     if (field === 'treatment') {
       t.accounting_treatment = e.target.value;
       t.coding_source = 'manual';
@@ -2376,7 +2378,7 @@
       const batches=state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id));
       el('entrySub').textContent='Journals are reviewed by import. Your transaction dates stay in place.';
       el('entryKpis').innerHTML='';
-      el('tblEntry').innerHTML='<tbody>'+ (batches.map(b=>`<tr><td>${esc(b.label || b.entry_date || 'Import')} · ${esc(b.status)}</td><td><button class="bcn-btn" data-entry-batch="${esc(b.id)}">Review full journal</button></td></tr>`).join('') || '<tr><td class="cc-empty">No imports in these dates.</td></tr>')+'</tbody>';
+      el('tblEntry').innerHTML='<tbody>'+ (batches.map(b=>`<tr><td>${esc(b.label || b.entry_date || 'Import')} · ${esc(b.status)}</td><td><button class="bcn-btn" data-entry-batch="${esc(b.id)}">Review full journal</button></td></tr>`).join('') || `<tr><td class="cc-empty">${dateLoading?'Loading journals…':dateError?'Journals could not load. Retry the transaction dates.':'No imports in these dates.'}</td></tr>`)+'</tbody>';
       for(const id of ['btnApprove','btnPost','btnEntryCsv'])el(id).disabled=true;
       for(const id of ['btnReopen','btnVoid'])el(id).hidden=true;
       el('entryStatus').textContent='Choose an import to review its complete journal.';
@@ -3033,6 +3035,35 @@
     boot().catch((error) => setStatus(error.message, 'neg'));
   });
 
+  let linkedJournalHandled = false;
+  async function openLinkedJournal() {
+    if (linkedJournalHandled) return false;
+    linkedJournalHandled = true;
+    const params = new URL(window.location.href).searchParams;
+    const id = params.get('batch');
+    if (!id) return false;
+    if (params.get('company') && params.get('company') !== _co.id) {
+      setStatus('This journal belongs to a different company. Select that company and reopen the link.', 'neg');
+      return false;
+    }
+    try {
+      // openBatch reads through the existing active-company scope and RLS.
+      await openBatch(id);
+      workspace.followBatch();
+      const batch = state.batch;
+      el('dateStart').value = batch.period_start;
+      el('dateEnd').value = batch.period_end;
+      if (!window.SiloTransactionDates.valid(dateRange())) throw new Error('Import dates are unavailable.');
+      await browseDates(batch.source_id);
+      journalPreviewBatch = id;
+      renderEntry();
+      return true;
+    } catch (error) {
+      setStatus('Linked journal could not open — ' + error.message, 'neg');
+      return false;
+    }
+  }
+
   // --------------------------------------------------------------- boot
 
   async function boot() {
@@ -3139,7 +3170,8 @@
 
     let saved = null;
     try { saved = sessionStorage.getItem(PANE_KEY); } catch { /* private mode */ }
-    showPane(resumingBank ? 'feeds' : 'coding');
+    const linkedJournal = !resumingBank && await openLinkedJournal();
+    showPane(resumingBank ? 'feeds' : linkedJournal ? 'entry' : 'coding');
 
     if (!state.allAccounts.length) {
       setStatus('No QuickBooks accounts pulled yet — connect and pull in Integrations first.', 'neg', 0);

@@ -17,7 +17,7 @@ test('actual onboarding UI fetches an explicitly scoped report, reviews stored b
  const calls=[];let baseline=null,answer=null;
  const snapshot={as_of:'2026-08-31',accounting_start_date:'2026-09-01',currency:'USD',basis:'Accrual',fetched_at:'2026-09-12',debits:35,credits:35,lines:[{name:'Bank',debit:35,credit:0},{name:'Equity',debit:0,credit:35}]};
  const db={auth:{getSession:async()=>({data:{session:{user:{email:'synthetic@example.test'}}}})},
-  from(table){const chain={select(){return this},eq(){return this},order(){return this},range(){return this},limit(){return this},maybeSingle(){return this},then(resolve){return Promise.resolve({data:table==='accounting_opening_balances'?baseline:table==='accounting_settings'?null:[]}).then(resolve);}};return chain;},
+  from(table){const chain={select(){return this},eq(){return this},order(){return this},range(){return this},limit(){return this},maybeSingle(){return this},then(resolve){return Promise.resolve({data:table==='accounting_opening_balances'?baseline:table==='accounting_settings'?null:table==='accounting_journal_register'?[{id:'savings-aug',kind:'card_batch',entry_date:'2026-08-31',memo:'Savings',status:'draft'}]:[]}).then(resolve);}};return chain;},
   rpc:async(name,args)=>{calls.push({name,args});if(name==='silo_business_today')return {data:'2026-09-12'};if(name==='can_manage_journal_entries')return {data:true};if(name==='is_exec_or_owner')return {data:false};if(name==='accounting_qbo_connections')return {data:[{id:'connection-a',company_name:'Synthetic QBO',environment:'sandbox'}]};if(name==='seed_accounting_from_qbo'){baseline={id:'opening-a',status:'draft',snapshot_hash:'reviewed-hash',snapshot};return {data:{id:baseline.id}};}if(name==='accept_accounting_opening_balances'){baseline={...baseline,status:'accepted'};return {data:{accepted:true}};}throw new Error(name);},
   functions:{invoke:async(name,args)=>{calls.push({name,args});assert.equal(name,'quickbooks-report');return {data:{run_id:'trusted-report'}};}}};
  const window={__SILO_CONFIG__:{SUPABASE_URL:'https://synthetic.test',SUPABASE_ANON_KEY:'test',ensureActiveCompany:async()=>({id:'company-a'})},supabase:{createClient:()=>db},SiloChrome:{mount(){}},SiloFinanceDialog:{ask:async()=>answer},SiloJE:{open(){}}};
@@ -32,5 +32,7 @@ test('actual onboarding UI fetches an explicitly scoped report, reviews stored b
  el('accept').events.click();await settle();assert.ok(!calls.some(c=>c.name==='accept_accounting_opening_balances'),'Cancel never accepts');
  answer='Reviewed against QuickBooks';el('accept').events.click();await settle();
  const accepted=calls.find(c=>c.name==='accept_accounting_opening_balances');assert.equal(accepted.args.p_expected_hash,'reviewed-hash');assert.equal(el('accept').disabled,true);assert.equal(el('seedForm').inert,true);
+ assert.equal(el('setupInputs').open,false);assert.equal(el('booksBadge').textContent,'Opening balances accepted');assert.equal(el('accept').hidden,true);
+ assert.match(el('registerTable').innerHTML,/transactions.html\?batch=savings-aug&amp;company=company-a/);
  assert.ok(!calls.some(c=>c.name==='quickbooks-post-journal'));
 });

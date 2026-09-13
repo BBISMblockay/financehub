@@ -67,7 +67,7 @@
     .fa-preview { font-family: var(--bcn-mono); font-size: 11px;
       background: var(--bcn-sunken); border-radius: 8px; padding: 10px; line-height: 1.6; }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css" />
+  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -81,11 +81,11 @@
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main accounting-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Fixed Assets</div>
-          <div class="bcn-header-sub">A depreciation subledger — SILO computes the schedule and preps the monthly entry; QuickBooks stays the asset system of record. A human reviews and posts.</div>
+          <div class="bcn-header-sub">Track asset cost, remaining value and monthly depreciation. Review each entry before posting.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--primary" id="btnAddAsset">Add asset</button>
@@ -122,7 +122,7 @@
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <input class="bcn-field bcn-field--mono" id="depMonth" type="month" style="width:130px" />
-              <button class="bcn-btn bcn-btn--dark" id="btnBuildDep">Build &amp; post depreciation entry</button>
+              <button class="bcn-btn bcn-btn--dark" id="btnBuildDep">Review depreciation entry</button>
             </div>
           </div>
           <div class="fa-scroll" style="max-height:26vh;">
@@ -326,7 +326,7 @@
   function renderAssets(items) {
     const t = el('tblAssets');
     if (!items.length) {
-      t.innerHTML = '<tbody><tr><td class="fa-empty">No assets match.</td></tr></tbody>';
+      t.innerHTML = `<tbody><tr><td class="fa-empty">${_lastAssets.length?'No assets match your search.':'No assets yet. Add an asset to build its depreciation schedule.'}</td></tr></tbody>`;
       el('assetCount').textContent = '';
       return;
     }

@@ -29,7 +29,7 @@
     async function show(){
       selected=archives.find(a=>a.id===el('historyArchive').value)||null;
       el('historyDetail').hidden=!selected;el('historyChecks').hidden=!selected;
-      if(!selected){el('historySummary').textContent='No snapshots saved yet. Choose a historical window and save QBO history.';return;}
+      if(!selected){status(settings?'Choose dates before your Silo start date to save QBO history.':'Open Setup to prepare your opening balances first.');el('historySummary').textContent='No snapshots saved yet. Choose a historical window and save QBO history.';return;}
       const a=selected;
       el('historySummary').innerHTML=`<p><strong>${esc(a.period_start)} → ${esc(a.period_end)}</strong></p><p>${esc(a.currency)} · ${esc(a.accounting_basis)} · ${a.transaction_count} transaction lines</p><p>${a.exception_count?`${a.exception_count} account exceptions to review`:'Account balances matched'} · saved ${esc(a.created_at)}</p>`;
       el('historyAccount').innerHTML='<option value="">All accounts</option>'+a.reconciliation.map(r=>`<option value="${esc(r.qbo_account_id)}">${esc(r.account_name)}</option>`).join('');

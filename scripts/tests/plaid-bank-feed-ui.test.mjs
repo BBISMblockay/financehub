@@ -77,15 +77,15 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
     bank: window.SiloBankFeeds, get changed() { return changed; } };
 }
 async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl, confirmImpl } = {}) {
-  const d = dom(), calls = [], writes = [], fetches = [], window = { listeners:{}, addEventListener(type,fn){this.listeners[type]=fn;}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
+  const d = dom(), calls = [], writes = [], fetches = [], window = { location:{href:'https://silo.test/v2/transactions.html'}, listeners:{}, addEventListener(type,fn){this.listeners[type]=fn;}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
   const db = { auth: { getSession: async () => ({ data: { session: { access_token: 'fake-token' } } }) },
     from: (table) => query({}, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
   vm.runInNewContext(datesSource, { window });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
-    + 'window.testPage = { state, suggestions, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
-  vm.runInNewContext(testable, { window, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
+    + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
+  vm.runInNewContext(testable, { window, URL, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
     fetch: async (url, args) => { fetches.push({ url, body: JSON.parse(args.body) }); return fetchImpl ? fetchImpl(url, args) : { ok: true, json: async () => ({ suggestions: [] }) }; },
     confirm() { if(confirmImpl)return confirmImpl();throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
   const page = window.testPage;
@@ -383,7 +383,6 @@ await test('CSV statement path parses, imports, codes, saves and builds a balanc
   assert.equal(lines.reduce((n,l)=>n+l.debit,0),37.5);assert.equal(lines.reduce((n,l)=>n+l.credit,0),37.5);
   assert.ok(h.fetches.every(f=>!f.url.includes('quickbooks-post-journal')));
 });
-console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);
 
 await test('failed history preview permits mapping only after unknown-history acknowledgement', async()=>{
   for (const error of ['sync_page_limit','sync_update_limit','request_timeout']) {
@@ -598,7 +597,6 @@ await test('journal review explicitly loads the full import while retaining the 
  assert.equal(h.page.state.selected.has(row.id),true);assert.equal(h.el('codeSearch').value,'Merchant');
  assert.equal(h.el('btnEntryCsv').disabled,false);assert.equal(h.calls.length,0);
 });
-console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);
 
 await test('a payment-type-only response is never accepted or displayed as a COA category',async()=>{
  const h=await pageHarness();const row=h.page.state.txns[0];
@@ -624,4 +622,66 @@ await test('choosing a COA category manually dismisses an unresolved type-only s
  await h.el('tblCoding').fire('change',{target:{dataset:{field:'account'},value:'2',closest:()=>({dataset:{txn:row.id}})}});
  assert.equal(row.qbo_account_id,'2');assert.equal(h.page.suggestions.has(row.id),false);
 });
-console.log(`plaid-bank-feed-ui: ${tests} executed scenarios passed`);
+
+await test('native checkbox click and change select without dirtying coding or locking dates',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+ h.window.SiloTransactionDates.read=async()=>[{...transaction,batch_id:'batch-one'}];await h.page.browseDates();
+ h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];
+ const row={dataset:{txn:'txn-one'}};
+ const checkbox={dataset:{pick:''},checked:true,matches:s=>s==='[data-pick]',closest:s=>s==='[data-txn]'?row:null};
+ await h.el('tblCoding').fire('click',{target:checkbox});
+ await h.el('tblCoding').fire('change',{target:checkbox});
+ assert.equal(h.page.state.selected.has('txn-one'),true);assert.equal(h.page.state.dirty.size,0);
+ assert.equal(h.el('dateStart').disabled,false);assert.equal(h.el('dateEnd').disabled,false);
+ checkbox.checked=false;await h.el('tblCoding').fire('click',{target:checkbox});await h.el('tblCoding').fire('change',{target:checkbox});
+ assert.equal(h.page.state.selected.size,0);assert.equal(h.page.state.dirty.size,0);
+ assert.equal(h.el('codeActionBar').hidden,true);assert.equal(h.calls.length,0);
+});
+await test('journal list rerenders when date loading completes or fails',async()=>{
+ const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+ h.page.state.batches=[h.page.state.batch];const gate=deferred();
+ h.window.SiloTransactionDates.read=()=>gate.promise;const loading=h.page.browseDates();
+ assert.match(h.el('tblEntry').innerHTML,/Loading journals/);
+ gate.resolve([{...transaction,batch_id:'batch-one'}]);await loading;
+ assert.match(h.el('tblEntry').innerHTML,/data-entry-batch="batch-one"/);
+ h.window.SiloTransactionDates.read=async()=>{throw new Error('Unavailable')};await h.page.browseDates();
+ assert.match(h.el('tblEntry').innerHTML,/Journals could not load/);
+});
+await test('journal deep links select the linked source, dates and full journal once',async()=>{
+ const h=await pageHarness();let selected=source.id;
+ h.page.setWorkspace({selected:()=>selected,followBatch(){selected=h.page.state.batch.source_id;},render(){}});
+ const linked={id:'august-savings',source_id:'savings',company_entity_id:'company-one',status:'draft',period_start:'2026-08-01',period_end:'2026-08-31'};
+ h.page.state.sources.push({...source,id:'savings'});h.page.state.batches=[linked];
+ h.db.from=table=>query({card_transactions:[{...transaction,batch_id:linked.id}]},h.writes,table);
+ h.window.SiloTransactionDates.read=async()=>[{...transaction,batch_id:linked.id}];
+ h.window.location.href+='?batch=august-savings&company=company-one';
+ assert.equal(await h.page.openLinkedJournal(),true);assert.equal(selected,'savings');
+ assert.equal(h.el('dateStart').value,'2026-08-01');assert.equal(h.el('dateEnd').value,'2026-08-31');
+ assert.equal(h.page.state.batch.id,linked.id);assert.equal(await h.page.openLinkedJournal(),false);
+ assert.equal(h.calls.length,0);assert.equal(h.writes.length,0);
+});
+await test('cross-company journal links are refused before a batch request',async()=>{
+ const h=await pageHarness();h.window.location.href+='?batch=foreign&company=other';
+ h.db.from=()=>{throw new Error('Must not query foreign journal');};
+ assert.equal(await h.page.openLinkedJournal(),false);assert.match(h.el('status').textContent,/different company/);
+ assert.equal(h.page.state.batch.id,'batch-one');
+});
+
+await test('a linked import outside the initial batch list is read with company scope and retained for date editing',async()=>{
+ const h=await pageHarness();const linked={...h.page.state.batch,id:'older',company_entity_id:'company-one',period_start:'2026-08-01',period_end:'2026-08-31'};
+ h.page.state.batches=[];h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
+ const filters=[];
+ h.db.from=table=>{
+  if(table!=='card_import_batches_v')return query({card_transactions:[{...transaction,batch_id:'older'}]},h.writes,table);
+  const q={select(){return q},eq(k,v){filters.push([k,v]);return q},single(){return Promise.resolve({data:linked,error:null})}};return q;
+ };
+ h.window.SiloTransactionDates.read=async(db,company,id,batches)=>{
+  assert.equal(company,'company-one');assert.equal(batches.some(b=>b.id==='older'),true);
+  return [{...transaction,batch_id:'older'}];
+ };
+ h.window.location.href+='?batch=older&company=company-one';
+ assert.equal(await h.page.openLinkedJournal(),true);
+ assert.deepEqual(filters,[['id','older'],['company_entity_id','company-one']]);
+ assert.equal(h.page.state.batches.some(b=>b.id==='older'),true);
+});
+console.log(`${tests} UI scenarios passed`);

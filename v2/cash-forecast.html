@@ -65,7 +65,7 @@
     .cf-field label { font-family: var(--bcn-mono); font-size: 10px;
       text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css" />
+  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -78,11 +78,11 @@
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main accounting-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Cash Flow Forecast</div>
-          <div class="bcn-header-sub">A 13-week liquidity planner — actual cash and available credit, blended with what's owed, what's planned, and what nothing else in SILO knows about yet.</div>
+          <div class="bcn-header-sub">Cash, available credit and planned movements across the next 13 weeks.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn" id="btnRefreshCash">Refresh cash balance</button>
@@ -490,7 +490,7 @@
     let q = sb.from('payment_requests').select('amount_due, due_date, completed');
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
-    if (error) { setStatus('Could not load Request Manager: ' + error.message, 'neg', 8000); return { byWeek: weeks.map(() => 0), noDueDate: 0 }; }
+    if (error) throw new Error('Request Manager: ' + error.message);
 
     const byWeek = weeks.map(() => 0);
     let noDueDate = 0;
@@ -516,7 +516,8 @@
       .gte('projection_date', weeks[0].startStr)
       .lte('projection_date', weeks[weeks.length - 1].endStr);
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
-    const { data: planned } = await q;
+    const { data: planned, error: planError } = await q;
+    if (planError) throw new Error('Revenue plan: ' + planError.message);
 
     const byWeek = weeks.map(() => ({ amount: 0, source: null }));
     for (const r of (planned || [])) {
@@ -532,7 +533,8 @@
       .eq('status', 'paid')
       .gte('payout_date', trendStart);
     if (_co?.id) tq = tq.eq('company_entity_id', _co.id);
-    const { data: payouts } = await tq;
+    const { data: payouts, error: trendError } = await tq;
+    if (trendError) throw new Error('Revenue trend: ' + trendError.message);
     const trailingTotal = (payouts || []).reduce((s, p) => s + Number(p.amount_net || 0), 0);
     const trailingDays = (payouts || []).length
       ? Math.max(1, Math.round((Date.now() - new Date(trendStart).getTime()) / 86400000))
@@ -559,7 +561,7 @@
     let q = sb.from('cash_forecast_items').select('*').eq('is_active', true);
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
-    if (error) { setStatus('Could not load planning items: ' + error.message, 'neg', 8000); return weeks.map(() => 0); }
+    if (error) throw new Error('Planning items: ' + error.message);
 
     const byWeek = weeks.map(() => 0);
     const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
@@ -591,30 +593,47 @@
   }
 
   let forecastState = null;
+  let forecastGeneration = 0;
+  let forecastError = false;
 
   async function buildForecast() {
-    const weeks = weekBuckets();
-    const [outflows, revenue, items] = await Promise.all([
-      loadOutflows(weeks), loadRevenue(weeks), loadPlanningItems(weeks),
-    ]);
+    const generation = ++forecastGeneration;
+    forecastState = null;
+    forecastError = false;
+    renderCashLow();
+    el('tblForecast').innerHTML = '<tbody><tr><td class="cf-empty">Updating forecast…</td></tr></tbody>';
+    try {
+      const weeks = weekBuckets();
+      const [outflows, revenue, items] = await Promise.all([
+        loadOutflows(weeks), loadRevenue(weeks), loadPlanningItems(weeks),
+      ]);
 
-    const startingCash = liquidity.asOf ? totalCash() : null;
-    let running = startingCash;
-    const rows = weeks.map((w, i) => {
-      const out = outflows.byWeek[i];
-      const rev = revenue[i];
-      const itemsNet = items[i];
-      const net = rev.amount - out + itemsNet;
-      const startBal = running;
-      running = running == null ? null : running + net;
-      return { week: w, out, rev, itemsNet, net, startBal, endBal: running };
-    });
+      const startingCash = liquidity.asOf ? totalCash() : null;
+      let running = startingCash;
+      const rows = weeks.map((w, i) => {
+        const out = outflows.byWeek[i];
+        const rev = revenue[i];
+        const itemsNet = items[i];
+        const net = rev.amount - out + itemsNet;
+        const startBal = running;
+        running = running == null ? null : running + net;
+        return { week: w, out, rev, itemsNet, net, startBal, endBal: running };
+      });
 
-    forecastState = { weeks, outflows, revenue, items, rows };
-    renderForecast();
+      if (generation !== forecastGeneration) return;
+      forecastState = { weeks, outflows, revenue, items, rows };
+      renderForecast();
+    } catch (error) {
+      if (generation !== forecastGeneration) return;
+      forecastError = true;
+      el('tblForecast').innerHTML = '<tbody><tr><td class="cf-empty">Forecast unavailable. Refresh cash balance to retry.</td></tr></tbody>';
+      renderCashLow();
+      setStatus('Forecast could not load — ' + error.message, 'neg');
+    }
   }
 
   function renderForecast() {
+    renderCashLow();
     if (!forecastState) return;
     const { rows, outflows } = forecastState;
     const t = el('tblForecast');
@@ -639,27 +658,34 @@
         <td class="cf-num">${money(r.rev.amount)}<span class="cf-tag cf-tag--${r.rev.source}">${r.rev.source}</span></td>
         <td class="cf-num${r.itemsNet < 0 ? ' cf-neg' : ''}">${money(r.itemsNet)}</td>
         <td class="cf-num${r.net < 0 ? ' cf-neg' : ''}">${money(r.net)}</td>
-        <td class="cf-num"><b>${money(r.endBal)}</b></td>
+        <td class="cf-num${r.endBal < 0 ? ' cf-neg' : ''}"><b>${money(r.endBal)}</b></td>
       </tr>`).join('') + '</tbody>';
   }
 
   function renderCashLow() {
-    if (!forecastState && !liquidity.asOf) return;
     const box = el('cashLow');
-    box.hidden = false;
+    box.hidden = !liquidity.asOf;
+    if (!liquidity.asOf) return;
     el('lowLiquidity').textContent = money(totalCash() + totalAvailableCredit());
-
-    if (!forecastState) { box.hidden = true; return; }
-    const rows = forecastState.rows;
-    let min = rows[0]?.endBal ?? 0, minIdx = 0;
-    rows.forEach((r, i) => { if (r.endBal != null && r.endBal < min) { min = r.endBal; minIdx = i; } });
-
+    const rows = forecastState?.rows || [];
+    if (!rows.length || rows.some(r => !Number.isFinite(r.startBal) || !Number.isFinite(r.endBal))) {
+      box.className = 'cf-low';
+      el('lowValue').textContent = '—';
+      el('lowWeek').textContent = '—';
+      el('lowNote').textContent = forecastError ? 'Forecast unavailable. Refresh to retry.' : 'Updating the 13-week forecast…';
+      return;
+    }
+    let min = rows[0].startBal, when = 'Today';
+    for (const row of rows) {
+      if (row.endBal < min) { min = row.endBal; when = `Week of ${row.week.startStr}`; }
+    }
     el('lowValue').textContent = money(min);
-    el('lowWeek').textContent = rows[minIdx] ? `Week of ${rows[minIdx].week.startStr}` : '—';
-    box.className = 'cf-low ' + (min < 0 ? 'cf-low--warn' : 'cf-low--ok');
+    el('lowWeek').textContent = when;
+    box.className = 'cf-low' + (min < 0 ? ' cf-low--warn' : min > 0 ? ' cf-low--ok' : '');
     el('lowNote').textContent = min < 0
-      ? 'Projected cash goes negative in this window at current trends — a real gap, not a rounding artifact.'
-      : 'Cash stays positive across the full 13-week window at current trends.';
+      ? 'Projected cash is below zero. Review the funding gap and planned payments.'
+      : min === 0 ? 'Projected cash reaches zero in this window.'
+      : 'Projected cash remains above zero across the 13-week window.';
   }
 
   // ---------------------------------------------------------------------

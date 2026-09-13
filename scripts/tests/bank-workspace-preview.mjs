@@ -40,14 +40,15 @@ const db={from:t=>new Query(t),auth:{getSession:async()=>({data:{session:{user:{
  return {data:args.p_rows.length,error:null};
 },functions:{invoke:async()=>({error:{message:'Provider calls are unavailable in this offline fixture'}})}};
 window.__SILO_CONFIG__={SUPABASE_URL:'https://offline.invalid',SUPABASE_ANON_KEY:'synthetic',ensureActiveCompany:async()=>co};
-window.supabase={createClient:()=>db};window.SiloChrome={mount:()=>{}};
+window.supabase={createClient:()=>db};
+localStorage.setItem('silo.theme',document.documentElement.dataset.theme);
 window.fetch=async()=>({ok:true,json:async()=>({suggestions:[]})});
 `;
 let html=await readFile(path.join(root,'v2/transactions.html'),'utf8');
-html=html.replace(/<script\b[^>]*src="([^"]+)"[^>]*><\/script>/g,(tag,src)=>src==='../pages/config.js'?'<script>'+fixture+'</script>':/^https:/.test(src)||['silo-chrome.js','nav-config.js','avatar.js','v2-shell.js'].includes(src)?'':tag);
+html=html.replace(/<script\b[^>]*src="([^"]+)"[^>]*><\/script>/g,(tag,src)=>src==='../pages/config.js'?'<script>'+fixture+'</script>':/^https:/.test(src)||['v2-shell.js'].includes(src)?'':tag);
 for(const match of [...html.matchAll(/<script src="([^"]+)"><\/script>/g)]) {const code=await readFile(path.join(root,'v2',match[1].split('?')[0]),'utf8');html=html.replace(match[0],()=>'<script>'+code+'</script>');}
 for(const match of [...html.matchAll(/<link rel="stylesheet" href="([^"]+)"\s*\/>/g)]) {const css=await readFile(path.join(root,'v2',match[1].split('?')[0]),'utf8');html=html.replace(match[0],()=>'<style>'+css+'</style>');}
-html=html.replace('</head>','<style>html,body{margin:0;height:100%}.silo-main{margin:0!important;height:100vh;width:100%;display:flex;flex-direction:column}.silo-app{display:flex;height:100vh}.bcn-header-sub:after{content:" · Synthetic offline fixture"}</style></head>');
+html=html.replace('</head>','<style>html,body{margin:0;height:100%}.silo-main{height:100vh;display:flex;flex-direction:column}.silo-app{display:flex;height:100vh}</style></head>');
 for(const theme of ['light','dark'])await writeFile(path.join(output,theme+'.html'),html.replace('data-theme="light"','data-theme="'+theme+'"'));
 for(const theme of ['light','dark'])await writeFile(path.join(output,theme+'-phone.html'),'<html><body style="margin:0"><iframe title="Phone preview" src="'+theme+'.html" style="border:0;width:390px;height:844px"></iframe></body></html>');
 await writeFile(path.join(output,'statement.csv'),'Date,Description,Amount\n2026-09-10,Office Depot,25.00\n2026-09-11,Shipping supplies,12.50\n');
