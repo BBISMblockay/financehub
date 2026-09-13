@@ -279,7 +279,7 @@
         <section class="cc-pane" data-pane="feeds" hidden>
           <div class="cc-card">
             <div class="cc-card-head"><div><div class="cc-title">Bank feeds</div>
-              <div class="cc-sub">Transactions arrive in the existing coding queue. Review and approval remain yours.</div></div>
+              <div class="cc-sub">Transactions arrive in the existing categorizing queue. Review and approval remain yours.</div></div>
               <button class="bcn-btn bcn-btn--primary" id="btnLinkBank">Connect bank or card</button></div>
             <div id="bankConnections"></div>
           </div>
@@ -291,9 +291,21 @@
 
         <!-- ================= CODING ================= -->
         <section class="cc-pane" data-pane="coding" hidden>
-          <div class="workspace-selectors">
+          <!-- The two selects remain the state and the keyboard/AT fallback;
+               transactions-tiles.js draws the tiles and period bar from them. -->
+          <div class="workspace-selectors workspace-selectors--fallback">
             <label class="cc-field">Account<select id="workspaceAccount" class="bcn-field" aria-label="Account"></select></label>
             <label class="cc-field">Period<select id="workspacePeriod" class="bcn-field" aria-label="Period"></select></label>
+          </div>
+          <div class="wsec">
+            <p class="wsec-lbl">Account
+              <span class="wsec-meta" id="workspaceAccountMeta"></span>
+              <button type="button" class="wsec-expand" id="workspaceAccountExpand" aria-expanded="false" hidden>Show all</button>
+            </p>
+            <div class="wtiles" id="workspaceTiles" role="radiogroup" aria-label="Account"></div>
+          </div>
+          <div class="wper">
+            <div class="wper-bar" id="workspacePeriodBar"></div>
             <button class="bcn-btn" id="btnManageBank">Connect / manage accounts</button>
           </div>
           <div id="workspaceSummary"></div>
@@ -310,7 +322,7 @@
                        style="width:340px" />
                 <select class="bcn-field bcn-field--mono" id="codeFilter" style="width:auto">
                   <option value="all">All rows</option>
-                  <option value="uncoded">Needs coding</option>
+                  <option value="uncoded">Needs categorizing</option>
                   <option value="conflict">Card vs merchant</option>
                   <option value="low">Low confidence</option>
                   <option value="ai">AI-suggested</option>
@@ -333,10 +345,10 @@
             </div>
             <div class="cc-foot">
               <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
-              <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Suggest coding</button>
-              <button class="bcn-btn" id="btnSaveCoding">Save coding</button>
+              <button class="bcn-btn bcn-btn--primary" id="btnAiCode">Suggest categories</button>
+              <button class="bcn-btn" id="btnSaveCoding">Save categories</button>
               <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
-              <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from coded rows</button></div></details>
+              <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button></div></details>
               <span class="cc-note" id="codeStatus"></span>
             </div>
           </div>
@@ -374,7 +386,7 @@
           <div class="cc-card cc-card--grow">
             <div class="cc-card-head">
               <div>
-                <div class="cc-title">Coding rules</div>
+                <div class="cc-title">Categorization rules</div>
                 <div class="cc-sub">What SILO already knows — every confirmation adds one</div>
               </div>
               <div class="cc-sub" id="rulesCount"></div>
@@ -407,7 +419,7 @@
               <table class="cc-tbl" id="tblRules"></table>
             </div>
             <div class="cc-foot">
-              <span class="cc-note">Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already coded keep what they have.</span>
+              <span class="cc-note">Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already categorized keep what they have.</span>
             </div>
           </div>
         </section>
@@ -461,6 +473,7 @@
 <script src="plaid-bank-feed.js"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js"></script>
+<script src="transactions-tiles.js"></script>
 <script>
 (function () {
   'use strict';
@@ -505,6 +518,7 @@
   let _co = null;
   let bankFeeds = null;
   let workspace = null;
+  let tilesUi = null;
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find((source) => source.id === state.batch?.source_id);
@@ -1761,7 +1775,7 @@
       ${kv('Cardholder email', t.cardholder_email)}
       ${kv('Card last 4', t.last4)}
 
-      <div class="cc-kv-head">Coding</div>
+      <div class="cc-kv-head">Categorizing</div>
       ${kv('Account', t.qbo_account_name)}
       ${kv('Account type', acctType(t.qbo_account_id))}
       ${kv('Location', t.qbo_location_name)}
@@ -2870,6 +2884,9 @@
       }
     });
     workspace.render();
+    // Presentation layer over the two selects. It observes them, so it needs no
+    // further calls — and if it fails to construct the selects still work.
+    if (!tilesUi && window.SiloTransactionTiles) tilesUi = window.SiloTransactionTiles.create();
     if(!state.batch && workspace.selected())await workspace.choose(workspace.selected());
 
     if (!el('impPeriod').value) {
