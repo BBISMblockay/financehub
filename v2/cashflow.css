@@ -438,3 +438,102 @@ dialog::backdrop {
     filter: brightness(0.985);
   }
 }
+.cf-planning-strip {
+  margin: 12px 0;
+  background: var(--bcn-panel);
+  border: 1px solid var(--bcn-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.cf-flow-totals {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 11px;
+  padding-bottom: 8px;
+}
+.cf-flow-totals strong {
+  font-variant-numeric: tabular-nums;
+  margin-left: 5px;
+  font-size: 14px;
+}
+.cf-quick-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cf-quick-form b {
+  font-size: 12px;
+  margin-right: 5px;
+}
+.cf-quick-form input,
+.cf-quick-form select,
+.cf-projection-controls input[type="number"] {
+  min-width: 0;
+  border: 1px solid var(--bcn-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--bcn-panel);
+  color: var(--bcn-ink);
+  font: inherit;
+  font-size: 12px;
+}
+.cf-quick-form #whatIfLabel {
+  flex: 1;
+  min-width: 130px;
+}
+.cf-quick-form #whatIfAmount {
+  width: 110px;
+}
+.cf-planning-strip p {
+  font-size: 10px;
+  color: var(--bcn-ink-3);
+  margin: 7px 0 0;
+}
+.cf-scenario-line {
+  stroke: #b57822;
+  stroke-width: 2.6;
+  fill: none;
+}
+.cf-dot-scenario {
+  background: #b57822;
+}
+.cf-whatif-chip {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  border-radius: 6px;
+  padding: 4px 7px;
+  background: var(--bcn-sunken);
+  font-size: 11px;
+  margin: 7px 5px 0 0;
+}
+.cf-whatif-chip button {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.cf-pattern {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bcn-border);
+}
+.cf-projection-controls .cf-controls {
+  margin-top: 10px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

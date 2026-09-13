@@ -278,6 +278,7 @@ function harness({ failTable, failSave = false, changedCompany = false } = {}) {
     quickbooks_accounts: base.chart,
     cash_forecast_items: [],
     cash_forecast_overrides: [],
+    revenue_projections: [],
     accounting_settings: { base_currency: "USD" },
     card_transactions: Array.from({ length: 501 }, (_, i) => txn("t" + i, 1)),
   };
@@ -355,7 +356,7 @@ function harness({ failTable, failSave = false, changedCompany = false } = {}) {
   };
   const code =
     controller.slice(0, controller.indexOf("boot().catch")) +
-    `window.test={pages,load,save,saveOverride,openOverride,render,set(){db=window.db;company={id:'co'};},edit(){editing={id:'existing'};},editOverride(){overrideEditing={id:'override',updated_at:'old'};}};})();`;
+    `window.test={projection(value){filters.projectionEnabled=value;},addWhatIf,pages,load,save,saveOverride,openOverride,render,set(){db=window.db;company={id:'co'};},edit(){editing={id:'existing'};},editOverride(){overrideEditing={id:'override',updated_at:'old'};}};})();`;
   win.db = db;
   vm.runInNewContext(code, {
     window: win,
@@ -702,4 +703,269 @@ test("liquidity reconstructs history from the snapshot and reconciles every disp
         .reduce((n, a) => n + a.ending[i], 0) + (m.unallocatedEnding[i] || 0),
       m.liquidityTotal[i],
     );
+});
+
+const recurringBills = (
+  dates,
+  amounts = dates.map(() => 80000),
+  merchant = "Divvy payment",
+) =>
+  dates.map((d, i) =>
+    txn("bill-" + i, amounts[i], {
+      txn_date: d,
+      clean_merchant: merchant,
+      qbo_account_id: "rent",
+    }),
+  );
+test("monthly payment timing concentrates the median bill on the observed day instead of spreading it daily", () => {
+  const m = build({
+    today: "2026-09-30",
+    unit: "day",
+    transactions: recurringBills(
+      ["2026-07-25", "2026-08-25", "2026-09-25"],
+      [75000, 80000, 85000],
+    ),
+  });
+  assert.equal(m.patterns.length, 1);
+  assert.equal(m.patterns[0].cadence, "monthly");
+  assert.equal(m.patterns[0].nextDate, "2026-10-25");
+  assert.equal(
+    m.outflow[m.cols.findIndex((c) => c.start === "2026-10-25")],
+    -8000000,
+  );
+  assert.equal(m.outflow[m.cols.findIndex((c) => c.start === "2026-10-24")], 0);
+});
+test("different merchants in one COA retain separate payment dates and irregular activity retains averages", () => {
+  const transactions = [
+    ...recurringBills(["2026-07-25", "2026-08-25", "2026-09-25"]),
+    ...recurringBills(
+      ["2026-07-15", "2026-08-15", "2026-09-15"],
+      [100, 100, 100],
+      "Insurance",
+    ).map((t) => ({
+      ...t,
+      id: "ins-" + t.id,
+      external_transaction_id: "ins-" + t.id,
+    })),
+    txn("oneoff", 200, {
+      txn_date: "2026-09-29",
+      clean_merchant: "Office supply",
+    }),
+  ];
+  const m = build({ today: "2026-09-30", unit: "day", transactions });
+  assert.equal(m.patterns.length, 2);
+  assert.ok(m.outflow[m.cols.findIndex((c) => c.start === "2026-10-24")] < 0);
+  assert.ok(
+    m.outflow[m.cols.findIndex((c) => c.start === "2026-10-25")] < -8000000,
+  );
+});
+test("weekly and fortnightly schedules need four observations; sparse, stale and irregular streams fall back", () => {
+  const obs = (dates) => dates.map((date) => ({ date, movement: -10000 }));
+  assert.equal(
+    M.detectTiming(
+      obs(["2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28"]),
+      "2026-09-30",
+    ).cadence,
+    "weekly",
+  );
+  assert.equal(
+    M.detectTiming(
+      obs(["2026-08-11", "2026-08-25", "2026-09-08", "2026-09-22"]),
+      "2026-09-30",
+    ).cadence,
+    "biweekly",
+  );
+  assert.equal(
+    M.detectTiming(
+      obs(["2026-09-14", "2026-09-21", "2026-09-28"]),
+      "2026-09-30",
+    ),
+    null,
+  );
+  assert.equal(
+    M.detectTiming(
+      obs(["2026-07-07", "2026-07-14", "2026-07-21", "2026-07-28"]),
+      "2026-09-30",
+    ),
+    null,
+  );
+  assert.equal(
+    M.detectTiming(
+      obs(["2026-07-05", "2026-08-18", "2026-09-25"]),
+      "2026-09-30",
+    ),
+    null,
+  );
+});
+test("month-end timing survives February and a payment already observed this month is not forecast again", () => {
+  const p = M.detectTiming(
+    ["2026-01-31", "2026-02-28", "2026-03-31"].map((date) => ({
+      date,
+      movement: -10000,
+    })),
+    "2026-04-01",
+  );
+  assert.deepEqual(Array.from(M.timedDates(p, "2026-04-02", "2026-06-30")), [
+    "2026-04-30",
+    "2026-05-31",
+    "2026-06-30",
+  ]);
+  const m = build({
+    today: "2026-09-24",
+    transactions: recurringBills(["2026-07-25", "2026-08-25", "2026-09-23"]),
+  });
+  assert.equal(m.patterns[0].nextDate, "2026-10-25");
+});
+test("saved recurring plans and overrides still replace detected bank timing; aggregates retain identical totals", () => {
+  const options = {
+    today: "2026-09-30",
+    transactions: recurringBills(["2026-07-25", "2026-08-25", "2026-09-25"]),
+    plans: [plan({ amount: -90000, start_date: "2026-10-20" })],
+    overrides: [override({ amount: 120000 })],
+  };
+  const results = ["day", "week", "month"].map((unit) =>
+    build({ ...options, unit }),
+  );
+  for (const m of results) {
+    assert.equal(m.ending.at(-1), results[0].ending.at(-1));
+    assert.equal(m.low, results[0].low);
+    assert.equal(sum(m.rows.flatMap((r) => r.trend)), 0);
+  }
+  const average = build({
+    ...options,
+    plans: [],
+    overrides: [],
+    timing: false,
+  });
+  assert.equal(average.patterns.length, 0);
+});
+const revenue = (extra = {}) => ({
+  id: "rev",
+  projection_date: "2026-10-10",
+  projected_sales: 10000,
+  location_id: "shop",
+  scenario: "active",
+  ...extra,
+});
+test("seasonal revenue projections add independent future cash without replacing bank trend or changing current cash", () => {
+  const options = {
+    today: "2026-09-30",
+    transactions: [txn("receipt", -120, { txn_date: "2026-09-01" })],
+  };
+  const baseline = build(options),
+    m = build({
+      ...options,
+      projectionEnabled: true,
+      projections: [revenue()],
+      collectionPercent: 90,
+      collectionLag: 2,
+      unit: "day",
+    });
+  assert.equal(m.currentCash, baseline.currentCash);
+  assert.equal(m.ending.at(-1) - baseline.ending.at(-1), 900000);
+  assert.equal(
+    sum(m.rows.flatMap((r) => r.trend)),
+    sum(baseline.rows.flatMap((r) => r.trend)),
+  );
+  const row = m.rows.find((r) => r.label === "Revenue projections");
+  assert.equal(
+    row.projection[m.cols.findIndex((c) => c.start === "2026-10-12")],
+    900000,
+  );
+  const planningOnly = build({
+    ...options,
+    trend: false,
+    projectionEnabled: true,
+    projections: [revenue()],
+  });
+  assert.equal(planningOnly.ending.at(-1), 1100000);
+});
+test("projections ignore past/draft/duplicate rows, respect currency/account views and collection horizon", () => {
+  const m = build({
+    projectionEnabled: true,
+    projections: [
+      revenue(),
+      revenue(),
+      revenue({ id: "past", projection_date: "2026-09-01" }),
+      revenue({ id: "draft", scenario: "draft" }),
+      revenue({ id: "late", projection_date: "2026-12-13" }),
+    ],
+    collectionLag: 1,
+  });
+  assert.equal(m.projectionInfo.count, 1);
+  assert.equal(m.projectionInfo.total, 1000000);
+  assert.equal(
+    build({
+      projectionEnabled: true,
+      selected: "bank",
+      projections: [revenue()],
+    }).projectionInfo.total,
+    0,
+  );
+  assert.equal(
+    build({
+      projectionEnabled: true,
+      currency: "EUR",
+      accounts: [{ ...account, iso_currency_code: "EUR" }],
+      projections: [revenue()],
+    }).projectionInfo.total,
+    0,
+  );
+});
+test("what-if hits are additive after saved overrides and clear back to the saved forecast", () => {
+  const options = { trend: false, overrides: [override({ amount: 500 })] },
+    saved = build(options);
+  const m = build({
+    ...options,
+    whatIf: [
+      {
+        id: "scenario",
+        currency: "USD",
+        date: "2026-10-20",
+        amount: -250,
+        label: "Inventory",
+      },
+    ],
+  });
+  assert.equal(m.currentCash, saved.currentCash);
+  assert.equal(m.ending.at(-1), saved.ending.at(-1) - 25000);
+  assert.equal(m.savedDaily.at(-1).balance, saved.ending.at(-1));
+  assert.equal(m.whatIfTotal, -25000);
+  assert.equal(
+    m.liquidity[0].ending.at(-1) + m.unallocatedEnding.at(-1),
+    m.ending.at(-1),
+  );
+  assert.equal(
+    build({ ...options, whatIf: [] }).ending.at(-1),
+    saved.ending.at(-1),
+  );
+});
+test("quick what-if form updates the forecast without writing a database record", async () => {
+  const h = harness();
+  await h.api.load();
+  for (const [id, value] of Object.entries({
+    whatIfLabel: "Extra stock",
+    whatIfAmount: "500",
+    whatIfDirection: "out",
+    whatIfDate: "2026-10-20",
+  }))
+    h.el(id).value = value;
+  h.api.addWhatIf();
+  assert.match(h.el("whatIfItems").innerHTML, /Extra stock/);
+  assert.match(h.el("flowTotals").innerHTML, /-\$500\.00/);
+  assert.equal(h.calls.filter((c) => c.write).length, 0);
+});
+test("unavailable projections do not block bank-only forecasts and an enabled failed layer cannot look complete", async () => {
+  const h = harness({ failTable: "revenue_projections" });
+  await h.api.load();
+  assert.match(h.el("coverage").textContent, /501 posted/);
+  assert.match(h.el("projectionStatus").textContent, /unavailable/);
+  h.api.projection(true);
+  await h.api.load();
+  assert.equal(h.el("matrix").innerHTML, "");
+  assert.equal(h.el("flowTotals").innerHTML, "");
+  assert.match(h.el("projectionStatus").textContent, /Uncheck/);
+  h.api.projection(false);
+  await h.api.load();
+  assert.match(h.el("coverage").textContent, /501 posted/);
 });

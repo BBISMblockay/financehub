@@ -28,9 +28,11 @@
       right = 12,
       top = 12,
       bottom = 27;
-    const values = [...model.daily, ...model.baselineDaily].map(
-        (p) => p.balance,
-      ),
+    const values = [
+        ...model.daily,
+        ...model.bankDaily,
+        ...model.savedDaily,
+      ].map((p) => p.balance),
       min = Math.min(0, ...values),
       max = Math.max(0, ...values),
       span = max - min || 100;
@@ -51,7 +53,7 @@
           `<line x1="${left}" x2="${width - right}" y1="${y(v)}" y2="${y(v)}" class="cf-chart-grid"/><text x="${left - 8}" y="${y(v) + 3}" text-anchor="end">${esc(money(v))}</text>`,
       )
       .join("");
-    const line = `<div class="cf-chart"><div class="cf-chart-title"><h3>Cash runway</h3><span><i class="cf-dot"></i> Your forecast <i class="cf-dot cf-dot-muted"></i> Before overrides</span></div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Projected cash ${esc(money(model.ending.at(-1)))}; lowest ${esc(money(model.low))} on ${esc(model.lowDate)}"><title>Projected cash and baseline before manual overrides</title>${grid}<path d="${path(model.baselineDaily)}" class="cf-baseline"/><path d="${path(model.daily)}" class="cf-forecast-line"/><text x="${left}" y="${height - 5}">${esc(model.daily[0].date)}</text><text x="${width - right}" y="${height - 5}" text-anchor="end">${esc(model.futureEnd)}</text></svg></div>`;
+    const line = `<div class="cf-chart"><div class="cf-chart-title"><h3>Cash runway</h3><span><i class="cf-dot"></i> Planning <i class="cf-dot cf-dot-muted"></i> Bank trend ${model.whatIfCount ? '<i class="cf-dot cf-dot-scenario"></i> What if' : ""}</span></div><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Projected cash ${esc(money(model.ending.at(-1)))}; lowest ${esc(money(model.low))} on ${esc(model.lowDate)}"><title>Bank trend, saved planning and what-if cash outlook</title>${grid}<path d="${path(model.bankDaily)}" class="cf-baseline"/><path d="${path(model.savedDaily)}" class="cf-forecast-line"/>${model.whatIfCount ? `<path d="${path(model.daily)}" class="cf-scenario-line"/>` : ""}<text x="${left}" y="${height - 5}">${esc(model.daily[0].date)}</text><text x="${width - right}" y="${height - 5}" text-anchor="end">${esc(model.futureEnd)}</text></svg></div>`;
     const months = new Map();
     model.cols.forEach((c, i) => {
       if (c.kind !== "forecast") return;

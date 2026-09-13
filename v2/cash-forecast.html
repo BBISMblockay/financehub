@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
     <link rel="stylesheet" href="beacon-mirrors-unified.css" />
     <link rel="stylesheet" href="v2-mobile.css" />
-    <link rel="stylesheet" href="cashflow.css?v=28400cf67508" />
+    <link rel="stylesheet" href="cashflow.css?v=b08544f85dcc" />
     <script src="v2-shell.js" defer></script>
     <script src="nav-config.js"></script>
     <script src="avatar.js"></script>
@@ -17,9 +17,9 @@
     <script src="silo-chrome.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/pages/config.js"></script>
-    <script src="cashflow-model.js?v=6489653f7906" defer></script>
-    <script src="cashflow-charts.js?v=c715d24fabe2" defer></script>
-    <script src="cashflow.js?v=ac32f7b6c7d8" defer></script>
+    <script src="cashflow-model.js?v=a1f36b95b4d7" defer></script>
+    <script src="cashflow-charts.js?v=5c54a7bc99f4" defer></script>
+    <script src="cashflow.js?v=ec7d852546e2" defer></script>
   </head>
   <body>
     <div class="silo-app" id="silo-app">
@@ -88,6 +88,57 @@
             >
             <button class="bcn-btn" id="jump">Go to forecast →</button>
           </div>
+          <details class="cf-method cf-projection-controls">
+            <summary>Seasonal revenue projections · planning inputs</summary>
+            <div class="cf-controls" id="projectionControls">
+              <label class="cf-check"
+                ><input type="checkbox" id="projectionEnabled" /> Add
+                projections to planning</label
+              >
+              <label
+                >Cash collected %<input
+                  id="collectionPercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="100"
+              /></label>
+              <label
+                >Collection delay (days)<input
+                  id="collectionLag"
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="1"
+                  value="0"
+              /></label>
+              <a class="bcn-btn" href="projections.html"
+                >Open revenue projections</a
+              >
+            </div>
+            <p id="projectionStatus"></p>
+            <p>
+              Future active sales projections × cash collected %, received after
+              the selected delay. This planning layer adds to enabled bank
+              trends; each can be switched independently. Settings apply to this
+              browser and company. Projections never change saved bank balances.
+            </p>
+          </details>
+          <details class="cf-method">
+            <summary id="timingSummary">Recurring payment timing</summary>
+            <label
+              ><input type="checkbox" id="timing" checked /> Recognize recurring
+              payment dates</label
+            >
+            <div id="patterns"></div>
+            <p>
+              Estimates need at least 3 monthly or 4 weekly/every-two-week
+              observations. Amounts use the median payment. Irregular activity
+              keeps a daily average. These dates are inferred payment timing,
+              not contractual due dates.
+            </p>
+          </details>
           <section
             class="cf-summary"
             id="summary"
@@ -112,6 +163,47 @@
             <span id="coverage"></span
             ><span>Actuals · <b>Forecast = trends + plans</b></span>
           </div>
+          <section
+            class="cf-planning-strip"
+            aria-label="Forecast totals and what-if planning"
+          >
+            <div id="flowTotals" class="cf-flow-totals"></div>
+            <form id="whatIfForm" class="cf-quick-form">
+              <b>What if</b
+              ><label class="sr-only" for="whatIfLabel">Description</label
+              ><input
+                id="whatIfLabel"
+                placeholder="Extra inventory, new launch…"
+                required
+                maxlength="100"
+              />
+              <label class="sr-only" for="whatIfDirection">Direction</label
+              ><select id="whatIfDirection">
+                <option value="out">Money out</option>
+                <option value="in">Money in</option>
+              </select>
+              <label class="sr-only" for="whatIfAmount">Amount</label
+              ><input
+                id="whatIfAmount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="Amount"
+                required
+              />
+              <label class="sr-only" for="whatIfDate">Expected date</label
+              ><input id="whatIfDate" type="date" required />
+              <button class="bcn-btn" id="whatIfAdd">Preview</button
+              ><button type="button" class="bcn-btn" id="whatIfClear">
+                Clear
+              </button>
+            </form>
+            <div id="whatIfItems"></div>
+            <p id="whatIfStatus">
+              Preview only · cleared when you reload this page. Use Add movement
+              to save an assumption.
+            </p>
+          </section>
           <div class="cf-section-head">
             <h2>Liquidity by account</h2>
             <span>Same dates · ending balances</span>
