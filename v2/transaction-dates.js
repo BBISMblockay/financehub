@@ -13,8 +13,8 @@
     const date = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '') && !isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0,10)===s;
     return date(start) && date(end) && start<=end;
   }
-  // List-only fields include search/filter inputs; raw payload and editing metadata load on review.
-  const LIST_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason,origin,provider_status,provider_updated_at,currency,qbo_account_id,accounting_treatment';
+  // Preserve every coding field when editing across imports; fetch the raw payload only on demand.
+  const LIST_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason,origin,provider_status,provider_updated_at,currency,qbo_account_id,accounting_treatment,qbo_location_id,entity_qbo_id,entity_type,rule_id,ai_reasoning,row_no,last4,external_transaction_id';
   async function read(db, company, source, batches, range) {
     if(!company || !source || !valid(range)) throw new Error('Choose an account and valid dates.');
     // Batch membership, not a guessed source column on transactions, scopes CSV and bank rows alike.
@@ -48,5 +48,16 @@
   function fingerprint(t) {
     return JSON.stringify(['id','batch_id','txn_date','description','amount','status','clean_merchant','card_name','origin','provider_status','provider_updated_at','currency','qbo_account_id','accounting_treatment','coding_source'].map(k=>t[k]??null));
   }
-  window.SiloTransactionDates={preset,valid,read,summary,preferences,fingerprint};
+  // Derive routine treatment from an explicit category choice, never from a merchant guess.
+  function inferTreatment(t,type,sourceType) {
+    if(t.origin!=='plaid')return t.accounting_treatment;
+    if(!t.qbo_account_id)return 'unknown';
+    if(['Other Current Asset','Other Current Liability'].includes(type))
+      return ['transfer','payroll_settlement','shopify_settlement'].includes(t.accounting_treatment)?t.accounting_treatment:'transfer';
+    if(['Credit Card','Accounts Payable'].includes(type))return sourceType==='bank'?'card_payment':'unknown';
+    if(['Expense','Other Expense','Cost of Goods Sold','Fixed Asset','Other Asset'].includes(type))return Number(t.amount)>0?'purchase':Number(t.amount)<0?'refund':'unknown';
+    if(['Income','Other Income','Accounts Receivable'].includes(type) && Number(t.amount)<0)return 'deposit';
+    return 'unknown';
+  }
+  window.SiloTransactionDates={inferTreatment,preset,valid,read,summary,preferences,fingerprint};
 })();

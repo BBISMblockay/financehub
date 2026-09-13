@@ -182,7 +182,7 @@
     .cc-drop--over { border-color: var(--bcn-accent); background: rgba(37,99,235,.06); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=4ab388da5aa9" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=e152f09a7a28" />
   <link rel="stylesheet" href="accounting-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -320,7 +320,7 @@
           </form>
           <div id="workspacePeriodBar" hidden></div>
           <dialog id="accountInfo" class="txn-account-dialog"><form method="dialog"><button class="bcn-btn">Close</button></form><div id="workspaceSummary"></div></dialog>
-          <div class="cc-kpis" id="codeKpis"></div>
+          <div class="cc-kpis" id="codeKpis" hidden></div>
           <div class="cc-card cc-card--grow transaction-list">
             <div class="cc-card-head">
               <div>
@@ -342,8 +342,7 @@
                 </select>
                 <div id="codeFilterSegments" class="txn-filters" role="group" aria-label="Transaction filters"></div>
                 <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
-                <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button></div></details>
-                <button class="bcn-btn" id="btnApplyRules">Apply rules</button>
+                <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button><button class="bcn-btn" id="btnApplyRules">Apply saved rules</button></div></details>
                 <button class="bcn-btn" id="btnAiCode">Suggest categories</button>
               </div>
             </div>
@@ -488,8 +487,8 @@
 <script src="plaid-bank-feed.js"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transaction-dates.js?v=412c1fd5b2a3"></script>
-<script src="transactions-tiles.js?v=f31c5f2f08ed"></script>
+<script src="transaction-dates.js?v=c08e445c56aa"></script>
+<script src="transactions-tiles.js?v=1494aaabbb31"></script>
 <script>
 (function () {
   'use strict';
@@ -536,14 +535,19 @@
   let workspace = null;
   let tilesUi = null;
   let dateBrowse = false, dateRows = [], dateLoading = false, dateError = '', dateGeneration = 0;
+  let journalPreviewBatch=null;
   let dateContext = null, dateAiProgress = '';
   let dateStorage;try {dateStorage=window.sessionStorage;}catch{}
   const datePrefs=window.SiloTransactionDates.preferences(dateStorage);
   const dateRange = () => ({start:el('dateStart').value,end:el('dateEnd').value});
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
-  const batchSource = () => state.sources.find((source) => source.id === state.batch?.source_id);
-  const editable = () => bank.canEditBatch(state.batch) && !state.codingBusy;
+  const batchSource = () => state.sources.find(source=>source.id===(dateBrowse?workspace?.selected():state.batch?.source_id));
+  const workingRows = () => dateBrowse ? dateRows : state.txns;
+  const batchFor = t => dateBrowse ? state.batches.find(b=>b.id===t.batch_id) : state.batch;
+  const rowEditable = t => !!t && !state.codingBusy && !dateLoading && bank.canEditBatch(batchFor(t)) && bank.isAvailable(t)
+    && (!dateBrowse || (batchFor(t)?.company_entity_id===_co?.id && batchFor(t)?.source_id===workspace?.selected()));
+  const editable = () => dateBrowse ? workingRows().some(rowEditable) : bank.canEditBatch(state.batch) && !state.codingBusy;
   function requireEditable() {
     if (editable()) return true;
     setStatus(state.codingBusy
@@ -712,7 +716,19 @@
     const { data, error } = await sb.from('card_import_batches_v')
       .select(BATCH_FIELDS).order('created_at', { ascending: false }).limit(60);
     if (error) throw new Error(error.message);
-    state.batches = data || [];
+    let batches=data || [];
+    const sourceId=dateBrowse && workspace?.selected();
+    if(sourceId && !sourceId.startsWith('plaid:')) {
+      const accountBatches=[];
+      for(let offset=0;;offset+=500) {
+        const result=await sb.from('card_import_batches_v').select(BATCH_FIELDS).eq('company_entity_id',_co.id)
+          .eq('source_id',sourceId).order('created_at',{ascending:false}).order('id').range(offset,offset+499);
+        if(result.error)throw new Error(result.error.message);
+        accountBatches.push(...(result.data || []));if(!result.data || result.data.length<500)break;
+      }
+      batches=[...batches.filter(b=>b.source_id!==sourceId),...accountBatches];
+    }
+    state.batches = batches;
   }
 
   async function loadRules() {
@@ -1262,10 +1278,11 @@
   }
 
   async function applyRules(silent) {
-    if (!state.batch || !requireEditable()) return;
+    if (!requireEditable()) return;
     let hits = 0;
     let conflicts = 0;
     for (const t of (silent ? state.txns : reviewDateRows())) {
+      if(!rowEditable(t))continue;
       if (t.status === 'excluded' || !bank.isAvailable(t)) continue;
       if (t.qbo_account_id && t.coding_source === 'manual') continue;
       const { rule, conflict } = ruleMatches(t);
@@ -1314,11 +1331,12 @@
   }
 
   function defaultLocationId() {
-    const src = state.sources.find((s) => s.id === state.batch?.source_id);
+    const src = batchSource();
     return src?.default_qbo_location_id || null;
   }
 
   function reviewDateRows() {
+    if(dateBrowse)return dateRows;
     if(!dateContext || dateContext.company!==_co?.id || dateContext.source!==state.batch?.source_id)return state.txns;
     return state.txns.filter(t=>t.txn_date>=dateContext.range.start && t.txn_date<=dateContext.range.end);
   }
@@ -1336,7 +1354,7 @@
       if (f === 'excluded') return t.status === 'excluded';
       if (f === 'conflict') return !!t.coding_conflict;
       if (f === 'low') return t.status !== 'excluded' && (t.confidence ?? 1) < 0.6;
-      if (f === 'ai') return t.coding_source === 'ai';
+      if (f === 'ai') return t.coding_source === 'ai' || suggestions.has(t.id);
       return true;
     });
   }
@@ -1353,34 +1371,39 @@
       if(t.status==='uncoded')counts.uncoded++;
       if(t.coding_conflict)counts.conflict++;
       if(t.status!=='excluded' && (t.confidence??1)<.6)counts.low++;
-      if(t.coding_source==='ai')counts.ai++;
+      if(t.coding_source==='ai' || suggestions.has(t.id))counts.ai++;
       if(t.status==='excluded')counts.excluded++;
     }
     const filters=[['all','All'],['uncoded','Needs categorizing'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']];
     el('codeFilterSegments').innerHTML=filters.map(([value,label])=>`<button type="button" data-code-filter="${value}" aria-pressed="${el('codeFilter').value===value}">${label} <span>${counts[value]}</span></button>`).join('');
   }
   function renderSaveBar() {
-    el('codeActionBar').hidden=dateBrowse || !state.batch || (!state.selected.size && !state.dirty.size);
+    el('codeActionBar').hidden=(!dateBrowse && !state.batch) || (!state.selected.size && !state.dirty.size);
   }
   function renderCoding() {
     renderSaveBar();
     for(const id of ['dateStart','dateEnd'])el(id).disabled=state.codingBusy || !!state.dirty.size;
-    if(dateBrowse) { renderDateBrowse(); return; }
-    el('btnAiCode').textContent='Suggest categories';
+
+    for(const button of el('dateForm').querySelectorAll('[data-date-preset]')) {
+      const range=window.SiloTransactionDates.preset(button.dataset.datePreset);
+      button.setAttribute('aria-pressed',String(range.start===dateRange().start && range.end===dateRange().end));
+      button.disabled=state.codingBusy || !!state.dirty.size;
+    }
+    el('btnAiCode').textContent=state.codingBusy && dateAiProgress?'Suggesting…':'Suggest categories';
     renderFilterSegments(reviewDateRows());
-    el('btnDateBack').hidden = !el('dateStart').value;
+    el('btnDateBack').hidden = dateBrowse || !el('dateStart').value;
     el('unsavedCount').textContent = state.dirty.size ? `${state.dirty.size} unsaved` : '';
-    renderWorkflow(state.txns, state.batch ? [state.batch] : []);
+    renderWorkflow(reviewDateRows(), dateBrowse?state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id)):(state.batch?[state.batch]:[]));
     const locked = !editable();
     for (const id of ['btnApplyRules', 'btnSaveCoding']) el(id).disabled = locked;
     el('btnLearnRules').disabled = state.codingBusy;
     el('btnReloadCoding').disabled = state.codingBusy;
     el('btnReloadCoding').hidden = state.dirty.size === 0;
-    el('btnAiCode').disabled = locked || !reviewDateRows().some((txn) => bank.eligibleForAi(txn, batchSource()));
-    if (!state.batch) {
+    el('btnAiCode').disabled = locked || !(dateBrowse?dateAiCandidates().length:reviewDateRows().some(txn=>bank.eligibleForAi(txn,batchSource())));
+    if ((!dateBrowse && !state.batch) || (dateBrowse && (dateLoading || dateError))) {
       el('codeTitle').textContent = 'Transactions';
       el('codeSub').textContent = 'Choose an account and dates above';
-      el('tblCoding').innerHTML = '<tr><td class="cc-empty">No activity for this account yet. Sync bank transactions or upload a statement to begin.</td></tr>';
+      el('tblCoding').innerHTML = `<tr><td class="cc-empty">${esc(dateBrowse?(dateError || 'Loading transactions…'):'Connect an account or import a statement to begin.')}</td></tr>`;
       el('codeKpis').innerHTML = '';
       el('codeBulk').hidden = true;
       return;
@@ -1388,7 +1411,9 @@
 
     el('codeTitle').textContent = batchSource()?.display_name || 'Activity';
     el('codeSub').textContent =
-      `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || state.batch.file_name || 'Bank feed'}${state.codingBusy ? ' · Coding in progress' : locked ? ' · Read-only approved content' : ''}`;
+      dateBrowse ? `${dateRows.length} transactions` : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
+    if(state.codingBusy)el('codeSub').textContent+=' · Coding in progress';
+    el('codeStatus').textContent=dateAiProgress || (state.codingBusy?'Working…':'');
 
     const coded = reviewDateRows().filter((t) => t.status === 'coded').length;
     const uncoded = reviewDateRows().filter((t) => t.status === 'uncoded').length;
@@ -1411,7 +1436,7 @@
     // Selecting rows that a filter has since hidden would apply a bulk change
     // to things nobody can see, so the selection is trimmed to what is shown.
     const visible = new Set(rows.map((r) => r.id));
-    for (const id of [...state.selected]) if (!visible.has(id)) state.selected.delete(id);
+    for (const id of [...state.selected]) if (!visible.has(id) || (!state.codingBusy && !dateLoading && !rowEditable(workingRows().find(t=>t.id===id)))) state.selected.delete(id);
     renderBulkBar();
 
     if (!rows.length) {
@@ -1420,41 +1445,41 @@
       return;
     }
 
-    const allChecked = rows.every((r) => state.selected.has(r.id));
+    const pickable=rows.filter(rowEditable);
+    const allChecked = pickable.length>0 && pickable.every(r=>state.selected.has(r.id));
 
     el('tblCoding').innerHTML = `<thead><tr>
-        <th class="txn-select"><input type="checkbox" class="cc-check" id="codeAll" ${allChecked ? 'checked' : ''} title="Select everything shown" /></th>
+        <th class="txn-select"><input type="checkbox" class="cc-check" id="codeAll" ${!pickable.length?'disabled':''} ${allChecked ? 'checked' : ''} aria-label="Select editable transactions" title="Select everything shown" /></th>
         <th class="txn-date">Date</th><th class="txn-description">Transaction</th><th class="txn-amount num">Amount</th>
-        <th class="txn-treatment">Treatment</th><th class="txn-category">Category</th><th class="txn-review"><span class="txn-sr-only">Review transaction</span></th>
+        <th class="txn-category">Category</th><th class="txn-review"><span class="txn-sr-only">Review transaction</span></th>
       </tr></thead><tbody>` + rows.map((t) => {
       const expanded = expandedTransaction === t.id;
       const suggestion = suggestions.get(t.id);
       const entityMissing = needsEntity(t) && !t.entity_qbo_id;
-      return `<tr class="txn-row ${t.status === 'excluded' ? 'cc-row--excluded' : ''} ${expanded?'txn-row--open':''}" data-txn="${esc(t.id)}">
-        <td class="txn-select"><input type="checkbox" class="cc-check" data-pick aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
+      return `<tr class="txn-row ${t.status === 'excluded' ? 'cc-row--excluded' : ''} ${expanded?'txn-row--open':''} ${state.selected.has(t.id)?'txn-row--selected':''}" data-txn="${esc(t.id)}">
+        <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${suggestion?'Suggestion ready':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?'Suggestion ready':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
-        <td class="txn-treatment">${t.origin === 'plaid' ? `<select class="bcn-field" data-field="treatment" aria-label="Accounting treatment" ${locked || !bank.isAvailable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select>` : '<span class="txn-secondary">Statement</span>'}</td>
-        <td class="txn-category" data-cell="account">${cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-category" data-cell="account">${suggestion?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">Review suggestion${suggestion.account_name?' · '+esc(suggestion.account_name):''}</button>`:cellButton(t.qbo_account_name, 'account')}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
-      <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
-        <section class="txn-explanation"><h3>${suggestion?'Suggested treatment':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>View source details</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
-        <section><h3>Additional dimensions</h3><table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button></section>
+      <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="6"><div class="txn-detail-panel">
+        <section class="txn-explanation"><h3>${suggestion?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
+        <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button></section>
       </div></td></tr>`;
     }).join('') + '</tbody>';
 
     for (const row of el('tblCoding').querySelectorAll('[data-txn]')) {
-      const transaction = state.txns.find((value) => value.id === row.dataset.txn);
-      if (locked || !bank.isAvailable(transaction)) {
-        for (const control of row.querySelectorAll('[data-edit], [data-toggle-exclude], [data-pick], select')) control.disabled = true;
+      const transaction = workingRows().find((value) => value.id === row.dataset.txn);
+      if (!rowEditable(transaction)) {
+        for (const control of row.querySelectorAll('[data-edit], [data-toggle-exclude], [data-pick], [data-accept-suggestion], [data-dismiss-suggestion], select')) control.disabled = true;
       }
     }
-    if (el('codeAll')) el('codeAll').disabled = locked;
+    if (el('codeAll')) {el('codeAll').disabled = !pickable.length;el('codeAll').indeterminate=state.selected.size>0 && !allChecked;}
     el('codeSearch').placeholder =
-      `Search ${state.txns.length} rows — merchant, account, location, cardholder, card…`;
+      `Search ${workingRows().length} rows — merchant, account, location, cardholder, card…`;
   }
 
   // An entity is required on AR/AP lines and meaningless elsewhere, so the cell
@@ -1474,7 +1499,7 @@
   // came from a person's name because Card Name was blank.
   function renderVariants() {
     const counts = new Map();
-    for (const t of state.txns) {
+    for (const t of reviewDateRows()) {
       const k = t.card_name || '(no card name)';
       const cur = counts.get(k) || { n: 0, total: 0, coded: 0 };
       cur.n++;
@@ -1568,10 +1593,11 @@
     const sourceId=workspace?.selected(),source=state.sources.find(s=>s.id===sourceId);
     if(!source)return [];
     const editableBatches=new Set(state.batches.filter(b=>b.company_entity_id===_co?.id && b.source_id===sourceId && bank.canEditBatch(b)).map(b=>b.id));
-    return dateDisplayRows().filter(t=>!suggestions.has(t.id) && editableBatches.has(t.batch_id) && bank.eligibleForAi(t,source) && merchantKey(t));
+    return dateDisplayRows().filter(t=>t.status==='uncoded' && !t.qbo_account_id && !suggestions.has(t.id) && editableBatches.has(t.batch_id) && bank.eligibleForAi(t,source) && merchantKey(t));
   }
   async function suggestDateCategories() {
-    if(state.codingBusy || state.dirty.size || dateLoading || dateError)return;
+    if(state.dirty.size)return setStatus('Save or discard your edits before requesting suggestions.','neg');
+    if(state.codingBusy || dateLoading || dateError)return;
     const candidates=dateAiCandidates();
     if(!candidates.length)return setStatus('No eligible uncategorized transactions in this view.','info',4000);
     const company=_co.id,sourceId=workspace.selected(),source=state.sources.find(s=>s.id===sourceId),generation=dateGeneration;
@@ -1613,37 +1639,16 @@
   }
   function dateDisplayRows() {
     const f=el('codeFilter').value,q=codeSearchTerm();
-    return dateRows.filter(t=>matchesSearch(t,q) && (f==='all' || f==='uncoded' && t.status==='uncoded' || f==='excluded' && t.status==='excluded' || f==='conflict' && t.coding_conflict || f==='low' && t.status!=='excluded' && (t.confidence??1)<.6 || f==='ai' && t.coding_source==='ai'));
+    return dateRows.filter(t=>matchesSearch(t,q) && (f==='all' || f==='uncoded' && t.status==='uncoded' || f==='excluded' && t.status==='excluded' || f==='conflict' && t.coding_conflict || f==='low' && t.status!=='excluded' && (t.confidence??1)<.6 || f==='ai' && (t.coding_source==='ai' || suggestions.has(t.id))));
   }
 
-  function renderDateBrowse() {
-    renderFilterSegments(dateRows);
-    for(const id of ['btnApplyRules','btnSaveCoding','btnLearnRules','btnReloadCoding']) el(id).disabled=true;
-    el('btnAiCode').disabled=dateLoading || !!dateError || state.codingBusy || !dateAiCandidates().length;
-    el('btnAiCode').textContent=state.codingBusy?'Suggesting…':'Suggest categories';
-    el('btnReloadCoding').hidden=true; el('btnDateBack').hidden=true;
-    el('codeBulk').hidden=true; el('codeVariants').innerHTML=''; el('unsavedCount').textContent='';
-    el('codeStatus').textContent=dateAiProgress || 'Open a transaction to categorize and review its import.';
-    const source=state.sources.find(s=>s.id===workspace?.selected());
-    el('codeTitle').textContent=source?.display_name || 'Activity';
-    el('codeSub').textContent=dateLoading?'Loading date range…':dateError?'Could not load date range':`${dateRows.length} transactions · ${dateContext?.range.start || dateRange().start} – ${dateContext?.range.end || dateRange().end}`;
-    const totals=window.SiloTransactionDates.summary(dateRows);
-    el('codeKpis').innerHTML=[['Money out',money(totals.out)],['Money in',money(totals.in)],['Transactions',totals.count],['Needs categorizing',totals.uncoded]]
-      .map(([label,value])=>`<div class="cc-kpi"><div class="cc-kpi-label">${label}</div><div class="cc-kpi-value">${value}</div></div>`).join('');
-    const batches=state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id));
-    renderWorkflow(dateRows,batches);
-    if(dateLoading || dateError) {
-      el('tblCoding').innerHTML=`<tr><td class="cc-empty">${esc(dateError || 'Loading transactions…')}</td></tr>`;return;
-    }
-    const rows=dateDisplayRows();
-    el('tblCoding').innerHTML=rows.length?`<thead><tr><th class="txn-date">Date</th><th class="txn-description">Transaction</th><th class="txn-amount num">Amount</th><th class="txn-category">Category</th><th>Status</th><th class="txn-review">Review</th></tr></thead><tbody>`+rows.map(t=>`<tr class="txn-row" data-date-transaction="${esc(t.id)}"><td class="txn-date">${esc(t.txn_date)}</td><td class="txn-description"><button class="txn-description-button" data-date-open="${esc(t.id)}">${esc(t.description)}</button><div class="txn-secondary">${esc(t.card_name || t.clean_merchant || '')}</div></td><td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}</td><td class="txn-category">${esc(t.qbo_account_name || suggestions.get(t.id)?.account_name || 'Needs category')}</td><td class="txn-status">${suggestions.has(t.id)?'Suggestion ready':esc(t.status==='coded'?'Categorized':t.status==='uncoded'?'Uncategorized':t.status)}</td><td class="txn-review"><button class="txn-review-button" data-date-open="${esc(t.id)}" aria-label="Review ${esc(t.description)}">›</button></td></tr>`).join('')+'</tbody>':'<tr><td class="cc-empty">No transactions match these dates and filters.</td></tr>';
-  }
   async function browseDates(sourceId=workspace?.selected()) {
     if(state.dirty.size || state.codingBusy) {restoreDateInputs();return setStatus('Save or discard your edits before changing dates.', 'neg');}
     if(!window.SiloTransactionDates.valid(dateRange())) {restoreDateInputs();return setStatus('Choose a valid start and end date.', 'neg');}
     const generation=++dateGeneration,company=_co?.id,range={...dateRange()};
-    dateContext={company,source:sourceId,range};datePrefs.set(company,sourceId,range);
-    dateBrowse=true;dateLoading=true;dateError='';dateRows=[];state.selected.clear();renderCoding();
+    const sameContext=JSON.stringify(dateContext)===JSON.stringify({company,source:sourceId,range});
+    dateContext={company,source:sourceId,range};datePrefs.set(company,sourceId,range);journalPreviewBatch=null;
+    dateBrowse=true;buildOptionCache();dateLoading=true;dateError='';dateRows=[];if(!sameContext)state.selected.clear();renderCoding();renderEntry();
     try {
       const rows=sourceId && !sourceId.startsWith('plaid:') ? await window.SiloTransactionDates.read(sb,company,sourceId,state.batches,range) : [];
       if(generation!==dateGeneration || company!==_co?.id)return;
@@ -1662,22 +1667,6 @@
     el('dateStart').value=range.start;el('dateEnd').value=range.end;browseDates();
   });
   el('btnDateBack').addEventListener('click',()=>browseDates());
-  el('tblCoding').addEventListener('click',async event=>{
-    const button=event.target.closest('[data-date-open]');if(!button || !dateBrowse || dateLoading)return;
-    const transaction=dateRows.find(t=>t.id===button.dataset.dateOpen);if(!transaction)return;
-    if(state.dirty.size || state.codingBusy)return;
-    ++dateGeneration;
-    try {
-      const search=el('codeSearch').value;
-      await openBatch(transaction.batch_id);
-      el('codeSearch').value=search;
-      if(state.batch?.id!==transaction.batch_id)return;
-      dateBrowse=false;expandedTransaction=transaction.id;renderCoding();renderEntry();
-      el('codeStatus').textContent='Review applies to this import. All activity in dates returns to the calendar view.';
-      el('tblCoding').querySelector(`[data-txn="${transaction.id}"] [data-review]`)?.focus();
-    } catch(error){setStatus(error.message,'neg');}
-  });
-
   // -------------------------------------------------------- search + bulk
 
   function codeSearchTerm() {
@@ -1693,7 +1682,7 @@
       t.description, t.clean_merchant, merchantKey(t), t.qbo_account_name,
       t.qbo_location_name, t.entity_name, t.card_name, t.cardholder, t.cardholder_email,
       t.vendor_name, t.memo, t.exclude_reason,
-      state.batch?.source_name, String(t.amount), t.txn_date,
+      batchSource()?.display_name, String(t.amount), t.txn_date,
     ].some((v) => String(v ?? '').toLowerCase().includes(q));
   }
 
@@ -1706,7 +1695,7 @@
   el('codeFilter').addEventListener('change', ()=>{state.selected.clear();renderCoding();});
   el('codeFilterSegments').addEventListener('click',event=>{
     const button=event.target.closest('[data-code-filter]');if(!button)return;
-    state.selected.clear();
+    if(el('codeFilter').value!==button.dataset.codeFilter)state.selected.clear();
     el('codeFilter').value=button.dataset.codeFilter;
     renderCoding();
     el('codeFilterSegments').querySelector(`[data-code-filter="${button.dataset.codeFilter}"]`)?.focus();
@@ -1729,14 +1718,14 @@
     if (!n) return;
     el('bulkCount').textContent = `${n} selected`;
     if (!el('bulkAccount').options.length) {
-      el('bulkAccount').innerHTML = `<option value="">Set account…</option>${_acctOptions}`;
+      el('bulkAccount').innerHTML = `<option value="">Set category…</option>${_acctOptions}`;
       el('bulkLocation').innerHTML = `<option value="">Set location…</option>${_locOptions}`;
       el('bulkEntity').innerHTML = `<option value="">Set entity…</option>${_entityOptions}`;
     }
   }
 
   function selectedTxns() {
-    return editable() ? state.txns.filter((t) => state.selected.has(t.id) && bank.isAvailable(t)) : [];
+    return workingRows().filter(t=>state.selected.has(t.id) && rowEditable(t));
   }
 
   el('bulkAccount').addEventListener('change', (e) => {
@@ -1746,6 +1735,7 @@
     for (const t of selectedTxns()) {
       t.qbo_account_id = id;
       t.qbo_account_name = acctName(id);
+      t.accounting_treatment=window.SiloTransactionDates.inferTreatment(t,acctType(id),batchSource()?.source_type);
       t.coding_source = 'manual';
       t.confidence = 1;
       t.ai_reasoning = null;
@@ -1839,9 +1829,9 @@
     if (!requireEditable()) return;
     const tr = e.target.closest('[data-txn]');
     if (!tr) return;
-    const t = state.txns.find((x) => x.id === tr.dataset.txn);
+    const t = workingRows().find((x) => x.id === tr.dataset.txn);
     if (!t) return;
-    if (!bank.isAvailable(t)) return;
+    if (!rowEditable(t)) return;
     const field = e.target.dataset.field;
     if (field === 'treatment') {
       t.accounting_treatment = e.target.value;
@@ -1849,6 +1839,7 @@
     } else if (field === 'account') {
       t.qbo_account_id = e.target.value || null;
       t.qbo_account_name = acctName(t.qbo_account_id);
+      t.accounting_treatment=window.SiloTransactionDates.inferTreatment(t,acctType(t.qbo_account_id),batchSource()?.source_type);
       t.coding_source = 'manual';
       t.confidence = 1;
       t.ai_reasoning = null;
@@ -1872,10 +1863,10 @@
     renderEntry();
   });
 
-  el('tblCoding').addEventListener('click', (e) => {
+  el('tblCoding').addEventListener('click', async (e) => {
     if (e.target.id === 'codeAll') {
       if (!requireEditable()) return;
-      const rows = codingRows();
+      const rows = codingRows().filter(rowEditable);
       if (e.target.checked) for (const r of rows) state.selected.add(r.id);
       else for (const r of rows) state.selected.delete(r.id);
       renderCoding();
@@ -1884,7 +1875,7 @@
 
     const tr0 = e.target.closest('[data-txn]');
     if (!tr0) return;
-    const t0 = state.txns.find((x) => x.id === tr0.dataset.txn);
+    const t0 = workingRows().find((x) => x.id === tr0.dataset.txn);
     if (!t0) return;
 
     if (e.target.closest('[data-review]')) {
@@ -1896,19 +1887,30 @@
     }
 
     if (e.target.matches('[data-pick]')) {
-      if (!requireEditable() || !bank.isAvailable(t0)) return;
+      if (!requireEditable() || !rowEditable(t0)) return;
       if (e.target.checked) state.selected.add(t0.id);
       else state.selected.delete(t0.id);
       renderBulkBar();
+      for(const row of el('tblCoding').querySelectorAll('[data-txn]'))row.classList.toggle('txn-row--selected',state.selected.has(row.dataset.txn));
+      const pickable=codingRows().filter(rowEditable),all=el('codeAll');
+      if(all){all.checked=pickable.length>0 && pickable.every(t=>state.selected.has(t.id));all.indeterminate=state.selected.size>0 && !all.checked;}
       return;
     }
 
     // Clicking the normalised merchant searches for it -- the fastest route to
     // "select every Amazon row and code them all at once".
     if (e.target.matches('[data-raw]')) {
-      openRawDrawer(t0);
+      try {
+        if(dateBrowse) {
+          const {data,error}=await sb.from('card_transactions').select('raw').eq('company_entity_id',_co.id).eq('id',t0.id).single();
+          if(error)throw new Error(error.message);
+          openRawDrawer({...t0,raw:data?.raw});
+        } else openRawDrawer(t0);
+      } catch(error){setStatus('Source details could not load — '+error.message,'neg');}
       return;
     }
+
+    if(e.target.matches('[data-journal]')) {await reviewJournal(t0.batch_id || state.batch?.id);return;}
 
     if (e.target.matches('[data-merch]') || e.target.matches('[data-card-name]')) {
       el('codeSearch').value = e.target.textContent.trim();
@@ -1916,7 +1918,7 @@
       return;
     }
 
-    if (!requireEditable() || !bank.isAvailable(t0)) return;
+    if (!requireEditable() || !rowEditable(t0)) return;
     const edit = e.target.closest('[data-edit]');
     if (edit) {
       openEditor(edit.closest('td'), t0, edit.dataset.edit);
@@ -1925,7 +1927,7 @@
 
     if (!e.target.closest('[data-toggle-exclude]')) return;
     const tr = e.target.closest('[data-txn]');
-    const t = state.txns.find((x) => x.id === tr.dataset.txn);
+    const t = workingRows().find((x) => x.id === tr.dataset.txn);
     if (!t) return;
     if (t.status === 'excluded') {
       t.status = t.qbo_account_id ? 'coded' : 'uncoded';
@@ -1999,6 +2001,8 @@
       return;
     }
 
+    const dirtyRows=workingRows().filter(t=>state.dirty.has(t.id));
+    if(dirtyRows.length!==state.dirty.size || dirtyRows.some(t=>!rowEditable(t)))return setStatus('Some edited rows are no longer editable. Reload and review them before saving.','neg');
     state.codingBusy = true;
     try {
       renderCoding();
@@ -2008,7 +2012,7 @@
       // propose a COMPLETE row, which is what made saving fail twice: once on
       // the RLS check (company_entity_id absent) and once on NOT NULL (amount
       // absent). Nothing here needs the row's identity beyond its id.
-      const rows = state.txns.filter((t) => state.dirty.has(t.id)).map((t) => ({
+      const rows = dirtyRows.map((t) => ({
         id: t.id,
         accounting_treatment: t.accounting_treatment || undefined,
         expected_provider_updated_at: t.origin === 'plaid' ? t.provider_updated_at : undefined,
@@ -2036,24 +2040,18 @@
           p_rows: rows.slice(i, i + 400),
         });
         if (error) throw new Error(error.message);
+        if(Number(data)!==rows.slice(i,i+400).length)throw new Error('Some rows could not be saved. Their edits are retained; reload to review current approval state.');
         saved += Number(data || 0);
-      }
-
-      // RLS silently drops rows the caller may not write -- a posted batch, or
-      // another company's. Saying "saved 400" when 12 never landed would be
-      // the worst possible outcome here, so the count is compared.
-      if (saved < rows.length) {
-        setStatus(
-          `Saved ${saved} of ${rows.length} rows. ${rows.length - saved} could not be written — `
-          + 'the batch may already be posted. Reload to see what actually saved.', 'neg', 12000);
-        await loadTxns(state.batch.id);
-        renderCoding();
-        renderEntry();
-        return;
+        for(const row of rows.slice(i,i+400))state.dirty.delete(row.id);
       }
 
       state.dirty.clear();
       setStatus(`Saved ${saved} row${saved === 1 ? '' : 's'}.`, 'pos', 4000);
+      if(dateBrowse)journalPreviewBatch=null;
+      if(dateBrowse && state.batch) {
+        const updates=new Map(dirtyRows.map(t=>[t.id,t]));state.txns=state.txns.map(t=>updates.has(t.id)?{...t,...updates.get(t.id)}:t);
+      }
+      // Keep the complete account batch list; refreshing the capped global list hides older imports.
       await loadBatches();
       renderBatches();
     } catch (e) {
@@ -2076,9 +2074,9 @@
   }
   function acceptSuggestion(id) {
     if (!requireEditable()) return;
-    const t = state.txns.find(t=>t.id===id), s = suggestions.get(id);
-    if (!t || !s) return;
-    if (s.revision !== JSON.stringify(t) || !bank.eligibleForAi(t,batchSource())) {
+    const t = workingRows().find(t=>t.id===id), s = suggestions.get(id);
+    if (!t || !s || !rowEditable(t)) return;
+    if ((s.dateRevision ? s.dateRevision!==window.SiloTransactionDates.fingerprint(t) : s.revision!==JSON.stringify(t)) || !bank.eligibleForAi(t,batchSource())) {
       suggestions.delete(id); renderCoding(); return setStatus('This row changed. Request a fresh suggestion.', 'neg');
     }
     const treatment = s.accounting_treatment || (Number(t.amount)>0?'purchase':'refund');
@@ -2175,13 +2173,13 @@
   // stood behind: coded by hand, or an AI suggestion the person left in place
   // AND saved. An unsaved suggestion teaches nothing.
   async function learnRules() {
-    if (!state.batch) return;
+    if (!batchSource()) return;
     if (state.codingBusy) return setStatus('Wait for coding to finish before learning rules.', 'neg', 6000);
     if (state.dirty.size) {
       return setStatus('Save coding first — unsaved rows are not confirmed yet.', 'neg', 6000);
     }
 
-    const confirmed = state.txns.filter((t) =>
+    const confirmed = workingRows().filter((t) =>
       t.status === 'coded' && t.qbo_account_id && bank.isAvailable(t)
       && (t.origin !== 'plaid' || t.accounting_treatment !== 'unknown')
       && (t.coding_source === 'manual' || t.coding_source === 'ai'));
@@ -2238,13 +2236,13 @@
       .filter((r) => !r.conflict)
       .filter((r) => !state.rules.some((x) =>
         x.pattern === r.pattern && (x.match_field || 'merchant') === r.match_field
-        && x.source_id === state.batch.source_id && x.direction === r.direction));
+        && x.source_id === batchSource().id && x.direction === r.direction));
 
     if (!fresh.length) return setStatus('No new rules to learn.', 'info', 4000);
 
     const rows = fresh.map((r) => ({
       company_entity_id: _co.id,
-      source_id: state.batch.source_id,
+      source_id: batchSource().id,
       direction: r.direction,
       accounting_treatment: r.accounting_treatment || 'unknown',
       match_field: r.match_field,
@@ -2259,7 +2257,7 @@
       entity_name: r.entity_name,
       entity_type: r.entity_type,
       vendor_name: r.vendor_name,
-      note: `Learned from ${state.batch.source_name} ${state.batch.label || ''}`.trim(),
+      note: `Learned from ${batchSource().display_name}`.trim(),
     }));
 
     const { error } = await sb.from('card_coding_rules').upsert(rows);
@@ -2278,16 +2276,22 @@
   el('btnAiCode').addEventListener('click', aiCategorise);
   el('btnSaveCoding').addEventListener('click', saveCoding);
   el('btnReloadCoding').addEventListener('click', async () => {
-    if (!state.batch || state.codingBusy || !state.dirty.size) return;
+    if ((!dateBrowse && !state.batch) || state.codingBusy || !state.dirty.size) return;
     if (!confirm('Discard unsaved coding changes and reload the latest saved transactions?')) return;
     try {
+      if(dateBrowse) {
+        state.codingBusy=true;renderCoding();
+        const rows=await window.SiloTransactionDates.read(sb,_co.id,workspace.selected(),state.batches,dateContext.range);
+        dateRows=rows;state.dirty.clear();state.selected.clear();suggestions.clear();journalPreviewBatch=null;return;
+      }
       await loadBatches();
       state.batch = state.batches.find((batch) => batch.id === state.batch.id) || state.batch;
       await loadTxns(state.batch.id);
       state.selected.clear();
       renderBatches(); renderCoding(); renderEntry();
       setStatus('Reloaded saved transactions. Review any bank changes before coding again.', 'info', 8000);
-    } catch (error) { setStatus(`Reload failed — ${error.message}`, 'neg', 8000); }
+    } catch (error) { setStatus(`Reload failed — ${error.message}. Your edits are retained.`, 'neg', 8000); }
+    finally {state.codingBusy=false;renderCoding();renderEntry();}
   });
   el('btnLearnRules').addEventListener('click', learnRules);
 
@@ -2351,15 +2355,39 @@
     return { src, lines, creditLine, net, included: included.length };
   }
 
+  async function reviewJournal(id) {
+    if(state.dirty.size || state.codingBusy)return setStatus('Save or discard your edits before reviewing a journal.','neg');
+    const selected=new Set(state.selected),search=el('codeSearch').value;
+    try {await openBatch(id);journalPreviewBatch=id;renderEntry();showPane('entry');}
+    catch(error){setStatus('Journal could not load — '+error.message,'neg');}
+    finally {state.selected=selected;el('codeSearch').value=search;renderCoding();}
+  }
+  el('tblEntry').addEventListener('click',async event=>{
+    const button=event.target.closest('[data-entry-batch]');if(button)await reviewJournal(button.dataset.entryBatch);
+  });
   function renderEntry() {
+    if(dateBrowse && journalPreviewBatch!==state.batch?.id) {
+      const batches=state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id));
+      el('entrySub').textContent='Journals are reviewed by import. Your transaction dates stay in place.';
+      el('entryKpis').innerHTML='';
+      el('tblEntry').innerHTML='<tbody>'+ (batches.map(b=>`<tr><td>${esc(b.label || b.entry_date || 'Import')} · ${esc(b.status)}</td><td><button class="bcn-btn" data-entry-batch="${esc(b.id)}">Review full journal</button></td></tr>`).join('') || '<tr><td class="cc-empty">No imports in these dates.</td></tr>')+'</tbody>';
+      for(const id of ['btnApprove','btnPost','btnEntryCsv'])el(id).disabled=true;
+      for(const id of ['btnReopen','btnVoid'])el(id).hidden=true;
+      el('entryStatus').textContent='Choose an import to review its complete journal.';
+      return;
+    }
     const e = buildEntry();
     if (!e) {
-      el('tblEntry').innerHTML = '<tr><td class="cc-empty">Choose an account and period in Transactions to preview its journal.</td></tr>';
+      el('tblEntry').innerHTML = '<tr><td class="cc-empty">Choose an account and dates in Transactions to preview its journal.</td></tr>';
       el('entryKpis').innerHTML = '';
       for(const id of ['btnApprove','btnPost','btnEntryCsv'])el(id).disabled=true;
+      for(const id of ['btnReopen','btnVoid'])el(id).hidden=true;
+      el('entryStatus').textContent='Choose an import to review its complete journal.';
       return;
     }
 
+    el('btnEntryCsv').disabled=state.codingBusy || !!state.dirty.size;
+    for(const id of ['btnReopen','btnVoid'])el(id).disabled=state.codingBusy || !!state.dirty.size;
     const all = [...e.lines, e.creditLine];
     const dr = all.reduce((n, l) => n + l.debit, 0);
     const cr = all.reduce((n, l) => n + l.credit, 0);
@@ -3050,6 +3078,7 @@
           state.batch = state.batches.find((batch) => batch.id === state.batch.id) || state.batch;
           await loadTxns(state.batch.id);
         }
+        if(dateBrowse)await browseDates();
         buildOptionCache(); renderSourceSelect(); renderBatches(); renderCards(); renderRules(); renderCoding(); renderEntry(); renderMeta();
       },
       openBatch: async (id) => { await openBatch(id); showPane('coding'); },
