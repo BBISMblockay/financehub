@@ -48,7 +48,9 @@ order by e.kind, e.name;
 select
   want.polname as policy_name,
   case when pol.policyname is not null then 'ok' else 'MISSING — run section 3 in apply_all_post_merge.sql' end as status
-from (values ('profiles_select_own'), ('profiles_update_own')) as want(polname)
+-- Renamed by 20260913054723: profiles_select_own/profiles_update_own were
+-- replaced by the company-scoped read policy and the self-only write policy.
+from (values ('profiles_select_active_company'), ('profiles_update_self')) as want(polname)
 left join pg_policies pol
   on pol.schemaname = 'public'
  and pol.tablename = 'profiles'
