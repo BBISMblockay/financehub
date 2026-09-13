@@ -1,0 +1,717 @@
+{
+  "Header": {
+    "ReportName": "GeneralLedger",
+    "StartPeriod": "2026-08-01",
+    "EndPeriod": "2026-08-31",
+    "Currency": "USD",
+    "ReportBasis": "Accrual"
+  },
+  "Columns": {
+    "Column": [
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "tx_date"
+          }
+        ]
+      },
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "txn_type"
+          }
+        ]
+      },
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "doc_num"
+          }
+        ]
+      },
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "name"
+          }
+        ]
+      },
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "memo"
+          }
+        ]
+      },
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "split_acc"
+          }
+        ]
+      },
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "subt_nat_amount"
+          }
+        ]
+      },
+      {
+        "MetaData": [
+          {
+            "Name": "ColKey",
+            "Value": "rbal_nat_amount"
+          }
+        ]
+      }
+    ]
+  },
+  "Rows": {
+    "Row": [
+      {
+        "type": "Section",
+        "Rows": {
+          "Row": [
+            {
+              "type": "Data",
+              "ColData": [
+                {
+                  "value": "Beginning Balance"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "20"
+                }
+              ]
+            },
+            {
+              "type": "Data",
+              "ColData": [
+                {
+                  "value": "2026-08-05"
+                },
+                {
+                  "value": "Journal Entry",
+                  "id": "txn-1"
+                },
+                {
+                  "value": "JE-1"
+                },
+                {
+                  "value": "Example counterparty",
+                  "id": "vendor-1"
+                },
+                {
+                  "value": "Synthetic memo"
+                },
+                {
+                  "value": "Split account",
+                  "id": "split-1"
+                },
+                {
+                  "value": "10"
+                },
+                {
+                  "value": "30"
+                }
+              ]
+            },
+            {
+              "type": "Data",
+              "ColData": [
+                {
+                  "value": "2026-08-05"
+                },
+                {
+                  "value": "Journal Entry",
+                  "id": "txn-1"
+                },
+                {
+                  "value": "JE-1"
+                },
+                {
+                  "value": "Example counterparty",
+                  "id": "vendor-1"
+                },
+                {
+                  "value": "Synthetic memo"
+                },
+                {
+                  "value": "Split account",
+                  "id": "split-1"
+                },
+                {
+                  "value": "5"
+                },
+                {
+                  "value": "35"
+                }
+              ]
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Checking"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": "15"
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Header": {
+          "ColData": [
+            {
+              "id": "bank",
+              "value": "Checking"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        }
+      },
+      {
+        "type": "Section",
+        "Rows": {
+          "Row": [
+            {
+              "type": "Data",
+              "ColData": [
+                {
+                  "value": "Beginning Balance"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "35"
+                }
+              ]
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Capital"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Header": {
+          "ColData": [
+            {
+              "id": "equity",
+              "value": "Capital"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        }
+      },
+      {
+        "type": "Section",
+        "Rows": {
+          "Row": [
+            {
+              "type": "Section",
+              "Rows": {
+                "Row": [
+                  {
+                    "type": "Data",
+                    "ColData": [
+                      {
+                        "value": "2026-08-05"
+                      },
+                      {
+                        "value": "Journal Entry",
+                        "id": "txn-1"
+                      },
+                      {
+                        "value": "JE-1"
+                      },
+                      {
+                        "value": "Example counterparty",
+                        "id": "vendor-1"
+                      },
+                      {
+                        "value": "Synthetic memo"
+                      },
+                      {
+                        "value": "Split account",
+                        "id": "split-1"
+                      },
+                      {
+                        "value": "4"
+                      },
+                      {
+                        "value": "4"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {
+                    "value": "Total for "
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": "4"
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Section",
+              "Rows": {
+                "Row": [
+                  {
+                    "type": "Data",
+                    "ColData": [
+                      {
+                        "value": "2026-08-05"
+                      },
+                      {
+                        "value": "Journal Entry",
+                        "id": "txn-1"
+                      },
+                      {
+                        "value": "JE-1"
+                      },
+                      {
+                        "value": "Example counterparty",
+                        "id": "vendor-1"
+                      },
+                      {
+                        "value": "Synthetic memo"
+                      },
+                      {
+                        "value": "Split account",
+                        "id": "split-1"
+                      },
+                      {
+                        "value": "6"
+                      },
+                      {
+                        "value": "6"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {
+                    "value": "Total for Supplies"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": "6"
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              },
+              "Header": {
+                "ColData": [
+                  {
+                    "id": "child",
+                    "value": "Supplies"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Expenses"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": "10"
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Header": {
+          "ColData": [
+            {
+              "id": "expense",
+              "value": "Expenses"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        }
+      },
+      {
+        "type": "Section",
+        "Rows": {
+          "Row": [
+            {
+              "type": "Section",
+              "Rows": {
+                "Row": [
+                  {
+                    "type": "Data",
+                    "ColData": [
+                      {
+                        "value": "2026-08-05"
+                      },
+                      {
+                        "value": "Journal Entry",
+                        "id": "txn-1"
+                      },
+                      {
+                        "value": "JE-1"
+                      },
+                      {
+                        "value": "Example counterparty",
+                        "id": "vendor-1"
+                      },
+                      {
+                        "value": "Synthetic memo"
+                      },
+                      {
+                        "value": "Split account",
+                        "id": "split-1"
+                      },
+                      {
+                        "value": "10"
+                      },
+                      {
+                        "value": "10"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {
+                    "value": "Total for Sales"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": "10"
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              },
+              "Header": {
+                "ColData": [
+                  {
+                    "id": "income",
+                    "value": "Sales"
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  },
+                  {
+                    "value": ""
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {
+              "value": "Total for Revenue group"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": "10"
+            },
+            {
+              "value": ""
+            }
+          ]
+        },
+        "Header": {
+          "ColData": [
+            {
+              "value": "Revenue group"
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            },
+            {
+              "value": ""
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
