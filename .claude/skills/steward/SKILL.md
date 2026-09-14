@@ -41,8 +41,13 @@ apply, or a production data change.
   a comment by author.** Claude's own posts always end with the Claude Code
   attribution footer; the reviewer's posts carry the marker below.
 - The ChatGPT automation reviews the PR as opened, then ONE subsequent push,
-  then stops. Two cycles total. Its first live execution is unverified, so the
-  first PR through this flow is also the test of the automation.
+  then stops. Two cycles total.
+- **It finalises by EDITING its reservation comment in place.** The
+  `running` comment and the `complete` (or `blocked`) comment for a cycle are
+  the SAME comment id with a changed body (observed on PR #690, comment
+  5658124936). A comment id therefore never identifies a review; the
+  `(comment id, cycle, head, status)` tuple does, and the raw body must be
+  re-read on every wake.
 - CI here is path-triggered. A PR that touches none of the trigger paths gets
   no checks, so "no failing checks" can mean "nothing ran". The readiness
   report says which.
@@ -139,51 +144,78 @@ failed, without them.
 
 Also apply `docs/ops/test-before-release.md` for anything it covers.
 
-## Step 2 - Every wake: read, deduplicate, decide
+## Step 2 - Every wake: read, deduplicate, decide, THEN claim
 
-On every wake (event or check-in), in this order:
+On every wake (event or check-in), in this order. Reading comes before
+claiming, always: a run must know whether there is implementation work
+before it announces it is doing any.
 
 1. **Stop conditions first.** `pull_request_read` with `get`. If the PR is
    merged or closed, or Blake has commented that he is taking it from here:
-   cancel the pending `send_later` trigger (`delete_trigger` with the id
-   carried in the check-in message), `unsubscribe_pr_activity`, and end.
-   Nothing else runs.
-2. **One active run per PR.** If the harness offers a concurrency guard
-   for PR work (a per-PR lock, a single-steward assignment, a "someone else
-   is watching this PR" result from `subscribe_pr_activity`), use it and
-   respect its answer. Where none exists, fall back to claim comments, and
-   understand what they are: a Claude-posted comment (footer present) of the
-   form `steward: working cycle <n> on <head sha>` is a SIGNAL, not an
-   atomic lock. Two runs can post one each in the same minute. So: read the
-   claims before posting yours; post yours; then RE-READ the comments. If a
-   claim from another run for the same head exists and is older than yours,
-   you lost the race: end the turn without acting. If yours is the oldest
-   for this head, proceed. A claim older than the current head's push is
-   stale and ignored.
-3. **Read all three surfaces**: `get_comments` (top-level, where the
-   reviewer posts), `get_reviews`, `get_review_comments`. Plus
-   `get_check_runs` on the current head.
-4. **Drop what is not new or not input.** Ignore every post carrying the
-   Claude Code footer (your own, including the claim comment and the
-   readiness report - they come back as events). Ignore any comment id or
-   `(cycle, head sha, status)` triple you have already handled this session.
-   An event that echoes your own push is not a review.
-5. **`running` on the current head** means the reviewer is mid-cycle.
-   Re-arm the check-in and end. Do not push into a running review; that
-   spends the cycle on a moving target.
-6. **`complete` on the current head** is the review: go to Step 3.
-   **`blocked` on the current head** is terminal: the cycle is spent. Read
-   the stated blocker. If it is something this PR can fix (a missing
-   description, an unparseable diff, a check the reviewer needed green),
-   fix it in the next batch; either way it goes in the readiness report
-   under Findings, and if it was the second cycle, go to Step 6 now.
-7. **No marker and nothing else actionable.** Re-arm the check-in silently.
-   After about four hours from opening with no marker, stop waiting and go to
-   Step 6 with "no independent review received".
-
-Harness notices (merge conflict, base recovered, CI red) are handled per the
-harness rules at the same time, and a fix for them counts as part of the
-current cycle's single batch, never as a separate push.
+   release any claim you hold (step 5), cancel the pending `send_later`
+   trigger (`delete_trigger` with the id carried in the check-in message),
+   `unsubscribe_pr_activity`, and end. Nothing else runs.
+2. **Read all three surfaces, raw.** `get_comments` (top-level, where the
+   reviewer posts), `get_reviews`, `get_review_comments`, plus
+   `get_check_runs` on the current head. Read the raw body of every
+   top-level comment every time, including ones seen before: the reviewer
+   edits in place.
+3. **Deduplicate by identity, not by comment id.** Ignore every post
+   carrying the Claude Code footer (your own claim, summary and readiness
+   comments come back as events). For reviewer markers the identity is the
+   tuple `(comment id, cycle, head, status)`, and the comment's `updated_at`
+   is carried with it: a tuple you have already handled is a duplicate
+   delivery and is skipped; the same comment id with a DIFFERENT status or
+   `updated_at` is new input. An event that echoes your own push is not a
+   review.
+4. **Decide from the markers for the current head.**
+   - `running`: the reviewer is mid-cycle. Do NOT claim. Re-arm the
+     check-in and end. Do not push into a running review; that spends the
+     cycle on a moving target.
+   - `complete`: the review is in. There is implementation work. Go to
+     step 5.
+   - `blocked`: terminal, the cycle is spent. Read the stated blocker. If it
+     is something this PR can fix (a missing description, an unparseable
+     diff, a check the reviewer needed green) there is implementation work:
+     go to step 5. Either way it goes in the readiness report under
+     Findings, and if it was the second cycle and nothing is fixable, go to
+     Step 6 now.
+   - no marker, nothing else actionable: re-arm the check-in silently. After
+     about four hours from opening with no marker, stop waiting and go to
+     Step 6 with "no independent review received".
+   A harness notice (merge conflict, base recovered, CI red) is also
+   implementation work: go to step 5, and its fix rides the same batch as
+   the review's, never a separate push.
+5. **Claim, only now, and only for implementation work.** If the harness
+   offers a concurrency guard for PR work (a per-PR lock, a single-steward
+   assignment, a "someone else is watching this PR" result from
+   `subscribe_pr_activity`), use it and respect its answer. Without one,
+   claim comments are the fallback, and they are a SIGNAL, not an atomic
+   lock: two runs can post one each in the same minute. The lifecycle:
+   - Give the run an id: `<session id>-<UTC timestamp>`.
+   - Read the existing claims. A claim is a Claude-posted comment (footer
+     present) whose body starts
+     `steward-claim run=<id> cycle=<n> head=<sha> status=active|released`.
+     Only `active` claims for the CURRENT head count; a claim for an older
+     head is stale and ignored.
+   - If an `active` claim by another run exists for this head: do not take
+     it over. If it is under two hours old, end the turn silently (that run
+     is working). If it is two hours old or more with no push since, post
+     one comment to Blake naming the run id and its age, say the claim looks
+     abandoned and that you are NOT proceeding, re-arm the check-in and end.
+     An abandoned claim is a handoff, never an automatic takeover.
+   - Otherwise post your claim with `status=active`, then RE-READ the
+     claims. If another `active` claim for this head is now older than
+     yours, you lost the race: edit yours to `status=released` and end. If
+     yours is the oldest, proceed to Step 3.
+   - **Release on every normal exit.** After the correction push (Step 4),
+     after the readiness report (Step 6), and on any exit where you decided
+     not to push, edit your claim comment to `status=released` before
+     ending. If the edit fails, post a new comment
+     `steward-claim run=<id> ... status=released`. A run that ends without
+     releasing is exactly the defect this lifecycle exists to prevent: the
+     next run on the same head would find an active claim, and the push that
+     would make it stale can never happen.
 
 ## Step 3 - Evaluate each finding independently
 
@@ -219,7 +251,8 @@ to re-trigger anything. After pushing:
   the PR body's Review budget line from them.
 - Post one comment (with the footer) summarising: fixed, disputed (with the
   evidence), unresolved and why. Resolve the inline threads you addressed.
-- Re-arm the check-in and end the turn as "awaiting next review".
+- Release your claim (edit it to `status=released`), re-arm the check-in,
+  and end the turn as "awaiting next review".
 
 ## Step 5 - After the second review
 
@@ -284,5 +317,6 @@ Exactly one status:
   failing check whose fix would widen the PR.
 
 "Ready" never means approved. It means the evidence is laid out for Blake.
-After posting the report: cancel the pending check-in and unsubscribe. The
-PR is handed back; Blake re-invokes `/steward` if he wants another round.
+After posting the report: release your claim, cancel the pending check-in
+and unsubscribe. The PR is handed back; Blake re-invokes `/steward` if he
+wants another round.
