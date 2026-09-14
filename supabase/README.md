@@ -580,7 +580,12 @@ inserts the import and copies the staged lines set-based, so nothing partial eve
 reaches the evidence tables. A malformed row marks the job failed with the same
 cell-level message and drops its staging. The import's audit trigger now runs
 `qbo_history_audit_event()`, which omits the snapshot body. After: 36,778 rows in
-8 calls / 5.7 s, longest call 2.9 s. Tests: `scripts/tests/qbo-history-database.test.mjs` (40,000-row
+8 calls / 5.7 s, longest call 2.9 s. Two phases stay unbounded by construction
+(hashing the frozen source; the final copy, which must be atomic because the
+evidence tables are immutable), so a job refuses a report over 100,000 ledger
+rows or 48 MB before any work rather than risking a timeout mid-import, and
+finalization carries its own exception block so a final-copy error terminates
+the job instead of stranding it as `running`. Tests: `scripts/tests/qbo-history-database.test.mjs` (40,000-row
 synthetic archive, two mutations), `qbo-history-ui.test.mjs`; timing harness
 `scripts/tests/qbo-history-benchmark.mjs`. Verify: `QBO history bounded archive`.
 

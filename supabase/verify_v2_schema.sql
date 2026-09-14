@@ -3613,6 +3613,17 @@ select 'QBO history bounded archive' as check_name,
   then 'STALE: archive_qbo_ledger still accumulates every line in one jsonb value (quadratic; times out past ~2,500 rows); apply 20260915000000'
  when exists(select 1 from pg_proc p, unnest(p.proconfig) c where p.oid=to_regprocedure('public.archive_qbo_ledger(uuid,uuid)') and c like 'statement_timeout=%')
   then 'STALE: archive_qbo_ledger carries a statement_timeout setting that PostgREST does not honour for the calling statement; remove it (see 20260915000000)'
+ -- Setup and finalization are not row-bounded and grow with the report
+ -- (measured: longest call 3.6s at 100k rows, 6.9s at 150k, against 8s).
+ -- Without the size guard the bound is a claim rather than a fact.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%qbo_archive_max_rows%'
+  or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%pg_column_size(gl.raw_response)%'
+  then 'STALE: archive_qbo_ledger lost the report-size guard; its unbounded setup and final copy can cross the statement timeout on a large report'
+ -- Finalization must record a terminal failure rather than leaving the job
+ -- 'running' with every resume repeating the same error.
+ when (length(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')))
+   - length(replace(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')),'exception when others then',''))) / length('exception when others then') < 2
+  then 'STALE: archive_qbo_ledger finalization is not inside its own exception block; a final-copy error would strand the job as running'
  when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D'
   and tgfoid=to_regprocedure('public.qbo_history_audit_event()'))
   then 'STALE: the import audit event still copies the multi-megabyte source snapshot into finance_audit_events; apply 20260915000000'

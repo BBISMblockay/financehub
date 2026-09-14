@@ -53,6 +53,37 @@
 --           the staging rows, and returns {id, status:'complete', ...} --
 --           the same result shape as before.
 --
+-- TWO PHASES ARE NOT ROW-BOUNDED, AND THAT IS WHY THERE IS A CEILING.
+-- The per-call budget governs row processing only. Two phases cannot be
+-- split without giving up a guarantee this archive exists to provide:
+--
+--   * Setup (first call) freezes the source snapshot and hashes it, then
+--     walks and stages the ledger's sections. A sha256 over one document
+--     cannot be resumed part-way.
+--   * Finalization (last call) inserts the import header and copies every
+--     staged line. That must be ONE statement pair in ONE transaction:
+--     the evidence tables are immutable (no UPDATE, by trigger), so there
+--     is no "incomplete" flag to set and clear, and a partially copied
+--     import would be readable by the card categorizer as if it were whole.
+--
+-- Both grow with the report. Measured on PostgreSQL 16, longest single call
+-- (setup+rows on the first, rows+finalization on the last):
+--
+--     data rows   36,778   80,000   100,000   120,000   150,000
+--     longest       2.5s     3.3s      3.6s      5.2s      6.9s
+--
+-- So the bound is real up to a point and then it is not, and the honest
+-- thing is a guard rather than a claim. A job refuses before any work when
+-- the report exceeds QBO_ARCHIVE_MAX_ROWS (100,000 data rows, longest call
+-- measured 3.6s, a 2.2x margin under the authenticated 8s ceiling) or
+-- QBO_ARCHIVE_MAX_BYTES (48 MB of stored JSON, a cheap first check so an
+-- absurd document is refused without the counting pass). The refusal names
+-- the count and says to narrow the window, which is what
+-- docs/ops/qbo-history.md already tells an operator to do with a report too
+-- large to process. Nothing is truncated and no row is skipped: the archive
+-- either covers the window completely or refuses it and says why.
+-- Baseballism's full year is 36,778 rows, comfortably inside.
+--
 -- Nothing reaches qbo_history_imports / qbo_history_lines until the last
 -- call, so an incomplete archive is never evidence: the card categorizer
 -- reads only those two tables. A validation failure at any point marks the
@@ -184,6 +215,11 @@ declare
  -- per-call budget
  budget_rows integer:=coalesce(nullif(current_setting('silo.qbo_archive_batch_rows',true),'')::integer,5000);
  budget_ms integer:=coalesce(nullif(current_setting('silo.qbo_archive_batch_ms',true),'')::integer,3000);
+ -- The ceiling the two unbounded phases need (see header). Settable for tests
+ -- the way the budget is; raising it only risks a timeout on the caller's own
+ -- import, never a partial archive -- the completeness guarantee is the
+ -- atomic final copy, not this number.
+ max_rows integer:=coalesce(nullif(current_setting('silo.qbo_archive_max_rows',true),'')::integer,100000);
  started timestamptz:=clock_timestamp(); rows_this_call integer:=0; stopped boolean:=false;
  -- per-section state
  st public.qbo_history_staging_sections%rowtype; state jsonb; balance numeric; movement numeric; has_beginning boolean; txn_started boolean; problems text[]; section_row integer; blank_rows integer; zero_rows integer;
@@ -232,6 +268,21 @@ begin
    where company_entity_id=co and qbo_connection_id=gl.connection_id and status='running';
   delete from public.qbo_history_staging_lines l using public.qbo_history_jobs j where l.job_id=j.id and j.company_entity_id=co and j.status='abandoned';
   delete from public.qbo_history_staging_sections s using public.qbo_history_jobs j where s.job_id=j.id and j.company_entity_id=co and j.status='abandoned';
+  -- Refuse an oversized report BEFORE any work: the setup and finalization
+  -- phases are not row-bounded (see header). The byte check is effectively
+  -- free (the stored jsonb's own size) and screens an absurd document out
+  -- before the counting pass, which is one recursive scan (~0.3s at 37k
+  -- rows, ~1.4s at the ceiling).
+  if pg_column_size(gl.raw_response) > 48 * 1024 * 1024 then
+   raise exception 'This general ledger is % MB, larger than the % MB this archive processes in one window. Choose a shorter period and archive it in parts; nothing was written',
+    round(pg_column_size(gl.raw_response) / 1048576.0), 48; end if;
+  with recursive walk(j) as (
+   select value from jsonb_array_elements(gl.raw_response#>'{Rows,Row}')
+   union all select c.value from walk cross join lateral jsonb_array_elements(walk.j#>'{Rows,Row}') c where walk.j->>'type'='Section'
+  ) select count(*) into n from walk where j->>'type'='Data';
+  if n > max_rows then
+   raise exception 'This general ledger has % ledger rows, more than the % this archive processes in one window (its final save is one atomic copy and cannot be split). Choose a shorter period and archive it in parts; nothing was written, and no row would have been dropped',
+    n, max_rows; end if;
   -- A known provider shape, verified against Test Company's stored GL. Do not
   -- infer accounting signs from translated display labels or arbitrary columns.
   select array_agg((select m->>'Value' from jsonb_array_elements(c.value->'MetaData') m where m->>'Name'='ColKey') order by c.ordinality)
@@ -400,6 +451,13 @@ begin
  end if;
 
  -- ── Every section checked: finish atomically ───────────────────────────
+ -- In its own exception block, for the same reason the row loop has one: a
+ -- constraint, trigger or storage error here rolls the call back, and
+ -- without this the job would stay 'running' with every resume repeating
+ -- the same terminal failure and nothing recording why. On failure the job
+ -- is marked failed with the message and its staging is dropped, exactly as
+ -- a mid-row failure is; the evidence tables were never written.
+ begin
  select coalesce(jsonb_agg(result order by seq),'[]'::jsonb) into checks from public.qbo_history_staging_sections where job_id=job.id;
  -- A TB account not in GL is an explicit coverage exception even at zero;
  -- a zero closing balance does not prove the account has no historical rows.
@@ -419,6 +477,15 @@ begin
  delete from public.qbo_history_staging_lines where job_id=job.id;
  delete from public.qbo_history_staging_sections where job_id=job.id;
  update public.qbo_history_jobs set status='complete',import_id=imp,exception_count=exceptions,source_snapshot=null,updated_at=now() where id=job.id;
+ exception when others then
+  err:=sqlerrm;
+ end;
+ if err is not null then
+  update public.qbo_history_jobs set status='failed',error=err,updated_at=now(),source_snapshot=null where id=job.id;
+  delete from public.qbo_history_staging_lines where job_id=job.id;
+  delete from public.qbo_history_staging_sections where job_id=job.id;
+  return jsonb_build_object('status','failed','job_id',job.id,'error',err);
+ end if;
  return jsonb_build_object('id',imp,'status','complete','job_id',job.id,'transaction_count',txn_count,'exception_count',exceptions,'blank_amount_rows',blank_total,'zero_amount_rows',zero_total,'calls',job.calls,'rows_total',job.rows_total);
 end $$;
 revoke all on function public.archive_qbo_ledger(uuid,uuid) from public,anon,authenticated;

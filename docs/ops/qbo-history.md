@@ -181,6 +181,29 @@ archive` row goes STALE if one is ever put back.
 
 ### How it works now
 
+**Two phases are not row-bounded, and that is why there is a ceiling.** The
+per-call budget governs row processing. Freezing and hashing the source cannot
+be resumed part-way, and the final copy must be one statement pair in one
+transaction: the evidence tables are immutable by trigger, so there is no
+"incomplete" flag to set and clear, and a half-copied import would read as
+whole to the card categorizer. Both grow with the report. Measured longest
+single call:
+
+| data rows | 36,778 | 80,000 | 100,000 | 120,000 | 150,000 |
+|---|---|---|---|---|---|
+| longest call | 2.5 s | 3.3 s | 3.6 s | 5.2 s | 6.9 s |
+
+So a job refuses before any work when the report exceeds **100,000 ledger rows**
+(longest call measured 3.6 s, a 2.2x margin under the 8 s ceiling) or **48 MB**
+of stored JSON, the byte check first because it is free and screens an absurd
+document out before the counting pass. The refusal names the count and says to
+archive the period in parts, which is what this runbook already tells an
+operator to do with a report too large to process. Nothing is truncated and no
+row is skipped: the archive covers the window completely or refuses it and says
+why. Baseballism's full year is 36,778 rows, comfortably inside. The ceiling is
+settable (`silo.qbo_archive_max_rows`) for tests; raising it risks a timeout on
+that import, never a partial archive.
+
 The archive is a job (`qbo_history_jobs`) with two staging tables
 (`qbo_history_staging_sections`, `qbo_history_staging_lines`). Every call of
 `archive_qbo_ledger(gl, tb)` is bounded: at most 5,000 ledger rows or about 3 s
@@ -232,7 +255,11 @@ The local suite archives 40,040 lines in 6 bounded calls on PGlite in about 4 s.
 - **Malformed data at any point** (the same cell-level messages as before) marks the
   job `failed` with the message, deletes its staging rows, and returns
   `{status:'failed', error}`; the failing call's own row work rolls back and the
-  evidence tables were never touched. A retry with the same reports starts a fresh
+  evidence tables were never touched. **Finalization has its own such block**: a
+  constraint, trigger or storage error during the final insert and copy
+  terminates the job with its reason too, rather than leaving it `running` at
+  100% for the page to offer as resumable while every resume repeats the same
+  failure. A retry with the same reports starts a fresh
   job and fails identically; a corrected report (a new source) archives.
 - **Duplicates.** A completed source returns `{already_imported: true}` as before.
   A partial unique index refuses a second running job for one source even from a

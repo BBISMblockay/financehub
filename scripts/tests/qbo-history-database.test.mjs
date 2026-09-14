@@ -6,8 +6,10 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 import { generateLedgerPair } from './fixtures/qbo-ledger-generator.mjs';
 // QBO_DB_MUTATION=no-resume-state   (a section resumed mid-way forgets its running balance)
 // QBO_DB_MUTATION=unbounded         (the per-call budget removed: one call does everything)
+// QBO_DB_MUTATION=no-size-guard     (the report-size ceiling on the unbounded phases removed)
+// QBO_DB_MUTATION=finalize-unguarded (finalization outside its own exception block)
 const mutation=process.env.QBO_DB_MUTATION||'';
-assert.ok(['','no-resume-state','unbounded'].includes(mutation),'Unknown QBO history mutation');
+assert.ok(['','no-resume-state','unbounded','no-size-guard','finalize-unguarded'].includes(mutation),'Unknown QBO history mutation');
 const db=new PGlite({extensions:{pgcrypto}});
 const root=new URL('../../',import.meta.url);
 const dependencies = [
@@ -77,7 +79,19 @@ try{
  await db.exec(formats);await db.exec(formats);
  const bounded=await readFile(new URL('supabase/migrations/20260915000000_qbo_history_bounded_archive.sql',root),'utf8');await db.exec(bounded);await db.exec(bounded);
  if(mutation){const def=(await one("select pg_get_functiondef('public.archive_qbo_ledger(uuid,uuid)'::regprocedure) d")).d;
-  const mutated=mutation==='no-resume-state'?def.replace("state=jsonb_build_object('balance',balance,","state=jsonb_build_object('balance',0,"):def.replace("current_setting('silo.qbo_archive_batch_rows',true),'')::integer,5000)","current_setting('silo.qbo_archive_batch_rows',true),'')::integer,2147483647)").replace("current_setting('silo.qbo_archive_batch_ms',true),'')::integer,3000)","current_setting('silo.qbo_archive_batch_ms',true),'')::integer,2147483647)");
+  let mutated=def;
+  if(mutation==='no-resume-state')mutated=def.replace("state=jsonb_build_object('balance',balance,","state=jsonb_build_object('balance',0,");
+  else if(mutation==='unbounded')mutated=def.replace("current_setting('silo.qbo_archive_batch_rows',true),'')::integer,5000)","current_setting('silo.qbo_archive_batch_rows',true),'')::integer,2147483647)").replace("current_setting('silo.qbo_archive_batch_ms',true),'')::integer,3000)","current_setting('silo.qbo_archive_batch_ms',true),'')::integer,2147483647)");
+  else if(mutation==='no-size-guard')mutated=def.replace('if n > max_rows then','if false then');
+  else if(mutation==='finalize-unguarded'){
+   // Let a finalization error propagate instead of terminating the job, which
+   // is what the code did before this cycle's fix: the call rolls back and the
+   // job is left 'running' at 100% with nothing recording why.
+   const handler=' exception when others then\n  err:=sqlerrm;\n end;';
+   const last=def.lastIndexOf(handler);
+   assert.ok(last>def.indexOf(handler),'the finalization block must have its own handler to remove');
+   mutated=def.slice(0,last)+' exception when others then\n  raise;\n end;'+def.slice(last+handler.length);
+  }
   assert.notEqual(mutated,def,'mutation must change the live function');await db.exec(mutated);}
  const counts=async()=>({imports:Number((await one('select count(*) n from qbo_history_imports')).n),lines:Number((await one('select count(*) n from qbo_history_lines')).n),audit:Number((await one("select count(*) n from finance_audit_events where object_type='qbo_history_imports'")).n)});
  const decimalSaved=await archive(decimalG,decimalT);assert.equal(decimalSaved.transaction_count,6);assert.equal(decimalSaved.exception_count,0);assert.equal(decimalSaved.blank_amount_rows,1);
@@ -245,6 +259,59 @@ try{
   const abandoned=await one('select status,error from qbo_history_jobs where id=$1',[started.job_id]);assert.equal(abandoned.status,'abandoned');assert.deepEqual(await staged(started.job_id),{sections:0,lines:0});
   const again=await archive(aG,aT);assert.equal(again.status,'complete');assert.notEqual(again.job_id,started.job_id,'An abandoned job is not resumed; the source is archived from the start');
   assert.equal(Number((await one("select count(*) n from qbo_history_jobs where status='running'")).n),0,'No job is left running');}
+ // The two phases the per-call budget does not cover -- freezing and hashing
+ // the source, and the atomic final copy -- grow with the report, so a size
+ // guard refuses an oversized one BEFORE any work rather than letting it time
+ // out half way. Measured longest call on a real server: 3.6s at 100k rows,
+ // 6.9s at 150k, against the authenticated 8s ceiling; the shipped ceiling is
+ // 100k rows / 48MB. The setting is lowered here so the refusal is exercised
+ // without building a 100k-row fixture.
+ {const before=await counts();const small=generateLedgerPair({rows:300,seed:300});
+  await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(small.accounts)]);
+  const sG=await store(small.gl,co,conn,{},...scaleWindow),sT=await store(small.tb,co,conn,{},...scaleWindow);
+  // The setting is session-scoped here (one PGlite connection), so it is put
+  // back afterwards or every later call would inherit the lowered ceiling.
+  const capped=()=>as(finance,async()=>{await q("select set_config('silo.qbo_archive_max_rows','100',false)");
+   try{return await rpc('archive_qbo_ledger',[sG,sT]);}finally{await q("select set_config('silo.qbo_archive_max_rows','',false)");}});
+  if(mutation==='no-size-guard'){await capped();assert.fail('The size guard was removed, yet an oversized report was still refused');}
+  // The guard counts every Data row, beginning balances included: each one
+  // becomes a stored line, so each one is work the final copy has to do.
+  await assert.rejects(capped(),new RegExp(`has ${small.expected.lineRows} ledger rows, more than the 100 this archive processes in one window`),'An oversized report is refused, naming the count');
+  assert.deepEqual(await counts(),before,'A refused report writes no evidence');
+  assert.equal(Number((await one('select count(*) n from qbo_history_jobs where gl_run_id=$1',[sG])).n),0,'...and creates no job: the refusal comes before any work, so there is nothing to resume');
+  const ok=await archive(sG,sT);assert.equal(ok.status,'complete');assert.equal(ok.transaction_count,small.expected.dataRows,'Under the shipped ceiling the same report archives whole');}
+ // A failure during FINALIZATION (a constraint, trigger or storage error after
+ // every section is checked) must terminate the job with its reason. Without
+ // its own exception block the job stays 'running' at 100% and every resume
+ // repeats the same terminal failure with nothing recording why.
+ // A small batch on purpose: the job must be committed by an earlier call for
+ // the stranding this guards against to be possible at all. (When an archive
+ // fits in ONE call there is nothing to strand -- that call's rollback takes
+ // the job row with it, which the unguarded mutation also demonstrates.)
+ batchRows=300;
+ {const broken=generateLedgerPair({rows:900,seed:900});
+  await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(broken.accounts)]);
+  const fG=await store(broken.gl,co,conn,{},...scaleWindow),fT=await store(broken.tb,co,conn,{},...scaleWindow);
+  await db.exec("create or replace function public.test_block_line_copy() returns trigger language plpgsql as $$ begin raise exception 'synthetic storage failure during the final copy'; end $$");
+  await db.exec('create trigger test_block_line_copy before insert on public.qbo_history_lines for each row execute function public.test_block_line_copy()');
+  const before=await counts();let outcome;
+  try{ outcome=await archive(fG,fT).then((r)=>({ok:r}),(e)=>({err:e})); }
+  finally{ await db.exec('drop trigger test_block_line_copy on public.qbo_history_lines'); }
+  const job=await one('select * from qbo_history_jobs where gl_run_id=$1 order by created_at desc limit 1',[fG]);
+  if(mutation==='finalize-unguarded'){
+   assert.equal(job.status,'running','the mutation should strand the job');
+   assert.fail('Finalization ran outside its own exception block: the job was left running with no recorded error');
+  }
+  assert.ok(outcome.err,'The call reports the failure rather than a saved archive');
+  assert.match(outcome.err.message,/synthetic storage failure during the final copy/);
+  assert.equal(job.status,'failed','A finalization error terminates the job rather than leaving it running');
+  assert.match(job.error,/synthetic storage failure/,'...and records why, so a resume is never offered blind');
+  assert.equal(job.source_snapshot,null);
+  assert.deepEqual(await staged(job.id),{sections:0,lines:0},'A failed finalization leaves no staging behind');
+  assert.deepEqual(await counts(),before,'...and no evidence row and no audit event');
+  assert.equal(Number((await one("select count(*) n from qbo_history_jobs where status='running'")).n),0,'No job is left for the page to offer as resumable');
+  const retried=await archive(fG,fT);assert.equal(retried.status,'complete');assert.notEqual(retried.job_id,job.id,'A retry once the cause is gone is a fresh job');
+  assert.equal(retried.transaction_count,broken.expected.dataRows,'Every row is still archived on the retry');}
  batchRows=null;
  for(const table of ['qbo_history_imports','qbo_history_lines']){
   assert.equal((await as(otherUser,()=>q(`select * from ${table}`))).length,0);assert.equal((await as(outsider,()=>q(`select * from ${table}`))).length,0);
@@ -259,5 +326,5 @@ try{
  assert.equal((await as(finance,()=>q('select * from qbo_history_lines where import_id=$1',[saved.id]))).length,7);
  for(const table of ['journal_adjustments','quickbooks_journal_postings'])assert.equal(Number((await one(`select count(*) n from ${table}`)).n),0);
  assert.equal((await one("select has_function_privilege('authenticated','qbo_report_number(text,text)','execute') allowed")).allowed,false);
- console.log('PASS QBO history: bounded resumable archive at scale, progress and completeness, mid-job failure rollback, retries and duplicate prevention, leading-decimal amounts, evidence-settled blank amounts, cell-level format errors, atomic rejection, nested rows, exact reconciliation, exceptions, identity, immutable retention, company/permission isolation, no posting');
+ console.log('PASS QBO history: bounded resumable archive at scale, size guard on the unbounded phases, terminal finalization failure, progress and completeness, mid-job failure rollback, retries and duplicate prevention, leading-decimal amounts, evidence-settled blank amounts, cell-level format errors, atomic rejection, nested rows, exact reconciliation, exceptions, identity, immutable retention, company/permission isolation, no posting');
 }finally{await db.close();}
