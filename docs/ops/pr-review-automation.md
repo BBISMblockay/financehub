@@ -41,8 +41,9 @@ finding P2 of that review, and the reason the skill dedupes by tuple.
 ## Cycle accounting — partly observed
 
 - Cycle 1 fired on the PR as opened, about one minute after creation.
-- Cycle 2 on the first push after review one — **unverified** until the
-  correction batch lands.
+- Cycle 2 fired on the first push after review one (`running` at 02:27:38,
+  72 seconds after the push; `complete` at 02:30:30 by in-place edit of
+  comment 5658166038) — observed.
 - Whether a `blocked` attempt posts a marker and consumes a cycle —
   **unverified**.
 
@@ -58,7 +59,10 @@ All times UTC, from PR #690 on 2026-09-14. The session was subscribed with
 | `subscription.created` | — | 02:20:15 | ~5 s after open |
 | Reviewer comment created (`running`) | 02:21:12 | 02:21:14 | 2 s |
 | Reviewer comment edited (`complete`) | 02:23:40 | 02:23:41 | 1 s |
-| Hourly `send_later` check-in | armed for 03:21 | — | not needed before the review arrived |
+| Correction push `133561c` | 02:26:26 | — | — |
+| Cycle 2 comment created (`running`) | 02:27:38 | 02:27:40 | 2 s |
+| Cycle 2 comment edited (`complete`) | 02:30:30 | 02:30:31 | 1 s |
+| Hourly `send_later` check-in | armed for 03:21 | — | never needed; cancelled after the readiness report |
 
 So the PR event path delivers `issue_comment.created` AND
 `issue_comment.edited`, both within seconds. The check-in remains the
@@ -69,7 +73,7 @@ transitions, dropped webhooks).
 
 | PR | Opened | Cycle 1 marker | Cycle 2 marker | Final status | Notes |
 |----|--------|----------------|----------------|--------------|-------|
-| #690 | 2026-09-14 02:20 UTC, head `2b8dd20` | `complete` 02:23:40 on `2b8dd20`, 2 findings (P1, P2), both valid | pending | pending | first live run; findings were both against the skill's own fallback protocol |
+| #690 | 2026-09-14 02:20 UTC, head `2b8dd20` | `complete` 02:23:40 on `2b8dd20`, 2 findings (P1, P2), both valid, fixed in `133561c` | `complete` 02:30:30 on `133561c`, 2 findings (both P1: same-second claim order, release tombstone), both valid, fixed in the commit after | Needs additional independent review | first live run; all four findings were against the skill's own claim fallback; the final commit is unreviewed by construction |
 
 ## Protocol traces
 
@@ -107,17 +111,43 @@ Run 1 handled `(5658124936, 1, 2b8dd20, complete, updated_at=02:23:40)`. A
 redelivered event carries the same tuple and the same `updated_at`. Step 2.3:
 duplicate, skipped. No second claim, no second batch.
 
-### Trace D — concurrent claimants
+### Trace D — concurrent claimants, including the same second
 
 Runs X and Y both wake on the `complete` edit within the same second. Both
-read claims (none), both post `active` claims for `2b8dd20`. Both re-read.
-X's claim is older. X proceeds. Y sees an older active claim for the same
-head, edits its own to `released`, ends. If Y instead found X's claim to be
-two hours old with no push since, Y posts a handoff comment to Blake naming
-X's run id and does not proceed.
+read claims (none active), both post `active` claims for `2b8dd20`. Both
+re-read and rebuild effective records. Ordering is `(created_at, numeric
+comment id)` ascending and exactly the minimum proceeds:
+
+| Case | X's claim | Y's claim | Winner | Why |
+|---|---|---|---|---|
+| different seconds | 02:24:53, id 100 | 02:24:54, id 101 | X | earlier `created_at` |
+| same second | 02:24:53, id 100 | 02:24:53, id 101 | X | tie on `created_at`, lower comment id |
+| same second, Y posted first | 02:24:53, id 101 | 02:24:53, id 100 | Y | lower comment id, whichever session posted it |
+
+The loser releases its claim and ends. The version reviewed in cycle 2
+said only "older", which is undefined on a same-second tie and let both
+proceed. If either field is unreadable on any competitor, the run fails
+closed: releases, posts one comment to Blake, ends. If Y instead found X's
+effective record to be two hours old with no push since, Y posts a handoff
+comment to Blake naming X's run id and does not proceed.
 
 ### Trace E — normal exit without a push
 
 A run claims, evaluates, and finds every finding disputed or out of scope.
-It posts the summary comment, edits its claim to `released`, re-arms the
-check-in, ends. The claim does not survive the run.
+It posts the summary comment, releases its claim, re-arms the check-in,
+ends. The claim does not survive the run.
+
+### Trace F — release by tombstone, then a new wake on the same head
+
+Comment editing is unavailable (true of the session that ran PR #690: no
+comment-edit tool). Run X posts `steward-claim run=X cycle=1 head=H
+status=active` (comment 5658148625), does its work, and releases by posting
+a SECOND comment `steward-claim run=X cycle=1 head=H status=released`
+(comment 5658158449). A later run Y wakes on the same head H with no push in
+between (Trace E's no-push case, or a duplicate event). Y reduces claims to
+one effective record per `(run id, cycle, head)`: for run X the record with
+the greatest `(updated_at, comment id)` is 5658158449, status `released`.
+X is therefore not a competitor, and Y proceeds under Trace D's ordering
+among the remaining `active` records (none). The version reviewed in cycle 2
+treated every `active` comment independently, so Y would have seen
+5658148625 as live and blocked or handed off instead.

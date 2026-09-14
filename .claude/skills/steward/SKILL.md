@@ -193,29 +193,46 @@ before it announces it is doing any.
    claim comments are the fallback, and they are a SIGNAL, not an atomic
    lock: two runs can post one each in the same minute. The lifecycle:
    - Give the run an id: `<session id>-<UTC timestamp>`.
-   - Read the existing claims. A claim is a Claude-posted comment (footer
-     present) whose body starts
+   - A claim is a Claude-posted comment (footer present) whose body starts
      `steward-claim run=<id> cycle=<n> head=<sha> status=active|released`.
-     Only `active` claims for the CURRENT head count; a claim for an older
-     head is stale and ignored.
-   - If an `active` claim by another run exists for this head: do not take
-     it over. If it is under two hours old, end the turn silently (that run
-     is working). If it is two hours old or more with no push since, post
-     one comment to Blake naming the run id and its age, say the claim looks
-     abandoned and that you are NOT proceeding, re-arm the check-in and end.
-     An abandoned claim is a handoff, never an automatic takeover.
+     Only claims for the CURRENT head count; a claim for an older head is
+     stale and ignored.
+   - **Reduce to one effective record per `(run id, cycle, head)`.** A run
+     may have several claim comments (an `active` and, when comment editing
+     is unavailable, a separate `released` tombstone). For each run, the
+     effective record is the comment with the greatest
+     `(updated_at, comment id)`; its `status` is the run's status. A later
+     `released` tombstone therefore neutralises the earlier `active`
+     comment, and only runs whose effective status is `active` are
+     competitors.
+   - If a competing run's effective status is `active`: do not take it
+     over. If its effective record is under two hours old, end the turn
+     silently (that run is working). If it is two hours old or more with no
+     push since, post one comment to Blake naming the run id and its age,
+     say the claim looks abandoned and that you are NOT proceeding, re-arm
+     the check-in and end. An abandoned claim is a handoff, never an
+     automatic takeover.
    - Otherwise post your claim with `status=active`, then RE-READ the
-     claims. If another `active` claim for this head is now older than
-     yours, you lost the race: edit yours to `status=released` and end. If
-     yours is the oldest, proceed to Step 3.
+     claims and rebuild the effective records. **The winner is decided by
+     one total order, not by "older":** sort every effective `active` record
+     for this head by `(created_at, numeric comment id)` ascending and
+     exactly the minimum proceeds. GitHub timestamps are second-granular,
+     so two claims in the same second tie on `created_at` and the lower
+     comment id wins; comment ids are unique, so there is never a second
+     tie. If your record is the minimum, proceed to Step 3. If it is not,
+     you lost: release yours and end. If any competitor's `created_at` or
+     comment id is unreadable, fail closed: release yours, post one comment
+     to Blake saying the claim order could not be established, and end.
    - **Release on every normal exit.** After the correction push (Step 4),
      after the readiness report (Step 6), and on any exit where you decided
      not to push, edit your claim comment to `status=released` before
-     ending. If the edit fails, post a new comment
-     `steward-claim run=<id> ... status=released`. A run that ends without
-     releasing is exactly the defect this lifecycle exists to prevent: the
-     next run on the same head would find an active claim, and the push that
-     would make it stale can never happen.
+     ending. If the edit is unavailable or fails, post a new comment
+     `steward-claim run=<id> cycle=<n> head=<sha> status=released` with the
+     SAME run id, cycle and head, so the reduction rule above makes it the
+     run's effective record. A run that ends without releasing is exactly
+     the defect this lifecycle exists to prevent: the next run on the same
+     head would find an active claim, and the push that would make it stale
+     can never happen.
 
 ## Step 3 - Evaluate each finding independently
 
