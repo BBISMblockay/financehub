@@ -478,6 +478,33 @@ supabase/
   rows, rolled back); verify's `search_console_daily_tables` checks existence
   and grants
 
+- `20260914120000_seo_measurement_capture.sql` — the measurement half of the
+  SEO workflow. `seo_capture_measurements(task, window_kind, start, end)` is
+  the ONLY writer of a captured measurement: the `seo_measurements` insert
+  policy refuses `search_console_page` / `shopify_landing_pages` rows from any
+  client, the function is SECURITY DEFINER with `company_entity_id =
+  active_company_id()` on every read, and a partial unique index on (task,
+  window, period, source, metric) backs "frozen on repeat" (a
+  `unique_violation` returns `already_captured`). Pooled CTR,
+  impression-weighted position, absent page = NULL never 0, the latest
+  `page_inspections` row as evidence. `seo_follow_up_window(task, days)`
+  names the window equivalent to the latest baseline. Triggers: a publication
+  may cite only an `approved` task and never a future date; a baseline ends
+  before the FIRST publication and a follow-up starts after the LAST; a
+  publication is refused while an existing follow-up would then start on or
+  before it. Executed by `scripts/tests/seo-workflow-database.test.mjs`
+  (PGlite, real migrations, authenticated roles, six mutations)
+- `20260914130000_search_console_newest_run_wins.sql` — the nightly and the
+  manual backfill overlap with no concurrency gate. The sync core's retirement
+  sweep is ordered by `synced_at`, but a plain upsert from an OLDER run
+  resuming after a newer one completed would still rewrite shared identities
+  and the site totals with the older payload. One BEFORE INSERT OR UPDATE
+  trigger on all three `search_console_*_daily` tables: an update whose
+  `synced_at` is older than the stored row is dropped (equal passes, a retry
+  within one run), and a page/query insert for a day whose site row already
+  carries a newer `synced_at` is dropped. Deliberately not a GitHub
+  concurrency group — see CLAUDE.md's shopify-sync note on why a group can
+  silently cancel a scheduled nightly. Verify: `search_console_newest_run_wins`
 - `20260912000000_finance_v1_posting_controls.sql` — Finance V1 posting
   prerequisites without a second approval surface: approval moves to
   authorization-checked RPCs that validate QBO references and freeze a hashed,

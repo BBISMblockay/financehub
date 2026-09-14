@@ -297,6 +297,14 @@ export async function runSearchConsoleSync(supabase, env, connection, {
   // so a failure here leaves the pre-existing shape rather than deleting rows
   // the site row still describes.
   const sweptDays = siteRows.map((r) => r.day_date);
+  // Days a NEWER run had already completed before this run's writes landed.
+  // The database refuses the older writes itself (trigger
+  // trg_search_console_newest_run_wins, 20260914130000): this run's site
+  // row and detail rows for such a day were dropped, and the sweep below
+  // removes nothing newer than this run -- so the newer run's snapshot
+  // stands. Reported so the log can say "lost to a newer run on N days"
+  // rather than "wrote N days", which would be false.
+  const supersededDays = await countSupersededDays(supabase, connection, site, sweptDays, syncedAt);
   const stale = { page: 0, query: 0, skipped: null };
   if (sweptDays.length === 0) {
     stale.skipped = 'no days returned';
@@ -325,9 +333,27 @@ export async function runSearchConsoleSync(supabase, env, connection, {
     page_attributed_click_share: share(siteRows.reduce((a, r) => a + r.page_attributed_clicks, 0)),
     truncated,
     stale_rows_removed: stale,
+    superseded_days: supersededDays,
     pages_fetched: { site: siteCut.pages, page: pageCut.pages, query: queryCut.pages },
     synced_at: syncedAt,
   };
+}
+
+/** How many of `days` already carry a site row with a synced_at NEWER than
+ * this run's: a newer overlapping run completed them first and the database
+ * kept its rows over ours. */
+export async function countSupersededDays(supabase, connection, site, days, syncedAt) {
+  let superseded = 0;
+  for (const group of chunk(days, 200)) {
+    const { data, error } = await supabase.from('search_console_site_daily').select('day_date')
+      .eq('company_entity_id', connection.company_entity_id)
+      .eq('site_url', site)
+      .in('day_date', group)
+      .gt('synced_at', syncedAt);
+    if (error) throw new Error(`search_console_site_daily superseded-day check failed: ${error.message}`);
+    superseded += (data || []).length;
+  }
+  return superseded;
 }
 
 /** Delete rows of one detail table, for the given company/property/days,

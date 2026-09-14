@@ -155,6 +155,7 @@ async function syncConnection(connection) {
           ? `; stale rows retired: ${result.stale_rows_removed.page} page, ${result.stale_rows_removed.query} query`
             + (result.stale_rows_removed.skipped ? ` (${result.stale_rows_removed.skipped})` : '')
           : '')
+        + (result.superseded_days ? `; LOST to a newer overlapping run on ${result.superseded_days} day(s) (their rows stand)` : '')
         + (result.truncated.page || result.truncated.query ? ' [TRUNCATED — window too wide for one call]' : ''));
       return { connection: label, ...result };
     } catch (err) {

@@ -2751,6 +2751,34 @@ select
     else 'ok'
   end as search_console_daily_tables;
 
+-- ── Search Console: the newest completed run wins (20260914130000) ──────────
+-- The nightly and the manual backfill overlap with no concurrency gate. The
+-- retirement sweep is ordered by synced_at in the sync core, but a plain
+-- upsert from an OLDER run resuming after a newer one completed would still
+-- rewrite shared identities and the site totals with the older payload. One
+-- BEFORE trigger on all three tables refuses that: an update older than the
+-- stored row, or a detail insert for a day whose site row a newer run has
+-- already written. Without it "overlap is safe" (backfill.yml) is false.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public' and p.proname = 'search_console_reject_stale_write')
+      then 'MISSING — run 20260914130000_search_console_newest_run_wins.sql'
+    when (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid
+          where t.tgname = 'trg_search_console_newest_run_wins' and not t.tgisinternal
+            and c.relname in ('search_console_site_daily', 'search_console_page_daily', 'search_console_query_daily')) < 3
+      then 'CRITICAL — trg_search_console_newest_run_wins is not on all three search_console_*_daily tables; '
+        || 'an older overlapping run can overwrite a newer completed one'
+    -- Both halves of the rule must survive an edit: the update guard and the
+    -- site-row-newer insert guard.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public' and p.proname = 'search_console_reject_stale_write'
+                       and pg_get_functiondef(p.oid) ~ 'new\.synced_at[[:space:]]*<[[:space:]]*old\.synced_at'
+                       and pg_get_functiondef(p.oid) ~ 's\.synced_at[[:space:]]*>[[:space:]]*new\.synced_at')
+      then 'CRITICAL — search_console_reject_stale_write() lost one half of the newest-run-wins rule'
+    else 'ok'
+  end as search_console_newest_run_wins;
+
 -- ── Per-shop product/SKU mapping (20260909200000) ───────────────────────────
 -- products_master is one row per (company, sku), so its shopify_product_id is
 -- whichever store synced last -- measured 2026-09-09: 26.9% of sold SKUs exist

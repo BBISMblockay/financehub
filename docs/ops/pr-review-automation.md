@@ -74,6 +74,7 @@ transitions, dropped webhooks).
 | PR | Opened | Cycle 1 marker | Cycle 2 marker | Final status | Notes |
 |----|--------|----------------|----------------|--------------|-------|
 | #690 | 2026-09-14 02:20 UTC, head `2b8dd20` | `complete` 02:23:40 on `2b8dd20`, 2 findings (P1, P2), both valid, fixed in `133561c` | `complete` 02:30:30 on `133561c`, 2 findings (both P1: same-second claim order, release tombstone), both valid, fixed in the commit after | Needs additional independent review | first live run; all four findings were against the skill's own claim fallback; the final commit is unreviewed by construction |
+| #692 | 2026-09-14 04:49 UTC, head `f0d76c0` | `complete` 04:53:55 on `f0d76c0`, 4 findings (2 P1, 2 P2), all valid, fixed in `d8c571a` | `complete` 05:08 on `d8c571a`, 2 findings (P1 valid: late upserts from an older run; P2 disputed: `20260909300000` already pins the baseline helper to Pacific, verify's `seo_baseline_business_timezone` enforces it, boundary test added) | Needs additional independent review | second live run; the PR-event path fired on `issue_comment.created`, `.edited` and `check_suite.completed` within seconds each time; the hourly check-in never had to fire and was cancelled after the report. Claim released by a `released` tombstone comment (no comment-edit tool in the harness) |
 
 ## Protocol traces
 

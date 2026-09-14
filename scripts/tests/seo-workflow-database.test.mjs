@@ -13,6 +13,8 @@
 //   SEO_DB_MUTATION=follow-up-unordered (follow-up ordering removed)
 //   SEO_DB_MUTATION=publication-after-follow-up (publication side of the follow-up rule removed)
 //   SEO_DB_MUTATION=direct-insert-open (insert policy no longer refuses captured sources)
+//   SEO_DB_MUTATION=stale-write-allowed (the newest-run-wins triggers removed)
+//   SEO_DB_MUTATION=baseline-session-timezone (seo_baseline_conflicts back to p_published::date)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -22,7 +24,7 @@ import { splitSqlStatements } from '../lib/sql-statements.mjs';
 
 const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
-const migration = '20260914120000_seo_measurement_capture.sql';
+const migrations = ['20260914120000_seo_measurement_capture.sql', '20260914130000_search_console_newest_run_wins.sql'];
 const dependencies = [
   '20260616060000_stamp_company_entity_id_on_insert.sql',
   '20260909220000_page_inspection.sql',
@@ -39,7 +41,7 @@ const dependencies = [
   '20260910210000_search_console_overview_rpcs.sql',
 ];
 const mutation = process.env.SEO_DB_MUTATION || '';
-assert.ok(['', 'no-approval-guard', 'follow-up-unordered', 'publication-after-follow-up', 'direct-insert-open'].includes(mutation), 'Unknown SEO database mutation');
+assert.ok(['', 'no-approval-guard', 'follow-up-unordered', 'publication-after-follow-up', 'direct-insert-open', 'stale-write-allowed', 'baseline-session-timezone'].includes(mutation), 'Unknown SEO database mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -138,9 +140,11 @@ try {
   await q(`insert into search_console_page_daily(company_entity_id,site_url,day_date,page,clicks,impressions) values ($1,'https://other.example/','2026-08-05','https://other.example/collections/mlb',999,9999)`, [otherCo]);
 
   await test('measurement migration applies twice on top of the committed SEO migrations', async () => {
-    const sql = await readFile(new URL(`supabase/migrations/${migration}`, root), 'utf8');
-    await db.exec(sql);
-    await db.exec(sql);
+    for (const name of migrations) {
+      const sql = await readFile(new URL(`supabase/migrations/${name}`, root), 'utf8');
+      await db.exec(sql);
+      await db.exec(sql);
+    }
     assert.equal(await scalar("select count(*)::int from pg_trigger where tgname in ('trg_seo_publication_admissible','trg_seo_measurement_window')"), 2);
     assert.equal(await scalar("select to_regprocedure('public.check_seo_baseline_precedes_publication()')"), null, 'the one-sided trigger function is gone');
     if (mutation === 'no-approval-guard') await db.exec('drop trigger trg_seo_publication_admissible on public.seo_task_publications');
@@ -153,6 +157,16 @@ try {
       const def = await scalar("select pg_get_functiondef('public.check_publication_after_baselines()'::regprocedure)");
       assert.ok(def.includes('if v_follow is not null then'), 'mutation must remove the live follow-up check');
       await db.exec(def.replace('if v_follow is not null then', 'if false then'));
+    }
+    if (mutation === 'stale-write-allowed') {
+      for (const t of ['search_console_site_daily', 'search_console_page_daily', 'search_console_query_daily']) {
+        await db.exec(`drop trigger trg_search_console_newest_run_wins on public.${t}`);
+      }
+    }
+    if (mutation === 'baseline-session-timezone') {
+      const def = await scalar("select pg_get_functiondef('public.seo_baseline_conflicts(date,timestamptz)'::regprocedure)");
+      assert.ok(def.includes("at time zone 'America/Los_Angeles'"), 'mutation must remove the live conversion');
+      await db.exec(def.replace("(p_published at time zone 'America/Los_Angeles')::date", 'p_published::date'));
     }
     if (mutation === 'direct-insert-open') {
       await db.exec(`drop policy seo_measurements_insert on public.seo_measurements;
@@ -400,11 +414,69 @@ try {
     assert.equal(again.rows_written, 8);
   });
 
+  await test('Search Console: the newest completed run wins over an older run that resumes late', async () => {
+    // Service-role writes (superuser here, like the sync). Run B (T2) has
+    // completed 2026-07-01 on a separate property; run A (T1 < T2) then
+    // upserts its own older payload for the same day: the shared page keeps
+    // B's numbers, A's page B did not return is refused, the site row keeps
+    // B's totals, and A's retirement (rows older than A) leaves B's rows. A
+    // later run C (T3) still updates everything: nothing legitimate is refused.
+    const site = 'https://interleave.example/';
+    const T1 = '2026-09-13T10:00:00Z', T2 = '2026-09-13T10:05:00Z', T3 = '2026-09-13T10:10:00Z';
+    const up = (table, cols, vals, conflict) => q(`insert into ${table}(${cols}) values (${vals}) on conflict (${conflict}) do update set
+      clicks = excluded.clicks, impressions = excluded.impressions, synced_at = excluded.synced_at, sync_batch_id = excluded.sync_batch_id`);
+    const page = (t, path, clicks, batch) => up('search_console_page_daily', 'company_entity_id,site_url,day_date,page,clicks,impressions,synced_at,sync_batch_id',
+      `'${co}','${site}','2026-07-01','${site}${path}',${clicks},${clicks * 10},'${t}','${batch}'`, 'company_entity_id,site_url,day_date,page');
+    const siteRow = (t, clicks, batch) => up('search_console_site_daily', 'company_entity_id,site_url,day_date,clicks,impressions,synced_at,sync_batch_id',
+      `'${co}','${site}','2026-07-01',${clicks},${clicks * 10},'${t}','${batch}'`, 'company_entity_id,site_url,day_date');
+    // B completes: /a, /b, then the site row last.
+    await page(T2, 'a', 10, 'B'); await page(T2, 'b', 20, 'B'); await siteRow(T2, 30, 'B');
+    // A resumes with an older payload: /a with different numbers, /c that B did not return, then its site row.
+    await page(T1, 'a', 7, 'A'); await page(T1, 'c', 3, 'A'); await siteRow(T1, 10, 'A');
+    const pages = await q("select page, clicks, sync_batch_id from search_console_page_daily where site_url=$1 and day_date='2026-07-01' order by page", [site]);
+    assert.deepEqual(pages.map((r) => [r.page.replace(site, ''), Number(r.clicks), r.sync_batch_id]), [['a', 10, 'B'], ['b', 20, 'B']],
+      "B's snapshot stands: the shared page keeps B's numbers, A's extra page is refused");
+    const siteAfter = await first("select clicks, sync_batch_id from search_console_site_daily where site_url=$1 and day_date='2026-07-01'", [site]);
+    assert.deepEqual([Number(siteAfter.clicks), siteAfter.sync_batch_id], [30, 'B'], "the site totals are B's");
+    // A's retirement: only rows older than A. B's are newer.
+    const swept = await q("delete from search_console_page_daily where site_url=$1 and day_date='2026-07-01' and synced_at < $2 returning id", [site, T1]);
+    assert.equal(swept.length, 0, "A's sweep removes none of B's rows");
+    // A genuinely newer run C replaces everything as before.
+    await page(T3, 'a', 11, 'C'); await page(T3, 'd', 1, 'C'); await siteRow(T3, 12, 'C');
+    const after = await q("select page, clicks, sync_batch_id from search_console_page_daily where site_url=$1 and day_date='2026-07-01' order by page", [site]);
+    assert.deepEqual(after.map((r) => [r.page.replace(site, ''), Number(r.clicks), r.sync_batch_id]), [['a', 11, 'C'], ['b', 20, 'B'], ['d', 1, 'C']],
+      'a newer run updates shared identities and adds its own rows');
+    // Equal timestamps (a retry inside one run) still write.
+    await page(T3, 'a', 12, 'C');
+    assert.equal(Number((await first("select clicks from search_console_page_daily where site_url=$1 and page=$2", [site, `${site}a`])).clicks), 12, 'a same-run retry is not refused');
+  });
+
+  await test('the baseline boundary is the PACIFIC publication date in both insertion orders', async () => {
+    // 00:30Z on Sep 2 is 17:30 Pacific on Sep 1. A baseline ending Sep 1
+    // straddles the change and must be refused whichever side is recorded
+    // first; one ending Aug 31 is fine. Under the session-timezone cast the
+    // suite runs on (UTC) the Sep 1 baseline would be accepted.
+    const AT = '2026-09-02T00:30:00Z';
+    const t1 = await task(proj);
+    await capture(t1, 'baseline', '2026-08-26', '2026-09-01');
+    await approve(t1);
+    await refused(() => publish(t1, AT), /already has a baseline whose window ends 2026-09-01/, 'publication after a same-Pacific-day baseline');
+    await asApprover(() => q("delete from seo_measurements where task_id=$1", [t1]));
+    await capture(t1, 'baseline', '2026-08-25', '2026-08-31');
+    assert.ok(await publish(t1, AT), 'a baseline ending the previous Pacific day is fine');
+    const t2 = await task(proj);
+    await approve(t2);
+    await publish(t2, AT);
+    await refused(() => capture(t2, 'baseline', '2026-08-26', '2026-09-01'), /follow-up, not a baseline/, 'baseline ending on the Pacific publication day');
+    const ok = await capture(t2, 'baseline', '2026-08-25', '2026-08-31');
+    assert.ok(ok.rows_written > 0, 'a baseline ending the previous Pacific day is captured');
+  });
+
   await test('the committed SEO workflow verification checks return ok on the migrated database', async () => {
     const verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
     const checks = splitSqlStatements(verifySql).filter((s) =>
-      /as (seo_project_workflow|seo_workflow_integrity|seo_measurement_capture)\b/.test(s.text));
-    assert.equal(checks.length, 3, 'the three SEO workflow checks must be committed');
+      /as (seo_project_workflow|seo_workflow_integrity|seo_measurement_capture|search_console_newest_run_wins)\b/.test(s.text));
+    assert.equal(checks.length, 4, 'the four SEO workflow checks must be committed');
     for (const sql of checks) {
       const rows = await q(sql.text);
       assert.ok(rows.length > 0, 'a verification check must return evidence');

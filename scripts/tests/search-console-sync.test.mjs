@@ -400,6 +400,58 @@ const row = (keys, clicks, impressions, ctr = 0.05, position = 10) => ({ keys, c
   eq(left, ['/a', '/b'], "run B's newer rows survive run A's sweep, including the identity both runs wrote");
 }
 
+// ── 8d. Overlapping runs, the full path: an older run resuming after a newer
+// one completed cannot overwrite it. Run A captures its synced_at, fetches,
+// and is held at its last fetch; run B starts later, fetches different
+// numbers, writes and retires; A is released and performs its REAL upserts
+// and sweep through runSearchConsoleSync. The database rule that makes this
+// hold is trg_search_console_newest_run_wins (20260914130000): an update
+// older than the stored row is dropped, and a detail insert for a day whose
+// site row a newer run already wrote is dropped. `newestRunWins` below
+// mirrors that migration line for line so the core's behaviour GIVEN the
+// rule is exercised here; scripts/tests/seo-workflow-database.test.mjs
+// proves the rule itself against the real migration.
+const newestRunWins = (table, { op, existing, incoming, rowsOf }) => {
+  if (op === 'update') return !(incoming.synced_at < existing.synced_at);
+  if (table === 'search_console_page_daily' || table === 'search_console_query_daily') {
+    return !rowsOf('search_console_site_daily').some((s) => s.company_entity_id === incoming.company_entity_id
+      && s.site_url === incoming.site_url && s.day_date === incoming.day_date && s.synced_at > incoming.synced_at);
+  }
+  return true;
+};
+{
+  const page = (day, path, clicks) => row([day, `https://www.baseballism.com${path}`], clicks, clicks * 10);
+  const db = createFakeSupabase({ beforeWrite: newestRunWins });
+  const run = (data, batchId, fetchImpl = fakeSearchConsole(data).fetchImpl) => runSearchConsoleSync(db, ENV, CONNECTION, {
+    now: new Date('2026-09-10T20:00:00Z'), accessToken: 'tok', fetchImpl, batchId,
+    window: { startDate: '2026-09-07', endDate: '2026-09-07' },
+  });
+  // A's payload: /a with 7 clicks and /c, which B will not return.
+  const a = { 'date': [row(['2026-09-07'], 10, 100)], 'date,page': [page('2026-09-07', '/a', 7), page('2026-09-07', '/c', 3)], 'date,query': [row(['2026-09-07', 'qa'], 2, 20)] };
+  const b = { 'date': [row(['2026-09-07'], 30, 300)], 'date,page': [page('2026-09-07', '/a', 10), page('2026-09-07', '/b', 20)], 'date,query': [row(['2026-09-07', 'qb'], 6, 50)] };
+  let releaseA;
+  const gate = new Promise((resolve) => { releaseA = resolve; });
+  const aFetch = fakeSearchConsole(a).fetchImpl;
+  let aCuts = 0;
+  const aRun = run(a, 'A', async (url, opts) => {
+    aCuts += 1;
+    if (aCuts === 3) await gate; // held at its last fetch: synced_at already captured, nothing written yet
+    return aFetch(url, opts);
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const bResult = await run(b, 'B');
+  eq(bResult.superseded_days, 0, 'B, the newer run, loses nothing');
+  releaseA();
+  const aResult = await aRun;
+  eq(aResult.superseded_days, 1, "A reports the day a newer run completed before A's writes landed");
+  eq(aResult.stale_rows_removed, { page: 0, query: 0, skipped: null }, "A's sweep retires nothing of B's");
+  const pages = db.rows('search_console_page_daily').map((x) => [x.page.replace('https://www.baseballism.com', ''), x.clicks, x.sync_batch_id]).sort();
+  eq(pages, [['/a', 10, 'B'], ['/b', 20, 'B']], "B's snapshot stands: shared identity keeps B's numbers, A's extra page never lands");
+  eq(db.rows('search_console_query_daily').map((x) => [x.query, x.sync_batch_id]), [['qb', 'B']], 'likewise for queries');
+  const site = db.rows('search_console_site_daily')[0];
+  eq([site.clicks, site.page_attributed_clicks, site.sync_batch_id], [30, 30, 'B'], "the site totals are B's, and agree with B's detail rows");
+}
+
 // ── 8c. A truncated cut retires nothing ──────────────────────────────────────
 {
   const page = (day, path, clicks) => row([day, `https://www.baseballism.com${path}`], clicks, clicks * 10);

@@ -58,6 +58,7 @@ on:
       - 'supabase/migrations/*seo_baseline_business_timezone.sql'
       - 'supabase/migrations/*page_inspection.sql'
       - 'supabase/migrations/*search_console_daily.sql'
+      - 'supabase/migrations/*search_console_newest_run_wins.sql'
       - 'supabase/migrations/*search_console_overview_rpcs.sql'
       - 'v2/card-coding.html'
       - 'v2/transactions.html'

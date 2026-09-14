@@ -49,9 +49,13 @@ queried and nothing was written anywhere.
   as authenticated users; not applied to production.
 - The Search Console sync now retires detail rows the latest fetch did not
   return (`stale_rows_removed` in the run result), ordered by `synced_at` so
-  an overlapping newer run's rows survive an older run's sweep. Executed by
-  the sync suite with a fake, including the interleaved case; the next
-  nightly after merge is its first live run.
+  an overlapping newer run's rows survive an older run's sweep; and
+  `20260914130000_search_console_newest_run_wins.sql` makes the newest
+  completed run win at the database (an older run's late upserts are
+  dropped, not merged), so overlapping the nightly and the backfill is safe
+  by construction rather than by timing. Executed by the sync suite with a
+  fake mirroring the trigger and by the database suite against the real
+  migration; the next nightly after merge is its first live run.
 
 ### Missing
 

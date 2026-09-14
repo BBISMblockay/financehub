@@ -18711,3 +18711,20 @@ $c$select (select count(*) from v_po_header_summary
 
 -- Persistent forecast overrides and account-level liquidity assumptions.
 \i migrations/20260913062551_cashflow_overrides_liquidity.sql
+
+-- ---------------------------------------------------------------------------
+-- SEO workflow, measurement half: seo_capture_measurements() is the only
+-- writer of a captured measurement (insert policy refuses the two captured
+-- sources from clients; SECURITY DEFINER with an explicit company filter on
+-- every read; partial unique index behind "frozen on repeat"),
+-- seo_follow_up_window(), publication requires an approved task, follow-up
+-- ordering in both directions. Behaviour test:
+-- scripts/tests/seo-workflow-database.test.mjs.
+-- ---------------------------------------------------------------------------
+\i migrations/20260914120000_seo_measurement_capture.sql
+
+-- Search Console: the newest completed run wins. One BEFORE trigger on the
+-- three search_console_*_daily tables refuses an update older than the stored
+-- row and a detail insert for a day a newer run has already completed, so an
+-- overlapping nightly/backfill cannot overwrite each other. Same test file.
+\i migrations/20260914130000_search_console_newest_run_wins.sql
