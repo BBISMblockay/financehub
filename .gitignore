@@ -1,4 +1,7 @@
-.claude/
+# Local Claude Code state stays out; repo skills (.claude/skills/) are tracked so the harness
+# and other sessions can read them from the branch.
+.claude/*
+!.claude/skills/
 data/legacy-payment-requests*.csv
 data/legacy-payment-requests*.tsv
 node_modules/
