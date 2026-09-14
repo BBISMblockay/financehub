@@ -126,6 +126,9 @@ jobs:
       - name: Card AI bank-feed admission
         run: node scripts/tests/card-categorize-bank-guard.test.mjs
 
+      - name: Card AI historical coding evidence
+        run: node scripts/tests/card-categorize-history.test.mjs
+
       - name: Account workspace states and cutover confirmation
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 

@@ -37,6 +37,7 @@ type Merchant = {
   sample: string;          // one raw descriptor, for context
   count: number;
   total: number;
+  anchor: string;          // latest txn_date in the group: history must PRECEDE it
 };
 
 type Suggestion = {
@@ -50,7 +51,295 @@ type Suggestion = {
   vendor_name: string | null;
   confidence: number;
   reasoning: string;
+  // Additive: what the company's own history says about this merchant, in one
+  // line a bookkeeper can check, plus a machine-readable status.
+  evidence?: string;
+  history_status?: HistoryStatus;
 };
+
+// ---------------------------------------------------------------------------
+// Historical coding evidence
+//
+// The prompt already knows which ACCOUNTS the company posts to (P&L usage) and
+// which MERCHANTS have a learned rule. Neither answers the question that
+// actually decides a near-duplicate -- "Insurance Expense" against "Insurance -
+// General Liability" -- which is: where did THIS company put THIS vendor
+// before? Two sources answer it, both company-scoped and both already in SILO:
+//
+//   1. Confirmed SILO codings: card_transactions rows a person stood behind.
+//      'manual' and 'rule' count once saved; an 'ai' row counts ONLY once its
+//      batch is approved or posted, because an accepted-but-unreviewed
+//      suggestion is the model agreeing with itself.
+//   2. The QBO ledger archive (qbo_history_lines): what the accountant coded
+//      the vendor to in QuickBooks, before SILO existed for that period.
+//
+// History is read for the 24 months PRECEDING the transaction being coded,
+// never after it, and never across companies: SILO rows carry the company id,
+// ledger lines are reached only through imports for this company AND this
+// QBO connection. Recent, exact, confirmed matches outweigh old or similar
+// ones. Where the sources disagree the conflict is shown, not resolved, and
+// confidence is capped so a person looks. Where history is missing or could
+// not be read, that is stated, and account-name similarity is NOT presented
+// as ledger evidence.
+// ---------------------------------------------------------------------------
+const HISTORY_MONTHS = 24;
+const LEDGER_PAGE = 1000;
+const LEDGER_MAX_PAGES = 5;
+// Ledger lines on settlement-side accounts (the AP or card leg of a bill) say
+// how it was PAID, not what it WAS; only the expense/asset/income leg counts.
+const LEDGER_EVIDENCE_TYPES = [
+  'Expense', 'Other Expense', 'Cost of Goods Sold', 'Fixed Asset', 'Other Asset',
+  'Other Current Asset', 'Income', 'Other Income',
+];
+// Confidence ceilings applied AFTER the model answers. They only ever lower.
+const HISTORY_CAPS = {
+  consistent_disagree: 0.5,  // history clearly says X, the model chose Y
+  conflicting: 0.55,         // history says X and Y
+  inactive_only: 0.6,        // history points only at accounts no longer in the chart
+  none: 0.75,                // nothing confirmed in the window
+  unavailable: 0.75,         // could not read one or both sources
+};
+
+type HistoryStatus = 'consistent' | 'conflicting' | 'inactive_only' | 'none' | 'unavailable';
+type HistoryCandidate = {
+  account: string; account_id: string; weight: number; count: number; last: string;
+  silo: number; ledger: number; similar: number;
+};
+type HistoryEvidence = {
+  status: HistoryStatus;
+  leading: HistoryCandidate | null;
+  candidates: HistoryCandidate[];
+  inactive: { account: string; count: number; last: string }[];
+  window: { from: string; to: string };
+  summary: string;   // one line, for the prompt and the response
+  notes: string[];
+};
+type SiloHistoryRow = {
+  merchant_norm: string; txn_date: string; qbo_account_id: string; qbo_account_name: string | null;
+  coding_source: string; batch_status: string; status: string;
+};
+type LedgerHistoryRow = {
+  qbo_account_id: string; account_name: string; transaction_date: string; counterparty: string | null;
+  qbo_transaction_id: string | null; natural_amount: number | string;
+};
+
+const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+function monthsBefore(iso: string, months: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() - months);
+  return isoDate(d);
+}
+function monthsBetween(fromIso: string, toIso: string): number {
+  const ms = new Date(`${toIso}T00:00:00Z`).getTime() - new Date(`${fromIso}T00:00:00Z`).getTime();
+  return ms / (30.44 * 86_400_000);
+}
+// Recent confirmed coding beats old confirmed coding: a vendor moved from one
+// account to another a year ago should read as the new account, not a tie.
+function recencyWeight(dateIso: string, anchorIso: string): number {
+  const m = monthsBetween(dateIso, anchorIso);
+  return m <= 6 ? 1 : m <= 12 ? 0.7 : 0.4;
+}
+// Mirrors public.normalize_merchant (and the copy in v2/transactions.html) so
+// a ledger counterparty and a card descriptor reduce to the same key. Changing
+// one without the others silently stops history matching.
+function normalizeMerchant(text: unknown): string {
+  let t = String(text || '').toLowerCase();
+  t = t.replace(/^(sq|tst|sp|py|paypal|pp|ppl|dd|ec)\s*\*+\s*/i, '');
+  t = t.replace(/\s*\*+\s*[a-z0-9-]*[0-9][a-z0-9-]*\s*$/g, '');
+  t = t.replace(/\s*[#*]?\s*[0-9]{2,}\s*$/g, '');
+  t = t.replace(/\s+[a-z0-9]*[0-9][a-z0-9]{3,}\s*$/g, '');
+  t = t.replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t;
+}
+// "state farm" against "state farm insurance co": the same payee under a
+// longer ledger name. Only whole-word containment of a key at least four
+// characters long, so "sun" does not claim "sunrise bakery".
+function similarKey(key: string, other: string): boolean {
+  if (!key || !other || key === other) return false;
+  const [short, long] = key.length <= other.length ? [key, other] : [other, key];
+  if (short.length < 4) return false;
+  return (` ${long} `).includes(` ${short} `);
+}
+
+function buildEvidence(
+  key: string,
+  anchor: string,
+  siloRows: SiloHistoryRow[],
+  ledgerRows: LedgerHistoryRow[],
+  chartById: Map<string, { name: string; type: string }>,
+  ledgerCapped: boolean,
+  unavailable: string[],
+): HistoryEvidence {
+  const from = monthsBefore(anchor, HISTORY_MONTHS);
+  const inWindow = (d: string) => d >= from && d <= anchor;
+  const byAccount = new Map<string, HistoryCandidate>();
+  const inactive = new Map<string, { account: string; count: number; last: string }>();
+  const bump = (id: string, name: string | null, date: string, weight: number, source: 'silo' | 'ledger', similar: boolean) => {
+    const chart = chartById.get(id);
+    if (!chart) {
+      const cur = inactive.get(id) || { account: name || id, count: 0, last: '' };
+      cur.count++; if (date > cur.last) cur.last = date; inactive.set(id, cur); return;
+    }
+    const cur = byAccount.get(id) || { account: chart.name, account_id: id, weight: 0, count: 0, last: '', silo: 0, ledger: 0, similar: 0 };
+    cur.weight += weight; cur.count++; if (date > cur.last) cur.last = date;
+    if (source === 'silo') cur.silo++; else cur.ledger++;
+    if (similar) cur.similar++;
+    byAccount.set(id, cur);
+  };
+  for (const r of siloRows) {
+    if (r.merchant_norm !== key || !r.txn_date || !inWindow(r.txn_date)) continue;
+    bump(String(r.qbo_account_id), r.qbo_account_name, r.txn_date, recencyWeight(r.txn_date, anchor), 'silo', false);
+  }
+  for (const r of ledgerRows) {
+    const cp = normalizeMerchant(r.counterparty);
+    const exact = cp === key;
+    if (!exact && !similarKey(key, cp)) continue;
+    if (!r.transaction_date || !inWindow(r.transaction_date)) continue;
+    bump(String(r.qbo_account_id), r.account_name, r.transaction_date,
+      recencyWeight(r.transaction_date, anchor) * (exact ? 0.8 : 0.4), 'ledger', !exact);
+  }
+  const candidates = [...byAccount.values()].sort((a, b) => b.weight - a.weight || b.last.localeCompare(a.last));
+  const total = candidates.reduce((n, c) => n + c.weight, 0);
+  const notes: string[] = [];
+  if (ledgerCapped) notes.push('ledger sample capped');
+  for (const u of unavailable) notes.push(`${u} unavailable`);
+  const describe = (c: HistoryCandidate) => {
+    const parts: string[] = [];
+    if (c.silo) parts.push(`${c.silo} confirmed SILO coding${c.silo === 1 ? '' : 's'}`);
+    if (c.ledger) parts.push(`${c.ledger} ledger line${c.ledger === 1 ? '' : 's'}${c.similar ? ` (${c.similar} by similar payee name)` : ''}`);
+    return `${c.account} [${parts.join(', ')}; last ${c.last}]`;
+  };
+  const windowText = `${HISTORY_MONTHS} months before ${anchor}`;
+  const suffix = notes.length ? ` (${notes.join('; ')})` : '';
+
+  let status: HistoryStatus; let summary: string; let leading: HistoryCandidate | null = null;
+  if (!candidates.length && !inactive.size && unavailable.length === 2) {
+    status = 'unavailable';
+    summary = `History unavailable: ${unavailable.join(' and ')} could not be read${suffix}.`;
+  } else if (!candidates.length && inactive.size) {
+    status = 'inactive_only';
+    const list = [...inactive.values()].map((i) => `${i.account} [${i.count} line${i.count === 1 ? '' : 's'}; last ${i.last}]`).join('; ');
+    summary = `History points only at accounts no longer in the active chart: ${list}${suffix}.`;
+  } else if (!candidates.length) {
+    status = 'none';
+    summary = `No confirmed coding for this merchant in the ${windowText}${suffix}.`;
+  } else {
+    leading = candidates[0];
+    const share = total > 0 ? leading.weight / total : 0;
+    // A precedent needs weight AND at least one EXACT match. Similar payee
+    // names alone ("amazon" beside "amazon web services") are a hint, never
+    // history, however many of them there are.
+    const strong = leading.weight >= 0.8 && (leading.count - leading.similar) >= 1;
+    if (!strong && candidates.every((c) => c.count === c.similar)) {
+      status = 'conflicting';
+      summary = `WEAK (similar payee names only, no exact match): ${candidates.slice(0, 3).map(describe).join('; ')}${suffix}.`;
+    } else if (candidates.length === 1 && strong) {
+      status = 'consistent';
+      summary = `CONSISTENT: ${describe(leading)}${suffix}.`;
+    } else if (share >= 0.75 && strong) {
+      status = 'consistent';
+      summary = `CONSISTENT (mostly): ${describe(leading)}; earlier or minor: ${candidates.slice(1, 3).map(describe).join('; ')}${suffix}.`;
+    } else {
+      status = 'conflicting';
+      summary = `CONFLICTING: ${candidates.slice(0, 3).map(describe).join(' vs ')}${suffix}.`;
+    }
+    if (inactive.size) summary += ` Also coded to since-removed account(s): ${[...inactive.values()].map((i) => i.account).join(', ')}.`;
+  }
+  return { status, leading, candidates, inactive: [...inactive.values()], window: { from, to: anchor }, summary, notes };
+}
+
+// Reads both sources for every merchant in the request. A read failure on one
+// source degrades to the other and is recorded, never thrown: the request
+// should still return suggestions, and the evidence line should say that the
+// ledger (or SILO history) could not be consulted.
+async function loadHistory(
+  supabase: any,
+  companyId: string,
+  connectionId: string,
+  merchants: Merchant[],
+  chartById: Map<string, { name: string; type: string }>,
+): Promise<{ byKey: Map<string, HistoryEvidence>; stats: Record<string, unknown> }> {
+  const keys = [...new Set(merchants.map((m) => m.merchant).filter(Boolean))];
+  const anchors = merchants.map((m) => m.anchor);
+  const windowTo = anchors.reduce((a, b) => (a > b ? a : b));
+  const windowFrom = monthsBefore(anchors.reduce((a, b) => (a < b ? a : b)), HISTORY_MONTHS);
+  const unavailable: string[] = [];
+
+  // 1. Confirmed SILO codings, this company only, keyed on the same merchant
+  //    key the request uses. Confirmation is decided HERE, not in SQL, so the
+  //    rule is one place and testable.
+  const siloRows: SiloHistoryRow[] = [];
+  for (let i = 0; i < keys.length; i += 100) {
+    const { data, error } = await supabase
+      .from('card_transactions_v')
+      .select('merchant_norm,txn_date,qbo_account_id,qbo_account_name,coding_source,batch_status,status')
+      .eq('company_entity_id', companyId)
+      .eq('status', 'coded')
+      .not('qbo_account_id', 'is', null)
+      .in('merchant_norm', keys.slice(i, i + 100))
+      .gte('txn_date', windowFrom)
+      .lte('txn_date', windowTo);
+    if (error) { unavailable.push('SILO coding history'); siloRows.length = 0; break; }
+    for (const r of data || []) {
+      const confirmed = r.coding_source === 'manual' || r.coding_source === 'rule'
+        || (r.coding_source === 'ai' && ['approved', 'posted'].includes(String(r.batch_status)));
+      if (confirmed && r.batch_status !== 'voided') siloRows.push(r);
+    }
+  }
+
+  // 2. The QBO ledger archive, reached only through this company's imports for
+  //    THIS connection. Lines are not keyed by merchant, so the window's
+  //    expense-side lines are paged in and matched here; a cap is reported.
+  const ledgerRows: LedgerHistoryRow[] = [];
+  let ledgerCapped = false; let ledgerImports = 0;
+  const { data: imports, error: importsError } = await supabase
+    .from('qbo_history_imports')
+    .select('id')
+    .eq('company_entity_id', companyId)
+    .eq('qbo_connection_id', connectionId);
+  if (importsError) unavailable.push('QBO ledger archive');
+  else if ((imports || []).length) {
+    ledgerImports = imports.length;
+    const importIds = imports.map((i: any) => i.id);
+    const seen = new Set<string>();
+    for (let page = 0; page < LEDGER_MAX_PAGES; page++) {
+      const { data, error } = await supabase
+        .from('qbo_history_lines')
+        .select('qbo_account_id,account_name,transaction_date,counterparty,qbo_transaction_id,natural_amount')
+        .eq('company_entity_id', companyId)
+        .in('import_id', importIds)
+        .eq('row_kind', 'transaction')
+        .in('account_type', LEDGER_EVIDENCE_TYPES)
+        .gte('transaction_date', windowFrom)
+        .lte('transaction_date', windowTo)
+        .order('transaction_date', { ascending: false })
+        .range(page * LEDGER_PAGE, (page + 1) * LEDGER_PAGE - 1);
+      if (error) { unavailable.push('QBO ledger archive'); ledgerRows.length = 0; break; }
+      for (const r of data || []) {
+        // Overlapping snapshots hold the same QuickBooks line twice.
+        const id = `${r.qbo_transaction_id || ''}|${r.qbo_account_id}|${r.transaction_date}|${r.natural_amount}|${r.counterparty || ''}`;
+        if (seen.has(id)) continue;
+        seen.add(id); ledgerRows.push(r);
+      }
+      if ((data || []).length < LEDGER_PAGE) break;
+      if (page === LEDGER_MAX_PAGES - 1) ledgerCapped = true;
+    }
+  }
+
+  const byKey = new Map<string, HistoryEvidence>();
+  for (const m of merchants) {
+    if (!m.merchant || byKey.has(`${m.merchant}|${m.anchor}`)) continue;
+    byKey.set(`${m.merchant}|${m.anchor}`, buildEvidence(m.merchant, m.anchor, siloRows, ledgerRows, chartById, ledgerCapped, unavailable));
+  }
+  return {
+    byKey,
+    stats: {
+      window_months: HISTORY_MONTHS, silo_rows: siloRows.length, ledger_lines: ledgerRows.length,
+      ledger_imports: ledgerImports, ledger_capped: ledgerCapped, unavailable: unavailable.length ? unavailable : undefined,
+    },
+  };
+}
+const historyKey = (m: Merchant) => `${m.merchant}|${m.anchor}`;
 
 function systemPrompt(
   accounts: { name: string; type: string; sub: string | null; used: number | null }[],
@@ -61,6 +350,7 @@ function systemPrompt(
   companyName: string,
   cardNames: string[],
   bankMode = false,
+  history: string[] = [],
 ) {
   // Sorted by what the company actually posts to, and annotated with it. A
   // flat alphabetical list is why "Shipping" got picked over "COGS - Shipping"
@@ -124,6 +414,15 @@ ${locations.map((l) => `- ${l}`).join('\n')}
 # How this company has coded merchants before
 ${exampleList}
 
+# Historical coding evidence for the lines you are given
+Read from this company's own confirmed codings and its QuickBooks ledger archive, for the ${HISTORY_MONTHS} months BEFORE each line's date. This is the strongest evidence you have for choosing between similar accounts, because it says where THIS vendor was actually put, not where a vendor like it usually goes.
+${history.length ? history.join('\n') : '(no history was consulted for these lines)'}
+
+- CONSISTENT: prefer that account. Choose a different one only when the descriptor plainly shows a different kind of purchase, and say why.
+- CONFLICTING: name the accounts history disagrees between in reasoning, pick the one the descriptor supports, and keep confidence below 0.6.
+- No confirmed history, or history unavailable: say so in reasoning and do not claim precedent. An account NAME resembling the merchant is not history.
+- Never cite history that is not listed above.
+
 # Rules
 - Echo back BOTH the merchant and the card_name you were given, unchanged, so the answer can be matched to the right line. Use null for card_name when the line had none.
 - account_name MUST be copied EXACTLY from the account list above. Never invent one, never abbreviate, never fix a typo in it.
@@ -149,6 +448,7 @@ async function askModel(
   companyName: string,
   cardNames: string[],
   bankMode = false,
+  history: string[] = [],
 ): Promise<Suggestion[]> {
   const userMsg = merchants
     .map((m) =>
@@ -169,7 +469,7 @@ async function askModel(
       model: MODEL,
       max_tokens: 24000,
       system: systemPrompt(
-        accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames, bankMode),
+        accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames, bankMode, history),
       messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
     }),
   });
@@ -363,7 +663,7 @@ Deno.serve(async (req) => {
   // Keep each ID filter below URL/gateway limits and Supabase's row cap.
   for (let offset = 0; offset < transactionIds.length; offset += 100) {
     const { data: rows, error } = await supabase.from('card_transactions_v')
-      .select('id,merchant_norm,card_name,description,amount,currency,status,qbo_account_id,origin,provider_status,accounting_treatment')
+      .select('id,merchant_norm,card_name,description,amount,currency,status,qbo_account_id,origin,provider_status,accounting_treatment,txn_date')
       .eq('company_entity_id', companyId).eq('batch_id', batch.id)
       .in('id', transactionIds.slice(offset, offset + 100));
     if (error || !rows) return json({ error: 'Could not load the selected card transactions.' }, 503);
@@ -387,11 +687,15 @@ Deno.serve(async (req) => {
     const key = `${row.merchant_norm}||${row.card_name || ''}${bankMode?'||'+direction:''}`;
     const merchant = byStoredMerchant.get(key) || {
       merchant: row.merchant_norm, card_name: row.card_name || null,
-      sample: row.description || '', count: 0, total: 0,
+      sample: row.description || '', count: 0, total: 0, anchor: '',
       ...(bankMode ? {direction} : {}),
     };
     merchant.count++;
     merchant.total += bankMode ? Math.abs(Number(row.amount)) : Number(row.amount);
+    // History must precede the transaction. A row with no date anchors on
+    // today, which can only widen what "before" means, never narrow it.
+    const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(String(row.txn_date || '')) ? String(row.txn_date) : isoDate(new Date());
+    if (rowDate > merchant.anchor) merchant.anchor = rowDate;
     byStoredMerchant.set(key, merchant);
   }
   const merchants = [...byStoredMerchant.values()];
@@ -524,6 +828,15 @@ Deno.serve(async (req) => {
   const validAccounts = new Set(accounts.map((a) => a.name));
   const validLocations = new Set(locations);
 
+  // What this company did with these merchants before -- confirmed SILO
+  // codings and the QBO ledger archive, 24 months back from each line.
+  const chartById = new Map(accounts.map((a) => [a.id, { name: a.name, type: a.type }]));
+  const history = await loadHistory(supabase, companyId, connectionId, merchants, chartById);
+  const historyLine = (m: Merchant) => {
+    const ev = history.byKey.get(historyKey(m));
+    return ev ? `- "${m.merchant}" (lines dated up to ${m.anchor}) -> ${ev.summary}` : null;
+  };
+
   const out: Suggestion[] = [];
   const errors: string[] = [];
 
@@ -546,9 +859,10 @@ Deno.serve(async (req) => {
       const i = next++;
       if (i >= slices.length) return;
       try {
+        const sliceHistory = [...new Set(slices[i].map(historyLine).filter((l): l is string => !!l))];
         results[i] = await askModel(
           slices[i], accounts, locations, examples, sourceName, relatedEntities,
-          companyName, cardNames, bankMode);
+          companyName, cardNames, bankMode, sliceHistory);
       } catch (e) {
         results[i] = e instanceof Error ? e : new Error(String(e));
       }
@@ -570,6 +884,8 @@ Deno.serve(async (req) => {
           vendor_name: null,
           confidence: 0,
           reasoning: `Categorisation failed: ${result.message.slice(0, 160)}`,
+          evidence: history.byKey.get(historyKey(m))?.summary,
+          history_status: history.byKey.get(historyKey(m))?.status,
         });
       }
       return;
@@ -583,6 +899,7 @@ Deno.serve(async (req) => {
 
     for (const m of slice) {
       const s = byMerchant.get(key(m.merchant, m.card_name, m.direction));
+      const ev0 = history.byKey.get(historyKey(m));
       if (!s) {
         out.push({
           merchant: m.merchant,
@@ -593,6 +910,8 @@ Deno.serve(async (req) => {
           vendor_name: null,
           confidence: 0,
           reasoning: 'The model did not return a suggestion for this line.',
+          evidence: ev0?.summary,
+          history_status: ev0?.status,
         });
         continue;
       }
@@ -617,6 +936,33 @@ Deno.serve(async (req) => {
       const invented = !!s.account_name && !validAccounts.has(s.account_name);
       const loc = acct && s.location_name && validLocations.has(s.location_name) ? s.location_name : null;
 
+      // History decides the CEILING, never the answer: the model's account
+      // stands (subject to the chart/type checks above), but a choice that
+      // contradicts consistent history, sits on conflicting history, or has
+      // no history at all cannot carry high confidence -- low confidence is
+      // what gets a person to look.
+      const ev = history.byKey.get(historyKey(m));
+      let confidence = disallowedAccount ? 0 : Math.max(0, Math.min(1, Number(s.confidence) || 0));
+      let evidence = ev?.summary || 'History was not consulted for this line.';
+      if (ev && acct) {
+        const agrees = ev.leading?.account === acct;
+        if (ev.status === 'consistent' && !agrees) {
+          confidence = Math.min(confidence, HISTORY_CAPS.consistent_disagree);
+          evidence = `History points to ${ev.leading!.account}; the model chose ${acct}. ${ev.summary}`;
+        } else if (ev.status === 'consistent') {
+          evidence = `History agrees. ${ev.summary}`;
+        } else if (ev.status === 'conflicting') {
+          confidence = Math.min(confidence, HISTORY_CAPS.conflicting);
+          evidence = `${agrees && !ev.summary.startsWith('WEAK') ? 'The model chose the leading account, but history is split. ' : ''}${ev.summary}`;
+        } else if (ev.status === 'inactive_only') {
+          confidence = Math.min(confidence, HISTORY_CAPS.inactive_only);
+        } else if (ev.status === 'none') {
+          confidence = Math.min(confidence, HISTORY_CAPS.none);
+        } else if (ev.status === 'unavailable') {
+          confidence = Math.min(confidence, HISTORY_CAPS.unavailable);
+        }
+      }
+
       out.push({
         merchant: m.merchant,
         ...(bankMode ? {direction:m.direction,accounting_treatment:treatment} : {}),
@@ -625,10 +971,12 @@ Deno.serve(async (req) => {
         account_id: acct ? candidate!.id : null,
         location_name: loc,
         vendor_name: s.vendor_name || null,
-        confidence: disallowedAccount ? 0 : Math.max(0, Math.min(1, Number(s.confidence) || 0)),
+        confidence,
         reasoning: invented
           ? `Suggested "${s.account_name}", which is not in the chart of accounts — needs coding by hand.`
           : `${disallowedAccount ? 'Model account suggestion discarded: the category is ambiguous or incompatible with this transaction type. ' : ''}${String(s.reasoning || '')}`.slice(0, 400),
+        evidence: evidence.slice(0, 600),
+        history_status: ev?.status,
       });
     }
   });
@@ -642,6 +990,7 @@ Deno.serve(async (req) => {
     company: companyName,
     usage_from: usage ? `${plRun?.start_date} to ${plRun?.end_date}` : null,
     accounts_with_activity: usage ? accounts.filter((a) => (a.used ?? 0) > 0).length : null,
+    history: history.stats,
     model: MODEL,
     errors: errors.length ? errors : undefined,
   });

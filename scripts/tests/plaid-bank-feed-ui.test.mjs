@@ -606,6 +606,13 @@ await test('a payment-type-only response is never accepted or displayed as a COA
  assert.match(h.el('tblCoding').innerHTML,/data-edit="account"/);
  const before=JSON.stringify(row);h.page.acceptSuggestion(row.id);assert.equal(JSON.stringify(row),before);assert.equal(h.page.state.dirty.size,0);
 });
+await test('a suggestion shows its historical evidence and keeps it on the accepted row',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.page.suggestions.set(row.id,{accounting_treatment:'purchase',account_id:'2',account_name:'Expense',confidence:.5,reasoning:'Synthetic premium.',history_status:'consistent',evidence:'History points to Other; the model chose Expense. CONSISTENT: Other [3 confirmed SILO codings; last 2026-08-01].',revision:JSON.stringify(row)});
+ h.page.renderCoding();assert.match(h.el('tblCoding').innerHTML,/History: History points to Other; the model chose Expense\./);
+ h.page.acceptSuggestion(row.id);assert.equal(row.qbo_account_id,'2');assert.equal(row.confidence,.5);
+ assert.equal(row.ai_reasoning,'Synthetic premium. History: History points to Other; the model chose Expense. CONSISTENT: Other [3 confirmed SILO codings; last 2026-08-01].');
+});
 await test('COA suggestions apply category and transaction type together for supported bank movements',async()=>{
  for(const [treatment,type,amount] of [['deposit','Income',-20],['transfer','Other Current Asset',20],['card_payment','Credit Card',20]]) {
   const h=await pageHarness({amount});const row=h.page.state.txns[0];
