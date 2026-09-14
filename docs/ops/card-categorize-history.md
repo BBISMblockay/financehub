@@ -18,10 +18,17 @@ recategorizes nothing. History decides a confidence CEILING, never the answer.
 Both are read for the caller's active company only.
 
 1. **Confirmed SILO codings** from `card_transactions_v` (`status = 'coded'`, an
-   account set). `coding_source = 'manual'` or `'rule'` counts once saved. `'ai'`
-   counts ONLY when its batch is `approved` or `posted`: an accepted-but-unreviewed
-   suggestion is the model agreeing with itself. Rows in a `voided` batch never count.
-   Confirmation is decided in the function, not in SQL, so the rule is one testable place.
+   account set), and only from card sources bound to the SAME QuickBooks connection as
+   the source being coded (the view's `source_key` is unique per company and resolves
+   to `card_sources.qbo_connection_id`). An account id only means something inside its
+   realm: a company that moved realms can have an old "42 = Travel" beside a current
+   "42 = Advertising", so rows are filtered by connection BEFORE any id is resolved.
+   `coding_source = 'manual'` or `'rule'` counts once saved. `'ai'` counts ONLY when its
+   batch is `approved` or `posted`: an accepted-but-unreviewed suggestion is the model
+   agreeing with itself. Rows in a `voided` batch never count. Confirmation is decided
+   in the function, not in SQL, so the rule is one testable place. Rows are paged 1000
+   at a time, newest first then by row id, up to 5 pages; hitting the cap adds a "SILO
+   sample capped" note.
 2. **The QBO ledger archive** (`qbo_history_lines`, see [qbo-history.md](qbo-history.md)),
    reached only through `qbo_history_imports` rows for this company AND the card
    source's `qbo_connection_id`. `row_kind = 'transaction'` only, and only lines on
@@ -30,6 +37,10 @@ Both are read for the caller's active company only.
    not what it WAS. Lines are paged 1000 at a time, newest first, up to 5 pages; hitting
    the cap adds a "ledger sample capped" note to every evidence line. Overlapping
    snapshots holding the same QuickBooks line are de-duplicated.
+
+A capped source, on either side, is a partial sample whatever it appears to say: the
+evidence line is prefixed "History sample capped, treat as partial" and confidence is
+held to 0.7 even when the visible sample is consistent.
 
 ## Window and scoping
 
@@ -51,7 +62,11 @@ farm" inside "state farm insurance co"; "sun" never claims "sunrise bakery").
 Each matched line adds weight to its account: recency 1.0 (within 6 months of the
 anchor), 0.7 (within 12), 0.4 (within 24), multiplied by 1.0 for a SILO exact match,
 0.8 for a ledger exact match, 0.4 for a ledger similar-name match. An account that is
-not in the active chart is tallied separately as "since-removed" and can never lead.
+still active in QuickBooks but not offered for this transaction type (an income account
+in card mode) is tallied separately as "not offered for this transaction type"; an
+account absent from the active chart altogether is tallied as "since-removed". Neither
+can lead, and the two are never confused, because the function loads the whole active
+chart separately from the mode's eligible types.
 
 ## Statuses and confidence caps
 
@@ -62,6 +77,7 @@ not in the active chart is tallied separately as "since-removed" and can never l
 | `inactive_only` | history points only at since-removed accounts | 0.6 |
 | `none` | no confirmed coding in the window | 0.75 |
 | `unavailable` | both sources failed to read | 0.75 |
+| any, with a capped source | the sample is partial | 0.7 (applied on top of the row above) |
 
 Caps are applied AFTER the model answers and only ever lower a value. The existing
 chart and account-type checks still run first; a discarded account is still 0.
@@ -76,7 +92,7 @@ account NAME resembling a merchant is not history.
 Every suggestion gains two additive fields: `evidence` (one line a bookkeeper can
 check, e.g. "History agrees. CONSISTENT: Insurance - General Liability [3 confirmed
 SILO codings, 2 ledger lines; last 2026-07-02].") and `history_status`. The response
-gains `history` stats: `window_months`, `silo_rows`, `ledger_lines`,
+gains `history` stats: `window_months`, `silo_rows`, `silo_capped`, `ledger_lines`,
 `ledger_imports`, `ledger_capped`, `unavailable`. `/v2/transactions.html` renders the line under the suggestion's reasoning as "History: ..." in the review panel, and when a suggestion is accepted the line is appended to the row's stored `ai_reasoning`, so the evidence travels with the coded row. A capped suggestion also surfaces through the existing "Low confidence" (< 0.6) filter, which is what gets a person to look.
 
 A candidate backed only by similar payee names, with no exact match in either source, is reported as WEAK and treated like a conflict (confidence capped at 0.55): a resemblance is a hint, never precedent, however many lines carry it.

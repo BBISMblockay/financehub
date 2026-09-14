@@ -19,6 +19,9 @@ const MUTATIONS = {
   'ignore-window': ["const inWindow = (d: string) => d >= from && d <= anchor;", "const inWindow = (d: string) => true;"],
   'drop-connection-scope': [".eq('qbo_connection_id', connectionId);", ";"],
   'similar-is-precedent': ["const strong = leading.weight >= 0.8 && (leading.count - leading.similar) >= 1;", "const strong = leading.weight >= 0.8;"],
+  'drop-source-scope': ["if (!sourceKeys.has(String(r.source_key))) continue;", ""],
+  'no-cap-ceiling': ["confidence = Math.min(confidence, HISTORY_CAPS.capped);", "confidence = confidence;"],
+  'ineligible-as-removed': ["if (live) tally(ineligible, id, live.name, date); else tally(inactive, id, name || id, date);", "tally(inactive, id, name || id, date);"],
 };
 const mutation = process.env.CATEGORIZE_HISTORY_MUTATION;
 let effective = source;
@@ -41,8 +44,8 @@ const monthsAgo = (n) => { const d = new Date(`${ANCHOR}T00:00:00Z`); d.setUTCMo
 
 const GL = 'Insurance - General Liability', EXP = 'Insurance Expense';
 function siloRow(overrides = {}) {
-  return { company_entity_id: ids.company, status: 'coded', merchant_norm: 'state farm', txn_date: monthsAgo(2),
-    qbo_account_id: 'ins-gl', qbo_account_name: GL, coding_source: 'manual', batch_status: 'posted', ...overrides };
+  return { company_entity_id: ids.company, status: 'coded', merchant_norm: 'state farm', txn_date: monthsAgo(2), source_key: 'card-a',
+    qbo_account_id: 'ins-gl', qbo_account_name: GL, coding_source: 'manual', batch_status: 'posted', id: `h${Math.random()}`, ...overrides };
 }
 function ledgerLine(overrides = {}) {
   return { company_entity_id: ids.company, import_id: ids.importId, row_kind: 'transaction', account_type: 'Expense',
@@ -57,8 +60,11 @@ function fixture(options = {}) {
     entities: [{ id: ids.company, title: 'Synthetic Company' }],
     card_import_batches: [{ id: ids.batch, company_entity_id: ids.company, source_id: ids.source,
       qbo_connection_id: ids.connection, status: 'draft', origin: 'csv' }],
-    card_sources: [{ id: ids.source, company_entity_id: ids.company, source_type: 'card', ingest_mode: 'csv',
-      qbo_connection_id: ids.connection, display_name: 'Synthetic Card', is_active: true }],
+    card_sources: [{ id: ids.source, company_entity_id: ids.company, source_type: 'card', ingest_mode: 'csv', source_key: 'card-a',
+      qbo_connection_id: ids.connection, display_name: 'Synthetic Card', is_active: true },
+      // Same company, a card that was bound to a previous QuickBooks realm.
+      { id: 'old-realm-source', company_entity_id: ids.company, source_type: 'card', ingest_mode: 'csv', source_key: 'old-card',
+        qbo_connection_id: 'other-connection', display_name: 'Old Realm Card', is_active: false }],
     quickbooks_connections: [{ id: ids.connection, company_entity_id: ids.company, is_active: true }],
     // The row being coded, plus this company's confirmed history in the same
     // view (history rows carry an id the request never selects).
@@ -93,7 +99,7 @@ function fixture(options = {}) {
     or(value) { this.filters.push(['or', value]); return this; }
     gte(key, value) { this.filters.push(['gte', key, value]); return this; }
     lte(key, value) { this.filters.push(['lte', key, value]); return this; }
-    order() { return this; }
+    order(key, opts) { this.orders = [...(this.orders || []), [key, opts?.ascending !== false]]; return this; }
     limit(count) { this.maxRows = count; return this; }
     range(from, to) { this.offset = from; this.maxRows = to - from + 1; return this; }
     update(value) { writes.push(value); throw new Error('Categorizer must not write'); }
@@ -118,8 +124,10 @@ function fixture(options = {}) {
           return comparator === 'is' ? row[field] == null : row[field] === expected;
         });
         throw new Error(`Unsupported filter ${op}`);
-      })).slice(this.offset || 0, (this.offset || 0) + this.maxRows);
-      return { data: structuredClone(this.singleResult ? rows[0] ?? null : rows), error: null };
+      }));
+      for (const [key, asc] of [...(this.orders || [])].reverse()) rows.sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * (asc ? 1 : -1));
+      const page = rows.slice(this.offset || 0, (this.offset || 0) + this.maxRows);
+      return { data: structuredClone(this.singleResult ? page[0] ?? null : page), error: null };
     }
     maybeSingle() { this.singleResult = true; return Promise.resolve(this.execute()); }
     then(resolve, reject) { return Promise.resolve(this.execute()).then(resolve, reject); }
@@ -300,6 +308,46 @@ test('similar payee names alone never become precedent, however many there are',
   assert.equal(e.s.history_status, 'consistent'); assert.match(e.s.evidence, /^History agrees\. CONSISTENT: Insurance - General Liability \[7 ledger lines \(6 by similar payee name\)/);
 });
 
+
+test('a colliding account id from a previous QuickBooks realm never becomes precedent', async () => {
+  // Old realm: id ins-exp meant something else entirely. Six confirmed rows
+  // there, none here.
+  const h = fixture({ silo: many(6, () => siloRow({ source_key: 'old-card', qbo_account_id: 'ins-exp', qbo_account_name: 'Old Realm Travel' })) });
+  const { s, r } = await first(h);
+  assert.equal(s.history_status, 'none'); assert.equal(r.body.history.silo_rows, 0);
+  assert.equal(JSON.stringify(h.modelCalls).includes('Old Realm'), false);
+  assert.ok(h.queries.some((q) => q.table === 'card_sources' && q.filters.some(([op, k, v]) => op === 'eq' && k === 'qbo_connection_id' && v === ids.connection)), 'sources are resolved for this connection');
+  // The same rows on a source bound to THIS connection do count.
+  const here = fixture({ silo: many(6, () => siloRow()) , suggestion: { account_name: GL } });
+  assert.equal((await first(here)).s.history_status, 'consistent');
+});
+
+test('SILO history is paged deterministically and a capped sample is disclosed and bounded', async () => {
+  // 1,001 rows cross one page and are all read.
+  const paged = fixture({ silo: many(1001, (i) => siloRow({ txn_date: monthsAgo(1 + (i % 20)) })), suggestion: { account_name: GL } });
+  let { s, r } = await first(paged);
+  assert.equal(r.body.history.silo_rows, 1001); assert.equal(r.body.history.silo_capped, false);
+  assert.equal(s.history_status, 'consistent'); assert.equal(s.confidence, 0.9);
+  assert.ok(paged.queries.filter((q) => q.table === 'card_transactions_v' && q.filters.some(([op, k]) => op === 'in' && k === 'merchant_norm')).length >= 2, 'a second page was requested');
+  // 5,001 rows exceed the cap: the newest 5,000 are kept, the cap is named
+  // in the evidence, and confidence cannot stay high on a partial sample.
+  const capped = fixture({ silo: many(5001, (i) => siloRow({ txn_date: monthsAgo(1 + (i % 20)) })), suggestion: { account_name: GL } });
+  ({ s, r } = await first(capped));
+  assert.equal(r.body.history.silo_rows, 5000); assert.equal(r.body.history.silo_capped, true);
+  assert.equal(s.confidence, 0.7);
+  assert.match(s.evidence, /^History sample capped, treat as partial\. History agrees\. CONSISTENT: Insurance - General Liability \[5000 confirmed SILO codings; last 2026-08-01\] \(SILO sample capped\)\.$/);
+});
+
+test('an active account outside this mode\'s eligible types is labelled as not offered, never as removed', async () => {
+  const h = fixture({
+    accounts: [{ company_entity_id: ids.company, connection_id: ids.connection, qbo_account_id: 'sales', name: 'Sales income', account_type: 'Income', is_active: true }],
+    ledger: many(3, () => ledgerLine({ qbo_account_id: 'sales', account_name: 'Sales income', account_type: 'Income', counterparty: 'STATE FARM' })),
+  });
+  const { s } = await first(h);
+  assert.equal(s.history_status, 'none'); assert.equal(s.confidence, 0.75);
+  assert.equal(s.evidence, 'No confirmed coding for this merchant in the 24 months before 2026-09-01. Also coded to account(s) not offered for this transaction type: Sales income [3; last 2026-06-01].');
+  assert.equal(s.evidence.includes('no longer in the active chart'), false);
+});
 test('failed model calls still carry the evidence so the row is not blank', async () => {
   const h = fixture({ silo: many(2, () => siloRow()) });
   h.records.quickbooks_accounts.length = 0;

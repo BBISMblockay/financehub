@@ -83,8 +83,11 @@ type Suggestion = {
 // as ledger evidence.
 // ---------------------------------------------------------------------------
 const HISTORY_MONTHS = 24;
-const LEDGER_PAGE = 1000;
-const LEDGER_MAX_PAGES = 5;
+// Both sources are paged deterministically (newest first, then row id) and
+// stop at a cap that is DISCLOSED: a silent API row limit would hand back an
+// arbitrary partial sample that could still read as consistent history.
+const HISTORY_PAGE = 1000;
+const HISTORY_MAX_PAGES = 5;
 // Ledger lines on settlement-side accounts (the AP or card leg of a bill) say
 // how it was PAID, not what it WAS; only the expense/asset/income leg counts.
 const LEDGER_EVIDENCE_TYPES = [
@@ -96,6 +99,7 @@ const HISTORY_CAPS = {
   consistent_disagree: 0.5,  // history clearly says X, the model chose Y
   conflicting: 0.55,         // history says X and Y
   inactive_only: 0.6,        // history points only at accounts no longer in the chart
+  capped: 0.7,               // a source hit its page cap: the sample is partial, not precedent
   none: 0.75,                // nothing confirmed in the window
   unavailable: 0.75,         // could not read one or both sources
 };
@@ -110,14 +114,17 @@ type HistoryEvidence = {
   leading: HistoryCandidate | null;
   candidates: HistoryCandidate[];
   inactive: { account: string; count: number; last: string }[];
+  ineligible: { account: string; count: number; last: string }[];
   window: { from: string; to: string };
   summary: string;   // one line, for the prompt and the response
   notes: string[];
+  capped: boolean;   // a source stopped at its page cap: treat as partial
 };
 type SiloHistoryRow = {
   merchant_norm: string; txn_date: string; qbo_account_id: string; qbo_account_name: string | null;
-  coding_source: string; batch_status: string; status: string;
+  coding_source: string; batch_status: string; status: string; source_key: string | null;
 };
+type ChartEntry = { name: string; type: string };
 type LedgerHistoryRow = {
   qbo_account_id: string; account_name: string; transaction_date: string; counterparty: string | null;
   qbo_transaction_id: string | null; natural_amount: number | string;
@@ -166,19 +173,29 @@ function buildEvidence(
   anchor: string,
   siloRows: SiloHistoryRow[],
   ledgerRows: LedgerHistoryRow[],
-  chartById: Map<string, { name: string; type: string }>,
-  ledgerCapped: boolean,
+  eligibleById: Map<string, ChartEntry>,   // accounts this suggestion mode may use
+  activeById: Map<string, ChartEntry>,     // every active account in the chart
+  capped: { silo: boolean; ledger: boolean },
   unavailable: string[],
 ): HistoryEvidence {
   const from = monthsBefore(anchor, HISTORY_MONTHS);
   const inWindow = (d: string) => d >= from && d <= anchor;
   const byAccount = new Map<string, HistoryCandidate>();
   const inactive = new Map<string, { account: string; count: number; last: string }>();
+  const ineligible = new Map<string, { account: string; count: number; last: string }>();
+  const tally = (map: Map<string, { account: string; count: number; last: string }>, id: string, name: string, date: string) => {
+    const cur = map.get(id) || { account: name, count: 0, last: '' };
+    cur.count++; if (date > cur.last) cur.last = date; map.set(id, cur);
+  };
   const bump = (id: string, name: string | null, date: string, weight: number, source: 'silo' | 'ledger', similar: boolean) => {
-    const chart = chartById.get(id);
+    const chart = eligibleById.get(id);
     if (!chart) {
-      const cur = inactive.get(id) || { account: name || id, count: 0, last: '' };
-      cur.count++; if (date > cur.last) cur.last = date; inactive.set(id, cur); return;
+      // Still active in QuickBooks but not offered for this transaction type
+      // (an income account in card mode) is a different fact from "removed
+      // from the chart", and a reviewer must not be told the latter.
+      const live = activeById.get(id);
+      if (live) tally(ineligible, id, live.name, date); else tally(inactive, id, name || id, date);
+      return;
     }
     const cur = byAccount.get(id) || { account: chart.name, account_id: id, weight: 0, count: 0, last: '', silo: 0, ledger: 0, similar: 0 };
     cur.weight += weight; cur.count++; if (date > cur.last) cur.last = date;
@@ -201,7 +218,8 @@ function buildEvidence(
   const candidates = [...byAccount.values()].sort((a, b) => b.weight - a.weight || b.last.localeCompare(a.last));
   const total = candidates.reduce((n, c) => n + c.weight, 0);
   const notes: string[] = [];
-  if (ledgerCapped) notes.push('ledger sample capped');
+  if (capped.silo) notes.push('SILO sample capped');
+  if (capped.ledger) notes.push('ledger sample capped');
   for (const u of unavailable) notes.push(`${u} unavailable`);
   const describe = (c: HistoryCandidate) => {
     const parts: string[] = [];
@@ -245,7 +263,9 @@ function buildEvidence(
     }
     if (inactive.size) summary += ` Also coded to since-removed account(s): ${[...inactive.values()].map((i) => i.account).join(', ')}.`;
   }
-  return { status, leading, candidates, inactive: [...inactive.values()], window: { from, to: anchor }, summary, notes };
+  if (ineligible.size) summary += ` Also coded to account(s) not offered for this transaction type: ${[...ineligible.values()].map((i) => `${i.account} [${i.count}; last ${i.last}]`).join(', ')}.`;
+  return { status, leading, candidates, inactive: [...inactive.values()], ineligible: [...ineligible.values()],
+    window: { from, to: anchor }, summary, notes, capped: capped.silo || capped.ledger };
 }
 
 // Reads both sources for every merchant in the request. A read failure on one
@@ -257,33 +277,58 @@ async function loadHistory(
   companyId: string,
   connectionId: string,
   merchants: Merchant[],
-  chartById: Map<string, { name: string; type: string }>,
+  eligibleById: Map<string, ChartEntry>,
+  activeById: Map<string, ChartEntry>,
 ): Promise<{ byKey: Map<string, HistoryEvidence>; stats: Record<string, unknown> }> {
   const keys = [...new Set(merchants.map((m) => m.merchant).filter(Boolean))];
   const anchors = merchants.map((m) => m.anchor);
   const windowTo = anchors.reduce((a, b) => (a > b ? a : b));
   const windowFrom = monthsBefore(anchors.reduce((a, b) => (a < b ? a : b)), HISTORY_MONTHS);
   const unavailable: string[] = [];
+  const capped = { silo: false, ledger: false };
 
   // 1. Confirmed SILO codings, this company only, keyed on the same merchant
-  //    key the request uses. Confirmation is decided HERE, not in SQL, so the
-  //    rule is one place and testable.
+  //    key the request uses, and ONLY from card sources bound to this QBO
+  //    connection. An account id is only meaningful inside its realm: a
+  //    company that moved realms can have an old "42 = Travel" and a current
+  //    "42 = Advertising", and a row from the old realm must not be relabelled
+  //    as current precedent. The view carries source_key (unique per
+  //    company), so the rows are filtered through their source's connection
+  //    BEFORE any account id is resolved. Confirmation is decided HERE, not in
+  //    SQL, so the rule is one place and testable.
   const siloRows: SiloHistoryRow[] = [];
-  for (let i = 0; i < keys.length; i += 100) {
-    const { data, error } = await supabase
-      .from('card_transactions_v')
-      .select('merchant_norm,txn_date,qbo_account_id,qbo_account_name,coding_source,batch_status,status')
-      .eq('company_entity_id', companyId)
-      .eq('status', 'coded')
-      .not('qbo_account_id', 'is', null)
-      .in('merchant_norm', keys.slice(i, i + 100))
-      .gte('txn_date', windowFrom)
-      .lte('txn_date', windowTo);
-    if (error) { unavailable.push('SILO coding history'); siloRows.length = 0; break; }
-    for (const r of data || []) {
-      const confirmed = r.coding_source === 'manual' || r.coding_source === 'rule'
-        || (r.coding_source === 'ai' && ['approved', 'posted'].includes(String(r.batch_status)));
-      if (confirmed && r.batch_status !== 'voided') siloRows.push(r);
+  const { data: sourceRows, error: sourceError } = await supabase
+    .from('card_sources')
+    .select('source_key,qbo_connection_id')
+    .eq('company_entity_id', companyId)
+    .eq('qbo_connection_id', connectionId);
+  const sourceKeys = new Set<string>((sourceRows || []).map((r: any) => String(r.source_key)));
+  if (sourceError) unavailable.push('SILO coding history');
+  else {
+    keyLoop: for (let i = 0; i < keys.length; i += 100) {
+      for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
+        const { data, error } = await supabase
+          .from('card_transactions_v')
+          .select('merchant_norm,txn_date,qbo_account_id,qbo_account_name,coding_source,batch_status,status,source_key')
+          .eq('company_entity_id', companyId)
+          .eq('status', 'coded')
+          .not('qbo_account_id', 'is', null)
+          .in('merchant_norm', keys.slice(i, i + 100))
+          .gte('txn_date', windowFrom)
+          .lte('txn_date', windowTo)
+          .order('txn_date', { ascending: false })
+          .order('id', { ascending: true })
+          .range(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE - 1);
+        if (error) { unavailable.push('SILO coding history'); siloRows.length = 0; break keyLoop; }
+        for (const r of data || []) {
+          if (!sourceKeys.has(String(r.source_key))) continue;
+          const confirmed = r.coding_source === 'manual' || r.coding_source === 'rule'
+            || (r.coding_source === 'ai' && ['approved', 'posted'].includes(String(r.batch_status)));
+          if (confirmed && r.batch_status !== 'voided') siloRows.push(r);
+        }
+        if ((data || []).length < HISTORY_PAGE) break;
+        if (page === HISTORY_MAX_PAGES - 1) capped.silo = true;
+      }
     }
   }
 
@@ -291,7 +336,7 @@ async function loadHistory(
   //    THIS connection. Lines are not keyed by merchant, so the window's
   //    expense-side lines are paged in and matched here; a cap is reported.
   const ledgerRows: LedgerHistoryRow[] = [];
-  let ledgerCapped = false; let ledgerImports = 0;
+  let ledgerImports = 0;
   const { data: imports, error: importsError } = await supabase
     .from('qbo_history_imports')
     .select('id')
@@ -302,7 +347,7 @@ async function loadHistory(
     ledgerImports = imports.length;
     const importIds = imports.map((i: any) => i.id);
     const seen = new Set<string>();
-    for (let page = 0; page < LEDGER_MAX_PAGES; page++) {
+    for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
       const { data, error } = await supabase
         .from('qbo_history_lines')
         .select('qbo_account_id,account_name,transaction_date,counterparty,qbo_transaction_id,natural_amount')
@@ -313,7 +358,7 @@ async function loadHistory(
         .gte('transaction_date', windowFrom)
         .lte('transaction_date', windowTo)
         .order('transaction_date', { ascending: false })
-        .range(page * LEDGER_PAGE, (page + 1) * LEDGER_PAGE - 1);
+        .range(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE - 1);
       if (error) { unavailable.push('QBO ledger archive'); ledgerRows.length = 0; break; }
       for (const r of data || []) {
         // Overlapping snapshots hold the same QuickBooks line twice.
@@ -321,21 +366,22 @@ async function loadHistory(
         if (seen.has(id)) continue;
         seen.add(id); ledgerRows.push(r);
       }
-      if ((data || []).length < LEDGER_PAGE) break;
-      if (page === LEDGER_MAX_PAGES - 1) ledgerCapped = true;
+      if ((data || []).length < HISTORY_PAGE) break;
+      if (page === HISTORY_MAX_PAGES - 1) capped.ledger = true;
     }
   }
 
   const byKey = new Map<string, HistoryEvidence>();
   for (const m of merchants) {
     if (!m.merchant || byKey.has(`${m.merchant}|${m.anchor}`)) continue;
-    byKey.set(`${m.merchant}|${m.anchor}`, buildEvidence(m.merchant, m.anchor, siloRows, ledgerRows, chartById, ledgerCapped, unavailable));
+    byKey.set(`${m.merchant}|${m.anchor}`, buildEvidence(m.merchant, m.anchor, siloRows, ledgerRows, eligibleById, activeById, capped, unavailable));
   }
   return {
     byKey,
     stats: {
-      window_months: HISTORY_MONTHS, silo_rows: siloRows.length, ledger_lines: ledgerRows.length,
-      ledger_imports: ledgerImports, ledger_capped: ledgerCapped, unavailable: unavailable.length ? unavailable : undefined,
+      window_months: HISTORY_MONTHS, silo_rows: siloRows.length, silo_capped: capped.silo,
+      ledger_lines: ledgerRows.length, ledger_imports: ledgerImports, ledger_capped: capped.ledger,
+      unavailable: unavailable.length ? unavailable : undefined,
     },
   };
 }
@@ -830,8 +876,19 @@ Deno.serve(async (req) => {
 
   // What this company did with these merchants before -- confirmed SILO
   // codings and the QBO ledger archive, 24 months back from each line.
-  const chartById = new Map(accounts.map((a) => [a.id, { name: a.name, type: a.type }]));
-  const history = await loadHistory(supabase, companyId, connectionId, merchants, chartById);
+  const eligibleById = new Map<string, ChartEntry>(accounts.map((a) => [a.id, { name: a.name, type: a.type }]));
+  // The WHOLE active chart, not only the types offered for this mode, so a
+  // live income account in card mode is labelled "not offered here" rather
+  // than "removed from the chart".
+  const { data: activeRows } = await supabase
+    .from('quickbooks_accounts')
+    .select('qbo_account_id, name, fully_qualified_name, account_type')
+    .eq('company_entity_id', companyId)
+    .eq('connection_id', connectionId)
+    .eq('is_active', true);
+  const activeById = new Map<string, ChartEntry>((activeRows || [])
+    .map((a: any) => [String(a.qbo_account_id), { name: a.fully_qualified_name || a.name, type: a.account_type }]));
+  const history = await loadHistory(supabase, companyId, connectionId, merchants, eligibleById, activeById);
   const historyLine = (m: Merchant) => {
     const ev = history.byKey.get(historyKey(m));
     return ev ? `- "${m.merchant}" (lines dated up to ${m.anchor}) -> ${ev.summary}` : null;
@@ -960,6 +1017,11 @@ Deno.serve(async (req) => {
           confidence = Math.min(confidence, HISTORY_CAPS.none);
         } else if (ev.status === 'unavailable') {
           confidence = Math.min(confidence, HISTORY_CAPS.unavailable);
+        }
+        // A capped source is a partial sample whatever it appears to say.
+        if (ev.capped) {
+          confidence = Math.min(confidence, HISTORY_CAPS.capped);
+          evidence = `History sample capped, treat as partial. ${evidence}`;
         }
       }
 
