@@ -2913,8 +2913,8 @@ select
                      where tgname='trg_record_seo_task_revision' and not tgisinternal)
       then 'MISSING — trg_record_seo_task_revision'
     when not exists (select 1 from pg_trigger
-                     where tgname='trg_seo_baseline_precedes_publication' and not tgisinternal)
-      then 'MISSING — trg_seo_baseline_precedes_publication (invariant 2)'
+                     where tgname in ('trg_seo_measurement_window', 'trg_seo_baseline_precedes_publication') and not tgisinternal)
+      then 'MISSING — trg_seo_measurement_window (invariant 2; named trg_seo_baseline_precedes_publication before 20260914120000)'
     when not exists (select 1 from pg_constraint
                      where conname='seo_task_publications_verified_needs_evidence')
       then 'MISSING — a verified_capture publication can be recorded with no evidence'
@@ -3017,6 +3017,48 @@ select
         || 'insufficient on its own; address validation at fetch time is what covers it'
     else 'ok'
   end as seo_workflow_integrity;
+
+-- ── SEO measurement capture (20260914120000) ─────────────────────────────────
+-- The doc promised a deterministic baseline function since 2026-09-08 and none
+-- existed; these are the pieces that make a measurement reproducible and the
+-- publication sequence enforced. Losing any one of them removes a guarantee
+-- without removing a table.
+select
+  case
+    when to_regprocedure('public.seo_capture_measurements(uuid,text,date,date)') is null
+      then 'MISSING — seo_capture_measurements(); run 20260914120000_seo_measurement_capture.sql'
+    when to_regprocedure('public.seo_follow_up_window(uuid,integer)') is null
+      then 'MISSING — seo_follow_up_window()'
+    when has_function_privilege('anon', 'public.seo_capture_measurements(uuid,text,date,date)', 'execute')
+      or has_function_privilege('anon', 'public.seo_follow_up_window(uuid,integer)', 'execute')
+      then 'CRITICAL — anon can execute an SEO measurement function'
+    when not has_function_privilege('authenticated', 'public.seo_capture_measurements(uuid,text,date,date)', 'execute')
+      then 'MISSING — authenticated cannot execute seo_capture_measurements'
+    -- SECURITY INVOKER is load-bearing: the capture reads Search Console and
+    -- landing rows under the CALLER's RLS. A DEFINER version would read every
+    -- tenant's rows and write them into the caller's company.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                 where n.nspname = 'public' and p.proname = 'seo_capture_measurements' and p.prosecdef)
+      then 'CRITICAL — seo_capture_measurements is SECURITY DEFINER; it must read under the caller''s RLS'
+    -- Publication requires approval (the converse of invariant 1) and cannot
+    -- be future-dated.
+    when not exists (select 1 from pg_trigger where tgname = 'trg_seo_publication_admissible' and not tgisinternal)
+      then 'CRITICAL — a publication can be recorded for an unapproved task; trg_seo_publication_admissible is missing'
+    -- Both window kinds are ordered: baseline before the first publication,
+    -- follow-up after the last. The one-sided predecessor must be gone.
+    when not exists (select 1 from pg_trigger where tgname = 'trg_seo_measurement_window' and not tgisinternal)
+      then 'CRITICAL — seo_measurements windows are not ordered against publications; trg_seo_measurement_window is missing'
+    when exists (select 1 from pg_trigger where tgname = 'trg_seo_baseline_precedes_publication' and not tgisinternal)
+      then 'STALE — the one-sided baseline trigger is still attached beside the two-sided one'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public' and p.proname = 'check_seo_measurement_window'
+                       and pg_get_functiondef(p.oid) like '%follow_up%')
+      then 'CRITICAL — check_seo_measurement_window() no longer orders follow-up windows'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname = 'seo_measurements' and description like '%CAPTURE, DO NOT TYPE%')
+      then 'MISSING — seo_measurements catalog entry does not point the model at seo_capture_measurements()'
+    else 'ok'
+  end as seo_measurement_capture;
 
 -- ── Baseline boundary is a BUSINESS date (20260909300000, corrective) ───────
 -- seo_baseline_conflicts() compared a date against timestamptz::date, which

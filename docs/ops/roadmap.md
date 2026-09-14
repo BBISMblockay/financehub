@@ -10,6 +10,12 @@ is the authority on what is still to do.
 
 ## Now (stability)
 
+- [ ] **SEO project, phase two.** Measurement engine shipped 2026-09-14
+      (`20260914120000`); next in order: the recommendation writer (Ask SILO
+      tools), the workflow page, the keyword set and SERP observation schema,
+      then the provider integration once Blake picks one
+      (`docs/ops/seo-competitors.md`). The sequence is in
+      `docs/ops/seo-project.md`'s second-phase review.
 - [ ] **Period lock and bank reconciliation, in that order of decision.**
       The 2026-09-14 controls review (`docs/ops/accounting-controls-review.md`)
       executed the committed SQL and found the approval → posting → recovery

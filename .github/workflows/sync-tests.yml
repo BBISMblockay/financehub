@@ -52,6 +52,13 @@ on:
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
       - 'supabase/migrations/*plaid_bank_feed.sql'
       - 'supabase/migrations/*profiles_active_company_scope.sql'
+      - 'supabase/migrations/*seo_measurement_capture.sql'
+      - 'supabase/migrations/*seo_project_workflow.sql'
+      - 'supabase/migrations/*seo_workflow_integrity.sql'
+      - 'supabase/migrations/*seo_baseline_business_timezone.sql'
+      - 'supabase/migrations/*page_inspection.sql'
+      - 'supabase/migrations/*search_console_daily.sql'
+      - 'supabase/migrations/*search_console_overview_rpcs.sql'
       - 'v2/card-coding.html'
       - 'v2/transactions.html'
       - 'v2/transactions-tiles.js'
@@ -243,3 +250,10 @@ jobs:
 
       - name: Execute cashflow override, liquidity and audit regressions
         run: node scripts/tests/cashflow-database.test.mjs
+
+      # The SEO workflow's approval RLS, publication guard, window ordering and
+      # the deterministic capture, executed as authenticated users against the
+      # committed migrations. Until 2026-09-14 the only behavioural check was a
+      # manual service-role script that no workflow ran.
+      - name: Execute SEO workflow approval, publication and measurement regressions
+        run: node scripts/tests/seo-workflow-database.test.mjs

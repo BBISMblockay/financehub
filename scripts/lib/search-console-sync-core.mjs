@@ -62,6 +62,7 @@ import {
   pacificDateOnly,
   upsertInChunks,
   fetchWithRetry,
+  chunk,
 } from './shopify-sync-core.mjs';
 import { refreshGoogleAccessToken } from './ad-platforms-sync-core.mjs';
 
@@ -275,6 +276,31 @@ export async function runSearchConsoleSync(supabase, env, connection, {
   const siteUpserted = await upsertInChunks(supabase, 'search_console_site_daily', siteRows,
     'company_entity_id,site_url,day_date');
 
+  // Retire detail rows this fetch did not return. Upsert alone only ever
+  // ADDS: a page or query Google returned last month and withholds today
+  // would stay in the table while the site row's *_attributed_* sums are
+  // rewritten from the fresh fetch -- so sum(page rows) for a day could
+  // exceed page_attributed_clicks for the same day, and the prompt tells the
+  // model to compare exactly those two. After the sweep the detail tables are
+  // what the latest fetch returned for the days it returned, which is what
+  // the catalog says they are. Only days the site cut returned are swept
+  // (a day Google returned nothing for is left alone: absence is not a
+  // restatement to zero), only cuts that were NOT truncated (a prefix is not
+  // the full return), and only rows stamped by an earlier batch. Runs after
+  // the site upsert so a failure here leaves the pre-existing shape rather
+  // than deleting rows the site row still describes.
+  const sweptDays = siteRows.map((r) => r.day_date);
+  const stale = { page: 0, query: 0, skipped: null };
+  if (!batchId) {
+    stale.skipped = 'no batch id';
+  } else if (sweptDays.length === 0) {
+    stale.skipped = 'no days returned';
+  } else {
+    if (!truncated.page) stale.page = await sweepStaleRows(supabase, 'search_console_page_daily', connection, site, sweptDays, batchId);
+    if (!truncated.query) stale.query = await sweepStaleRows(supabase, 'search_console_query_daily', connection, site, sweptDays, batchId);
+    if (truncated.page || truncated.query) stale.skipped = 'truncated cut left as is';
+  }
+
   const totalClicks = siteRows.reduce((a, r) => a + r.clicks, 0);
   const share = (n) => (totalClicks > 0 ? Number((n / totalClicks).toFixed(4)) : null);
 
@@ -293,9 +319,32 @@ export async function runSearchConsoleSync(supabase, env, connection, {
     query_attributed_click_share: share(siteRows.reduce((a, r) => a + r.query_attributed_clicks, 0)),
     page_attributed_click_share: share(siteRows.reduce((a, r) => a + r.page_attributed_clicks, 0)),
     truncated,
+    stale_rows_removed: stale,
     pages_fetched: { site: siteCut.pages, page: pageCut.pages, query: queryCut.pages },
     synced_at: syncedAt,
   };
+}
+
+/** Delete rows of one detail table, for the given company/property/days,
+ * that were not written by this batch. Two statements because PostgREST's
+ * `neq` does not match a NULL batch id, and rows written before batch ids
+ * were stamped are exactly the ones a restatement must be able to retire.
+ * Returns the number of rows removed. */
+export async function sweepStaleRows(supabase, table, connection, site, days, batchId) {
+  let removed = 0;
+  for (const group of chunk(days, 200)) {
+    for (const stamp of ['older', 'unstamped']) {
+      let query = supabase.from(table).delete()
+        .eq('company_entity_id', connection.company_entity_id)
+        .eq('site_url', site)
+        .in('day_date', group);
+      query = stamp === 'older' ? query.neq('sync_batch_id', batchId) : query.is('sync_batch_id', null);
+      const { data, error } = await query.select('id');
+      if (error) throw new Error(`${table} stale-row sweep failed: ${error.message}`);
+      removed += (data || []).length;
+    }
+  }
+  return removed;
 }
 
 /** Split [startDate, endDate] into chunks of `chunkDays`, NEWEST FIRST, so a

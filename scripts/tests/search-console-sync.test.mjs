@@ -314,4 +314,97 @@ const row = (keys, clicks, impressions, ctr = 0.05, position = 10) => ({ keys, c
   eq(r.days_with_data, 2, 'coverage sums only completed chunks');
 }
 
+// ── 8. A shrinking fetch retires the rows it no longer returns ──────────────
+// Upsert alone only adds. Google does not return every row on every fetch and
+// restates data, so a page returned last night and withheld tonight would
+// otherwise stay in the table while the site row's attributed sums are
+// rewritten from the fresh fetch -- and the prompt tells the model to compare
+// exactly those two numbers.
+{
+  const page = (day, path, clicks) => row([day, `https://www.baseballism.com${path}`], clicks, clicks * 10);
+  const first = {
+    'date': [row(['2026-09-06'], 30, 300), row(['2026-09-07'], 30, 300)],
+    'date,page': [page('2026-09-06', '/a', 10), page('2026-09-06', '/b', 20), page('2026-09-07', '/a', 10), page('2026-09-07', '/c', 20)],
+    'date,query': [row(['2026-09-06', 'q1'], 6, 50), row(['2026-09-07', 'q1'], 6, 50), row(['2026-09-07', 'q2'], 6, 50)],
+  };
+  const db = createFakeSupabase();
+  const run = (data, batchId, extra = {}) => runSearchConsoleSync(db, ENV, CONNECTION, {
+    now: new Date('2026-09-10T20:00:00Z'), accessToken: 'tok', fetchImpl: fakeSearchConsole(data).fetchImpl, batchId,
+    window: { startDate: '2026-09-06', endDate: '2026-09-07' }, ...extra,
+  });
+  const r1 = await run(first, 'b1');
+  eq(r1.stale_rows_removed, { page: 0, query: 0, skipped: null }, 'a first fetch has nothing to retire');
+  // A row from before batch ids were stamped, for a day inside the window,
+  // and one for a day OUTSIDE it: only the former is a candidate.
+  for (const fixture of [
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-06', page: 'https://www.baseballism.com/legacy', clicks: 1, impressions: 1, sync_batch_id: null },
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-08-01', page: 'https://www.baseballism.com/old', clicks: 1, impressions: 1, sync_batch_id: 'b0' },
+    // Another company's rows on the same day must never be touched.
+    { company_entity_id: 'co-2', site_url: 'https://other.example/', day_date: '2026-09-06', page: 'https://other.example/x', clicks: 1, impressions: 1, sync_batch_id: 'b0' },
+  ]) await db.from('search_console_page_daily').insert(fixture);
+
+  // Second fetch: /b is no longer returned on 09-06, /c not on 09-07, q2 gone.
+  const second = {
+    'date': [row(['2026-09-06'], 30, 300), row(['2026-09-07'], 30, 300)],
+    'date,page': [page('2026-09-06', '/a', 30), page('2026-09-07', '/a', 30)],
+    'date,query': [row(['2026-09-06', 'q1'], 6, 50), row(['2026-09-07', 'q1'], 6, 50)],
+  };
+  const r2 = await run(second, 'b2');
+  eq(r2.stale_rows_removed, { page: 3, query: 1, skipped: null }, '/b, /c and the unstamped legacy row retired; q2 retired');
+  const pages = db.rows('search_console_page_daily').map((x) => `${x.company_entity_id}|${x.day_date}|${x.page.replace('https://www.baseballism.com', '')}`).sort();
+  eq(pages, ['co-1|2026-08-01|/old', 'co-1|2026-09-06|/a', 'co-1|2026-09-07|/a', 'co-2|2026-09-06|https://other.example/x'],
+    'only rows for this company, this property and the returned days are swept');
+  eq(db.rows('search_console_query_daily').map((x) => `${x.day_date}|${x.query}`).sort(), ['2026-09-06|q1', '2026-09-07|q1'], 'query rows likewise');
+  const site = db.rows('search_console_site_daily').find((x) => x.day_date === '2026-09-06');
+  eq(site.page_attributed_clicks, 30, 'and the site row agrees with what the detail table now holds');
+  eq(db.rows('search_console_page_daily').filter((x) => x.day_date === '2026-09-06' && x.company_entity_id === 'co-1').reduce((a, x) => a + x.clicks, 0), 30,
+    'sum(page rows) equals page_attributed_clicks for the day');
+
+  // A day the site cut did not return is left alone: absence is not a
+  // restatement to zero.
+  const third = { 'date': [row(['2026-09-07'], 30, 300)], 'date,page': [page('2026-09-07', '/a', 30)], 'date,query': [row(['2026-09-07', 'q1'], 6, 50)] };
+  const r3 = await run(third, 'b3');
+  eq(r3.stale_rows_removed, { page: 0, query: 0, skipped: null }, 'nothing to retire on the returned day');
+  ok(db.rows('search_console_page_daily').some((x) => x.day_date === '2026-09-06' && x.page.endsWith('/a')), 'the unreturned day keeps its rows');
+
+}
+{
+  const page = (day, path, clicks) => row([day, `https://www.baseballism.com${path}`], clicks, clicks * 10);
+  const db = createFakeSupabase();
+  await db.from('search_console_page_daily').insert(
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-07', page: 'https://www.baseballism.com/keep', clicks: 1, impressions: 1, sync_batch_id: 'b0' });
+  await db.from('search_console_query_daily').insert(
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-07', query: 'keep', clicks: 1, impressions: 1, sync_batch_id: 'b0' });
+  const data = { 'date': [row(['2026-09-07'], 6, 60)], 'date,page': [], 'date,query': [row(['2026-09-07', 'q1'], 1, 10)] };
+  const sc = fakeSearchConsole(data);
+  // One page allowed and a full page offered: the guard marks the page cut
+  // truncated, and a truncated cut is a prefix that must not retire rows.
+  const r = await runSearchConsoleSync(db, ENV, CONNECTION, {
+    now: new Date('2026-09-10T20:00:00Z'), accessToken: 'tok', batchId: 'b5',
+    window: { startDate: '2026-09-07', endDate: '2026-09-07' },
+    fetchImpl: async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      if ((body.dimensions || []).join(',') === 'date,page') {
+        // Hand back a FULL page (rowLimit rows) so the one-page guard flags
+        // truncation: a short page reads as complete.
+        const full = Array.from({ length: body.rowLimit }, (_, i) => page('2026-09-07', `/p${i}`, 1));
+        return { ok: true, status: 200, text: async () => JSON.stringify({ rows: full }) };
+      }
+      return sc.fetchImpl(url, opts);
+    },
+    maxPages: 1,
+  });
+  ok(r.truncated.page, 'the page cut was truncated by the page guard');
+  eq(r.stale_rows_removed.page, 0, 'a truncated cut retires nothing');
+  eq(r.stale_rows_removed.query, 1, 'the untruncated query cut still retires its stale row');
+  eq(r.stale_rows_removed.skipped, 'truncated cut left as is', 'and says so');
+  ok(db.rows('search_console_page_daily').some((x) => x.page.endsWith('/keep')), 'the stale page row survives a truncated fetch');
+
+  const r0 = await runSearchConsoleSync(db, ENV, CONNECTION, {
+    now: new Date('2026-09-10T20:00:00Z'), accessToken: 'tok', batchId: null,
+    window: { startDate: '2026-09-07', endDate: '2026-09-07' }, fetchImpl: sc.fetchImpl,
+  });
+  eq(r0.stale_rows_removed, { page: 0, query: 0, skipped: 'no batch id' }, 'no batch id, no sweep');
+}
+
 console.log(`search-console-sync: ${passed} assertions passed`);

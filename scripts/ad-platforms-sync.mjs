@@ -151,6 +151,10 @@ async function syncConnection(connection) {
       console.log(`[ok] ${label}: ${result.days_with_data} days (${result.window.startDate}..${result.window.endDate}) — `
         + `${result.page_rows_upserted} page rows, ${result.query_rows_upserted} query rows; `
         + `query cut attributes ${pct(result.query_attributed_click_share)} of clicks`
+        + (result.stale_rows_removed
+          ? `; stale rows retired: ${result.stale_rows_removed.page} page, ${result.stale_rows_removed.query} query`
+            + (result.stale_rows_removed.skipped ? ` (${result.stale_rows_removed.skipped})` : '')
+          : '')
         + (result.truncated.page || result.truncated.query ? ' [TRUNCATED — window too wide for one call]' : ''));
       return { connection: label, ...result };
     } catch (err) {
