@@ -3564,6 +3564,18 @@ select 'QBO history import RPC' as check_name,
  when not p.prosecdef or has_function_privilege('anon',p.oid,'EXECUTE')
  or not has_function_privilege('authenticated',p.oid,'EXECUTE') then 'CRITICAL: archive RPC grants'
  else 'ok' end as status from (select to_regprocedure('public.archive_qbo_ledger(uuid,uuid)') oid) x left join pg_proc p on p.oid=x.oid;
+select 'QBO history number formats' as check_name,
+ case when to_regprocedure('public.qbo_report_number(text,text)') is null then 'MISSING: QBO history number-format migration (20260914220000)'
+ when has_function_privilege('anon',to_regprocedure('public.qbo_report_number(text,text)'),'EXECUTE')
+ or has_function_privilege('authenticated',to_regprocedure('public.qbo_report_number(text,text)'),'EXECUTE') then 'CRITICAL: number parser client grants'
+ when to_regprocedure('public.archive_qbo_ledger(uuid,uuid)') is null then 'MISSING: archive_qbo_ledger'
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%qbo_report_number(%'
+ or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) like '%''Invalid ledger movement''%'
+ or not exists(select 1 from pg_constraint where conrelid=to_regclass('public.qbo_history_lines') and conname='qbo_history_lines_row_kind_check'
+ and pg_get_constraintdef(oid) like '%zero_amount%')
+ or not exists(select 1 from pg_constraint where conrelid=to_regclass('public.qbo_history_lines') and conname='qbo_history_lines_transaction_nonzero')
+ then 'STALE: archive_qbo_ledger still rejects leading-decimal QBO amounts or zero lines are not their own row kind; apply 20260914220000'
+ else 'ok' end as status;
 select 'QBO history retention and audit' as check_name,
  case when to_regclass('public.qbo_history_imports') is null then 'MISSING: QBO history migration'
  when exists(select 1 from pg_constraint where conrelid=to_regclass('public.qbo_history_imports') and contype='f'

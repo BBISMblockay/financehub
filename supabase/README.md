@@ -545,6 +545,22 @@ copies, and records per-account reconciliation exceptions. It creates no journal
 Apply only this new migration after review; no Edge Function change is required.
 See [QBO history operations](../docs/ops/qbo-history.md) for limits and test gates.
 
+### QBO history number formats (20260914220000)
+
+`20260914220000_qbo_history_number_formats.sql` adds `qbo_report_number(text,text)`
+(one parser for every numeric report cell: QBO writes fractions as `.44` / `-.67`,
+which the first archive migration rejected as `Invalid ledger movement`) and
+re-creates `archive_qbo_ledger(uuid,uuid)` to use it, to settle a blank amount from
+the running balance only when the balance did not move, to treat a missing `value`
+key as a shape failure, and to name the cell, row ordinal and QBO account id in
+format errors. Zero lines (blank or `.00`) get `row_kind = 'zero_amount'` (the
+`row_kind` CHECK is widened, and a second CHECK refuses a zero-amount `transaction`
+row) so the categorizer's `row_kind = 'transaction'` evidence read never treats
+them as precedent. The second CHECK is the compatibility proof: over an archive
+that already held such a row the `ALTER` fails and the migration stops before the
+RPC is re-created (production held no archives when written). Additive; the 20260913 migration is untouched. Apply after it. No
+Edge Function change. `verify_v2_schema.sql` reports STALE until applied.
+
 ### Profiles active-company scope (20260913054723)
 
 `20260913054723_profiles_active_company_scope.sql` scopes profile visibility to

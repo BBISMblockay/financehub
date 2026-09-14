@@ -292,6 +292,20 @@ test('the 24-month window precedes the transaction date: older rows and later ro
   assert.equal(sf.history_status, 'none', 'a coding dated after the transaction is not history for it');
 });
 
+test('a retained zero-amount ledger line (row_kind zero_amount) never becomes a candidate', async () => {
+  // The archive stores a blank or .00 line as row_kind 'zero_amount'; the
+  // evidence read here filters row_kind = 'transaction', so an exact-payee
+  // zero line for a merchant with no other history yields no history at all.
+  const h = fixture({ ledger: [ledgerLine({ row_kind: 'zero_amount', natural_amount: 0, counterparty: 'STATE FARM' })] });
+  const { r, s } = await first(h);
+  assert.equal(s.history_status, 'none'); assert.equal(r.body.history.ledger_lines, 0);
+  assert.ok(!(s.evidence || '').includes('ledger line'), s.evidence);
+  assert.ok(h.queries.some((q) => q.table === 'qbo_history_lines' && q.filters.some(([op, k, v]) => op === 'eq' && k === 'row_kind' && v === 'transaction')), 'the ledger read is pinned to row_kind transaction');
+  // The same line as a real transaction is what the filter is there to admit.
+  const real = fixture({ ledger: [ledgerLine({ counterparty: 'STATE FARM' })] });
+  assert.equal((await first(real)).r.body.history.ledger_lines, 1);
+});
+
 test('ledger evidence counts only the expense-side leg and dedupes overlapping snapshots', async () => {
   const shared = { qbo_transaction_id: 'same-bill', transaction_date: monthsAgo(2), natural_amount: 88 };
   const h = fixture({
