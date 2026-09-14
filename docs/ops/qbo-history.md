@@ -84,15 +84,33 @@ key. That is QBO's rendering of a zero-value line ($0 payment application, zero
 journal line). The archive therefore treats a blank amount as zero **only when the
 row's running balance equals the balance carried in** from the prior line (the
 beginning balance, or zero for an account with no beginning-balance row). The row is
-kept as a transaction line with `natural_amount = 0` and its raw row intact, and the
-account's reconciliation entry counts it in `blank_amount_rows` (the RPC result
-carries the total). A blank amount beside a running balance that moved is ambiguous
-and fails the import: `Blank ledger amount with a changed running balance at row
-<n> of account <id>`. A cell with no `value` key at all, a blank running balance and
-a blank trial balance grand total are shape failures, never zeros. Blank rows still
+kept as a line with `natural_amount = 0` and its raw row intact, and the account's
+reconciliation entry counts it in `blank_amount_rows` (the RPC result carries the
+total). A blank amount beside a running balance that moved is ambiguous and fails
+the import: `Blank ledger amount with a changed running balance at row <n> of
+account <id>`. A cell with no `value` key at all, a blank running balance and a
+blank trial balance grand total are shape failures, never zeros. Blank rows still
 count toward the period total and the running-balance chain, so a blank that hid a
 real movement would surface as `movement_total_mismatch` or `running_balance_gap`
 like any other row.
+
+**Row kinds.** `qbo_history_lines.row_kind` is `opening` (a Beginning Balance row),
+`transaction` (a line that moved the account) or, since `20260914220000`,
+`zero_amount` (a line whose amount is zero, whether blank or written `.00`; the
+same report had 685 explicit `.00` lines beside the 41 blanks). A zero line is
+retained for audit, the running-balance chain, the period total and the
+reconciliation, and it counts in `transaction_count` and in `zero_amount_rows`, but
+the card categorizer's evidence read filters `row_kind = 'transaction'`
+(`supabase/functions/card-categorize/index.ts`), so a zero-dollar journal line or
+payment application can never be the only "history" that steers a merchant to an
+account. That exclusion lives in the stored kind, not in the Edge Function, so no
+deploy is needed and a future reader of the archive gets the same distinction.
+
+**Summary cells.** Only a PRESENT empty string in a section's period total or a
+group's total means zero. A missing `value` key or a JSON null there fails the
+import (`Period total cell is missing for account <id>` / `Ledger total cell is
+missing in grouped ledger total for <id>`), the same shape rule the movement,
+running-balance and trial-balance cells follow.
 
 Stored exceptions include running-balance gaps, missing transaction references,
 period-total disagreement, GL/TB closing disagreement, missing accounts on either

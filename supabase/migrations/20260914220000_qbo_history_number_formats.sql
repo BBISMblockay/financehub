@@ -25,12 +25,24 @@
 --     balance is ambiguous and fails the whole import. Blank rows are kept as
 --     lines (natural_amount 0, raw row preserved) and counted per account as
 --     blank_amount_rows in the reconciliation so nothing is silently dropped.
---   * a cell whose "value" key is missing is a shape failure, never a blank.
+--   * a cell whose "value" key is missing is a shape failure, never a blank;
+--     that rule covers the movement, running balance and trial balance cells
+--     AND every section summary (parent group, child, leaf period total).
+--     Only a PRESENT empty string means zero.
+--   * a line whose amount is zero, blank or written as .00, is stored with
+--     row_kind 'zero_amount' rather than 'transaction'. It stays a line
+--     (audit, running-balance chain, period total, reconciliation) but the
+--     card-categorize evidence read filters row_kind = 'transaction', so a
+--     zero-dollar journal line or payment application can never become the
+--     coding precedent for a merchant. Nothing in that Edge Function changes.
 --   * errors name the cell, the ledger row ordinal and the QBO account id,
 --     never the value, so a formatting failure is distinguishable from a
 --     connection, date or coverage failure without copying report data.
 -- Tables, RLS, immutability triggers, the atomic insert and the GL/TB
 -- reconciliation are unchanged.
+
+alter table public.qbo_history_lines drop constraint if exists qbo_history_lines_row_kind_check;
+alter table public.qbo_history_lines add constraint qbo_history_lines_row_kind_check check(row_kind in ('opening','transaction','zero_amount'));
 
 create or replace function public.qbo_report_number(p_value text,p_context text)
 returns numeric language plpgsql immutable as $$
@@ -54,7 +66,7 @@ declare
  balance numeric; movement numeric; amount numeric; row_balance numeric; expected numeric; difference numeric; summary_amount numeric; direction integer;
  row_no integer:=0; txn_count integer:=0; exceptions integer:=0; n integer; d date; row_kind text; problems text[];
  has_beginning boolean; txn_started boolean; doc jsonb; k text; node record; child_total numeric;
- section_row integer; blank_rows integer; blank_total integer:=0; where_ text;
+ section_row integer; blank_rows integer; blank_total integer:=0; zero_rows integer; zero_total integer:=0; where_ text;
 begin
  if auth.uid() is null or co is null or not(public.can_manage_journal_entries() or public.is_exec_or_owner()) then raise exception 'Finance access required'; end if;
  perform 1 from public.entities where id=co for update;
@@ -132,6 +144,9 @@ begin
   if exists(select 1 from jsonb_array_elements(section#>'{Rows,Row}') c where c.value->>'type'='Section') then
    if exists(select 1 from jsonb_array_elements(section#>'{Rows,Row}') c where c.value->>'type'='Data') then raise exception 'Mixed grouped and direct ledger rows are not supported'; end if;
    where_:=format('grouped ledger total for %s',coalesce(nullif(qid,''),'an unidentified group'));
+   if jsonb_typeof(section#>'{Summary,ColData,6,value}') is distinct from 'string'
+     or exists(select 1 from jsonb_array_elements(section#>'{Rows,Row}') c where jsonb_typeof(c.value#>'{Summary,ColData,6,value}') is distinct from 'string') then
+    raise exception 'Ledger total cell is missing in %; no archive was written',where_; end if;
    summary_amount:=coalesce(public.qbo_report_number(section#>>'{Summary,ColData,6,value}',where_),0);
    select coalesce(sum(coalesce(public.qbo_report_number(c.value#>>'{Summary,ColData,6,value}',where_),0)),0) into child_total from jsonb_array_elements(section#>'{Rows,Row}') c;
    if summary_amount<>child_total then raise exception 'Grouped ledger totals do not tie to child sections'; end if;
@@ -144,7 +159,7 @@ begin
   direction:=case when account.account_type in ('Bank','Accounts Receivable','Other Current Asset','Fixed Asset','Other Asset','Expense','Other Expense','Cost of Goods Sold') then 1
    when account.account_type in ('Accounts Payable','Credit Card','Other Current Liability','Long Term Liability','Equity','Income','Other Income') then -1 else null end;
   if direction is null then raise exception 'Unsupported account type %',account.account_type; end if;
-  balance:=0;movement:=0;has_beginning:=false;txn_started:=false;problems:='{}';section_row:=0;blank_rows:=0;
+  balance:=0;movement:=0;has_beginning:=false;txn_started:=false;problems:='{}';section_row:=0;blank_rows:=0;zero_rows:=0;
   if coalesce(jsonb_array_length(section#>'{Rows,Row}'),0)=0 then problems:=array_append(problems,'no_ledger_rows'); end if;
   for item in select value from jsonb_array_elements(section#>'{Rows,Row}') loop
    cells:=item->'ColData';section_row:=section_row+1;
@@ -171,7 +186,9 @@ begin
      if row_balance<>balance then raise exception 'Blank ledger amount with a changed running balance at row % of account % is ambiguous; no archive was written',section_row,qid; end if;
      amount:=0;blank_rows:=blank_rows+1;blank_total:=blank_total+1;
     end if;
-    txn_started:=true;row_kind:='transaction';txn_count:=txn_count+1;
+    -- A zero line is retained but is not coding precedent (see header).
+    if amount=0 then row_kind:='zero_amount';zero_rows:=zero_rows+1;zero_total:=zero_total+1; else row_kind:='transaction'; end if;
+    txn_started:=true;txn_count:=txn_count+1;
     if balance+amount<>row_balance and not('running_balance_gap'=any(problems)) then problems:=array_append(problems,'running_balance_gap'); end if;
     movement:=movement+amount;balance:=row_balance;
     if nullif(cells#>>'{1,id}','') is null and not('missing_transaction_reference'=any(problems)) then problems:=array_append(problems,'missing_transaction_reference'); end if;
@@ -182,14 +199,16 @@ begin
     'counterparty',cells#>>'{3,value}','memo',cells#>>'{4,value}','split_account_id',cells#>>'{5,id}','split_account_name',cells#>>'{5,value}',
     'natural_amount',amount,'natural_balance',row_balance,'raw_row',item));
   end loop;
-  -- A blank period total is zero (an account with only a beginning balance).
+  -- A PRESENT blank period total is zero (an account with only a beginning
+  -- balance); a missing or null cell is a shape failure.
+  if jsonb_typeof(section#>'{Summary,ColData,6,value}') is distinct from 'string' then raise exception 'Period total cell is missing for account %; no archive was written',qid; end if;
   summary_amount:=coalesce(public.qbo_report_number(section#>>'{Summary,ColData,6,value}',format('period total for account %s',qid)),0);
   if summary_amount<>movement then problems:=array_append(problems,'movement_total_mismatch'); end if;
   expected:=(tb_balances->>qid)::numeric;
   if expected is null then problems:=array_append(problems,'missing_trial_balance_account');difference:=null;
    else difference:=balance*direction-expected;if difference<>0 then problems:=array_append(problems,'trial_balance_mismatch'); end if; end if;
   if cardinality(problems)>0 then exceptions:=exceptions+1; end if;
-  checks:=checks||jsonb_build_array(jsonb_build_object('qbo_account_id',qid,'account_name',account.name,'ledger_debit_net',balance*direction,'trial_balance_debit_net',expected,'difference',difference,'issues',to_jsonb(problems),'blank_amount_rows',blank_rows));
+  checks:=checks||jsonb_build_array(jsonb_build_object('qbo_account_id',qid,'account_name',account.name,'ledger_debit_net',balance*direction,'trial_balance_debit_net',expected,'difference',difference,'issues',to_jsonb(problems),'blank_amount_rows',blank_rows,'zero_amount_rows',zero_rows));
  end loop;
  if row_no=0 or cardinality(gl_seen)=0 then raise exception 'Ledger contains no account sections; no historical coverage was established'; end if;
  -- A TB account not in GL is an explicit coverage exception even at zero;
@@ -205,7 +224,7 @@ begin
  insert into public.qbo_history_lines(company_entity_id,import_id,row_no,row_kind,qbo_account_id,account_name,account_type,transaction_date,qbo_transaction_id,transaction_type,document_number,counterparty,memo,split_account_id,split_account_name,natural_amount,natural_balance,raw_row)
  select co,imp,x.row_no,x.row_kind,x.qbo_account_id,x.account_name,x.account_type,x.transaction_date,x.qbo_transaction_id,x.transaction_type,x.document_number,x.counterparty,x.memo,x.split_account_id,x.split_account_name,x.natural_amount,x.natural_balance,x.raw_row
  from jsonb_to_recordset(staged) as x(row_no integer,row_kind text,qbo_account_id text,account_name text,account_type text,transaction_date date,qbo_transaction_id text,transaction_type text,document_number text,counterparty text,memo text,split_account_id text,split_account_name text,natural_amount numeric,natural_balance numeric,raw_row jsonb);
- return jsonb_build_object('id',imp,'transaction_count',txn_count,'exception_count',exceptions,'blank_amount_rows',blank_total);
+ return jsonb_build_object('id',imp,'transaction_count',txn_count,'exception_count',exceptions,'blank_amount_rows',blank_total,'zero_amount_rows',zero_total);
 end $$;
 revoke all on function public.archive_qbo_ledger(uuid,uuid) from public,anon,authenticated;
 grant execute on function public.archive_qbo_ledger(uuid,uuid) to authenticated;

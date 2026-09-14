@@ -35,7 +35,9 @@ Both are read for the caller's active company only.
    sample capped" note.
 2. **The QBO ledger archive** (`qbo_history_lines`, see [qbo-history.md](qbo-history.md)),
    reached only through `qbo_history_imports` rows for this company AND the card
-   source's `qbo_connection_id`. `row_kind = 'transaction'` only, and only lines on
+   source's `qbo_connection_id`. `row_kind = 'transaction'` only (never `opening`,
+   and never `zero_amount`, the kind the archive gives a blank or `.00` line since
+   `20260914220000`, so a zero-dollar journal line cannot be a precedent), and only lines on
    expense, COGS, asset and income account types. Settlement legs on Accounts Payable,
    Credit Card and Other Current Liability are excluded: they say how a bill was PAID,
    not what it WAS. Lines are paged 1000 at a time, newest first, up to 5 pages; hitting

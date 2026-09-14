@@ -70,8 +70,12 @@ try{
   const bank=row.reconciliation.find(x=>x.qbo_account_id==='bank');assert.equal(bank.ledger_debit_net,20.33);assert.equal(bank.trial_balance_debit_net,20.33);assert.equal(bank.difference,0);assert.equal(bank.blank_amount_rows,1);
   assert.equal(row.reconciliation.find(x=>x.qbo_account_id==='equity').ledger_debit_net,-14.39);assert.equal(row.reconciliation.find(x=>x.qbo_account_id==='child').ledger_debit_net,0.06);
   const lines=await q('select row_kind,natural_amount::text amount,natural_balance::text balance,transaction_type,raw_row from qbo_history_lines where import_id=$1 and qbo_account_id=$2 order by row_no',[decimalSaved.id,'bank']);
-  assert.deepEqual(lines.map(l=>[l.row_kind,l.amount,l.balance]),[['opening','0','20.44'],['transaction','0.56','21.00'],['transaction','-0.67','20.33'],['transaction','0','20.33']],'Stored exactly as the provider wrote them');
+  assert.deepEqual(lines.map(l=>[l.row_kind,l.amount,l.balance]),[['opening','0','20.44'],['transaction','0.56','21.00'],['transaction','-0.67','20.33'],['zero_amount','0','20.33']],'Stored exactly as the provider wrote them; a zero line is its own kind');
   assert.equal(lines[3].transaction_type,'Payment');assert.equal(lines[3].raw_row.ColData[6].value,'','The blank amount is retained as evidence, not rewritten');
+  assert.equal(decimalSaved.zero_amount_rows,1);assert.equal(bank.zero_amount_rows,1);
+  // The categorizer's evidence read (card-categorize/index.ts) filters
+  // row_kind = 'transaction'; the same shape of query must never see a zero line.
+  assert.equal(Number((await one("select count(*) n from qbo_history_lines where import_id=$1 and row_kind='transaction' and natural_amount=0",[decimalSaved.id])).n),0);
   assert.equal((await one('select natural_amount::text a from qbo_history_lines where import_id=$1 and qbo_account_id=$2',[decimalSaved.id,'child'])).a,'0.06');}
  // The same fixture with the blank amount beside a moving balance, a missing
  // cell, or a format QBO does not use fails atomically: nothing is written.
@@ -96,6 +100,22 @@ try{
   zero.ColData[7].value='.00';const out=await archive(await store(raw),decimalT);assert.equal(out.blank_amount_rows,2);assert.equal(out.exception_count,0);
   const first=await one('select natural_amount::text a,natural_balance::text b from qbo_history_lines where import_id=$1 and qbo_account_id=$2 order by row_no limit 1',[out.id,'income']);assert.deepEqual(first,{a:'0',b:'0.00'});
   zero.ColData[7].value='.01';await assert.rejects(archive(await store(raw),decimalT),/Blank ledger amount with a changed running balance at row 1 of account income/);}
+ // An explicit .00 amount is the same zero line: retained, kept out of coding
+ // evidence, and never able to reach the categorizer's row_kind filter.
+ {const raw=structuredClone(decimalGl);const bank=raw.Rows.Row[0].Rows.Row;const explicit=structuredClone(bank[3]);explicit.ColData[6].value='.00';bank.push(explicit);
+  const out=await archive(await store(raw),decimalT);assert.equal(out.transaction_count,7);assert.equal(out.blank_amount_rows,1);assert.equal(out.zero_amount_rows,2);assert.equal(out.exception_count,0);
+  const kinds=await q('select row_kind,natural_amount::text a from qbo_history_lines where import_id=$1 and qbo_account_id=$2 order by row_no',[out.id,'bank']);
+  assert.deepEqual(kinds.map(k=>k.row_kind),['opening','transaction','transaction','zero_amount','zero_amount']);assert.deepEqual(kinds.slice(3).map(k=>k.a),['0','0.00'],'A blank is 0; an explicit .00 keeps its scale');
+  assert.equal(Number((await one("select count(*) n from qbo_history_lines where import_id=$1 and row_kind='transaction' and natural_amount=0",[out.id])).n),0);
+  await assert.rejects(q("insert into qbo_history_lines(company_entity_id,import_id,row_no,row_kind,qbo_account_id,account_name,account_type,natural_amount,natural_balance,raw_row) values($1,$2,999,'blank','bank','x','Bank',0,0,'{}')",[co,out.id]),/row_kind_check/);}
+ // Summary cells: only a PRESENT empty string means zero. A missing key or a
+ // JSON null in a parent group, a child, or a leaf period total is a shape
+ // failure, whatever the section's movement.
+ for(const edit of [r=>{delete r.Rows.Row[0].Summary.ColData[6].value;},r=>{r.Rows.Row[0].Summary.ColData[6].value=null;}])await badDecimal(edit,/Period total cell is missing for account bank/);
+ for(const edit of [r=>{delete r.Rows.Row[1].Summary.ColData[6].value;},r=>{r.Rows.Row[1].Summary.ColData[6].value=null;}])await badDecimal(edit,/Period total cell is missing for account equity/);
+ for(const edit of [r=>{delete r.Rows.Row[2].Summary.ColData[6].value;},r=>{r.Rows.Row[2].Summary.ColData[6].value=null;}])await badDecimal(edit,/Ledger total cell is missing in grouped ledger total for expense/);
+ for(const edit of [r=>{delete r.Rows.Row[2].Rows.Row[1].Summary.ColData[6].value;},r=>{r.Rows.Row[2].Rows.Row[1].Summary.ColData[6].value=null;}])await badDecimal(edit,/Ledger total cell is missing in grouped ledger total for expense/);
+ for(const edit of [r=>{delete r.Rows.Row[3].Summary.ColData[6].value;},r=>{r.Rows.Row[3].Summary.ColData[6].value=null;}])await badDecimal(edit,/Ledger total cell is missing in grouped ledger total for an unidentified group/);
  // Blank rows still count toward the provider's period total and the
  // running-balance chain, so a blank that hides a real movement surfaces as
  // the same exceptions any other row would raise.
