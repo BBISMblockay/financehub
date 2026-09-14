@@ -14,6 +14,7 @@ Pick **one** link below. You do not need to read everything.
 | Check a change before merge / deploy | [ops/test-before-release.md](ops/test-before-release.md) |
 | See known issues | [ops/bugs.md](ops/bugs.md) |
 | See what we are building next | [ops/roadmap.md](ops/roadmap.md) |
+| Prepare Plaid security attestations and supporting evidence | [security/plaid/README.md](security/plaid/README.md) — draft policies, 14-control register, evidence templates and remediation plan |
 | Apply database changes after a PR | [../supabase/README.md](../supabase/README.md) |
 | Test Planning Scenarios specifically | [planning-scenarios-filter-scope.md](planning-scenarios-filter-scope.md) |
 | Build or restyle a v2 page | [../v2/SILO-BRAND.md](../v2/SILO-BRAND.md) |
