@@ -35,6 +35,15 @@
 --     card-categorize evidence read filters row_kind = 'transaction', so a
 --     zero-dollar journal line or payment application can never become the
 --     coding precedent for a merchant. Nothing in that Edge Function changes.
+--     The table-level CHECK qbo_history_lines_transaction_nonzero makes that a
+--     stored invariant rather than a property of this RPC alone: no
+--     'transaction' row may carry a zero amount. Adding it is the
+--     compatibility proof for archives written before this migration -- if
+--     any such zero row existed, this ALTER would refuse and the migration
+--     would stop here for a reviewed compatibility step, never silently
+--     leave precedent behind. (Production held no archives at all when this
+--     was written; the original RPC rejected blank amounts and no import
+--     ever succeeded.)
 --   * errors name the cell, the ledger row ordinal and the QBO account id,
 --     never the value, so a formatting failure is distinguishable from a
 --     connection, date or coverage failure without copying report data.
@@ -43,6 +52,11 @@
 
 alter table public.qbo_history_lines drop constraint if exists qbo_history_lines_row_kind_check;
 alter table public.qbo_history_lines add constraint qbo_history_lines_row_kind_check check(row_kind in ('opening','transaction','zero_amount'));
+do $$ begin
+ if not exists(select 1 from pg_constraint where conrelid='public.qbo_history_lines'::regclass and conname='qbo_history_lines_transaction_nonzero') then
+  alter table public.qbo_history_lines add constraint qbo_history_lines_transaction_nonzero check(row_kind<>'transaction' or natural_amount<>0);
+ end if;
+end $$;
 
 create or replace function public.qbo_report_number(p_value text,p_context text)
 returns numeric language plpgsql immutable as $$

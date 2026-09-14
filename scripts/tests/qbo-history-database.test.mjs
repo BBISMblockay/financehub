@@ -107,7 +107,22 @@ try{
   const kinds=await q('select row_kind,natural_amount::text a from qbo_history_lines where import_id=$1 and qbo_account_id=$2 order by row_no',[out.id,'bank']);
   assert.deepEqual(kinds.map(k=>k.row_kind),['opening','transaction','transaction','zero_amount','zero_amount']);assert.deepEqual(kinds.slice(3).map(k=>k.a),['0','0.00'],'A blank is 0; an explicit .00 keeps its scale');
   assert.equal(Number((await one("select count(*) n from qbo_history_lines where import_id=$1 and row_kind='transaction' and natural_amount=0",[out.id])).n),0);
-  await assert.rejects(q("insert into qbo_history_lines(company_entity_id,import_id,row_no,row_kind,qbo_account_id,account_name,account_type,natural_amount,natural_balance,raw_row) values($1,$2,999,'blank','bank','x','Bank',0,0,'{}')",[co,out.id]),/row_kind_check/);}
+  await assert.rejects(q("insert into qbo_history_lines(company_entity_id,import_id,row_no,row_kind,qbo_account_id,account_name,account_type,natural_amount,natural_balance,raw_row) values($1,$2,999,'blank','bank','x','Bank',0,0,'{}')",[co,out.id]),/row_kind_check/);
+  // The invariant the categorizer relies on is stored, not just a property of
+  // this RPC: even a service-role write cannot file a zero amount as a transaction.
+  await assert.rejects(q("insert into qbo_history_lines(company_entity_id,import_id,row_no,row_kind,qbo_account_id,account_name,account_type,natural_amount,natural_balance,raw_row) values($1,$2,998,'transaction','bank','x','Bank',0,0,'{}')",[co,out.id]),/transaction_nonzero/);
+  await assert.rejects(q("insert into qbo_history_lines(company_entity_id,import_id,row_no,row_kind,qbo_account_id,account_name,account_type,natural_amount,natural_balance,raw_row) values($1,$2,997,'transaction','bank','x','Bank',0.00,0,'{}')",[co,out.id]),/transaction_nonzero/);}
+ // Applying the migration over an archive that already holds a zero-amount
+ // transaction row must refuse, not silently leave coding precedent behind.
+ {const legacy=new PGlite({extensions:{pgcrypto}});
+  try{await legacy.exec(await readFile(new URL('./finance-db/bootstrap.sql',import.meta.url),'utf8'));
+   for(const name of [...dependencies,'20260912052930_plaid_bank_feed.sql','20260912203725_bank_feed_workspace_history.sql','20260912231606_accounting_foundation.sql','20260913022606_qbo_historical_ledger.sql'])await legacy.exec(await readFile(new URL('supabase/migrations/'+name,root),'utf8'));
+   await legacy.query("insert into entities(id,title) values($1,'Legacy')",[co]);await legacy.query('insert into auth.users(id) values($1)',[finance]);
+   const imp=randomUUID();await legacy.query("insert into qbo_history_imports(id,company_entity_id,qbo_connection_id,gl_run_id,tb_run_id,period_start,period_end,currency,accounting_basis,source_hash,source_snapshot,reconciliation,reconciliation_status,exception_count,transaction_count,created_by) values($1,$2,$3,$4,$5,'2026-08-01','2026-08-31','USD','Accrual','h','{}','[]','matched',0,1,$6)",[imp,co,conn,randomUUID(),randomUUID(),finance]);
+   await legacy.query("insert into qbo_history_lines(company_entity_id,import_id,row_no,row_kind,qbo_account_id,account_name,account_type,natural_amount,natural_balance,raw_row) values($1,$2,1,'transaction','bank','x','Bank',0,0,'{}')",[co,imp]);
+   await assert.rejects(legacy.exec(formats),/transaction_nonzero/);
+   assert.equal((await legacy.query("select pg_get_functiondef('public.archive_qbo_ledger(uuid,uuid)'::regprocedure) d")).rows[0].d.includes('qbo_report_number'),false,'A refused compatibility step leaves the original RPC in place');
+  }finally{await legacy.close();}}
  // Summary cells: only a PRESENT empty string means zero. A missing key or a
  // JSON null in a parent group, a child, or a leaf period total is a shape
  // failure, whatever the section's movement.

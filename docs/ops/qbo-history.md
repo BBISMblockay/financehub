@@ -104,7 +104,17 @@ the card categorizer's evidence read filters `row_kind = 'transaction'`
 (`supabase/functions/card-categorize/index.ts`), so a zero-dollar journal line or
 payment application can never be the only "history" that steers a merchant to an
 account. That exclusion lives in the stored kind, not in the Edge Function, so no
-deploy is needed and a future reader of the archive gets the same distinction.
+deploy is needed and a future reader of the archive gets the same distinction. It
+is also a stored invariant: the CHECK `qbo_history_lines_transaction_nonzero`
+refuses any `transaction` row with a zero amount, even from a service-role write.
+Adding that CHECK is the migration's compatibility proof for archives saved before
+it: if a zero-amount `transaction` row already existed anywhere, the `ALTER` would
+fail and the migration would stop before re-creating the RPC. That is deliberate.
+Do not delete the row to get past it (the tables are immutable by design); it needs
+a reviewed compatibility migration that reclassifies the row with the immutability
+trigger disabled for that statement and re-enabled after. When this migration was
+written production held no archives at all, and the original RPC never accepted a
+blank amount, so the case is empty; the constraint keeps it that way.
 
 **Summary cells.** Only a PRESENT empty string in a section's period total or a
 group's total means zero. A missing `value` key or a JSON null there fails the

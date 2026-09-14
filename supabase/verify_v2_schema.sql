@@ -3573,6 +3573,7 @@ select 'QBO history number formats' as check_name,
  or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) like '%''Invalid ledger movement''%'
  or not exists(select 1 from pg_constraint where conrelid=to_regclass('public.qbo_history_lines') and conname='qbo_history_lines_row_kind_check'
  and pg_get_constraintdef(oid) like '%zero_amount%')
+ or not exists(select 1 from pg_constraint where conrelid=to_regclass('public.qbo_history_lines') and conname='qbo_history_lines_transaction_nonzero')
  then 'STALE: archive_qbo_ledger still rejects leading-decimal QBO amounts or zero lines are not their own row kind; apply 20260914220000'
  else 'ok' end as status;
 select 'QBO history retention and audit' as check_name,

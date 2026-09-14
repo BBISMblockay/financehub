@@ -554,8 +554,11 @@ re-creates `archive_qbo_ledger(uuid,uuid)` to use it, to settle a blank amount f
 the running balance only when the balance did not move, to treat a missing `value`
 key as a shape failure, and to name the cell, row ordinal and QBO account id in
 format errors. Zero lines (blank or `.00`) get `row_kind = 'zero_amount'` (the
-`row_kind` CHECK is widened) so the categorizer's `row_kind = 'transaction'` evidence
-read never treats them as precedent. Additive; the 20260913 migration is untouched. Apply after it. No
+`row_kind` CHECK is widened, and a second CHECK refuses a zero-amount `transaction`
+row) so the categorizer's `row_kind = 'transaction'` evidence read never treats
+them as precedent. The second CHECK is the compatibility proof: over an archive
+that already held such a row the `ALTER` fails and the migration stops before the
+RPC is re-created (production held no archives when written). Additive; the 20260913 migration is untouched. Apply after it. No
 Edge Function change. `verify_v2_schema.sql` reports STALE until applied.
 
 ### Profiles active-company scope (20260913054723)
