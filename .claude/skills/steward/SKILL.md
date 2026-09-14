@@ -1,6 +1,6 @@
 ---
 name: steward
-description: Own a PR in this repo end to end - open it review-ready, wait for the ChatGPT independent review (two-cycle budget), evaluate findings against the code, push one correction batch per cycle, and close with an explicit readiness verdict for Blake. Use when creating a PR here, when a PR event (review, comment, CI) arrives on a PR Claude opened, or when asked to drive a PR to mergeable.
+description: Own a PR in this repo end to end - open it review-ready, wait for the ChatGPT independent review (two-cycle budget, tracked from its silo-pr-review-v1 markers), evaluate findings against the code, push one correction batch per cycle, and close with an explicit readiness verdict for Blake. Use when creating a PR here, when a PR event (review, comment, CI) arrives on a PR Claude opened, or when asked to drive a PR to mergeable.
 ---
 
 # Steward - PR ownership and the two-cycle independent review
@@ -39,16 +39,36 @@ apply, or a production data change.
 - Claude's GitHub calls post as `BBISMblockay`, Blake's own login. The review
   automation may post under that login too, or under a bot. **Never identify
   a comment by author.** Claude's own posts always end with the Claude Code
-  attribution footer; anything on the PR without that footer is review input.
-- The ChatGPT automation posts a SILO-specific review as a top-level PR
-  conversation comment on the initial PR, then reviews ONE subsequent commit
-  push, then stops. Two cycles total. It may also leave formal reviews or
-  inline comments, so read all three surfaces every time (see Reading).
-- Its first live execution is unverified. If nothing arrives, the outcome is
-  "no independent review happened", and the final status must say so.
+  attribution footer; the reviewer's posts carry the marker below.
+- The ChatGPT automation reviews the PR as opened, then ONE subsequent push,
+  then stops. Two cycles total. Its first live execution is unverified, so the
+  first PR through this flow is also the test of the automation.
 - CI here is path-triggered. A PR that touches none of the trigger paths gets
   no checks, so "no failing checks" can mean "nothing ran". The readiness
   report says which.
+
+### Reviewer markers are the source of truth
+
+Every comment the automation posts contains the marker `silo-pr-review-v1`
+plus three fields: a **cycle number**, the **head SHA** it reviewed, and a
+**status**. Read them tolerantly (`key=value`, `key: value`, or a small JSON
+block - the exact layout is confirmed on the first live run and, once seen,
+recorded in `docs/ops/pr-review-automation.md`).
+
+- `status=running` (or anything other than `complete`) is a **reservation**:
+  the reviewer has claimed a cycle and is still working. Do not act on it,
+  do not push while it stands, and do not treat it as findings.
+- `status=complete` is the review. Only then read the findings and start
+  Step 3.
+- A blocked, failed, or errored status still **consumed** that cycle. The
+  budget is the count of DISTINCT cycle numbers seen in marker comments, not
+  the count of completed reviews and not whatever the PR body says.
+- `cycles used` and `last independently reviewed sha` are always computed
+  from the markers at read time. The PR body's Review budget line is a
+  convenience summary that is overwritten FROM the markers, never the other
+  way round.
+- No marker at all after the wait budget (below) means no review happened.
+  Report it as such.
 
 ## Step 1 - Open the PR review-ready
 
@@ -69,13 +89,25 @@ Before `create_pull_request`:
    - **Review budget** - `Cycle 0/2 - head <sha> - last independently reviewed: none`.
 4. Open as a draft only if it is not yet reviewable. Mark ready the moment it
    is, because the automation reviews the PR as opened.
-5. Subscribe: `subscribe_pr_activity` on the PR. Then, if `send_later` is
-   available, arm a check-in about 60 minutes out. End the turn saying the PR
-   is **awaiting the first independent review**.
+5. Arm BOTH wake mechanisms, then end the turn saying the PR is **awaiting
+   the first independent review**:
+   - `subscribe_pr_activity` on the PR.
+   - `send_later` about 60 minutes out, carrying the PR number and the
+     trigger id of the previous check-in so it can be cancelled later.
 
-If neither a subscription nor `send_later` is available, end the turn with an
-explicit handoff: PR number, head sha, "awaiting first review", and that
-nothing will be monitored after this session. Do not claim otherwise.
+### Wake-up wiring is unproven until an event has woken a session
+
+A subscription call returning success proves the subscription was recorded.
+It does not prove an event will reach the harness and start Claude. Until a
+wake has been observed on a real PR, treat the `send_later` check-in as the
+PRIMARY mechanism and the subscription as a bonus. The readiness report has
+a row for which mechanism actually fired. Once the first live loop completes,
+record the observed behaviour in `docs/ops/pr-review-automation.md` so the
+next PR does not have to rediscover it.
+
+If neither mechanism is available, end the turn with an explicit handoff: PR
+number, head sha, "awaiting first review", and that nothing will be
+monitored after this session. Do not claim otherwise.
 
 ### Checks by touched path
 
@@ -95,26 +127,41 @@ failed, without them.
 
 Also apply `docs/ops/test-before-release.md` for anything it covers.
 
-## Step 2 - Wait for and read the review
+## Step 2 - Every wake: read, deduplicate, decide
 
-On every wake (event or check-in), read all three surfaces with
-`pull_request_read`:
+On every wake (event or check-in), in this order:
 
-- `get_comments` - top-level conversation comments (where the automation
-  posts its review).
-- `get_reviews` - formal reviews and their state.
-- `get_review_comments` - inline threads.
+1. **Stop conditions first.** `pull_request_read` with `get`. If the PR is
+   merged or closed, or Blake has commented that he is taking it from here:
+   cancel the pending `send_later` trigger (`delete_trigger` with the id
+   carried in the check-in message), `unsubscribe_pr_activity`, and end.
+   Nothing else runs.
+2. **One active run per PR.** Before doing any implementation work, check
+   for a Claude-posted comment (footer present) of the form
+   `steward: working cycle <n> on <head sha>` newer than the last push. If
+   one exists and its sha is the current head, another run already holds
+   this cycle: end the turn without acting. Otherwise post that claim
+   comment yourself before editing anything. It is the lock.
+3. **Read all three surfaces**: `get_comments` (top-level, where the
+   reviewer posts), `get_reviews`, `get_review_comments`. Plus
+   `get_check_runs` on the current head.
+4. **Drop what is not new or not input.** Ignore every post carrying the
+   Claude Code footer (your own, including the claim comment and the
+   readiness report - they come back as events). Ignore any comment id or
+   `(cycle, head sha, status)` triple you have already handled this session.
+   An event that echoes your own push is not a review.
+5. **Wait on reservations.** A marker with `status` other than `complete`
+   for the current head means the reviewer is mid-cycle. Re-arm the check-in
+   and end. Do not push into a running review; that spends the cycle on a
+   moving target.
+6. **A `complete` marker for the current head** is the review: go to Step 3.
+7. **No marker and nothing else actionable.** Re-arm the check-in silently.
+   After about four hours from opening with no marker, stop waiting and go to
+   Step 6 with "no independent review received".
 
-Plus `get_check_runs` on the current head and `get` for mergeability.
-
-Ignore posts carrying the Claude Code footer (your own). Everything else since
-the PR opened, or since the last cycle's push, is the review for this cycle.
-Also handle harness notices (merge conflict, base recovered) per the harness
-rules.
-
-If a check-in fires and no review has arrived: re-arm silently, up to about
-four hours after opening. After that, stop waiting and go to Step 6 with
-"no independent review received".
+Harness notices (merge conflict, base recovered, CI red) are handled per the
+harness rules at the same time, and a fix for them counts as part of the
+current cycle's single batch, never as a separate push.
 
 ## Step 3 - Evaluate each finding independently
 
@@ -136,42 +183,47 @@ evidence. It feeds the report in Step 6.
 
 ## Step 4 - Push ONE coherent correction batch
 
-The second review is spent on the next push. Do not push until:
+The next review is spent on the next push. Do not push until:
 
 1. Every valid finding from this cycle is fixed.
 2. The checks from Step 1's table have been re-run and pass locally.
 3. The adversarial re-read of the final diff is done.
+4. No reviewer marker with a non-complete status stands on the current head.
 
 Then one push. Never a chain of "fix a", "fix b" pushes; never an empty commit
 to re-trigger anything. After pushing:
 
-- Update the PR body's **Review budget** line: `Cycle 1/2 - head <sha> - last
-  independently reviewed: <sha the automation reviewed>`.
+- Recompute cycles used and last-reviewed sha FROM THE MARKERS and rewrite
+  the PR body's Review budget line from them.
 - Post one comment (with the footer) summarising: fixed, disputed (with the
   evidence), unresolved and why. Resolve the inline threads you addressed.
-- Re-arm the check-in and end the turn as "awaiting second review".
+- Re-arm the check-in and end the turn as "awaiting next review".
 
-## Step 5 - Second review, finish the work
+## Step 5 - After the second review
 
-Same as Steps 2 to 4. A second correction batch is allowed, but there will be
-no third automatic review, so every commit after it is unreviewed by
-construction. Prefer to fold small remaining items into that one batch. If a
-finding would need a material change, stop and put it to Blake instead of
-pushing an unreviewed redesign.
+Same as Steps 2 to 4 for the findings. What differs is what the push means:
+any commit after the second `complete` marker is unreviewed by construction,
+because there is no third automatic cycle.
 
-Update the Review budget line to `Cycle 2/2`.
+That is NOT a reason to leave a valid finding unfixed. If the second review
+surfaces a material correctness or security issue: implement it, test it, push
+it, and the final status becomes **Needs additional independent review**. An
+unfixed known defect with a "Ready" label is worse than a fixed one with an
+honest label. Only a change that would need a design decision from Blake
+stops and goes to him instead of being pushed.
 
 ## Step 6 - Readiness assessment (always the last thing posted)
 
 Post this as a PR comment and repeat it in the final chat message. Every row
-is required; "none" is a valid value, a blank is not.
+is required; "none" is a valid value, a blank is not. Cycle and sha rows are
+read from the markers, never from memory or the PR body.
 
 ```
 ## Readiness assessment
 
 Head commit: <sha>
-Last independently reviewed commit: <sha or "none - no review received">
-Review cycles used: <n>/2
+Last independently reviewed commit: <sha from the last complete marker | "none - no review received">
+Review cycles consumed (from markers): <n>/2  (<list: cycle, status, sha>)
 
 Findings
 - Resolved: <list, one line each, with the commit>
@@ -184,7 +236,9 @@ Checks
 - Not run: <what, and why>
 - CI on head: <green | red: which | nothing triggered (no matching paths)>
 
-Changes after the last independent review: <none | list of commits and what they touch>
+Changes after the last independent review: <none | commits and what they touch>
+
+Wake mechanism that actually fired this PR: <PR event | hourly check-in | both | neither observed>
 
 Required before or at merge
 - Migrations to apply: <files | none>
@@ -197,16 +251,16 @@ Status: <one of the three below>
 
 Exactly one status:
 
-- **Ready for Blake's merge decision** - the last independent review covered
-  the current head or only footer-noted trivial changes followed it, every
-  correctness or security finding is resolved or disputed with evidence, and
-  the checks that apply passed.
-- **Needs additional independent review** - material code changed after the
-  last review, an unresolved correctness or security concern remains, or no
-  review was received at all.
+- **Ready for Blake's merge decision** - the last `complete` marker's sha IS
+  the current head, every correctness or security finding is resolved or
+  disputed with evidence, and the checks that apply passed.
+- **Needs additional independent review** - any commit landed after the last
+  `complete` marker, an unresolved correctness or security concern remains,
+  or no review was received at all.
 - **Blocked** - something outside Claude's authority is required first: a
   migration or deploy Blake must run, a decision only Blake can make, a
   failing check whose fix would widen the PR.
 
 "Ready" never means approved. It means the evidence is laid out for Blake.
-Stop the check-ins once Blake merges or closes the PR, or says stop.
+After posting the report: cancel the pending check-in and unsubscribe. The
+PR is handed back; Blake re-invokes `/steward` if he wants another round.
