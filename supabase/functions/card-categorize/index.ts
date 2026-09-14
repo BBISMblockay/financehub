@@ -99,7 +99,7 @@ const HISTORY_CAPS = {
   consistent_disagree: 0.5,  // history clearly says X, the model chose Y
   conflicting: 0.55,         // history says X and Y
   inactive_only: 0.6,        // history points only at accounts no longer in the chart
-  capped: 0.7,               // a source hit its page cap: the sample is partial, not precedent
+  capped: 0.55,              // a source hit its page cap: partial, and it must land in the Low-confidence filter (< 0.6)
   none: 0.75,                // nothing confirmed in the window
   unavailable: 0.75,         // could not read one or both sources
 };
@@ -122,7 +122,7 @@ type HistoryEvidence = {
 };
 type SiloHistoryRow = {
   merchant_norm: string; txn_date: string; qbo_account_id: string; qbo_account_name: string | null;
-  coding_source: string; batch_status: string; status: string; source_key: string | null;
+  coding_source: string; batch_status: string; status: string; source_key: string | null; batch_id: string;
 };
 type ChartEntry = { name: string; type: string };
 type LedgerHistoryRow = {
@@ -174,7 +174,7 @@ function buildEvidence(
   siloRows: SiloHistoryRow[],
   ledgerRows: LedgerHistoryRow[],
   eligibleById: Map<string, ChartEntry>,   // accounts this suggestion mode may use
-  activeById: Map<string, ChartEntry>,     // every active account in the chart
+  activeById: Map<string, ChartEntry> | null, // every active account in the chart; null = could not be read
   capped: { silo: boolean; ledger: boolean },
   unavailable: string[],
 ): HistoryEvidence {
@@ -183,6 +183,7 @@ function buildEvidence(
   const byAccount = new Map<string, HistoryCandidate>();
   const inactive = new Map<string, { account: string; count: number; last: string }>();
   const ineligible = new Map<string, { account: string; count: number; last: string }>();
+  const unresolved = new Map<string, { account: string; count: number; last: string }>();
   const tally = (map: Map<string, { account: string; count: number; last: string }>, id: string, name: string, date: string) => {
     const cur = map.get(id) || { account: name, count: 0, last: '' };
     cur.count++; if (date > cur.last) cur.last = date; map.set(id, cur);
@@ -193,6 +194,9 @@ function buildEvidence(
       // Still active in QuickBooks but not offered for this transaction type
       // (an income account in card mode) is a different fact from "removed
       // from the chart", and a reviewer must not be told the latter.
+      // If the chart itself could not be read, "removed" is not a fact we
+      // hold: say the state is unknown rather than recreating the false claim.
+      if (!activeById) { tally(unresolved, id, name || id, date); return; }
       const live = activeById.get(id);
       if (live) tally(ineligible, id, live.name, date); else tally(inactive, id, name || id, date);
       return;
@@ -220,6 +224,7 @@ function buildEvidence(
   const notes: string[] = [];
   if (capped.silo) notes.push('SILO sample capped');
   if (capped.ledger) notes.push('ledger sample capped');
+  if (!activeById) notes.push('account states unavailable');
   for (const u of unavailable) notes.push(`${u} unavailable`);
   const describe = (c: HistoryCandidate) => {
     const parts: string[] = [];
@@ -264,6 +269,7 @@ function buildEvidence(
     if (inactive.size) summary += ` Also coded to since-removed account(s): ${[...inactive.values()].map((i) => i.account).join(', ')}.`;
   }
   if (ineligible.size) summary += ` Also coded to account(s) not offered for this transaction type: ${[...ineligible.values()].map((i) => `${i.account} [${i.count}; last ${i.last}]`).join(', ')}.`;
+  if (unresolved.size) summary += ` Also coded to account(s) whose current chart state could not be read: ${[...unresolved.values()].map((i) => `${i.account} [${i.count}; last ${i.last}]`).join(', ')}.`;
   return { status, leading, candidates, inactive: [...inactive.values()], ineligible: [...ineligible.values()],
     window: { from, to: anchor }, summary, notes, capped: capped.silo || capped.ledger };
 }
@@ -278,7 +284,7 @@ async function loadHistory(
   connectionId: string,
   merchants: Merchant[],
   eligibleById: Map<string, ChartEntry>,
-  activeById: Map<string, ChartEntry>,
+  activeById: Map<string, ChartEntry> | null,
 ): Promise<{ byKey: Map<string, HistoryEvidence>; stats: Record<string, unknown> }> {
   const keys = [...new Set(merchants.map((m) => m.merchant).filter(Boolean))];
   const anchors = merchants.map((m) => m.anchor);
@@ -292,10 +298,14 @@ async function loadHistory(
   //    connection. An account id is only meaningful inside its realm: a
   //    company that moved realms can have an old "42 = Travel" and a current
   //    "42 = Advertising", and a row from the old realm must not be relabelled
-  //    as current precedent. The view carries source_key (unique per
-  //    company), so the rows are filtered through their source's connection
-  //    BEFORE any account id is resolved. Confirmation is decided HERE, not in
-  //    SQL, so the rule is one place and testable.
+  //    as current precedent. The binding that matters is the BATCH's own
+  //    qbo_connection_id, frozen when the batch was made, not the source's
+  //    current one: a CSV source can be rebound from realm A to realm B while
+  //    its realm-A batches keep their own binding. A batch with no binding at
+  //    all (made before batches recorded one) falls back to its source's
+  //    current connection, which is the best fact available for it. Both are
+  //    checked BEFORE any account id is resolved. Confirmation is decided
+  //    HERE, not in SQL, so the rule is one place and testable.
   const siloRows: SiloHistoryRow[] = [];
   const { data: sourceRows, error: sourceError } = await supabase
     .from('card_sources')
@@ -303,13 +313,31 @@ async function loadHistory(
     .eq('company_entity_id', companyId)
     .eq('qbo_connection_id', connectionId);
   const sourceKeys = new Set<string>((sourceRows || []).map((r: any) => String(r.source_key)));
-  if (sourceError) unavailable.push('SILO coding history');
+  const batchConnection = new Map<string, string | null>();
+  let batchError: unknown = null;
+  for (let page = 0; page < HISTORY_MAX_PAGES && !batchError; page++) {
+    const { data, error } = await supabase
+      .from('card_import_batches')
+      .select('id,qbo_connection_id')
+      .eq('company_entity_id', companyId)
+      .order('id', { ascending: true })
+      .range(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE - 1);
+    if (error) { batchError = error; break; }
+    for (const b of data || []) batchConnection.set(String(b.id), b.qbo_connection_id ? String(b.qbo_connection_id) : null);
+    if ((data || []).length < HISTORY_PAGE) break;
+  }
+  const rowIsBoundHere = (r: SiloHistoryRow) => {
+    if (!batchConnection.has(String(r.batch_id))) return false;
+    const bound = batchConnection.get(String(r.batch_id));
+    return bound ? bound === connectionId : sourceKeys.has(String(r.source_key));
+  };
+  if (sourceError || batchError) unavailable.push('SILO coding history');
   else {
     keyLoop: for (let i = 0; i < keys.length; i += 100) {
       for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
         const { data, error } = await supabase
           .from('card_transactions_v')
-          .select('merchant_norm,txn_date,qbo_account_id,qbo_account_name,coding_source,batch_status,status,source_key')
+          .select('merchant_norm,txn_date,qbo_account_id,qbo_account_name,coding_source,batch_status,status,source_key,batch_id')
           .eq('company_entity_id', companyId)
           .eq('status', 'coded')
           .not('qbo_account_id', 'is', null)
@@ -321,7 +349,7 @@ async function loadHistory(
           .range(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE - 1);
         if (error) { unavailable.push('SILO coding history'); siloRows.length = 0; break keyLoop; }
         for (const r of data || []) {
-          if (!sourceKeys.has(String(r.source_key))) continue;
+          if (!rowIsBoundHere(r)) continue;
           const confirmed = r.coding_source === 'manual' || r.coding_source === 'rule'
             || (r.coding_source === 'ai' && ['approved', 'posted'].includes(String(r.batch_status)));
           if (confirmed && r.batch_status !== 'voided') siloRows.push(r);
@@ -880,13 +908,14 @@ Deno.serve(async (req) => {
   // The WHOLE active chart, not only the types offered for this mode, so a
   // live income account in card mode is labelled "not offered here" rather
   // than "removed from the chart".
-  const { data: activeRows } = await supabase
+  const { data: activeRows, error: activeError } = await supabase
     .from('quickbooks_accounts')
     .select('qbo_account_id, name, fully_qualified_name, account_type')
     .eq('company_entity_id', companyId)
     .eq('connection_id', connectionId)
     .eq('is_active', true);
-  const activeById = new Map<string, ChartEntry>((activeRows || [])
+  // A failed read is "state unknown", never "every account is removed".
+  const activeById: Map<string, ChartEntry> | null = activeError ? null : new Map<string, ChartEntry>((activeRows || [])
     .map((a: any) => [String(a.qbo_account_id), { name: a.fully_qualified_name || a.name, type: a.account_type }]));
   const history = await loadHistory(supabase, companyId, connectionId, merchants, eligibleById, activeById);
   const historyLine = (m: Merchant) => {

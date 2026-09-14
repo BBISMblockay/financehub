@@ -18,11 +18,15 @@ recategorizes nothing. History decides a confidence CEILING, never the answer.
 Both are read for the caller's active company only.
 
 1. **Confirmed SILO codings** from `card_transactions_v` (`status = 'coded'`, an
-   account set), and only from card sources bound to the SAME QuickBooks connection as
-   the source being coded (the view's `source_key` is unique per company and resolves
-   to `card_sources.qbo_connection_id`). An account id only means something inside its
-   realm: a company that moved realms can have an old "42 = Travel" beside a current
-   "42 = Advertising", so rows are filtered by connection BEFORE any id is resolved.
+   account set), and only from batches bound to the SAME QuickBooks connection as the
+   source being coded. The binding that counts is the BATCH's own `qbo_connection_id`,
+   frozen when the batch was made, not the source's current one: a CSV source can be
+   rebound from realm A to realm B while its realm-A batches keep their binding. A batch
+   with no binding at all (made before batches recorded one) falls back to its source's
+   current connection, resolved through the view's per-company-unique `source_key`. An
+   account id only means something inside its realm: a company that moved realms can
+   have an old "42 = Travel" beside a current "42 = Advertising", so both checks run
+   BEFORE any id is resolved.
    `coding_source = 'manual'` or `'rule'` counts once saved. `'ai'` counts ONLY when its
    batch is `approved` or `posted`: an accepted-but-unreviewed suggestion is the model
    agreeing with itself. Rows in a `voided` batch never count. Confirmation is decided
@@ -40,7 +44,8 @@ Both are read for the caller's active company only.
 
 A capped source, on either side, is a partial sample whatever it appears to say: the
 evidence line is prefixed "History sample capped, treat as partial" and confidence is
-held to 0.7 even when the visible sample is consistent.
+held to 0.55 even when the visible sample is consistent, so it lands inside the page's
+"Low confidence" (< 0.6) filter.
 
 ## Window and scoping
 
@@ -66,7 +71,8 @@ still active in QuickBooks but not offered for this transaction type (an income 
 in card mode) is tallied separately as "not offered for this transaction type"; an
 account absent from the active chart altogether is tallied as "since-removed". Neither
 can lead, and the two are never confused, because the function loads the whole active
-chart separately from the mode's eligible types.
+chart separately from the mode's eligible types. If that full-chart read fails, the
+state is reported as "could not be read", never as removed.
 
 ## Statuses and confidence caps
 
@@ -77,7 +83,7 @@ chart separately from the mode's eligible types.
 | `inactive_only` | history points only at since-removed accounts | 0.6 |
 | `none` | no confirmed coding in the window | 0.75 |
 | `unavailable` | both sources failed to read | 0.75 |
-| any, with a capped source | the sample is partial | 0.7 (applied on top of the row above) |
+| any, with a capped source | the sample is partial | 0.55 (applied on top of the row above) |
 
 Caps are applied AFTER the model answers and only ever lower a value. The existing
 chart and account-type checks still run first; a discarded account is still 0.

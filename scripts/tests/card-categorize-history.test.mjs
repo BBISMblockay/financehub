@@ -19,9 +19,11 @@ const MUTATIONS = {
   'ignore-window': ["const inWindow = (d: string) => d >= from && d <= anchor;", "const inWindow = (d: string) => true;"],
   'drop-connection-scope': [".eq('qbo_connection_id', connectionId);", ";"],
   'similar-is-precedent': ["const strong = leading.weight >= 0.8 && (leading.count - leading.similar) >= 1;", "const strong = leading.weight >= 0.8;"],
-  'drop-source-scope': ["if (!sourceKeys.has(String(r.source_key))) continue;", ""],
+  'drop-source-scope': ["return bound ? bound === connectionId : sourceKeys.has(String(r.source_key));", "return bound ? bound === connectionId : true;"],
   'no-cap-ceiling': ["confidence = Math.min(confidence, HISTORY_CAPS.capped);", "confidence = confidence;"],
   'ineligible-as-removed': ["if (live) tally(ineligible, id, live.name, date); else tally(inactive, id, name || id, date);", "tally(inactive, id, name || id, date);"],
+  'ignore-batch-binding': ["return bound ? bound === connectionId : sourceKeys.has(String(r.source_key));", "return sourceKeys.has(String(r.source_key));"],
+  'chart-failure-as-removed': ["if (!activeById) { tally(unresolved, id, name || id, date); return; }", ""],
 };
 const mutation = process.env.CATEGORIZE_HISTORY_MUTATION;
 let effective = source;
@@ -45,7 +47,7 @@ const monthsAgo = (n) => { const d = new Date(`${ANCHOR}T00:00:00Z`); d.setUTCMo
 const GL = 'Insurance - General Liability', EXP = 'Insurance Expense';
 function siloRow(overrides = {}) {
   return { company_entity_id: ids.company, status: 'coded', merchant_norm: 'state farm', txn_date: monthsAgo(2), source_key: 'card-a',
-    qbo_account_id: 'ins-gl', qbo_account_name: GL, coding_source: 'manual', batch_status: 'posted', id: `h${Math.random()}`, ...overrides };
+    qbo_account_id: 'ins-gl', qbo_account_name: GL, coding_source: 'manual', batch_status: 'posted', id: `h${Math.random()}`, batch_id: 'batch-here', ...overrides };
 }
 function ledgerLine(overrides = {}) {
   return { company_entity_id: ids.company, import_id: ids.importId, row_kind: 'transaction', account_type: 'Expense',
@@ -59,7 +61,13 @@ function fixture(options = {}) {
     entity_memberships: [{ user_id: 'user', entity_id: ids.company, role: 'owner_admin' }],
     entities: [{ id: ids.company, title: 'Synthetic Company' }],
     card_import_batches: [{ id: ids.batch, company_entity_id: ids.company, source_id: ids.source,
-      qbo_connection_id: ids.connection, status: 'draft', origin: 'csv' }],
+      qbo_connection_id: ids.connection, status: 'draft', origin: 'csv' },
+      // History batches: one bound to this realm, one to a previous realm on
+      // the SAME source, one made before batches recorded a binding.
+      { id: 'batch-here', company_entity_id: ids.company, source_id: ids.source, qbo_connection_id: ids.connection, status: 'posted', origin: 'csv' },
+      { id: 'batch-realm-a', company_entity_id: ids.company, source_id: ids.source, qbo_connection_id: 'other-connection', status: 'posted', origin: 'csv' },
+      { id: 'batch-unbound', company_entity_id: ids.company, source_id: ids.source, qbo_connection_id: null, status: 'posted', origin: 'csv' },
+      { id: 'batch-old-source', company_entity_id: ids.company, source_id: 'old-realm-source', qbo_connection_id: 'other-connection', status: 'posted', origin: 'csv' }],
     card_sources: [{ id: ids.source, company_entity_id: ids.company, source_type: 'card', ingest_mode: 'csv', source_key: 'card-a',
       qbo_connection_id: ids.connection, display_name: 'Synthetic Card', is_active: true },
       // Same company, a card that was bound to a previous QuickBooks realm.
@@ -109,10 +117,13 @@ function fixture(options = {}) {
       return (this.table === 'card_transactions_v' && this.filters.some(([op, key]) => op === 'in' && key === 'merchant_norm'))
         || this.table === 'qbo_history_imports' || this.table === 'qbo_history_lines';
     }
+    // The full-chart read is the one quickbooks_accounts query with no account_type filter.
+    isFullChartQuery() { return this.table === 'quickbooks_accounts' && !this.filters.some(([op, key]) => op === 'in' && key === 'account_type'); }
     execute() {
       queries.push({ table: this.table, filters: structuredClone(this.filters), columns: this.columns });
       const sourceName = this.table === 'card_transactions_v' ? 'silo' : 'ledger';
       if (this.isHistoryQuery() && failures.has(sourceName)) return { data: null, error: { message: 'synthetic read failure' } };
+      if (this.isFullChartQuery() && failures.has('chart')) return { data: null, error: { message: 'synthetic chart read failure' } };
       const rows = (records[this.table] || []).filter((row) => this.filters.every(([op, key, value]) => {
         if (op === 'eq') return row[key] === value;
         if (op === 'in') return value.includes(row[key]);
@@ -312,7 +323,7 @@ test('similar payee names alone never become precedent, however many there are',
 test('a colliding account id from a previous QuickBooks realm never becomes precedent', async () => {
   // Old realm: id ins-exp meant something else entirely. Six confirmed rows
   // there, none here.
-  const h = fixture({ silo: many(6, () => siloRow({ source_key: 'old-card', qbo_account_id: 'ins-exp', qbo_account_name: 'Old Realm Travel' })) });
+  const h = fixture({ silo: many(6, () => siloRow({ source_key: 'old-card', batch_id: 'batch-old-source', qbo_account_id: 'ins-exp', qbo_account_name: 'Old Realm Travel' })) });
   const { s, r } = await first(h);
   assert.equal(s.history_status, 'none'); assert.equal(r.body.history.silo_rows, 0);
   assert.equal(JSON.stringify(h.modelCalls).includes('Old Realm'), false);
@@ -334,7 +345,7 @@ test('SILO history is paged deterministically and a capped sample is disclosed a
   const capped = fixture({ silo: many(5001, (i) => siloRow({ txn_date: monthsAgo(1 + (i % 20)) })), suggestion: { account_name: GL } });
   ({ s, r } = await first(capped));
   assert.equal(r.body.history.silo_rows, 5000); assert.equal(r.body.history.silo_capped, true);
-  assert.equal(s.confidence, 0.7);
+  assert.equal(s.confidence, 0.55, 'a partial sample lands inside the Low-confidence filter');
   assert.match(s.evidence, /^History sample capped, treat as partial\. History agrees\. CONSISTENT: Insurance - General Liability \[5000 confirmed SILO codings; last 2026-08-01\] \(SILO sample capped\)\.$/);
 });
 
@@ -348,6 +359,34 @@ test('an active account outside this mode\'s eligible types is labelled as not o
   assert.equal(s.evidence, 'No confirmed coding for this merchant in the 24 months before 2026-09-01. Also coded to account(s) not offered for this transaction type: Sales income [3; last 2026-06-01].');
   assert.equal(s.evidence.includes('no longer in the active chart'), false);
 });
+test('a source rebound to this realm keeps its old-realm batches out of precedent; unbound legacy batches follow the source', async () => {
+  // Same source, currently bound here. Six rows in a batch frozen to realm A
+  // carry a colliding account id; three rows in an unbound legacy batch and
+  // two in a batch bound here are genuine.
+  const h = fixture({ silo: [
+    ...many(6, () => siloRow({ batch_id: 'batch-realm-a', qbo_account_id: 'ins-exp', qbo_account_name: 'Realm A Travel' })),
+    ...many(3, () => siloRow({ batch_id: 'batch-unbound' })),
+    ...many(2, () => siloRow({ batch_id: 'batch-here' })),
+    siloRow({ batch_id: 'batch-not-in-company' }),
+  ], suggestion: { account_name: GL } });
+  const { s, r } = await first(h);
+  assert.equal(r.body.history.silo_rows, 5, 'three legacy plus two bound here; realm A and unknown batches excluded');
+  assert.equal(s.history_status, 'consistent');
+  assert.equal(s.evidence, 'History agrees. CONSISTENT: Insurance - General Liability [5 confirmed SILO codings; last 2026-07-01].');
+  assert.equal(JSON.stringify(h.modelCalls).includes('Realm A'), false);
+  // An unbound legacy batch on a source NOT bound here is excluded too.
+  const foreignLegacy = fixture({ silo: many(4, () => siloRow({ batch_id: 'batch-unbound', source_key: 'old-card' })) });
+  assert.equal((await first(foreignLegacy)).s.history_status, 'none');
+});
+
+test('a failed full-chart read reports account state as unknown, never as removed', async () => {
+  const h = fixture({ silo: many(4, () => siloRow({ qbo_account_id: 'ins-old', qbo_account_name: 'Insurance (retired)' })), historyFailure: ['chart'] });
+  const { s } = await first(h);
+  assert.equal(s.history_status, 'none'); assert.equal(s.confidence, 0.75);
+  assert.equal(s.evidence, 'No confirmed coding for this merchant in the 24 months before 2026-09-01 (account states unavailable). Also coded to account(s) whose current chart state could not be read: Insurance (retired) [4; last 2026-07-01].');
+  assert.equal(s.evidence.includes('no longer in the active chart'), false);
+});
+
 test('failed model calls still carry the evidence so the row is not blank', async () => {
   const h = fixture({ silo: many(2, () => siloRow()) });
   h.records.quickbooks_accounts.length = 0;
