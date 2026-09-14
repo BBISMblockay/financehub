@@ -1,12 +1,124 @@
 # SEO project — evidence, workflow, implementation plan
 
-Status as of 2026-09-08: **step 1 shipped** (evidence-discipline rules + catalog
-caveats). Everything below step 1 is planned, not built.
+Status as of 2026-09-14: steps 1–5 are shipped **and verified deployed** (see
+the second-phase review below for what "deployed" rests on); the workflow
+tables have a measurement engine but still no writer for recommendations
+and no page; competitor research has a scope, a keyword method and a provider
+recommendation, and no data source. Everything below the review is the
+history that got here, kept because each entry records a decision.
 
 The goal is a grounded SEO project: prioritised recommendations and
 ready-to-publish copy, each traceable to evidence, with results measured
 against a baseline. Today Ask SILO can produce SEO-shaped prose but cannot
 support most of it — the audit that motivated this is summarised below.
+
+
+---
+
+## Second-phase review (2026-09-14) — reconciled against code, CI and read-only production evidence
+
+This section supersedes every status sentence below it where they disagree.
+"Deployed/verified" means a GitHub Actions log, the daily drift check or a CI
+run says so; "merged/unverified" means the code is on `main` and nothing has
+proved production runs it; "missing" means no code exists; "blocked" means a
+decision or access outside the repo is required. Production databases were not
+queried and nothing was written anywhere.
+
+### Deployed / verified
+
+| Capability | Evidence |
+|---|---|
+| Search Console connection, property `https://www.baseballism.com/` | Every nightly log names it; the 2026-09-13 run (Actions run 34776039485, 18:54 UTC) synced `2026-08-12..2026-09-11`: 31 days, 69,280 page rows, 138,271 query rows, query cut attributes **56.5%** of clicks, no cut truncated. So the nightly runs, the Sync toggle IS on, and lag is the documented 2 days. GitHub delivers the 10:30 UTC cron hours late (that run started 18:54); the 2-hourly runs correctly skip Search Console |
+| History | `search-console-backfill.yml` run 1 succeeded 2026-09-10 (run 34527724099): 498 days |
+| Ask SILO uses the Search Console prompt | `silo-chat` **v72 was deployed 2026-09-10 21:55 UTC** by Deploy Edge Function run 34534752000 from commit `0874251`, the merge of #668 that rewrote the prompt; the daily drift check lists no silo-chat difference. The "deploy pending" notes below and in CLAUDE.md were stale from that evening |
+| SEO overview page and RPCs | The drift check's schema job passes every `search_console_*` and `seo_*` check (its only failing row is the pre-existing insert-stamp finding), so `20260910210000` is applied; the page is in the nav for `owner`/`executive` on the grandfathered profile. Metric arithmetic re-inspected 2026-09-14: CTR pooled, position impression-weighted, prior absence NULL, single-property guard — correct. **Not verified:** that an exec has opened it and compared the 28-day band to a nightly's `[ok]` line |
+| Collections registry, product-SKU mapping, page inspection | `page-inspect` v6 deployed 2026-09-10 14:55 UTC; the registry sync is on the 08:30 nightly. Unchanged since the readiness ledger below |
+| SEO workflow schema (`seo_projects` … `seo_measurements`) | Applied (drift check green on its checks). **Nothing writes to `seo_projects`, `seo_tasks`, `seo_task_publications` or `seo_measurements`** except `seo_approvers` via `/v2/backend.html` — confirmed by grep of every page, script and edge function |
+
+### Merged / unverified (this phase, PR pending)
+
+- `20260914120000_seo_measurement_capture.sql`: `seo_capture_measurements()`
+  (SECURITY DEFINER with an explicit active-company filter on every read,
+  because the `seo_measurements` insert policy now refuses the two captured
+  sources from any client -- the function is the only writer of a captured
+  number; a partial unique index backs "frozen on repeat"),
+  `seo_follow_up_window()`, the publication-requires-approval trigger, the
+  two-sided window ordering for both baselines and follow-ups (a correction
+  publication may not land on or after an existing follow-up). Executed
+  against local PostgreSQL by `scripts/tests/seo-workflow-database.test.mjs`
+  as authenticated users; not applied to production.
+- The Search Console sync now retires detail rows the latest fetch did not
+  return (`stale_rows_removed` in the run result), ordered by `synced_at` so
+  an overlapping newer run's rows survive an older run's sweep; and
+  `20260914130000_search_console_newest_run_wins.sql` makes the newest
+  completed run win at the database (an older run's late upserts are
+  dropped, not merged), so overlapping the nightly and the backfill is safe
+  by construction rather than by timing. Executed by the sync suite with a
+  fake mirroring the trigger and by the database suite against the real
+  migration; the next nightly after merge is its first live run.
+
+### Missing
+
+- A writer for recommendations: no Ask SILO tool, no page, creates a
+  `seo_tasks` row. Recommendations are still chat output.
+- Any SERP or competitor data source, and the observation schema for one
+  (`docs/ops/seo-competitors.md`).
+- URL Inspection (indexing status) — a separate API, unprobed.
+
+### Blocked (needs Blake)
+
+- Provider selection and account for competitor SERP data
+  (`docs/ops/seo-competitors.md`, cost model there).
+- The SEO approver list: `seo_approvers` is still empty by decision; exec and
+  owner pass without it.
+
+### Corrections to the sections below
+
+- **"Deploy pending" / "function deploy pending" for `silo-chat`**: stale
+  since 2026-09-10 21:55 UTC (v72). Left in place below as history.
+- **"Backfill pending"** in the readiness ledger: stale; the backfill
+  completed the same day (Step 2c records the result).
+- **"Sync toggle … currently off"** in Step 2c: stale; the nightly has run
+  Search Console every day since.
+- **Workflow design → Tables** was pre-build prose that never matched the
+  shipped schema: there is no `target_queries`, no task-type list, no
+  `kind` column (`window_kind`), no `gsc`/`ga4`/`shopify` source vocabulary
+  (ten constrained values), and the status model is
+  `draft → proposed → approved → rejected` on `approval_status` with
+  publication as a separate table, never a status. The shipped schema is
+  the contract; Step 5 describes it accurately.
+- **"Baseline is captured by a deterministic function"** was a design
+  statement, not a fact, until `20260914120000`.
+- **"All nine assertions pass"** in Step 5 → `verify_seo_workflow.sql` now
+  emits fifteen, and it was never in CI; the PGlite suite is.
+- **"57 assertions"** for the sync suite → the file prints its own count
+  (71 after the sweep tests); do not pin it in prose.
+- `refresh_chat_schema_catalog()` **prunes catalog rows for functions**, so
+  the `seo_collection_candidates` catalog entry seeded by `20260909380000`
+  never survived a refresh; the model knows the function from the prompt,
+  not the catalog. Recorded in `bugs.md`.
+
+### Bounded PR sequence from here (competition is a required deliverable)
+
+1. **This PR** — measurement capture, publication/follow-up invariants,
+   executable RLS suite, stale-row sweep, this reconciliation.
+2. **Recommendation writer** — Ask SILO tools `create_seo_task` /
+   `update_seo_task` / `propose_seo_task` writing `seo_projects`/`seo_tasks`
+   (never `approved`), the concept-style card in chat, `?task=<id>` deep
+   link. Edge function deploy; no migration.
+3. **Workflow page** — `/v2/seo-tasks.html`: list, approve (approvers only,
+   the RLS already refuses everyone else), record publication, capture
+   baseline before and follow-up at 30/90 via the two functions, show both
+   windows side by side labelled as movement. No new tables.
+4. **Keyword set and observation schema** — `seo_keyword_set`,
+   `seo_competitor_domains`, `seo_serp_observations` (date, location,
+   device, source NOT NULL; append-only), the keyword-derivation SQL from
+   `seo-competitors.md`, and a manual-pilot CSV import. Provider-independent.
+5. **Provider integration** — the writer for `seo_serp_observations` for
+   whichever provider Blake selects; weekly schedule; the competitor
+   comparison view. Needs a secret and a cost.
+6. **Competitor page reads** (only if wanted) — a separately reviewed
+   allowlist path; never the own-store allowlist.
 
 ---
 
@@ -118,17 +230,22 @@ distinguishing property is detachability, not importance.
 
 ### Tables
 
-- `seo_projects` — name, objective, status, target window.
-- `seo_tasks` — one prioritised recommendation: target URL, target queries,
-  task type (metadata / body copy / internal linking / new collection /
-  redirect), priority **plus the evidence that set it**, current vs. proposed
-  copy, status.
+*(Design prose, 2026-09-08. The shipped schema in Step 5 differs and is the
+contract: no `target_queries`, no task-type list, `window_kind` not `kind`,
+ten constrained `source` values, and `approval_status` with publication as
+its own table. Corrected 2026-09-14; see the second-phase review.)*
+
+- `seo_projects` — name, objective, status, evidence note.
+- `seo_tasks` — one prioritised recommendation: target type/URL/handle,
+  rationale, proposed title / meta description / body, priority,
+  `approval_status`.
 - `seo_task_revisions` — trigger-written, no client write policy.
-- `seo_measurements` — baselines and follow-ups, discriminated by `kind`.
+- `seo_task_publications` — the publication EVENT, separate from approval.
+- `seo_measurements` — baselines and follow-ups, discriminated by `window_kind`.
 
 ### Measurement integrity
 
-Every measurement row records **source** (`gsc` / `ga4` / `shopify`),
+Every measurement row records **source** (ten constrained values, e.g. `search_console_page`, `shopify_landing_pages`; the shipped list is in Step 5),
 **reporting period** (start and end), **capture time**, **dimensions**,
 **filters applied**, and **completeness** (sampled? truncated? provider still
 restating?). A number without those is not comparable to another number.
@@ -138,7 +255,9 @@ restating?). A number without those is not comparable to another number.
   to individual search queries — no join exists that would make that true, and
   presenting one would be the same class of error as the audit found.
 - **Baseline is captured by a deterministic function, before publication** —
-  never by the model writing numbers into a row. Model-assembled baselines look
+  never by the model writing numbers into a row. *(Shipped 2026-09-14 as
+  `seo_capture_measurements()`, `20260914120000`; until then this sentence
+  described an intention.)* Model-assembled baselines look
   queried without being reproducible, which is the exact failure this project
   exists to correct. GSC restates its data, so a frozen snapshot is the only
   thing a later comparison can honestly be measured against.
@@ -151,7 +270,7 @@ restating?). A number without those is not comparable to another number.
 
 ### Status model
 
-`draft → approved → published → measured`, with one hard rule:
+`draft → approved → published → measured` *(shipped as `approval_status` = `draft → proposed → approved → rejected`, with publication a separate event table)*, with one hard rule:
 
 > **Approval never advances status to `published`.** `published` requires a
 > recorded confirmation — a human confirming the change is live, or an
@@ -615,7 +734,10 @@ way the storage-isolation work was checked. That is the open gap in this step.
 
 ### Still to build
 
-The tools and the page. The schema is the contract; nothing writes to it yet.
+The tools and the page. The schema is the contract; nothing writes
+recommendations to it yet. The measurement half (capture, equivalent windows,
+publication-requires-approval) shipped 2026-09-14 — see the second-phase
+review at the top and the bounded PR sequence there.
 
 ## Review fixes (2026-09-09, forward-corrective)
 
@@ -905,10 +1027,11 @@ does not exist. Each line is a claim about the SYSTEM, not about intent.
 | **Shopify evidence** | **Operational** | `shopify_landing_pages_daily` holds 730 days (2024-09-09 → 2026-09-08), 182,502 rows, 7,162 paths for the DTC store. `shopify_sessions_daily` holds 744 days of store-level totals. `shopify_collections` registry is complete and swept nightly. |
 | **Page inspection** | **Operational** | `page-inspect` v1 deployed, `verify_jwt: true`, host allowlist read under the caller's JWT from `shopify_shop_domains`. Verified live against `/collections/mlb`. |
 | **Candidate selection** | **Operational (new)** | `seo_collection_candidates(p_days, p_shop_domain)` returns collection landing pages with a shop-scoped `inspect_url` already built. |
-| **Search Console** | **Connected 2026-09-10; tables built, unverified** | Property `https://www.baseballism.com/` connected and tested; probe run 1 measured lag/retention/attribution (Step 2b). **`/v2/seo-overview.html` built 2026-09-10** (RPCs `20260910210000`; behaviour-tested against a scratch Postgres, not yet applied/opened in production). Tables applied, sync enabled, first nightly run landed 31 days (2026-08-09 → 2026-09-08: 19,825 clicks, 70,413 page rows, 140,846 query rows, query cut 56.6% of clicks) — reconciling with the probe. Backfill pending. Ask SILO's prompt rewritten to use it; **function deploy pending**. Indexing status is a separate API, unprobed. |
+| **Search Console** | **Operational (verified 2026-09-14 from Actions logs)** | Property `https://www.baseballism.com/` synced nightly (2026-09-13 run: 31 days through 2026-09-11, query cut 56.5%); backfill of 498 days completed 2026-09-10; `/v2/seo-overview.html` RPCs applied (drift check green); Ask SILO prompt deployed as `silo-chat` v72 on 2026-09-10 21:55 UTC. Indexing status is a separate API, unprobed. *(Earlier text of this row, kept in git history, said backfill and deploy were pending; both were stale.)* |
 | **Competitor SERP monitoring** | **Not integrated** | No SERP data source of any kind. Competitor rank snapshots cannot be produced. |
 | **Google Ads search-term / keyword / ad-asset grains** | **Not integrated** | `marketing_kpis_daily` is CAMPAIGN grain only — 8 Google campaigns. No search terms, keywords, negatives or RSA assets. |
-| **Draft → approval → baseline → 30d → 90d workflow** | **Schema only, not built** | `20260909240000` created the tables and invariants; nothing writes to them and there is no UI. Recommendations today are chat output, not tracked projects. |
+| **Draft → approval → baseline → 30d → 90d workflow** | **Schema + measurement engine, no writer, no UI** | `20260909240000` created the tables and invariants; `20260914120000` (PR pending) adds the deterministic capture, the equivalent-window function, publication-requires-approval and follow-up ordering, all executed by a PGlite RLS suite. Nothing yet creates a task: recommendations are still chat output. |
+| **Competitor research** | **Scoped, no data source** | `docs/ops/seo-competitors.md`: search vs commercial competitors, the 150/300 keyword-set method over existing tables, provider comparison with a cost model (secondary prices, official pages blocked from the review session), DataForSEO recommended pending Blake's selection. Competitor URLs are never added to the page-inspect allowlist. |
 
 ### The pre-Search-Console workflow (shipped 2026-09-09)
 

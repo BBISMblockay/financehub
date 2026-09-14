@@ -62,6 +62,7 @@ import {
   pacificDateOnly,
   upsertInChunks,
   fetchWithRetry,
+  chunk,
 } from './shopify-sync-core.mjs';
 import { refreshGoogleAccessToken } from './ad-platforms-sync-core.mjs';
 
@@ -275,6 +276,44 @@ export async function runSearchConsoleSync(supabase, env, connection, {
   const siteUpserted = await upsertInChunks(supabase, 'search_console_site_daily', siteRows,
     'company_entity_id,site_url,day_date');
 
+  // Retire detail rows this fetch did not return. Upsert alone only ever
+  // ADDS: a page or query Google returned last month and withholds today
+  // would stay in the table while the site row's *_attributed_* sums are
+  // rewritten from the fresh fetch -- so sum(page rows) for a day could
+  // exceed page_attributed_clicks for the same day, and the prompt tells the
+  // model to compare exactly those two. After the sweep the detail tables are
+  // what the latest fetch returned for the days it returned, which is what
+  // the catalog says they are.
+  //
+  // Ordered by synced_at, NOT by "batch id differs": the nightly and a manual
+  // backfill can overlap on the same property and days (there is no shared
+  // concurrency gate, and the backfill runbook says overlap is safe), so a
+  // run must never delete what a NEWER run wrote. Every row this run touched
+  // carries this run's syncedAt; a row a later run re-stamped carries a later
+  // one; only rows strictly older than this run go. Only days the site cut
+  // returned are swept (a day Google returned nothing for is left alone:
+  // absence is not a restatement to zero) and only cuts that were NOT
+  // truncated (a prefix is not the full return). Runs after the site upsert
+  // so a failure here leaves the pre-existing shape rather than deleting rows
+  // the site row still describes.
+  const sweptDays = siteRows.map((r) => r.day_date);
+  // Days a NEWER run had already completed before this run's writes landed.
+  // The database refuses the older writes itself (trigger
+  // trg_search_console_newest_run_wins, 20260914130000): this run's site
+  // row and detail rows for such a day were dropped, and the sweep below
+  // removes nothing newer than this run -- so the newer run's snapshot
+  // stands. Reported so the log can say "lost to a newer run on N days"
+  // rather than "wrote N days", which would be false.
+  const supersededDays = await countSupersededDays(supabase, connection, site, sweptDays, syncedAt);
+  const stale = { page: 0, query: 0, skipped: null };
+  if (sweptDays.length === 0) {
+    stale.skipped = 'no days returned';
+  } else {
+    if (!truncated.page) stale.page = await sweepStaleRows(supabase, 'search_console_page_daily', connection, site, sweptDays, syncedAt);
+    if (!truncated.query) stale.query = await sweepStaleRows(supabase, 'search_console_query_daily', connection, site, sweptDays, syncedAt);
+    if (truncated.page || truncated.query) stale.skipped = 'truncated cut left as is';
+  }
+
   const totalClicks = siteRows.reduce((a, r) => a + r.clicks, 0);
   const share = (n) => (totalClicks > 0 ? Number((n / totalClicks).toFixed(4)) : null);
 
@@ -293,9 +332,49 @@ export async function runSearchConsoleSync(supabase, env, connection, {
     query_attributed_click_share: share(siteRows.reduce((a, r) => a + r.query_attributed_clicks, 0)),
     page_attributed_click_share: share(siteRows.reduce((a, r) => a + r.page_attributed_clicks, 0)),
     truncated,
+    stale_rows_removed: stale,
+    superseded_days: supersededDays,
     pages_fetched: { site: siteCut.pages, page: pageCut.pages, query: queryCut.pages },
     synced_at: syncedAt,
   };
+}
+
+/** How many of `days` already carry a site row with a synced_at NEWER than
+ * this run's: a newer overlapping run completed them first and the database
+ * kept its rows over ours. */
+export async function countSupersededDays(supabase, connection, site, days, syncedAt) {
+  let superseded = 0;
+  for (const group of chunk(days, 200)) {
+    const { data, error } = await supabase.from('search_console_site_daily').select('day_date')
+      .eq('company_entity_id', connection.company_entity_id)
+      .eq('site_url', site)
+      .in('day_date', group)
+      .gt('synced_at', syncedAt);
+    if (error) throw new Error(`search_console_site_daily superseded-day check failed: ${error.message}`);
+    superseded += (data || []).length;
+  }
+  return superseded;
+}
+
+/** Delete rows of one detail table, for the given company/property/days,
+ * that were written strictly BEFORE this run (synced_at < syncedAt). Rows
+ * this run upserted carry syncedAt itself and survive; rows a newer,
+ * overlapping run re-stamped carry a later time and survive; only what no
+ * run has touched since before this one started is retired. Returns the
+ * number of rows removed. */
+export async function sweepStaleRows(supabase, table, connection, site, days, syncedAt) {
+  let removed = 0;
+  for (const group of chunk(days, 200)) {
+    const { data, error } = await supabase.from(table).delete()
+      .eq('company_entity_id', connection.company_entity_id)
+      .eq('site_url', site)
+      .in('day_date', group)
+      .lt('synced_at', syncedAt)
+      .select('id');
+    if (error) throw new Error(`${table} stale-row sweep failed: ${error.message}`);
+    removed += (data || []).length;
+  }
+  return removed;
 }
 
 /** Split [startDate, endDate] into chunks of `chunkDays`, NEWEST FIRST, so a

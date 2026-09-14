@@ -8,9 +8,15 @@ name: Search Console Backfill
 #
 # Walks the range in chunks, newest first, each written before the next is
 # fetched — a failure keeps every completed chunk and the log names the days
-# that landed. Idempotent upsert on the nightly's identity, so re-running any
-# range or overlapping the nightly is safe. See
-# scripts/search-console-backfill.mjs.
+# that landed. Idempotent upsert on the nightly's identity. Overlapping the
+# nightly is safe because the NEWEST COMPLETED RUN WINS, by construction: the
+# database (trg_search_console_newest_run_wins, 20260914130000) drops an
+# older run's late upserts over a newer run's rows, and the sync core's
+# retirement deletes only rows synced_at-older than the run doing the
+# retiring. A run that lost days to a newer one says so in its log
+# ("LOST to a newer overlapping run on N day(s)"). Deliberately no
+# concurrency group -- see CLAUDE.md on why one can cancel a scheduled
+# nightly. See scripts/search-console-backfill.mjs.
 
 on:
   workflow_dispatch:

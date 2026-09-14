@@ -13,6 +13,7 @@
  *   from(t).upsert(rows, { onConflict })      -- merges on the conflict key
  *   from(t).update(patch).eq().is().lt().neq() -- filtered, awaited
  *   from(t).delete().eq().not(col,'in',list).select()  -- filtered, returns rows
+ *   from(t).select().eq().in().gt()            -- filtered read, awaited
  *
  * Filters are evaluated against stored rows, so a test can assert on the
  * table's resulting CONTENT rather than on call shapes.
@@ -20,7 +21,15 @@
 
 let autoId = 0;
 
-export function createFakeSupabase() {
+/**
+ * `beforeWrite(table, { op, existing, incoming, rowsOf })` -- optional hook
+ * standing in for a database BEFORE trigger. Return false to drop the write.
+ * Applied to upsert() only (the path the sync cores use); direct insert()
+ * stays raw so fixtures can seed any row. A test that models a real trigger
+ * here must say which migration it mirrors -- the fake proves the caller's
+ * behaviour GIVEN the rule; the database suite proves the rule.
+ */
+export function createFakeSupabase({ beforeWrite = null } = {}) {
   /** @type {Map<string, object[]>} */
   const tables = new Map();
   const calls = { inserts: [], upserts: [], updates: [], deletes: [], rpcs: [] };
@@ -48,7 +57,10 @@ export function createFakeSupabase() {
     if (f.op === 'neq') return v !== f.val;
     if (f.op === 'is') return f.val === null ? (v === null || v === undefined) : v === f.val;
     if (f.op === 'lt') return v != null && v < f.val;
+    if (f.op === 'gt') return v != null && v > f.val;
     if (f.op === 'gte') return v != null && v >= f.val;
+    if (f.op === 'lte') return v != null && v <= f.val;
+    if (f.op === 'in') return Array.isArray(f.val) && f.val.includes(v);
     if (f.op === 'not_in') return !parseInList(f.val).has(v);
     throw new Error(`fake-supabase: unsupported filter ${f.op}`);
   });
@@ -68,6 +80,12 @@ export function createFakeSupabase() {
       eq(col, val) { filters.push({ op: 'eq', col, val }); return builder; },
       neq(col, val) { filters.push({ op: 'neq', col, val }); return builder; },
       is(col, val) { filters.push({ op: 'is', col, val }); return builder; },
+      lt(col, val) { filters.push({ op: 'lt', col, val }); return builder; },
+      gte(col, val) { filters.push({ op: 'gte', col, val }); return builder; },
+      lte(col, val) { filters.push({ op: 'lte', col, val }); return builder; },
+      // supabase-js `.in(col, array)` -- a JS array, unlike the PostgREST
+      // string form `.not(col, 'in', '(...)')` above.
+      in(col, val) { filters.push({ op: 'in', col, val }); return builder; },
       not(col, op, val) {
         if (op !== 'in') throw new Error(`fake-supabase: unsupported not(${op})`);
         filters.push({ op: 'not_in', col, val });
@@ -75,6 +93,20 @@ export function createFakeSupabase() {
       },
       select() { wantSelect = true; return builder; },
       then(resolve) { return resolve(run()); },
+    };
+    return builder;
+  }
+
+  function selectBuilder(table) {
+    const filters = [];
+    const builder = {
+      eq(col, val) { filters.push({ op: 'eq', col, val }); return builder; },
+      in(col, val) { filters.push({ op: 'in', col, val }); return builder; },
+      gt(col, val) { filters.push({ op: 'gt', col, val }); return builder; },
+      lt(col, val) { filters.push({ op: 'lt', col, val }); return builder; },
+      then(resolve) {
+        return resolve({ data: rowsOf(table).filter((r) => matches(r, filters)).map((r) => ({ ...r })), error: null });
+      },
     };
     return builder;
   }
@@ -166,12 +198,15 @@ export function createFakeSupabase() {
           if (!keys.length) throw new Error('fake-supabase: upsert without onConflict');
           for (const incoming of rows) {
             const existing = rowsOf(table).find((r) => keys.every((k) => r[k] === incoming[k]));
+            const op = existing ? 'update' : 'insert';
+            if (beforeWrite && beforeWrite(table, { op, existing, incoming, rowsOf }) === false) continue;
             if (existing) Object.assign(existing, incoming);
             else rowsOf(table).push({ id: `row-${++autoId}`, ...incoming });
           }
           calls.upserts.push({ table, rows, opts });
           return Promise.resolve({ error: null });
         },
+        select() { return selectBuilder(table); },
         update(patch) { return updateBuilder(table, patch); },
         delete() { return deleteBuilder(table); },
       };
