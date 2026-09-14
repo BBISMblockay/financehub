@@ -585,6 +585,20 @@ that would have caught them is not.
 
 ---
 
+## PR workflow — `/steward`
+
+`.claude/skills/steward/SKILL.md` is the PR ownership protocol: open the PR review-ready (checks
+by touched path, a body with verification / risks / migration-deploy sections), wait for the
+ChatGPT independent review (it posts one review on the PR and one on the next push, then stops —
+a two-cycle budget, not an approval; its `silo-pr-review-v1` marker comments carry cycle, head sha
+and status, and only `status=complete` is a review), evaluate every finding against the code, push
+ONE correction batch per cycle, and end with a readiness assessment that names the head sha, the
+last reviewed sha (both read from the markers), and one of three statuses. The harness reads that file automatically before acting on any
+review or CI event on a PR Claude opened; `/steward <task>` starts it by hand. It never merges,
+deploys, applies a migration, or touches production data — those stay Blake's.
+
+---
+
 ## Conventions for new features
 
 ### Adding a new v2 page
