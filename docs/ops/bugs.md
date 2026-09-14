@@ -16,6 +16,8 @@ No open P1s.
 
 | Issue | Workaround |
 |-------|------------|
+| **No period lock anywhere in SILO.** `entry_date` on card batches and adjustments is client-set and unchecked at approval; an entry dated before the accepted opening balance is approved (executed 2026-09-14, see [accounting-controls-review.md](accounting-controls-review.md)). Policy decision pending | Use QBO's closing date on the connected company; review every entry date at approval |
+| **No bank reconciliation in SILO.** Coding, provider-change exceptions and the QBO history tie-out exist; a statement beginning/ending balance, cleared flags and a reconciled-period record do not | Reconcile in QBO after posting; treat `plaid_accounts.current_balance` as a hint, not a statement |
 | BI vs Shopify report variance (online, Jan–Jun) restates only after a history re-import — sync fixes (cancelled orders included, shipping tax) apply to new days immediately but historical rows keep the old math until the backfill runs | Run Actions → "Shopify API Sync" with `sync_mode=history`, `history_days=200`, then re-reconcile against the Shopify export. If a residual Returns gap remains after restate, suspect exchange/store-credit returns (Redo) with $0 refund subtotals |
 | Costing fallback JSON in `po_headers.internal_notes` | Apply migrations; move data into `po_costing` |
 | Old bookmarks hit `/finance.html` instead of `/v2/finance.html` | Use `/v2/*` paths; nav links live in `v2/nav-config.js` (not `silo-chrome.js`, which only renders them) |

@@ -3,11 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
+import { btree_gist } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/btree_gist.js';
 import { splitSqlStatements } from '../lib/sql-statements.mjs';
 
 // This suite accepts no database URL or credentials. Every operation, including
 // the deliberately rejected writes, runs in a fresh in-memory PostgreSQL.
-const db = new PGlite({ extensions: { pgcrypto } });
+// btree_gist backs the cashflow override exclusion constraint that the
+// verifier tail now checks; without it that migration cannot apply here.
+const db = new PGlite({ extensions: { pgcrypto, btree_gist } });
 const root = new URL('../../', import.meta.url);
 const dependencies = [
   '20260826070000_quickbooks_integration.sql',
@@ -22,6 +25,7 @@ const dependencies = [
   '20260901000000_journal_adjustments.sql',
   '20260901010000_void_journal_adjustment.sql',
   '20260901020000_posted_status_not_client_writable.sql',
+  '20260904310000_cash_flow_forecast.sql',
   '20260912000000_finance_v1_posting_controls.sql',
 ];
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
@@ -185,6 +189,14 @@ try {
     await db.exec(historyMigration); await db.exec(historyMigration);
     await db.exec(await readFile(new URL('supabase/migrations/20260912231606_accounting_foundation.sql', root), 'utf8'));
     await db.exec(await readFile(new URL('supabase/migrations/20260913022606_qbo_historical_ledger.sql', root), 'utf8'));
+    // The verifier tail below runs every check from the Plaid marker to the end
+    // of the file, so each migration whose check lands after that marker must
+    // be applied here first. #684 and #686 appended checks without doing so and
+    // the finance-database job went red on every push to main from then on.
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql']) {
+      const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
+      await db.exec(sql); await db.exec(sql);
+    }
     assert.equal(await scalar("select count(*)::integer from pg_class where relname='plaid_accounts' and relrowsecurity"), 1);
   });
   await test('committed Plaid health checks execute against the migrated database', async () => {
