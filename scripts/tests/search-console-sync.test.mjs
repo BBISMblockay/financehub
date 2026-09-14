@@ -30,6 +30,7 @@ import {
   runSearchConsoleSync,
   runSearchConsoleBackfill,
   backfillChunks,
+  sweepStaleRows,
   DEFAULT_LAG_DAYS,
   ROW_LIMIT,
 } from '../lib/search-console-sync-core.mjs';
@@ -319,7 +320,9 @@ const row = (keys, clicks, impressions, ctr = 0.05, position = 10) => ({ keys, c
 // restates data, so a page returned last night and withheld tonight would
 // otherwise stay in the table while the site row's attributed sums are
 // rewritten from the fresh fetch -- and the prompt tells the model to compare
-// exactly those two numbers.
+// exactly those two numbers. Retirement is ordered by synced_at, never by
+// "batch differs", so an overlapping newer run's rows survive an older run's
+// sweep (§8b).
 {
   const page = (day, path, clicks) => row([day, `https://www.baseballism.com${path}`], clicks, clicks * 10);
   const first = {
@@ -328,22 +331,24 @@ const row = (keys, clicks, impressions, ctr = 0.05, position = 10) => ({ keys, c
     'date,query': [row(['2026-09-06', 'q1'], 6, 50), row(['2026-09-07', 'q1'], 6, 50), row(['2026-09-07', 'q2'], 6, 50)],
   };
   const db = createFakeSupabase();
-  const run = (data, batchId, extra = {}) => runSearchConsoleSync(db, ENV, CONNECTION, {
+  const run = (data, batchId) => runSearchConsoleSync(db, ENV, CONNECTION, {
     now: new Date('2026-09-10T20:00:00Z'), accessToken: 'tok', fetchImpl: fakeSearchConsole(data).fetchImpl, batchId,
-    window: { startDate: '2026-09-06', endDate: '2026-09-07' }, ...extra,
+    window: { startDate: '2026-09-06', endDate: '2026-09-07' },
   });
   const r1 = await run(first, 'b1');
   eq(r1.stale_rows_removed, { page: 0, query: 0, skipped: null }, 'a first fetch has nothing to retire');
-  // A row from before batch ids were stamped, for a day inside the window,
-  // and one for a day OUTSIDE it: only the former is a candidate.
+  // A row from an older run for a day inside the window, one for a day
+  // OUTSIDE it, and another company's row on the same day: only the first is
+  // a candidate.
+  const OLD = '2026-09-01T00:00:00.000Z';
   for (const fixture of [
-    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-06', page: 'https://www.baseballism.com/legacy', clicks: 1, impressions: 1, sync_batch_id: null },
-    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-08-01', page: 'https://www.baseballism.com/old', clicks: 1, impressions: 1, sync_batch_id: 'b0' },
-    // Another company's rows on the same day must never be touched.
-    { company_entity_id: 'co-2', site_url: 'https://other.example/', day_date: '2026-09-06', page: 'https://other.example/x', clicks: 1, impressions: 1, sync_batch_id: 'b0' },
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-06', page: 'https://www.baseballism.com/legacy', clicks: 1, impressions: 1, sync_batch_id: null, synced_at: OLD },
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-08-01', page: 'https://www.baseballism.com/old', clicks: 1, impressions: 1, sync_batch_id: 'b0', synced_at: OLD },
+    { company_entity_id: 'co-2', site_url: 'https://other.example/', day_date: '2026-09-06', page: 'https://other.example/x', clicks: 1, impressions: 1, sync_batch_id: 'b0', synced_at: OLD },
   ]) await db.from('search_console_page_daily').insert(fixture);
 
   // Second fetch: /b is no longer returned on 09-06, /c not on 09-07, q2 gone.
+  await new Promise((resolve) => setTimeout(resolve, 5)); // a later synced_at
   const second = {
     'date': [row(['2026-09-06'], 30, 300), row(['2026-09-07'], 30, 300)],
     'date,page': [page('2026-09-06', '/a', 30), page('2026-09-07', '/a', 30)],
@@ -362,19 +367,47 @@ const row = (keys, clicks, impressions, ctr = 0.05, position = 10) => ({ keys, c
 
   // A day the site cut did not return is left alone: absence is not a
   // restatement to zero.
+  await new Promise((resolve) => setTimeout(resolve, 5));
   const third = { 'date': [row(['2026-09-07'], 30, 300)], 'date,page': [page('2026-09-07', '/a', 30)], 'date,query': [row(['2026-09-07', 'q1'], 6, 50)] };
   const r3 = await run(third, 'b3');
   eq(r3.stale_rows_removed, { page: 0, query: 0, skipped: null }, 'nothing to retire on the returned day');
   ok(db.rows('search_console_page_daily').some((x) => x.day_date === '2026-09-06' && x.page.endsWith('/a')), 'the unreturned day keeps its rows');
-
 }
+
+// ── 8b. Overlapping runs: an older run's sweep cannot delete a newer run's rows
+// The nightly and a manual backfill share no concurrency gate. Run A starts,
+// run B starts a moment later and finishes first (its rows carry B's later
+// synced_at, including identities A also wrote), then A's retirement runs.
+// Ordering by synced_at means A deletes only what predates A itself.
+{
+  const page = (day, path, clicks) => row([day, `https://www.baseballism.com${path}`], clicks, clicks * 10);
+  const db = createFakeSupabase();
+  const A_STARTED = new Date().toISOString();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // Run B (newer) writes /a and /b for 09-07.
+  const b = { 'date': [row(['2026-09-07'], 30, 300)], 'date,page': [page('2026-09-07', '/a', 10), page('2026-09-07', '/b', 20)], 'date,query': [row(['2026-09-07', 'q1'], 6, 50)] };
+  await runSearchConsoleSync(db, ENV, CONNECTION, {
+    now: new Date('2026-09-10T20:00:00Z'), accessToken: 'tok', fetchImpl: fakeSearchConsole(b).fetchImpl, batchId: 'B',
+    window: { startDate: '2026-09-07', endDate: '2026-09-07' },
+  });
+  // A genuinely stale row from before either run.
+  await db.from('search_console_page_daily').insert({ company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-07',
+    page: 'https://www.baseballism.com/ancient', clicks: 1, impressions: 1, sync_batch_id: 'z', synced_at: '2026-09-01T00:00:00.000Z' });
+  // Run A's retirement, with A's (earlier) start time: it returned only /a.
+  const removed = await sweepStaleRows(db, 'search_console_page_daily', CONNECTION, SITE, ['2026-09-07'], A_STARTED);
+  eq(removed, 1, 'only the row older than run A is retired');
+  const left = db.rows('search_console_page_daily').map((x) => x.page.replace('https://www.baseballism.com', '')).sort();
+  eq(left, ['/a', '/b'], "run B's newer rows survive run A's sweep, including the identity both runs wrote");
+}
+
+// ── 8c. A truncated cut retires nothing ──────────────────────────────────────
 {
   const page = (day, path, clicks) => row([day, `https://www.baseballism.com${path}`], clicks, clicks * 10);
   const db = createFakeSupabase();
   await db.from('search_console_page_daily').insert(
-    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-07', page: 'https://www.baseballism.com/keep', clicks: 1, impressions: 1, sync_batch_id: 'b0' });
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-07', page: 'https://www.baseballism.com/keep', clicks: 1, impressions: 1, sync_batch_id: 'b0', synced_at: '2026-09-01T00:00:00.000Z' });
   await db.from('search_console_query_daily').insert(
-    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-07', query: 'keep', clicks: 1, impressions: 1, sync_batch_id: 'b0' });
+    { company_entity_id: 'co-1', site_url: SITE, day_date: '2026-09-07', query: 'keep', clicks: 1, impressions: 1, sync_batch_id: 'b0', synced_at: '2026-09-01T00:00:00.000Z' });
   const data = { 'date': [row(['2026-09-07'], 6, 60)], 'date,page': [], 'date,query': [row(['2026-09-07', 'q1'], 1, 10)] };
   const sc = fakeSearchConsole(data);
   // One page allowed and a full page offered: the guard marks the page cut
@@ -385,8 +418,6 @@ const row = (keys, clicks, impressions, ctr = 0.05, position = 10) => ({ keys, c
     fetchImpl: async (url, opts) => {
       const body = JSON.parse(opts.body);
       if ((body.dimensions || []).join(',') === 'date,page') {
-        // Hand back a FULL page (rowLimit rows) so the one-page guard flags
-        // truncation: a short page reads as complete.
         const full = Array.from({ length: body.rowLimit }, (_, i) => page('2026-09-07', `/p${i}`, 1));
         return { ok: true, status: 200, text: async () => JSON.stringify({ rows: full }) };
       }
@@ -399,12 +430,6 @@ const row = (keys, clicks, impressions, ctr = 0.05, position = 10) => ({ keys, c
   eq(r.stale_rows_removed.query, 1, 'the untruncated query cut still retires its stale row');
   eq(r.stale_rows_removed.skipped, 'truncated cut left as is', 'and says so');
   ok(db.rows('search_console_page_daily').some((x) => x.page.endsWith('/keep')), 'the stale page row survives a truncated fetch');
-
-  const r0 = await runSearchConsoleSync(db, ENV, CONNECTION, {
-    now: new Date('2026-09-10T20:00:00Z'), accessToken: 'tok', batchId: null,
-    window: { startDate: '2026-09-07', endDate: '2026-09-07' }, fetchImpl: sc.fetchImpl,
-  });
-  eq(r0.stale_rows_removed, { page: 0, query: 0, skipped: 'no batch id' }, 'no batch id, no sweep');
 }
 
 console.log(`search-console-sync: ${passed} assertions passed`);

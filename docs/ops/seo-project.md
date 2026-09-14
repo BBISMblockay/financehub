@@ -37,14 +37,21 @@ queried and nothing was written anywhere.
 
 ### Merged / unverified (this phase, PR pending)
 
-- `20260914120000_seo_measurement_capture.sql`: `seo_capture_measurements()`,
+- `20260914120000_seo_measurement_capture.sql`: `seo_capture_measurements()`
+  (SECURITY DEFINER with an explicit active-company filter on every read,
+  because the `seo_measurements` insert policy now refuses the two captured
+  sources from any client -- the function is the only writer of a captured
+  number; a partial unique index backs "frozen on repeat"),
   `seo_follow_up_window()`, the publication-requires-approval trigger, the
-  two-sided window ordering. Executed against local PostgreSQL by
-  `scripts/tests/seo-workflow-database.test.mjs` as authenticated users;
-  not applied to production.
+  two-sided window ordering for both baselines and follow-ups (a correction
+  publication may not land on or after an existing follow-up). Executed
+  against local PostgreSQL by `scripts/tests/seo-workflow-database.test.mjs`
+  as authenticated users; not applied to production.
 - The Search Console sync now retires detail rows the latest fetch did not
-  return (`stale_rows_removed` in the run result). Executed by the sync
-  suite with a fake; the next nightly after merge is its first live run.
+  return (`stale_rows_removed` in the run result), ordered by `synced_at` so
+  an overlapping newer run's rows survive an older run's sweep. Executed by
+  the sync suite with a fake, including the interleaved case; the next
+  nightly after merge is its first live run.
 
 ### Missing
 

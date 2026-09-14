@@ -70,6 +70,7 @@ export function createFakeSupabase() {
       eq(col, val) { filters.push({ op: 'eq', col, val }); return builder; },
       neq(col, val) { filters.push({ op: 'neq', col, val }); return builder; },
       is(col, val) { filters.push({ op: 'is', col, val }); return builder; },
+      lt(col, val) { filters.push({ op: 'lt', col, val }); return builder; },
       gte(col, val) { filters.push({ op: 'gte', col, val }); return builder; },
       lte(col, val) { filters.push({ op: 'lte', col, val }); return builder; },
       // supabase-js `.in(col, array)` -- a JS array, unlike the PostgREST

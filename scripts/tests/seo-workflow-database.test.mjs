@@ -11,6 +11,8 @@
 // Mutations (each must fail exactly one assertion):
 //   SEO_DB_MUTATION=no-approval-guard   (publication guard removed)
 //   SEO_DB_MUTATION=follow-up-unordered (follow-up ordering removed)
+//   SEO_DB_MUTATION=publication-after-follow-up (publication side of the follow-up rule removed)
+//   SEO_DB_MUTATION=direct-insert-open (insert policy no longer refuses captured sources)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -37,7 +39,7 @@ const dependencies = [
   '20260910210000_search_console_overview_rpcs.sql',
 ];
 const mutation = process.env.SEO_DB_MUTATION || '';
-assert.ok(['', 'no-approval-guard', 'follow-up-unordered'].includes(mutation), 'Unknown SEO database mutation');
+assert.ok(['', 'no-approval-guard', 'follow-up-unordered', 'publication-after-follow-up', 'direct-insert-open'].includes(mutation), 'Unknown SEO database mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -147,6 +149,16 @@ try {
       assert.ok(def.includes("elsif new.window_kind = 'follow_up' then"), 'mutation must remove the live follow-up branch');
       await db.exec(def.replace("elsif new.window_kind = 'follow_up' then", "elsif false then"));
     }
+    if (mutation === 'publication-after-follow-up') {
+      const def = await scalar("select pg_get_functiondef('public.check_publication_after_baselines()'::regprocedure)");
+      assert.ok(def.includes('if v_follow is not null then'), 'mutation must remove the live follow-up check');
+      await db.exec(def.replace('if v_follow is not null then', 'if false then'));
+    }
+    if (mutation === 'direct-insert-open') {
+      await db.exec(`drop policy seo_measurements_insert on public.seo_measurements;
+        create policy seo_measurements_insert on public.seo_measurements for insert to authenticated
+          with check (company_entity_id = public.active_company_id())`);
+    }
   });
 
   await test('capture and window functions are authenticated-only under Supabase default grants', async () => {
@@ -154,6 +166,8 @@ try {
       assert.equal(await scalar(`select has_function_privilege('anon', '${fn}', 'execute')`), false, `${fn} anon`);
       assert.equal(await scalar(`select has_function_privilege('authenticated', '${fn}', 'execute')`), true, `${fn} authenticated`);
     }
+    assert.equal(await scalar("select prosecdef from pg_proc where proname='seo_capture_measurements'"), true, 'the capture is the only writer, so it is DEFINER');
+    assert.equal(await scalar("select prosecdef from pg_proc where proname='seo_follow_up_window'"), false, 'the window reader stays INVOKER');
   });
 
   let proj, t1;
@@ -333,6 +347,47 @@ try {
     assert.equal(w0.measurable, false);
     assert.match(w0.reason, /no publication/);
     assert.equal((await asOutsider(() => q('select * from seo_follow_up_window($1, 30)', [t3])))[0].published_on, null, 'another company sees no publication');
+  });
+
+  await test('a captured source cannot be typed in by hand; a manual row still can; the index refuses a duplicate capture', async () => {
+    const t = await task(proj);
+    await refused(() => asMember(() => q("insert into seo_measurements (company_entity_id, task_id, source, metric, value, window_kind, period_start, period_end) values ($1,$2,'search_console_page','clicks',999,'baseline','2026-08-01','2026-08-07')", [co, t])),
+      /row-level security/i, 'member typing a Search Console number');
+    await refused(() => asApprover(() => q("insert into seo_measurements (company_entity_id, task_id, source, metric, value, window_kind, period_start, period_end) values ($1,$2,'shopify_landing_pages','sessions',999,'baseline','2026-08-01','2026-08-07')", [co, t])),
+      /row-level security/i, 'approver typing a landing-page number');
+    await asMember(() => q("insert into seo_measurements (company_entity_id, task_id, source, metric, value, window_kind, period_start, period_end) values ($1,$2,'manual','note_count',1,'baseline','2026-08-01','2026-08-07')", [co, t]));
+    const captured = await capture(t, 'baseline', START, addDays(START, 6));
+    assert.equal(captured.rows_written, 8, 'the function writes what a client cannot');
+    assert.ok((await rowsFor(t)).every((r) => r.company_entity_id === co));
+    // The partial unique index is the guarantee behind already_captured.
+    await refused(() => q("insert into seo_measurements (company_entity_id, task_id, source, metric, value, window_kind, period_start, period_end) values ($1,$2,'search_console_page','clicks',1,'baseline',$3,$4)", [co, t, START, addDays(START, 6)]),
+      /seo_measurements_capture_identity|duplicate key/, 'duplicate captured metric');
+    // A task in another company is not found for the DEFINER function either.
+    await refused(() => capture(t, 'baseline', START, addDays(START, 3), outsider), /SEO task not found/, 'outsider capturing a foreign task');
+    assert.equal((await q("select count(*)::int as n from seo_measurements where task_id=$1 and period_end=$2", [t, addDays(START, 3)]))[0].n, 0);
+  });
+
+  await test('once a follow-up is captured, a further publication is refused until an approver deletes it', async () => {
+    // A follow-up measures "after the LAST change". Recording another change
+    // afterwards -- inside the window, on its first day, or after it -- would
+    // leave a follow-up that no longer follows the last publication, so the
+    // trigger refuses all three rather than silently changing what the
+    // stored window means. The approver deletes the follow-up (the only
+    // delete policy) and the correction is then recorded.
+    const t = await task(proj);
+    await capture(t, 'baseline', '2026-08-20', '2026-08-24');
+    await approve(t);
+    await publish(t, PUB); // 2026-09-01
+    await capture(t, 'follow_up', '2026-09-04', '2026-09-08');
+    for (const at of ['2026-09-06T17:00:00Z', '2026-09-04T17:00:00Z', '2026-09-09T17:00:00Z']) {
+      await refused(() => publish(t, at), /already has a follow-up window starting 2026-09-04/, `correction at ${at}`);
+    }
+    assert.equal((await q("select count(*)::int as n from seo_task_publications where task_id=$1", [t]))[0].n, 1, 'no publication slipped through');
+    await asApprover(() => q("delete from seo_measurements where task_id=$1 and window_kind='follow_up'", [t]));
+    assert.ok(await publish(t, '2026-09-09T17:00:00Z'), 'the correction is recorded once the follow-up is gone');
+    const w = await asMember(() => first('select * from seo_follow_up_window($1, 7)', [t]));
+    assert.equal(iso(w.published_on), '2026-09-09', 'the window now follows the latest publication');
+    await refused(() => capture(t, 'follow_up', '2026-09-04', '2026-09-08'), /after the latest publication|last publication|on or before/i, 'the old window cannot be re-captured against the new change');
   });
 
   await test('an approver may delete a frozen capture and re-capture; a member may not delete', async () => {

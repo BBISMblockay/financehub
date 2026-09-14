@@ -8,8 +8,10 @@ name: Search Console Backfill
 #
 # Walks the range in chunks, newest first, each written before the next is
 # fetched — a failure keeps every completed chunk and the log names the days
-# that landed. Idempotent upsert on the nightly's identity, so re-running any
-# range or overlapping the nightly is safe. See
+# that landed. Idempotent upsert on the nightly's identity, and the stale-row
+# retirement in the sync core deletes only rows synced_at-older than the run
+# doing the retiring, so re-running any range or overlapping the nightly is
+# safe: the later run's rows always survive. See
 # scripts/search-console-backfill.mjs.
 
 on:

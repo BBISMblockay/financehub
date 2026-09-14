@@ -19,10 +19,17 @@
 --      change, or straddling it, was accepted without comment.
 --
 -- WHAT A CAPTURE IS. seo_capture_measurements(task, window_kind, start, end)
--- reads, under the CALLER's RLS, the two sources SILO actually holds for a
--- page and writes one seo_measurements row per metric, each carrying its
--- source, dimensions, filters, completeness and (where one exists) the latest
--- page_inspections row as evidence:
+-- reads the two sources SILO actually holds for a page and writes one
+-- seo_measurements row per metric, each carrying its source, dimensions,
+-- filters, completeness and (where one exists) the latest page_inspections
+-- row as evidence. It is SECURITY DEFINER with an explicit
+-- company_entity_id = active_company_id() filter on EVERY read, because the
+-- insert policy on seo_measurements now refuses the two captured sources from
+-- any client: the function is the only path that can write a
+-- search_console_page or shopify_landing_pages row, which is what makes a
+-- captured number reproducible rather than typed. (An INVOKER function would
+-- be refused by that same policy.) Membership is the caller's active company;
+-- a task in another company reads as not found.
 --
 --   search_console_page   clicks, impressions, pooled ctr, impression-weighted
 --                         position, days the page was returned -- from
@@ -155,6 +162,71 @@ comment on function public.check_seo_measurement_window() is
   '>= refused, via seo_baseline_conflicts); a follow-up starts after the LAST. '
   'Project-level rows (task_id null) are not ordered. 20260914120000.';
 
+-- ── 2b. A later publication may not land on or after an existing follow-up ──
+-- The reciprocal half of the follow-up rule, on the publication side (same
+-- shape as 20260909260000's baseline check): publish Sep 1, capture a Sep 2-30
+-- follow-up, then record a correction published Sep 15 -- without this the
+-- second publication passes and the stored follow-up now starts before the
+-- latest publication. Function name kept (the verify check names the trigger).
+create or replace function public.check_publication_after_baselines()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_bad date;
+  v_follow date;
+begin
+  select max(m.period_end) into v_bad
+  from public.seo_measurements m
+  where m.task_id = new.task_id
+    and m.window_kind = 'baseline'
+    and public.seo_baseline_conflicts(m.period_end, new.published_at);
+
+  if v_bad is not null then
+    raise exception
+      'cannot record publication at % -- this task already has a baseline whose window ends %, which would then straddle the change',
+      new.published_at, v_bad
+      using errcode = 'check_violation';
+  end if;
+
+  select min(m.period_start) into v_follow
+  from public.seo_measurements m
+  where m.task_id = new.task_id
+    and m.window_kind = 'follow_up'
+    and m.period_start <= (new.published_at at time zone 'America/Los_Angeles')::date;
+
+  if v_follow is not null then
+    raise exception
+      'cannot record publication at % -- this task already has a follow-up window starting %, which would then begin on or before the latest change; an approver must delete that follow-up first',
+      new.published_at, v_follow
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- ── 2c. Captured sources are written only by the capture ────────────────────
+-- Any member may still record a 'manual' or other typed measurement (it says
+-- so in its source); the two sources the function computes cannot be typed
+-- in by hand, so a captured number is always the function's number.
+drop policy if exists seo_measurements_insert on public.seo_measurements;
+create policy seo_measurements_insert on public.seo_measurements
+  for insert to authenticated
+  with check (
+    company_entity_id = public.active_company_id()
+    and source not in ('search_console_page', 'shopify_landing_pages')
+  );
+
+-- One captured metric per task, window kind, period and source. The
+-- function's EXISTS check is a courtesy; this is the guarantee, and the
+-- function returns already_captured on the violation it raises.
+create unique index if not exists seo_measurements_capture_identity
+  on public.seo_measurements (task_id, window_kind, period_start, period_end, source, metric)
+  where task_id is not null and source in ('search_console_page', 'shopify_landing_pages');
+
 -- ── 3. The equivalent follow-up window ───────────────────────────────────────
 -- Same length as the task's latest baseline, ending p_days_after days after
 -- the (latest) publication date. measurable says whether it can be captured
@@ -251,7 +323,7 @@ create or replace function public.seo_capture_measurements(
   p_period_end date
 ) returns jsonb
 language plpgsql
-security invoker
+security definer
 set search_path = public
 as $$
 declare
@@ -293,8 +365,10 @@ begin
     raise exception 'a measurement window is at most 366 days';
   end if;
 
-  -- RLS decides visibility; a task in another company reads as not found.
-  select * into v_task from public.seo_tasks where id = p_task_id;
+  -- DEFINER: the company filter is explicit here and on every read below.
+  -- A task in another company reads as not found, never as someone else's.
+  select * into v_task from public.seo_tasks
+  where id = p_task_id and company_entity_id = v_company;
   if not found then
     raise exception 'SEO task not found';
   end if;
@@ -313,7 +387,11 @@ begin
     raise exception 'task has no target page: set target_url (or a collection target_handle) before capturing';
   end if;
 
-  -- Frozen: never re-read a window that has already been captured.
+  -- Frozen: never re-read a window that has already been captured. The
+  -- EXISTS check answers the common case; the partial unique index answers
+  -- the concurrent one, and its violation is caught below so the losing call
+  -- writes nothing (the block is a subtransaction) and reports the same thing.
+  begin
   if exists (
     select 1 from public.seo_measurements m
     where m.task_id = p_task_id and m.window_kind = p_window_kind
@@ -489,6 +567,13 @@ begin
     'evidence_inspection_id', v_evidence,
     'rows_written', v_written, 'sources', v_sources,
     'caveat', 'A later window that differs from this one is evidence of movement, not proof the change caused it.');
+  exception when unique_violation then
+    return jsonb_build_object(
+      'task_id', p_task_id, 'window_kind', p_window_kind,
+      'period_start', p_period_start, 'period_end', p_period_end,
+      'already_captured', true, 'rows_written', 0,
+      'note', 'this window was captured concurrently and is frozen; an approver may delete the rows and capture again');
+  end;
 end;
 $$;
 
@@ -501,8 +586,10 @@ comment on function public.seo_capture_measurements(uuid, text, date, date) is
   'Shopify top-N landing sessions (shop resolved from the host), one row per '
   'metric with source, dimensions, filters, completeness and the latest page '
   'inspection as evidence. Absent = NULL, never 0. Frozen: a repeated window '
-  'returns already_captured. SECURITY INVOKER, so RLS scopes every read and '
-  'the trigger orders the window against the task''s publications.';
+  'returns already_captured (EXISTS check plus a partial unique index). '
+  'SECURITY DEFINER with an explicit active-company filter on every read, '
+  'because the insert policy refuses these two sources from any client; the '
+  'trigger orders the window against the task''s publications.';
 
 -- ── 5. Ask SILO catalog ──────────────────────────────────────────────────────
 -- Appends on the TABLE rows only. refresh_chat_schema_catalog() (20260821210000)

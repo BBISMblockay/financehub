@@ -3034,12 +3034,26 @@ select
       then 'CRITICAL — anon can execute an SEO measurement function'
     when not has_function_privilege('authenticated', 'public.seo_capture_measurements(uuid,text,date,date)', 'execute')
       then 'MISSING — authenticated cannot execute seo_capture_measurements'
-    -- SECURITY INVOKER is load-bearing: the capture reads Search Console and
-    -- landing rows under the CALLER's RLS. A DEFINER version would read every
-    -- tenant's rows and write them into the caller's company.
-    when exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-                 where n.nspname = 'public' and p.proname = 'seo_capture_measurements' and p.prosecdef)
-      then 'CRITICAL — seo_capture_measurements is SECURITY DEFINER; it must read under the caller''s RLS'
+    -- SECURITY DEFINER is load-bearing the other way round: the insert policy
+    -- refuses the two captured sources from every client, so the function is
+    -- the only writer of a captured number. An INVOKER version would be
+    -- refused by that policy and the capture would silently stop working.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public' and p.proname = 'seo_capture_measurements' and p.prosecdef)
+      then 'CRITICAL — seo_capture_measurements is not SECURITY DEFINER; the insert policy would refuse its own writes'
+    when not exists (select 1 from pg_policies
+                     where schemaname = 'public' and tablename = 'seo_measurements'
+                       and policyname = 'seo_measurements_insert'
+                       and with_check like '%search_console_page%' and with_check like '%shopify_landing_pages%')
+      then 'CRITICAL — seo_measurements_insert lets a client type in a captured source; a baseline is only as reproducible as the function'
+    when not exists (select 1 from pg_indexes
+                     where schemaname = 'public' and tablename = 'seo_measurements'
+                       and indexname = 'seo_measurements_capture_identity')
+      then 'MISSING — seo_measurements_capture_identity; a concurrent capture can duplicate a frozen window'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public' and p.proname = 'check_publication_after_baselines'
+                       and pg_get_functiondef(p.oid) like '%follow_up%')
+      then 'CRITICAL — a correction publication can land inside an existing follow-up window'
     -- Publication requires approval (the converse of invariant 1) and cannot
     -- be future-dated.
     when not exists (select 1 from pg_trigger where tgname = 'trg_seo_publication_admissible' and not tgisinternal)
