@@ -10,6 +10,13 @@ is the authority on what is still to do.
 
 ## Now (stability)
 
+- [ ] **Period lock and bank reconciliation, in that order of decision.**
+      The 2026-09-14 controls review (`docs/ops/accounting-controls-review.md`)
+      executed the committed SQL and found the approval → posting → recovery
+      chain holds, and that nothing anywhere relates an entry date to a closed
+      period or ties a bank account to a statement. Both are bounded PRs whose
+      shape is written in that file; both need Blake's policy call first (what
+      the lock mirrors, what a late bank item does in a locked month).
 - [x] **A materialized view behind `sales_by_product_title_daily_v`.** Done
       2026-09-07 (`20260907120000`), but the reason recorded here was stale and
       the item is closed against a corrected one. This said a 30-day product
