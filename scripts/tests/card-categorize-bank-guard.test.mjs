@@ -49,6 +49,8 @@ function fixture(options = {}) {
     eq(key, value) { this.filters.push(['eq', key, value]); return this; }
     in(key, value) { this.filters.push(['in', key, value]); return this; }
     not(key, operator, value) { this.filters.push(['not', key, value]); return this; }
+    gte(key, value) { this.filters.push(['gte', key, value]); return this; }
+    lte(key, value) { this.filters.push(['lte', key, value]); return this; }
     or(value) { this.filters.push(['or', value]); return this; }
     order() { return this; }
     limit(count) { this.maxRows = count; return this; }
@@ -63,6 +65,8 @@ function fixture(options = {}) {
         if (op === 'eq') return row[key] === value;
         if (op === 'in') return value.includes(row[key]);
         if (op === 'not') return row[key] !== value;
+        if (op === 'gte') return row[key] >= value;
+        if (op === 'lte') return row[key] <= value;
         if (op === 'or') return key.split(',').some((part) => {
           const [field, comparator, expected] = part.split('.');
           return comparator === 'is' ? row[field] == null : row[field] === expected;

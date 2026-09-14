@@ -2075,7 +2075,7 @@
     const s = suggestions.get(t.id);
     if (!s) return '';
     const account=resolveSuggestedAccount(t,s);
-    return `<div class="cc-note"><b>${account?esc(account.name):'No COA category suggested'}</b>${account?' · '+Math.round((s.confidence || 0)*100)+'% confidence':''}<br>${esc(s.reasoning || '')}${account?'':'<br>Choose a category from your chart of accounts.'}</div>
+    return `<div class="cc-note"><b>${account?esc(account.name):'No COA category suggested'}</b>${account?' · '+Math.round((s.confidence || 0)*100)+'% confidence':''}<br>${esc(s.reasoning || '')}${s.evidence?`<br><span class="cc-evidence">History: ${esc(s.evidence)}</span>`:''}${account?'':'<br>Choose a category from your chart of accounts.'}</div>
       ${account?`<button class="bcn-btn" data-accept-suggestion ${!rowEditable(t)?'disabled':''}>Use category</button>`:''}
       <button class="bcn-btn" data-dismiss-suggestion ${!rowEditable(t)?'disabled':''}>Dismiss</button>`;
   }
@@ -2094,7 +2094,9 @@
     t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null;
     const loc = acct && refsForConnection(state.locations).find(l=>l.name===s.location_name);
     t.qbo_location_id = loc?.id || null; t.qbo_location_name = loc?.name || null;
-    t.ai_reasoning = s.reasoning; t.confidence = s.confidence; t.coding_source = 'ai';
+    // The evidence line travels with the accepted row: it is the part of the
+    // reasoning a reviewer can check against the ledger.
+    t.ai_reasoning = s.evidence ? `${s.reasoning || ''} History: ${s.evidence}`.trim() : s.reasoning; t.confidence = s.confidence; t.coding_source = 'ai';
     t.vendor_name = s.vendor_name || t.vendor_name; t.status = acct ? 'coded' : 'uncoded';
     state.dirty.add(id); suggestions.delete(id); renderCoding(); renderEntry();
   }
