@@ -18728,3 +18728,9 @@ $c$select (select count(*) from v_po_header_summary
 -- row and a detail insert for a day a newer run has already completed, so an
 -- overlapping nightly/backfill cannot overwrite each other. Same test file.
 \i migrations/20260914130000_search_console_newest_run_wins.sql
+
+-- QBO history: one parser for every numeric report cell (leading-decimal
+-- amounts such as .44 and -.67 are how QBO renders fractions), blank amounts
+-- settled from the running balance, cell-level error messages. Additive;
+-- re-creates archive_qbo_ledger. Same test file as the history migration.
+\i migrations/20260914220000_qbo_history_number_formats.sql

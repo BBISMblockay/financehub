@@ -47,6 +47,7 @@ on:
       - 'v2/accounting-export.html'
       - 'v2/qbo-history.js'
       - 'supabase/migrations/*qbo_historical_ledger.sql'
+      - 'supabase/migrations/*qbo_history_number_formats.sql'
       - 'supabase/functions/plaid-finance/**'
       - 'supabase/functions/card-categorize/**'
       - 'supabase/migrations/*finance_v1_posting_controls.sql'

@@ -60,6 +60,40 @@ missing/malformed columns, invalid numbers, mixed grouped/direct rows and duplic
 account sections fail atomically instead of silently dropping detail. Same QBO
 transaction IDs on multiple GL lines are preserved; identity is the source ordinal.
 
+### Number formats and blank amounts (20260914220000)
+
+QBO writes fractional amounts without a leading digit: `.00`, `.44`, `-.67`. The
+first archive migration required a digit before the point and rejected every real
+report with `Invalid ledger movement` (the trial balance parser would have failed the
+same way one step earlier on a `.44` balance). Since `20260914220000` every numeric
+cell in both reports goes through one parser, `qbo_report_number(value, context)`:
+an optional sign, then digits with an optional fraction, or a fraction alone. The
+value is cast to `numeric` exactly as written, so precision is never rounded.
+Thousands separators, exponents, currency symbols, whitespace, a trailing point and
+anything else still fail the whole import with
+`Unsupported number format in <cell> at row <n> of account <QBO id>` — the cell,
+the ordinal within that account's section and the account id, never the value.
+That message is distinct from the connection, date, coverage and column messages,
+so an operator can tell a formatting problem apart without reading the report.
+
+Blank movement cells were investigated against a stored 366-day production report
+before this rule was written (aggregates only, nothing copied): 41 of 36,778 data
+rows had an empty amount, every one on a Payment or Journal Entry line, every one
+with a running balance identical to the prior line, and none with a missing `value`
+key. That is QBO's rendering of a zero-value line ($0 payment application, zero
+journal line). The archive therefore treats a blank amount as zero **only when the
+row's running balance equals the balance carried in** from the prior line (the
+beginning balance, or zero for an account with no beginning-balance row). The row is
+kept as a transaction line with `natural_amount = 0` and its raw row intact, and the
+account's reconciliation entry counts it in `blank_amount_rows` (the RPC result
+carries the total). A blank amount beside a running balance that moved is ambiguous
+and fails the import: `Blank ledger amount with a changed running balance at row
+<n> of account <id>`. A cell with no `value` key at all, a blank running balance and
+a blank trial balance grand total are shape failures, never zeros. Blank rows still
+count toward the period total and the running-balance chain, so a blank that hid a
+real movement would surface as `movement_total_mismatch` or `running_balance_gap`
+like any other row.
+
 Stored exceptions include running-balance gaps, missing transaction references,
 period-total disagreement, GL/TB closing disagreement, missing accounts on either
 report and account sections with no lines. A TB account absent from GL is an
@@ -69,12 +103,52 @@ stop the import and require chart reconciliation first.
 
 ## Delivery and validation
 
-New migration: `20260913022606_qbo_historical_ledger.sql`, after accounting foundation.
-No Edge Function change or deployment is required. Apply only this new migration
-following review, not the historical `apply_all_post_merge.sql` bundle. The PR does
-not apply it, disconnect QBO, post a journal or alter source posting switches.
+Migrations, in order: `20260913022606_qbo_historical_ledger.sql` (tables, RLS, the
+RPC) after accounting foundation, then `20260914220000_qbo_history_number_formats.sql`
+(the shared number parser and the re-created RPC). Both are additive; the second
+never edits the first. No Edge Function change or deployment is required. Apply only
+the new migration following review, not the historical `apply_all_post_merge.sql`
+bundle. The PR does not apply it, disconnect QBO, post a journal or alter source
+posting switches.
 
-Local tests:
+### Deploying the number-format fix and retrying the import
+
+1. Merge the PR. `deployment-drift-check.yml` goes red on the next run because
+   `verify_v2_schema.sql`'s `QBO history number formats` row reports STALE until the
+   migration is applied. That red is the reminder, not a fault.
+2. In the Supabase SQL editor, run the full contents of
+   `supabase/migrations/20260914220000_qbo_history_number_formats.sql` once. It is
+   idempotent (`create or replace`), so a second run changes nothing.
+3. Run `supabase/verify_v2_schema.sql`. `QBO history number formats`, `QBO history
+   import RPC` and `QBO history retention and audit` must all read `ok`.
+4. Retry from Books & setup → QBO history with the same window. The browser fetches
+   a fresh GL/TB pair (the earlier fetches were stored but never archived, and
+   nothing references them), then calls the RPC. A report that failed on
+   formatting now saves; a report that still fails names the cell, row ordinal
+   and QBO account id in the status line. Nothing is written on failure, so a
+   retry is always safe.
+5. Confirm the saved snapshot's transaction count and exception list against QBO
+   for a small window before relying on a large one. `blank_amount_rows` in the
+   reconciliation shows how many zero-value lines were settled from the running
+   balance.
+
+Known next stop: the stored Baseballism reports (both the 366-day and the
+one-month window fetched on 2026-09-14) contain a `Not Specified` section, QBO's
+group for lines with no account, which the archive refuses as an unidentified
+section (`Unsupported or duplicate ledger account section; raw report remains
+available`). That refusal is by design and is not a number-format problem; see
+`docs/ops/bugs.md` for the shape and the decision it needs. A window whose report
+has no such section archives normally once this migration is applied.
+
+Snapshot supersession (choosing the newest of overlapping windows for browsing)
+is a separate follow-up recorded in `docs/ops/bugs.md`; this fix does not change
+how snapshots are listed or selected.
+
+Local tests (the database suite reproduces the leading-decimal rejection against
+the original SQL before applying the fix, then covers positive and negative
+fractions, zero, blank amounts corroborated and contradicted by the running balance,
+missing cells, malformed formats, totals, running balances, precision and atomic
+rollback):
 
 ```sh
 node scripts/tests/qbo-history-database.test.mjs
