@@ -9,10 +9,16 @@ section is filled, the steward skill treats that behaviour as unverified.
 
 ## Reviewer marker format
 
-Not yet observed. Expected: every automation comment contains
-`silo-pr-review-v1` plus a cycle number, the head SHA reviewed, and a status
-(`running` = reservation, `complete` = the review). Paste one real marker
-comment here verbatim once seen, with which fields sat where.
+Configured (per Blake, 2026-09-14), not yet observed on a live PR:
+
+```
+<!-- silo-pr-review-v1 cycle=1 head=FULL_SHA status=complete -->
+```
+
+An HTML comment, so it never shows in GitHub's rendered view; read the raw
+comment body. `status` is one of `running` (wait), `complete` (the review),
+`blocked` (terminal, slot consumed, blocker stated in the comment). Paste the
+first real marker comment here verbatim once seen, with a link.
 
 ## Cycle accounting
 

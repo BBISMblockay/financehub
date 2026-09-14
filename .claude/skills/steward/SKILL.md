@@ -49,26 +49,38 @@ apply, or a production data change.
 
 ### Reviewer markers are the source of truth
 
-Every comment the automation posts contains the marker `silo-pr-review-v1`
-plus three fields: a **cycle number**, the **head SHA** it reviewed, and a
-**status**. Read them tolerantly (`key=value`, `key: value`, or a small JSON
-block - the exact layout is confirmed on the first live run and, once seen,
-recorded in `docs/ops/pr-review-automation.md`).
+Every comment the automation posts carries an HTML-comment marker. The
+configured layout is:
 
-- `status=running` (or anything other than `complete`) is a **reservation**:
-  the reviewer has claimed a cycle and is still working. Do not act on it,
-  do not push while it stands, and do not treat it as findings.
-- `status=complete` is the review. Only then read the findings and start
-  Step 3.
-- A blocked, failed, or errored status still **consumed** that cycle. The
-  budget is the count of DISTINCT cycle numbers seen in marker comments, not
-  the count of completed reviews and not whatever the PR body says.
-- `cycles used` and `last independently reviewed sha` are always computed
-  from the markers at read time. The PR body's Review budget line is a
-  convenience summary that is overwritten FROM the markers, never the other
-  way round.
-- No marker at all after the wait budget (below) means no review happened.
-  Report it as such.
+```
+<!-- silo-pr-review-v1 cycle=1 head=FULL_SHA status=complete -->
+```
+
+`cycle` is the review cycle number, `head` is the FULL 40-character sha the
+reviewer looked at, and `status` is one of exactly three values. The marker
+is an HTML comment, so it is invisible in GitHub's rendered view: read the
+RAW comment body from the API, never the rendered page, and match on the
+`silo-pr-review-v1` token.
+
+| status | meaning | what Claude does |
+|---|---|---|
+| `running` | the reviewer has claimed this cycle and is still working | wait. Do not act on it, do not push while it stands on the current head, do not treat it as findings |
+| `complete` | the review for that head is posted | read the findings and start Step 3 |
+| `blocked` | TERMINAL. The reviewer could not complete this cycle | the slot is spent. Read the comment for the stated blocker, fix it if it is within the PR's scope, report it in the readiness assessment either way. Never wait on it: nothing further will arrive for that cycle |
+
+Two rules that follow from the table:
+
+- **Only `running` means wait.** `blocked` and `complete` both end a cycle.
+- **Every distinct `cycle` value seen consumes a slot**, whatever its final
+  status. The budget is the count of distinct cycle numbers across all marker
+  comments, not the count of `complete` reviews and not whatever the PR body
+  says.
+
+`cycles used` and `last independently reviewed sha` (the `head` of the newest
+`complete` marker) are always computed from the markers at read time. The PR
+body's Review budget line is a convenience summary that is overwritten FROM
+the markers, never the other way round. No marker at all after the wait
+budget (below) means no review happened; report it as such.
 
 ## Step 1 - Open the PR review-ready
 
@@ -136,12 +148,18 @@ On every wake (event or check-in), in this order:
    cancel the pending `send_later` trigger (`delete_trigger` with the id
    carried in the check-in message), `unsubscribe_pr_activity`, and end.
    Nothing else runs.
-2. **One active run per PR.** Before doing any implementation work, check
-   for a Claude-posted comment (footer present) of the form
-   `steward: working cycle <n> on <head sha>` newer than the last push. If
-   one exists and its sha is the current head, another run already holds
-   this cycle: end the turn without acting. Otherwise post that claim
-   comment yourself before editing anything. It is the lock.
+2. **One active run per PR.** If the harness offers a concurrency guard
+   for PR work (a per-PR lock, a single-steward assignment, a "someone else
+   is watching this PR" result from `subscribe_pr_activity`), use it and
+   respect its answer. Where none exists, fall back to claim comments, and
+   understand what they are: a Claude-posted comment (footer present) of the
+   form `steward: working cycle <n> on <head sha>` is a SIGNAL, not an
+   atomic lock. Two runs can post one each in the same minute. So: read the
+   claims before posting yours; post yours; then RE-READ the comments. If a
+   claim from another run for the same head exists and is older than yours,
+   you lost the race: end the turn without acting. If yours is the oldest
+   for this head, proceed. A claim older than the current head's push is
+   stale and ignored.
 3. **Read all three surfaces**: `get_comments` (top-level, where the
    reviewer posts), `get_reviews`, `get_review_comments`. Plus
    `get_check_runs` on the current head.
@@ -150,11 +168,15 @@ On every wake (event or check-in), in this order:
    readiness report - they come back as events). Ignore any comment id or
    `(cycle, head sha, status)` triple you have already handled this session.
    An event that echoes your own push is not a review.
-5. **Wait on reservations.** A marker with `status` other than `complete`
-   for the current head means the reviewer is mid-cycle. Re-arm the check-in
-   and end. Do not push into a running review; that spends the cycle on a
-   moving target.
-6. **A `complete` marker for the current head** is the review: go to Step 3.
+5. **`running` on the current head** means the reviewer is mid-cycle.
+   Re-arm the check-in and end. Do not push into a running review; that
+   spends the cycle on a moving target.
+6. **`complete` on the current head** is the review: go to Step 3.
+   **`blocked` on the current head** is terminal: the cycle is spent. Read
+   the stated blocker. If it is something this PR can fix (a missing
+   description, an unparseable diff, a check the reviewer needed green),
+   fix it in the next batch; either way it goes in the readiness report
+   under Findings, and if it was the second cycle, go to Step 6 now.
 7. **No marker and nothing else actionable.** Re-arm the check-in silently.
    After about four hours from opening with no marker, stop waiting and go to
    Step 6 with "no independent review received".
@@ -188,7 +210,7 @@ The next review is spent on the next push. Do not push until:
 1. Every valid finding from this cycle is fixed.
 2. The checks from Step 1's table have been re-run and pass locally.
 3. The adversarial re-read of the final diff is done.
-4. No reviewer marker with a non-complete status stands on the current head.
+4. No `running` marker stands on the current head.
 
 Then one push. Never a chain of "fix a", "fix b" pushes; never an empty commit
 to re-trigger anything. After pushing:
