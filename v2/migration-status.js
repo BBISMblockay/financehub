@@ -416,10 +416,20 @@
         ? `<a class="bcn-btn" href="${esc(stage.link.href)}">${esc(stage.link.text)} →</a>`
         : `<button type="button" class="bcn-btn" data-jump="${esc(stage.link.surface)}">${esc(stage.link.text)} →</button>`)
       : '';
+    const prose = stage.points.map(p => `<p>${esc(p)}</p>`).join('')
+      + `<p class="migration-limit"><span>What this does not say</span> ${esc(stage.limit)}</p>`;
+    /* Where a step has FIGURES, they are the answer and the paragraphs are
+       elaboration, so the paragraphs collapse. Where it has none -- an unknown
+       step, or one nothing has started -- the prose IS the answer, and the only
+       instruction for getting past it, so it stays open. Collapsing by habit
+       would hide "Fetch a read-only trial balance from QuickBooks" behind a
+       disclosure on the one screen whose entire job is to ask for it. */
+    const body = stage.metrics.length
+      ? `<details class="migration-more"><summary>What this means</summary>${prose}</details>`
+      : prose;
     return `<h3>${esc(stage.title)} · ${esc(stage.stateLabel)}</h3>`
       + metrics
-      + stage.points.map(p => `<p>${esc(p)}</p>`).join('')
-      + `<p class="migration-limit"><span>What this does not say</span> ${esc(stage.limit)}</p>`
+      + body
       + (link ? `<p class="migration-actions">${link}</p>` : '');
   }
 
@@ -541,7 +551,7 @@
   }
 
   window.SiloMigrationStatus = {
-    UNMEASURED, isUnmeasured, STATES, assess, mount,
+    UNMEASURED, isUnmeasured, STATES, assess, mount, detailMarkup,
     mergeWindows, coverage, monthsFrom, addDays, independentSnapshots,
   };
 })();

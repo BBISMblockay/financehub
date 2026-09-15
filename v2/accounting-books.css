@@ -42,7 +42,6 @@
   padding:14px 16px;margin:0 0 14px;}
 .migration-flow-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;}
 .migration-flow h2{font-size:15px;margin:2px 0 0;letter-spacing:-.01em;}
-.migration-flow-caption{font-size:11px;color:var(--bcn-ink-3);margin:0;max-width:46ch;}
 .migration-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;
   list-style:none;margin:12px 0 0;padding:0;}
 .migration-step{position:relative;min-width:0;}
@@ -87,9 +86,14 @@
 .migration-limit span{font:10px var(--bcn-mono);text-transform:uppercase;letter-spacing:.06em;
   color:var(--bcn-ink-2);display:block;}
 .migration-actions{margin-top:10px!important;}
+.migration-more{margin-top:10px!important;}
+.migration-more>summary,.migration-note>summary{cursor:pointer;font-size:11px;color:var(--bcn-ink-2);
+  font-family:var(--bcn-mono);letter-spacing:.04em;}
+.migration-more[open]>summary,.migration-note[open]>summary{margin-bottom:2px;}
+.books-page details.migration-note{margin:10px 0 0;}
+.books-page .migration-note p{font-size:11px;color:var(--bcn-ink-3);margin:6px 0 0;line-height:1.55;max-width:80ch;}
 @media(max-width:960px){.migration-steps{grid-template-columns:repeat(2,minmax(0,1fr));}}
-@media(max-width:560px){.migration-steps{grid-template-columns:1fr;}
-  .migration-flow-caption{display:none;}}
+@media(max-width:560px){.migration-steps{grid-template-columns:1fr;}}
 
 
 /* ── QBO history: figures first, prose on demand ─────────────────────────────
