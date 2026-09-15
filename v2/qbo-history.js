@@ -191,7 +191,6 @@
     }).join('');
   }
 
-
   const result=async query=>{const r=await query;if(r.error)throw new Error(r.error.message);return r.data;};
   const table=(heads,rows)=>'<div class="books-table-scroll"><table><thead><tr>'+heads.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
   /* QBO's trial balance is FISCAL-YEAR-TO-DATE for income and expense accounts

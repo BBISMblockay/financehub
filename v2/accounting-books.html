@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=b218c1389d14"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
+<link rel="stylesheet" href="accounting-books.css?v=efeb96ee0a01"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=bdc941881576"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -53,7 +53,6 @@
 <div class="books-year-actions"><span id="historyYearThrough" class="books-year-end" hidden><label id="historyYearThroughLabel" for="historyYearEnd">Through</label><input id="historyYearEnd" class="bcn-field" type="date"></span><button id="historyResume" class="bcn-btn" type="button" hidden>Resume unfinished archive</button></div>
 <p id="historyConnection" class="books-caption"></p></fieldset></article>
 
-
 <details id="historySnapshots" class="books-card books-collapsible"><summary><span class="books-eyebrow">Saved snapshots</span><span id="historySnapshotTitle" class="books-collapsible-title">No snapshots yet</span><span id="historySnapshotState" class="books-collapsible-state"></span></summary>
 <div class="books-collapsible-body"><label class="books-field">History window<select id="historyArchive" class="bcn-field"></select></label>
 <div id="historySummary"></div><button id="historyRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button></div></details>
@@ -63,6 +62,7 @@
 <!-- The four standing caveats were four permanent captions competing with the
      numbers. Every word is kept; they no longer all shout at once. -->
 <details class="books-note"><summary>What a saved year proves — and what it does not</summary>
+<p>Saving a year copies your QuickBooks general ledger into Silo — transaction references, memos, counterparties and running balances — and checks each account against a trial balance at the same end date. Closing balances are normalized as debits minus credits, which is what the Difference column compares.</p>
 <ul><li>QuickBooks reports a trial balance for the fiscal year to date, so a year is the only window it can check in full.</li>
 <li>Each snapshot stands alone. Overlapping windows are never added together.</li>
 <li>A balance match checks that QuickBooks’ own reports agree with each other. It does not prove that every source document was retained.</li>
