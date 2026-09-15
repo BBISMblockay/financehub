@@ -4,10 +4,12 @@ What the ChatGPT review automation and the Claude wake-up wiring ACTUALLY do,
 recorded from live runs. The protocol that consumes this lives in
 `.claude/skills/steward/SKILL.md`; this file is the evidence it reads.
 
-Everything below marked **observed** comes from PR #690
+Everything below marked **observed** comes from a live run: PR #690
 (https://github.com/BBISMblockay/financehub/pull/690), the first PR through
-the loop. Everything marked **unverified** has not yet happened on a live PR
-and the steward skill treats it as unproven.
+the loop, then #692, then #708 — which supplied the first `status=blocked`
+marker and closed the last two open questions here. Anything marked
+**unverified** has not yet happened on a live PR and the steward skill treats
+it as unproven; as of #708 nothing in this file carries that mark.
 
 ## Reviewer marker format — observed
 
@@ -36,7 +38,57 @@ therefore never identifies a review; `(comment id, cycle, head, status)` plus
 `updated_at` does, and the raw body must be re-read on every wake. This is
 finding P2 of that review, and the reason the skill dedupes by tuple.
 
-`status=blocked` — **unverified** (not yet seen on a live PR).
+### `status=blocked` — observed on PR #708
+
+First seen 2026-09-15 on
+https://github.com/BBISMblockay/financehub/pull/708#issuecomment-5687983223.
+It confirms three things the skill had been treating as unproven:
+
+- **`blocked` is delivered by the same in-place edit as `complete`.** Comment
+  5687983223 was created at 20:57:43 with `status=running` and edited at
+  21:00:18 to `status=blocked`; same comment id, `created_at` unchanged. The
+  tuple dedupe handles it exactly as it handles `complete`.
+- **A `blocked` cycle still consumes its slot.** The marker keeps `cycle=1`,
+  and no further cycle-1 comment ever arrived. Counting distinct `cycle`
+  values, not `complete` reviews, is the correct budget rule.
+- **The blocker can be "the head moved", and then the cycle yields NO
+  findings at all.** Body, verbatim in part: *"The PR advanced from reviewed
+  commit `2bc4e79` to `23dd0aa` while this review was running. No findings
+  from the stale head are presented as current."* It had in fact read the
+  diff — it independently identified the Plaid-tail placement as the cause of
+  the CI failure — but withheld everything rather than present findings
+  against a head that no longer existed.
+
+### Pushing during a `running` cycle costs the whole cycle
+
+This is the practical lesson from #708 and it is a real tension, not an
+oversight:
+
+- The harness rule is that red CI on a PR Claude opened is work now, at every
+  event, **whatever its review state**.
+- The reviewer's rule is that a head moving mid-review supersedes the cycle
+  and publishes nothing.
+
+On #708 both fired. `Finance database regressions` went red on `2bc4e79` at
+20:57:09, 34 seconds BEFORE the reviewer claimed that head at 20:57:43. The
+fix pushed at 20:58:29; the cycle blocked at 21:00:18. One of two review
+cycles was spent on a head that was already known-red, and produced nothing.
+
+What to do with that, in order of preference:
+
+1. **Do not open the PR until the checks that apply have been run locally.**
+   The Step 1 table exists for this. On #708 every listed check was run and
+   passed — the failure was in a check the table does not name, because
+   `plaid-bank-feed-database.test.mjs` executes the tail of
+   `verify_v2_schema.sql` and the PR appended to that file. Anything touching
+   `supabase/verify_v2_schema.sql` should now run that test too.
+2. **If CI goes red while a cycle is `running`, the fix still ships** — the
+   harness rule wins, and a red head helps nobody. But expect the cycle to
+   blocked/supersede, say so in the same comment as the fix, and count the
+   cycle as spent.
+3. **Do not manufacture a push to buy back the lost cycle.** An empty or
+   filler commit to re-trigger review is forbidden and would be dishonest
+   about what the next cycle is reviewing.
 
 ## Cycle accounting — partly observed
 
@@ -44,8 +96,8 @@ finding P2 of that review, and the reason the skill dedupes by tuple.
 - Cycle 2 fired on the first push after review one (`running` at 02:27:38,
   72 seconds after the push; `complete` at 02:30:30 by in-place edit of
   comment 5658166038) — observed.
-- Whether a `blocked` attempt posts a marker and consumes a cycle —
-  **unverified**.
+- A `blocked` attempt DOES post a marker and DOES consume a cycle —
+  observed on #708 (see the `status=blocked` section above).
 
 ## Wake-up wiring — observed
 
@@ -74,6 +126,7 @@ transitions, dropped webhooks).
 | PR | Opened | Cycle 1 marker | Cycle 2 marker | Final status | Notes |
 |----|--------|----------------|----------------|--------------|-------|
 | #690 | 2026-09-14 02:20 UTC, head `2b8dd20` | `complete` 02:23:40 on `2b8dd20`, 2 findings (P1, P2), both valid, fixed in `133561c` | `complete` 02:30:30 on `133561c`, 2 findings (both P1: same-second claim order, release tombstone), both valid, fixed in the commit after | Needs additional independent review | first live run; all four findings were against the skill's own claim fallback; the final commit is unreviewed by construction |
+| #708 | 2026-09-15 20:56 UTC, head `2bc4e79` | `blocked` 21:00:18 on `2bc4e79`, **zero findings published** — the head moved to `23dd0aa` mid-review | not fired: no further push was made, so the second cycle remained unspent | Needs additional independent review | third live run, and the first `blocked` marker. CI went red 34 s before the reviewer claimed the head; the drive-to-green rule required the fix, which superseded the cycle. No head on this PR has been independently reviewed |
 | #692 | 2026-09-14 04:49 UTC, head `f0d76c0` | `complete` 04:53:55 on `f0d76c0`, 4 findings (2 P1, 2 P2), all valid, fixed in `d8c571a` | `complete` 05:08 on `d8c571a`, 2 findings (P1 valid: late upserts from an older run; P2 disputed: `20260909300000` already pins the baseline helper to Pacific, verify's `seo_baseline_business_timezone` enforces it, boundary test added) | Needs additional independent review | second live run; the PR-event path fired on `issue_comment.created`, `.edited` and `check_suite.completed` within seconds each time; the hourly check-in never had to fire and was cancelled after the report. Claim released by a `released` tombstone comment (no comment-edit tool in the harness) |
 
 ## Protocol traces
