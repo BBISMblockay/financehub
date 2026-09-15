@@ -4,6 +4,12 @@ import vm from 'node:vm';
 import test from 'node:test';
 const code=await readFile(new URL('../../v2/qbo-history.js',import.meta.url),'utf8');
 const settle=async()=>{for(let i=0;i<30;i++)await new Promise(r=>setImmediate(r));};
+// Drives the real explain() through summarise() on a row that must read loudly.
+function window_explain(h){
+ const sum=h.summarise([{account_name:'Clearing',issues:['trial_balance_mismatch'],
+  ledger_debit_net:10,trial_balance_debit_net:0,difference:10}]);
+ return h.explainHtml(sum);
+}
 class Element{
  constructor(){this.value='';this.events={};}
  set innerHTML(s){this.html=s;if(s.includes('<option'))this.value=s.match(/value="([^"]*)"/)?.[1]||'';}
@@ -11,20 +17,20 @@ class Element{
  addEventListener(n,f){this.events[n]=f;}
  insertAdjacentHTML(_,s){this.html=(this.html||'')+s;}
 }
-function harness({disconnected=false,failTb=false,failArchive=false,preloaded=false,failedJob=false,unfinished=null,steps=1}={}){
+function harness({disconnected=false,failTb=false,failArchive=false,preloaded=false,failedJob=false,unfinished=null,steps=1,snapshotOverrides={}}={}){
  const elements=new Map(),el=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};const calls=[];let archives=[];
  const settings={qbo_connection_id:'connection-test',accounting_start_date:'2026-09-01',accounting_basis:'Accrual',base_currency:'USD',fiscal_year_start_month:1};
- const snapshot={id:'archive-1',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',accounting_basis:'Accrual',created_at:'2026-09-13',exception_count:0,transaction_count:1,reconciliation:[{qbo_account_id:'bank',account_name:'Checking',ledger_debit_net:10,trial_balance_debit_net:10,difference:0,issues:[]}]};
+ const snapshot={id:'archive-1',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',accounting_basis:'Accrual',created_at:'2026-09-13T06:31:29Z',exception_count:0,transaction_count:1,reconciliation:[{qbo_account_id:'bank',account_name:'Checking',ledger_debit_net:10,trial_balance_debit_net:10,difference:0,issues:[]}],...snapshotOverrides};
  if(preloaded)archives=[snapshot];
  const db={from(table){const filters={};const chain={select(cols){calls.push({table,cols});return this;},eq(k,v){filters[k]=v;return this;},order(){return this;},range(){return this;},maybeSingle(){return this;},then(resolve){assert.equal(filters.company_entity_id,'test-company');if(table==='qbo_history_lines')assert.equal(filters.import_id,'archive-1');return Promise.resolve({data:table==='accounting_settings'?settings:table==='qbo_history_imports'?archives:table==='qbo_history_jobs'?(unfinished?[unfinished]:[]):table==='qbo_history_lines'?[{row_no:1,account_name:'Checking',transaction_date:'2026-08-05',qbo_transaction_id:'txn-1',memo:'<script>bad</script>',natural_amount:10,natural_balance:10}]:[]}).then(resolve);}};return chain;},
  functions:{invoke:async(name,{body})=>{calls.push({name,body});assert.equal(name,'quickbooks-report');if(disconnected)return {error:{message:'QBO connection inactive'}};if(failTb&&body.report_name==='TrialBalance')return {error:{message:'Report timeout'}};return {data:{run_id:body.report_name+'-run'}};}},
  rpc:async(name,args)=>{calls.push({name,args});assert.equal(name,'archive_qbo_ledger');if(failArchive)return {error:{message:'Archive unavailable'}};const n=calls.filter(c=>c.name==='archive_qbo_ledger').length;if(failedJob&&n===2)return {data:{status:'failed',job_id:'job-1',error:'Blank ledger amount with a changed running balance at row 3 of account bank is ambiguous; no archive was written'}};if(n<steps)return {data:{status:'in_progress',job_id:'job-1',rows_done:n*1000,rows_total:steps*1000,sections_done:n,sections_total:steps}};archives=[snapshot];return {data:{id:'archive-1',status:'complete'}};}};
  const window={};vm.runInNewContext(code,{window,document:{getElementById:el},console});
  const statuses=[];const st=el('historyStatus');Object.defineProperty(st,'textContent',{set(v){statuses.push(v);this._t=v;},get(){return this._t||'';}});
- return {el,calls,statuses,fiscalYears:(...a)=>window.SiloQboHistory.fiscalYears(...a),boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async(start='2026-01-01',end='2026-08-31',extra={})=>{el('historyYears').events.click({target:{dataset:{start,end,...extra}}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
+ return {el,calls,statuses,fiscalYears:(...a)=>window.SiloQboHistory.fiscalYears(...a),summarise:(...a)=>window.SiloQboHistory.summarise(...a),explainHtml:(...a)=>window.SiloQboHistory.explain(...a),windowLabel:(...a)=>window.SiloQboHistory.windowLabel(...a),openDetail:async()=>{el('historyDetail').open=true;el('historyDetail').events.toggle();await settle();},closeDetail:async()=>{el('historyDetail').open=false;el('historyDetail').events.toggle();await settle();},loadMore:async()=>{el('historyMore').events.click();await settle();},boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async(start='2026-01-01',end='2026-08-31',extra={})=>{el('historyYears').events.click({target:{dataset:{start,end,...extra}}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
 }
 test('actual history handler reads scoped GL then TB, archives stored IDs and displays escaped retained details',async()=>{
- const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Choose dates before/);
+ const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Pick a year/);
  // There are no date fields to fill any more: a year IS the request.
  assert.ok(!/id="historyFrom"|id="historyTo"/.test(h.el('historyYears').innerHTML));
  await h.submit();
@@ -36,6 +42,8 @@ test('actual history handler reads scoped GL then TB, archives stored IDs and di
  // with the ledger on every P&L account.
  for(const f of fetch){assert.equal(f.body.connection_id,'connection-test');assert.equal(f.body.params.start_date,'2026-01-01');assert.equal(f.body.params.end_date,'2026-08-31');assert.equal(f.body.params.accounting_method,'Accrual');}
  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(x=>x.name==='archive_qbo_ledger').args)),{p_gl_run_id:'GeneralLedger-run',p_tb_run_id:'TrialBalance-run'});
+ assert.equal(h.el('historyRows').innerHTML,'','the ledger card is closed, so its lines were never fetched');
+ await h.openDetail();
  assert.match(h.el('historyRows').innerHTML,/&lt;script&gt;bad/);assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.equal(h.el('historyDetail').hidden,false);
  assert.ok(!h.calls.some(x=>x.name==='quickbooks-post-journal'));assert.ok(!h.calls.some(x=>x.cols?.includes('source_snapshot')));
 });
@@ -185,8 +193,11 @@ test('clicking a year archives that window through the same path as the form',as
 // date, so any end inside the year reconciles.
 test('the open fiscal year is archived through a date the reader chooses',async()=>{
  const h=harness();await h.boot();
- assert.match(h.el('historyYears').innerHTML,/id="historyYearEnd"/,'the open year offers an end date');
- assert.match(h.el('historyYears').innerHTML,/min="2026-01-01" max="2026-08-31"/,'bounded by the year itself');
+ // The control now sits beside the open year rather than inside the strip.
+ assert.equal(h.el('historyYearThrough').hidden,false,'the open year offers an end date');
+ assert.equal(h.el('historyYearThroughLabel').textContent,'2026 through','and names the year it belongs to');
+ assert.equal(h.el('historyYearEnd').min,'2026-01-01','bounded by the year itself');
+ assert.equal(h.el('historyYearEnd').max,'2026-08-31');
  assert.equal(h.el('historyYearEnd').value,'2026-08-31','defaulting to the latest archivable day');
  h.el('historyYearEnd').value='2026-06-30';
  h.el('historyYears').events.click({target:{dataset:{start:'2026-01-01',end:'2026-08-31',editable:'1'}}});
@@ -235,6 +246,51 @@ test('earlier years can be asked for, and the control retires at the cap',async(
  assert.equal(h.el('historyMoreYears').hidden,true,'the control retires once there is no more to show');
 });
 
+// The overhaul is presentation only: every figure and every word of ISSUES is
+// still reachable, just not all at one weight.
+test('the figures lead as a KPI band and the snapshot names its own window',async()=>{
+ const h=harness({preloaded:true});await h.boot();
+ const band=h.el('historyKpis').innerHTML;
+ assert.equal(h.el('historyKpis').hidden,false);
+ for(const label of ['Window','Ledger lines','Accounts checked','Needs attention','Balance affected','Notes'])
+  assert.ok(band.includes(label),`${label} is reported as a figure`);
+ assert.match(band,/>Aug 2026</,'the window leads with its short name');
+ // Each date is held on one line: '2026-08-' above '31' reads as two numbers.
+ assert.match(band,/<span class="books-nowrap">2026-08-01<\/span> → <span class="books-nowrap">2026-08-31<\/span>/);
+ // The card's own heading is the SHORT name; the exact dates are in the band
+ // above it and in its body, so nothing is lost by not repeating them here.
+ assert.equal(h.el('historySnapshotTitle').textContent,'Aug 2026');
+ assert.equal(h.el('historySnapshotState').textContent,'Saved 2026-09-13');
+ assert.equal(h.el('historyDetailState').textContent,'1 account');
+ assert.match(band,/books-kpi-value--pos/,'a clean window reads as good, not neutral');
+});
+
+test('a clean window says so and an unexplained balance does not read as clean',async()=>{
+ const clean=harness({preloaded:true});await clean.boot();
+ assert.match(clean.el('historyStatus').textContent,/Every closing balance tied/);
+ assert.equal(clean.el('historyStatus').className,'bcn-status bcn-status--pos');
+});
+
+test('matched accounts are behind a toggle, and the count of what is hidden is stated',async()=>{
+ const h=harness({preloaded:true});await h.boot();
+ // The preloaded snapshot has one account and it matched, so nothing is flagged.
+ assert.match(h.el('historyReconciliation').innerHTML,/Every account tied to the trial balance/);
+ assert.equal(h.el('historyShowAll').hidden,false,'the way to see them is still offered');
+ assert.match(h.el('historyShowAll').textContent,/Show all 1 accounts?/);
+ h.el('historyShowAll').events.click();
+ assert.match(h.el('historyReconciliation').innerHTML,/Checking/,'the account is listed once asked for');
+ assert.match(h.el('historyReconciliation').innerHTML,/bcn-pill--pos/,'its state is a pill, not a sentence');
+ assert.match(h.el('historyShowAll').textContent,/Show only accounts needing attention/);
+});
+
+test('every word of an exception explanation is still reachable, behind a disclosure',async()=>{
+ const h=harness();await h.boot();
+ const html=window_explain(h);
+ assert.match(html,/<details><summary>What this means<\/summary>/,'the prose is disclosed, not deleted');
+ assert.match(html,/Do not rely on this window for this account until it is explained/,'the action text survives in full');
+ assert.match(html,/books-exception--neg/,'a real difference is toned differently from a note');
+});
+
 test('a click that carries no window archives nothing',async()=>{
  const h=harness();await h.boot();
  const before=h.calls.length;
@@ -254,7 +310,7 @@ test('a window the archive would refuse makes no QBO calls',async()=>{
  assert.ok(!h.calls.some(x=>x.name));
 });
 test('saved history loads without any QBO connection request; disconnected fetch leaves it usable',async()=>{
- const h=harness({disconnected:true,preloaded:true});await h.boot();assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.ok(!h.calls.some(x=>x.name));await h.submit();assert.match(h.el('historyStatus').textContent,/inactive/);assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.ok(!h.calls.some(x=>x.name==='archive_qbo_ledger'));
+ const h=harness({disconnected:true,preloaded:true});await h.boot();await h.openDetail();assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.ok(!h.calls.some(x=>x.name));await h.submit();assert.match(h.el('historyStatus').textContent,/inactive/);await h.openDetail();assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.ok(!h.calls.some(x=>x.name==='archive_qbo_ledger'));
 });
 test('partial report or local archive failure never claims success and leaves a retry action',async()=>{
  for(const options of [{failTb:true},{failArchive:true}]){const h=harness(options);await h.boot();await h.submit();assert.match(h.el('historyStatus').textContent,/retry/);assert.equal(h.el('historyInputs').disabled,false);assert.equal(h.el('historyDetail').hidden,true);if(options.failTb)assert.ok(!h.calls.some(x=>x.name==='archive_qbo_ledger'));}
@@ -263,7 +319,7 @@ test('the archive is driven to completion across bounded calls with progress, an
  const h=harness({steps:3});await h.boot();await h.submit();
  assert.equal(h.calls.filter(x=>x.name==='archive_qbo_ledger').length,3,'The same RPC is called until it reports complete');
  assert.ok(h.statuses.some(s=>/1,000 of 3,000/.test(s)&&/Nothing is saved until every row is checked/.test(s)),'Progress is shown between calls');
- assert.equal(h.el('historyDetail').hidden,false);assert.match(h.el('historyRows').innerHTML,/txn-1/);
+ assert.equal(h.el('historyDetail').hidden,false);await h.openDetail();assert.match(h.el('historyRows').innerHTML,/txn-1/);
  const f=harness({failedJob:true,steps:3});await f.boot();await f.submit();
  assert.equal(f.calls.filter(x=>x.name==='archive_qbo_ledger').length,2,'A failed status stops the loop');
  assert.match(f.el('historyStatus').textContent,/row 3 of account bank/);assert.match(f.el('historyStatus').textContent,/retry/);assert.equal(f.el('historyDetail').hidden,true);assert.equal(f.el('historyInputs').disabled,false);
@@ -275,4 +331,60 @@ test('an unfinished job is offered for resume and resumes with its stored report
  assert.ok(!h.calls.some(x=>x.name==='quickbooks-report'),'Resuming never re-fetches from QBO');
  const rpcs=h.calls.filter(x=>x.name==='archive_qbo_ledger');assert.equal(rpcs.length,2);assert.deepEqual(JSON.parse(JSON.stringify(rpcs[0].args)),{p_gl_run_id:'gl-stored',p_tb_run_id:'tb-stored'});
  const n=harness();await n.boot();assert.equal(n.el('historyResume').hidden,true,'No unfinished job, no resume control');
+});
+
+// The dropdown used to read '2025-01-01 – 2025-12-31 · Exceptions ·
+// 2026-09-15T06:31:29Z' on every row. Shortening it is only safe where the
+// short form claims nothing the dates do not: a window ending mid-month is not
+// a month and keeps its dates.
+test('a saved window is named as short as its own dates allow, and never rounded past them',async()=>{
+ const h=harness();
+ assert.equal(h.windowLabel('2025-01-01','2025-12-31'),'2025');
+ assert.equal(h.windowLabel('2026-08-01','2026-08-31'),'Aug 2026');
+ assert.equal(h.windowLabel('2026-01-01','2026-08-31'),'Jan – Aug 2026');
+ assert.equal(h.windowLabel('2025-08-01','2026-07-31'),'Aug 2025 – Jul 2026');
+ assert.equal(h.windowLabel('2024-02-01','2024-02-29'),'Feb 2024','a leap February ends on the 29th');
+ assert.equal(h.windowLabel('2025-02-01','2025-02-28'),'Feb 2025');
+ // Not month boundaries: rounding these to a month would claim a period the
+ // archive does not cover.
+ assert.equal(h.windowLabel('2026-01-01','2026-08-15'),'2026-01-01 → 2026-08-15');
+ assert.equal(h.windowLabel('2026-01-05','2026-12-31'),'2026-01-05 → 2026-12-31');
+ assert.equal(h.windowLabel('2024-02-01','2024-02-28'),'2024-02-01 → 2024-02-28','2024 February has 29 days');
+ assert.equal(h.windowLabel('','2026-08-31'),'? → 2026-08-31');
+});
+
+// The dropdown itself: short window, the state, and no machine timestamp.
+test('the snapshot dropdown carries the window and its state, not a saved-at timestamp',async()=>{
+ const h=harness({preloaded:true});await h.boot();
+ const options=h.el('historyArchive').innerHTML;
+ assert.match(options,/>Aug 2026 · Matched</);
+ assert.ok(!/2026-09-13/.test(options),'the saved-at timestamp is not in the option text');
+});
+
+// Closing the card and opening it again is not a new question. Without the
+// loaded guard every reopen refetched page 1 and discarded whatever 'Load more'
+// had already put on screen.
+test('reopening the ledger card keeps the lines already loaded and asks for nothing more',async()=>{
+ const h=harness({preloaded:true});await h.boot();
+ const reads=()=>h.calls.filter(c=>c.table==='qbo_history_lines').length;
+ await h.openDetail();
+ assert.equal(reads(),1,'opening the card is what fetches the ledger');
+ await h.loadMore();
+ assert.equal(reads(),2);
+ await h.closeDetail();await h.openDetail();
+ assert.equal(reads(),2,'reopening refetches nothing');
+ assert.match(h.el('historyRows').innerHTML,/txn-1/,'and keeps what was loaded');
+});
+
+// The window KPI's note is the one place a stored value is written as HTML
+// rather than as escaped text, so that a date can hold its own line. Every part
+// of it must still be escaped on the way in.
+test('the window note is escaped even though it is written as markup',async()=>{
+ const h=harness({preloaded:true,snapshotOverrides:{period_start:'<img src=x onerror=1>',period_end:'2026-08-31'}});
+ await h.boot();
+ const band=h.el('historyKpis').innerHTML;
+ assert.match(band,/&lt;img src=x onerror=1&gt;/);
+ assert.ok(!/<img/.test(band),'no raw tag reaches the page');
+ // An unparseable window keeps its stored dates rather than being rounded.
+ assert.match(band,/&lt;img src=x onerror=1&gt; → 2026-08-31/);
 });
