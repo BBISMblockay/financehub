@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=efeb96ee0a01"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
+<link rel="stylesheet" href="accounting-books.css?v=d727ab397a4c"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=7891a44c7e1d"></script><script src="accounting-books.js?v=b3e0debab067" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -17,9 +17,13 @@
 <p id="booksIntro">Your accounts, opening balances and journal history.</p></div><span id="booksBadge" class="books-badge">Loading setup…</span></header>
 <div id="status" class="bcn-status" role="status" aria-live="polite">Loading your company’s books…</div>
 <section class="migration-flow" id="migrationFlow" aria-labelledby="migrationFlowTitle" hidden>
-<div class="migration-flow-head"><div><p class="books-eyebrow">QuickBooks → Silo</p><h2 id="migrationFlowTitle" data-migration-headline>Reading where your migration stands…</h2></div><p class="migration-flow-caption">Every step is read from your books each time this page loads. Nothing here is a checkbox someone ticks, and a step Silo could not measure reads “Unknown”, never “Done”.</p></div>
+<div class="migration-flow-head"><div><p class="books-eyebrow">QuickBooks → Silo</p><h2 id="migrationFlowTitle" data-migration-headline>Reading where your migration stands…</h2></div></div>
 <ol class="migration-steps" data-migration-steps aria-label="Migration steps"></ol>
 <div id="migrationDetail" class="migration-detail" hidden></div>
+<!-- How the flow is measured. It used to sit open beside the headline and was
+     display:none below 560px, so the trust framing was three permanent lines on
+     a desktop and unreachable on a phone. A disclosure is the other way round. -->
+<details class="migration-note"><summary>How these steps are measured</summary><p>Every step is read from your books each time this page loads. Nothing here is a checkbox someone ticks, and a step Silo could not measure reads “Unknown”, never “Done”.</p></details>
 </section>
 <nav class="books-tabs" aria-label="Books"><button class="bcn-btn" data-surface="setup" aria-pressed="true">Setup & opening balances</button><button class="bcn-btn" data-surface="accounts" aria-pressed="false">Chart of accounts</button><button class="bcn-btn" data-surface="register" aria-pressed="false">Journal register</button><button class="bcn-btn" data-surface="history" aria-pressed="false">QBO history</button></nav>
 <section id="setup" class="books-surface">
@@ -33,7 +37,7 @@
 <p class="books-caption">Reads QBO only. Account definitions come from your last QBO account sync; ask your administrator to refresh that sync if an account is missing. Existing transactions and posting settings stay in place.</p>
 <details><summary>Use a previously fetched trial balance</summary><label>Saved report<select id="report" class="bcn-field"></select></label><button id="seed" class="bcn-btn">Prepare opening balances</button></details></details>
 </article><article class="books-card"><h2 id="baselineTitle">Opening balances</h2><div id="settingsSummary">Fetch a trial balance to preview the accounts and balances Silo will retain.</div>
-<p class="books-caption">This is local opening history. It is never sent back to QuickBooks as a journal entry. Acceptance freezes the baseline and requires a review note.</p>
+<details class="books-note"><summary>What accepting does</summary><p>This is local opening history. It is never sent back to QuickBooks as a journal entry. Acceptance freezes the baseline and requires a review note.</p></details>
 <button id="accept" class="bcn-btn bcn-btn--primary" disabled>Review & accept opening balances</button>
 </article></div>
 <div id="opening" class="books-card" hidden></div>

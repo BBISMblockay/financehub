@@ -159,6 +159,26 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
       r.eq(pressed, ['history'], 'the tab itself reads as pressed');
     });
 
+    /* The methodology note was three permanent lines beside the headline and
+       display:none below 560px -- so a desktop reader could not dismiss it and
+       a phone reader could not reach it. As a disclosure it is the other way
+       round, and both halves of that are worth pinning. */
+    await check('how the steps are measured is collapsed on a desktop and still reachable on a phone', async () => {
+      const shape = await page.$eval('.migration-note', (n) => ({
+        tag: n.tagName, open: n.open, summary: n.querySelector('summary').textContent.trim(),
+        text: n.textContent, display: getComputedStyle(n).display,
+      }));
+      r.eq(shape.tag, 'DETAILS');
+      r.eq(shape.open, false, 'it does not sit open');
+      r.has(shape.summary, 'How these steps are measured');
+      r.has(shape.text, 'never “Done”', 'and it still carries what it always said');
+      r.not(shape.display, 'none');
+      await page.setViewportSize({ width: 390, height: 900 });
+      const phone = await page.$eval('.migration-note', (n) => getComputedStyle(n).display);
+      r.not(phone, 'none', 'a phone reader can still open it');
+      await page.setViewportSize({ width: 1280, height: 900 });
+    });
+
     await check('the flow is readable in dark theme', async () => {
       const painted = await page.evaluate(() => {
         document.documentElement.setAttribute('data-theme', 'dark');

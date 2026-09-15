@@ -4,6 +4,10 @@
   const el=id=>document.getElementById(id);
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const amount=n=>Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  // A stored timestamp, to the day. '2026-09-14T00:00:00Z' beside a date is the
+  // same overlong label the saved-snapshot dropdown carried; nobody reads the
+  // seconds off an acceptance.
+  const day=value=>String(value??'').slice(0,10);
   const cfg=window.__SILO_CONFIG__||{};
   let db,company,baseline,busy=false,registerOffset=0;
   function status(message,error=false){el('status').textContent=message;el('status').className='bcn-status'+(error?' bcn-status--neg':'');}
@@ -29,12 +33,19 @@
     el('accept').hidden=accepted;
     if(opening?.snapshot?.as_of)el('cutoff').value=opening.snapshot.as_of;
     if(settings){el('connection').value=settings.qbo_connection_id;el('connection').disabled=true;}
-    el('report').innerHTML='<option value="">Select a saved trial balance</option>'+reports.filter(r=>r.connection_id===el('connection').value).map(r=>`<option value="${esc(r.id)}">${esc(r.end_date)} · fetched ${esc(r.fetched_at)}</option>`).join('');
+    el('report').innerHTML='<option value="">Select a saved trial balance</option>'+reports.filter(r=>r.connection_id===el('connection').value).map(r=>`<option value="${esc(r.id)}">${esc(r.end_date)} · fetched ${esc(day(r.fetched_at))}</option>`).join('');
     el('accountsTable').innerHTML=accounts.length?table(['Account','Type','QBO mapping','Status at import'],accounts.map(a=>`<tr><td title="Silo ID: ${esc(a.id)}">${esc(a.name)}</td><td>${esc(a.account_type)}</td><td>${esc(a.qbo_account_id)}</td><td>${a.is_active?'Active':'Inactive'}</td></tr>`)):'Fetch and prepare a QBO trial balance in Setup to seed your chart of accounts.';
     if(settings){el('fiscal').value=settings.fiscal_year_start_month;el('basis').value=settings.accounting_basis;el('connection').value=settings.qbo_connection_id;}
     el('opening').hidden=!opening;
     if(opening){const s=opening.snapshot;el('baselineTitle').textContent=opening.status==='accepted'?'Your starting balances are accepted.':'Review before you begin.';
-      el('settingsSummary').innerHTML=`<p>Balances as of <strong>${esc(s.as_of)}</strong> · Silo starts <strong>${esc(s.accounting_start_date)}</strong></p><p>${esc(s.currency)} · ${esc(s.basis)} · ${s.lines.length} accounts</p><p>Fetched ${esc(s.fetched_at)}</p><div class="books-totals"><span><small>Debits</small>${amount(s.debits)}</span><span><small>Credits</small>${amount(s.credits)}</span><span><small>Difference</small>${amount(Number(s.debits)-Number(s.credits))}</span></div>`+(opening.accepted_at?`<p>Accepted ${esc(opening.accepted_at)}<br>${esc(opening.review_note)}</p>`:'');
+      // Four lines became two: what the snapshot covers, and what it is made of.
+      // The fetch date joins the line it belongs to rather than taking one of
+      // its own, and the acceptance keeps its review note, which is the half a
+      // reader actually came for.
+      el('settingsSummary').innerHTML=`<p>Balances as of <strong>${esc(s.as_of)}</strong> · Silo starts <strong>${esc(s.accounting_start_date)}</strong></p>`
+        +`<p class="books-caption">${esc(s.currency)} · ${esc(s.basis)} · ${s.lines.length} accounts · fetched ${esc(day(s.fetched_at))}</p>`
+        +`<div class="books-totals"><span><small>Debits</small>${amount(s.debits)}</span><span><small>Credits</small>${amount(s.credits)}</span><span><small>Difference</small>${amount(Number(s.debits)-Number(s.credits))}</span></div>`
+        +(opening.accepted_at?`<p class="books-caption">Accepted ${esc(day(opening.accepted_at))}${opening.review_note?` · ${esc(opening.review_note)}`:''}</p>`:'');
       el('opening').innerHTML='<h2>Opening trial balance</h2>'+table(['Account','Debit','Credit'],s.lines.map(l=>`<tr><td>${esc(l.name)}</td><td class="num">${amount(l.debit)}</td><td class="num">${amount(l.credit)}</td></tr>`));
     }
     el('accept').disabled=!opening||opening.status==='accepted';el('seed').disabled=opening?.status==='accepted';el('seedForm').inert=opening?.status==='accepted';
