@@ -465,72 +465,77 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
   return rows;
 }
 
-/** The creative field list, as GRADED tiers rather than one all-or-nothing set.
+/** The optional creative fields, as an ACTIVE SET that loses exactly what Meta
+ * refuses -- not a fixed ladder.
  *
- * The first version of this put effective_object_url, url_tags and
- * asset_feed_spec{link_urls} in a SINGLE tier, so one unacceptable field cost
- * all three. Production refused it on the first real run:
+ * Two versions of this were wrong, in the same way, and the second claimed to
+ * fix the first.
  *
- *   [meta] creative links: 0/126 resolved (none) — link fields REFUSED
+ *   v1 requested all of these as ONE tier with an all-or-nothing downgrade.
+ *   Production: `0/126 resolved (none) — link fields REFUSED`. One unacceptable
+ *   field cost every other, including effective_object_url, which is the only
+ *   source a page-post (SHARE) ad has -- 63% of this account.
  *
- * asset_feed_spec{link_urls} is the risky one (nested subfield selection on a
- * field not every ad account exposes), and it took effective_object_url down
- * with it -- the single field 63% of this account depends on, because a
- * page-post (SHARE) ad carries no object_story_spec of its own. The feature
- * resolved nothing at all.
+ *   v2 replaced that with a fixed six-step ladder that always dropped
+ *   asset_feed_spec first. It parsed the field Meta named and used it ONLY for
+ *   logging. So if the account accepts asset_feed_spec and refuses object_url:
+ *   step 1 drops asset_feed_spec and retries the same bad field, step 2 finally
+ *   drops object_url -- and a Dynamic Creative ad whose only destination is
+ *   asset_feed_spec.link_urls now stores null against a field Meta was happy to
+ *   serve. Exactly the "one bad field costs another" the change said it removed.
  *
- * So each step drops only the riskiest remaining field. A run walks DOWN this
- * list on refusal and stays at the level that worked; index 0 is everything,
- * the last entry is the base tier that shipped with the copy work and is known
- * to be accepted. object_url rides alongside effective_object_url because the
- * two are separately documented and either may be the one this API version
- * accepts -- resolveCreativeLink reads whichever arrives.
- *
- * Meta rejects a request over ONE bad field name, and through the Graph BATCH
- * API that is not a thrown error: the outer POST returns 200 and every item
- * inside comes back non-200, which the parse loop skips silently. So the
- * caller inspects ITEM errors as well as the throw. */
-const CREATIVE_LINK_TIERS = [
-  ',effective_object_url,object_url,url_tags,asset_feed_spec{link_urls}',
-  ',effective_object_url,object_url,url_tags',
-  ',effective_object_url,url_tags',
-  ',object_url,url_tags',
-  ',url_tags',
-  '',
-];
-const CREATIVE_BASE_TIER = CREATIVE_LINK_TIERS.length - 1;
+ * So: Meta names the field in its error, and that is the field that goes. The
+ * ordered list below is the fallback for a refusal that names NOTHING, and only
+ * then -- riskiest first, effective_object_url last because losing it is what
+ * empties most of this account. */
+const CREATIVE_OPTIONAL_FIELDS = ['effective_object_url', 'object_url', 'url_tags', 'asset_feed_spec'];
+const CREATIVE_DROP_ORDER = ['asset_feed_spec', 'object_url', 'url_tags', 'effective_object_url'];
+/** Fields whose Graph selection is not just the field name. */
+const CREATIVE_FIELD_SELECTION = { asset_feed_spec: 'asset_feed_spec{link_urls}' };
+/** A refusal can name the SUBfield; map it back to the field that carries it. */
+const CREATIVE_FIELD_ALIASES = { link_urls: 'asset_feed_spec' };
 
-function metaCreativeFields(tier) {
+function metaCreativeFields(active) {
+  const optional = CREATIVE_OPTIONAL_FIELDS
+    .filter((f) => active.has(f))
+    .map((f) => CREATIVE_FIELD_SELECTION[f] || f);
   const sub = 'id,thumbnail_url,body,title,object_type,'
     + 'effective_object_story_id,object_story_spec'
-    + (CREATIVE_LINK_TIERS[tier] ?? '');
+    + (optional.length ? `,${optional.join(',')}` : '');
   return encodeURIComponent(
     `id,name,effective_status,campaign_id,adset_id,creative{${sub}}`);
 }
 
-/** The field name Meta named in a per-item error, for the coverage log.
+/** The optional field a refusal message names, or null.
  *
- * Without it a refusal says only that SOMETHING was refused, and the next
- * person re-guesses which -- which is exactly how the first version shipped a
- * tier whose riskiest member was never identified. */
-function metaRejectedFieldName(data) {
-  if (!Array.isArray(data)) return null;
-  for (const item of data) {
-    if (!item || item.code === 200) continue;
-    let msg = item.body || '';
-    try { msg = JSON.parse(item.body)?.error?.message || msg; } catch { /* keep raw */ }
-    const named = /nonexisting field \(([^)]+)\)|field (\w+)/i.exec(String(msg));
-    if (named) return named[1] || named[2];
-  }
+ * Normalised, because Meta writes it as it was SENT: a nested selection comes
+ * back as `asset_feed_spec{link_urls}` or as the bare subfield. Anything that
+ * does not resolve to one of our optional fields returns null, which is the
+ * signal to fall back to CREATIVE_DROP_ORDER rather than to guess. */
+function normalizeRefusedField(named) {
+  if (!named) return null;
+  const k = String(named).trim().toLowerCase().replace(/[{(].*$/, '').trim();
+  if (CREATIVE_FIELD_ALIASES[k]) return CREATIVE_FIELD_ALIASES[k];
+  return CREATIVE_OPTIONAL_FIELDS.includes(k) ? k : null;
+}
+
+/** Remove the named field; fall back to the riskiest remaining one only when
+ * the refusal named nothing we recognise. Returns what was dropped, or null
+ * when there is nothing left to drop. */
+function dropRefusedField(active, named) {
+  const key = normalizeRefusedField(named);
+  if (key && active.has(key)) { active.delete(key); return key; }
+  const next = CREATIVE_DROP_ORDER.find((f) => active.has(f));
+  if (next) { active.delete(next); return next; }
   return null;
 }
 
 /** True when a batch response carries a per-item error that names a field.
  *
  * Deliberately not "any item failed": a single deleted ad or a permission
- * error on one creative is normal and must not downgrade the field set for
+ * error on one creative is normal and must not narrow the field set for
  * the whole run. An unknown-field error is deterministic across every item,
- * so seeing one is enough to conclude the tier is not accepted. */
+ * so seeing one is enough to conclude a field is not accepted. */
 function metaBatchRejectedFields(data) {
   if (!Array.isArray(data)) return false;
   return data.some((item) => {
@@ -539,6 +544,29 @@ function metaBatchRejectedFields(data) {
     try { msg = JSON.parse(item.body)?.error?.message || msg; } catch { /* keep raw */ }
     return isMetaUnknownFieldError(new Error(String(msg)));
   });
+}
+
+/** The field name out of a Meta error message, for dropping and for the log. */
+function metaFieldNameFromMessage(msg) {
+  const named = /nonexisting field \(([^)]+)\)|field ([\w{}]+)/i.exec(String(msg || ''));
+  return named ? (named[1] || named[2]) : null;
+}
+
+/** The field name Meta named in a per-item error.
+ *
+ * Without it a refusal says only that SOMETHING was refused, and the next
+ * person re-guesses which -- which is how a three-field tier shipped with its
+ * failing member never identified. */
+function metaRejectedFieldName(data) {
+  if (!Array.isArray(data)) return null;
+  for (const item of data) {
+    if (!item || item.code === 200) continue;
+    let msg = item.body || '';
+    try { msg = JSON.parse(item.body)?.error?.message || msg; } catch { /* keep raw */ }
+    const named = metaFieldNameFromMessage(msg);
+    if (named) return named;
+  }
+  return null;
 }
 
 /** Where an ad's destination URL comes from, most specific first.
@@ -622,17 +650,17 @@ export async function fetchMetaAdCreatives(connection, adIds) {
   const out = [];
   // ad ids still needing copy, keyed by the post that holds it
   const needPost = new Map();
-  // The tier this run settles on. It only ever moves DOWN, and it stays there
-  // for the rest of the run, exactly like withThruplays at both insights
-  // levels. Recorded, with the field Meta named, so the caller can say "no
-  // links because field X was refused" rather than "no links because the ads
-  // have none" -- two states that produce an identical table of nulls, and
-  // the first version could not tell them apart beyond a bare REFUSED.
-  let linkTier = 0;
-  let rejectedField = null;
+  // The optional fields still being asked for. It only ever SHRINKS, and it
+  // shrinks by exactly what Meta refuses, so an accepted field is never lost
+  // to a neighbour's rejection. Recorded, with what was dropped, so the caller
+  // can say "no links because field X was refused" rather than "no links
+  // because the ads have none" -- two states that produce an identical table
+  // of nulls.
+  const activeFields = new Set(CREATIVE_OPTIONAL_FIELDS);
+  const refusedFields = [];
 
-  const postBatch = async (slice, tier) => {
-    const fields = metaCreativeFields(tier);
+  const postBatch = async (slice, active) => {
+    const fields = metaCreativeFields(active);
     const batch = slice.map((id) => ({
       method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=${fields}`,
     }));
@@ -646,34 +674,37 @@ export async function fetchMetaAdCreatives(connection, adIds) {
   for (let i = 0; i < ids.length; i += 50) {
     const slice = ids.slice(i, i + 50);
     let data;
-    // Step DOWN one tier per refusal, never straight to the base. Dropping the
-    // whole link set on the first bad field is what made the first production
-    // run resolve 0 of 126: asset_feed_spec was refused and took
-    // effective_object_url with it. The loop is bounded by the tier list, and
-    // a run that reaches the base tier stops asking for link fields at all.
+    // Drop exactly what Meta refuses, then retry. The loop terminates because
+    // every iteration removes one field from a finite set and stops when there
+    // is nothing left to remove.
     for (;;) {
       try {
-        data = await postBatch(slice, linkTier);
+        data = await postBatch(slice, activeFields);
       } catch (err) {
         // The outer POST throwing on a field name is the less likely of the
         // two failure modes (batch normally reports per item) but it is the
         // one that would take the whole creative sync down, copy included.
-        if (linkTier >= CREATIVE_BASE_TIER || !isMetaUnknownFieldError(err)) throw err;
-        rejectedField = rejectedField || 'unnamed (request-level rejection)';
-        console.warn(`[warn] Meta refused creative link tier ${linkTier}, stepping down:`, err.message);
-        linkTier += 1;
+        if (!activeFields.size || !isMetaUnknownFieldError(err)) throw err;
+        const dropped = dropRefusedField(activeFields, metaFieldNameFromMessage(err.message));
+        if (!dropped) throw err;
+        refusedFields.push(dropped);
+        console.warn(`[warn] Meta refused creative field ${dropped}, retrying without it:`, err.message);
         continue;
       }
       // The mode that matters: 200 outside, every item failed inside. The
       // parse loop below skips a non-200 item silently, so without this the
       // run writes a full set of creative rows with no copy and no links and
       // warns about nothing.
-      if (linkTier < CREATIVE_BASE_TIER && metaBatchRejectedFields(data)) {
+      if (activeFields.size && metaBatchRejectedFields(data)) {
         const named = metaRejectedFieldName(data);
-        rejectedField = rejectedField || named || 'unnamed';
-        console.warn(`[warn] Meta refused creative link tier ${linkTier} per item`
-          + `${named ? ` (field: ${named})` : ''}, stepping down`);
-        linkTier += 1;
+        const dropped = dropRefusedField(activeFields, named);
+        // Nothing recognisable left to drop: keep what came back rather than
+        // spinning. Those items stay unparsed, exactly as before this feature.
+        if (!dropped) break;
+        refusedFields.push(dropped);
+        console.warn(`[warn] Meta refused creative field ${dropped} per item`
+          + `${named && normalizeRefusedField(named) !== dropped ? ` (named: ${named}, unrecognised)` : ''}`
+          + ', retrying without it');
         continue;
       }
       break;
@@ -821,8 +852,8 @@ export async function fetchMetaAdCreatives(connection, adIds) {
     .map(([k, n]) => `${k}=${n}`)
     .join(' ') || 'none';
   console.log(`[meta] creative links: ${withLink}/${out.length} resolved (${sourceSummary})`
-    + ` [tier ${linkTier}${linkTier === 0 ? '' : ` of ${CREATIVE_BASE_TIER}`}`
-    + `${rejectedField ? `, refused: ${rejectedField}` : ''}]`);
+    + ` [asked: ${[...activeFields].join(',') || 'none'}`
+    + `${refusedFields.length ? `, refused: ${refusedFields.join(',')}` : ''}]`);
 
   return out;
 }

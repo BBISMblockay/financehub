@@ -37,7 +37,7 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CORE = join(ROOT, 'scripts/lib/ad-platforms-sync-core.mjs');
 const mutation = process.env.META_LINK_MUTATION || '';
-assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard', 'tier-collapses'].includes(mutation),
+assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard', 'drops-by-order'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 // The module is loaded from source so a mutation can be applied to the real
@@ -46,16 +46,15 @@ assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard', 'tier-collaps
 let source = readFileSync(CORE, 'utf8');
 if (mutation === 'no-item-check') {
   source = source.replace(
-    'if (linkTier < CREATIVE_BASE_TIER && metaBatchRejectedFields(data)) {',
+    'if (activeFields.size && metaBatchRejectedFields(data)) {',
     'if (false && metaBatchRejectedFields(data)) {');
-} else if (mutation === 'tier-collapses') {
-  // The shipped defect: one refused field drops the whole link set instead of
-  // stepping down by one. This is what produced "0/126 resolved" in
-  // production, so a test that does not fail here is not guarding it.
-  source = source.replace('      linkTier += 1;\n        continue;\n      }\n      // The mode that matters',
-                          '      linkTier = CREATIVE_BASE_TIER;\n        continue;\n      }\n      // The mode that matters');
-  source = source.replace("          + `${named ? ` (field: ${named})` : ''}, stepping down`);\n        linkTier += 1;",
-                          "          + `${named ? ` (field: ${named})` : ''}, stepping down`);\n        linkTier = CREATIVE_BASE_TIER;");
+} else if (mutation === 'drops-by-order') {
+  // The defect cycle 1 of #709 found: the field Meta NAMES is parsed and then
+  // ignored, and a fixed order decides what goes. That is how a refusal of
+  // object_url cost asset_feed_spec, which Meta was happy to serve.
+  source = source.replace(
+    '  const key = normalizeRefusedField(named);\n  if (key && active.has(key)) { active.delete(key); return key; }',
+    '  const key = null;\n  if (key && active.has(key)) { active.delete(key); return key; }');
 } else if (mutation === 'effective-first') {
   source = source.replace(
     "    ['link_data', spec.link_data?.link],",
@@ -80,13 +79,29 @@ let passed = 0;
 async function test(name, fn) { await fn(); passed += 1; console.log(`ok ${passed} - ${name}`); }
 
 const CONNECTION = { access_token: 'tok', meta_ad_account_id: 'act_1' };
+/** Mirrors CREATIVE_OPTIONAL_FIELDS: what an unnamed refusal can still narrow. */
+const CREATIVE_OPTIONALS = ['effective_object_url', 'object_url', 'url_tags', 'asset_feed_spec'];
+
+/* Which optional fields a request actually asked for, matched as WHOLE tokens.
+ *
+ * Substring matching is wrong here and quietly so: 'effective_object_url'
+ * CONTAINS 'object_url', so a fake testing `asked.includes('object_url')` goes
+ * on refusing after object_url has been dropped, and only stops once
+ * effective_object_url goes too. That made a passing test out of the exact
+ * ladder behaviour this suite exists to reject. A field is delimited by ',',
+ * '{' or '}' in the Graph field list, so the boundaries are explicit. */
+const requestedOptionals = (asked) => new Set(
+  CREATIVE_OPTIONALS.filter((f) => asksFor(asked, f)));
+/** Whole-token test for one field in a Graph field list. Assertions need this
+ *  as much as the fake does, for the same 'effective_object_url' reason. */
+const asksFor = (asked, field) => new RegExp(`[,{]${field}[,}{]`).test(asked);
 
 /* A fake Graph batch endpoint.
  *
  * `ads` maps ad id -> the ad object Meta would return. `rejectFields` names
  * fields that, when requested, make every item in the batch fail the way Meta
  * actually fails an unknown field: HTTP 200 on the POST, code 400 per item. */
-function fakeGraph({ ads, rejectFields = [], onRequest = () => {} }) {
+function fakeGraph({ ads, rejectFields = [], rejectMessage = null, onRequest = () => {} }) {
   const requests = [];
   globalThis.fetch = async (url, opts = {}) => {
     const body = String(opts.body || '');
@@ -95,14 +110,22 @@ function fakeGraph({ ads, rejectFields = [], onRequest = () => {} }) {
     const asked = decodeURIComponent(batch[0]?.relative_url || '');
     requests.push(asked);
     onRequest(asked);
-    const refused = rejectFields.find((f) => asked.includes(f));
+    const present = requestedOptionals(asked);
+    // A refusal is always caused by ONE field being present -- rejectMessage
+    // only changes whether the error NAMES it. A fake that refuses while any
+    // optional field is present is not modelling Meta, it is modelling a
+    // request that can never succeed.
+    // link_urls is only reachable through asset_feed_spec's nested selection.
+    const refused = rejectFields.find((f) => present.has(f)
+      || (f === 'link_urls' && present.has('asset_feed_spec')));
     const items = batch.map((b) => {
       const id = b.relative_url.split('?')[0].split('/').pop();
       if (refused) {
         return {
           code: 400,
           body: JSON.stringify({ error: {
-            message: `(#100) Tried accessing nonexisting field (${refused}) on node type (AdCreative)`,
+            message: rejectMessage
+              || `(#100) Tried accessing nonexisting field (${refused}) on node type (AdCreative)`,
             type: 'OAuthException', code: 100,
           } }),
         };
@@ -113,8 +136,11 @@ function fakeGraph({ ads, rejectFields = [], onRequest = () => {} }) {
       // was not requested, and a fake that does would make the downgrade
       // tests pass against a version that never downgraded.
       const served = { ...ad, creative: { ...(ad.creative || {}) } };
-      for (const f of ['effective_object_url', 'url_tags', 'asset_feed_spec']) {
-        if (!asked.includes(f)) delete served.creative[f];
+      // object_url belongs in this list: without it the fake serves a field the
+      // request never asked for, and a test can then pass against code that
+      // never requested it.
+      for (const f of CREATIVE_OPTIONALS) {
+        if (!present.has(f)) delete served.creative[f];
       }
       return { code: 200, body: JSON.stringify(served) };
     });
@@ -225,7 +251,7 @@ await test('url_tags rides along, unparsed', async () => {
   assert.equal(rows['1'].linkUrlTags, 'utm_source=facebook&utm_medium=paid&utm_campaign=bts');
 });
 
-await test('a refused link field downgrades and KEEPS every creative row', async () => {
+await test('a refused field is dropped and KEEPS every creative row', async () => {
   // The whole point. 200 outside, 400 on every item inside. The old loop
   // skipped those silently, so without the per-item check this would have
   // written a full set of rows with no copy and no links, warning about
@@ -238,9 +264,9 @@ await test('a refused link field downgrades and KEEPS every creative row', async
   const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
   assert.equal(rows['1'].body, 'real copy', 'copy must survive a refused link tier');
   assert.ok(asked.length >= 2, 'the batch must be retried without the link fields');
-  assert.ok(asked[0].includes('asset_feed_spec'), 'first attempt asks for the link tier');
-  assert.ok(!asked[asked.length - 1].includes('asset_feed_spec'), 'retry drops the link tier');
-  assert.ok(asked[asked.length - 1].includes('object_story_spec'), 'retry keeps the base tier');
+  assert.ok(asksFor(asked[0], 'asset_feed_spec'), 'first attempt asks for the optional fields');
+  assert.ok(!asksFor(asked[asked.length - 1], 'asset_feed_spec'), 'retry drops the refused field');
+  assert.ok(asksFor(asked[asked.length - 1], 'object_story_spec'), 'retry keeps the base fields');
 });
 
 await test('A REFUSED asset_feed_spec MUST NOT COST effective_object_url', async () => {
@@ -266,8 +292,8 @@ await test('A REFUSED asset_feed_spec MUST NOT COST effective_object_url', async
     'a page-post ad must still resolve after asset_feed_spec is refused');
   assert.equal(rows['1'].linkUrlSource, 'effective_object_url');
   const last = asked[asked.length - 1];
-  assert.ok(!last.includes('asset_feed_spec'), 'the refused field is dropped');
-  assert.ok(last.includes('effective_object_url'), 'the field that matters is NOT dropped with it');
+  assert.ok(!asksFor(last, 'asset_feed_spec'), 'the refused field is dropped');
+  assert.ok(asksFor(last, 'effective_object_url'), 'the field that matters is NOT dropped with it');
 });
 
 await test('object_url answers when effective_object_url is the refused one', async () => {
@@ -281,26 +307,84 @@ await test('object_url answers when effective_object_url is the refused one', as
   const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
   assert.equal(rows['1'].linkUrl, 'https://baseballism.com/collections/tees');
   assert.equal(rows['1'].linkUrlSource, 'object_url');
-  assert.ok(asked[asked.length - 1].includes('object_url'), 'object_url survives');
+  assert.ok(asksFor(asked[asked.length - 1], 'object_url'), 'object_url survives');
 });
 
-await test('the run walks down ONE tier per refusal, not straight to the base', async () => {
+await test('a refused object_url MUST NOT COST asset_feed_spec', async () => {
+  // Cycle 1 of #709, P1. The fixed ladder always dropped asset_feed_spec
+  // first, so refusing the NEWLY ADDED object_url cost a field Meta accepts:
+  // step 1 dropped asset_feed_spec and retried the same bad field, step 2
+  // finally dropped object_url. A Dynamic Creative ad whose only destination
+  // is asset_feed_spec.link_urls then stored null against a field that was
+  // never the problem -- the same "one bad field costs another" the tier
+  // ladder was introduced to remove.
+  const asked = fakeGraph({
+    ads: { 1: AD('1', {
+      id: 'cr1',
+      asset_feed_spec: { link_urls: [{ website_url: 'https://baseballism.com/collections/dco' }] },
+    }) },
+    rejectFields: ['object_url'],
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://baseballism.com/collections/dco',
+    'an asset-feed destination must survive a refusal of a different field');
+  assert.equal(rows['1'].linkUrlSource, 'asset_feed');
+  const last = asked[asked.length - 1];
+  assert.ok(!asksFor(last, 'object_url'), 'the refused field is dropped');
+  assert.ok(asksFor(last, 'asset_feed_spec'), 'the accepted field is NOT dropped with it');
+  assert.equal(asked.length, 2, 'one refusal, one retry -- not a walk down a ladder');
+});
+
+await test('a refusal naming a SUBfield drops the field that carries it', async () => {
+  // A nested selection can be refused by its subfield name. Without the alias
+  // nothing recognisable is named, and the fallback order would drop
+  // asset_feed_spec anyway -- right answer, wrong reason, and wrong the moment
+  // the orders differ.
+  const asked = fakeGraph({
+    ads: { 1: AD('1', { id: 'cr1', object_type: 'SHARE',
+      effective_object_url: 'https://baseballism.com/x' }) },
+    rejectFields: ['link_urls'],
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://baseballism.com/x');
+  const last = asked[asked.length - 1];
+  assert.ok(!asksFor(last, 'asset_feed_spec'), 'link_urls resolves to asset_feed_spec');
+  assert.ok(asksFor(last, 'effective_object_url'), 'and nothing else is dropped');
+});
+
+await test('an UNNAMED refusal falls back to the riskiest field, not a random one', async () => {
+  // The only case the ordered list is for. effective_object_url must be LAST
+  // to go: losing it empties the page-post ads, which are most of the account.
+  const asked = fakeGraph({
+    ads: { 1: AD('1', { id: 'cr1', object_type: 'SHARE',
+      effective_object_url: 'https://baseballism.com/y' }) },
+    // asset_feed_spec is the culprit, and the message does not say so.
+    rejectFields: ['asset_feed_spec'],
+    rejectMessage: '(#100) Syntax error on the fields parameter',
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://baseballism.com/y',
+    'the most valuable field survives an unnamed refusal');
+  assert.ok(!asksFor(asked[asked.length - 1], 'asset_feed_spec'), 'the riskiest went first');
+});
+
+await test('several refusals drop exactly those fields and keep the rest', async () => {
   const asked = fakeGraph({
     ads: { 1: AD('1', { id: 'cr1', object_type: 'SHARE',
       url_tags: 'utm_campaign=x' }) },
     rejectFields: ['asset_feed_spec', 'effective_object_url', 'object_url'],
   });
   await fetchMetaAdCreatives(CONNECTION, ['1']);
-  // Four attempts: all -> minus asset_feed -> minus effective -> minus object.
-  assert.ok(asked.length >= 4, `expected a stepped walk, saw ${asked.length} attempts`);
+  // One attempt per refused field, plus the one that finally succeeds.
+  assert.equal(asked.length, 4, `expected one retry per refused field, saw ${asked.length}`);
   const last = asked[asked.length - 1];
-  assert.ok(last.includes('url_tags'), 'url_tags is kept: it was never the refused field');
+  assert.ok(asksFor(last, 'url_tags'), 'url_tags is kept: it was never the refused field');
   for (const f of ['asset_feed_spec', 'effective_object_url', 'object_url']) {
-    assert.ok(!last.includes(f), `${f} should have been dropped`);
+    assert.ok(!asksFor(last, f), `${f} should have been dropped`);
   }
 });
 
-await test('the downgrade is PARTIAL: spec links survive, the SHARE fallback does not', async () => {
+await test('losing every optional field still leaves the base fields and their links', async () => {
   // Found by writing the test above, and worth pinning rather than
   // discovering again later. object_story_spec is in the BASE tier -- it was
   // already fetched for copy -- so an ad carrying its own link still resolves
@@ -325,7 +409,7 @@ await test('the downgrade is PARTIAL: spec links survive, the SHARE fallback doe
   assert.equal(rows['2'].linkUrlSource, null);
 });
 
-await test('the downgrade holds for the rest of the run', async () => {
+await test('a dropped field is not re-requested for the rest of the run', async () => {
   // 120 ads = three batches. Re-asking for a field Meta has already refused
   // costs a wasted round trip per batch and, worse, makes coverage depend on
   // batch order.
@@ -334,14 +418,14 @@ await test('the downgrade holds for the rest of the run', async () => {
   const asked = fakeGraph({ ads, rejectFields: ['asset_feed_spec'] });
   const rows = await fetchMetaAdCreatives(CONNECTION, Object.keys(ads));
   assert.equal(rows.length, 120, 'every ad still returns a row');
-  const withRefused = asked.filter((a) => a.includes('asset_feed_spec'));
+  const withRefused = asked.filter((a) => asksFor(a, 'asset_feed_spec'));
   assert.equal(withRefused.length, 1, `refused field re-requested ${withRefused.length} times`);
   // And every later batch still asks for the tier BELOW it, not the base.
-  assert.ok(asked[asked.length - 1].includes('effective_object_url'),
-    'the run must settle one tier down, not collapse to base');
+  assert.ok(asksFor(asked[asked.length - 1], 'effective_object_url'),
+    'an accepted field must survive another field being refused');
 });
 
-await test('an ordinary per-item failure does NOT downgrade the field set', async () => {
+await test('an ordinary per-item failure does NOT narrow the field set', async () => {
   // A deleted ad or a permission error on one creative is normal. Treating
   // it as a refused field would silently drop links for the whole run.
   const asked = fakeGraph({ ads: {
