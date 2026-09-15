@@ -390,6 +390,23 @@ await test('CSV statement path parses, imports, codes, saves and builds a balanc
   assert.ok(h.fetches.every(f=>!f.url.includes('quickbooks-post-journal')));
 });
 
+await test('the split preview describes each line by its memo, the same text the approved payload freezes', async()=>{
+  const h=await pageHarness();
+  const row=h.page.state.txns[0];
+  Object.assign(row,{qbo_account_id:null,qbo_account_name:null,status:'coded',coding_source:'split'});
+  h.page.state.splits=new Map([[row.id,[
+    {line_no:1,amount:'6.00',qbo_account_id:'2',qbo_account_name:'Expense',memo:'September principal'},
+    {line_no:2,amount:'4.00',qbo_account_id:'2',qbo_account_name:'Expense',memo:null},
+  ]]]);
+  const entry=h.page.buildEntry();
+  assert.equal(entry.lines.length,2,'a split row contributes one preview line per split line');
+  assert.equal(entry.lines[0].description.split(' · ').pop(),'September principal',
+    'the memo the person typed is what the preview shows');
+  assert.equal(entry.lines[1].description.split(' · ').pop(),'split 2',
+    'and a line with no memo falls back to its number, exactly as the snapshot does');
+  assert.equal(entry.lines.reduce((n,l)=>n+l.debit-l.credit,0),10,'the split lines still total the transaction');
+});
+
 await test('failed history preview permits mapping only after unknown-history acknowledgement', async()=>{
   for (const error of ['sync_page_limit','sync_update_limit','request_timeout']) {
     for (const accepted of [false,true]) {

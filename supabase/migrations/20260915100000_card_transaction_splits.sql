@@ -127,6 +127,41 @@ create trigger card_transaction_splits_still_tie
  after update of amount, qbo_account_id on public.card_transactions
  for each row execute function public.card_transaction_splits_still_tie();
 
+-- ── When the bank corrects a split row ───────────────────────────────────
+-- The bank feed rewrites a DRAFT row in place when the provider changes its
+-- accounting facts, resetting every coding column to null because the human's
+-- coding was of different facts (plaid_project_transaction). A split is that
+-- same coding, so it has to go the same way -- and if it does not, the tie
+-- check above raises INSIDE plaid_apply_sync, which rolls the whole sync back
+-- including its cursor, so every later sync of that account re-reads the same
+-- correction and fails identically. One split would stop the account's feed
+-- permanently. Measured shape: a draft $100 row split $60/$40, corrected by
+-- the bank to $105.
+--
+-- Deleting is right rather than merely convenient: the lines are a person's
+-- allocation of an amount the statement no longer says, so keeping them would
+-- leave an uncoded row carrying lines that add up to nothing real. The row is
+-- left uncoded and says so, exactly as an unsplit row does after the same
+-- correction. This fires only on the provider's own reset -- the amount moved
+-- AND the single account is null AND the row is back to uncoded -- so an
+-- ordinary edit still hits the tie check instead.
+create or replace function public.card_splits_follow_provider_change()
+returns trigger language plpgsql as $$
+begin
+ if new.status = 'uncoded' and new.qbo_account_id is null
+   and round(new.amount, 2) is distinct from round(old.amount, 2)
+   and exists(select 1 from public.card_transaction_splits s where s.transaction_id = old.id) then
+  delete from public.card_transaction_splits where transaction_id = old.id;
+ end if;
+ return new;
+end $$;
+drop trigger if exists card_splits_follow_provider_change on public.card_transactions;
+-- BEFORE the tie check, which is an AFTER trigger: the lines are gone by the
+-- time it looks, so it finds no splits and returns rather than raising.
+create trigger card_splits_follow_provider_change
+ before update of amount on public.card_transactions
+ for each row execute function public.card_splits_follow_provider_change();
+
 -- ── Learned shape, never learned amounts ─────────────────────────────────
 create table if not exists public.card_split_rules (
  id uuid primary key default gen_random_uuid(),
@@ -374,6 +409,78 @@ end $$;
 revoke all on function public.suggest_card_transaction_splits(uuid) from public, anon, authenticated;
 grant execute on function public.suggest_card_transaction_splits(uuid) to authenticated;
 
+-- ── The bank feed's own direction and treatment guard ────────────────────
+-- Re-created from 20260912052930. That guard INNER JOINs quickbooks_accounts
+-- through card_transactions.qbo_account_id, which a split row deliberately
+-- leaves null -- so every split row fell out of the join and skipped all four
+-- of its checks. A posted bank row classified as card_payment could be split
+-- entirely into expense accounts and approved, where the same row unsplit is
+-- refused; the entry balances and misclassifies the payment. The direction
+-- checks went with it, because they sat in the same join although they only
+-- read the parent's own amount.
+--
+-- Split in two accordingly. Direction is a fact about the TRANSACTION, so it
+-- is checked on the transaction with no account join at all and now covers
+-- split rows for the first time. Account type is a fact about each LINE, so it
+-- is checked through card_coding_effective_lines -- the same one definition of
+-- a posted line the approval snapshot uses, so a split line cannot pass a
+-- check an ordinary line fails. Everything else in this function is
+-- 20260912052930 unchanged.
+create or replace function public.plaid_guard_batch()
+returns trigger language plpgsql security invoker set search_path='public','pg_temp' as $$
+declare v_source public.card_sources%rowtype; begin
+  if tg_op='UPDATE' and (new.source_id,new.company_entity_id) is distinct from (old.source_id,old.company_entity_id)
+    and exists(select 1 from public.card_transactions where batch_id=old.id) then
+    raise exception 'A populated import batch cannot change its source or company';
+  end if;
+  if current_user in ('anon','authenticated') then
+    if tg_op='DELETE' and old.origin='plaid' then raise exception 'Feed batches cannot be deleted'; end if;
+    if tg_op='INSERT' and new.origin='plaid' then raise exception 'Feed batches are server-owned'; end if;
+    if tg_op='UPDATE' and (old.origin='plaid' or new.origin='plaid') and
+      (new.origin,new.source_id,new.period_start,new.period_end,new.feed_sequence,new.company_entity_id)
+      is distinct from (old.origin,old.source_id,old.period_start,old.period_end,old.feed_sequence,old.company_entity_id) then
+      raise exception 'Feed batch identity is server-owned';
+    end if;
+  end if;
+  if tg_op='DELETE' then return old; end if;
+  if new.status='approved' and (tg_op='INSERT' or old.status<>'approved') then
+    -- Existing Mark unposted preserves its reviewed snapshot while retiring
+    -- the old posting claim. It must remain possible to reopen next, even
+    -- when a provider exception is the reason the QBO entry was removed.
+    if tg_op='UPDATE' and old.status='posted' and new.approval_snapshot is not distinct from old.approval_snapshot
+      and new.approval_hash is not distinct from old.approval_hash and new.approval_version=old.approval_version then return new; end if;
+    select * into v_source from public.card_sources where id=new.source_id;
+    if exists(select 1 from public.plaid_sync_exceptions e join public.plaid_accounts a on a.id=e.account_id
+      where a.source_id=new.source_id and e.status='open') then raise exception 'Resolve the bank feed change before approval'; end if;
+    if exists(select 1 from public.card_transactions t where t.batch_id=new.id and t.origin='plaid' and t.status='coded'
+      and (t.provider_status<>'posted' or t.currency is distinct from 'USD' or t.accounting_treatment='unknown')) then
+      raise exception 'Included feed transactions require posted USD data and an accounting treatment';
+    end if;
+    -- Direction: the transaction's own amount against its treatment. No
+    -- account join, so a split row is checked like any other.
+    if exists(select 1 from public.card_transactions t
+      where t.batch_id=new.id and t.origin='plaid' and t.status='coded'
+        and ((t.accounting_treatment='purchase' and t.amount<=0)
+        or (t.accounting_treatment in ('refund','deposit') and t.amount>=0))) then
+      raise exception 'Review feed direction and clearing-account treatment; the bank feed owns card payments';
+    end if;
+    -- Account type: per POSTED LINE, so each line of a split is judged on the
+    -- account it actually hits.
+    if exists(select 1 from public.card_coding_effective_lines e
+      join public.card_transactions t on t.id=e.transaction_id
+      join public.quickbooks_accounts a
+      on a.connection_id=new.qbo_connection_id and a.qbo_account_id=e.qbo_account_id and a.company_entity_id=new.company_entity_id
+      where e.batch_id=new.id and t.origin='plaid' and
+        ((t.accounting_treatment in ('transfer','payroll_settlement','shopify_settlement') and a.account_type not in ('Other Current Asset','Other Current Liability'))
+        or (t.accounting_treatment='card_payment' and (v_source.source_type='card' or a.account_type not in ('Credit Card','Accounts Payable'))))) then
+      raise exception 'Review feed direction and clearing-account treatment; the bank feed owns card payments';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists plaid_batch_integrity on public.card_import_batches;
+create trigger plaid_batch_integrity before insert or update or delete on public.card_import_batches for each row execute function public.plaid_guard_batch();
+
 -- ── Posting: one journal line per effective line ─────────────────────────
 -- Re-created from 20260912000000 with the per-row validations and the line
 -- aggregate reading card_coding_effective_lines, plus a re-check that every
@@ -514,7 +621,7 @@ begin
            'DetailType', 'JournalEntryLineDetail',
            'Amount', abs(round(e.amount, 2)),
            'Description', left(concat_ws(' · ', e.txn_date::text, e.description,
-             case when e.is_split then 'split ' || e.line_no::text end), 4000),
+             case when e.is_split then coalesce(nullif(e.memo, ''), 'split ' || e.line_no::text) end), 4000),
            'JournalEntryLineDetail', jsonb_strip_nulls(jsonb_build_object(
              'PostingType', case when e.amount >= 0 then 'Debit' else 'Credit' end,
              'AccountRef', jsonb_build_object('value', e.qbo_account_id),

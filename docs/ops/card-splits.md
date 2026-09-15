@@ -49,6 +49,28 @@ differently, neither is applied and the editor says so. Knowing the vendor and
 knowing which card paid are different claims, and where they disagree neither is
 evidence — the same stance ordinary card-coding rules take.
 
+## Splits and the bank feed
+
+A bank-feed row can be split like any other, and the feed's own rules still
+apply to it line by line.
+
+- **Direction** (a purchase must be money out, a refund or deposit money in) is
+  a fact about the transaction, so it is checked on the transaction. A split
+  does not change it.
+- **Clearing-account treatment** (a `card_payment` must land on a Credit Card
+  or Accounts Payable account, a transfer on an Other Current Asset or
+  Liability) is a fact about each posted line, so each split line is judged on
+  the account it actually hits. Splitting a card payment into two expense
+  accounts is refused exactly as coding it to one expense account is.
+- **When the bank corrects the amount** of a draft row you had split, the split
+  is discarded along with the rest of the coding and the row goes back to
+  needing a category. Those lines allocated a number the statement no longer
+  says. This is the same thing that already happens to an ordinary coded row
+  after a correction, and it is what keeps the account's sync moving: a split
+  left behind would fail every future sync of that account.
+- A correction to a row in an **approved or posted** batch still raises a sync
+  exception instead, untouched by any of this.
+
 ## What a split changes downstream
 
 - The journal preview shows one line per split line, not one per transaction.
@@ -72,6 +94,8 @@ evidence — the same stance ordinary card-coding rules take.
 | "Split lines could not load" on the page | The split lines did not read. Split transactions will render as having no account. **Do not approve the journal entry** until it is resolved — the entry would be missing those lines. |
 | Save refused with a total | The lines do not sum to the transaction. The message names the difference. |
 | "This transaction is split across N accounts; clear its splits before coding it to one account" | Something tried to write a single account onto a split row. Remove the split first, or edit the lines. |
+| A split row you coded went back to "needs category" on its own | The bank corrected that transaction's amount. Re-enter the split against the new figure. |
+| "Review feed direction and clearing-account treatment" on approval | A split line is on an account its transaction's treatment does not allow, or the direction is wrong. Open the split and check each line. |
 | A saved split offered nothing | No rule matches this merchant or card yet, or two rules disagree. Enter the lines and tick Remember. |
 
 ## Where it lives

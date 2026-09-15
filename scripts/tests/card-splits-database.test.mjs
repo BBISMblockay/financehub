@@ -16,13 +16,18 @@
 //
 //   CARD_SPLIT_MUTATION=sum-unchecked   (the RPC's total check removed)
 //   CARD_SPLIT_MUTATION=single-line     (the posting aggregate ignores splits)
+//   CARD_SPLIT_MUTATION=guard-skips-splits    (the feed guard back on the parent account join)
+//
+// The other bank-feed interaction -- a provider amount correction clearing the
+// split instead of wedging the account's sync -- needs plaid_apply_sync, so it
+// lives in plaid-bank-feed-database.test.mjs where that harness is.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 const mutation = process.env.CARD_SPLIT_MUTATION || '';
-assert.ok(['', 'sum-unchecked', 'single-line'].includes(mutation), 'Unknown card split mutation');
+assert.ok(['', 'sum-unchecked', 'single-line', 'guard-skips-splits'].includes(mutation), 'Unknown card split mutation');
 const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
 const dependencies = [
@@ -31,6 +36,7 @@ const dependencies = [
   '20260831210000_apply_card_coding_rpc.sql', '20260831220000_void_card_posting.sql', '20260831230000_rule_hits_and_conflicts.sql',
   '20260901000000_journal_adjustments.sql', '20260901010000_void_journal_adjustment.sql',
   '20260901020000_posted_status_not_client_writable.sql', '20260912000000_finance_v1_posting_controls.sql',
+  '20260912052930_plaid_bank_feed.sql',
 ];
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const one = async (sql, params = []) => (await q(sql, params))[0];
@@ -92,8 +98,26 @@ try {
     const def = (await one("select pg_get_functiondef('public.set_card_transaction_splits(uuid,jsonb,boolean,text)'::regprocedure) d")).d;
     const approve = (await one("select pg_get_functiondef('public.approve_card_import_batch(uuid)'::regprocedure) d")).d;
     if (mutation === 'sum-unchecked') await db.exec(def.replace('if total <> round(txn.amount, 2) then', 'if false then'));
+    if (mutation === 'guard-skips-splits') {
+      // The shape the cycle-1 review found: both checks back on one join
+      // through the parent's own account column, which a split row leaves null.
+      const guard = (await one("select pg_get_functiondef('public.plaid_guard_batch()'::regprocedure) d")).d;
+      const from = guard.indexOf('    -- Direction: the transaction');
+      const to = guard.indexOf('  end if;\n  return new;');
+      assert.ok(from > 0 && to > from, 'guard-skips-splits: the two split checks were not found');
+      await db.exec(guard.slice(0, from) + `    if exists(select 1 from public.card_transactions t join public.quickbooks_accounts a
+      on a.connection_id=new.qbo_connection_id and a.qbo_account_id=t.qbo_account_id and a.company_entity_id=new.company_entity_id
+      where t.batch_id=new.id and t.origin='plaid' and t.status='coded' and
+        ((t.accounting_treatment='purchase' and t.amount<=0)
+        or (t.accounting_treatment in ('refund','deposit') and t.amount>=0)
+        or (t.accounting_treatment in ('transfer','payroll_settlement','shopify_settlement') and a.account_type not in ('Other Current Asset','Other Current Liability'))
+        or (t.accounting_treatment='card_payment' and (v_source.source_type='card' or a.account_type not in ('Credit Card','Accounts Payable'))))) then
+      raise exception 'Review feed direction and clearing-account treatment; the bank feed owns card payments';
+    end if;
+` + guard.slice(to));
+    }
     if (mutation === 'single-line') await db.exec(approve.replace('from public.card_coding_effective_lines e\n  where e.batch_id = p_batch_id',
-      "from (select t.id transaction_id, t.batch_id, t.row_no, t.txn_date, t.description, 1 line_no, t.amount, coalesce(t.qbo_account_id,'loan') qbo_account_id, t.qbo_location_id, t.entity_qbo_id, t.entity_type, false is_split from public.card_transactions t where t.status='coded') e\n  where e.batch_id = p_batch_id"));
+      "from (select t.id transaction_id, t.batch_id, t.row_no, t.txn_date, t.description, 1 line_no, t.amount, coalesce(t.qbo_account_id,'loan') qbo_account_id, t.qbo_location_id, t.entity_qbo_id, t.entity_type, t.memo, false is_split from public.card_transactions t where t.status='coded') e\n  where e.batch_id = p_batch_id"));
   }
 
   batch = await newBatch();
@@ -127,6 +151,10 @@ try {
     const credits = detail.filter((d) => d[1] === 'Credit').reduce((t, d) => t + d[2], 0);
     assert.equal(Math.round(debits * 100), Math.round(credits * 100), 'The entry balances');
     assert.ok(approved.approval_hash, 'and it is frozen under an approval hash like any other batch');
+    assert.deepEqual(lines.slice(0, 2).map((l) => l.Description.split(' · ').pop()), ['Principal', 'Interest'],
+      'Each posted line ends with the memo the person typed, which is what the preview showed them');
+    assert.ok(!lines.some((l) => /split \d/.test(l.Description)),
+      'and never the generic "split N" placeholder while a memo exists');
   });
 
   await test('a split cannot be changed once its batch is approved, and reopening restores it', async () => {
@@ -236,11 +264,68 @@ try {
       }
     }
     passed += 1; console.log(`ok ${passed} - refused: every client write to the split tables`);
-    const foreign = await newTxn(batch, 10);
+    const foreign = await newTxn(await newBatch(), 10);
     await refused(() => setSplits(foreign, [{ amount: 6, qbo_account_id: 'loan' }, { amount: 4, qbo_account_id: 'interest' }], otherUser),
       /Transaction not found/, "another company's user splitting this company's transaction");
     await refused(() => setSplits(foreign, [{ amount: 6, qbo_account_id: 'loan' }, { amount: 4, qbo_account_id: 'interest' }], outsider),
       /Finance access required/, 'a non-finance user splitting a transaction');
+  });
+
+  // The bank feed's approval guard judged direction and clearing-account
+  // treatment through an INNER JOIN on card_transactions.qbo_account_id, which
+  // a split row leaves null on purpose -- so every split row fell out of the
+  // join and skipped all four checks. A card_payment that must land on a
+  // Credit Card or Accounts Payable account could be split into two expense
+  // accounts and approved, while the same row unsplit was refused.
+  await test('a split row faces the same bank-feed direction and treatment checks as an unsplit one', async () => {
+    const feedSource = randomUUID(), plaidConn = randomUUID(), plaidAcct = randomUUID();
+    await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,
+             credit_qbo_account_id,credit_qbo_account_name,posting_enabled,is_active)
+             values($1,$2,$3,'feed-bank','Feed bank','bank','bank','Operating bank',true,true)`, [feedSource, co, conn]);
+    await q(`insert into plaid_connections(id,company_entity_id,item_id,environment,institution_name)
+             values($1,$2,'item-split','sandbox','Synthetic bank')`, [plaidConn, co]);
+    await q(`insert into plaid_accounts(id,company_entity_id,connection_id,provider_account_id,name,type,source_id)
+             values($1,$2,$3,'acct-split','Checking','depository',$4)`, [plaidAcct, co, plaidConn, feedSource]);
+
+    const feedTxn = async (b, amount, treatment) => {
+      const t = await newTxn(b, amount);
+      await q(`update card_transactions set origin='plaid', plaid_account_id=$3, external_transaction_id=$1,
+               provider_status='posted', currency='USD', accounting_treatment=$2 where id=$1`, [t, treatment, plaidAcct]);
+      return t;
+    };
+    const approve = (b) => as(finance, () => rpc('approve_card_import_batch', [b]));
+    const feedBatch = async () => {
+      const id = randomUUID();
+      await q(`insert into card_import_batches(id,company_entity_id,source_id,label,entry_date,status,origin,qbo_connection_id)
+               values($1,$2,$3,'Feed','2026-09-30','draft','plaid',$4)`, [id, co, feedSource, conn]);
+      return id;
+    };
+
+    // Account type, per line. Two expense accounts for a card payment is the
+    // exact misclassification the guard exists to refuse.
+    {
+      const b = await feedBatch(), t = await feedTxn(b, 500, 'card_payment');
+      await setSplits(t, [{ amount: 300, qbo_account_id: 'interest' }, { amount: 200, qbo_account_id: 'fees' }]);
+      if (mutation === 'guard-skips-splits') { await approve(b); assert.fail('The guard was put back on the parent account join, yet a split card payment was still refused'); }
+      await refused(() => approve(b), /bank feed owns card payments/, 'a card payment split entirely into expense accounts');
+      // The same shape UNSPLIT is refused too, which is the parity being claimed.
+      const b2 = await feedBatch(), t2 = await feedTxn(b2, 500, 'card_payment');
+      await q("update card_transactions set qbo_account_id='interest', qbo_account_name='Interest expense', status='coded', coding_source='manual' where id=$1", [t2]);
+      await refused(() => approve(b2), /bank feed owns card payments/, 'the same card payment unsplit on one expense account');
+      // And a split onto accounts the treatment does allow goes through.
+      const b3 = await feedBatch(), t3 = await feedTxn(b3, 500, 'card_payment');
+      await setSplits(t3, [{ amount: 300, qbo_account_id: 'ap', entity_qbo_id: 'v1', entity_type: 'Vendor' },
+                           { amount: 200, qbo_account_id: 'ap', entity_qbo_id: 'v1', entity_type: 'Vendor' }]);
+      const ok = await approve(b3);
+      assert.ok(ok.approval_hash, 'A card payment split across payable accounts is approved');
+    }
+    // Direction, on the transaction's own amount. This one needs no account at
+    // all, and was being skipped only because it shared the account join.
+    {
+      const b = await feedBatch(), t = await feedTxn(b, -40, 'purchase');
+      await setSplits(t, [{ amount: -25, qbo_account_id: 'interest' }, { amount: -15, qbo_account_id: 'fees' }]);
+      await refused(() => approve(b), /Review feed direction/, 'a split purchase whose amount is money in');
+    }
   });
 
   await test('an unsplit batch posts exactly as it did before', async () => {

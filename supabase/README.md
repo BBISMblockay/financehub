@@ -635,6 +635,20 @@ checks for splits would have been the obvious change and the wrong one: the next
 check added to one copy would be missing from the other, and the gap would be
 invisible until a split line posted to an account nobody validated.
 
+**Two bank-feed interactions the first version got wrong** and this migration
+now owns. `plaid_guard_batch` is re-created from `20260912052930` because its
+direction and clearing-account checks ran through one INNER JOIN on
+`card_transactions.qbo_account_id` -- null on a split row, so every split row
+fell out of the join and skipped all four: a `card_payment` could be split into
+expense accounts and approved where the same row unsplit is refused. Direction
+is now checked on the transaction (no account join) and account type through
+`card_coding_effective_lines`, per posted line. And
+`card_splits_follow_provider_change` drops a split when the bank corrects a
+DRAFT row's amount, because the feed discards that row's coding and a split is
+coding: left behind, the tie check would raise inside `plaid_apply_sync` and
+roll back its cursor, so every later sync of that account would re-read the
+same correction and fail identically -- one split would stop the feed for good.
+
 Writes are RPC-only (`revoke all`, `grant select`), finance-gated by
 `can_manage_journal_entries()`, and refused once the batch leaves `draft` /
 `categorized`. UI: the split editor in `v2/card-splits.js`, opened from the

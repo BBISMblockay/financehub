@@ -3679,6 +3679,24 @@ select 'Card transaction splits' as check_name,
   then 'CRITICAL: a split rule can store an amount; only the shape may be learned'
  when pg_get_functiondef(to_regprocedure('public.approve_card_import_batch(uuid)')) not like '%card_coding_effective_lines%'
   then 'STALE: the approval snapshot no longer reads card_coding_effective_lines, so split lines post unvalidated or not at all; apply 20260915100000'
+ -- The bank feed's own approval guard judges clearing-account treatment per
+ -- POSTED LINE. Back on the parent's account column it silently skips every
+ -- split row, so a card payment could be split into expense accounts and
+ -- approved where the same row unsplit is refused.
+ when to_regprocedure('public.plaid_guard_batch()') is not null
+   and pg_get_functiondef(to_regprocedure('public.plaid_guard_batch()')) not like '%card_coding_effective_lines%'
+  then 'CRITICAL: the bank feed approval guard judges treatment through the parent account only, so split rows skip its direction and clearing-account checks'
+ -- A provider amount correction on a DRAFT split row must drop the split with
+ -- the rest of its coding. Without it the tie check raises inside
+ -- plaid_apply_sync, which rolls back the cursor too, so that account's feed
+ -- stops for good.
+ when not exists (select 1 from pg_trigger where tgname = 'card_splits_follow_provider_change'
+   and tgrelid = to_regclass('public.card_transactions') and tgenabled <> 'D')
+  then 'CRITICAL: a bank correction to a split transaction would fail its sync and wedge that account''s cursor'
+ -- A memo the person typed and read back in the preview must be the memo that
+ -- posts, not "split 2".
+ when pg_get_functiondef(to_regprocedure('public.approve_card_import_batch(uuid)')) not like '%nullif(e.memo%'
+  then 'STALE: the approved payload drops split memos the preview showed; apply 20260915100000'
  else 'ok' end as status;
 
 -- Profiles tenant isolation. Policies are OR'd, so one unscoped SELECT policy
