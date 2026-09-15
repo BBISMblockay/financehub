@@ -7,9 +7,11 @@ import { generateLedgerPair } from './fixtures/qbo-ledger-generator.mjs';
 // QBO_DB_MUTATION=no-resume-state   (a section resumed mid-way forgets its running balance)
 // QBO_DB_MUTATION=unbounded         (the per-call budget removed: one call does everything)
 // QBO_DB_MUTATION=no-size-guard     (the report-size ceiling on the unbounded phases removed)
+// QBO_DB_MUTATION=no-byte-guard     (only the byte ceiling removed; the row ceiling does not cover a dense ledger)
+// QBO_DB_MUTATION=guard-after-hash  (the ceiling kept but moved back below the snapshot hash)
 // QBO_DB_MUTATION=finalize-unguarded (finalization outside its own exception block)
 const mutation=process.env.QBO_DB_MUTATION||'';
-assert.ok(['','no-resume-state','unbounded','no-size-guard','finalize-unguarded'].includes(mutation),'Unknown QBO history mutation');
+assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded'].includes(mutation),'Unknown QBO history mutation');
 const db=new PGlite({extensions:{pgcrypto}});
 const root=new URL('../../',import.meta.url);
 const dependencies = [
@@ -82,7 +84,17 @@ try{
   let mutated=def;
   if(mutation==='no-resume-state')mutated=def.replace("state=jsonb_build_object('balance',balance,","state=jsonb_build_object('balance',0,");
   else if(mutation==='unbounded')mutated=def.replace("current_setting('silo.qbo_archive_batch_rows',true),'')::integer,5000)","current_setting('silo.qbo_archive_batch_rows',true),'')::integer,2147483647)").replace("current_setting('silo.qbo_archive_batch_ms',true),'')::integer,3000)","current_setting('silo.qbo_archive_batch_ms',true),'')::integer,2147483647)");
-  else if(mutation==='no-size-guard')mutated=def.replace('if n > max_rows then','if false then');
+  else if(mutation==='no-size-guard')mutated=def.replace('if n > max_rows then','if false then').replace('if pg_column_size(gl.raw_response) > max_bytes then','if false then');
+  // The byte ceiling on its own: a dense ledger reaches 8 MB while still short,
+  // so the row ceiling does not cover it.
+  else if(mutation==='no-byte-guard')mutated=def.replace('if pg_column_size(gl.raw_response) > max_bytes then','if false then');
+  // Guard present but AFTER the hash: the shape cycle-2 review found. Moving
+  // the ceiling below the snapshot build reproduces it exactly.
+  else if(mutation==='guard-after-hash'){
+   const guard=def.match(/ {2}if pg_column_size\(gl\.raw_response\)[\s\S]*?n, max_rows; end if;\n/);
+   if(!guard)throw new Error('guard-after-hash: the size guard block was not found');
+   mutated=def.replace(guard[0],'').replace('  select id into imp from public.qbo_history_imports where company_entity_id=co and qbo_connection_id=gl.connection_id and source_hash=digest;',guard[0]+'  select id into imp from public.qbo_history_imports where company_entity_id=co and qbo_connection_id=gl.connection_id and source_hash=digest;');
+  }
   else if(mutation==='finalize-unguarded'){
    // Let a finalization error propagate instead of terminating the job, which
    // is what the code did before this cycle's fix: the call rolls back and the
@@ -264,7 +276,7 @@ try{
  // guard refuses an oversized one BEFORE any work rather than letting it time
  // out half way. Measured longest call on a real server: 3.6s at 100k rows,
  // 6.9s at 150k, against the authenticated 8s ceiling; the shipped ceiling is
- // 100k rows / 48MB. The setting is lowered here so the refusal is exercised
+ // 100k rows / 8MB. The setting is lowered here so the refusal is exercised
  // without building a 100k-row fixture.
  {const before=await counts();const small=generateLedgerPair({rows:300,seed:300});
   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(small.accounts)]);
@@ -279,7 +291,59 @@ try{
   await assert.rejects(capped(),new RegExp(`has ${small.expected.lineRows} ledger rows, more than the 100 this archive processes in one window`),'An oversized report is refused, naming the count');
   assert.deepEqual(await counts(),before,'A refused report writes no evidence');
   assert.equal(Number((await one('select count(*) n from qbo_history_jobs where gl_run_id=$1',[sG])).n),0,'...and creates no job: the refusal comes before any work, so there is nothing to resume');
-  const ok=await archive(sG,sT);assert.equal(ok.status,'complete');assert.equal(ok.transaction_count,small.expected.dataRows,'Under the shipped ceiling the same report archives whole');}
+  // BEFORE the snapshot is assembled and hashed, not merely before the rows
+  // are staged. Hashing runs sha256 over the whole document and is the largest
+  // part of the unbounded setup the ceiling exists to bound, so a guard
+  // standing after it would let an oversized report be copied and hashed in
+  // full and only then refused -- and the refusal would look identical from
+  // outside. The hash helper is therefore replaced with one that always
+  // raises: reaching it becomes a different error, which no rollback can
+  // hide. (A counter table cannot be used here: the refusal rolls the call
+  // back and takes the count with it.)
+  const SENTINEL="create or replace function public.finance_approval_snapshot_hash(p_snapshot jsonb) returns text language plpgsql volatile as $$ begin raise exception 'SENTINEL the snapshot hash was invoked'; end $$";
+  const REAL="create or replace function public.finance_approval_snapshot_hash(p_snapshot jsonb) returns text language sql immutable security invoker set search_path to 'extensions','pg_temp' as $$ select encode(extensions.digest(convert_to(p_snapshot::text,'UTF8'),'sha256'),'hex') $$";
+  try{
+   await db.exec(SENTINEL);
+   await assert.rejects(capped(),/ledger rows, more than the 100/,'An oversized report is refused before its snapshot is hashed');
+   // The control: a report the ceiling ADMITS does reach the hash, so the
+   // sentinel is genuinely wired in and the assertion above means something.
+   await assert.rejects(archive(sG,sT),/SENTINEL the snapshot hash was invoked/,'A report under the ceiling is hashed, so the sentinel measures what it claims');
+  } finally { await db.exec(REAL); }
+  // The BYTE ceiling, which the row ceiling does not cover: a ledger with long
+  // memos reaches 8 MB while still short, and hashing is worse than linear in
+  // the document's size (measured on PostgreSQL 16: 7.7 MB 1.21s, 15.5 MB
+  // 7.10s, 23 MB 9.27s, 31 MB 21.1s), so the byte limit is what keeps the
+  // hash inside the 8s statement timeout. It is lowered here rather than
+  // building an 8 MB fixture; what is being proved is that the check runs,
+  // refuses, and refuses BEFORE the hash.
+  const byteCapped=()=>as(finance,async()=>{await q("select set_config('silo.qbo_archive_max_bytes','1024',false)");
+   try{return await rpc('archive_qbo_ledger',[sG,sT]);}finally{await q("select set_config('silo.qbo_archive_max_bytes','',false)");}});
+  {const before=await counts();
+   if(mutation==='no-byte-guard'){await byteCapped();assert.fail('The byte ceiling was removed, yet an oversized document was still refused');}
+   await assert.rejects(byteCapped(),/larger than the 0 MB this archive processes in one window/,'An oversized document is refused on bytes, naming its size');
+   assert.deepEqual(await counts(),before,'A byte-refused report writes no evidence');
+   assert.equal(Number((await one('select count(*) n from qbo_history_jobs where gl_run_id=$1',[sG])).n),0,'...and creates no job');
+   try{ await db.exec(SENTINEL); await assert.rejects(byteCapped(),/larger than the 0 MB/,'The byte check runs before the snapshot is hashed'); }
+   finally { await db.exec(REAL); }}
+  // The same ordering, stated the way verify_v2_schema.sql states it. The
+  // committed check compares these two positions in pg_get_functiondef, and it
+  // has to match the CALL SITE: the helper's bare name also appears in the
+  // comment above the guard, and a check matching that reports CRITICAL on
+  // correct code.
+  {const body=(await one("select pg_get_functiondef('public.archive_qbo_ledger(uuid,uuid)'::regprocedure) d")).d;
+   assert.ok(body.indexOf('digest:=public.finance_approval_snapshot_hash')>0,'the hash call site verify_v2_schema.sql matches must exist verbatim');
+   assert.ok(body.indexOf('pg_column_size(gl.raw_response)')<body.indexOf('digest:=public.finance_approval_snapshot_hash'),
+    'the size guard must precede the hash call in the stored body, which is what the committed verify check asserts');}
+  const ok=await archive(sG,sT);assert.equal(ok.status,'complete');assert.equal(ok.transaction_count,small.expected.dataRows,'Under the shipped ceiling the same report archives whole');
+  // Re-archiving the same two stored report runs is answered from their ids,
+  // so it neither re-hashes the document nor trips the lowered ceiling: a
+  // period that is completely archived must not be refused as too large.
+  try{
+   await db.exec(SENTINEL);
+   const repeat=await capped();
+   assert.equal(repeat.already_imported,true,'The same stored reports are recognised as already archived');
+   assert.equal(repeat.id,ok.id,'...and answer with the existing import');
+  } finally { await db.exec(REAL); }}
  // A failure during FINALIZATION (a constraint, trigger or storage error after
  // every section is checked) must terminate the job with its reason. Without
  // its own exception block the job stays 'running' at 100% and every resume

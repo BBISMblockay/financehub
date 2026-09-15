@@ -194,15 +194,48 @@ single call:
 | longest call | 2.5 s | 3.3 s | 3.6 s | 5.2 s | 6.9 s |
 
 So a job refuses before any work when the report exceeds **100,000 ledger rows**
-(longest call measured 3.6 s, a 2.2x margin under the 8 s ceiling) or **48 MB**
+(longest call measured 3.6 s, a 2.2x margin under the 8 s ceiling) or **8 MB**
 of stored JSON, the byte check first because it is free and screens an absurd
-document out before the counting pass. The refusal names the count and says to
+document out before the counting pass. **Both ceilings are needed and either
+can bind first**: a sparse ledger reaches 100,000 rows while still small, and a
+ledger with long memos reaches 8 MB while still short. The refusal names the count and says to
 archive the period in parts, which is what this runbook already tells an
 operator to do with a report too large to process. Nothing is truncated and no
 row is skipped: the archive covers the window completely or refuses it and says
 why. Baseballism's full year is 36,778 rows, comfortably inside. The ceiling is
 settable (`silo.qbo_archive_max_rows`) for tests; raising it risks a timeout on
 that import, never a partial archive.
+
+**Where the 8 MB comes from, and why the guard runs first.** Hashing the
+snapshot is the largest piece of the unbounded setup, and it is worse than
+linear in the document's size. Measured on the same PostgreSQL 16:
+
+| stored general ledger | byte check | row count (the guard) | build + sha256 the snapshot |
+|---|---|---|---|
+| 2.1 MB / 40,040 rows | 0.6 ms | 0.13 s | 0.33 s |
+| 7.7 MB / 150,040 rows | 0.6 ms | 0.55 s | 1.21 s |
+| ~15.5 MB | 0.6 ms | — | 7.10 s |
+| ~23 MB | 0.6 ms | — | 9.27 s |
+| ~31 MB | 0.6 ms | — | 21.1 s |
+
+Two things follow. First, the byte ceiling has to be about 8 MB: 7.7 MB is the
+largest document measured to hash comfortably inside the budget, and by 15.5 MB
+the hash alone is 7.10 s against an 8 s timeout. A more generous limit would
+admit documents the setup cannot finish, which is the work this guard exists to
+bound. Second, the guard has to run BEFORE the snapshot is built and hashed: a
+guard standing after the hash would let an oversized report be copied and
+sha256'd straight through the timeout and be cancelled, and the operator would
+see a cancellation rather than the refusal telling them to archive the period
+in parts. Running the byte check first costs 0.6 ms. `verify_v2_schema.sql`
+asserts the ORDER, not just that the guard exists. Both ceilings are settable
+(`silo.qbo_archive_max_rows`, `silo.qbo_archive_max_bytes`) for tests; raising
+either risks a timeout on that import, never a partial archive.
+
+Re-archiving the same two stored report runs is answered from their ids before
+any of this, so a period that is already archived returns its existing import
+without rebuilding the snapshot and is never refused as too large. A re-fetch
+of the same period produces new run ids, and the hash comparison after the
+snapshot is built still recognises it as identical content.
 
 The archive is a job (`qbo_history_jobs`) with two staging tables
 (`qbo_history_staging_sections`, `qbo_history_staging_lines`). Every call of

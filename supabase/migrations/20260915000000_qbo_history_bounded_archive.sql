@@ -76,8 +76,18 @@
 -- thing is a guard rather than a claim. A job refuses before any work when
 -- the report exceeds QBO_ARCHIVE_MAX_ROWS (100,000 data rows, longest call
 -- measured 3.6s, a 2.2x margin under the authenticated 8s ceiling) or
--- QBO_ARCHIVE_MAX_BYTES (48 MB of stored JSON, a cheap first check so an
--- absurd document is refused without the counting pass). The refusal names
+-- QBO_ARCHIVE_MAX_BYTES (8 MB of stored JSON). The byte ceiling is NOT a
+-- round number picked for tidiness: hashing the snapshot is worse than
+-- linear in the document's size, measured on the same server at 7.7 MB
+-- 1.21s, 15.5 MB 7.10s, 23 MB 9.27s, 31 MB 21.1s. A ceiling above about
+-- 8 MB therefore admits documents whose hash ALONE crosses the 8s timeout,
+-- which is the work this guard exists to bound; 7.7 MB is the largest size
+-- measured to hash comfortably inside the budget. Both ceilings are needed
+-- and either can bind first: a sparse ledger reaches 100,000 rows while
+-- still small, a ledger with long memos reaches 8 MB while still short. The
+-- byte check runs first because it reads the stored jsonb's own size
+-- (0.6 ms) and screens an absurd document out before the counting pass. The
+-- refusal names
 -- the count and says to narrow the window, which is what
 -- docs/ops/qbo-history.md already tells an operator to do with a report too
 -- large to process. Nothing is truncated and no row is skipped: the archive
@@ -142,6 +152,10 @@ create table if not exists public.qbo_history_jobs (
 );
 create unique index if not exists qbo_history_jobs_one_running on public.qbo_history_jobs(company_entity_id,qbo_connection_id,source_hash) where status='running';
 create index if not exists qbo_history_jobs_company on public.qbo_history_jobs(company_entity_id,status,created_at desc);
+-- Answers "have these two stored report runs already been archived" without
+-- hashing their contents, which is what lets the size ceiling run first.
+create index if not exists qbo_history_imports_runs
+ on public.qbo_history_imports(company_entity_id,qbo_connection_id,gl_run_id,tb_run_id);
 
 create table if not exists public.qbo_history_staging_sections (
  job_id uuid not null references public.qbo_history_jobs(id) on delete cascade,
@@ -220,6 +234,7 @@ declare
  -- import, never a partial archive -- the completeness guarantee is the
  -- atomic final copy, not this number.
  max_rows integer:=coalesce(nullif(current_setting('silo.qbo_archive_max_rows',true),'')::integer,100000);
+ max_bytes bigint:=coalesce(nullif(current_setting('silo.qbo_archive_max_bytes',true),'')::bigint,8*1024*1024);
  started timestamptz:=clock_timestamp(); rows_this_call integer:=0; stopped boolean:=false;
  -- per-section state
  st public.qbo_history_staging_sections%rowtype; state jsonb; balance numeric; movement numeric; has_beginning boolean; txn_started boolean; problems text[]; section_row integer; blank_rows integer; zero_rows integer;
@@ -252,6 +267,37 @@ begin
  if found then
   digest:=job.source_hash;
  else
+  -- These same two stored report runs already archived: answered from their
+  -- ids, before the snapshot is built. The hash lookup below still runs for a
+  -- DIFFERENT pair of runs whose content is identical (a re-fetch of the same
+  -- period), which the ids cannot see -- but re-clicking Archive on the runs
+  -- already on the books must not rebuild and re-hash a multi-megabyte
+  -- document to discover that, and it must not be refused by the size guard
+  -- for a period that is in fact completely archived.
+  select id into imp from public.qbo_history_imports
+   where company_entity_id=co and qbo_connection_id=gl.connection_id and gl_run_id=gl.id and tb_run_id=tb.id;
+  if found then return jsonb_build_object('id',imp,'already_imported',true,'status','complete'); end if;
+  -- Refuse an oversized report BEFORE the snapshot is assembled or hashed.
+  -- Those two are the unbounded setup work the ceiling exists to prevent, so a
+  -- guard standing after them guards nothing: jsonb_build_object copies both
+  -- raw responses and finance_approval_snapshot_hash runs sha256 over the
+  -- whole document, and on an oversized report both would run to completion
+  -- and only then be told the report is too large. The byte check is
+  -- effectively free (the stored jsonb's own size) and screens an absurd
+  -- document out before the counting pass, which is one recursive scan (~0.3s
+  -- at 37k rows, ~1.4s at the ceiling). Running before the supersession
+  -- update below also means a refusal no longer abandons somebody else's
+  -- in-flight job on its way out.
+  if pg_column_size(gl.raw_response) > max_bytes then
+   raise exception 'This general ledger is % MB, larger than the % MB this archive processes in one window. Choose a shorter period and archive it in parts; nothing was written',
+    round(pg_column_size(gl.raw_response) / 1048576.0, 1), round(max_bytes / 1048576.0); end if;
+  with recursive walk(j) as (
+   select value from jsonb_array_elements(gl.raw_response#>'{Rows,Row}')
+   union all select c.value from walk cross join lateral jsonb_array_elements(walk.j#>'{Rows,Row}') c where walk.j->>'type'='Section'
+  ) select count(*) into n from walk where j->>'type'='Data';
+  if n > max_rows then
+   raise exception 'This general ledger has % ledger rows, more than the % this archive processes in one window (its final save is one atomic copy and cannot be split). Choose a shorter period and archive it in parts; nothing was written, and no row would have been dropped',
+    n, max_rows; end if;
   -- Immutable copies have no FK to cached reports or connection credentials.
   src:=jsonb_build_object('general_ledger',gl.raw_response,'trial_balance',tb.raw_response,'gl_params',gl.params,'tb_params',tb.params,
    'account_context',(select jsonb_agg(to_jsonb(a) order by a.qbo_account_id) from public.accounting_accounts a where a.company_entity_id=co and a.qbo_connection_id=gl.connection_id),
@@ -268,21 +314,6 @@ begin
    where company_entity_id=co and qbo_connection_id=gl.connection_id and status='running';
   delete from public.qbo_history_staging_lines l using public.qbo_history_jobs j where l.job_id=j.id and j.company_entity_id=co and j.status='abandoned';
   delete from public.qbo_history_staging_sections s using public.qbo_history_jobs j where s.job_id=j.id and j.company_entity_id=co and j.status='abandoned';
-  -- Refuse an oversized report BEFORE any work: the setup and finalization
-  -- phases are not row-bounded (see header). The byte check is effectively
-  -- free (the stored jsonb's own size) and screens an absurd document out
-  -- before the counting pass, which is one recursive scan (~0.3s at 37k
-  -- rows, ~1.4s at the ceiling).
-  if pg_column_size(gl.raw_response) > 48 * 1024 * 1024 then
-   raise exception 'This general ledger is % MB, larger than the % MB this archive processes in one window. Choose a shorter period and archive it in parts; nothing was written',
-    round(pg_column_size(gl.raw_response) / 1048576.0), 48; end if;
-  with recursive walk(j) as (
-   select value from jsonb_array_elements(gl.raw_response#>'{Rows,Row}')
-   union all select c.value from walk cross join lateral jsonb_array_elements(walk.j#>'{Rows,Row}') c where walk.j->>'type'='Section'
-  ) select count(*) into n from walk where j->>'type'='Data';
-  if n > max_rows then
-   raise exception 'This general ledger has % ledger rows, more than the % this archive processes in one window (its final save is one atomic copy and cannot be split). Choose a shorter period and archive it in parts; nothing was written, and no row would have been dropped',
-    n, max_rows; end if;
   -- A known provider shape, verified against Test Company's stored GL. Do not
   -- infer accounting signs from translated display labels or arbitrary columns.
   select array_agg((select m->>'Value' from jsonb_array_elements(c.value->'MetaData') m where m->>'Name'='ColKey') order by c.ordinality)

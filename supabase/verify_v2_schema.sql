@@ -3615,10 +3615,23 @@ select 'QBO history bounded archive' as check_name,
   then 'STALE: archive_qbo_ledger carries a statement_timeout setting that PostgREST does not honour for the calling statement; remove it (see 20260915000000)'
  -- Setup and finalization are not row-bounded and grow with the report
  -- (measured: longest call 3.6s at 100k rows, 6.9s at 150k, against 8s).
- -- Without the size guard the bound is a claim rather than a fact.
+ -- Without the size guard the bound is a claim rather than a fact. BOTH
+ -- ceilings are required: rows for a sparse ledger, bytes for a dense one
+ -- (hashing measured 1.21s at 7.7MB and 7.10s at 15.5MB, so the byte ceiling
+ -- is what keeps the hash inside the timeout).
  when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%qbo_archive_max_rows%'
+  or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%qbo_archive_max_bytes%'
   or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%pg_column_size(gl.raw_response)%'
   then 'STALE: archive_qbo_ledger lost the report-size guard; its unbounded setup and final copy can cross the statement timeout on a large report'
+ -- ORDER, not just presence. Hashing the snapshot is the largest piece of the
+ -- unbounded setup, so a ceiling standing after it guards nothing: the
+ -- oversized report would be copied and sha256'd in full and only then
+ -- refused. Compares first occurrences in the stored body, and matches the
+ -- CALL SITE rather than the bare helper name, which also appears in the
+ -- comment above the guard.
+ when strpos(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')),'pg_column_size(gl.raw_response)')
+    > strpos(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')),'digest:=public.finance_approval_snapshot_hash')
+  then 'CRITICAL: archive_qbo_ledger hashes the source snapshot before checking the report size, so the ceiling does not bound the setup work it exists to bound'
  -- Finalization must record a terminal failure rather than leaving the job
  -- 'running' with every resume repeating the same error.
  when (length(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')))
