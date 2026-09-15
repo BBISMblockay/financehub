@@ -361,18 +361,97 @@ posting switches.
    the GL/TB pair once, then calls the RPC repeatedly, showing rows checked; expect
    roughly 8 calls for the full-year report. If the tab is closed or the network
    drops mid-way, "Resume unfinished archive" continues from the stored reports.
-5. The stored production reports still carry a `Not Specified` section, which the
-   archive refuses by design in the first call (before any rows are staged). That
-   decision is recorded in `docs/ops/bugs.md` and is not changed here; a window
-   whose report has no such section archives normally.
+5. The `Not Specified` section no longer stops the import (`20260915200000`).
 
-Known next stop: the stored Baseballism reports (both the 366-day and the
-one-month window fetched on 2026-09-14) contain a `Not Specified` section, QBO's
-group for lines with no account, which the archive refuses as an unidentified
-section (`Unsupported or duplicate ledger account section; raw report remains
-available`). That refusal is by design and is not a number-format problem; see
-`docs/ops/bugs.md` for the shape and the decision it needs. A window whose report
-has no such section archives normally once this migration is applied.
+## QuickBooks' `Not Specified` section
+
+QBO groups ledger lines that have no account under a header called
+`Not Specified` with no account id. Measured on the stored Baseballism reports
+on 2026-09-15:
+
+| window | leaf sections | ledger rows | sections with no account id | duplicate ids |
+|---|---|---|---|---|
+| 2025-08-01 to 2026-07-31 | 209 | 36,778 | 1 | 0 |
+| 2026-01-01 to 2026-07-31 | 193 | 23,002 | 1 | 0 |
+
+The section holds 24 rows in the full-year window, every one either a Journal
+Entry for `.00` or a Payment with a blank amount reading `Created by QB Online
+to link credits to ...`. **Not one row carries an amount.** These are records
+QuickBooks generates to link credits; nobody can assign them an account, so
+refusing the import over the section made that window permanently unarchivable.
+The `duplicate` half of the old message was never involved -- both windows have
+zero duplicate account ids.
+
+**What happens now.** The section is archived, not skipped. Every row is kept
+and readable under the account id `silo:unattributed`, which cannot collide with
+a QuickBooks id (those are numeric), with `account_type` `Unattributed` and the
+section's own name. It appears in the reconciliation under its own issue,
+`unattributed_ledger_section`, with a null difference because it has no trial
+balance counterpart.
+
+**What still refuses, and why it is four cells and not one.** The placeholder
+has no trial-balance counterpart, so the comparison is skipped for it -- which
+means whatever admission lets through is never checked against anything again.
+Admission is the only test this section ever faces, so it requires all four of
+these to be present and blank or zero:
+
+| cell | what the provider is claiming |
+|---|---|
+| each row's `ColData[6]` | the amount that moved on that line |
+| each row's `ColData[7]` | the running balance after that line |
+| `Summary.ColData[6]` | the section's total movement for the period |
+| `Summary.ColData[7]` (`rbal_nat_amount`) | the section's ending balance |
+
+Each is a separate claim and none implies the others. Any of them non-zero fails
+the whole import, naming what it found. That is a bookkeeping problem for a
+person to fix in QuickBooks, and filing it under a placeholder would be exactly
+the silent mis-attribution this archive exists to prevent. Nothing is truncated
+and no row is dropped on either path.
+
+Neither narrower version is sufficient, and neither gap is theoretical. A
+`Beginning Balance` row carries a blank amount and a real running balance, so an
+amounts-only test admits a section with a $250 closing balance, never compares
+it to anything, and reports `matched`. And a section can report zero movement in
+`Summary.ColData[6]` while reporting a balance carried out in
+`Summary.ColData[7]`, so checking the period total does not vouch for the
+balance. On a real account both surface as a `trial_balance_mismatch`; here
+nothing downstream looks at them.
+
+**A blank running balance reads as zero here, and only here.** Once admission
+has established that every amount and every balance in the section is blank or
+zero, a blank balance cell is a zero QBO did not bother to print. On a real
+account it stays a hard refusal, because there it is a figure that went missing.
+This matters: of the seven stored windows, four carry exactly one row with both
+cells blank, and they failed on `Missing running balance` rather than on the
+account-less section -- so archiving the section without this would have fixed
+the one window that was reported and left the others refusing with a different
+message.
+
+| window | rows | blank amount | blank running balance |
+|---|---|---|---|
+| 2025-07-31 to 2026-07-31 | 26 | 13 | 1 |
+| 2025-08-01 to 2026-07-31 | 24 | 12 | 0 |
+| 2026-01-01 to 2026-07-31 | 14 | 7 | 1 |
+| 2026-01-01 to 2026-09-01 | 15 | 8 | 0 |
+| 2026-01-01 to 2026-09-03 | 15 | 8 | 1 |
+| 2026-01-01 to 2026-09-14 | 16 | 8 | 0 |
+| 2026-07-01 to 2026-07-31 | 2 | 1 | 1 |
+
+Across all seven, amount and running balance cells are only ever `''` or `.00`,
+the period total is always `.00`, the section ending balance is always `''` (a
+present, blank cell in all 14 stored sections), and every row carries a
+transaction id and an in-window date -- so none of the admission tests above
+refuses the real report.
+
+**One judgement call.** The `unattributed_ledger_section` notice does not
+increment `exception_count`, so an otherwise clean archive still reads
+`matched`. The section is provably zero by the admission test, so the books tie
+either way, and an exception that fires on every archive forever is a signal
+people stop reading. **The exemption is the notice, not the section:** every
+other problem on it -- a running balance gap, a period total that disagrees, a
+row with no transaction reference -- is counted exactly as it would be on a real
+account. A blanket exemption would let a real mismatch there sit behind an
+archive that still reported `matched`.
 
 Snapshot supersession (choosing the newest of overlapping windows for browsing)
 is a separate follow-up recorded in `docs/ops/bugs.md`; this fix does not change

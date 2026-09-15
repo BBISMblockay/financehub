@@ -592,6 +592,51 @@ the job instead of stranding it as `running`. Tests: `scripts/tests/qbo-history-
 synthetic archive, six mutations), `qbo-history-ui.test.mjs`; timing harness
 `scripts/tests/qbo-history-benchmark.mjs`. Verify: `QBO history bounded archive`.
 
+### QBO history unattributed section (20260915200000)
+
+`20260915200000_qbo_history_unattributed_section.sql` stops `archive_qbo_ledger`
+refusing the whole import over QuickBooks' own account-less section. Measured on
+the stored Baseballism reports: exactly one leaf section per window has no
+account id (209 sections / 36,778 rows in the full year; 193 / 23,002 in the half
+year) and there are zero duplicate ids, so the `duplicate` half of the old
+message was never involved. That section is `Not Specified`, 24 rows, every one a
+Journal Entry for `.00` or a Payment with a blank amount reading `Created by QB
+Online to link credits to ...`. Nobody can assign those an account, so the
+refusal left the full-year window permanently unarchivable.
+
+The section is now **archived, not skipped**: every row kept under
+`silo:unattributed` (cannot collide with a numeric QBO id), `account_type`
+`Unattributed`, and named in the reconciliation under its own
+`unattributed_ledger_section` issue with a null difference.
+
+**Admission checks four cells, not one.** The placeholder has no trial-balance
+counterpart, so the comparison is skipped for it and whatever admission lets
+through is never checked again -- admission is the only test this section faces.
+It therefore requires each row's amount cell, each row's running balance cell,
+the section's period total (`Summary.ColData[6]`) and the section's ending
+balance (`Summary.ColData[7]`, `rbal_nat_amount`) all to be present and all
+blank or zero; any of them non-zero refuses the whole import, naming what it
+found. Each is a separate claim: a `Beginning Balance` row has a blank amount
+and a real running balance, so an amounts-only test admits a $250 closing
+balance and reports `matched`; and a section can report zero movement in column
+6 while reporting a balance carried out in column 7, so the period total does
+not vouch for the balance.
+
+**A blank running balance reads as zero on the placeholder only**, since
+admission has already established the section is all zero; on a real account it
+stays a hard refusal. Four of the seven stored windows carry exactly one row
+with both cells blank and previously failed on `Missing running balance`, so
+without this the fix would have covered only the window that was reported.
+
+**The exemption from `exception_count` is the notice, not the section.** Only
+`unattributed_ledger_section` is exempt; a running balance gap, a disagreeing
+period total or a missing transaction reference on that section counts like it
+would anywhere else, so `matched` keeps meaning matched.
+
+Additive; re-creates `archive_qbo_ledger` from `20260915000000` with those edits
+only. Apply after it. Verify: the six new rows inside `QBO history bounded
+archive`.
+
 ### Card transaction splits (20260915100000)
 
 `20260915100000_card_transaction_splits.sql` lets one card or bank transaction be
