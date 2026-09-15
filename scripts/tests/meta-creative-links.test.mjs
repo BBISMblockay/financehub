@@ -37,7 +37,7 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CORE = join(ROOT, 'scripts/lib/ad-platforms-sync-core.mjs');
 const mutation = process.env.META_LINK_MUTATION || '';
-assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard'].includes(mutation),
+assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard', 'tier-collapses'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 // The module is loaded from source so a mutation can be applied to the real
@@ -46,8 +46,16 @@ assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard'].includes(muta
 let source = readFileSync(CORE, 'utf8');
 if (mutation === 'no-item-check') {
   source = source.replace(
-    'if (withLinkFields && metaBatchRejectedFields(data)) {',
+    'if (linkTier < CREATIVE_BASE_TIER && metaBatchRejectedFields(data)) {',
     'if (false && metaBatchRejectedFields(data)) {');
+} else if (mutation === 'tier-collapses') {
+  // The shipped defect: one refused field drops the whole link set instead of
+  // stepping down by one. This is what produced "0/126 resolved" in
+  // production, so a test that does not fail here is not guarding it.
+  source = source.replace('      linkTier += 1;\n        continue;\n      }\n      // The mode that matters',
+                          '      linkTier = CREATIVE_BASE_TIER;\n        continue;\n      }\n      // The mode that matters');
+  source = source.replace("          + `${named ? ` (field: ${named})` : ''}, stepping down`);\n        linkTier += 1;",
+                          "          + `${named ? ` (field: ${named})` : ''}, stepping down`);\n        linkTier = CREATIVE_BASE_TIER;");
 } else if (mutation === 'effective-first') {
   source = source.replace(
     "    ['link_data', spec.link_data?.link],",
@@ -235,6 +243,63 @@ await test('a refused link field downgrades and KEEPS every creative row', async
   assert.ok(asked[asked.length - 1].includes('object_story_spec'), 'retry keeps the base tier');
 });
 
+await test('A REFUSED asset_feed_spec MUST NOT COST effective_object_url', async () => {
+  // THE PRODUCTION FAILURE, 2026-09-15, first real run:
+  //   [meta] creative links: 0/126 resolved (none) — link fields REFUSED
+  //
+  // The first version put effective_object_url, url_tags and
+  // asset_feed_spec{link_urls} in ONE tier. Meta refused the set, the code
+  // dropped all three, and the field 63% of this account depends on went with
+  // the one field that was actually unacceptable. Zero of 126 ads resolved a
+  // destination -- the feature did nothing at all.
+  //
+  // Stepping down ONE tier at a time is the fix, and this is its guard.
+  const asked = fakeGraph({
+    ads: { 1: AD('1', {
+      id: 'cr1', object_type: 'SHARE',
+      effective_object_url: 'https://baseballism.com/collections/sale',
+    }) },
+    rejectFields: ['asset_feed_spec'],
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://baseballism.com/collections/sale',
+    'a page-post ad must still resolve after asset_feed_spec is refused');
+  assert.equal(rows['1'].linkUrlSource, 'effective_object_url');
+  const last = asked[asked.length - 1];
+  assert.ok(!last.includes('asset_feed_spec'), 'the refused field is dropped');
+  assert.ok(last.includes('effective_object_url'), 'the field that matters is NOT dropped with it');
+});
+
+await test('object_url answers when effective_object_url is the refused one', async () => {
+  // Which of the two a given API version accepts is not knowable from here,
+  // so both are asked for and the tiers drop them separately.
+  const asked = fakeGraph({
+    ads: { 1: AD('1', { id: 'cr1', object_type: 'SHARE',
+      object_url: 'https://baseballism.com/collections/tees' }) },
+    rejectFields: ['effective_object_url'],
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://baseballism.com/collections/tees');
+  assert.equal(rows['1'].linkUrlSource, 'object_url');
+  assert.ok(asked[asked.length - 1].includes('object_url'), 'object_url survives');
+});
+
+await test('the run walks down ONE tier per refusal, not straight to the base', async () => {
+  const asked = fakeGraph({
+    ads: { 1: AD('1', { id: 'cr1', object_type: 'SHARE',
+      url_tags: 'utm_campaign=x' }) },
+    rejectFields: ['asset_feed_spec', 'effective_object_url', 'object_url'],
+  });
+  await fetchMetaAdCreatives(CONNECTION, ['1']);
+  // Four attempts: all -> minus asset_feed -> minus effective -> minus object.
+  assert.ok(asked.length >= 4, `expected a stepped walk, saw ${asked.length} attempts`);
+  const last = asked[asked.length - 1];
+  assert.ok(last.includes('url_tags'), 'url_tags is kept: it was never the refused field');
+  for (const f of ['asset_feed_spec', 'effective_object_url', 'object_url']) {
+    assert.ok(!last.includes(f), `${f} should have been dropped`);
+  }
+});
+
 await test('the downgrade is PARTIAL: spec links survive, the SHARE fallback does not', async () => {
   // Found by writing the test above, and worth pinning rather than
   // discovering again later. object_story_spec is in the BASE tier -- it was
@@ -250,7 +315,8 @@ await test('the downgrade is PARTIAL: spec links survive, the SHARE fallback doe
       1: AD('1', { id: 'a', object_story_spec: { link_data: { link: 'https://baseballism.com/x' } } }),
       2: AD('2', { id: 'b', object_type: 'SHARE', effective_object_url: 'https://baseballism.com/y' }),
     },
-    rejectFields: ['url_tags'],
+    // Every link-tier field refused, so the run bottoms out at the base tier.
+    rejectFields: ['asset_feed_spec', 'effective_object_url', 'object_url', 'url_tags'],
   });
   const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1', '2']));
   assert.equal(rows['1'].linkUrl, 'https://baseballism.com/x', 'a spec link still resolves');
@@ -268,8 +334,11 @@ await test('the downgrade holds for the rest of the run', async () => {
   const asked = fakeGraph({ ads, rejectFields: ['asset_feed_spec'] });
   const rows = await fetchMetaAdCreatives(CONNECTION, Object.keys(ads));
   assert.equal(rows.length, 120, 'every ad still returns a row');
-  const withLinkTier = asked.filter((a) => a.includes('asset_feed_spec'));
-  assert.equal(withLinkTier.length, 1, `link tier re-requested ${withLinkTier.length} times`);
+  const withRefused = asked.filter((a) => a.includes('asset_feed_spec'));
+  assert.equal(withRefused.length, 1, `refused field re-requested ${withRefused.length} times`);
+  // And every later batch still asks for the tier BELOW it, not the base.
+  assert.ok(asked[asked.length - 1].includes('effective_object_url'),
+    'the run must settle one tier down, not collapse to base');
 });
 
 await test('an ordinary per-item failure does NOT downgrade the field set', async () => {
