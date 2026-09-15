@@ -3640,6 +3640,16 @@ select 'QBO history bounded archive' as check_name,
  when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D'
   and tgfoid=to_regprocedure('public.qbo_history_audit_event()'))
   then 'STALE: the import audit event still copies the multi-megabyte source snapshot into finance_audit_events; apply 20260915000000'
+ -- QBO emits one account-less housekeeping section ('Not Specified'); the
+ -- archive keeps its rows under a placeholder that cannot be read as a real
+ -- account, and still refuses the import outright if such a section carries
+ -- money. Losing either half is a different failure: the first makes the
+ -- full-year window unarchivable again, the second files real money under a
+ -- placeholder.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%silo:unattributed%'
+  then 'STALE: an account-less ledger section refuses the whole import again, so QBO''s own Not Specified bucket blocks the archive; apply 20260915200000'
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%has no QuickBooks account and carries%'
+  then 'CRITICAL: an account-less ledger section carrying money would be archived under the unattributed placeholder instead of refusing'
  else 'ok' end as status;
 
 -- Card transaction splits (20260915100000). One coded row carried one account

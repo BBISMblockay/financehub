@@ -592,6 +592,29 @@ the job instead of stranding it as `running`. Tests: `scripts/tests/qbo-history-
 synthetic archive, six mutations), `qbo-history-ui.test.mjs`; timing harness
 `scripts/tests/qbo-history-benchmark.mjs`. Verify: `QBO history bounded archive`.
 
+### QBO history unattributed section (20260915200000)
+
+`20260915200000_qbo_history_unattributed_section.sql` stops `archive_qbo_ledger`
+refusing the whole import over QuickBooks' own account-less section. Measured on
+the stored Baseballism reports: exactly one leaf section per window has no
+account id (209 sections / 36,778 rows in the full year; 193 / 23,002 in the half
+year) and there are zero duplicate ids, so the `duplicate` half of the old
+message was never involved. That section is `Not Specified`, 24 rows, every one a
+Journal Entry for `.00` or a Payment with a blank amount reading `Created by QB
+Online to link credits to ...`. Nobody can assign those an account, so the
+refusal left the full-year window permanently unarchivable.
+
+The section is now **archived, not skipped**: every row kept under
+`silo:unattributed` (cannot collide with a numeric QBO id), `account_type`
+`Unattributed`, and named in the reconciliation under its own
+`unattributed_ledger_section` issue with a null difference. **An account-less
+section carrying an actual amount still refuses the whole import** and names the
+row count -- a placeholder there would be the silent mis-attribution the archive
+exists to prevent. The zero section is deliberately not counted in
+`exception_count`. Additive; re-creates `archive_qbo_ledger` from
+`20260915000000` with those two edits only. Apply after it. Verify: the two new
+rows inside `QBO history bounded archive`.
+
 ### Card transaction splits (20260915100000)
 
 `20260915100000_card_transaction_splits.sql` lets one card or bank transaction be

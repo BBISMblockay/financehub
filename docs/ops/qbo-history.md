@@ -361,18 +361,46 @@ posting switches.
    the GL/TB pair once, then calls the RPC repeatedly, showing rows checked; expect
    roughly 8 calls for the full-year report. If the tab is closed or the network
    drops mid-way, "Resume unfinished archive" continues from the stored reports.
-5. The stored production reports still carry a `Not Specified` section, which the
-   archive refuses by design in the first call (before any rows are staged). That
-   decision is recorded in `docs/ops/bugs.md` and is not changed here; a window
-   whose report has no such section archives normally.
+5. The `Not Specified` section no longer stops the import (`20260915200000`).
 
-Known next stop: the stored Baseballism reports (both the 366-day and the
-one-month window fetched on 2026-09-14) contain a `Not Specified` section, QBO's
-group for lines with no account, which the archive refuses as an unidentified
-section (`Unsupported or duplicate ledger account section; raw report remains
-available`). That refusal is by design and is not a number-format problem; see
-`docs/ops/bugs.md` for the shape and the decision it needs. A window whose report
-has no such section archives normally once this migration is applied.
+## QuickBooks' `Not Specified` section
+
+QBO groups ledger lines that have no account under a header called
+`Not Specified` with no account id. Measured on the stored Baseballism reports
+on 2026-09-15:
+
+| window | leaf sections | ledger rows | sections with no account id | duplicate ids |
+|---|---|---|---|---|
+| 2025-08-01 to 2026-07-31 | 209 | 36,778 | 1 | 0 |
+| 2026-01-01 to 2026-07-31 | 193 | 23,002 | 1 | 0 |
+
+The section holds 24 rows in the full-year window, every one either a Journal
+Entry for `.00` or a Payment with a blank amount reading `Created by QB Online
+to link credits to ...`. **Not one row carries an amount.** These are records
+QuickBooks generates to link credits; nobody can assign them an account, so
+refusing the import over the section made that window permanently unarchivable.
+The `duplicate` half of the old message was never involved -- both windows have
+zero duplicate account ids.
+
+**What happens now.** The section is archived, not skipped. Every row is kept
+and readable under the account id `silo:unattributed`, which cannot collide with
+a QuickBooks id (those are numeric), with `account_type` `Unattributed` and the
+section's own name. It appears in the reconciliation under its own issue,
+`unattributed_ledger_section`, with a null difference because it has no trial
+balance counterpart.
+
+**What still refuses.** An account-less section carrying an actual amount fails
+the whole import and names how many rows have one. That is a bookkeeping problem
+for a person to fix in QuickBooks, and filing it under a placeholder would be
+exactly the silent mis-attribution this archive exists to prevent. Nothing is
+truncated and no row is dropped on either path.
+
+**One judgement call.** The unattributed section is recorded in the
+reconciliation but does not increment `exception_count`, so an otherwise clean
+archive still reads `matched`. The section is provably zero, so the books tie
+either way, and an exception that fires on every archive forever is a signal
+people stop reading. Both guards are marked `silo:unattributed` in the
+reconciliation block if you would rather see it counted.
 
 Snapshot supersession (choosing the newest of overlapping windows for browsing)
 is a separate follow-up recorded in `docs/ops/bugs.md`; this fix does not change
