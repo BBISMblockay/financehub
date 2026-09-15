@@ -660,7 +660,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="je-composer.js"></script>
-<script src="plaid-bank-feed.js"></script>
+<script src="plaid-bank-feed.js?v=9b7a57d577e6"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
@@ -748,7 +748,14 @@
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find(source=>source.id===(dateBrowse?workspace?.selected():state.batch?.source_id));
-  const workingRows = () => dateBrowse ? dateRows : state.txns;
+  const workingRows = () => dateBrowse ? dateRows.filter(t=>!bank.isSuperseded(t)) : state.txns;
+  /* A bank row that is not posted yet. It is real activity and stays on screen,
+     but it cannot be coded: the id changes when it settles, so anything coded
+     now would be coded against an id the bank is about to retire. Say that,
+     rather than printing the provider's own word for it. */
+  const providerNote = (t) => t.provider_status === 'pending'
+    ? 'Pending at the bank — codeable once it settles'
+    : (t.provider_status || 'Unavailable');
   const batchFor = t => dateBrowse ? state.batches.find(b=>b.id===t.batch_id) : state.batch;
   const rowEditable = t => !!t && !state.codingBusy && !dateLoading && bank.canEditBatch(batchFor(t)) && bank.isAvailable(t)
     && (!dateBrowse || (batchFor(t)?.company_entity_id===_co?.id && batchFor(t)?.source_id===workspace?.selected()));
@@ -1632,7 +1639,21 @@
     return src?.default_qbo_location_id || null;
   }
 
+  /* Every read-side surface -- the table, the counts, the filters, the workflow
+     panel, AI eligibility -- funnels through here, so a row hidden here is
+     hidden consistently and the counts cannot disagree with the table. It
+     filters rather than dropping from state.txns, because a save still has to
+     patch the row it loaded. */
   function reviewDateRows() {
+    return dateScopedRows().filter(t=>!bank.isSuperseded(t));
+  }
+  // Superseded rows are hidden, never forgotten: the table says how many and
+  // the period they cover, so a removal that never gets replaced is still
+  // countable rather than silently absent.
+  function supersededRows() {
+    return dateScopedRows().filter(t=>bank.isSuperseded(t));
+  }
+  function dateScopedRows() {
     if(dateBrowse)return dateRows;
     if(!dateContext || dateContext.company!==_co?.id || dateContext.source!==state.batch?.source_id)return state.txns;
     return state.txns.filter(t=>t.txn_date>=dateContext.range.start && t.txn_date<=dateContext.range.end);
@@ -1724,7 +1745,8 @@
 
     el('codeTitle').textContent = batchSource()?.display_name || 'Activity';
     el('codeSub').textContent =
-      dateBrowse ? `${dateRows.length} transactions` : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
+      (dateBrowse ? `${reviewDateRows().length} transactions` : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`)
+      + (supersededRows().length ? ` · ${supersededRows().length} superseded by the bank, not shown` : '');
     if(state.codingBusy)el('codeSub').textContent+=' · Coding in progress';
     el('codeStatus').textContent=dateAiProgress || (state.codingBusy?'Working…':'');
 
@@ -1775,14 +1797,14 @@
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
       <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
-        <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
+        <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid' && !bank.isAvailable(t)?esc(providerNote(t))+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
         <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t)?'<span class="cc-note">set per split line</span>':cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t)?'<span class="cc-note">set per split line</span>':entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button><button class="bcn-btn" data-split title="Code this transaction across several accounts">${isSplit(t)?'Edit split':'Split across accounts'}</button></section>
       </div></td></tr>`;
     }).join('') + '</tbody>';
@@ -2044,7 +2066,7 @@
   // "Suggest categories" works on rows nobody can see. Same predicate, same
   // module -- this used to be a second hand-written copy of it.
   function dateDisplayRows() {
-    return TF.apply(dateRows, filters, filterCtx());
+    return TF.apply(reviewDateRows(), filters, filterCtx());
   }
 
   async function browseDates(sourceId=workspace?.selected()) {

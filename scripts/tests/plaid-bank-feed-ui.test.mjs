@@ -457,6 +457,32 @@ await test('money direction and required entities stay visible in compact rows',
   assert.match(h.el('tblCoding').innerHTML,/Entity required/);
 });
 
+/* A pending bank row and a superseded one both fail isAvailable(), and before
+   this they rendered identically -- a wall of grey where half would clear
+   overnight and half never would. Measured on the live feed 2026-09-15: Plaid
+   retired 26 pending ids in one cycle and delivered their posted twins in a
+   later one with no pending_transaction_id linking them, so the dead rows sat
+   beside their live replacements looking like stuck work. */
+await test('a superseded bank row leaves the review surfaces; a pending one stays and says why',async()=>{
+  const h=await pageHarness({});
+  h.page.state.txns=[
+    {...h.page.state.txns[0],id:'txn-posted',external_transaction_id:'x1',provider_status:'posted',status:'uncoded'},
+    {...h.page.state.txns[0],id:'txn-pending',external_transaction_id:'x2',provider_status:'pending',status:'excluded',exclude_reason:'Pending bank transaction'},
+    {...h.page.state.txns[0],id:'txn-removed',external_transaction_id:'x3',provider_status:'removed',status:'excluded',exclude_reason:'Removed by bank feed'},
+  ];
+  h.page.renderCoding();
+  const table=h.el('tblCoding').innerHTML;
+  assert.match(table,/data-txn="txn-posted"/,'the posted row is codeable and shown');
+  assert.match(table,/data-txn="txn-pending"/,'the pending row is real activity and stays on screen');
+  assert.ok(!/data-txn="txn-removed"/.test(table),'the superseded row is gone from the table');
+  // Hidden, never forgotten: the count says so, so a removal that is never
+  // replaced can still be noticed.
+  assert.match(h.el('codeSub').textContent,/1 superseded by the bank, not shown/);
+  // And the pending row explains itself rather than printing the raw status.
+  assert.match(table,/Pending at the bank — codeable once it settles/);
+  assert.ok(!/>pending</.test(table),'the provider\'s own word is not what a reader gets');
+});
+
 await test('canonical route resumes a matching legacy OAuth callback and rejects unrelated saved URLs',async()=>{
   for(const legacy of ['https://silo.test/v2/card-coding.html?oauth_state_id=callback','https://attacker.invalid/v2/card-coding.html?oauth_state_id=callback','https://silo.test/v2/card-coding.html?oauth_state_id=other']){
     const h=harness();await h.el('btnLinkBank').fire('click');

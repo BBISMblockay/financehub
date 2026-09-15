@@ -6,6 +6,14 @@
   const LINK_KEY = 'silo-plaid-link';
   const directionOf = (transaction) => Number(transaction.amount) < 0 ? 'inflow' : 'outflow';
   const isAvailable = (transaction) => transaction.origin !== 'plaid' || transaction.provider_status === 'posted';
+  /* A transaction id the bank has retired. This institution does not populate
+     pending_transaction_id, so a pending row is removed in one sync cycle and
+     its posted twin arrives in a later one with no link back -- measured
+     2026-09-15, where all 26 removed rows had a posted twin at the same amount
+     and none carried the link. The row is kept for audit and excluded from the
+     books; it is not activity anyone can act on, so the review surfaces omit it
+     rather than showing a dead row beside its live replacement. */
+  const isSuperseded = (transaction) => transaction.origin === 'plaid' && transaction.provider_status === 'removed';
   const canEditBatch = (batch) => !!batch && ['draft', 'categorized'].includes(batch.status);
   function eligibleForAi(transaction, source) {
     if (transaction.status !== 'uncoded' || transaction.qbo_account_id || !isAvailable(transaction) || !Number(transaction.amount)) return false;
@@ -304,5 +312,5 @@
     return { load, resume, sync, repair: id => run(() => connect(id)),
       snapshot: () => ({ connections, accounts, exceptions, syncing }) };
   }
-  window.SiloBankFeeds = { create, directionOf, isAvailable, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
+  window.SiloBankFeeds = { create, directionOf, isAvailable, isSuperseded, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
 })();
