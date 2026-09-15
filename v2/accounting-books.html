@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=0549ef800832"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
+<link rel="stylesheet" href="accounting-books.css?v=4a48030d7efc"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=9860992c3928"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=3d6bd267d0ca"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -42,15 +42,40 @@
 <section id="accounts" class="books-surface" hidden><div class="books-card"><h2>Your chart of accounts</h2><p>Seeded from QuickBooks, with stable Silo account IDs. Refreshing QBO cannot overwrite the saved account snapshot.</p><div id="accountsTable">Prepare opening balances to seed your chart.</div></div></section>
 <section id="register" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Journal register</h2><p>Existing transaction batches and journal adjustments. Opening history appears separately in Setup.</p></div><button id="newJournal" class="bcn-btn">New journal entry</button></div><div id="registerTable"></div><button id="more" class="bcn-btn">Load more</button></div></section>
 <section id="history" class="books-surface" hidden>
-<div class="books-columns"><article class="books-card"><h2>Save QBO history</h2>
-<p>Save a copy of your QuickBooks general ledger, with transaction references, memos, counterparties and running balances. Silo checks each account against a trial balance at the same end date.</p>
-<fieldset id="historyInputs"><p class="books-caption">QuickBooks reports a trial balance for the fiscal year to date, so a window starting on the fiscal year start is the only one it can check in full. Pick a year to save it:</p><div id="historyYears" class="books-years" role="group" aria-label="Archive a fiscal year"></div><button id="historyMoreYears" class="bcn-btn" type="button" hidden>Earlier years</button><p id="historyConnection" class="books-caption"></p><button id="historyResume" class="bcn-btn" type="button" hidden>Resume unfinished archive</button></fieldset>
-<p class="books-caption">One window of up to 366 days at a time, before your Silo start date. Reads reports from QBO and saves them in Silo. It creates no journal entry.</p></article>
-<article class="books-card"><h2>Saved snapshots</h2><label>History window<select id="historyArchive" class="bcn-field"></select></label><button id="historyRefresh" class="bcn-btn">Refresh saved history</button><div id="historySummary"></div>
-<p class="books-caption">Each snapshot stands alone. Overlapping windows are never added together. A balance match checks report consistency; it does not prove that every source document was retained.</p>
-<p class="books-caption">Invoices, bills, payment applications and attachments are not archived by this step. Keep QBO connected until the remaining migration checks are complete.</p></article></div>
-<div id="historyStatus" class="bcn-status" role="status" aria-live="polite">Open Setup to seed your accounts, then save a history window here.</div>
-<article id="historyDetail" class="books-card" hidden><div class="books-row"><div><p class="books-eyebrow">Historical ledger · read only</p><h2>Ledger detail</h2></div><label>Account<select id="historyAccount" class="bcn-field"></select></label></div><p class="books-caption">Amounts and running balances use QBO’s natural account sign: positive increases the account’s normal balance. These are historical report lines, not new Silo postings.</p><div id="historyRows"></div><button id="historyMore" class="bcn-btn">Load more lines</button></article>
-<article id="historyChecks" class="books-card" hidden><h2>Account reconciliation</h2><p>Closing balances are normalized as debits minus credits. Every account is listed below; anything needing attention is sorted to the top.</p><div id="historyExceptions" hidden></div><div id="historyReconciliation"></div></article>
+
+<!-- The facts as figures. Everything here was previously three paragraphs of
+     prose in the snapshot card, which made a $54m discrepancy and a clean
+     archive look alike at a glance. -->
+<div id="historyKpis" class="bcn-kpi-band books-kpis" hidden></div>
+
+<div class="books-columns">
+<article class="books-card"><div class="books-row"><div><p class="books-eyebrow">Coverage</p><h2>Save a year</h2></div><button id="historyMoreYears" class="bcn-btn bcn-btn--ghost" type="button" hidden>Earlier years</button></div>
+<fieldset id="historyInputs"><div id="historyYears" class="books-timeline" role="group" aria-label="Archive a fiscal year"></div>
+<div class="books-year-actions"><span id="historyYearThrough" class="books-year-end" hidden><label id="historyYearThroughLabel" for="historyYearEnd">Through</label><input id="historyYearEnd" class="bcn-field" type="date"></span><button id="historyResume" class="bcn-btn" type="button" hidden>Resume unfinished archive</button></div>
+<p id="historyConnection" class="books-caption"></p></fieldset></article>
+
+<article class="books-card"><div class="books-row"><div><p class="books-eyebrow">Saved snapshots</p><h2 id="historySnapshotTitle">No snapshots yet</h2></div><button id="historyRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button></div>
+<label class="books-field">History window<select id="historyArchive" class="bcn-field"></select></label>
+<div id="historySummary"></div></article>
+</div>
+
+<div id="historyStatus" class="bcn-status" role="status" aria-live="polite">Open Setup to seed your accounts, then save a year here.</div>
+
+<!-- The four standing caveats were four permanent captions competing with the
+     numbers. Every word is kept; they no longer all shout at once. -->
+<details class="books-note"><summary>What a saved year proves — and what it does not</summary>
+<ul><li>QuickBooks reports a trial balance for the fiscal year to date, so a year is the only window it can check in full.</li>
+<li>Each snapshot stands alone. Overlapping windows are never added together.</li>
+<li>A balance match checks that QuickBooks’ own reports agree with each other. It does not prove that every source document was retained.</li>
+<li>Invoices, bills, payment applications and attachments are not archived by this step. Keep QBO connected until the remaining migration checks are complete.</li>
+<li>One window of up to 366 days at a time, before your Silo start date. It reads reports from QBO and saves them in Silo, and creates no journal entry.</li></ul></details>
+
+<article id="historyChecks" class="books-card" hidden><div class="books-row"><div><p class="books-eyebrow">Reconciliation</p><h2>Account checks</h2></div><button id="historyShowAll" class="bcn-btn bcn-btn--ghost" type="button" hidden></button></div>
+<div id="historyExceptions" hidden></div>
+<div id="historyReconciliation"></div></article>
+
+<article id="historyDetail" class="books-card" hidden><div class="books-row"><div><p class="books-eyebrow">Historical ledger · read only</p><h2>Ledger detail</h2></div><label class="books-field">Account<select id="historyAccount" class="bcn-field"></select></label></div>
+<details class="books-note"><summary>How to read these amounts</summary><p>Amounts and running balances use QBO’s natural account sign: positive increases the account’s normal balance. These are historical report lines, not new Silo postings.</p></details>
+<div id="historyRows"></div><button id="historyMore" class="bcn-btn bcn-btn--ghost">Load more lines</button></article>
 </section>
 </div></main></div></body></html>

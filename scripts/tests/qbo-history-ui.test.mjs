@@ -4,6 +4,12 @@ import vm from 'node:vm';
 import test from 'node:test';
 const code=await readFile(new URL('../../v2/qbo-history.js',import.meta.url),'utf8');
 const settle=async()=>{for(let i=0;i<30;i++)await new Promise(r=>setImmediate(r));};
+// Drives the real explain() through summarise() on a row that must read loudly.
+function window_explain(h){
+ const sum=h.summarise([{account_name:'Clearing',issues:['trial_balance_mismatch'],
+  ledger_debit_net:10,trial_balance_debit_net:0,difference:10}]);
+ return h.explainHtml(sum);
+}
 class Element{
  constructor(){this.value='';this.events={};}
  set innerHTML(s){this.html=s;if(s.includes('<option'))this.value=s.match(/value="([^"]*)"/)?.[1]||'';}
@@ -21,10 +27,10 @@ function harness({disconnected=false,failTb=false,failArchive=false,preloaded=fa
  rpc:async(name,args)=>{calls.push({name,args});assert.equal(name,'archive_qbo_ledger');if(failArchive)return {error:{message:'Archive unavailable'}};const n=calls.filter(c=>c.name==='archive_qbo_ledger').length;if(failedJob&&n===2)return {data:{status:'failed',job_id:'job-1',error:'Blank ledger amount with a changed running balance at row 3 of account bank is ambiguous; no archive was written'}};if(n<steps)return {data:{status:'in_progress',job_id:'job-1',rows_done:n*1000,rows_total:steps*1000,sections_done:n,sections_total:steps}};archives=[snapshot];return {data:{id:'archive-1',status:'complete'}};}};
  const window={};vm.runInNewContext(code,{window,document:{getElementById:el},console});
  const statuses=[];const st=el('historyStatus');Object.defineProperty(st,'textContent',{set(v){statuses.push(v);this._t=v;},get(){return this._t||'';}});
- return {el,calls,statuses,fiscalYears:(...a)=>window.SiloQboHistory.fiscalYears(...a),boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async(start='2026-01-01',end='2026-08-31',extra={})=>{el('historyYears').events.click({target:{dataset:{start,end,...extra}}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
+ return {el,calls,statuses,fiscalYears:(...a)=>window.SiloQboHistory.fiscalYears(...a),summarise:(...a)=>window.SiloQboHistory.summarise(...a),explainHtml:(...a)=>window.SiloQboHistory.explain(...a),boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async(start='2026-01-01',end='2026-08-31',extra={})=>{el('historyYears').events.click({target:{dataset:{start,end,...extra}}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
 }
 test('actual history handler reads scoped GL then TB, archives stored IDs and displays escaped retained details',async()=>{
- const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Choose dates before/);
+ const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Pick a year/);
  // There are no date fields to fill any more: a year IS the request.
  assert.ok(!/id="historyFrom"|id="historyTo"/.test(h.el('historyYears').innerHTML));
  await h.submit();
@@ -185,8 +191,11 @@ test('clicking a year archives that window through the same path as the form',as
 // date, so any end inside the year reconciles.
 test('the open fiscal year is archived through a date the reader chooses',async()=>{
  const h=harness();await h.boot();
- assert.match(h.el('historyYears').innerHTML,/id="historyYearEnd"/,'the open year offers an end date');
- assert.match(h.el('historyYears').innerHTML,/min="2026-01-01" max="2026-08-31"/,'bounded by the year itself');
+ // The control now sits beside the open year rather than inside the strip.
+ assert.equal(h.el('historyYearThrough').hidden,false,'the open year offers an end date');
+ assert.equal(h.el('historyYearThroughLabel').textContent,'2026 through','and names the year it belongs to');
+ assert.equal(h.el('historyYearEnd').min,'2026-01-01','bounded by the year itself');
+ assert.equal(h.el('historyYearEnd').max,'2026-08-31');
  assert.equal(h.el('historyYearEnd').value,'2026-08-31','defaulting to the latest archivable day');
  h.el('historyYearEnd').value='2026-06-30';
  h.el('historyYears').events.click({target:{dataset:{start:'2026-01-01',end:'2026-08-31',editable:'1'}}});
@@ -233,6 +242,45 @@ test('earlier years can be asked for, and the control retires at the cap',async(
  assert.equal((all.match(/data-start=/g)||[]).length,12,'capped at twelve');
  assert.match(all,/2015-01-01/,'reaching back far enough to be worth having');
  assert.equal(h.el('historyMoreYears').hidden,true,'the control retires once there is no more to show');
+});
+
+// The overhaul is presentation only: every figure and every word of ISSUES is
+// still reachable, just not all at one weight.
+test('the figures lead as a KPI band and the snapshot names its own window',async()=>{
+ const h=harness({preloaded:true});await h.boot();
+ const band=h.el('historyKpis').innerHTML;
+ assert.equal(h.el('historyKpis').hidden,false);
+ for(const label of ['Window','Ledger lines','Accounts checked','Needs attention','Balance affected','Notes'])
+  assert.ok(band.includes(label),`${label} is reported as a figure`);
+ assert.match(band,/2026-08-01/);assert.match(band,/→ 2026-08-31/,"the window is split so it cannot wrap mid-date");
+ assert.equal(h.el('historySnapshotTitle').textContent,'2026-08-01 → 2026-08-31');
+ assert.match(band,/books-kpi-value--pos/,'a clean window reads as good, not neutral');
+});
+
+test('a clean window says so and an unexplained balance does not read as clean',async()=>{
+ const clean=harness({preloaded:true});await clean.boot();
+ assert.match(clean.el('historyStatus').textContent,/Every closing balance tied/);
+ assert.equal(clean.el('historyStatus').className,'bcn-status bcn-status--pos');
+});
+
+test('matched accounts are behind a toggle, and the count of what is hidden is stated',async()=>{
+ const h=harness({preloaded:true});await h.boot();
+ // The preloaded snapshot has one account and it matched, so nothing is flagged.
+ assert.match(h.el('historyReconciliation').innerHTML,/Every account tied to the trial balance/);
+ assert.equal(h.el('historyShowAll').hidden,false,'the way to see them is still offered');
+ assert.match(h.el('historyShowAll').textContent,/Show all 1 accounts?/);
+ h.el('historyShowAll').events.click();
+ assert.match(h.el('historyReconciliation').innerHTML,/Checking/,'the account is listed once asked for');
+ assert.match(h.el('historyReconciliation').innerHTML,/bcn-pill--pos/,'its state is a pill, not a sentence');
+ assert.match(h.el('historyShowAll').textContent,/Show only accounts needing attention/);
+});
+
+test('every word of an exception explanation is still reachable, behind a disclosure',async()=>{
+ const h=harness();await h.boot();
+ const html=window_explain(h);
+ assert.match(html,/<details><summary>What this means<\/summary>/,'the prose is disclosed, not deleted');
+ assert.match(html,/Do not rely on this window for this account until it is explained/,'the action text survives in full');
+ assert.match(html,/books-exception--neg/,'a real difference is toned differently from a note');
 });
 
 test('a click that carries no window archives nothing',async()=>{

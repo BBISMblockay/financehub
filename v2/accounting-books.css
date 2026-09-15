@@ -33,15 +33,6 @@
 /* Reconciliation exceptions, grouped by kind. An exception that affects a
    balance is not the same message as one that cannot, so they do not get the
    same colour: --bcn-neg is reserved for the ones a person must act on. */
-.books-exception{border:1px solid var(--bcn-border);border-left:3px solid var(--bcn-border-strong);
-  border-radius:10px;padding:14px 16px;margin:0 0 12px;background:var(--bcn-sunken);}
-.books-exception--neg{border-left-color:var(--bcn-neg);}
-.books-exception--info{border-left-color:var(--bcn-accent);}
-.books-exception h3{margin:0 0 4px;font-size:15px;letter-spacing:-.01em;}
-.books-exception p{margin:6px 0 0;font-size:13px;line-height:1.6;}
-.books-exception-count{font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-2);
-  text-transform:uppercase;letter-spacing:.04em;}
-.books-exception-eg{color:var(--bcn-ink-3);font-size:12px;}
 
 /* Migration flow. State is carried by the word in the button first and the
    colour second, so the strip still reads in greyscale or on a printout.
@@ -100,21 +91,86 @@
 @media(max-width:560px){.migration-steps{grid-template-columns:1fr;}
   .migration-flow-caption{display:none;}}
 
-/* Fiscal-year archive buttons. A window that begins on the fiscal year start is
-   the only one QuickBooks' trial balance can check in full, so the years are
-   offered as buttons and the crossing window is simply not reachable. */
-.books-years{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
-.books-year{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
-  padding:8px 12px;text-align:left;min-width:150px}
-.books-year-label{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:15px;font-weight:600}
-.books-year-range{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;color:var(--bcn-ink-3)}
-.books-year-state{font-size:11px;color:var(--bcn-ink-2)}
-.books-year.is-saved .books-year-state{color:var(--bcn-pos)}
-@media (max-width:520px){.books-year{flex:1 1 100%;min-width:0}}
 
-/* The open fiscal year is archived THROUGH a date the reader picks, because a
-   company may have closed June but not July. Only the start is fixed. */
+/* ── QBO history: figures first, prose on demand ─────────────────────────────
+   The page carried 216 words of standing caption plus a five-paragraph block
+   per exception kind, all at one weight, so a clean archive and a $54m
+   discrepancy looked alike. Nothing was deleted: the numbers moved up into a
+   Beacon KPI band and the explanations moved behind disclosures. */
+.books-kpis{border:1px solid var(--bcn-border);border-radius:10px;overflow:hidden;margin:0 0 16px;flex-wrap:wrap}
+.books-kpis .bcn-kpi{min-width:150px}
+.books-kpis .bcn-kpi:last-child{border-right:0}
+.books-kpi-note{font-size:11px;color:var(--bcn-ink-3);font-family:var(--bcn-mono)}
+.books-kpi-value--pos{color:var(--bcn-pos)}
+.books-kpi-value--neg{color:var(--bcn-neg)}
+
+/* A year is a chip, not a three-line card. */
+.books-years{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.books-year{display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+  padding:9px 12px;text-align:left;min-width:132px;border-radius:10px}
+.books-year-label{font-family:var(--bcn-mono);font-size:16px;font-weight:600;line-height:1.1}
+.books-year-range{font-family:var(--bcn-mono);font-size:10px;color:var(--bcn-ink-3);letter-spacing:-0.01em}
+.books-year-state{font-size:11px;color:var(--bcn-ink-2)}
+.books-year.is-saved{border-color:color-mix(in srgb,var(--bcn-pos) 45%,transparent)}
+.books-year.is-saved .books-year-state{color:var(--bcn-pos)}
+.books-year-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 6px}
 .books-year-end{display:inline-flex;flex-direction:column;gap:2px;font-size:11px;
-  color:var(--bcn-ink-2);min-width:150px}
+  color:var(--bcn-ink-2);min-width:132px}
 .books-year-end .bcn-field{padding:6px 8px}
-@media (max-width:520px){.books-year-end{flex:1 1 100%;min-width:0}}
+
+/* One line per exception kind; the meaning and the action sit behind it. */
+.books-exception{display:block;border:1px solid var(--bcn-border);border-left-width:3px;
+  border-radius:8px;padding:10px 12px;margin:0 0 8px;background:var(--bcn-surface)}
+.books-exception--neg{border-left-color:var(--bcn-neg)}
+.books-exception--info{border-left-color:var(--bcn-accent)}
+.books-exception-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.books-exception h3{margin:0;font-size:13px;font-weight:600;line-height:1.3}
+.books-exception-count{margin:0;font-size:11px;color:var(--bcn-ink-3);font-family:var(--bcn-mono);white-space:nowrap}
+.books-exception summary{cursor:pointer;font-size:12px;color:var(--bcn-ink-2);margin-top:6px}
+.books-exception summary::marker{color:var(--bcn-ink-3)}
+.books-exception p{margin:6px 0 0;font-size:12px;line-height:1.5}
+.books-exception-eg{color:var(--bcn-ink-3);font-family:var(--bcn-mono);font-size:11px}
+
+/* Standing caveats, kept in full and out of the way. */
+.books-note{border:1px solid var(--bcn-border);border-radius:8px;padding:10px 12px;margin:0 0 16px}
+.books-note summary{cursor:pointer;font-size:12px;color:var(--bcn-ink-2);font-weight:500}
+.books-note ul{margin:8px 0 0;padding-left:18px}
+.books-note li,.books-note p{font-size:12px;line-height:1.55;margin:4px 0}
+.books-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--bcn-ink-2)}
+
+@media (max-width:520px){
+  .books-year,.books-year-end{flex:1 1 100%;min-width:0}
+  .books-kpis .bcn-kpi{flex:1 1 50%;min-width:0;border-right:0;border-bottom:1px solid var(--bcn-border)}
+}
+
+/* ── Coverage timeline ───────────────────────────────────────────────────────
+   Read left to right in time. The bar inside each segment is how much of that
+   fiscal year is archived, so "what do I have" is answered by looking rather
+   than by reading four lines of state per year. */
+.books-timeline{display:flex;align-items:stretch;gap:2px;margin:0 0 10px;
+  border:1px solid var(--bcn-border);border-radius:10px;padding:6px;background:var(--bcn-surface)}
+.books-seg{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:5px;align-items:stretch;
+  padding:8px 8px 7px;border:0;border-radius:7px;background:transparent;cursor:pointer;text-align:left}
+.books-seg:hover{background:var(--bcn-surface-2,rgba(127,127,127,.10))}
+.books-seg-year{font-family:var(--bcn-mono);font-size:14px;font-weight:600;line-height:1;color:var(--bcn-ink)}
+.books-seg-bar{display:block;height:6px;border-radius:999px;background:var(--bcn-border);overflow:hidden}
+.books-seg-bar i{display:block;height:100%;border-radius:999px;background:var(--bcn-ink-3)}
+.books-seg-state{font-size:10px;line-height:1.2;color:var(--bcn-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.books-seg.is-clean .books-seg-bar i{background:var(--bcn-pos)}
+.books-seg.is-clean .books-seg-state{color:var(--bcn-pos)}
+.books-seg.is-saved .books-seg-bar i{background:var(--bcn-accent)}
+.books-seg.is-saved .books-seg-state{color:var(--bcn-accent)}
+.books-seg.is-part .books-seg-bar i{background:var(--bcn-warn)}
+.books-seg.is-empty .books-seg-bar i{width:0!important}
+.books-seg-now{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  gap:4px;padding:8px 2px 0;flex:0 0 auto}
+.books-seg-now-tick{width:2px;flex:1 1 auto;min-height:26px;background:var(--bcn-neg);border-radius:1px;opacity:.65}
+.books-seg-now-label{font-size:9px;line-height:1.1;color:var(--bcn-ink-3);text-align:center;font-family:var(--bcn-mono)}
+
+/* The band must stack on a phone; beacon sets nowrap on the band itself. */
+.books-kpis{flex-wrap:wrap!important}
+@media (max-width:640px){
+  .books-timeline{flex-wrap:wrap}
+  .books-seg{flex:1 1 30%}
+  .books-seg-now{display:none}
+}
