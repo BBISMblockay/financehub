@@ -363,6 +363,7 @@
               <div>
                 <div class="cc-title" id="codeTitle">Transactions</div>
                 <div class="cc-sub" id="codeSub">Choose an account and dates above</div>
+                <button class="bcn-btn bcn-btn--ghost" id="codeShowRemoved" type="button" hidden></button>
                 <div class="cc-note" id="codeStatus" role="status"></div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -660,7 +661,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="je-composer.js"></script>
-<script src="plaid-bank-feed.js?v=9b7a57d577e6"></script>
+<script src="plaid-bank-feed.js?v=6d298bc95758"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
@@ -713,6 +714,9 @@
   let workspace = null;
   let tilesUi = null;
   let dateBrowse = false, dateRows = [], dateLoading = false, dateError = '', dateGeneration = 0;
+  // Reader state, deliberately not persisted: showing removed rows is an
+  // inspection, not a working position to come back to.
+  let showRemoved = false;
   let splitsError = '';
   let journalPreviewBatch=null;
   let dateContext = null, dateAiProgress = '';
@@ -748,14 +752,18 @@
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find(source=>source.id===(dateBrowse?workspace?.selected():state.batch?.source_id));
-  const workingRows = () => dateBrowse ? dateRows.filter(t=>!bank.isSuperseded(t)) : state.txns;
+  const workingRows = () => dateBrowse ? dateRows.filter(t=>showRemoved || !bank.isRemovedByBank(t)) : state.txns;
   /* A bank row that is not posted yet. It is real activity and stays on screen,
      but it cannot be coded: the id changes when it settles, so anything coded
      now would be coded against an id the bank is about to retire. Say that,
      rather than printing the provider's own word for it. */
   const providerNote = (t) => t.provider_status === 'pending'
     ? 'Pending at the bank — codeable once it settles'
-    : (t.provider_status || 'Unavailable');
+    : t.provider_status === 'removed'
+      // Says what the feed said and no more. Whether a replacement arrived is
+      // not recorded on the row, so this must not imply one either way.
+      ? 'Removed by the bank'
+      : (t.provider_status || 'Unavailable');
   const batchFor = t => dateBrowse ? state.batches.find(b=>b.id===t.batch_id) : state.batch;
   const rowEditable = t => !!t && !state.codingBusy && !dateLoading && bank.canEditBatch(batchFor(t)) && bank.isAvailable(t)
     && (!dateBrowse || (batchFor(t)?.company_entity_id===_co?.id && batchFor(t)?.source_id===workspace?.selected()));
@@ -1645,13 +1653,14 @@
      filters rather than dropping from state.txns, because a save still has to
      patch the row it loaded. */
   function reviewDateRows() {
-    return dateScopedRows().filter(t=>!bank.isSuperseded(t));
+    return dateScopedRows().filter(t=>showRemoved || !bank.isRemovedByBank(t));
   }
-  // Superseded rows are hidden, never forgotten: the table says how many and
-  // the period they cover, so a removal that never gets replaced is still
-  // countable rather than silently absent.
-  function supersededRows() {
-    return dateScopedRows().filter(t=>bank.isSuperseded(t));
+  /* Removed rows are out of the default queue, not out of reach. A removal the
+     bank never replaces is the case that actually needs a person -- the money
+     may simply be gone -- and a count alone does not let anyone check the
+     amount, date or merchant. So the count is a control that shows them. */
+  function removedRows() {
+    return dateScopedRows().filter(t=>bank.isRemovedByBank(t));
   }
   function dateScopedRows() {
     if(dateBrowse)return dateRows;
@@ -1744,11 +1753,18 @@
     }
 
     el('codeTitle').textContent = batchSource()?.display_name || 'Activity';
-    el('codeSub').textContent =
-      (dateBrowse ? `${reviewDateRows().length} transactions` : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`)
-      + (supersededRows().length ? ` · ${supersededRows().length} superseded by the bank, not shown` : '');
+    el('codeSub').textContent = dateBrowse
+      ? `${reviewDateRows().length} transactions`
+      : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
     if(state.codingBusy)el('codeSub').textContent+=' · Coding in progress';
     el('codeStatus').textContent=dateAiProgress || (state.codingBusy?'Working…':'');
+    // A removed row cannot be coded, but it can be looked at, and the one that
+    // matters is the one nothing replaced.
+    const removedCount = removedRows().length;
+    el('codeShowRemoved').hidden = !removedCount;
+    el('codeShowRemoved').textContent = showRemoved
+      ? `Hide ${removedCount} removed by the bank`
+      : `Show ${removedCount} removed by the bank`;
 
     const coded = reviewDateRows().filter((t) => t.status === 'coded').length;
     const uncoded = reviewDateRows().filter((t) => t.status === 'uncoded').length;
@@ -2096,6 +2112,7 @@
     el('dateStart').value=range.start;el('dateEnd').value=range.end;browseDates();
   });
   el('btnDateBack').addEventListener('click',()=>browseDates());
+  el('codeShowRemoved').addEventListener('click',()=>{showRemoved=!showRemoved;state.selected.clear();renderCoding();});
   // -------------------------------------------------------- search + bulk
 
   function codeSearchTerm() {

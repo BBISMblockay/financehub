@@ -6,14 +6,22 @@
   const LINK_KEY = 'silo-plaid-link';
   const directionOf = (transaction) => Number(transaction.amount) < 0 ? 'inflow' : 'outflow';
   const isAvailable = (transaction) => transaction.origin !== 'plaid' || transaction.provider_status === 'posted';
-  /* A transaction id the bank has retired. This institution does not populate
-     pending_transaction_id, so a pending row is removed in one sync cycle and
-     its posted twin arrives in a later one with no link back -- measured
-     2026-09-15, where all 26 removed rows had a posted twin at the same amount
-     and none carried the link. The row is kept for audit and excluded from the
-     books; it is not activity anyone can act on, so the review surfaces omit it
-     rather than showing a dead row beside its live replacement. */
-  const isSuperseded = (transaction) => transaction.origin === 'plaid' && transaction.provider_status === 'removed';
+  /* A transaction id the bank has retired. That is ALL this says: the feed maps
+     every transactions/sync removal to this one status, and a replacement is not
+     part of it. Plaid institutions also remove a transaction outright.
+
+     Observed 2026-09-15: 26 pending rows were retired in one cycle and their
+     posted twins arrived in a later one, every one matched by amount and NONE
+     carrying pending_transaction_id -- so on this connection a replacement can
+     never be proven from the row itself. Do not name this "superseded": a row
+     with no replacement reaches it identically, and calling that superseded
+     tells a reviewer money was replaced when it may simply be gone.
+
+     The row is kept for audit and excluded from the books. It is not activity
+     anyone can act on, so it leaves the default work queue -- but it stays
+     reachable, because "removed and not replaced" is exactly the case someone
+     needs to look at. */
+  const isRemovedByBank = (transaction) => transaction.origin === 'plaid' && transaction.provider_status === 'removed';
   const canEditBatch = (batch) => !!batch && ['draft', 'categorized'].includes(batch.status);
   function eligibleForAi(transaction, source) {
     if (transaction.status !== 'uncoded' || transaction.qbo_account_id || !isAvailable(transaction) || !Number(transaction.amount)) return false;
@@ -312,5 +320,5 @@
     return { load, resume, sync, repair: id => run(() => connect(id)),
       snapshot: () => ({ connections, accounts, exceptions, syncing }) };
   }
-  window.SiloBankFeeds = { create, directionOf, isAvailable, isSuperseded, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
+  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
 })();
