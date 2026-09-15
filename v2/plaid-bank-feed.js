@@ -6,6 +6,40 @@
   const LINK_KEY = 'silo-plaid-link';
   const directionOf = (transaction) => Number(transaction.amount) < 0 ? 'inflow' : 'outflow';
   const isAvailable = (transaction) => transaction.origin !== 'plaid' || transaction.provider_status === 'posted';
+  /* A transaction id the bank has retired. That is ALL this says: the feed maps
+     every transactions/sync removal to this one status, and a replacement is not
+     part of it. Plaid institutions also remove a transaction outright.
+
+     Observed 2026-09-15: 26 pending rows were retired in one cycle and their
+     posted twins arrived in a later one, every one matched by amount and NONE
+     carrying pending_transaction_id -- so on this connection a replacement can
+     never be proven from the row itself. Do not name this "superseded": a row
+     with no replacement reaches it identically, and calling that superseded
+     tells a reviewer money was replaced when it may simply be gone.
+
+     The row is kept for audit and excluded from the books. It is not activity
+     anyone can act on, so it leaves the default work queue -- but it stays
+     reachable, because "removed and not replaced" is exactly the case someone
+     needs to look at. */
+  const isRemovedByBank = (transaction) => transaction.origin === 'plaid' && transaction.provider_status === 'removed';
+  /* ...and whether it was still PENDING when that happened, which is the line
+     between bookkeeping and an event.
+
+     A pending row is excluded and fails isAvailable(), so it was never codeable
+     and never reached the books. Retiring its id costs a reader nothing: either
+     the transaction posted (and the posted row IS the transaction) or it never
+     happened. Neither is something a person should have to follow.
+
+     A row that was POSTED when the bank removed it is the opposite: it was real,
+     codeable, possibly already coded, and it is now retracted. That one is an
+     event and stays reachable.
+
+     plaid_project_transaction records this at removal time, so the page reads a
+     stated fact rather than inferring one from a payload. Anything other than a
+     recorded 'pending' answers false, which shows the row rather than hiding
+     it -- the safe direction, since hiding is what loses information. */
+  const wasPendingWhenRemoved = (transaction) => isRemovedByBank(transaction)
+    && transaction.removed_from_status === 'pending';
   const canEditBatch = (batch) => !!batch && ['draft', 'categorized'].includes(batch.status);
   function eligibleForAi(transaction, source) {
     if (transaction.status !== 'uncoded' || transaction.qbo_account_id || !isAvailable(transaction) || !Number(transaction.amount)) return false;
@@ -304,5 +338,5 @@
     return { load, resume, sync, repair: id => run(() => connect(id)),
       snapshot: () => ({ connections, accounts, exceptions, syncing }) };
   }
-  window.SiloBankFeeds = { create, directionOf, isAvailable, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
+  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, wasPendingWhenRemoved, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
 })();

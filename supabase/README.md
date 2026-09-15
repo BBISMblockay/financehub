@@ -592,6 +592,33 @@ the job instead of stranding it as `running`. Tests: `scripts/tests/qbo-history-
 synthetic archive, six mutations), `qbo-history-ui.test.mjs`; timing harness
 `scripts/tests/qbo-history-benchmark.mjs`. Verify: `QBO history bounded archive`.
 
+### Plaid removal classification (20260915220000)
+
+`20260915220000_plaid_removed_from_status.sql` adds
+`card_transactions.removed_from_status` and makes `plaid_project_transaction`
+stamp it whenever the feed removes a row.
+
+Plaid maps every `transactions/sync` removal to `provider_status='removed'`,
+whether the institution retired a **pending** id (it posted, or the
+authorisation was dropped) or retracted a **posted** transaction that was real,
+codeable and possibly already coded. One status, two entirely different events.
+
+A pending row is `status='excluded'` and fails `isAvailable()`, so it was never
+codeable and never reached the books: retiring its id costs a reader nothing and
+is the feed's own bookkeeping. A posted row being retracted is money that was in
+the books and is now gone. The transactions page hides the first and keeps the
+second reachable, which it cannot do unless the row says which it was.
+
+It has to be recorded at removal time. Observed on the live feed 2026-09-15: 26
+pending rows retired in one sync cycle, their posted twins delivered in a LATER
+cycle, **none carrying `pending_transaction_id`** — this connection never
+populates it, so the pairing cannot be recovered from the row afterwards.
+
+Constrained to `pending` / `posted` / null, cleared when a row comes back, and
+backfilled from the surviving pre-removal payload (`raw->>'pending'`) for rows
+removed before the migration. `verify_v2_schema.sql` fails STALE if any removed
+Plaid row is left unclassified, since an unclassified row reads as a retraction.
+
 ### QBO history trial balance period (20260915210000)
 
 `20260915210000_qbo_history_trial_balance_period.sql` makes `archive_qbo_ledger`

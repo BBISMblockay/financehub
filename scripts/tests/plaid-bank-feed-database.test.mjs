@@ -193,7 +193,7 @@ try {
     // of the file, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }
@@ -703,6 +703,112 @@ try {
     assert.equal(removed.provider_payload.amount, 40);
     assert.equal(removed.provider_payload._silo_removed, true);
     assert.equal((await load('card_transactions', row.id)).amount, '35.00');
+  });
+
+  /* A removal has to say which kind it was, at the moment it happens. A pending
+     row was never codeable and never reached the books, so retiring its id is
+     the feed's own bookkeeping; a posted row being retracted is a real event.
+     provider_status collapses both to 'removed', and on this connection the
+     pairing cannot be recovered afterwards -- no payload carries
+     pending_transaction_id -- so the pre-removal status is the only thing that
+     distinguishes them. */
+  await test('a removal records what the row was when the bank retired it', async () => {
+    const account = await bankAccount();
+    const pending = providerTransaction(account, { pending: true, amount: 12 });
+    const posted = providerTransaction(account, { amount: 34 });
+    await apply(account, { added: [pending, posted] });
+    const pendingRow = await transaction(account, pending.transaction_id);
+    const postedRow = await transaction(account, posted.transaction_id);
+    assert.equal((await load('card_transactions', pendingRow.id)).removed_from_status, null,
+      'nothing is stamped while a row is live');
+
+    await apply(account, { removed: [
+      { account_id: account.providerId, transaction_id: pending.transaction_id },
+      { account_id: account.providerId, transaction_id: posted.transaction_id },
+    ] });
+    const wasPending = await load('card_transactions', pendingRow.id);
+    const wasPosted = await load('card_transactions', postedRow.id);
+    assert.equal(wasPending.provider_status, 'removed');
+    assert.equal(wasPosted.provider_status, 'removed', 'one status covers both');
+    assert.equal(wasPending.removed_from_status, 'pending', 'and the column tells them apart');
+    assert.equal(wasPosted.removed_from_status, 'posted');
+
+    /* A repeat removal is a no-op: it rebuilds the identical payload and the
+       status is already 'removed', so the projection returns 'unchanged' before
+       reaching the update. This asserts that no-op, NOT the coalesce that would
+       protect the value if the update ever did run -- see the migration. */
+    await apply(account, { removed: [{ account_id: account.providerId, transaction_id: pending.transaction_id }] });
+    assert.equal((await load('card_transactions', pendingRow.id)).removed_from_status, 'pending',
+      'a second removal leaves the first answer alone');
+
+    // Coming back clears it: the column only ever describes a row removed NOW.
+    await apply(account, { added: [{ ...pending, pending: false }] });
+    const back = await load('card_transactions', pendingRow.id);
+    assert.equal(back.provider_status, 'posted');
+    assert.equal(back.removed_from_status, null, 'a live row is not described as removed from anything');
+  });
+
+  /* The one place removed_from_status cannot be recorded, pinned so it is not
+     rediscovered as a surprise.
+
+     A pending row can sit inside a batch that is later approved and posted: it
+     is excluded, so it never reaches the journal, but it is still a row in that
+     month. When the bank afterwards retires that pending id, the projection
+     records the change as a resolved no-impact exception and returns without
+     touching card_transactions -- and it could not touch it anyway. The
+     immutability trigger on card_transactions raises for ANY update to a row
+     whose batch has left draft/categorized, service_role included ("Approved or
+     posted transactions are immutable").
+
+     So the row keeps provider_status='pending' and removed_from_status=null,
+     and the page goes on showing it as pending. That predates this work -- the
+     row read 'pending' forever before removed_from_status existed -- and fixing
+     it means either weakening a finance immutability guard for the sake of a
+     label, which is the wrong trade, or holding live feed state outside the
+     frozen snapshot, which is a design decision rather than a patch. The
+     removal is not lost: the exception row below is the record. */
+  await test('a pending row retired after its batch is posted stays frozen, and the removal is recorded as an exception', async () => {
+    const account = await bankAccount();
+    const pending = providerTransaction(account, { pending: true, amount: 21 });
+    const posted = providerTransaction(account, { amount: 77 });
+    await apply(account, { added: [pending, posted] });
+    const pendingRow = await transaction(account, pending.transaction_id);
+    const postedRow = await transaction(account, posted.transaction_id);
+    assert.equal(pendingRow.status, 'excluded', 'a pending row is excluded, so the batch can still be posted');
+    await code(postedRow);
+    await approve(postedRow.batch_id);
+    await markPosted('card_import_batches', postedRow.batch_id);
+
+    await apply(account, { removed: [{ account_id: account.providerId, transaction_id: pending.transaction_id }] });
+    const after = await load('card_transactions', pendingRow.id);
+    assert.equal(after.provider_status, 'pending', 'the frozen snapshot wins over the feed');
+    assert.equal(after.removed_from_status, null, 'so the classification cannot be written here');
+
+    // The write is refused by the database, not merely skipped by the function.
+    await assert.rejects(
+      q(`update public.card_transactions set removed_from_status='pending' where id=$1`, [pendingRow.id]),
+      /Approved or posted transactions are immutable/,
+      'and no caller can route around it');
+
+    // What the removal DID leave behind, so it is recoverable.
+    const change = await first(`select * from plaid_sync_exceptions where transaction_id=$1
+      order by created_at desc limit 1`, [pendingRow.id]);
+    assert.equal(change.status, 'resolved', 'recorded, and no false alarm for finance');
+    assert.equal(change.provider_payload._silo_removed, true, 'the exception is the record that the id was retired');
+  });
+
+  await test('only pending, posted or null can be stored in the removed-from column', async () => {
+    const account = await bankAccount();
+    const raw = providerTransaction(account, { amount: 5 });
+    await apply(account, { added: [raw] });
+    const row = await transaction(account, raw.transaction_id);
+    // A real row, so the constraint is actually evaluated -- an update matching
+    // nothing would pass whatever the constraint said.
+    await assert.rejects(
+      q(`update public.card_transactions set removed_from_status='cleared' where id=$1`, [row.id]),
+      /card_transactions_removed_from_status_check/,
+      'a third value is refused by the database, not by a caller remembering');
+    assert.equal((await load('card_transactions', row.id)).removed_from_status, null);
   });
 
   await test('pending changes after posting remain outside accounting without requiring a fictitious correction JE', async () => {

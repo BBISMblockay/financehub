@@ -457,6 +457,98 @@ await test('money direction and required entities stay visible in compact rows',
   assert.match(h.el('tblCoding').innerHTML,/Entity required/);
 });
 
+/* A pending bank row and a removed one both fail isAvailable(), and before this
+   they rendered identically -- a wall of grey where half would clear overnight
+   and half never would. Observed on the live feed 2026-09-15: Plaid retired 26
+   pending ids in one cycle and delivered their posted twins in a later one with
+   no pending_transaction_id linking them, so dead rows sat beside their live
+   replacements looking like stuck work.
+
+   A removal is NOT evidence of a replacement, though: the feed maps every
+   transactions/sync removal to this one status and institutions also remove a
+   transaction outright. So removed rows leave the default queue and stay
+   reachable -- the unreplaced one is precisely the one a person must look at. */
+await test('a removed bank row leaves the default queue but stays inspectable; a pending one stays and says why',async()=>{
+  const h=await pageHarness({});
+  h.page.state.txns=[
+    {...h.page.state.txns[0],id:'txn-posted',external_transaction_id:'x1',provider_status:'posted',status:'uncoded'},
+    {...h.page.state.txns[0],id:'txn-pending',external_transaction_id:'x2',provider_status:'pending',status:'excluded',exclude_reason:'Pending bank transaction'},
+    // Removed while POSTED: real, retracted, and a person's problem.
+    {...h.page.state.txns[0],id:'txn-removed',external_transaction_id:'x3',provider_status:'removed',status:'excluded',
+      exclude_reason:'Removed by bank feed',description:'VANISHED ACH DEBIT',amount:4321.55,removed_from_status:'posted'},
+    // Removed while PENDING: the feed retiring an id nobody could act on.
+    {...h.page.state.txns[0],id:'txn-cleared',external_transaction_id:'x4',provider_status:'removed',status:'excluded',
+      exclude_reason:'Removed by bank feed',description:'SETTLED ACH DEBIT',amount:999.99,removed_from_status:'pending'},
+  ];
+  h.page.renderCoding();
+  let table=h.el('tblCoding').innerHTML;
+  assert.match(table,/data-txn="txn-posted"/,'the posted row is codeable and shown');
+  assert.match(table,/data-txn="txn-pending"/,'the pending row is real activity and stays on screen');
+  assert.ok(!/data-txn="txn-removed"/.test(table),'the removed row is out of the default queue');
+  assert.ok(!/data-txn="txn-cleared"/.test(table),'and a pending row the feed retired is not there either');
+  assert.match(table,/Pending at the bank — codeable once it settles/);
+  assert.ok(!/>pending</.test(table),'the provider\'s own word is not what a reader gets');
+
+  // The count is a control, and it never calls a removal a supersession: this
+  // row has no replacement anywhere and the page cannot know one exists.
+  assert.equal(h.el('codeShowRemoved').hidden,false);
+  // One, not two: the pending removal is the feed's bookkeeping and is not
+  // counted, because nobody should have to follow an id being retired.
+  assert.equal(h.el('codeShowRemoved').textContent,'Show 1 removed by the bank');
+  assert.ok(!/superseded/i.test(h.el('codeShowRemoved').textContent+h.el('codeSub').textContent+table));
+
+  // Revealing it makes the amount, date and merchant readable again -- the whole
+  // point, since a removal nothing replaced may be money that is simply gone.
+  await h.el('codeShowRemoved').fire('click');
+  table=h.el('tblCoding').innerHTML;
+  assert.match(table,/data-txn="txn-removed"/,'revealed and inspectable');
+  assert.match(table,/VANISHED ACH DEBIT/,'its merchant is readable');
+  assert.match(table,/Removed by the bank/,'and it is labelled, not printed as a raw status word');
+  assert.ok(!/>removed</.test(table) && !/· removed ·/.test(table),'the raw word never reaches a reader');
+  assert.match(table,/4,321\.55/,'and its amount');
+  assert.equal(h.el('codeShowRemoved').textContent,'Hide 1 removed by the bank');
+  assert.ok(!/data-txn="txn-cleared"/.test(table),'revealing never surfaces the pending removal');
+  assert.ok(!/SETTLED ACH DEBIT/.test(table));
+  await h.el('codeShowRemoved').fire('click');
+  assert.ok(!/data-txn="txn-removed"/.test(h.el('tblCoding').innerHTML),'and it hides again');
+});
+
+/* The reveal control is drawn before renderCoding's early returns, not after.
+   It was added after them, which left the previous account's control on screen
+   through a load: change accounts or dates and renderCoding takes the
+   loading/error branch, so a control refreshed below it keeps reading "Show 1
+   removed by the bank" for the account you just left -- indefinitely if the
+   read fails, and clicking it toggled state for rows that were never loaded. */
+await test('the removed-row control does not survive a load, a failed load, or having no batch',async()=>{
+  const h=await pageHarness({});
+  h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+  const removed={...h.page.state.txns[0],id:'txn-removed',external_transaction_id:'x9',batch_id:'batch-other',
+    provider_status:'removed',status:'excluded',exclude_reason:'Removed by bank feed'};
+  h.page.state.batches=[{id:'batch-other',source_id:source.id,status:'draft',company_entity_id:'company-one'}];
+  h.window.SiloTransactionDates.read=async()=>[removed];
+  await h.page.browseDates();
+  assert.equal(h.el('codeShowRemoved').hidden,false,'the control is there when a removed row is');
+  assert.equal(h.el('codeShowRemoved').textContent,'Show 1 removed by the bank');
+
+  // Mid-load: browseDates empties the rows and renders the loading branch.
+  let release; h.window.SiloTransactionDates.read=()=>new Promise(r=>{release=r;});
+  const loading=h.page.browseDates();
+  assert.equal(h.page.dateState().dateLoading,true,'the loading branch is the one rendering');
+  assert.equal(h.el('codeShowRemoved').hidden,true,'and the previous account\'s control is gone');
+  release([]); await loading;
+  assert.equal(h.el('codeShowRemoved').hidden,true,'still gone once the empty result lands');
+
+  // A failed load leaves the error branch on screen; the control must not
+  // outlive it, which is the state that would otherwise persist indefinitely.
+  h.window.SiloTransactionDates.read=async()=>[removed];
+  await h.page.browseDates();
+  assert.equal(h.el('codeShowRemoved').hidden,false,'control back with the rows');
+  h.window.SiloTransactionDates.read=async()=>{throw new Error('date read failed');};
+  await h.page.browseDates();
+  assert.ok(h.page.dateState().dateError,'the error branch is rendering');
+  assert.equal(h.el('codeShowRemoved').hidden,true,'and the stale control is gone');
+});
+
 await test('canonical route resumes a matching legacy OAuth callback and rejects unrelated saved URLs',async()=>{
   for(const legacy of ['https://silo.test/v2/card-coding.html?oauth_state_id=callback','https://attacker.invalid/v2/card-coding.html?oauth_state_id=callback','https://silo.test/v2/card-coding.html?oauth_state_id=other']){
     const h=harness();await h.el('btnLinkBank').fire('click');

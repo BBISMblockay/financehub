@@ -363,6 +363,7 @@
               <div>
                 <div class="cc-title" id="codeTitle">Transactions</div>
                 <div class="cc-sub" id="codeSub">Choose an account and dates above</div>
+                <button class="bcn-btn bcn-btn--ghost" id="codeShowRemoved" type="button" hidden></button>
                 <div class="cc-note" id="codeStatus" role="status"></div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -660,10 +661,10 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="je-composer.js"></script>
-<script src="plaid-bank-feed.js"></script>
+<script src="plaid-bank-feed.js?v=0d4ec5dd42fc"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
+<script src="transaction-dates.js?v=0bad96d29084"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
 <script src="transaction-filters.js?v=53b49e70ff5e"></script>
@@ -713,6 +714,9 @@
   let workspace = null;
   let tilesUi = null;
   let dateBrowse = false, dateRows = [], dateLoading = false, dateError = '', dateGeneration = 0;
+  // Reader state, deliberately not persisted: showing removed rows is an
+  // inspection, not a working position to come back to.
+  let showRemoved = false;
   let splitsError = '';
   let journalPreviewBatch=null;
   let dateContext = null, dateAiProgress = '';
@@ -748,7 +752,18 @@
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find(source=>source.id===(dateBrowse?workspace?.selected():state.batch?.source_id));
-  const workingRows = () => dateBrowse ? dateRows : state.txns;
+  const workingRows = () => dateBrowse ? dateRows.filter(t=>!bank.wasPendingWhenRemoved(t) && (showRemoved || !bank.isRemovedByBank(t))) : state.txns;
+  /* A bank row that is not posted yet. It is real activity and stays on screen,
+     but it cannot be coded: the id changes when it settles, so anything coded
+     now would be coded against an id the bank is about to retire. Say that,
+     rather than printing the provider's own word for it. */
+  const providerNote = (t) => t.provider_status === 'pending'
+    ? 'Pending at the bank — codeable once it settles'
+    : t.provider_status === 'removed'
+      // Says what the feed said and no more. Whether a replacement arrived is
+      // not recorded on the row, so this must not imply one either way.
+      ? 'Removed by the bank'
+      : (t.provider_status || 'Unavailable');
   const batchFor = t => dateBrowse ? state.batches.find(b=>b.id===t.batch_id) : state.batch;
   const rowEditable = t => !!t && !state.codingBusy && !dateLoading && bank.canEditBatch(batchFor(t)) && bank.isAvailable(t)
     && (!dateBrowse || (batchFor(t)?.company_entity_id===_co?.id && batchFor(t)?.source_id===workspace?.selected()));
@@ -1632,7 +1647,27 @@
     return src?.default_qbo_location_id || null;
   }
 
+  /* Every read-side surface -- the table, the counts, the filters, the workflow
+     panel, AI eligibility -- funnels through here, so a row hidden here is
+     hidden consistently and the counts cannot disagree with the table. It
+     filters rather than dropping from state.txns, because a save still has to
+     patch the row it loaded. */
   function reviewDateRows() {
+    // A removal of a row that was still pending is never shown, revealed or not:
+    // it was never codeable and never in the books, so there is nothing for a
+    // person to do about it and nothing to check.
+    return dateScopedRows().filter(t=>!bank.wasPendingWhenRemoved(t)
+      && (showRemoved || !bank.isRemovedByBank(t)));
+  }
+  /* The removals a person should see: rows that were POSTED when the bank
+     retracted them. Those were real, codeable, possibly already coded, and a
+     count alone would not let anyone check the amount, date or merchant -- so
+     the count is a control that shows them. Removals of pending rows are not
+     here and are not counted; they are the feed's own bookkeeping. */
+  function removedRows() {
+    return dateScopedRows().filter(t=>bank.isRemovedByBank(t) && !bank.wasPendingWhenRemoved(t));
+  }
+  function dateScopedRows() {
     if(dateBrowse)return dateRows;
     if(!dateContext || dateContext.company!==_co?.id || dateContext.source!==state.batch?.source_id)return state.txns;
     return state.txns.filter(t=>t.txn_date>=dateContext.range.start && t.txn_date<=dateContext.range.end);
@@ -1704,6 +1739,19 @@
     // X of Y" count are right even when the table itself has nothing to draw.
     const filteredRows = codingRows();
     renderFilterBar(reviewDateRows(), filteredRows.length);
+    /* A removed row cannot be coded, but it can be looked at, and the one that
+       matters is the one nothing replaced. Refreshed HERE, before the early
+       returns below, for the same reason the filter chips are: an account or
+       date change empties the rows and renders a loading or error state
+       through those returns, and a control left behind would still read
+       "Show 1 removed by the bank" for the account you just left -- and on a
+       failed load it would say so indefinitely. Every one of those states
+       reduces to no rows in scope, so the count answers them all. */
+    const removedCount = removedRows().length;
+    el('codeShowRemoved').hidden = !removedCount;
+    el('codeShowRemoved').textContent = showRemoved
+      ? `Hide ${removedCount} removed by the bank`
+      : `Show ${removedCount} removed by the bank`;
     el('btnDateBack').hidden = dateBrowse || !el('dateStart').value;
     el('unsavedCount').textContent = state.dirty.size ? `${state.dirty.size} unsaved` : '';
     renderWorkflow(reviewDateRows(), dateBrowse?state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id)):(state.batch?[state.batch]:[]));
@@ -1723,8 +1771,9 @@
     }
 
     el('codeTitle').textContent = batchSource()?.display_name || 'Activity';
-    el('codeSub').textContent =
-      dateBrowse ? `${dateRows.length} transactions` : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
+    el('codeSub').textContent = dateBrowse
+      ? `${reviewDateRows().length} transactions`
+      : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
     if(state.codingBusy)el('codeSub').textContent+=' · Coding in progress';
     el('codeStatus').textContent=dateAiProgress || (state.codingBusy?'Working…':'');
 
@@ -1775,14 +1824,14 @@
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
       <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
-        <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
+        <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid' && !bank.isAvailable(t)?esc(providerNote(t))+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
         <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t)?'<span class="cc-note">set per split line</span>':cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t)?'<span class="cc-note">set per split line</span>':entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button><button class="bcn-btn" data-split title="Code this transaction across several accounts">${isSplit(t)?'Edit split':'Split across accounts'}</button></section>
       </div></td></tr>`;
     }).join('') + '</tbody>';
@@ -2044,7 +2093,7 @@
   // "Suggest categories" works on rows nobody can see. Same predicate, same
   // module -- this used to be a second hand-written copy of it.
   function dateDisplayRows() {
-    return TF.apply(dateRows, filters, filterCtx());
+    return TF.apply(reviewDateRows(), filters, filterCtx());
   }
 
   async function browseDates(sourceId=workspace?.selected()) {
@@ -2074,6 +2123,7 @@
     el('dateStart').value=range.start;el('dateEnd').value=range.end;browseDates();
   });
   el('btnDateBack').addEventListener('click',()=>browseDates());
+  el('codeShowRemoved').addEventListener('click',()=>{showRemoved=!showRemoved;state.selected.clear();renderCoding();});
   // -------------------------------------------------------- search + bulk
 
   function codeSearchTerm() {

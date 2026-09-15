@@ -3762,3 +3762,22 @@ select 'Cashflow override controls' as check_name,
  when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.cash_forecast_overrides') and conname='cash_override_no_overlap') then 'CRITICAL: override overlap guard missing'
  when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.cash_forecast_overrides') and tgname='finance_audit_event' and tgenabled<>'D') then 'CRITICAL: override audit missing'
  else 'ok' end as status;
+
+select 'Plaid removal classification' as check_name,
+ case when to_regclass('public.card_transactions') is null then 'MISSING: card coding migration'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='card_transactions' and column_name='removed_from_status')
+   then 'MISSING: removed_from_status migration'
+ when not exists(select 1 from pg_constraint
+   where conname='card_transactions_removed_from_status_check')
+   then 'CRITICAL: removed_from_status accepts values other than pending/posted'
+ -- The projection must RECORD it, not leave the UI inferring it from a payload.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='plaid_project_transaction') not like '%removed_from_status=v_removed_from%'
+   then 'CRITICAL: plaid_project_transaction does not stamp removed_from_status'
+ -- A removed row with no classification reads as a retracted posting, so an
+ -- unbackfilled row would put the feed's own bookkeeping in front of a person.
+ when exists(select 1 from public.card_transactions
+   where origin='plaid' and provider_status='removed' and removed_from_status is null)
+   then 'STALE: removed Plaid rows are unclassified; re-run the 20260915220000 backfill'
+ else 'ok' end as status;
