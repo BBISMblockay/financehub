@@ -784,3 +784,33 @@ Test-Company-only account referenced by no Baseballism row), Test Company
 34 → 2, zero profiles orphaned. Regressions in
 `scripts/tests/profiles-tenant-scope.test.mjs`; `verify_v2_schema.sql` asserts
 exactly one SELECT policy.
+
+## 20260915140000 / 20260915150000 — where a Meta ad sends the customer
+
+`meta_ad_creatives` gains `link_url`, `link_url_source`, `link_url_tags` and a
+generated `link_path`; `meta_ad_performance_v` and `wow_creatives` expose them.
+
+Two things are worth knowing before touching either file.
+
+**The source is not decoration.** 2,565 of 4,079 stored creatives are
+`object_type = SHARE` — a page-post ad, which carries no `object_story_spec`
+of its own. Their only available source is `creative.effective_object_url`,
+and Meta may resolve that to the POST rather than to the advertiser's site. So
+a URL from that source is the best answer available for the ad and is NOT
+automatically a landing page. `link_url` and `link_url_source` are therefore
+constrained null-or-non-null together, and every reader shows the host.
+
+**`wow_creatives` was drifted.** Production was running a version carrying
+`thruplays` / `leads` / `cost_per_thruplay` / `cost_per_lead` that no migration
+in this repo contained, with its comments stripped — applied by hand. The
+`20260915150000` body is reconstructed from `pg_get_functiondef()` against
+production, with this repo's comments restored, because building it from
+`20260901170000` would have deleted a shipped feature `/v2/wow-report.html`
+reads by name. `verify_v2_schema.sql` now fails CRITICAL if `cost_per_thruplay`
+leaves the deployed function again. Read the live definition before re-creating
+any RPC.
+
+Regressions in `scripts/tests/meta-creative-links-database.test.mjs` (executes
+both migrations twice, so a non-re-appliable one fails here rather than during
+an `apply_all_post_merge.sql` re-run) and, for the sync and page,
+`meta-creative-links.test.mjs` / `wow-report-destination.test.mjs`.

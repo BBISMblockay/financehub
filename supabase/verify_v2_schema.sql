@@ -3781,3 +3781,36 @@ select 'Plaid removal classification' as check_name,
    where origin='plaid' and provider_status='removed' and removed_from_status is null)
    then 'STALE: removed Plaid rows are unclassified; re-run the 20260915220000 backfill'
  else 'ok' end as status;
+
+-- Meta ad destinations. The pairing is the check that matters: an unattributed
+-- URL cannot be told apart from a page-post URL standing in for a landing
+-- page, which is the one way this feature can quietly say something false.
+select 'Meta creative destination' as check_name,
+ case when to_regclass('public.meta_ad_creatives') is null then 'MISSING: meta ad creative migration'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='meta_ad_creatives' and column_name='link_url')
+   then 'MISSING: link_url; apply 20260915140000'
+ when not exists(select 1 from pg_constraint
+   where conrelid=to_regclass('public.meta_ad_creatives')
+     and conname='meta_ad_creatives_link_source_together')
+   then 'CRITICAL: link_url may be stored without the source that says how it was resolved'
+ -- Generated, so link_path cannot drift from the URL it describes. A plain
+ -- column here would be a second copy of the same derivation.
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='meta_ad_creatives' and column_name='link_path'
+   and is_generated='ALWAYS')
+   then 'CRITICAL: link_path is not a generated column; it can drift from link_url'
+ -- The view lists its columns explicitly, so a create-or-replace that forgets
+ -- one makes every ad look like it has no destination rather than erroring.
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='meta_ad_performance_v' and column_name='link_url')
+   then 'STALE: meta_ad_performance_v does not expose link_url; re-apply 20260915140000'
+ when to_regprocedure('public.wow_creatives(date,text,int)') is not null
+   and pg_get_functiondef(to_regprocedure('public.wow_creatives(date,text,int)')) not like '%link_url_source%'
+   then 'STALE: wow_creatives does not carry the destination; apply 20260915150000'
+ -- The drift this change reconciled: production carried these and the repo did
+ -- not, so a rebuild from an older file silently deletes them.
+ when to_regprocedure('public.wow_creatives(date,text,int)') is not null
+   and pg_get_functiondef(to_regprocedure('public.wow_creatives(date,text,int)')) not like '%cost_per_thruplay%'
+   then 'CRITICAL: wow_creatives has lost thruplays/leads; the Marketing Report reads them by name'
+ else 'ok' end as status;

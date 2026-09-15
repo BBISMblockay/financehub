@@ -158,6 +158,15 @@
     .wow-tbl a { color:inherit; text-decoration:none; }
     .wow-tbl a:hover, .wow-tbl a:focus-visible { text-decoration:underline; }
     .wow-ad { display:flex; align-items:center; gap:9px; }
+    /* The destination sits under the ad name rather than in its own column:
+       the creative table is already ten columns wide at the purchase grain
+       and a URL is the widest thing on it. */
+    .wow-ad-lines { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .wow-dest { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3);
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px; }
+    /* A destination that is not the advertiser's site -- a page post standing
+       in for a landing page -- is marked rather than hidden. */
+    .wow-dest--offsite { color:var(--bcn-warn); }
 
     .wow-note { padding:9px 14px; font-size:11px; color:var(--bcn-ink-3);
       border-top:1px solid var(--bcn-border); line-height:1.5; }
@@ -1677,19 +1686,38 @@
   // "not synced per ad" and would have kept saying it once the sync started
   // carrying the metric -- a note that lies in the other direction. A group
   // only gets a caveat when its own headline metric really is absent.
+  /* How many of the group's ads resolved a destination.
+   *
+   * Said out loud because the alternative is a column of "not resolved" that
+   * reads as a broken feature. It is also the fastest way to spot Meta having
+   * refused the link fields on a run: resolution collapses onto the ads that
+   * carry their own link, and the count drops with it. Silent on a group
+   * where every ad resolved -- a note that always appears is one nobody
+   * reads. */
+  function destFoot(g) {
+    const total = Number(g.ads_total || 0);
+    const withLink = g.ads_with_link == null ? null : Number(g.ads_with_link);
+    if (!total || withLink == null || withLink === total) return null;
+    return withLink === 0
+      ? 'No destination resolved for these ads — Meta exposes one only for some creative types, and a page-post ad relies on a field that may be refused. Not a claim that these ads go nowhere.'
+      : `Destination resolved for ${withLink} of ${total} ads — a blank is unresolved, not an ad going nowhere.`;
+  }
+
   function creFoot(g) {
+    const dest = destFoot(g);
+    const withDest = (note) => [note, dest].filter(Boolean).join(' ') || null;
     if (g.group === 'followers') {
-      return 'Follows are not synced, so there is no cost per follow — these ads read on thruplays, which the buy does report.';
+      return withDest('Follows are not synced, so there is no cost per follow — these ads read on thruplays, which the buy does report.');
     }
     if (g.group === 'subscribers') {
-      return g.leads == null
+      return withDest(g.leads == null
         ? 'Leads have not synced for these ads yet — they fill in on the next ad-platforms sync. The conversions Meta reports against them are purchases, not sign-ups.'
-        : 'The conversions Meta reports against these ads are purchases, not sign-ups — cost per lead is the number to read.';
+        : 'The conversions Meta reports against these ads are purchases, not sign-ups — cost per lead is the number to read.');
     }
     if (g.group === 'thruplay' && g.thruplays == null) {
-      return 'Thruplays have not synced for these ads yet — they fill in on the next ad-platforms sync.';
+      return withDest('Thruplays have not synced for these ads yet — they fill in on the next ad-platforms sync.');
     }
-    return null;
+    return withDest(null);
   }
   // Derived rather than stored: spend, clicks and impressions are already in the
   // payload, so CPC and CPM need no round trip. Null over zero clicks — dividing
@@ -1714,6 +1742,51 @@
     if (k === 'cost_per_thruplay') return `$${Number(v).toFixed(4)}`;
     return intFmt(v);
   };
+  /* The one gate between a stored value and an href, copied deliberately from
+   * v3's chart-adapter: ONLY http(s) and no whitespace, which rejects
+   * javascript:, data:, vbscript:, file: and protocol-relative "//evil.com".
+   *
+   * The sync applies the same test before storing, so in practice nothing
+   * should fail here. It is repeated anyway because esc() on this page does
+   * NOT escape quotes -- it handles &, < and > only -- so a value with a
+   * double quote in it would break out of the attribute. Relying on a
+   * write-time invariant to keep a read-time boundary safe is exactly the
+   * assumption that stops being true when a row arrives from somewhere new. */
+  const safeUrl = (v) => (typeof v === 'string' && /^https?:\/\/[^\s<>"']+$/i.test(v.trim())
+    ? v.trim() : null);
+
+  /* The destination, shown as host + path.
+   *
+   * The HOST is not decoration. link_source effective_object_url can resolve
+   * to the Facebook post rather than the advertiser's site on a page-post ad,
+   * and 63% of this account's creatives are that shape -- so a bare
+   * "/collections/new" would be a confident claim the data does not support.
+   * Showing facebook.com lets the reader see which they are looking at.
+   *
+   * A missing link reads "not resolved", never blank: blank says this ad goes
+   * nowhere, and what it actually means is that no source answered. */
+  function destCell(a, supported) {
+    // The page and the RPC deploy separately. Where wow_creatives has not been
+    // updated yet, every ad would read "destination not resolved" -- a claim
+    // about the ads, when the truth is that nothing asked. `supported` comes
+    // from the group carrying ads_with_link at all, so an older payload says
+    // NOTHING rather than something false.
+    if (!supported) return '';
+    const url = safeUrl(a.link);
+    if (!url) return `<span class="wow-dest dim">destination not resolved</span>`;
+    let host = '', path = a.link_path || '';
+    try { const u = new URL(url); host = u.host.replace(/^www\./, ''); path = path || u.pathname; }
+    catch { /* the regex passed, so this is unreachable; fall through to raw */ }
+    const offsite = /(^|\.)(facebook|instagram|fb)\.(com|me)$/i.test(host);
+    const label = host ? `${host}${path === '/' ? '' : path}` : url;
+    const why = offsite
+      ? ' — a Meta-hosted destination, not the site: this ad resolves through the page post'
+      : '';
+    return `<a class="wow-dest${offsite ? ' wow-dest--offsite' : ''}" href="${esc(url)}"
+      target="_blank" rel="noopener noreferrer"
+      title="${esc(url)}${esc(why)} [source: ${esc(a.link_source || 'none')}]">${esc(label)}</a>`;
+  }
+
   function renderCreatives(){
     const root = el('creRoot');
     if (!root) return;
@@ -1733,6 +1806,8 @@
       const key = g.group;
       const shown = Math.min(CRE_SHOWN[key] || CRE_PAGE, (g.ads || []).length);
       const cols = CRE_COLS[key] || CRE_COLS.other;
+      // Does this payload know about destinations at all? Absent is not zero.
+      const destSupported = g.ads_with_link != null;
       const rows = (g.ads || []).slice(0, shown).map(a => {
         // A blank copy cell reads as "this ad had no copy". The truth is Meta
         // keeps Dynamic Creative variants in asset_feed_spec and the sync does
@@ -1747,7 +1822,7 @@
         return `<tr>
           <td><div class="wow-ad">${a.thumb
               ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />`
-              : `<span class="wow-thumb"></span>`}<span>${esc(a.ad || a.ad_id)}</span></div></td>
+              : `<span class="wow-thumb"></span>`}<div class="wow-ad-lines"><span>${esc(a.ad || a.ad_id)}</span>${destCell(a, destSupported)}</div></div></td>
           <td style="text-align:left;white-space:normal;font-size:11px;color:var(--bcn-ink-3)">${esc(a.adset || '—')}</td>
           <td class="wow-copy">${copy}</td>
           ${cols.map(([k]) => `<td>${creFmt(creVal(a, k), k)}</td>`).join('')}
@@ -1895,10 +1970,16 @@
       push(`${g.label} — ${g.ads_total} ads`, `spend ${g.spend}`,
            g.roas == null ? '' : `ROAS ${g.roas}`, g.cpa == null ? '' : `CPA ${g.cpa}`,
            g.spend_wow == null ? '' : `spend ${G().delta} ${g.spend_wow}%`);
-      push('Ad','Ad set','Campaign','Copy','Copy source','Spend','ROAS','CPA','Conversions','Clicks',
+      // Destination and its SOURCE both go out. The URL alone cannot be judged
+      // once it is in a spreadsheet away from the page's host styling -- a
+      // page-post destination looks exactly like a landing page there.
+      push('Ad','Ad set','Campaign','Copy','Copy source','Destination','Destination source',
+           'Spend','ROAS','CPA','Conversions','Clicks',
            `Spend ${G().delta} %`,'New this period');
       (g.ads || []).forEach(a => push(a.ad ?? '', a.adset ?? '', a.campaign ?? '',
-        a.copy ?? '', a.copy_source ?? 'not synced', a.spend ?? '', a.roas ?? '', a.cpa ?? '',
+        a.copy ?? '', a.copy_source ?? 'not synced',
+        a.link ?? 'not resolved', a.link_source ?? '',
+        a.spend ?? '', a.roas ?? '', a.cpa ?? '',
         a.conversions ?? '', a.clicks ?? '', a.spend_wow ?? '', a.is_new ? 'yes' : ''));
     });
 
