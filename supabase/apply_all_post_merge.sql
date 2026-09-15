@@ -18751,3 +18751,4 @@ $c$select (select count(*) from v_po_header_summary
 -- placeholder that cannot be read as an account, instead of refusing the whole
 -- import. A section with no account that carries money still refuses.
 \i migrations/20260915200000_qbo_history_unattributed_section.sql
+\i migrations/20260915210000_qbo_history_trial_balance_period.sql

@@ -2,6 +2,7 @@
   "Header": {
     "ReportName": "TrialBalance",
     "Currency": "USD",
+    "StartPeriod": "2026-08-01",
     "EndPeriod": "2026-08-31",
     "ReportBasis": "Accrual"
   },

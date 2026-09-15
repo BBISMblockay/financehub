@@ -12,10 +12,11 @@ import { generateLedgerPair } from './fixtures/qbo-ledger-generator.mjs';
 // QBO_DB_MUTATION=admits-unattributed-balance (the placeholder's running-balance admission test removed)
 // QBO_DB_MUTATION=admits-unattributed-ending-balance (the placeholder's section ENDING BALANCE admission test removed)
 // QBO_DB_MUTATION=exempts-unattributed-problems (every problem on the placeholder exempt from exception_count, not just the notice)
+// QBO_DB_MUTATION=accepts-mismatched-tb-period (a trial balance over a different period than the ledger accepted)
 // QBO_DB_MUTATION=guard-after-hash  (the ceiling kept but moved back below the snapshot hash)
 // QBO_DB_MUTATION=finalize-unguarded (finalization outside its own exception block)
 const mutation=process.env.QBO_DB_MUTATION||'';
-assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded','absorbs-unattributed-money','admits-unattributed-balance','admits-unattributed-ending-balance','exempts-unattributed-problems'].includes(mutation),'Unknown QBO history mutation');
+assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded','absorbs-unattributed-money','admits-unattributed-balance','admits-unattributed-ending-balance','exempts-unattributed-problems','accepts-mismatched-tb-period'].includes(mutation),'Unknown QBO history mutation');
 const db=new PGlite({extensions:{pgcrypto}});
 const root=new URL('../../',import.meta.url);
 const dependencies = [
@@ -43,7 +44,11 @@ const tbShape=JSON.parse(await readFile(new URL('./fixtures/qbo-trial-balance-fl
 // Synthetic amounts and names, provider-observed nested/headerless structure.
 tbShape.Rows.Row.splice(2,0,...[['expense','Expenses',4,0],['child','Supplies',6,0],['income','Sales',0,10]].map(([id,name,d,c])=>({ColData:[{id,value:name},{value:d?String(d):''},{value:c?String(c):''}]})));
 tbShape.Rows.Row.at(-1).Summary.ColData[1].value='45.00';tbShape.Rows.Row.at(-1).Summary.ColData[2].value='45.00';
-async function store(raw,company=co,connection=conn,params={},start='2026-08-01',end='2026-08-31'){const id=randomUUID();await q("insert into quickbooks_report_runs(id,company_entity_id,connection_id,report_name,start_date,end_date,raw_response,status,params) values($1,$2,$3,$4,$5,$6,$7,'ok',$8)",[id,company,connection,raw.Header.ReportName,start,end,raw,params]);return id;}
+// The stored columns say what was ASKED for and the payload header says what the
+// provider ANSWERED; a run where they disagree is a defect the archive now
+// refuses, so a fixture defaults to describing the payload it actually holds.
+// A test that wants them to disagree passes both dates explicitly.
+async function store(raw,company=co,connection=conn,params={},start=raw?.Header?.StartPeriod||'2026-08-01',end=raw?.Header?.EndPeriod||'2026-08-31'){const id=randomUUID();await q("insert into quickbooks_report_runs(id,company_entity_id,connection_id,report_name,start_date,end_date,raw_response,status,params) values($1,$2,$3,$4,$5,$6,$7,'ok',$8)",[id,company,connection,raw.Header.ReportName,start,end,raw,params]);return id;}
 // The archive is a job the caller drives: every call is bounded and returns
 // in_progress until the last one. `batchRows` forces small batches so the
 // suite exercises resume paths deterministically; production defaults to
@@ -85,6 +90,7 @@ try{
  await db.exec(formats);await db.exec(formats);
  const bounded=await readFile(new URL('supabase/migrations/20260915000000_qbo_history_bounded_archive.sql',root),'utf8');await db.exec(bounded);await db.exec(bounded);
  const unattributed=await readFile(new URL('supabase/migrations/20260915200000_qbo_history_unattributed_section.sql',root),'utf8');await db.exec(unattributed);await db.exec(unattributed);
+ const tbperiod=await readFile(new URL('supabase/migrations/20260915210000_qbo_history_trial_balance_period.sql',root),'utf8');await db.exec(tbperiod);await db.exec(tbperiod);
  if(mutation){const def=(await one("select pg_get_functiondef('public.archive_qbo_ledger(uuid,uuid)'::regprocedure) d")).d;
   let mutated=def;
   if(mutation==='no-resume-state')mutated=def.replace("state=jsonb_build_object('balance',balance,","state=jsonb_build_object('balance',0,");
@@ -113,6 +119,15 @@ try{
    const anchor="'{Summary,ColData,7,value}',where_),0)<>0 then";
    if(!def.includes(anchor))throw new Error('admits-unattributed-ending-balance: the ending-balance admission test was not found');
    mutated=def.replace(anchor,"'{Summary,ColData,7,value}',where_),0)<>0 and false then");
+  }
+  // The period check removed from BOTH places it is made -- the stored columns
+  // and the provider's own header -- so a trial balance over a different range
+  // is accepted and every P&L account reconciles against the wrong figure.
+  else if(mutation==='accepts-mismatched-tb-period'){
+   mutated=def.replace('if tb.start_date is distinct from gl.start_date then','if false then')
+              .replace("    or doc#>>'{Header,StartPeriod}' is distinct from gl.start_date::text then raise exception 'Report currency, basis or period does not match'; end if;",
+                       "    then raise exception 'Report currency, basis or period does not match'; end if;");
+   if(mutated===def)throw new Error('accepts-mismatched-tb-period: the period checks were not found');
   }
   // The blanket exemption this cycle replaced: every problem on the
   // unattributed section excused, not just the intentional notice.
@@ -507,6 +522,40 @@ try{
    // the two plain assertions below fail on their own, which is the point.
    assert.equal(Number(recon.e),1,'a real problem on the placeholder counts as an exception');
    assert.equal(recon.s,'exceptions','so the archive does not report matched over it');
+  }
+  // A trial balance that ends on the ledger's last day but covers a DIFFERENT
+  // PERIOD is a valid report answering a different question. A balance-sheet
+  // account reports its as-at balance either way, but an income or expense
+  // account reports activity for the range, so the comparison mismatches on
+  // every P&L account and reads as lost history. This is not hypothetical: on
+  // 2026-09-15 the page requested the trial balance from the fiscal year start
+  // instead of the ledger's start, and the first window to cross a fiscal-year
+  // boundary reported 63 P&L accounts out by $33.3m with every balance-sheet
+  // account tying exactly.
+  {const before=await counts();
+   const pair=generateLedgerPair({rows:200,seed:880});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
+   const glStart=pair.gl.Header.StartPeriod,glEnd=pair.gl.Header.EndPeriod;
+   const tbStart='2026-01-01'; // the fiscal-year start, exactly what the page used to send
+   const gRun=await store(pair.gl,co,conn,{},glStart,glEnd);
+   // Stored columns disagree: same end date, different start.
+   const shortTb=JSON.parse(JSON.stringify(pair.tb));shortTb.Header.StartPeriod=tbStart;
+   const tRun=await store(shortTb,co,conn,{},tbStart,glEnd);
+   if(mutation==='accepts-mismatched-tb-period'){
+    const out=await archive(gRun,tRun);
+    assert.fail(`The period check was removed, yet a trial balance covering ${tbStart} to ${glEnd} was reconciled against a ledger covering ${glStart} to ${glEnd} (status '${out.status}')`);
+   }
+   await assert.rejects(archive(gRun,tRun),/The trial balance covers 2026-01-01 to .* but the ledger covers 2025-08-01 to /,
+     'a trial balance over a different period refuses and names both windows');
+   assert.deepEqual(await counts(),before,'and writes no evidence');
+
+   // The provider's own side of the same defect: the stored columns agree
+   // because that is what was asked for, but QBO answered for another range.
+   const lying=JSON.parse(JSON.stringify(pair.tb));lying.Header.StartPeriod=tbStart;
+   const lyingRun=await store(lying,co,conn,{},glStart,glEnd);
+   await assert.rejects(archive(gRun,lyingRun),/Report currency, basis or period does not match/,
+     'a report whose header declares a different period than it was asked for refuses too');
+   assert.deepEqual(await counts(),before,'and writes no evidence either');
   }
  // The two phases the per-call budget does not cover -- freezing and hashing
  // the source, and the atomic final copy -- grow with the report, so a size
