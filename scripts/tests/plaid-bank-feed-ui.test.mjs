@@ -8,6 +8,11 @@ import {webcrypto} from 'node:crypto';
 const moduleSource = await readFile(new URL('../../v2/plaid-bank-feed.js', import.meta.url), 'utf8');
 const datesSource = await readFile(new URL('../../v2/transaction-dates.js', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../../v2/bank-workspace.js', import.meta.url), 'utf8');
+// transactions.html loads this as its own <script>, and its inline script mounts
+// it at boot, so the page harness has to supply it the way the browser does --
+// sharing `window` AND the document, since the module resolves getElementById
+// from its own scope.
+const splitsSource = await readFile(new URL('../../v2/card-splits.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../../v2/transactions.html', import.meta.url), 'utf8');
 const inlineSource = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>', html.indexOf('<script>')));
 class Element {
@@ -83,6 +88,7 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
   vm.runInNewContext(datesSource, { window });
+  vm.runInNewContext(splitsSource, { window, document: d.document });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
     + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
   vm.runInNewContext(testable, { window, URL, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
