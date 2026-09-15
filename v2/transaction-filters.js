@@ -83,7 +83,10 @@
       status: oneOf(r.status, STATUSES, 'all'),
       search: trimmed(r.search),
       text: trimmed(r.text),
-      merchant: trimmed(r.merchant),
+      // Canonicalised here, not only at the comparison, so a position stored
+      // before this was the key -- or one carrying the source's own casing --
+      // still resolves against the option list instead of reading as absent.
+      merchant: r.merchant === NO_MERCHANT ? NO_MERCHANT : lower(r.merchant),
       account: trimmed(r.account),
       type: trimmed(r.type),
       dateStart: isDate(r.dateStart) ? r.dateStart : '',
@@ -127,6 +130,18 @@
   /** The merchant the SOURCE supplied, or '' when it supplied none. */
   function merchantOf(row) {
     return trimmed(row && row.clean_merchant);
+  }
+
+  /* The key a merchant filter is stored and grouped under. Matching has always
+     been case-insensitive, and production carries the same merchant under two
+     casings -- "Portland General Electric" and "PORTLAND GENERAL ELECTRIC" over
+     10 rows, plus Wave Pro and TikTok Ads. Grouping the picker by the RAW value
+     while matching case-insensitively showed two choices of 1 row each, and
+     selecting either matched all 10: the count contradicted the table beneath
+     it and bulk selection acted on rows the choice said were not there. One
+     canonical key for both the option value and the predicate. */
+  function canonicalMerchant(value) {
+    return lower(value);
   }
 
   /** 'out' for a charge, 'in' for a refund or deposit, null for a zero row. */
@@ -226,7 +241,7 @@
     if (f.merchant) {
       const merchant = merchantOf(row);
       if (f.merchant === NO_MERCHANT) { if (merchant) return false; }
-      else if (merchant.toLowerCase() !== f.merchant.toLowerCase()) return false;
+      else if (canonicalMerchant(merchant) !== canonicalMerchant(f.merchant)) return false;
     }
 
     if (f.account) {
@@ -278,6 +293,10 @@
     const f = normalize(filters);
     const context = ctx || {};
     const name = (id) => (typeof context.accountName === 'function' && context.accountName(id)) || id;
+    // The stored value is the canonical key; the label is the casing the
+    // source actually used, where the loaded rows still carry it.
+    const merchantName = (key) =>
+      (typeof context.merchantLabel === 'function' && context.merchantLabel(key)) || key;
     const typeLabel = (v) => (typeof context.typeLabel === 'function' && context.typeLabel(v)) || v;
     const statusLabel = (v) => (typeof context.statusLabel === 'function' && context.statusLabel(v)) || v;
     const chips = [];
@@ -288,7 +307,7 @@
     if (f.merchant) {
       chips.push({
         key: 'merchant',
-        label: f.merchant === NO_MERCHANT ? 'No merchant from the source' : `Merchant: ${f.merchant}`,
+        label: f.merchant === NO_MERCHANT ? 'No merchant from the source' : `Merchant: ${merchantName(f.merchant)}`,
       });
     }
     if (f.account) {
@@ -348,8 +367,13 @@
 
     for (const row of rows || []) {
       const merchant = merchantOf(row);
-      if (merchant) merchants.set(merchant, (merchants.get(merchant) || 0) + 1);
-      else noMerchant += 1;
+      if (merchant) {
+        const key = canonicalMerchant(merchant);
+        const seen = merchants.get(key);
+        // First casing seen wins the label, so the list is stable between
+        // renders rather than flipping with row order.
+        merchants.set(key, { key, name: (seen && seen.name) || merchant, count: (seen ? seen.count : 0) + 1 });
+      } else noMerchant += 1;
 
       const pairs = accountPairs(row, ctx);
       if (!pairs.length) noAccount += 1;
@@ -373,7 +397,7 @@
 
     const byName = (a, b) => String(a.name).localeCompare(String(b.name));
     return {
-      merchants: [...merchants].map(([name, count]) => ({ name, count })).sort(byName),
+      merchants: [...merchants.values()].sort(byName),
       noMerchant,
       accounts: [...accounts.values()].sort(byName),
       noAccount,
@@ -384,6 +408,7 @@
   global.SiloTransactionFilters = {
     EMPTY, NO_MERCHANT, NO_ACCOUNT, STATUSES, DIRECTIONS, AMOUNT_MODES,
     normalize, matches, apply, isActive, describe, clear, options,
-    merchantOf, directionOf, accountKeys, accountNames, accountPairs, amountBounds, cents,
+    merchantOf, canonicalMerchant, directionOf, accountKeys, accountNames, accountPairs,
+    amountBounds, cents,
   };
 })(typeof window === 'undefined' ? globalThis : window);

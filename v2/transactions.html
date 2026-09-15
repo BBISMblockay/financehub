@@ -221,7 +221,7 @@
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
   <link rel="stylesheet" href="./transactions-workspace.css?v=e4767b717672" />
-  <link rel="stylesheet" href="accounting-suite.css?v=2467d8c36025" />
+  <link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -666,7 +666,7 @@
 <script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
-<script src="transaction-filters.js?v=bceb7a7cc7aa"></script>
+<script src="transaction-filters.js?v=53b49e70ff5e"></script>
 <script>
 (function () {
   'use strict';
@@ -1644,9 +1644,13 @@
      row's split lines, how a merchant key is built, and what to call an
      account. One context, used by the table, the counts and the chips, so
      they cannot disagree about which rows are selected. */
+  // Canonical merchant key -> the casing the source used, rebuilt whenever the
+  // option list is. A chip reads "Portland General Electric", not the key.
+  let merchantLabels = new Map();
   const filterCtx = () => ({
     splitsFor,
     merchantKey,
+    merchantLabel: (key) => merchantLabels.get(key) || '',
     sourceName: () => batchSource()?.display_name || '',
     hasSuggestion: (t) => suggestions.has(t.id),
     accountName: (id) => acctName(id) || state.allAccounts.find((a) => a.id === id)?.name || id,
@@ -2146,9 +2150,10 @@
       }
     };
 
+    merchantLabels = new Map(options.merchants.map((m) => [m.key, m.name]));
     build('fltMerchant', '<option value="">Any merchant</option>'
       + (options.noMerchant ? `<option value="${TF.NO_MERCHANT}">No merchant from the source (${options.noMerchant})</option>` : '')
-      + options.merchants.map((m) => `<option value="${esc(m.name)}">${esc(m.name)} (${m.count})</option>`).join(''));
+      + options.merchants.map((m) => `<option value="${esc(m.key)}">${esc(m.name)} (${m.count})</option>`).join(''));
 
     build('fltAccount', '<option value="">Any account</option>'
       + (options.noAccount ? `<option value="${TF.NO_ACCOUNT}">Uncategorized (${options.noAccount})</option>` : '')
@@ -2422,7 +2427,7 @@
     // and choosing it from the list select the same rows.
     const merchantButton = e.target.closest('[data-merchant-filter]');
     if (merchantButton) {
-      const value = merchantButton.dataset.merchantFilter;
+      const value = TF.canonicalMerchant(merchantButton.dataset.merchantFilter);
       filters.merchant = filters.merchant === value ? '' : value;
       state.selected.clear();
       writeFilterInputs(); saveFilters(); renderCoding();

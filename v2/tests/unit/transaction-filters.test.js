@@ -101,6 +101,73 @@ r.test('"no merchant" is its own selectable filter', () => {
   r.eq(applied({ merchant: F.NO_MERCHANT }), ['loan', 'bare']);
 });
 
+/* Cycle-1 review finding, and it reproduces on production data: three
+   merchants are stored under two casings, "Portland General Electric" and
+   "PORTLAND GENERAL ELECTRIC" across 10 rows among them. Matching was already
+   case-insensitive while the picker grouped by the RAW value, so the list
+   offered two choices of one row each and selecting either matched both --
+   the count contradicted the table under it, and a bulk edit from that
+   selection acted on a row the choice said was not there. */
+console.log('\n── one merchant, however the source capitalised it ──');
+
+const casings = [
+  txn({ id: 'pge-1', clean_merchant: 'Portland General Electric', description: 'PGE AUTOPAY', amount: 400 }),
+  txn({ id: 'pge-2', clean_merchant: 'PORTLAND GENERAL ELECTRIC', description: 'PGE AUTOPAY', amount: 410 }),
+  txn({ id: 'other', clean_merchant: 'Comcast', description: 'COMCAST', amount: 50 }),
+];
+
+r.test('the picker offers ONE option for two casings, counted together', () => {
+  const o = F.options(casings, ctx);
+  r.eq(o.merchants.length, 2, 'Portland General Electric and Comcast');
+  const pge = o.merchants.find((m) => m.key === 'portland general electric');
+  r.eq(pge.count, 2, 'both casings counted under one choice');
+  r.eq(pge.name, 'Portland General Electric', 'the first casing seen is the label');
+});
+
+r.test('selecting that option matches BOTH casings', () => {
+  const out = F.apply(casings, Object.assign({}, F.EMPTY, { merchant: 'portland general electric' }), ctx);
+  r.eq(ids(out), ['pge-1', 'pge-2']);
+});
+
+r.test('the count the picker shows equals the rows the choice selects', () => {
+  // The bug in one assertion: option count and matched rows must agree.
+  const o = F.options(casings, ctx);
+  for (const option of o.merchants) {
+    const matched = F.apply(casings, Object.assign({}, F.EMPTY, { merchant: option.key }), ctx);
+    r.eq(matched.length, option.count, `option "${option.name}" says ${option.count}`);
+  }
+});
+
+r.test('an option value is the canonical key, so a stored choice still resolves', () => {
+  const o = F.options(casings, ctx);
+  r.eq(o.merchants.map((m) => m.key), ['comcast', 'portland general electric']);
+  // Whichever casing the loaded rows happen to carry, the key is the same.
+  const flipped = [casings[1], casings[0]];
+  r.eq(F.options(flipped, ctx).merchants.find((m) => m.key === 'portland general electric').count, 2);
+});
+
+r.test('a chip names the merchant in its own casing, not the key', () => {
+  const labelled = Object.assign({}, ctx, {
+    merchantLabel: (key) => ({ 'portland general electric': 'Portland General Electric' }[key] || ''),
+  });
+  r.eq(F.describe(Object.assign({}, F.EMPTY, { merchant: 'portland general electric' }), labelled)[0].label,
+    'Merchant: Portland General Electric');
+  // With no label available the key is shown rather than nothing.
+  r.eq(F.describe(Object.assign({}, F.EMPTY, { merchant: 'wave pro' }), ctx)[0].label, 'Merchant: wave pro');
+});
+
+r.test('canonicalMerchant is what the page must store', () => {
+  r.eq(F.canonicalMerchant('  PORTLAND General Electric '), 'portland general electric');
+  r.eq(F.canonicalMerchant(null), '');
+});
+
+r.test('a position stored with the source\'s casing is canonicalised on read', () => {
+  // sessionStorage may hold a merchant written before the key existed.
+  r.eq(F.normalize({ merchant: 'Portland General Electric' }).merchant, 'portland general electric');
+  r.eq(F.normalize({ merchant: F.NO_MERCHANT }).merchant, F.NO_MERCHANT, 'the sentinel survives');
+  r.eq(ids(F.apply(casings, { merchant: 'PORTLAND GENERAL ELECTRIC' }, ctx)), ['pge-1', 'pge-2']);
+});
+
 // ----------------------------------------------------------------- splits
 
 console.log('\n── a split matches on its lines, once ──');

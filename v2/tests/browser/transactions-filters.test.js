@@ -57,6 +57,10 @@ const transactions = [
     clean_merchant: null, amount: 62 }),
   txn({ id: 't-comcast', row_no: 5, txn_date: day(12), description: 'COMCAST BUSINESS',
     clean_merchant: 'Comcast', amount: 310 }),
+  // The same merchant under a second casing, which production really carries:
+  // Portland General Electric, Wave Pro and TikTok Ads each appear both ways.
+  txn({ id: 't-comcast-caps', row_no: 6, txn_date: day(14), description: 'COMCAST BUSINESS',
+    clean_merchant: 'COMCAST', amount: 320 }),
 ];
 
 const splitLines = [
@@ -156,7 +160,7 @@ const TABLES = {
 
     console.log('\n\u2500\u2500 the register renders \u2500\u2500');
     const ALL = await visibleIds();
-    await check('every fixture row is on screen', async () => r.eq(ALL.length, 5));
+    await check('every fixture row is on screen', async () => r.eq(ALL.length, 6));
 
     console.log('\n\u2500\u2500 the Merchant column \u2500\u2500');
     await check('Merchant is its own column, beside Transaction', async () => {
@@ -209,7 +213,7 @@ const TABLES = {
       await page.selectOption('#fltDirection', 'in');
       await settle();
       r.eq(await visibleIds(), ['t-refund']);
-      r.eq(await countText(), 'Showing 1 of 5');
+      r.eq(await countText(), 'Showing 1 of 6');
     });
 
     await check('clearing direction restores the whole set', async () => {
@@ -219,7 +223,7 @@ const TABLES = {
     });
 
     await check('the merchant picker selects that merchant', async () => {
-      await page.selectOption('#fltMerchant', 'Amazon');
+      await page.selectOption('#fltMerchant', 'amazon');
       await settle();
       r.eq(await visibleIds(), ['t-amazon', 't-refund']);
     });
@@ -237,13 +241,13 @@ const TABLES = {
       await page.selectOption('#fltAccount', 'acc_int');
       await settle();
       r.eq(await visibleIds(), ['t-loan']);
-      r.eq(await countText(), 'Showing 1 of 5');
+      r.eq(await countText(), 'Showing 1 of 6');
     });
 
     await check('a split is not counted as uncategorized', async () => {
       await page.selectOption('#fltAccount', '__none__');
       await settle();
-      r.eq(await visibleIds(), ['t-bare', 't-comcast']);
+      r.eq(await visibleIds(), ['t-bare', 't-comcast', 't-comcast-caps']);
       await page.selectOption('#fltAccount', '');
       await settle();
     });
@@ -263,7 +267,7 @@ const TABLES = {
       await page.fill('#fltAmountMin', '100');
       await page.fill('#fltAmountMax', '400');
       await settle();
-      r.eq(await visibleIds(), ['t-amazon', 't-comcast']);
+      r.eq(await visibleIds(), ['t-amazon', 't-comcast', 't-comcast-caps']);
     });
 
     console.log('\n\u2500\u2500 typing is not discarded by a re-render \u2500\u2500');
@@ -272,7 +276,7 @@ const TABLES = {
       await settle();
       r.eq(await page.inputValue('#fltText'), 'comcast');
       r.eq(await page.inputValue('#fltAmountMin'), '100', 'and so do the sibling fields');
-      r.eq(await visibleIds(), ['t-comcast'], 'combined with the amount range');
+      r.eq(await visibleIds(), ['t-comcast', 't-comcast-caps'], 'combined with the amount range');
     });
 
     console.log('\n\u2500\u2500 chips, counts and Clear filters \u2500\u2500');
@@ -281,7 +285,7 @@ const TABLES = {
       r.eq(chips.length, 2, chips.join(' | '));
       r.truthy(chips.some((c) => c.indexOf('comcast') !== -1), chips.join(' | '));
       r.truthy(chips.some((c) => c.indexOf('$100.00') !== -1 && c.indexOf('$400.00') !== -1), chips.join(' | '));
-      r.eq(await countText(), 'Showing 1 of 5');
+      r.eq(await countText(), 'Showing 2 of 6', 'both Comcast casings are in range');
     });
 
     await check('removing one chip leaves the other applied', async () => {
@@ -303,12 +307,12 @@ const TABLES = {
 
     console.log('\n\u2500\u2500 filters survive opening and closing a transaction \u2500\u2500');
     await check('a filter is still set and still applied around a review panel', async () => {
-      await page.selectOption('#fltMerchant', 'Amazon');
+      await page.selectOption('#fltMerchant', 'amazon');
       await settle();
       await page.click('#tblCoding tr[data-txn="t-amazon"] .txn-review-button');
       await page.waitForTimeout(150);
       r.eq(await page.$eval('#txn-detail-t-amazon', (n) => n.hidden), false, 'the panel opened');
-      r.eq(await page.inputValue('#fltMerchant'), 'Amazon');
+      r.eq(await page.inputValue('#fltMerchant'), 'amazon');
       r.eq(await visibleIds(), ['t-amazon', 't-refund']);
       await page.click('#tblCoding tr[data-txn="t-amazon"] .txn-review-button');
       await page.waitForTimeout(150);
@@ -318,23 +322,42 @@ const TABLES = {
     console.log('\n\u2500\u2500 the Merchant cell drives the merchant filter \u2500\u2500');
     await check('clicking a merchant filters to it, and clicking again clears it', async () => {
       await clearAll();
-      await page.click('#tblCoding tr[data-txn="t-comcast"] .txn-merchant-button');
+      // The cell shows the source's own casing; clicking it must select the
+      // canonical key the picker offers, and take both casings with it.
+      r.eq(await page.$eval('#tblCoding tr[data-txn="t-comcast-caps"] .txn-merchant-button',
+        (b) => b.textContent), 'COMCAST', 'the cell shows the casing as supplied');
+      await page.click('#tblCoding tr[data-txn="t-comcast-caps"] .txn-merchant-button');
       await settle();
-      r.eq(await visibleIds(), ['t-comcast']);
-      r.eq(await page.inputValue('#fltMerchant'), 'Comcast', 'the picker agrees with the table');
-      await page.click('#tblCoding tr[data-txn="t-comcast"] .txn-merchant-button');
+      r.eq(await visibleIds(), ['t-comcast', 't-comcast-caps']);
+      r.eq(await page.inputValue('#fltMerchant'), 'comcast', 'the picker agrees with the table');
+      await page.click('#tblCoding tr[data-txn="t-comcast-caps"] .txn-merchant-button');
       await settle();
       r.eq(await visibleIds(), ALL);
+    });
+
+    await check('the picker offers ONE choice per merchant, counted across casings', async () => {
+      const options = await page.$$eval('#fltMerchant option',
+        (os) => os.map((o) => ({ value: o.value, label: o.textContent })));
+      const comcast = options.filter((o) => /comcast/i.test(o.label));
+      r.eq(comcast.length, 1, 'got: ' + JSON.stringify(comcast));
+      r.has(comcast[0].label, '(2)', 'both casings counted under one choice');
+      r.eq(comcast[0].value, 'comcast', 'the option value is the canonical key');
+      // The count the picker prints must equal the rows the choice selects.
+      await page.selectOption('#fltMerchant', comcast[0].value);
+      await settle();
+      r.eq((await visibleIds()).length, 2);
+      r.eq(await countText(), 'Showing 2 of 6');
+      await clearAll();
     });
 
     console.log('\n\u2500\u2500 filters survive reloading the data \u2500\u2500');
     await check('a filter survives a date-range reload, and says when its value is gone', async () => {
       await clearAll();
-      await page.selectOption('#fltMerchant', 'Comcast');
+      await page.selectOption('#fltMerchant', 'comcast');
       await settle();
-      r.eq(await visibleIds(), ['t-comcast']);
+      r.eq(await visibleIds(), ['t-comcast', 't-comcast-caps']);
 
-      // Reload the account over a window that excludes the Comcast row. The
+      // Reload the account over a window that excludes both Comcast rows. The
       // set on screen changes; the filter position must not.
       const start = await page.inputValue('#dateStart');
       const narrow = start.slice(0, 8) + '01';
@@ -344,7 +367,7 @@ const TABLES = {
       await page.click('#dateForm button[type="submit"]');
       await page.waitForTimeout(600);
 
-      r.eq(await page.inputValue('#fltMerchant'), 'Comcast', 'the filter was not reset by the reload');
+      r.eq(await page.inputValue('#fltMerchant'), 'comcast', 'the filter was not reset by the reload');
       r.eq((await chipLabels()).length, 1, 'and its chip is still shown');
       r.eq(await visibleIds(), [], 'no row in the new window matches it');
       const absent = await page.$eval('#fltMerchant',
@@ -355,7 +378,7 @@ const TABLES = {
       await page.fill('#dateEnd', start.slice(0, 8) + '28');
       await page.click('#dateForm button[type="submit"]');
       await page.waitForTimeout(600);
-      r.eq(await visibleIds(), ['t-comcast']);
+      r.eq(await visibleIds(), ['t-comcast', 't-comcast-caps']);
       r.eq(await page.$eval('#fltMerchant', (f) => !!f.querySelector('option[data-absent]')), false,
         'and the placeholder is cleared once the value is back');
       await page.click('#btnClearFilters');
@@ -544,6 +567,60 @@ const TABLES = {
       })));
       r.truthy(compact.every((c) => c.width <= 1), 'label widths: ' + compact.map((c) => c.width).join(','));
       r.truthy(compact.every((c) => c.name.length > 0), 'the text node is still in the DOM');
+    });
+
+    /* Cycle-1 review finding. Opacity and content prove the tooltip is STYLED,
+       not that it is painted: the links row scrolls horizontally, a scrollable
+       axis forces the other axis from visible to auto, and the tooltip sits
+       4px below each link -- outside that scrollport. Measured before the fix:
+       scrollport bottom 74px, tooltip top 78px, fully clipped while every
+       assertion below still passed. So this walks every ancestor and asks
+       whether any of them clips at the tooltip's own box. */
+    await check('the compact tooltip is not clipped by any ancestor', async () => {
+      const seen = await page.evaluate(() => {
+        const links = document.querySelector('.accounting-suite-links');
+        const a = links.querySelector('a');
+        const after = getComputedStyle(a, '::after');
+        const box = a.getBoundingClientRect();
+        // The tooltip's own box: 4px below the link (margin-top), its own height.
+        const top = box.bottom + 4;
+        const bottom = top + parseFloat(after.fontSize) * 2;
+        let node = a.parentElement;
+        let clippedBy = null;
+        while (node && node !== document.documentElement) {
+          const cs = getComputedStyle(node);
+          if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
+            const b = node.getBoundingClientRect();
+            if (bottom > b.bottom + 0.5 || top < b.top - 0.5) {
+              clippedBy = (node.className && String(node.className)) || node.tagName;
+              break;
+            }
+          }
+          node = node.parentElement;
+        }
+        return { clippedBy, overflowX: getComputedStyle(links).overflowX,
+          overflowY: getComputedStyle(links).overflowY };
+      });
+      r.eq(seen.clippedBy, null, 'the tooltip is clipped by an ancestor');
+      // The cause, pinned directly: neither axis may establish a scrollport
+      // while the tooltip hangs below the row.
+      r.eq(seen.overflowY, 'visible');
+      r.eq(seen.overflowX, 'visible');
+    });
+
+    await check('the links row still scrolls when full labels are shown', async () => {
+      // The scrollport is only dropped in compact mode; with labels the row
+      // can be long enough to need it, and there is no tooltip to clip.
+      const overflow = await page.evaluate(() => {
+        const nav = document.querySelector('[data-accounting-suite]');
+        const links = nav.querySelector('.accounting-suite-links');
+        const wasCompact = nav.classList.contains('accounting-suite--compact');
+        nav.classList.remove('accounting-suite--compact');
+        const value = getComputedStyle(links).overflowX;
+        if (wasCompact) nav.classList.add('accounting-suite--compact');
+        return value;
+      });
+      r.eq(overflow, 'auto');
     });
 
     await check('compact draws its tooltip from data-label, on hover AND keyboard focus', async () => {

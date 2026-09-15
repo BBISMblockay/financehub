@@ -20,7 +20,15 @@
 .accounting-suite-compact:hover {color:var(--bcn-ink);border-color:var(--bcn-border-strong);}
 .accounting-suite-compact[aria-pressed="true"] {color:var(--bcn-accent);border-color:var(--bcn-accent-border);background:var(--bcn-accent-soft);}
 .accounting-suite-compact:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:2px;}
-.accounting-suite--compact .accounting-suite-links {gap:10px;}
+/* The links row scrolls horizontally when labels are shown, and a scrollable
+   axis forces the OTHER axis from visible to auto -- so the row becomes a
+   scrollport that clips its own descendants vertically. The compact tooltip
+   sits 4px BELOW each link, outside that box, so it reached opacity 1 and
+   painted nothing (measured: scrollport bottom 74px, tooltip top 78px).
+   Compact only exists on a fine pointer at 760px and up, where seven icons
+   never need to scroll, so the scrollport is dropped there and restored with
+   the labels in the touch/narrow block below. */
+.accounting-suite--compact .accounting-suite-links {gap:10px;overflow:visible;}
 .accounting-suite--compact a {padding:10px 7px 9px;border-radius:6px 6px 0 0;}
 .accounting-suite--compact .accounting-suite-text {position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
 .accounting-suite--compact a[aria-current="page"] {background:var(--bcn-accent-soft);}
@@ -41,6 +49,9 @@
   .accounting-suite-compact {display:none;}
   .accounting-suite--compact .accounting-suite-text {position:static;width:auto;height:auto;overflow:visible;clip:auto;}
   .accounting-suite--compact a::after {content:none;}
+  /* Labels are shown here, so the row can be long enough to need scrolling
+     again -- and with no tooltip there is nothing left to clip. */
+  .accounting-suite--compact .accounting-suite-links {overflow-x:auto;}
 }
 .accounting-workspace > .bcn-header {padding:10px 18px;gap:18px;align-items:center;justify-content:space-between;}
 .accounting-workspace .bcn-header-title {display:block;font-size:18px;font-weight:650;line-height:1.3;letter-spacing:-.025em;margin:0;}
