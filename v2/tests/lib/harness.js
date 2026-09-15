@@ -65,6 +65,10 @@ window.__QUERIES__ = [];
   function builder(table) {
     var q = { table: table, columns: null, order: null, range: null, filters: [], _op: 'select' };
 
+    function broken() {
+      return ((window.__FIXTURE_BROKEN__ || []).indexOf(table) !== -1);
+    }
+
     function rows() {
       var all = (window.__FIXTURE_TABLES__ || {})[table] || [];
       // Apply the gte/lte/eq filters the pages use, so a suite can assert on
@@ -131,7 +135,7 @@ window.__QUERIES__ = [];
           return;
         }
         var present = all.some(function (r) { return Object.prototype.hasOwnProperty.call(r, f.col); });
-        if (!present) return;
+        if (!present && f.op !== 'is') return;
         all = all.filter(function (r) {
           var v = r[f.col];
           if (f.op === 'gte') return String(v) >= String(f.val);
@@ -142,17 +146,39 @@ window.__QUERIES__ = [];
           if (f.op === 'gt')  return Number(v) > Number(f.val);
           if (f.op === 'ilike') return matchIlike(v, f.val);
           if (f.op === 'in') return (f.vals || []).map(String).indexOf(String(v)) !== -1;
+          if (f.op === 'is') {
+            if (f.val === null || f.val === 'null') return v === null || v === undefined;
+            return String(v) === String(f.val);
+          }
           return true;
         });
       });
+      // order() is recorded but not applied by the fixture layer, so a
+      // limit is honoured only alongside the order the suite fixture is
+      // already written in.
+      if (q.order && q.order.opts && q.order.opts.ascending === false) {
+        var col = q.order.col;
+        if (all.length && Object.prototype.hasOwnProperty.call(all[0], col)) {
+          all = all.slice().sort(function (a, b) { return String(b[col]) > String(a[col]) ? 1 : String(b[col]) < String(a[col]) ? -1 : 0; });
+        }
+      }
       if (q.range) all = all.slice(q.range[0], q.range[1] + 1);
+      if (q.limit) all = all.slice(0, q.limit);
       return all;
     }
 
     var api = {
-      select: function (cols) { q.columns = cols; window.__QUERIES__.push(q); return api; },
+      // PostgREST's count option, implemented for real: a head+exact count
+      // returns {data:null, count:N}, and a page that reads .count off a
+      // stubbed-to-rows select would silently read undefined and render 0 --
+      // which is a NUMBER, so it looks like a measurement rather than a gap.
+      select: function (cols, opts) { q.columns = cols; q.count = opts && opts.count; q.head = !!(opts && opts.head); window.__QUERIES__.push(q); return api; },
       order:  function (col, opts) { q.order = { col: col, opts: opts }; return api; },
       eq:     function (col, val) { q.filters.push({ op: 'eq',  col: col, val: val }); return api; },
+      // .is(col, null) is how a page asks for "this was never set" -- and a
+      // missing method here is a TypeError the page swallows, which reads
+      // exactly like the page failing to measure something.
+      is:     function (col, val) { q.filters.push({ op: 'is', col: col, val: val }); return api; },
       gte:    function (col, val) { q.filters.push({ op: 'gte', col: col, val: val }); return api; },
       lte:    function (col, val) { q.filters.push({ op: 'lte', col: col, val: val }); return api; },
       // Implemented for real: loadSplits() reads split lines with .in() on a
@@ -168,7 +194,7 @@ window.__QUERIES__ = [];
       // sales-verification.html ARE an or(), and a no-op here would let a
       // suite assert on rows the page never actually filtered.
       or:     function (expr) { q.filters.push({ op: 'or', expr: String(expr) }); return api; },
-      limit:  function () { return api; },
+      limit:  function (n) { q.limit = Number(n); return api; },
       range:  function (from, to) { q.range = [from, to]; return api; },
       insert: function (r) { q._op = 'insert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
       update: function (patch) { q._op = 'update'; q.patch = patch; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
@@ -177,16 +203,24 @@ window.__QUERIES__ = [];
       // A single-row read. Pages use both, and a missing method is a
       // TypeError that reads exactly like a page bug.
       single: function () {
+        if (broken()) return Promise.resolve({ data: null, error: { message: 'fixture: ' + table + ' is unreadable' } });
         var r = rows();
         return Promise.resolve(r.length
           ? { data: r[0], error: null }
           : { data: null, error: { message: 'no rows' } });
       },
       maybeSingle: function () {
+        if (broken()) return Promise.resolve({ data: null, error: { message: 'fixture: ' + table + ' is unreadable' } });
         var r = rows();
         return Promise.resolve({ data: r.length ? r[0] : null, error: null });
       },
-      then:   function (res, rej) { return Promise.resolve({ data: rows(), error: null }).then(res, rej); }
+      then:   function (res, rej) {
+        if (broken()) return Promise.resolve({ data: null, error: { message: 'fixture: ' + table + ' is unreadable' } }).then(res, rej);
+        var got = rows();
+        var out = { data: q.head ? null : got, error: null };
+        if (q.count) out.count = got.length;
+        return Promise.resolve(out).then(res, rej);
+      }
     };
     return api;
   }
@@ -341,14 +375,15 @@ async function startSuite(options = {}) {
     // fixtures are passed as source and rebuilt inside the page.
     const rpcSrc = {};
     Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
-    await page.addInitScript(({ t, rpc }) => {
+    await page.addInitScript(({ t, rpc, broken }) => {
       window.__FIXTURE_TABLES__ = t;
+      window.__FIXTURE_BROKEN__ = broken;
       window.__FIXTURE_RPC__ = {};
       Object.entries(rpc).forEach(([k, src]) => {
         // eslint-disable-next-line no-eval
         window.__FIXTURE_RPC__[k] = eval('(' + src + ')');
       });
-    }, { t: tables, rpc: rpcSrc });
+    }, { t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [] });
     await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(ready, { timeout: 20000 });
     return page;
