@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=4a48030d7efc"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
+<link rel="stylesheet" href="accounting-books.css?v=b218c1389d14"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=3d6bd267d0ca"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=bdc941881576"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -48,16 +48,15 @@
      archive look alike at a glance. -->
 <div id="historyKpis" class="bcn-kpi-band books-kpis" hidden></div>
 
-<div class="books-columns">
 <article class="books-card"><div class="books-row"><div><p class="books-eyebrow">Coverage</p><h2>Save a year</h2></div><button id="historyMoreYears" class="bcn-btn bcn-btn--ghost" type="button" hidden>Earlier years</button></div>
 <fieldset id="historyInputs"><div id="historyYears" class="books-timeline" role="group" aria-label="Archive a fiscal year"></div>
 <div class="books-year-actions"><span id="historyYearThrough" class="books-year-end" hidden><label id="historyYearThroughLabel" for="historyYearEnd">Through</label><input id="historyYearEnd" class="bcn-field" type="date"></span><button id="historyResume" class="bcn-btn" type="button" hidden>Resume unfinished archive</button></div>
 <p id="historyConnection" class="books-caption"></p></fieldset></article>
 
-<article class="books-card"><div class="books-row"><div><p class="books-eyebrow">Saved snapshots</p><h2 id="historySnapshotTitle">No snapshots yet</h2></div><button id="historyRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button></div>
-<label class="books-field">History window<select id="historyArchive" class="bcn-field"></select></label>
-<div id="historySummary"></div></article>
-</div>
+
+<details id="historySnapshots" class="books-card books-collapsible"><summary><span class="books-eyebrow">Saved snapshots</span><span id="historySnapshotTitle" class="books-collapsible-title">No snapshots yet</span><span id="historySnapshotState" class="books-collapsible-state"></span></summary>
+<div class="books-collapsible-body"><label class="books-field">History window<select id="historyArchive" class="bcn-field"></select></label>
+<div id="historySummary"></div><button id="historyRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button></div></details>
 
 <div id="historyStatus" class="bcn-status" role="status" aria-live="polite">Open Setup to seed your accounts, then save a year here.</div>
 
@@ -74,8 +73,9 @@
 <div id="historyExceptions" hidden></div>
 <div id="historyReconciliation"></div></article>
 
-<article id="historyDetail" class="books-card" hidden><div class="books-row"><div><p class="books-eyebrow">Historical ledger · read only</p><h2>Ledger detail</h2></div><label class="books-field">Account<select id="historyAccount" class="bcn-field"></select></label></div>
-<details class="books-note"><summary>How to read these amounts</summary><p>Amounts and running balances use QBO’s natural account sign: positive increases the account’s normal balance. These are historical report lines, not new Silo postings.</p></details>
-<div id="historyRows"></div><button id="historyMore" class="bcn-btn bcn-btn--ghost">Load more lines</button></article>
+<details id="historyDetail" class="books-card books-collapsible" hidden><summary><span class="books-eyebrow">Historical ledger · read only</span><span class="books-collapsible-title">Ledger detail</span><span id="historyDetailState" class="books-collapsible-state"></span></summary>
+<div class="books-collapsible-body"><label class="books-field">Account<select id="historyAccount" class="bcn-field"></select></label>
+<p class="books-caption">Amounts use QBO’s natural account sign: positive increases the account’s normal balance. These are historical report lines, not new Silo postings.</p>
+<div id="historyRows"></div><button id="historyMore" class="bcn-btn bcn-btn--ghost">Load more lines</button></div></details>
 </section>
 </div></main></div></body></html>

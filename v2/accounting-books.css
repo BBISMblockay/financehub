@@ -174,3 +174,18 @@
   .books-seg{flex:1 1 30%}
   .books-seg-now{display:none}
 }
+
+/* Sections that open when wanted. The summary carries what the card would have
+   said, so collapsing hides the bulk without hiding the state. */
+.books-collapsible>summary{cursor:pointer;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  list-style:none;margin:0}
+.books-collapsible>summary::-webkit-details-marker{display:none}
+.books-collapsible>summary::before{content:'▸';color:var(--bcn-ink-3);font-size:11px;transition:transform .12s}
+.books-collapsible[open]>summary::before{transform:rotate(90deg)}
+.books-collapsible-title{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--bcn-ink)}
+.books-collapsible-state{font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3);margin-left:auto}
+.books-collapsible-body{margin-top:14px}
+.books-collapsible .books-eyebrow{color:var(--bcn-ink-3)}
+/* A date must break as a whole or not at all: '2025-12-' above '31' reads as
+   two numbers. */
+.books-nowrap{white-space:nowrap}

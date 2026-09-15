@@ -3,6 +3,24 @@
   'use strict';
   const el=id=>document.getElementById(id);
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // A saved window's short name. '2025-01-01 – 2025-12-31 · 2026-09-15T06:31:29Z'
+  // in a dropdown is three facts wide and one of them is a machine timestamp.
+  // Rounding is only allowed where it claims nothing the dates do not say: a
+  // window ending mid-month is not a month, so it keeps its dates in full.
+  function windowLabel(start,end){
+   const s=/^(\d{4})-(\d{2})-(\d{2})$/.exec(start||''),e=/^(\d{4})-(\d{2})-(\d{2})$/.exec(end||'');
+   if(!s||!e)return `${start||'?'} → ${end||'?'}`;
+   const [sy,sm,sd]=s.slice(1).map(Number),[ey,em,ed]=e.slice(1).map(Number);
+   if(sm<1||sm>12||em<1||em>12)return `${start} → ${end}`;
+   if(sd!==1||ed!==new Date(Date.UTC(ey,em,0)).getUTCDate())return `${start} → ${end}`;
+   if(sy===ey&&sm===1&&em===12)return String(sy);
+   if(sy===ey&&sm===em)return `${MONTHS[sm-1]} ${sy}`;
+   if(sy===ey)return `${MONTHS[sm-1]} – ${MONTHS[em-1]} ${sy}`;
+   return `${MONTHS[sm-1]} ${sy} – ${MONTHS[em-1]} ${ey}`;
+  }
+  // The timestamp a row was saved at, to the day. Nobody reads the seconds.
+  const savedOn=value=>String(value??'').slice(0,10);
   const amount=value=>value==null?'—':Number(value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   /* What each reconciliation issue MEANS, and what it asks of a person.
      The archive counts a trial-balance account with no ledger lines as an
@@ -119,7 +137,10 @@
   function kpi(label,value,note,tone){
     return `<div class="bcn-kpi"><span class="bcn-kpi-label">${esc(label)}</span>`
       +`<span class="bcn-kpi-value${tone?' books-kpi-value--'+tone:''}">${esc(value)}</span>`
-      +(note?`<span class="books-kpi-note">${esc(note)}</span>`:'')+'</div>';
+      // A note is escaped text. The one exception is {html}, used where a value
+      // must control its own line breaks -- a date broken across lines reads as
+      // two numbers -- and every part of it is escaped before it gets here.
+      +(note?`<span class="books-kpi-note">${note.html??esc(note)}</span>`:'')+'</div>';
   }
   /* The figures a reader needs before any sentence. atRiskAccounts and the
      balance it affects are kept SEPARATE because retained detail can be
@@ -128,9 +149,11 @@
      had just flagged. */
   function kpis(a,sum){
     const notes=sum.flagged-sum.atRiskAccounts;
-    // The window is two dates, which will not fit on one line at KPI size, so
-    // it is deliberately split rather than left to wrap mid-date.
-    return kpi('Window',a.period_start,`→ ${a.period_end} · ${a.currency} · ${a.accounting_basis}`)
+    // The window's SHORT name leads and the exact dates sit under it, rather
+    // than a raw date at KPI size wrapping mid-value. The currency and basis
+    // moved to the snapshot card, which is where a reader asks what this
+    // particular archive was recorded in.
+    return kpi('Window',windowLabel(a.period_start,a.period_end),{html:`<span class="books-nowrap">${esc(a.period_start)}</span> → <span class="books-nowrap">${esc(a.period_end)}</span>`})
       +kpi('Ledger lines',Number(a.transaction_count||0).toLocaleString('en-US'),'retained in Silo')
       +kpi('Accounts checked',Number(sum.total||0).toLocaleString('en-US'),`${Number(sum.matched||0).toLocaleString('en-US')} tied exactly`)
       +kpi('Needs attention',String(sum.atRiskAccounts),
@@ -255,6 +278,7 @@
     let settings,archives=[],selected=null,offset=0,busy=false,wired=false,ready=false,unfinished=null;
     let shown=4; // fiscal years offered at a time; "Earlier years" asks for more
     let reconRows=[],showAllAccounts=false; // matched accounts are behind a toggle
+    let detailLoaded=false;                 // the ledger loads when its card is opened
     // `true` still means an error; a tone string ('pos'/'info'/'neg') lets a
     // good outcome read as one instead of as neutral chrome.
     const status=(message,tone=false)=>{const t=tone===true?'neg':(tone||'');
@@ -262,7 +286,7 @@
     async function work(fn){if(busy)return;busy=true;el('historyInputs').disabled=true;for(const id of ['historyArchive','historyAccount','historyMore','historyRefresh','historyResume'])el(id).disabled=true;
       try{await fn();}catch(e){status(`${e.message}. Your saved history is unchanged. Check the period and QBO connection, then retry or ask your administrator for help.`,true);}
       finally{busy=false;el('historyInputs').disabled=!settings||!ready;for(const id of ['historyArchive','historyAccount','historyMore','historyRefresh','historyResume'])el(id).disabled=false;}}
-    async function lines(reset=false){if(reset){offset=0;el('historyRows').innerHTML='';}if(!selected)return;
+    async function lines(reset=false){if(reset){offset=0;el('historyRows').innerHTML='';}if(!selected)return;detailLoaded=true;
       let query=db.from('qbo_history_lines').select('row_no,row_kind,qbo_account_id,account_name,transaction_date,qbo_transaction_id,transaction_type,document_number,counterparty,memo,split_account_id,split_account_name,natural_amount,natural_balance').eq('company_entity_id',companyId).eq('import_id',selected.id);
       if(el('historyAccount').value)query=query.eq('qbo_account_id',el('historyAccount').value);
       const rows=await result(query.order('row_no').range(offset,offset+99));
@@ -310,7 +334,7 @@
     async function show(){
       selected=archives.find(a=>a.id===el('historyArchive').value)||null;
       el('historyDetail').hidden=!selected;el('historyChecks').hidden=!selected;
-      if(!selected){el('historyKpis').hidden=true;el('historySnapshotTitle').textContent='No snapshots yet';
+      if(!selected){el('historyKpis').hidden=true;el('historySnapshotTitle').textContent='No snapshots yet';el('historySnapshotState').textContent='';el('historyDetailState').textContent='';
         status(settings?'Pick a year above to save it.':'Open Setup to prepare your opening balances first.');
         el('historySummary').innerHTML='<p class="books-caption">Nothing saved yet.</p>';return;}
       const a=selected;showAllAccounts=false;
@@ -322,11 +346,13 @@
         :`${a.exception_count} account exception${a.exception_count===1?'':'s'} to review`
           +(kinds===1?` — all of one kind${sum.balancesAllTie?', and no closing balance is affected':''}`
             :sum.balancesAllTie?` across ${kinds} kinds — no closing balance is affected`:'');
-      el('historySnapshotTitle').textContent=`${a.period_start} → ${a.period_end}`;
+      el('historySnapshotTitle').textContent=windowLabel(a.period_start,a.period_end);
+      el('historySnapshotState').textContent=`Saved ${savedOn(a.created_at)}`;
+      el('historyDetailState').textContent=`${a.reconciliation.length} account${a.reconciliation.length===1?'':'s'}`;
       el('historyKpis').innerHTML=kpis(a,sum);
       el('historyKpis').hidden=false;
       el('historySummary').innerHTML=`<p class="books-caption">${esc(shape)}</p>`
-        +`<p class="books-caption">Saved ${esc(a.created_at)}</p>`;
+        +`<p class="books-caption">${esc(a.currency)} · ${esc(a.accounting_basis)} · saved ${esc(savedOn(a.created_at))}</p>`;
       el('historyAccount').innerHTML='<option value="">All accounts</option>'+a.reconciliation.map(r=>`<option value="${esc(r.qbo_account_id)}">${esc(r.account_name)}</option>`).join('');
       el('historyExceptions').innerHTML=explain(sum);
       el('historyExceptions').hidden=!sum.flagged;
@@ -341,7 +367,10 @@
       // reading is what buried the real ones.
       reconRows=rows;
       renderRecon();
-      await lines(true);
+      // The ledger card starts closed, so its lines are not fetched until it is
+      // opened. Selecting a snapshot used to pull a page of ledger rows nobody
+      // had asked to see.
+      el('historyDetail').open=false;detailLoaded=false;el('historyRows').innerHTML='';
       // The figures are in the band above; the status says what to DO.
       status(!a.exception_count?'Saved. Every closing balance tied to the trial balance.'
         :sum.balancesAllTie?`Saved. Every closing balance tied; ${sum.exceptions} account${sum.exceptions===1?' carries a note':'s carry notes'} about detail that could not be compared.`
@@ -359,7 +388,7 @@
       el('historyResume').hidden=!unfinished;
       if(unfinished)el('historyResume').textContent=`Resume unfinished archive (${Number(unfinished.rows_done).toLocaleString('en-US')} of ${Number(unfinished.rows_total).toLocaleString('en-US')} rows checked)`;
       ready=true;
-      el('historyArchive').innerHTML=archives.length?archives.map(a=>`<option value="${esc(a.id)}">${esc(a.period_start)} – ${esc(a.period_end)} · ${a.exception_count?'Exceptions':'Matched'} · ${esc(a.created_at)}</option>`).join(''):'<option value="">No saved history</option>';
+      el('historyArchive').innerHTML=archives.length?archives.map(a=>`<option value="${esc(a.id)}">${esc(windowLabel(a.period_start,a.period_end))} · ${a.exception_count?esc(a.exception_count)+' exception'+(a.exception_count===1?'':'s'):'Matched'}</option>`).join(''):'<option value="">No saved history</option>';
       if(prefer&&archives.some(a=>a.id===prefer))el('historyArchive').value=prefer;
       // Never print `undefined` at a reader: an absent setting is omitted.
       el('historyConnection').textContent=settings
@@ -432,6 +461,7 @@
     if(!wired){wired=true;
       el('historyRefresh').addEventListener('click',()=>work(()=>refresh(selected?.id)));
       el('historyArchive').addEventListener('change',()=>work(show));el('historyAccount').addEventListener('change',()=>work(()=>lines(true)));el('historyMore').addEventListener('click',()=>work(()=>lines()));
+      el('historyDetail').addEventListener('toggle',()=>{if(el('historyDetail').open&&!detailLoaded)work(()=>lines(true));});
       el('historyYears').addEventListener('click',e=>{
         const t=e&&e.target;const b=t&&typeof t.closest==='function'?t.closest('button[data-start]'):t;
         const at=k=>b&&(b.dataset?b.dataset[k]:b.getAttribute&&b.getAttribute('data-'+k));
@@ -464,5 +494,5 @@
     }
     await work(()=>refresh());
   }
-  window.SiloQboHistory={mount,summarise,classify,issueLabel,fiscalYears,explain,ISSUES};
+  window.SiloQboHistory={mount,summarise,classify,issueLabel,fiscalYears,explain,windowLabel,ISSUES};
 })();
