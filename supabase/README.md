@@ -561,6 +561,57 @@ that already held such a row the `ALTER` fails and the migration stops before th
 RPC is re-created (production held no archives when written). Additive; the 20260913 migration is untouched. Apply after it. No
 Edge Function change. `verify_v2_schema.sql` reports STALE until applied.
 
+### Card transaction splits (20260915100000)
+
+`20260915100000_card_transaction_splits.sql` lets one card or bank transaction be
+coded across several accounts. A coded row carried exactly one `qbo_account_id`
+and the approval snapshot built exactly one journal line per row, so a $25,187.68
+loan payment that is part principal and part interest had three bad options: all
+to the liability (overstating principal paid), all to interest (never reducing
+the loan), or excluding the row and hand-writing a journal adjustment every
+month with nothing linking the two. The same shape covers a card payment with a
+fee, payroll drafts and a charge spanning two cost centres.
+
+`card_transaction_splits` holds the lines: a signed `numeric(14,2)` that may not
+be zero, its own account, location, entity and memo, and a composite FK to
+`(card_transactions.id, company_entity_id)` so a split can never point across
+tenants. **The lines must total the parent to the cent**, which is the whole
+safety property -- the settlement leg of the journal entry is computed from the
+batch total, so a split that summed to anything else would unbalance the entry or
+move money the statement never moved. It is enforced three times: in
+`set_card_transaction_splits`, by the deferred constraint trigger
+`card_splits_must_tie` that a service-role write cannot dodge, and again by
+`approve_card_import_batch` before it freezes the snapshot. A split row's own
+`qbo_account_id` is null and `card_transaction_splits_still_tie` keeps it that
+way, so a query reading only that column returns "no account" rather than one
+account standing for several.
+
+`card_split_rules` / `card_split_rule_lines` learn the SHAPE of a recurring
+split -- the ordered accounts, matched on merchant or card name -- and
+**deliberately have no amount column at all**: an amortizing payment divides
+differently every month, so a remembered amount would be wrong by construction
+and would look authoritative while being wrong. `suggest_card_transaction_splits`
+returns those lines with `amount` null, and refuses to suggest anything when a
+merchant rule and a card-name rule disagree, the same stance `card_coding_rules`
+takes on a conflicting single-account coding. `verify_v2_schema.sql` fails
+CRITICAL if any amount-shaped column appears on either rule table.
+
+`card_coding_effective_lines` (security_invoker) is the one definition of a
+posted line -- the split lines of a split row, or the single line of an unsplit
+row -- and `approve_card_import_batch` is re-created from `20260912000000` to
+validate and aggregate through it. Duplicating the account/location/entity
+checks for splits would have been the obvious change and the wrong one: the next
+check added to one copy would be missing from the other, and the gap would be
+invisible until a split line posted to an account nobody validated.
+
+Writes are RPC-only (`revoke all`, `grant select`), finance-gated by
+`can_manage_journal_entries()`, and refused once the batch leaves `draft` /
+`categorized`. UI: the split editor in `v2/card-splits.js`, opened from the
+category cell and the review panel on `/v2/transactions.html`. Tests:
+`scripts/tests/card-splits-database.test.mjs` (28 cases, two mutations) and
+`scripts/tests/card-splits-ui.test.mjs`. Verify: `Card transaction splits`.
+Apply after `20260912000000`. No Edge Function change.
+
 ### Profiles active-company scope (20260913054723)
 
 `20260913054723_profiles_active_company_scope.sql` scopes profile visibility to

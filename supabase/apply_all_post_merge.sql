@@ -18734,3 +18734,10 @@ $c$select (select count(*) from v_po_header_summary
 -- settled from the running balance, cell-level error messages. Additive;
 -- re-creates archive_qbo_ledger. Same test file as the history migration.
 \i migrations/20260914220000_qbo_history_number_formats.sql
+
+-- One card or bank transaction split across several accounts (a loan payment's
+-- principal and interest). Splits are RPC-only writes that must total their
+-- transaction to the cent, the posting snapshot reads one shared definition of
+-- an effective journal line, and a learned rule remembers accounts, never
+-- amounts.
+\i migrations/20260915100000_card_transaction_splits.sql

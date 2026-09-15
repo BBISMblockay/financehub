@@ -193,7 +193,7 @@ try {
     // of the file, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915100000_card_transaction_splits.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }

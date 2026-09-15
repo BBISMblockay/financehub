@@ -180,6 +180,36 @@
       padding: 18px; text-align: center; font-size: 12px; color: var(--bcn-ink-3);
       background: var(--bcn-sunken); cursor: pointer; }
     .cc-drop--over { border-color: var(--bcn-accent); background: rgba(37,99,235,.06); }
+
+    /* Split editor. Wider than the row drawer because a split line carries an
+       account, a location, an entity, a memo and an amount, and squeezing
+       those into 460px is how someone mis-reads which amount is which. */
+    .txn-split-drawer { position: fixed; inset: 0; z-index: 70; display: flex;
+      align-items: flex-start; justify-content: center; padding: 24px 12px;
+      background: rgba(15,23,42,.42); overflow: auto; }
+    .txn-split-drawer[hidden] { display: none; }
+    .txn-split-panel { width: 1040px; max-width: 100%; background: var(--bcn-panel);
+      border: 1px solid var(--bcn-border); border-radius: 12px;
+      box-shadow: 0 18px 48px rgba(15,23,42,.22); }
+    .txn-split-head { display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--bcn-border); }
+    .txn-split-body { padding: 14px 16px; }
+    .txn-split-body table { width: 100%; }
+    .txn-split-no { font-family: var(--bcn-mono); color: var(--bcn-ink-3); width: 28px; }
+    .txn-split-amount { text-align: right; }
+    .txn-split-acts { white-space: nowrap; }
+    .txn-split-foot { display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken); }
+    .txn-split-totals { display: flex; gap: 18px; flex-wrap: wrap; }
+    .txn-split-total { font-size: 11.5px; color: var(--bcn-ink-3); }
+    .txn-split-total b { display: block; font-family: var(--bcn-mono); font-size: 15px;
+      color: var(--bcn-ink); }
+    .txn-split-total.is-open b { color: var(--bcn-neg); }
+    .txn-split-total.is-tied b { color: var(--bcn-pos); }
+    .txn-split-problems { margin: 10px 0 0; font-size: 11.5px; color: var(--bcn-neg); }
+    .txn-split-problems ul { margin: 0; padding-left: 18px; }
+    .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
   <link rel="stylesheet" href="./transactions-workspace.css?v=e152f09a7a28" />
@@ -478,6 +508,48 @@
     </div>
     <div class="cc-drawer-body" id="rawBody"></div>
   </aside>
+
+  <!-- One transaction, several accounts. The amounts are typed against the
+       statement every time: a saved split remembers which accounts, never how
+       much, because an amortizing payment divides differently each month. -->
+  <div class="txn-split-drawer" id="splitDrawer" hidden>
+    <div class="txn-split-panel" role="dialog" aria-modal="true" aria-labelledby="splitTitle">
+      <div class="txn-split-head">
+        <div>
+          <div class="cc-title" id="splitTitle">Split across accounts</div>
+          <div class="cc-sub" id="splitSub"></div>
+        </div>
+        <button class="bcn-btn" id="btnSplitClose" type="button">Close</button>
+      </div>
+      <div class="txn-split-body">
+        <div class="bcn-status" id="splitStatus" hidden></div>
+        <table class="bcn-table">
+          <thead><tr>
+            <th></th><th>Account</th><th>Location</th><th>Customer or vendor</th>
+            <th>Memo</th><th class="num">Amount</th><th></th>
+          </tr></thead>
+          <tbody id="splitLines"></tbody>
+        </table>
+        <div class="txn-split-problems" id="splitProblems" hidden></div>
+      </div>
+      <div class="txn-split-foot">
+        <div class="txn-split-totals" id="splitTotals"></div>
+        <div class="cc-row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="bcn-btn" id="btnSplitAdd" type="button">Add line</button>
+          <button class="bcn-btn" id="btnSplitSuggest" type="button">Apply saved split</button>
+          <label style="display:flex;gap:6px;align-items:center;font-size:11.5px">
+            <input type="checkbox" id="splitLearn" /> Remember these accounts for
+            <select class="bcn-field" id="splitMatch" aria-label="What a saved split matches on">
+              <option value="merchant">this merchant</option>
+              <option value="card_name">this card</option>
+            </select>
+          </label>
+          <button class="bcn-btn bcn-btn--danger" id="btnSplitClear" type="button">Remove split</button>
+          <button class="bcn-btn bcn-btn--primary" id="btnSplitSave" type="button">Save split</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="../pages/config.js"></script>
@@ -488,6 +560,7 @@
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
+<script src="card-splits.js?v=050d8f3d5bed"></script>
 <script>
 (function () {
   'use strict';
@@ -534,6 +607,7 @@
   let workspace = null;
   let tilesUi = null;
   let dateBrowse = false, dateRows = [], dateLoading = false, dateError = '', dateGeneration = 0;
+  let splitsError = '';
   let journalPreviewBatch=null;
   let dateContext = null, dateAiProgress = '';
   let dateStorage;try {dateStorage=window.sessionStorage;}catch{}
@@ -568,7 +642,13 @@
     codingBusy: false,
     dirty: new Set(),
     selected: new Set(),
+    // transaction id -> its card_transaction_splits rows. A split row's own
+    // qbo_account_id is null, so anything reading only that column sees
+    // "no account" rather than one account standing for several.
+    splits: new Map(),
   };
+  const splitsFor = (t) => (t && state.splits.get(t.id)) || null;
+  const isSplit = (t) => !!(splitsFor(t) || []).length;
 
   // ---------------------------------------------------------------- CSV
 
@@ -750,6 +830,35 @@
     }
     state.txns = rows;
     state.dirty.clear();
+    await loadSplits(rows);
+  }
+
+  /* Split lines for the rows on screen. Read separately rather than through a
+     join so an unreadable splits table -- a migration not yet applied, say --
+     costs the split display and nothing else; the page still codes ordinary
+     rows. What it must never do is silently show a split row as uncoded with
+     no account, so a failure says so. */
+  async function loadSplits(rows) {
+    const ids = (rows || []).map((t) => t.id);
+    state.splits = new Map();
+    if (!ids.length || !_co?.id) return;
+    try {
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data, error } = await sb.from('card_transaction_splits')
+          .select('*').eq('company_entity_id', _co.id)
+          .in('transaction_id', ids.slice(i, i + 200)).order('line_no');
+        if (error) throw new Error(error.message);
+        for (const line of data || []) {
+          if (!state.splits.has(line.transaction_id)) state.splits.set(line.transaction_id, []);
+          state.splits.get(line.transaction_id).push(line);
+        }
+      }
+      splitsError = '';
+    } catch (e) {
+      splitsError = e.message;
+      setStatus('Split lines could not load — ' + e.message
+        + '. Transactions split across several accounts will read as having no account until this is resolved; do not approve the journal entry.', 'neg', 15000);
+    }
   }
 
   // ------------------------------------------------------- cached options
@@ -1284,6 +1393,10 @@
     for (const t of (silent ? state.txns : reviewDateRows())) {
       if(!rowEditable(t))continue;
       if (t.status === 'excluded' || !bank.isAvailable(t)) continue;
+      // A split row has no single account for a rule to set, and setting one
+      // is exactly what the database refuses. Its accounts were chosen line
+      // by line; a merchant rule does not outrank that.
+      if (isSplit(t)) continue;
       if (t.qbo_account_id && t.coding_source === 'manual') continue;
       const { rule, conflict } = ruleMatches(t);
 
@@ -1461,14 +1574,14 @@
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
-        <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
       <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="6"><div class="txn-detail-panel">
         <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
-        <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button></section>
+        <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t)?'<span class="cc-note">set per split line</span>':cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t)?'<span class="cc-note">set per split line</span>':entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button><button class="bcn-btn" data-split title="Code this transaction across several accounts">${isSplit(t)?'Edit split':'Split across accounts'}</button></section>
       </div></td></tr>`;
     }).join('') + '</tbody>';
 
@@ -1522,6 +1635,74 @@
       }).join('');
   }
 
+  /* A split row has no single account, so the category cell says what it
+     actually is and opens the editor rather than the one-account select --
+     which the database would refuse anyway, since a row carrying splits may
+     not also carry an account. */
+  /* Open the split editor for one row.
+     The split RPC writes straight to the database, so an unsaved edit on this
+     same row would be saved afterwards through apply_card_coding and set a
+     single account on a row that now has splits -- which the database
+     refuses, leaving the person with an error they did not cause. Ask for
+     that one row to be saved or discarded first. */
+  function openSplitEditor(t) {
+    if (state.dirty.has(t.id)) {
+      return setStatus('Save or discard your changes to this transaction before splitting it.', 'neg', 8000);
+    }
+    if (t.status === 'excluded') {
+      return setStatus('This transaction is excluded from the entry. Include it before splitting it.', 'neg', 8000);
+    }
+    const connectionId = batchSource()?.qbo_connection_id;
+    window.SiloCardSplits.open({
+      db: sb,
+      txn: t,
+      splits: splitsFor(t) || [],
+      options: { accounts: _acctOptions, locations: _locOptions, entities: _entityOptions },
+      refs: {
+        accountName: (id) => refsForConnection(state.allAccounts, connectionId).find((a) => a.id === id)?.name || '',
+        accountType: (id) => refsForConnection(state.allAccounts, connectionId).find((a) => a.id === id)?.type || null,
+        locationName: (id) => refsForConnection(state.locations, connectionId).find((l) => l.id === id)?.name || '',
+        entityName: (type, id) => refsForConnection(state.entities, connectionId).find((e) => e.id === id && e.type === type)?.name || '',
+      },
+      onSaved: async (result) => {
+        // Re-read rather than patching from the RPC's summary: the database
+        // resolved the account and location names and set the row's status,
+        // and a preview built from a guess at those is a preview of
+        // something else.
+        await refreshSplitRow(t.id);
+        setStatus(result && result.lines
+          ? `Split saved — ${result.lines} lines totalling ${money(Number(result.total))}.`
+          : 'Split removed. The transaction needs a category again.', 'pos', 6000);
+      },
+    });
+  }
+
+  /* Re-read one transaction and its split lines after the split RPC. */
+  async function refreshSplitRow(id) {
+    const { data, error } = await sb.from('card_transactions')
+      .select('*').eq('company_entity_id', _co.id).eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) {
+      const patch = (rows) => rows.map((row) => (row.id === id ? { ...row, ...data } : row));
+      state.txns = patch(state.txns);
+      dateRows = patch(dateRows);
+    }
+    const { data: lines, error: linesError } = await sb.from('card_transaction_splits')
+      .select('*').eq('company_entity_id', _co.id).eq('transaction_id', id).order('line_no');
+    if (linesError) throw new Error(linesError.message);
+    if ((lines || []).length) state.splits.set(id, lines);
+    else state.splits.delete(id);
+    suggestions.delete(id);
+    journalPreviewBatch = null;
+    renderCoding();
+    renderEntry();
+  }
+
+  function splitCell(t) {
+    const lines = splitsFor(t) || [];
+    return `<button class="cc-cell" data-split title="${esc(window.SiloCardSplits.describe(lines))}">Split · ${lines.length} accounts</button>`;
+  }
+
   function cellButton(name, field) {
     return name
       ? `<button class="cc-cell" data-edit="${field}">${esc(name)}</button>`
@@ -1559,6 +1740,11 @@
   }
 
   function confidenceChip(t) {
+    if (isSplit(t)) {
+      const lines = splitsFor(t) || [];
+      return '<span class="cc-chip cc-chip--split">split</span>'
+        + `<div class="cc-note">${esc(lines.slice().sort((a,b)=>a.line_no-b.line_no).map((l)=>`${l.qbo_account_name || l.qbo_account_id} ${money(Number(l.amount))}`).join(' · '))}</div>`;
+    }
     if (t.coding_conflict) {
       return '<span class="cc-chip cc-chip--low">card vs merchant</span>'
         + `<div class="cc-note">${esc(t.coding_conflict)}</div>`;
@@ -1654,6 +1840,8 @@
       const rows=sourceId && !sourceId.startsWith('plaid:') ? await window.SiloTransactionDates.read(sb,company,sourceId,state.batches,range) : [];
       if(generation!==dateGeneration || company!==_co?.id)return;
       dateRows=rows;
+      await loadSplits(rows);
+      if(generation!==dateGeneration || company!==_co?.id)return;
       for(const t of rows){const s=suggestions.get(t.id);if(s?.dateRevision && s.dateRevision!==window.SiloTransactionDates.fingerprint(t))suggestions.delete(t.id);}
     } catch(error) {if(generation===dateGeneration) dateError=error.message;}
     finally {if(generation===dateGeneration){dateLoading=false;renderCoding();renderEntry();}}
@@ -1684,6 +1872,10 @@
       t.qbo_location_name, t.entity_name, t.card_name, t.cardholder, t.cardholder_email,
       t.vendor_name, t.memo, t.exclude_reason,
       batchSource()?.display_name, String(t.amount), t.txn_date,
+      // A split row's accounts are on its lines, so searching for an account
+      // name has to reach them or a split disappears from its own category
+      // search.
+      ...(splitsFor(t) || []).flatMap((l) => [l.qbo_account_name, l.qbo_location_name, l.memo]),
     ].some((v) => String(v ?? '').toLowerCase().includes(q));
   }
 
@@ -1729,11 +1921,24 @@
     return workingRows().filter(t=>state.selected.has(t.id) && rowEditable(t));
   }
 
+  /* Bulk coding applies to rows that carry ONE account. A split row's
+     accounts, locations and entities belong to its individual lines, and
+     writing a single account onto it is what the database refuses -- so it is
+     skipped and the skip is reported rather than failing at save time. */
+  function bulkCodableTxns() {
+    const all = selectedTxns();
+    const codable = all.filter((t) => !isSplit(t));
+    return { codable, skipped: all.length - codable.length };
+  }
+  const splitSkipNote = (skipped) => skipped
+    ? ` ${skipped} split transaction${skipped === 1 ? ' was' : 's were'} left alone — open a split to change its lines.` : '';
+
   el('bulkAccount').addEventListener('change', (e) => {
     if (!requireEditable()) return;
     const id = e.target.value;
     if (!id) return;
-    for (const t of selectedTxns()) {
+    const { codable, skipped } = bulkCodableTxns();
+    for (const t of codable) {
       suggestions.delete(t.id);
       t.qbo_account_id = id;
       t.qbo_account_name = acctName(id);
@@ -1751,7 +1956,7 @@
       state.dirty.add(t.id);
     }
     e.target.value = '';
-    setStatus(`Set ${state.selected.size} rows to ${acctName(id)}.`, 'pos', 4000);
+    setStatus(`Set ${codable.length} row${codable.length === 1 ? '' : 's'} to ${acctName(id)}.${splitSkipNote(skipped)}`, skipped ? 'info' : 'pos', skipped ? 8000 : 4000);
     renderCoding();
     renderEntry();
   });
@@ -1760,12 +1965,14 @@
     if (!requireEditable()) return;
     const id = e.target.value;
     if (!id) return;
-    for (const t of selectedTxns()) {
+    const { codable, skipped } = bulkCodableTxns();
+    for (const t of codable) {
       t.qbo_location_id = id;
       t.qbo_location_name = locName(id);
       state.dirty.add(t.id);
     }
     e.target.value = '';
+    if (skipped) setStatus(`Set ${codable.length} row${codable.length === 1 ? '' : 's'} to ${locName(id)}.${splitSkipNote(skipped)}`, 'info', 8000);
     renderCoding();
     renderEntry();
   });
@@ -1775,7 +1982,7 @@
     const [type, id] = (e.target.value || '').split(':');
     if (!id) return;
     const name = refsForConnection(state.entities).find((x) => x.id === id && x.type === type)?.name || null;
-    const rows = selectedTxns();
+    const { codable: rows, skipped } = bulkCodableTxns();
     for (const t of rows) {
       t.entity_type = type; t.entity_qbo_id = id; t.entity_name = name;
       state.dirty.add(t.id);
@@ -1790,8 +1997,9 @@
     setStatus(
       `Set ${rows.length} row${rows.length === 1 ? '' : 's'} to ${name}.`
       + (spare ? ` ${spare} of them ${spare === 1 ? 'is' : 'are'} on an account that does not `
-        + 'need an entity — clear those if they were not meant to carry one.' : ''),
-      spare ? 'info' : 'pos', spare ? 9000 : 4000);
+        + 'need an entity — clear those if they were not meant to carry one.' : '')
+      + splitSkipNote(skipped),
+      spare || skipped ? 'info' : 'pos', spare || skipped ? 9000 : 4000);
     renderCoding();
     renderEntry();
   });
@@ -1924,6 +2132,9 @@
     }
 
     if (!requireEditable() || !rowEditable(t0)) return;
+
+    if (e.target.closest('[data-split]')) { openSplitEditor(t0); return; }
+
     const edit = e.target.closest('[data-edit]');
     if (edit) {
       openEditor(edit.closest('td'), t0, edit.dataset.edit);
@@ -1935,7 +2146,8 @@
     const t = workingRows().find((x) => x.id === tr.dataset.txn);
     if (!t) return;
     if (t.status === 'excluded') {
-      t.status = t.qbo_account_id ? 'coded' : 'uncoded';
+      // A split row has no qbo_account_id of its own and is still coded.
+      t.status = (t.qbo_account_id || isSplit(t)) ? 'coded' : 'uncoded';
       t.exclude_reason = null;
     } else {
       const why = prompt('Why is this row not part of the entry?', t.exclude_reason || '');
@@ -1995,8 +2207,13 @@
 
   el('btnRawClose').addEventListener('click', () => { el('rawDrawer').hidden = true; });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') el('rawDrawer').hidden = true;
+    if (e.key !== 'Escape') return;
+    // Escape closes one thing at a time, innermost first: the split editor
+    // sits over the row drawer.
+    if (window.SiloCardSplits.isOpen()) { window.SiloCardSplits.close(); return; }
+    el('rawDrawer').hidden = true;
   });
+  window.SiloCardSplits.mount({});
 
   async function saveCoding() {
     if (!requireEditable()) return;
@@ -2292,7 +2509,7 @@
       if(dateBrowse) {
         state.codingBusy=true;renderCoding();
         const rows=await window.SiloTransactionDates.read(sb,_co.id,workspace.selected(),state.batches,dateContext.range);
-        dateRows=rows;state.dirty.clear();state.selected.clear();suggestions.clear();journalPreviewBatch=null;return;
+        dateRows=rows;await loadSplits(rows);state.dirty.clear();state.selected.clear();suggestions.clear();journalPreviewBatch=null;return;
       }
       await loadBatches();
       state.batch = state.batches.find((batch) => batch.id === state.batch.id) || state.batch;
@@ -2310,22 +2527,28 @@
   function buildEntry() {
     if (!state.batch) return null;
     const src = state.sources.find((s) => s.id === state.batch.source_id);
-    const included = state.txns.filter((t) => t.status === 'coded' && t.qbo_account_id);
+    // A split row carries no account of its own, so "coded with an account"
+    // is not the test any more: it contributes its split lines. This mirrors
+    // card_coding_effective_lines, which is what the approval snapshot
+    // aggregates -- if the preview used a different rule, a split row would
+    // vanish from the preview and still post.
+    const included = state.txns.filter((t) => t.status === 'coded' && (t.qbo_account_id || isSplit(t)));
 
-    let lines = included.map((t) => ({
-      account_id: t.qbo_account_id,
-      account_name: t.qbo_account_name,
-      entity_id: t.entity_qbo_id,
-      entity_name: t.entity_name,
-      entity_type: t.entity_type,
-      needs_entity: NEEDS_ENTITY.has(acctType(t.qbo_account_id) || ''),
-      location_id: t.qbo_location_id || src?.default_qbo_location_id || null,
-      location_name: t.qbo_location_name || src?.default_qbo_location_name || null,
+    let lines = included.flatMap((t) => window.SiloCardSplits.effectiveLines(t, splitsFor(t)).map((line) => ({
+      account_id: line.qbo_account_id,
+      account_name: line.qbo_account_name,
+      entity_id: line.entity_qbo_id,
+      entity_name: line.entity_name,
+      entity_type: line.entity_type,
+      needs_entity: NEEDS_ENTITY.has(acctType(line.qbo_account_id) || ''),
+      location_id: line.qbo_location_id || src?.default_qbo_location_id || null,
+      location_name: line.qbo_location_name || src?.default_qbo_location_name || null,
       // A charge debits the expense; a refund credits it.
-      debit: t.amount >= 0 ? t.amount : 0,
-      credit: t.amount < 0 ? -t.amount : 0,
-      description: [t.txn_date, t.description].filter(Boolean).join(' · ').slice(0, 4000),
-    }));
+      debit: line.amount >= 0 ? line.amount : 0,
+      credit: line.amount < 0 ? -line.amount : 0,
+      description: [t.txn_date, t.description, line.is_split ? (line.memo || `split ${line.line_no}`) : null]
+        .filter(Boolean).join(' · ').slice(0, 4000),
+    })));
 
     if (el('entryGroup').checked) {
       const g = new Map();
@@ -2447,12 +2670,17 @@
     if (uncoded) blockers.push(`${uncoded} row${uncoded === 1 ? ' is' : 's are'} still uncoded`);
     // QuickBooks refuses the WHOLE entry over one AR/AP line with no entity, so
     // it is caught here rather than after a person has approved it.
-    const noEntity = state.txns.filter((t) =>
-      t.status === 'coded' && needsEntity(t) && !t.entity_qbo_id).length;
+    // Counted over the LINES the entry will post, not over the rows: a split
+    // row has no account of its own, so a row-level check would pass a split
+    // line sitting on a receivable with nobody on it.
+    const noEntity = e.lines.filter((l) => l.needs_entity && !l.entity_id).length;
     if (noEntity) {
-      blockers.push(`${noEntity} row${noEntity === 1 ? '' : 's'} on a receivable or payable `
+      blockers.push(`${noEntity} journal line${noEntity === 1 ? '' : 's'} on a receivable or payable `
         + `account ${noEntity === 1 ? 'has' : 'have'} no entity — QuickBooks requires one`);
     }
+    // The preview is built from the split lines that were read. If they could
+    // not be read, it is missing lines and must not be approved.
+    if (splitsError) blockers.push('split lines could not be read, so this preview is incomplete — reload the page');
     if (!balanced) blockers.push('the entry does not balance');
     if (!state.batch.entry_date) blockers.push('no entry date is set');
     if (state.dirty.size) blockers.push('there are unsaved coding changes');

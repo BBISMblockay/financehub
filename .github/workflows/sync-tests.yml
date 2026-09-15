@@ -48,6 +48,7 @@ on:
       - 'v2/qbo-history.js'
       - 'supabase/migrations/*qbo_historical_ledger.sql'
       - 'supabase/migrations/*qbo_history_number_formats.sql'
+      - 'supabase/migrations/*card_transaction_splits.sql'
       - 'supabase/functions/plaid-finance/**'
       - 'supabase/functions/card-categorize/**'
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
@@ -65,6 +66,7 @@ on:
       - 'v2/transactions.html'
       - 'v2/transactions-tiles.js'
       - 'v2/transaction-dates.js'
+      - 'v2/card-splits.js'
       - 'v2/transactions-workspace.css'
       - 'v2/bank-workspace.js'
       - 'v2/accounting-suite*'
@@ -134,7 +136,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs
+        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
@@ -249,6 +251,13 @@ jobs:
 
       - name: Execute retained QBO ledger and reconciliation regressions
         run: node scripts/tests/qbo-history-database.test.mjs
+
+      # One transaction across several accounts (a loan payment's principal and
+      # interest): the lines must total the transaction, the posted entry must
+      # carry one line per split line and stay balanced, and a learned rule must
+      # remember the accounts without ever remembering an amount.
+      - name: Execute card transaction split regressions
+        run: node scripts/tests/card-splits-database.test.mjs
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs
