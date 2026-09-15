@@ -398,8 +398,17 @@ are as-at figures.
 
 **What was done about it.** `/v2/accounting-books.html` offers the archivable
 **fiscal years as buttons** (`2025`, `2024`, …), each resolving to that fiscal
-year's own window and the most recent one clamped to the day before the
-accounting start date. The window that cannot reconcile is therefore not
+year's own window.
+
+**Only the START is constrained.** The trial balance is as-at its end date, so
+any end date inside the fiscal year reconciles just as well as the year end. The
+year still running therefore carries its own **Through** control, defaulting to
+the day before the accounting start date and bounded by the year: a company that
+has closed June but not July archives through June rather than being forced to
+the latest possible day. An end date outside the year is refused by name rather
+than silently clamped, because a clamped window would reconcile perfectly and
+answer a question nobody asked. A completed year archives whole and ignores that
+control. The window that cannot reconcile is therefore not
 reachable, rather than merely refused after the fact. Manual From/Through stays
 for anyone who needs a different window and can read the result knowing the
 above. Both paths run the same archive function, so they cannot drift.

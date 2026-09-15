@@ -111,3 +111,10 @@
 .books-year-state{font-size:11px;color:var(--bcn-ink-2)}
 .books-year.is-saved .books-year-state{color:var(--bcn-pos)}
 @media (max-width:520px){.books-year{flex:1 1 100%;min-width:0}}
+
+/* The open fiscal year is archived THROUGH a date the reader picks, because a
+   company may have closed June but not July. Only the start is fixed. */
+.books-year-end{display:inline-flex;flex-direction:column;gap:2px;font-size:11px;
+  color:var(--bcn-ink-2);min-width:150px}
+.books-year-end .bcn-field{padding:6px 8px}
+@media (max-width:520px){.books-year-end{flex:1 1 100%;min-width:0}}

@@ -115,6 +115,42 @@ test('clicking a year archives that window through the same path as the form',as
  assert.ok(h.calls.some(x=>x.name==='archive_qbo_ledger'),'and it archives, rather than only filling the fields');
 });
 
+// A company that has closed June but not July archives through June. Only the
+// START must be the fiscal year start -- the trial balance is as-at its end
+// date, so any end inside the year reconciles.
+test('the open fiscal year is archived through a date the reader chooses',async()=>{
+ const h=harness();await h.boot();
+ assert.match(h.el('historyYears').innerHTML,/id="historyYearEnd"/,'the open year offers an end date');
+ assert.match(h.el('historyYears').innerHTML,/min="2026-01-01" max="2026-08-31"/,'bounded by the year itself');
+ assert.equal(h.el('historyYearEnd').value,'2026-08-31','defaulting to the latest archivable day');
+ h.el('historyYearEnd').value='2026-06-30';
+ h.el('historyYears').events.click({target:{dataset:{start:'2026-01-01',end:'2026-08-31',editable:'1'}}});
+ await settle();
+ assert.equal(h.el('historyFrom').value,'2026-01-01','the start stays the fiscal year start');
+ assert.equal(h.el('historyTo').value,'2026-06-30');
+ const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
+ assert.equal(fetch.length,2);
+ for(const f of fetch){assert.equal(f.body.params.start_date,'2026-01-01');assert.equal(f.body.params.end_date,'2026-06-30');}
+});
+
+test('an end date outside the open year is refused by name and archives nothing',async()=>{
+ const h=harness();await h.boot();
+ h.el('historyYearEnd').value='2025-06-30';
+ const before=h.calls.length;
+ h.el('historyYears').events.click({target:{dataset:{start:'2026-01-01',end:'2026-08-31',editable:'1'}}});
+ await settle();
+ assert.match(h.el('historyStatus').textContent,/end date between 2026-01-01 and 2026-08-31/);
+ assert.equal(h.calls.length,before,'no report is fetched');
+});
+
+test('a completed fiscal year ignores the open year end and archives the whole year',async()=>{
+ const h=harness();await h.boot();
+ h.el('historyYearEnd').value='2026-06-30';
+ h.el('historyYears').events.click({target:{dataset:{start:'2025-01-01',end:'2025-12-31'}}});
+ await settle();
+ assert.equal(h.el('historyTo').value,'2025-12-31','a closed year is not shortened by the open year control');
+});
+
 test('a click that carries no window archives nothing',async()=>{
  const h=harness();await h.boot();
  const before=h.calls.length;

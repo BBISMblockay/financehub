@@ -275,13 +275,25 @@
     }
     function renderYears(){
       const years=fiscalYears(settings,archives);
+      const open=years.find(y=>y.partial)||null;
       el('historyYears').innerHTML=years.length?years.map(y=>{
         const state=y.saved?(y.exceptions?`Saved · ${y.exceptions} to review`:'Saved · matched')
           :y.overlapped?'Covered by another window':'Not saved';
-        return `<button type="button" class="bcn-btn books-year${y.saved?' is-saved':''}" data-start="${esc(y.start_date)}" data-end="${esc(y.end_date)}">`
+        return `<button type="button" class="bcn-btn books-year${y.saved?' is-saved':''}" data-start="${esc(y.start_date)}" data-end="${esc(y.end_date)}"${y.partial?' data-editable="1"':''}>`
           +`<span class="books-year-label">${esc(y.label)}</span>`
-          +`<span class="books-year-range">${esc(y.start_date)} → ${esc(y.end_date)}${y.partial?' · to your Silo start':''}</span>`
+          +`<span class="books-year-range">${esc(y.start_date)} → ${esc(y.end_date)}${y.partial?' · editable':''}</span>`
           +`<span class="books-year-state">${esc(state)}</span></button>`;}).join(''):'';
+      // The year still running is archived THROUGH a date the reader picks. A
+      // company that has closed June but not July should archive through June
+      // rather than being forced to the day before the cutover. Only the START
+      // has to be the fiscal year start: the trial balance is as-at its end
+      // date, so any end inside the year reconciles just as well.
+      if(open){
+        el('historyYears').insertAdjacentHTML('beforeend',
+          `<label class="books-year-end">Through<input id="historyYearEnd" class="bcn-field" type="date" min="${esc(open.start_date)}" max="${esc(open.end_date)}"></label>`);
+        const v=el('historyYearEnd').value;
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(v||'')||v<open.start_date||v>open.end_date)el('historyYearEnd').value=open.end_date;
+      }
     }
     // One archive path. The year buttons fill the same two fields and run this,
     // so a fiscal year and a hand-typed window cannot drift apart.
@@ -314,9 +326,22 @@
       // what is archived.
       el('historyYears').addEventListener('click',e=>{
         const t=e&&e.target;const b=t&&typeof t.closest==='function'?t.closest('button[data-start]'):t;
-        const start=b&&(b.dataset?b.dataset.start:b.getAttribute&&b.getAttribute('data-start'));
-        const end=b&&(b.dataset?b.dataset.end:b.getAttribute&&b.getAttribute('data-end'));
+        const at=k=>b&&(b.dataset?b.dataset[k]:b.getAttribute&&b.getAttribute('data-'+k));
+        const start=at('start');let end=at('end');
         if(!start||!end)return;
+        // The open year's end is the reader's to choose, bounded by the year
+        // itself; anything outside it is refused by name rather than silently
+        // clamped, because a window that is not the one they asked for would
+        // reconcile fine and answer the wrong question.
+        if(at('editable')){
+          const chosen=el('historyYearEnd').value;
+          if(chosen&&chosen!==end){
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(chosen)||chosen<start||chosen>end){
+              work(async()=>{throw new Error(`Choose an end date between ${start} and ${end}`);});return;
+            }
+            end=chosen;
+          }
+        }
         el('historyFrom').value=start;el('historyTo').value=end;
         work(archiveWindow);
       });
