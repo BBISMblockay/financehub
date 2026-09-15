@@ -3583,6 +3583,64 @@ select 'QBO history retention and audit' as check_name,
  then 'CRITICAL: archive depends on live connection or report cache'
  when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D')
  then 'CRITICAL: history import audit missing' else 'ok' end as status;
+-- Bounded archive (20260915000000). The single-call RPC appended every line
+-- to one jsonb value -- quadratic, measured at ~27 minutes for the 36,778-row
+-- production report against PostgREST's 8s ceiling, which a function-level
+-- statement_timeout cannot raise (the timer is armed before the function's
+-- SET applies; measured on PostgreSQL 16). The job/staging tables and the
+-- resumable RPC are what keep every call under the ceiling.
+select 'QBO history bounded archive' as check_name,
+ case when to_regclass('public.qbo_history_jobs') is null or to_regclass('public.qbo_history_staging_sections') is null
+   or to_regclass('public.qbo_history_staging_lines') is null then 'MISSING: QBO history bounded-archive migration (20260915000000)'
+ when (select count(*) from pg_class where relrowsecurity and oid in (to_regclass('public.qbo_history_jobs'),to_regclass('public.qbo_history_staging_sections'),to_regclass('public.qbo_history_staging_lines')))<>3
+  then 'CRITICAL: archive job or staging table has RLS disabled'
+ when has_table_privilege('authenticated',to_regclass('public.qbo_history_jobs'),'INSERT,UPDATE,DELETE,TRUNCATE')
+  or has_table_privilege('anon',to_regclass('public.qbo_history_jobs'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+  or not has_table_privilege('authenticated',to_regclass('public.qbo_history_jobs'),'SELECT')
+  or has_table_privilege('authenticated',to_regclass('public.qbo_history_staging_sections'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+  or has_table_privilege('authenticated',to_regclass('public.qbo_history_staging_lines'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+  or has_table_privilege('anon',to_regclass('public.qbo_history_staging_sections'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+  or has_table_privilege('anon',to_regclass('public.qbo_history_staging_lines'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+  then 'CRITICAL: archive job/staging client grants (jobs are finance-readable only; staging is closed to every client)'
+ when not exists(select 1 from pg_policy p where p.polrelid=to_regclass('public.qbo_history_jobs') and p.polname='history_jobs_finance_read'
+  and pg_get_expr(p.polqual,p.polrelid) like '%active_company_id()%' and pg_get_expr(p.polqual,p.polrelid) like '%can_manage_journal_entries()%')
+  then 'CRITICAL: archive job progress is not scoped to the finance users of the company'
+ when not exists(select 1 from pg_indexes where schemaname='public' and tablename='qbo_history_jobs' and indexname='qbo_history_jobs_one_running')
+  then 'CRITICAL: two running jobs for one source are not prevented'
+ when to_regprocedure('public.archive_qbo_ledger(uuid,uuid)') is null then 'MISSING: archive_qbo_ledger'
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%qbo_history_staging_lines%'
+  or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) like '%staged:=staged||%'
+  then 'STALE: archive_qbo_ledger still accumulates every line in one jsonb value (quadratic; times out past ~2,500 rows); apply 20260915000000'
+ when exists(select 1 from pg_proc p, unnest(p.proconfig) c where p.oid=to_regprocedure('public.archive_qbo_ledger(uuid,uuid)') and c like 'statement_timeout=%')
+  then 'STALE: archive_qbo_ledger carries a statement_timeout setting that PostgREST does not honour for the calling statement; remove it (see 20260915000000)'
+ -- Setup and finalization are not row-bounded and grow with the report
+ -- (measured: longest call 3.6s at 100k rows, 6.9s at 150k, against 8s).
+ -- Without the size guard the bound is a claim rather than a fact. BOTH
+ -- ceilings are required: rows for a sparse ledger, bytes for a dense one
+ -- (hashing measured 1.21s at 7.7MB and 7.10s at 15.5MB, so the byte ceiling
+ -- is what keeps the hash inside the timeout).
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%qbo_archive_max_rows%'
+  or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%qbo_archive_max_bytes%'
+  or pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%pg_column_size(gl.raw_response)%'
+  then 'STALE: archive_qbo_ledger lost the report-size guard; its unbounded setup and final copy can cross the statement timeout on a large report'
+ -- ORDER, not just presence. Hashing the snapshot is the largest piece of the
+ -- unbounded setup, so a ceiling standing after it guards nothing: the
+ -- oversized report would be copied and sha256'd in full and only then
+ -- refused. Compares first occurrences in the stored body, and matches the
+ -- CALL SITE rather than the bare helper name, which also appears in the
+ -- comment above the guard.
+ when strpos(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')),'pg_column_size(gl.raw_response)')
+    > strpos(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')),'digest:=public.finance_approval_snapshot_hash')
+  then 'CRITICAL: archive_qbo_ledger hashes the source snapshot before checking the report size, so the ceiling does not bound the setup work it exists to bound'
+ -- Finalization must record a terminal failure rather than leaving the job
+ -- 'running' with every resume repeating the same error.
+ when (length(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')))
+   - length(replace(pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')),'exception when others then',''))) / length('exception when others then') < 2
+  then 'STALE: archive_qbo_ledger finalization is not inside its own exception block; a final-copy error would strand the job as running'
+ when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D'
+  and tgfoid=to_regprocedure('public.qbo_history_audit_event()'))
+  then 'STALE: the import audit event still copies the multi-megabyte source snapshot into finance_audit_events; apply 20260915000000'
+ else 'ok' end as status;
 
 -- Profiles tenant isolation. Policies are OR'd, so one unscoped SELECT policy
 -- re-opens the cross-tenant leak that put Baseballism people in Test Company's

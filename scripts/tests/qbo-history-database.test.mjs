@@ -3,6 +3,15 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
+import { generateLedgerPair } from './fixtures/qbo-ledger-generator.mjs';
+// QBO_DB_MUTATION=no-resume-state   (a section resumed mid-way forgets its running balance)
+// QBO_DB_MUTATION=unbounded         (the per-call budget removed: one call does everything)
+// QBO_DB_MUTATION=no-size-guard     (the report-size ceiling on the unbounded phases removed)
+// QBO_DB_MUTATION=no-byte-guard     (only the byte ceiling removed; the row ceiling does not cover a dense ledger)
+// QBO_DB_MUTATION=guard-after-hash  (the ceiling kept but moved back below the snapshot hash)
+// QBO_DB_MUTATION=finalize-unguarded (finalization outside its own exception block)
+const mutation=process.env.QBO_DB_MUTATION||'';
+assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded'].includes(mutation),'Unknown QBO history mutation');
 const db=new PGlite({extensions:{pgcrypto}});
 const root=new URL('../../',import.meta.url);
 const dependencies = [
@@ -30,8 +39,14 @@ const tbShape=JSON.parse(await readFile(new URL('./fixtures/qbo-trial-balance-fl
 // Synthetic amounts and names, provider-observed nested/headerless structure.
 tbShape.Rows.Row.splice(2,0,...[['expense','Expenses',4,0],['child','Supplies',6,0],['income','Sales',0,10]].map(([id,name,d,c])=>({ColData:[{id,value:name},{value:d?String(d):''},{value:c?String(c):''}]})));
 tbShape.Rows.Row.at(-1).Summary.ColData[1].value='45.00';tbShape.Rows.Row.at(-1).Summary.ColData[2].value='45.00';
-async function store(raw,company=co,connection=conn,params={}){const id=randomUUID();await q("insert into quickbooks_report_runs(id,company_entity_id,connection_id,report_name,start_date,end_date,raw_response,status,params) values($1,$2,$3,$4,'2026-08-01','2026-08-31',$5,'ok',$6)",[id,company,connection,raw.Header.ReportName,raw,params]);return id;}
-const archive=(g,t)=>as(finance,()=>rpc('archive_qbo_ledger',[g,t]));
+async function store(raw,company=co,connection=conn,params={},start='2026-08-01',end='2026-08-31'){const id=randomUUID();await q("insert into quickbooks_report_runs(id,company_entity_id,connection_id,report_name,start_date,end_date,raw_response,status,params) values($1,$2,$3,$4,$5,$6,$7,'ok',$8)",[id,company,connection,raw.Header.ReportName,start,end,raw,params]);return id;}
+// The archive is a job the caller drives: every call is bounded and returns
+// in_progress until the last one. `batchRows` forces small batches so the
+// suite exercises resume paths deterministically; production defaults to
+// 5,000 rows / 3s per call.
+let batchRows=null;
+const step=(g,t,actor=finance)=>as(actor,async()=>{if(batchRows!==null)await q("select set_config('silo.qbo_archive_batch_rows',$1,false)",[String(batchRows)]);return rpc('archive_qbo_ledger',[g,t]);});
+async function archive(g,t,actor=finance){const progress=[];for(;;){const r=await step(g,t,actor);progress.push(r);if(r.status==='failed')throw Object.assign(new Error(r.error),{job_id:r.job_id,progress});if(r.status!=='in_progress')return Object.assign(r,{progress});if(progress.length>10000)throw new Error('archive never completed');}}
 try{
  await db.exec(await readFile(new URL('./finance-db/bootstrap.sql',import.meta.url),'utf8'));
  for(const name of [...dependencies,'20260912052930_plaid_bank_feed.sql','20260912203725_bank_feed_workspace_history.sql','20260912231606_accounting_foundation.sql'])await db.exec(await readFile(new URL('supabase/migrations/'+name,root),'utf8'));
@@ -64,6 +79,32 @@ try{
  await assert.rejects(archive(decimalG,decimalT),/Invalid trial balance amount/);
  assert.equal(Number((await one('select count(*) n from qbo_history_imports')).n),0,'The rejected report left no snapshot');
  await db.exec(formats);await db.exec(formats);
+ const bounded=await readFile(new URL('supabase/migrations/20260915000000_qbo_history_bounded_archive.sql',root),'utf8');await db.exec(bounded);await db.exec(bounded);
+ if(mutation){const def=(await one("select pg_get_functiondef('public.archive_qbo_ledger(uuid,uuid)'::regprocedure) d")).d;
+  let mutated=def;
+  if(mutation==='no-resume-state')mutated=def.replace("state=jsonb_build_object('balance',balance,","state=jsonb_build_object('balance',0,");
+  else if(mutation==='unbounded')mutated=def.replace("current_setting('silo.qbo_archive_batch_rows',true),'')::integer,5000)","current_setting('silo.qbo_archive_batch_rows',true),'')::integer,2147483647)").replace("current_setting('silo.qbo_archive_batch_ms',true),'')::integer,3000)","current_setting('silo.qbo_archive_batch_ms',true),'')::integer,2147483647)");
+  else if(mutation==='no-size-guard')mutated=def.replace('if n > max_rows then','if false then').replace('if pg_column_size(gl.raw_response) > max_bytes then','if false then');
+  // The byte ceiling on its own: a dense ledger reaches 8 MB while still short,
+  // so the row ceiling does not cover it.
+  else if(mutation==='no-byte-guard')mutated=def.replace('if pg_column_size(gl.raw_response) > max_bytes then','if false then');
+  // Guard present but AFTER the hash: the shape cycle-2 review found. Moving
+  // the ceiling below the snapshot build reproduces it exactly.
+  else if(mutation==='guard-after-hash'){
+   const guard=def.match(/ {2}if pg_column_size\(gl\.raw_response\)[\s\S]*?n, max_rows; end if;\n/);
+   if(!guard)throw new Error('guard-after-hash: the size guard block was not found');
+   mutated=def.replace(guard[0],'').replace('  select id into imp from public.qbo_history_imports where company_entity_id=co and qbo_connection_id=gl.connection_id and source_hash=digest;',guard[0]+'  select id into imp from public.qbo_history_imports where company_entity_id=co and qbo_connection_id=gl.connection_id and source_hash=digest;');
+  }
+  else if(mutation==='finalize-unguarded'){
+   // Let a finalization error propagate instead of terminating the job, which
+   // is what the code did before this cycle's fix: the call rolls back and the
+   // job is left 'running' at 100% with nothing recording why.
+   const handler=' exception when others then\n  err:=sqlerrm;\n end;';
+   const last=def.lastIndexOf(handler);
+   assert.ok(last>def.indexOf(handler),'the finalization block must have its own handler to remove');
+   mutated=def.slice(0,last)+' exception when others then\n  raise;\n end;'+def.slice(last+handler.length);
+  }
+  assert.notEqual(mutated,def,'mutation must change the live function');await db.exec(mutated);}
  const counts=async()=>({imports:Number((await one('select count(*) n from qbo_history_imports')).n),lines:Number((await one('select count(*) n from qbo_history_lines')).n),audit:Number((await one("select count(*) n from finance_audit_events where object_type='qbo_history_imports'")).n)});
  const decimalSaved=await archive(decimalG,decimalT);assert.equal(decimalSaved.transaction_count,6);assert.equal(decimalSaved.exception_count,0);assert.equal(decimalSaved.blank_amount_rows,1);
  {const row=await one('select * from qbo_history_imports where id=$1',[decimalSaved.id]);assert.equal(row.reconciliation_status,'matched');
@@ -162,6 +203,180 @@ try{
  await issues(r=>r.Rows.Row[0].Rows.Row[2].ColData[7].value='36',['trial_balance_mismatch']);
  await issues(r=>delete r.Rows.Row[0].Rows.Row[1].ColData[1].id,['missing_transaction_reference']);
  await issues(r=>r.Rows.Row.splice(0,1),['missing_ledger_account']);
+ // ── Bounded, resumable archive (20260915000000) ──────────────────────────
+ // Two synthetic report pairs in the production shape at scale; the
+ // generator ties its own trial balance, so a matched reconciliation is the
+ // expected outcome and any drift is the archive's.
+ const scaleRows=Number(process.env.QBO_HISTORY_SCALE_ROWS||40000);
+ const scale=generateLedgerPair({rows:scaleRows,seed:scaleRows});
+ await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(scale.accounts)]);
+ const scaleWindow=[scale.gl.Header.StartPeriod,scale.gl.Header.EndPeriod];
+ const scaleG=await store(scale.gl,co,conn,{},...scaleWindow),scaleT=await store(scale.tb,co,conn,{},...scaleWindow);
+ const jobsFor=(g)=>q('select * from qbo_history_jobs where gl_run_id=$1 order by created_at',[g]);
+ const staged=async(jobId)=>({sections:Number((await one('select count(*) n from qbo_history_staging_sections where job_id=$1',[jobId])).n),lines:Number((await one('select count(*) n from qbo_history_staging_lines where job_id=$1',[jobId])).n)});
+ // Progress and completeness while a job is in flight: the evidence tables
+ // hold nothing for this source, finance can read the job's progress, the
+ // staging tables are closed to every client, another company sees no job.
+ batchRows=7000;
+ {const before=await counts();const first=await step(scaleG,scaleT);
+  assert.equal(first.status,'in_progress',JSON.stringify(first));assert.equal(first.rows_total,scale.expected.lineRows);assert.ok(first.rows_done>0&&first.rows_done<first.rows_total);assert.equal(first.sections_total,scale.expected.leafAccounts);
+  assert.deepEqual(await counts(),before,'An in-progress archive is not evidence: nothing in imports, lines or the audit trail');
+  const job=(await jobsFor(scaleG))[0];assert.equal(job.status,'running');assert.equal(job.rows_done,first.rows_done);assert.ok(job.source_snapshot,'The frozen source stays with the job until it completes');
+  const visible=await as(finance,()=>q('select id,status,rows_done,rows_total from qbo_history_jobs where id=$1',[job.id]));assert.equal(visible.length,1,'Finance can read progress');
+  assert.equal((await as(otherUser,()=>q('select id from qbo_history_jobs where id=$1',[job.id]))).length,0,'Another company cannot see the job');
+  for(const table of ['qbo_history_staging_sections','qbo_history_staging_lines'])for(const actor of [finance,otherUser])await assert.rejects(as(actor,()=>q(`select * from ${table} where job_id=$1`,[job.id])),/permission denied/,`${table} is closed to clients`);
+  for(const action of ["update qbo_history_jobs set status='complete'","delete from qbo_history_jobs"])await assert.rejects(as(finance,()=>q(action)),/permission denied/);
+  // Only one running job per source, ever: the partial unique index refuses
+  // a second even from a service-role write.
+  await assert.rejects(q("insert into qbo_history_jobs(company_entity_id,qbo_connection_id,gl_run_id,tb_run_id,period_start,period_end,source_hash,created_by) select company_entity_id,qbo_connection_id,gl_run_id,tb_run_id,period_start,period_end,source_hash,created_by from qbo_history_jobs where id=$1",[job.id]),/qbo_history_jobs_one_running/);
+  // The same reports resume the same job; progress only moves forward.
+  const second=await step(scaleG,scaleT);assert.equal(second.job_id,job.id,'Retrying with the same reports resumes the job');assert.ok(second.rows_done>first.rows_done);
+  if(mutation==='unbounded')assert.fail('The per-call budget was removed, yet the first call did not finish the archive');}
+ const scaleStart=Date.now();const scaled=await archive(scaleG,scaleT);const scaleMs=Date.now()-scaleStart;
+ assert.equal(scaled.status,'complete');assert.ok(scaled.calls>=Math.ceil(scale.expected.lineRows/7000),`Bounded calls: ${scaled.calls}`);
+ assert.ok(scaled.progress.slice(0,-1).every((p,i,a)=>p.status==='in_progress'&&(i===0||p.rows_done>a[i-1].rows_done)),'Every call before the last reports monotonic progress');
+ assert.equal(scaled.transaction_count,scale.expected.dataRows,'Every data row is retained');assert.equal(scaled.zero_amount_rows,scale.expected.zeroRows);assert.equal(scaled.blank_amount_rows,scale.expected.blankRows);assert.equal(scaled.exception_count,0,'A self-consistent ledger reconciles with no exceptions');
+ {const imp=await one('select * from qbo_history_imports where id=$1',[scaled.id]);assert.equal(imp.reconciliation_status,'matched');assert.equal(imp.transaction_count,scale.expected.dataRows);assert.equal(imp.reconciliation.length,scale.expected.leafAccounts);assert.equal(imp.source_hash.length,64);assert.deepEqual(imp.source_snapshot.general_ledger,scale.gl,'The frozen source is the report, byte for byte');
+  const shape=await one('select count(*)::int n,min(row_no) lo,max(row_no) hi,count(distinct row_no)::int d from qbo_history_lines where import_id=$1',[scaled.id]);assert.deepEqual([shape.n,shape.lo,shape.hi,shape.d],[scale.expected.lineRows,1,scale.expected.lineRows,scale.expected.lineRows],'Lines are contiguous and complete');
+  assert.equal(Number((await one("select count(*) n from qbo_history_lines where import_id=$1 and row_kind='transaction' and natural_amount=0",[scaled.id])).n),0);
+  // Per account, the last retained balance normalised by type equals the TB.
+  const closings=await q(`select l.qbo_account_id,l.natural_balance::text b from qbo_history_lines l join (select import_id,qbo_account_id,max(row_no) m from qbo_history_lines where import_id=$1 group by 1,2) x on x.import_id=l.import_id and x.qbo_account_id=l.qbo_account_id and x.m=l.row_no`,[scaled.id]);
+  for(const c of closings){const check=imp.reconciliation.find(r=>r.qbo_account_id===c.qbo_account_id);assert.equal(check.difference,0,c.qbo_account_id);}
+  const job=(await jobsFor(scaleG)).at(-1);assert.equal(job.status,'complete');assert.equal(job.import_id,scaled.id);assert.equal(job.source_snapshot,null,'The job drops its copy once the import holds it');assert.deepEqual(await staged(job.id),{sections:0,lines:0},'Staging is emptied on completion');
+  const audit=await one("select new_values from finance_audit_events where object_type='qbo_history_imports' and object_id=$1",[scaled.id]);assert.equal(audit.new_values.source_hash,imp.source_hash);assert.equal('source_snapshot' in audit.new_values,false,'The audit event records the import without the multi-megabyte snapshot body');
+  assert.equal((await archive(scaleG,scaleT)).already_imported,true,'A completed source is not archived twice');
+  console.log(`  scale: ${scale.expected.lineRows} lines archived in ${scaled.calls} bounded calls, ${(scaleMs/1000).toFixed(1)}s on PGlite (a real server is several times faster; see scripts/tests/qbo-history-benchmark.mjs)`);}
+ // Malformed data discovered after earlier calls already staged rows: the
+ // failing call rolls back its own work, the job records the message, its
+ // staging is removed, and the evidence tables never saw the source. A retry
+ // with the same reports starts a fresh job and fails identically; a corrected
+ // report (a new source) archives.
+ batchRows=2000;
+ {const broken=generateLedgerPair({rows:12000,seed:12000});const own=broken.gl.Rows.Row[0].Rows.Row[0];own.Rows.Row[3000].ColData[6].value='1,000.00';
+  const bG=await store(broken.gl,co,conn,{},...scaleWindow),bT=await store(broken.tb,co,conn,{},...scaleWindow);const before=await counts();
+  const first=await step(bG,bT);assert.equal(first.status,'in_progress');const jobId=first.job_id;assert.ok((await staged(jobId)).lines>0,'Earlier calls staged rows');
+  const failure=await assert.rejects(archive(bG,bT),/Unsupported number format in ledger amount at row 3001 of account acct-bank/);
+  assert.deepEqual(await counts(),before,'A failed job writes no evidence and no audit event');
+  const job=await one('select * from qbo_history_jobs where id=$1',[jobId]);assert.equal(job.status,'failed');assert.match(job.error,/row 3001 of account acct-bank/);assert.equal(job.source_snapshot,null);assert.deepEqual(await staged(jobId),{sections:0,lines:0},'A failed job leaves no staging behind');
+  await assert.rejects(archive(bG,bT),/row 3001 of account acct-bank/);const jobs=await jobsFor(bG);assert.equal(jobs.length,2,'A retry after failure is a fresh job');assert.ok(jobs.every(j=>j.status==='failed'));
+  own.Rows.Row[3000].ColData[6].value='1000.00';own.Rows.Row[3000].ColData[7].value=own.Rows.Row[2999].ColData[7].value;
+  // (the corrected row no longer ties its running balance: the archive keeps it as an exception, never a refusal)
+  const fixed=await archive(await store(broken.gl,co,conn,{},...scaleWindow),bT);assert.equal(fixed.status,'complete');assert.ok(fixed.calls>1);
+  const fixedImp=await one('select reconciliation_status from qbo_history_imports where id=$1',[fixed.id]);assert.equal(fixedImp.reconciliation_status,'exceptions','A hand-edited row surfaces as a reconciliation exception, not as lost history');}
+ // A newer source for the same connection supersedes an unfinished job.
+ {const a=generateLedgerPair({rows:6000,seed:61}),b=generateLedgerPair({rows:6000,seed:62});
+  const aG=await store(a.gl,co,conn,{},...scaleWindow),aT=await store(a.tb,co,conn,{},...scaleWindow),bG=await store(b.gl,co,conn,{},...scaleWindow),bT=await store(b.tb,co,conn,{},...scaleWindow);
+  const started=await step(aG,aT);assert.equal(started.status,'in_progress');
+  const other=await archive(bG,bT);assert.equal(other.status,'complete');
+  const abandoned=await one('select status,error from qbo_history_jobs where id=$1',[started.job_id]);assert.equal(abandoned.status,'abandoned');assert.deepEqual(await staged(started.job_id),{sections:0,lines:0});
+  const again=await archive(aG,aT);assert.equal(again.status,'complete');assert.notEqual(again.job_id,started.job_id,'An abandoned job is not resumed; the source is archived from the start');
+  assert.equal(Number((await one("select count(*) n from qbo_history_jobs where status='running'")).n),0,'No job is left running');}
+ // The two phases the per-call budget does not cover -- freezing and hashing
+ // the source, and the atomic final copy -- grow with the report, so a size
+ // guard refuses an oversized one BEFORE any work rather than letting it time
+ // out half way. Measured longest call on a real server: 3.6s at 100k rows,
+ // 6.9s at 150k, against the authenticated 8s ceiling; the shipped ceiling is
+ // 100k rows / 8MB. The setting is lowered here so the refusal is exercised
+ // without building a 100k-row fixture.
+ {const before=await counts();const small=generateLedgerPair({rows:300,seed:300});
+  await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(small.accounts)]);
+  const sG=await store(small.gl,co,conn,{},...scaleWindow),sT=await store(small.tb,co,conn,{},...scaleWindow);
+  // The setting is session-scoped here (one PGlite connection), so it is put
+  // back afterwards or every later call would inherit the lowered ceiling.
+  const capped=()=>as(finance,async()=>{await q("select set_config('silo.qbo_archive_max_rows','100',false)");
+   try{return await rpc('archive_qbo_ledger',[sG,sT]);}finally{await q("select set_config('silo.qbo_archive_max_rows','',false)");}});
+  if(mutation==='no-size-guard'){await capped();assert.fail('The size guard was removed, yet an oversized report was still refused');}
+  // The guard counts every Data row, beginning balances included: each one
+  // becomes a stored line, so each one is work the final copy has to do.
+  await assert.rejects(capped(),new RegExp(`has ${small.expected.lineRows} ledger rows, more than the 100 this archive processes in one window`),'An oversized report is refused, naming the count');
+  assert.deepEqual(await counts(),before,'A refused report writes no evidence');
+  assert.equal(Number((await one('select count(*) n from qbo_history_jobs where gl_run_id=$1',[sG])).n),0,'...and creates no job: the refusal comes before any work, so there is nothing to resume');
+  // BEFORE the snapshot is assembled and hashed, not merely before the rows
+  // are staged. Hashing runs sha256 over the whole document and is the largest
+  // part of the unbounded setup the ceiling exists to bound, so a guard
+  // standing after it would let an oversized report be copied and hashed in
+  // full and only then refused -- and the refusal would look identical from
+  // outside. The hash helper is therefore replaced with one that always
+  // raises: reaching it becomes a different error, which no rollback can
+  // hide. (A counter table cannot be used here: the refusal rolls the call
+  // back and takes the count with it.)
+  const SENTINEL="create or replace function public.finance_approval_snapshot_hash(p_snapshot jsonb) returns text language plpgsql volatile as $$ begin raise exception 'SENTINEL the snapshot hash was invoked'; end $$";
+  const REAL="create or replace function public.finance_approval_snapshot_hash(p_snapshot jsonb) returns text language sql immutable security invoker set search_path to 'extensions','pg_temp' as $$ select encode(extensions.digest(convert_to(p_snapshot::text,'UTF8'),'sha256'),'hex') $$";
+  try{
+   await db.exec(SENTINEL);
+   await assert.rejects(capped(),/ledger rows, more than the 100/,'An oversized report is refused before its snapshot is hashed');
+   // The control: a report the ceiling ADMITS does reach the hash, so the
+   // sentinel is genuinely wired in and the assertion above means something.
+   await assert.rejects(archive(sG,sT),/SENTINEL the snapshot hash was invoked/,'A report under the ceiling is hashed, so the sentinel measures what it claims');
+  } finally { await db.exec(REAL); }
+  // The BYTE ceiling, which the row ceiling does not cover: a ledger with long
+  // memos reaches 8 MB while still short, and hashing is worse than linear in
+  // the document's size (measured on PostgreSQL 16: 7.7 MB 1.21s, 15.5 MB
+  // 7.10s, 23 MB 9.27s, 31 MB 21.1s), so the byte limit is what keeps the
+  // hash inside the 8s statement timeout. It is lowered here rather than
+  // building an 8 MB fixture; what is being proved is that the check runs,
+  // refuses, and refuses BEFORE the hash.
+  const byteCapped=()=>as(finance,async()=>{await q("select set_config('silo.qbo_archive_max_bytes','1024',false)");
+   try{return await rpc('archive_qbo_ledger',[sG,sT]);}finally{await q("select set_config('silo.qbo_archive_max_bytes','',false)");}});
+  {const before=await counts();
+   if(mutation==='no-byte-guard'){await byteCapped();assert.fail('The byte ceiling was removed, yet an oversized document was still refused');}
+   await assert.rejects(byteCapped(),/larger than the 0 MB this archive processes in one window/,'An oversized document is refused on bytes, naming its size');
+   assert.deepEqual(await counts(),before,'A byte-refused report writes no evidence');
+   assert.equal(Number((await one('select count(*) n from qbo_history_jobs where gl_run_id=$1',[sG])).n),0,'...and creates no job');
+   try{ await db.exec(SENTINEL); await assert.rejects(byteCapped(),/larger than the 0 MB/,'The byte check runs before the snapshot is hashed'); }
+   finally { await db.exec(REAL); }}
+  // The same ordering, stated the way verify_v2_schema.sql states it. The
+  // committed check compares these two positions in pg_get_functiondef, and it
+  // has to match the CALL SITE: the helper's bare name also appears in the
+  // comment above the guard, and a check matching that reports CRITICAL on
+  // correct code.
+  {const body=(await one("select pg_get_functiondef('public.archive_qbo_ledger(uuid,uuid)'::regprocedure) d")).d;
+   assert.ok(body.indexOf('digest:=public.finance_approval_snapshot_hash')>0,'the hash call site verify_v2_schema.sql matches must exist verbatim');
+   assert.ok(body.indexOf('pg_column_size(gl.raw_response)')<body.indexOf('digest:=public.finance_approval_snapshot_hash'),
+    'the size guard must precede the hash call in the stored body, which is what the committed verify check asserts');}
+  const ok=await archive(sG,sT);assert.equal(ok.status,'complete');assert.equal(ok.transaction_count,small.expected.dataRows,'Under the shipped ceiling the same report archives whole');
+  // Re-archiving the same two stored report runs is answered from their ids,
+  // so it neither re-hashes the document nor trips the lowered ceiling: a
+  // period that is completely archived must not be refused as too large.
+  try{
+   await db.exec(SENTINEL);
+   const repeat=await capped();
+   assert.equal(repeat.already_imported,true,'The same stored reports are recognised as already archived');
+   assert.equal(repeat.id,ok.id,'...and answer with the existing import');
+  } finally { await db.exec(REAL); }}
+ // A failure during FINALIZATION (a constraint, trigger or storage error after
+ // every section is checked) must terminate the job with its reason. Without
+ // its own exception block the job stays 'running' at 100% and every resume
+ // repeats the same terminal failure with nothing recording why.
+ // A small batch on purpose: the job must be committed by an earlier call for
+ // the stranding this guards against to be possible at all. (When an archive
+ // fits in ONE call there is nothing to strand -- that call's rollback takes
+ // the job row with it, which the unguarded mutation also demonstrates.)
+ batchRows=300;
+ {const broken=generateLedgerPair({rows:900,seed:900});
+  await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(broken.accounts)]);
+  const fG=await store(broken.gl,co,conn,{},...scaleWindow),fT=await store(broken.tb,co,conn,{},...scaleWindow);
+  await db.exec("create or replace function public.test_block_line_copy() returns trigger language plpgsql as $$ begin raise exception 'synthetic storage failure during the final copy'; end $$");
+  await db.exec('create trigger test_block_line_copy before insert on public.qbo_history_lines for each row execute function public.test_block_line_copy()');
+  const before=await counts();let outcome;
+  try{ outcome=await archive(fG,fT).then((r)=>({ok:r}),(e)=>({err:e})); }
+  finally{ await db.exec('drop trigger test_block_line_copy on public.qbo_history_lines'); }
+  const job=await one('select * from qbo_history_jobs where gl_run_id=$1 order by created_at desc limit 1',[fG]);
+  if(mutation==='finalize-unguarded'){
+   assert.equal(job.status,'running','the mutation should strand the job');
+   assert.fail('Finalization ran outside its own exception block: the job was left running with no recorded error');
+  }
+  assert.ok(outcome.err,'The call reports the failure rather than a saved archive');
+  assert.match(outcome.err.message,/synthetic storage failure during the final copy/);
+  assert.equal(job.status,'failed','A finalization error terminates the job rather than leaving it running');
+  assert.match(job.error,/synthetic storage failure/,'...and records why, so a resume is never offered blind');
+  assert.equal(job.source_snapshot,null);
+  assert.deepEqual(await staged(job.id),{sections:0,lines:0},'A failed finalization leaves no staging behind');
+  assert.deepEqual(await counts(),before,'...and no evidence row and no audit event');
+  assert.equal(Number((await one("select count(*) n from qbo_history_jobs where status='running'")).n),0,'No job is left for the page to offer as resumable');
+  const retried=await archive(fG,fT);assert.equal(retried.status,'complete');assert.notEqual(retried.job_id,job.id,'A retry once the cause is gone is a fresh job');
+  assert.equal(retried.transaction_count,broken.expected.dataRows,'Every row is still archived on the retry');}
+ batchRows=null;
  for(const table of ['qbo_history_imports','qbo_history_lines']){
   assert.equal((await as(otherUser,()=>q(`select * from ${table}`))).length,0);assert.equal((await as(outsider,()=>q(`select * from ${table}`))).length,0);
   for(const action of [`delete from ${table}`,`update ${table} set id=id`,`insert into ${table}(id) values(gen_random_uuid())`])await assert.rejects(as(finance,()=>q(action)),/permission denied/);
@@ -175,5 +390,5 @@ try{
  assert.equal((await as(finance,()=>q('select * from qbo_history_lines where import_id=$1',[saved.id]))).length,7);
  for(const table of ['journal_adjustments','quickbooks_journal_postings'])assert.equal(Number((await one(`select count(*) n from ${table}`)).n),0);
  assert.equal((await one("select has_function_privilege('authenticated','qbo_report_number(text,text)','execute') allowed")).allowed,false);
- console.log('PASS QBO history: leading-decimal amounts, evidence-settled blank amounts, cell-level format errors, atomic rejection, nested rows, exact reconciliation, exceptions, identity, immutable retention, company/permission isolation, no posting');
+ console.log('PASS QBO history: bounded resumable archive at scale, size guard on the unbounded phases, terminal finalization failure, progress and completeness, mid-job failure rollback, retries and duplicate prevention, leading-decimal amounts, evidence-settled blank amounts, cell-level format errors, atomic rejection, nested rows, exact reconciliation, exceptions, identity, immutable retention, company/permission isolation, no posting');
 }finally{await db.close();}

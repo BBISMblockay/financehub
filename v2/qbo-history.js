@@ -13,11 +13,11 @@
     return {start_date:start,end_date:end};
   }
   async function mount({db,companyId}){
-    let settings,archives=[],selected=null,offset=0,busy=false,wired=false,ready=false;
+    let settings,archives=[],selected=null,offset=0,busy=false,wired=false,ready=false,unfinished=null;
     const status=(message,error=false)=>{el('historyStatus').textContent=message;el('historyStatus').className='bcn-status'+(error?' bcn-status--neg':'');};
-    async function work(fn){if(busy)return;busy=true;el('historyInputs').disabled=true;for(const id of ['historyArchive','historyAccount','historyMore','historyRefresh'])el(id).disabled=true;
+    async function work(fn){if(busy)return;busy=true;el('historyInputs').disabled=true;for(const id of ['historyArchive','historyAccount','historyMore','historyRefresh','historyResume'])el(id).disabled=true;
       try{await fn();}catch(e){status(`${e.message}. Your saved history is unchanged. Check the period and QBO connection, then retry or ask your administrator for help.`,true);}
-      finally{busy=false;el('historyInputs').disabled=!settings||!ready;for(const id of ['historyArchive','historyAccount','historyMore','historyRefresh'])el(id).disabled=false;}}
+      finally{busy=false;el('historyInputs').disabled=!settings||!ready;for(const id of ['historyArchive','historyAccount','historyMore','historyRefresh','historyResume'])el(id).disabled=false;}}
     async function lines(reset=false){if(reset){offset=0;el('historyRows').innerHTML='';}if(!selected)return;
       let query=db.from('qbo_history_lines').select('row_no,row_kind,qbo_account_id,account_name,transaction_date,qbo_transaction_id,transaction_type,document_number,counterparty,memo,split_account_id,split_account_name,natural_amount,natural_balance').eq('company_entity_id',companyId).eq('import_id',selected.id);
       if(el('historyAccount').value)query=query.eq('qbo_account_id',el('historyAccount').value);
@@ -25,6 +25,23 @@
       if(!offset&&!rows.length)el('historyRows').textContent='No lines for this account. Choose another account or review the reconciliation exceptions below.';
       if(rows.length)el('historyRows').insertAdjacentHTML('beforeend',table(['Date / type','Account / counterparty','Description / reference','Amount','Running balance'],rows.map(r=>`<tr><td>${esc(r.transaction_date||'Beginning balance')}<small>${esc(r.transaction_type)}</small></td><td>${esc(r.account_name)}<small>${esc(r.counterparty)}</small></td><td>${esc(r.memo||r.document_number||'—')}<details><summary>Source details</summary><small>QBO transaction: ${esc(r.qbo_transaction_id||'Not supplied')}<br>Number: ${esc(r.document_number||'Not supplied')}<br>Split: ${esc(r.split_account_name||'Not supplied')} ${r.split_account_id?'('+esc(r.split_account_id)+')':''}</small></details></td><td class="num">${r.row_kind==='opening'?'—':amount(r.natural_amount)}</td><td class="num">${amount(r.natural_balance)}</td></tr>`)));
       offset+=rows.length;el('historyMore').hidden=rows.length<100;
+    }
+    // The archive is a job: each call checks a bounded slice of the ledger
+    // and reports progress; nothing is saved until the last call. A failed
+    // call names the row and account, and the evidence tables are untouched.
+    async function drive(glRun,tbRun){
+      status('Saving immutable history and checking account balances…');
+      for(let calls=1;;calls++){
+        const r=await result(db.rpc('archive_qbo_ledger',{p_gl_run_id:glRun,p_tb_run_id:tbRun}));
+        if(r?.status==='failed')throw new Error(r.error||'History could not be saved');
+        if(r?.status==='in_progress'){
+          status(`Checking ledger rows… ${Number(r.rows_done).toLocaleString('en-US')} of ${Number(r.rows_total).toLocaleString('en-US')} (${r.sections_done} of ${r.sections_total} accounts). Nothing is saved until every row is checked; you can resume later if this stops.`);
+          if(calls>5000)throw new Error('The archive did not finish; refresh saved history and resume');
+          continue;
+        }
+        if(!r?.id)throw new Error('No archive ID was returned; refresh saved history before retrying');
+        return r;
+      }
     }
     async function show(){
       selected=archives.find(a=>a.id===el('historyArchive').value)||null;
@@ -40,6 +57,12 @@
       settings=await result(db.from('accounting_settings').select('qbo_connection_id,accounting_start_date,accounting_basis,base_currency,fiscal_year_start_month').eq('company_entity_id',companyId).maybeSingle());
       // Paginate archives without downloading their raw report copies.
       archives=[];for(let page=0;;page+=100){const rows=await result(db.from('qbo_history_imports').select('id,period_start,period_end,currency,accounting_basis,created_at,exception_count,transaction_count,reconciliation').eq('company_entity_id',companyId).order('created_at',{ascending:false}).order('id').range(page,page+99));archives.push(...rows);if(rows.length<100)break;}
+      // An unfinished job (the tab was closed, the network dropped) can be
+      // resumed with its stored reports; no new QBO fetch is needed. Older
+      // deployments without the jobs table simply show no resume control.
+      try{unfinished=(await result(db.from('qbo_history_jobs').select('id,gl_run_id,tb_run_id,rows_done,rows_total,status').eq('company_entity_id',companyId).eq('status','running').order('created_at',{ascending:false}).range(0,0)))[0]||null;}catch{unfinished=null;}
+      el('historyResume').hidden=!unfinished;
+      if(unfinished)el('historyResume').textContent=`Resume unfinished archive (${Number(unfinished.rows_done).toLocaleString('en-US')} of ${Number(unfinished.rows_total).toLocaleString('en-US')} rows checked)`;
       ready=true;
       el('historyArchive').innerHTML=archives.length?archives.map(a=>`<option value="${esc(a.id)}">${esc(a.period_start)} – ${esc(a.period_end)} · ${a.exception_count?'Exceptions':'Matched'} · ${esc(a.created_at)}</option>`).join(''):'<option value="">No saved history</option>';
       if(prefer&&archives.some(a=>a.id===prefer))el('historyArchive').value=prefer;
@@ -64,11 +87,14 @@
         const fiscal=settings.fiscal_year_start_month;const year=Number(dates.end_date.slice(0,4))-(Number(dates.end_date.slice(5,7))<fiscal?1:0);
         const tb=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'TrialBalance',params:{...params,start_date:`${year}-${String(fiscal).padStart(2,'0')}-01`}}}));
         if(!tb?.run_id)throw new Error(tb?.error||'QBO did not save the trial balance report');
-        status('Saving immutable history and checking account balances…');
-        const saved=await result(db.rpc('archive_qbo_ledger',{p_gl_run_id:gl.run_id,p_tb_run_id:tb.run_id}));
-        if(!saved?.id)throw new Error('No archive ID was returned; refresh saved history before retrying');
+        const saved=await drive(gl.run_id,tb.run_id);
         await refresh(saved.id);
       });});
+      el('historyResume').addEventListener('click',()=>work(async()=>{
+        if(!unfinished)throw new Error('There is no unfinished archive to resume');
+        const saved=await drive(unfinished.gl_run_id,unfinished.tb_run_id);
+        await refresh(saved.id);
+      }));
     }
     await work(()=>refresh());
   }
