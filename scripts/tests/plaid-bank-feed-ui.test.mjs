@@ -441,8 +441,12 @@ await test('expanded review is read-only and retains access to secondary dimensi
     assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
     await h.el('tblCoding').fire('click',click);
     assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" >/);
-    assert.match(h.el('tblCoding').innerHTML,/data-cell="location"/);
-    assert.match(h.el('tblCoding').innerHTML,/data-cell="entity"/);
+    assert.match(h.el('tblCoding').innerHTML,/data-cell="entity"/,'entity stays in the expanded review');
+    // Location moved out to its own column, so the expanded panel must NOT
+    // offer a second editor for it -- two live editors for one field on screen
+    // at once is how a blur writes over a choice made in the other.
+    assert.equal((h.el('tblCoding').innerHTML.match(/data-cell="location"/g) || []).length,1,
+      'exactly one location editor per row, and it is the column');
     assert.deepEqual(clone(h.page.state.txns),before);assert.equal(h.page.state.dirty.size,0);
     assert.equal(h.calls.length,0);assert.equal(h.fetches.length,0);
     await h.el('tblCoding').fire('click',click);
@@ -607,6 +611,36 @@ await test('a pending row the feed retired inside a closed batch leaves the queu
   await other.page.browseDates();
   assert.match(other.el('tblCoding').innerHTML,/data-txn="txn-frozen"/,
     'only _silo_removed retires a row');
+});
+
+/* Location is a column, not something you have to expand a row to reach. It is
+   the same click-to-edit control the category cell uses, so it needs no second
+   editor implementation -- but it does need to BE there, and the expanded panel
+   must stop offering its own. */
+await test('location is a column on every row and opens the shared editor',async()=>{
+  const h=await pageHarness({});
+  h.page.state.locations=[{id:'loc-hq',name:'HQ',connectionId:'qbo-one'},
+    {id:'loc-shop',name:'Retail shop',connectionId:'qbo-one'}];
+  h.page.state.txns[0].qbo_location_id='loc-hq';
+  h.page.state.txns[0].qbo_location_name='HQ';
+  h.page.renderCoding();
+  const table=h.el('tblCoding').innerHTML;
+  assert.match(table,/<th class="txn-location">Location<\/th>/,'the column is headed');
+  assert.match(table,/<td class="txn-location" data-cell="location">/,'and present on the row');
+  assert.match(table,/data-edit="location"[^>]*>HQ</,'showing the current location, editable in place');
+  // The detail row still spans the whole table, or the layout breaks the moment
+  // a row is expanded.
+  assert.match(table,/<td colspan="8">/);
+
+  // Clicking the cell opens the same editor the category cell uses.
+  const td=new Element();
+  const editTarget={dataset:{edit:'location'},closest:sel=>sel==='td'?td:null};
+  const row=new Element();row.dataset.txn='txn-one';
+  await h.el('tblCoding').fire('click',{target:{closest:sel=>
+    sel==='[data-txn]'?row:sel==='[data-edit]'?editTarget:null,matches:()=>false}});
+  assert.match(td.innerHTML,/data-field="location"/,'a real select, not a new control');
+  assert.match(td.innerHTML,/Retail shop/,'offering this connection\'s locations');
+  assert.match(td.innerHTML,/— account default —/,'and the honest empty option');
 });
 
 await test('canonical route resumes a matching legacy OAuth callback and rejects unrelated saved URLs',async()=>{

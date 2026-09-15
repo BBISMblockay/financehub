@@ -57,6 +57,7 @@
 #tblCoding .txn-amount {width:110px;}
 #tblCoding .txn-treatment {width:156px;}
 #tblCoding .txn-category {width:auto;}
+#tblCoding .txn-location {width:126px;}
 #tblCoding .txn-review {width:44px;}
 .txn-description-button {display:block;padding:0;border:0;background:none;color:var(--bcn-ink);font-family:inherit;font-size:13px;font-weight:600;line-height:1.45;cursor:pointer;text-align:left;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
 .txn-secondary {font-size:10.5px;line-height:1.5;color:var(--bcn-ink-2);margin-top:4px;}
@@ -66,6 +67,12 @@
 #tblCoding .txn-treatment select {font-family:inherit;font-size:12px;padding:7px 8px;border-radius:7px;width:100%;min-height:34px;}
 #tblCoding .txn-category .cc-cell {font-family:inherit;font-size:13px;line-height:1.45;max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:left;}
 #tblCoding .txn-category .cc-cell--empty {color:var(--bcn-accent);font-style:normal;}
+/* Location reads as a dimension of the category beside it, not a second
+   headline: same control, quieter type. Its empty state says 'Account
+   default', which is what an unset location actually means at post time, so
+   it is not styled as an unfinished action the way an uncategorised row is. */
+#tblCoding .txn-location .cc-cell {font-family:inherit;font-size:12px;line-height:1.4;max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:left;color:var(--bcn-ink-2);}
+#tblCoding .txn-location .cc-cell--empty {color:var(--bcn-ink-3);font-style:normal;white-space:nowrap;}
 .txn-review-button {width:30px;height:30px;border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface);color:var(--bcn-ink-2);cursor:pointer;font-size:17px;}
 .txn-row--open {background:var(--bcn-accent-soft);}
 .txn-detail-row[hidden] {display:none!important;}
@@ -116,6 +123,7 @@
   #tblCoding .txn-review {grid-column:3;grid-row:2;text-align:right;}
   #tblCoding .txn-treatment {grid-column:2;grid-row:3;}
   #tblCoding .txn-category {grid-column:2/4;grid-row:4;margin-top:3px;}
+  #tblCoding .txn-location {grid-column:2/4;grid-row:5;}
   #tblCoding .txn-description-button {white-space:normal;font-size:14px;}
   #tblCoding > tbody > .txn-detail-row,#tblCoding > tbody > .txn-detail-row > td {display:block;width:100%;}
   .txn-detail-panel {grid-template-columns:1fr;gap:20px;padding:18px;margin:0 12px 12px;}
@@ -418,6 +426,7 @@
  #tblCoding .txn-description,#tblCoding .txn-date {width:auto;}
  #tblCoding > tbody > .txn-row > td {height:auto;padding:0;}
  #tblCoding .txn-category {grid-row:3;}
+ #tblCoding .txn-location {grid-row:4;width:auto;}
  #tblCoding .txn-row--selected > td:first-child {box-shadow:none;}
  .transaction-list .cc-card-head > div:first-child {gap:4px;}
  .transaction-list #codeSearch {flex-basis:100%;}
@@ -473,4 +482,5 @@
     as the second line of "what was this" rather than a floating column. */
  #tblCoding .txn-merchant {grid-column:2;grid-row:3;width:auto;font-size:11px;}
  #tblCoding .txn-category {grid-row:4;}
+ #tblCoding .txn-location {grid-row:5;width:auto;}
 }
