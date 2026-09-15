@@ -25,21 +25,41 @@
 -- reconciliation under its own issue name, 'unattributed_ledger_section'.
 --
 -- An account-less section carrying ACTUAL MONEY still refuses the entire
--- import, naming how many rows have an amount. That is a real bookkeeping
--- problem for a person to fix in QuickBooks, and filing it under a placeholder
--- would be exactly the silent mis-attribution this archive exists to prevent.
--- Nothing is truncated and no row is dropped on either path.
+-- import, naming what it found. That is a real bookkeeping problem for a
+-- person to fix in QuickBooks, and filing it under a placeholder would be
+-- exactly the silent mis-attribution this archive exists to prevent. Nothing
+-- is truncated and no row is dropped on either path.
 --
--- ONE JUDGEMENT CALL worth knowing about. The unattributed section is recorded
--- in the reconciliation but does NOT increment exception_count, so an
--- otherwise clean archive still reads 'matched'. The section is provably zero,
--- so the books tie either way, and an exception that fires on every single
--- archive forever is a signal people learn to ignore. Flip the two
--- 'silo:unattributed' guards in the reconciliation block if you would rather
--- see it counted.
+-- "CARRYING MONEY" MEANS THREE CELLS, NOT ONE. The placeholder skips the
+-- trial-balance comparison, so whatever it admits is never checked against
+-- anything again -- which makes its admission test the only thing standing
+-- between a real balance and an archive that reads 'matched'. A section is
+-- therefore admitted only when its amount cells, its running balance cells
+-- and its period total are all present and all blank or zero. Checking the
+-- amounts alone would admit a section whose closing balance is real money:
+-- a Beginning Balance row with a blank amount and a $250 running balance,
+-- followed by zero movements, passes an amounts-only test, keeps a $250
+-- unattributed closing balance, and finishes with exception_count=0.
+--
+-- A BLANK RUNNING BALANCE on the placeholder reads as zero, because the
+-- admission test above has already established the whole section is zero. On a
+-- real account it stays a hard refusal. Four of the seven stored windows carry
+-- exactly one row with both cells blank, and before this they failed on the
+-- running balance rather than on the account-less section -- so archiving the
+-- section without this fixed the one window that was reported and left the
+-- others refusing with a different message.
+--
+-- ONE JUDGEMENT CALL worth knowing about. The 'unattributed_ledger_section'
+-- notice itself does NOT increment exception_count, so an otherwise clean
+-- archive still reads 'matched'. The section is provably zero by the test
+-- above, so the books tie either way, and an exception that fires on every
+-- single archive forever is a signal people learn to ignore. Every OTHER
+-- problem on that section -- a running balance gap, a period total that
+-- disagrees, a missing transaction reference -- is counted exactly like it
+-- would be on a real account. The exemption is the notice, not the section.
 --
 -- Additive: no table changes, no grant changes. Re-creates archive_qbo_ledger
--- from 20260915000000 with those two edits and nothing else.
+-- from 20260915000000 with those edits and nothing else.
 
 create or replace function public.archive_qbo_ledger(p_gl_run_id uuid,p_tb_run_id uuid)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
@@ -48,7 +68,7 @@ declare
  gl public.quickbooks_report_runs%rowtype; tb public.quickbooks_report_runs%rowtype;
  job public.qbo_history_jobs%rowtype; imp uuid; src jsonb; digest text; column_keys text[]; expected_keys text[]:=array['tx_date','txn_type','doc_num','name','memo','split_acc','subt_nat_amount','rbal_nat_amount'];
  section jsonb; item jsonb; cells jsonb; totals jsonb; tb_balances jsonb:='{}'; account public.accounting_accounts%rowtype;
- qid text; seen text[]:='{}'; debit numeric; credit numeric; debit_sum numeric:=0; credit_sum numeric:=0; n integer; doc jsonb; node record; child_total numeric; summary_amount numeric; where_ text; direction integer; v_seq integer:=0;
+ qid text; seen text[]:='{}'; debit numeric; credit numeric; debit_sum numeric:=0; credit_sum numeric:=0; n integer; doc jsonb; node record; child_total numeric; summary_amount numeric; where_ text; unattr text; direction integer; v_seq integer:=0;
  -- per-call budget
  budget_rows integer:=coalesce(nullif(current_setting('silo.qbo_archive_batch_rows',true),'')::integer,5000);
  budget_ms integer:=coalesce(nullif(current_setting('silo.qbo_archive_batch_ms',true),'')::integer,3000);
@@ -212,13 +232,44 @@ begin
    -- for a person to fix in QuickBooks, and it still refuses the whole import
    -- rather than filing the amount under a placeholder.
    if qid is null or qid='' then
-    where_:=format('unattributed ledger section %s',coalesce(nullif(section#>>'{Header,ColData,0,value}',''),'(unnamed)'));
+    unattr:=coalesce(nullif(section#>>'{Header,ColData,0,value}',''),'(unnamed)');
+    where_:=format('unattributed ledger section %s',unattr);
+    -- The entire case for filing this section under a placeholder is that it
+    -- is provably immaterial, so that is ESTABLISHED here rather than assumed:
+    -- every amount cell, every running balance cell and the period total must
+    -- be present, and every one of them must be blank or zero. Anything else
+    -- -- money, a carried balance, a total that disagrees with the rows -- is
+    -- a real bookkeeping fact that no placeholder may absorb, and it refuses
+    -- the whole import naming what it found. Checking only the amount cells
+    -- would admit a section whose closing balance is real money and then skip
+    -- the trial-balance comparison on it, which is the one outcome this
+    -- placeholder must never produce.
+    --
+    -- Measured against all seven stored windows of Baseballism's ledger
+    -- (2026-09-15): amount and running balance cells are only ever '' or '.00'
+    -- and the period total is '.00' in every window, so none of this refuses
+    -- the real report.
+    if exists(select 1 from jsonb_array_elements(section#>'{Rows,Row}') c
+       where jsonb_typeof(c.value#>'{ColData,6,value}') is distinct from 'string'
+          or jsonb_typeof(c.value#>'{ColData,7,value}') is distinct from 'string') then
+     raise exception 'A row in the % is missing its amount or running balance cell; no archive was written',where_; end if;
     select count(*) into n from jsonb_array_elements(section#>'{Rows,Row}') c
      where c.value->>'type'='Data'
        and coalesce(public.qbo_report_number(c.value#>>'{ColData,6,value}',where_),0)<>0;
     if n>0 then
      raise exception 'The ledger section "%" has no QuickBooks account and carries % rows with an amount. Assign those transactions to an account in QuickBooks, then retry; nothing was written and no row would have been dropped',
-      coalesce(nullif(section#>>'{Header,ColData,0,value}',''),'(unnamed)'),n; end if;
+      unattr,n; end if;
+    select count(*) into n from jsonb_array_elements(section#>'{Rows,Row}') c
+     where c.value->>'type'='Data'
+       and coalesce(public.qbo_report_number(c.value#>>'{ColData,7,value}',where_),0)<>0;
+    if n>0 then
+     raise exception 'The ledger section "%" has no QuickBooks account and carries a running balance on % rows. Assign those transactions to an account in QuickBooks, then retry; nothing was written and no row would have been dropped',
+      unattr,n; end if;
+    if jsonb_typeof(section#>'{Summary,ColData,6,value}') is distinct from 'string' then
+     raise exception 'Period total cell is missing for the %; no archive was written',where_; end if;
+    if coalesce(public.qbo_report_number(section#>>'{Summary,ColData,6,value}',where_),0)<>0 then
+     raise exception 'The ledger section "%" has no QuickBooks account and reports a non-zero period total. Assign those transactions to an account in QuickBooks, then retry; nothing was written and no row would have been dropped',
+      unattr; end if;
     if exists(select 1 from public.qbo_history_staging_sections where job_id=job.id and qbo_account_id='silo:unattributed') then
      raise exception 'This ledger has more than one account-less section; SILO archives one. Raise it with your administrator rather than retrying'; end if;
     qid:='silo:unattributed';
@@ -265,7 +316,17 @@ begin
     if jsonb_typeof(cells#>'{6,value}') is distinct from 'string' or jsonb_typeof(cells#>'{7,value}') is distinct from 'string' then
      raise exception 'Ledger amount or running balance cell is missing at row % of account %; no archive was written',section_row,qid; end if;
     row_balance:=public.qbo_report_number(cells#>>'{7,value}',format('running balance at row %s of account %s',section_row,qid));
-    if row_balance is null then raise exception 'Missing running balance at row % of account %; no archive was written',section_row,qid; end if;
+    if row_balance is null then
+     -- A section is only staged as 'silo:unattributed' once every amount AND
+     -- every running balance in it is blank or zero, so a blank balance here
+     -- is a zero QBO did not bother to print, not a figure that went missing.
+     -- On a real account it is unusable and still refuses. This is not a
+     -- hypothetical: four of the seven stored windows carry exactly one such
+     -- row, and they failed on this line rather than on the account-less
+     -- section the rest of this migration is about.
+     if qid='silo:unattributed' then row_balance:=0;
+     else raise exception 'Missing running balance at row % of account %; no archive was written',section_row,qid; end if;
+    end if;
     if cells#>>'{0,value}'='Beginning Balance' then
      if has_beginning or txn_started then raise exception 'Unexpected beginning balance position'; end if;
      has_beginning:=true;balance:=row_balance;amount:=0;row_kind:='opening';d:=null;
@@ -313,7 +374,12 @@ begin
      problems:=array_append(problems,'unattributed_ledger_section');difference:=null;
     elsif expected is null then problems:=array_append(problems,'missing_trial_balance_account');difference:=null;
      else difference:=balance*st.direction-expected;if difference<>0 then problems:=array_append(problems,'trial_balance_mismatch'); end if; end if;
-    if cardinality(problems)>0 and qid<>'silo:unattributed' then exceptions:=exceptions+1; end if;
+    -- ONLY the intentional notice is exempt. A real reconciliation problem on
+    -- the unattributed section -- a running balance gap, a period total that
+    -- disagrees with its rows, a row carrying no transaction reference -- is
+    -- counted like any other, so exception_count=0 keeps meaning what the
+    -- history page prints for it: the balances matched.
+    if exists(select 1 from unnest(problems) p where p<>'unattributed_ledger_section') then exceptions:=exceptions+1; end if;
     update public.qbo_history_staging_sections set rows_done=section_row,state='{}'::jsonb,
      result=jsonb_build_object('qbo_account_id',qid,'account_name',st.account_name,'ledger_debit_net',balance*st.direction,'trial_balance_debit_net',expected,'difference',difference,'issues',to_jsonb(problems),'blank_amount_rows',blank_rows,'zero_amount_rows',zero_rows)
      where job_id=job.id and seq=st.seq;

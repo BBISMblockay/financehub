@@ -389,18 +389,55 @@ section's own name. It appears in the reconciliation under its own issue,
 `unattributed_ledger_section`, with a null difference because it has no trial
 balance counterpart.
 
-**What still refuses.** An account-less section carrying an actual amount fails
-the whole import and names how many rows have one. That is a bookkeeping problem
-for a person to fix in QuickBooks, and filing it under a placeholder would be
-exactly the silent mis-attribution this archive exists to prevent. Nothing is
-truncated and no row is dropped on either path.
+**What still refuses, and why it is three cells and not one.** The placeholder
+has no trial-balance counterpart, so the comparison is skipped for it -- which
+means whatever admission lets through is never checked against anything again.
+Admission is the only test this section ever faces, so it requires the amount
+cells, the running balance cells AND the period total to be present and all
+blank or zero. Any of them non-zero fails the whole import, naming what it
+found. That is a bookkeeping problem for a person to fix in QuickBooks, and
+filing it under a placeholder would be exactly the silent mis-attribution this
+archive exists to prevent. Nothing is truncated and no row is dropped on either
+path.
 
-**One judgement call.** The unattributed section is recorded in the
-reconciliation but does not increment `exception_count`, so an otherwise clean
-archive still reads `matched`. The section is provably zero, so the books tie
+Checking amounts alone is not enough, and the gap is not theoretical: a
+`Beginning Balance` row carries a blank amount and a real running balance, so an
+amounts-only test admits a section with a $250 closing balance, never compares
+it to anything, and reports `matched`.
+
+**A blank running balance reads as zero here, and only here.** Once admission
+has established that every amount and every balance in the section is blank or
+zero, a blank balance cell is a zero QBO did not bother to print. On a real
+account it stays a hard refusal, because there it is a figure that went missing.
+This matters: of the seven stored windows, four carry exactly one row with both
+cells blank, and they failed on `Missing running balance` rather than on the
+account-less section -- so archiving the section without this would have fixed
+the one window that was reported and left the others refusing with a different
+message.
+
+| window | rows | blank amount | blank running balance |
+|---|---|---|---|
+| 2025-07-31 to 2026-07-31 | 26 | 13 | 1 |
+| 2025-08-01 to 2026-07-31 | 24 | 12 | 0 |
+| 2026-01-01 to 2026-07-31 | 14 | 7 | 1 |
+| 2026-01-01 to 2026-09-01 | 15 | 8 | 0 |
+| 2026-01-01 to 2026-09-03 | 15 | 8 | 1 |
+| 2026-01-01 to 2026-09-14 | 16 | 8 | 0 |
+| 2026-07-01 to 2026-07-31 | 2 | 1 | 1 |
+
+Across all seven, amount and running balance cells are only ever `''` or `.00`,
+the period total is always `.00`, and every row carries a transaction id and an
+in-window date -- so none of the admission tests above refuses the real report.
+
+**One judgement call.** The `unattributed_ledger_section` notice does not
+increment `exception_count`, so an otherwise clean archive still reads
+`matched`. The section is provably zero by the admission test, so the books tie
 either way, and an exception that fires on every archive forever is a signal
-people stop reading. Both guards are marked `silo:unattributed` in the
-reconciliation block if you would rather see it counted.
+people stop reading. **The exemption is the notice, not the section:** every
+other problem on it -- a running balance gap, a period total that disagrees, a
+row with no transaction reference -- is counted exactly as it would be on a real
+account. A blanket exemption would let a real mismatch there sit behind an
+archive that still reported `matched`.
 
 Snapshot supersession (choosing the newest of overlapping windows for browsing)
 is a separate follow-up recorded in `docs/ops/bugs.md`; this fix does not change

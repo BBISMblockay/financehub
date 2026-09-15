@@ -607,13 +607,32 @@ refusal left the full-year window permanently unarchivable.
 The section is now **archived, not skipped**: every row kept under
 `silo:unattributed` (cannot collide with a numeric QBO id), `account_type`
 `Unattributed`, and named in the reconciliation under its own
-`unattributed_ledger_section` issue with a null difference. **An account-less
-section carrying an actual amount still refuses the whole import** and names the
-row count -- a placeholder there would be the silent mis-attribution the archive
-exists to prevent. The zero section is deliberately not counted in
-`exception_count`. Additive; re-creates `archive_qbo_ledger` from
-`20260915000000` with those two edits only. Apply after it. Verify: the two new
-rows inside `QBO history bounded archive`.
+`unattributed_ledger_section` issue with a null difference.
+
+**Admission checks three cells, not one.** The placeholder has no trial-balance
+counterpart, so the comparison is skipped for it and whatever admission lets
+through is never checked again -- admission is the only test this section faces.
+It therefore requires the amount cells, the running balance cells and the period
+total all to be present and all blank or zero; any of them non-zero refuses the
+whole import, naming what it found. Amounts alone would not do: a
+`Beginning Balance` row has a blank amount and a real running balance, so an
+amounts-only test admits a $250 closing balance under the placeholder and
+reports `matched`.
+
+**A blank running balance reads as zero on the placeholder only**, since
+admission has already established the section is all zero; on a real account it
+stays a hard refusal. Four of the seven stored windows carry exactly one row
+with both cells blank and previously failed on `Missing running balance`, so
+without this the fix would have covered only the window that was reported.
+
+**The exemption from `exception_count` is the notice, not the section.** Only
+`unattributed_ledger_section` is exempt; a running balance gap, a disagreeing
+period total or a missing transaction reference on that section counts like it
+would anywhere else, so `matched` keeps meaning matched.
+
+Additive; re-creates `archive_qbo_ledger` from `20260915000000` with those edits
+only. Apply after it. Verify: the five new rows inside `QBO history bounded
+archive`.
 
 ### Card transaction splits (20260915100000)
 
