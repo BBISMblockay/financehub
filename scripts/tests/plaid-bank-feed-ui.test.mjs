@@ -45,7 +45,7 @@ const transaction = { id: 'txn-one', origin: 'plaid', provider_status: 'posted',
 function target(row, selector) { return { closest(value) { return value === selector ? this : value === '[data-bank-account]' || value === '[data-bank-exception]' ? row : null; } }; }
 function query(data, writes, table) {
   let window = null;
-  const q = { select() { return q; }, eq() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
+  const q = { select() { return q; }, eq() { return q; }, in() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
     upsert(value) { writes.push({ table, value: clone(value) }); return q; },
     then(resolve, reject) { const rows = data[table] || []; return Promise.resolve({ data: window ? rows.slice(window[0], window[1] + 1) : rows, error: null }).then(resolve, reject); } };
   return q;
@@ -88,10 +88,10 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
   return { ...d, db, calls, writes, statuses, opened, links, storageData, window, data, user, company, controller, row,
     bank: window.SiloBankFeeds, get changed() { return changed; } };
 }
-async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl, confirmImpl } = {}) {
+async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl, confirmImpl, tables = {} } = {}) {
   const d = dom(), calls = [], writes = [], fetches = [], window = { location:{href:'https://silo.test/v2/transactions.html'}, listeners:{}, addEventListener(type,fn){this.listeners[type]=fn;}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
   const db = { auth: { getSession: async () => ({ data: { session: { access_token: 'fake-token' } } }) },
-    from: (table) => query({}, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
+    from: (table) => query(tables, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
   vm.runInNewContext(datesSource, { window });

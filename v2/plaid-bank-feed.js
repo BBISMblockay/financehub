@@ -37,9 +37,19 @@
      plaid_project_transaction records this at removal time, so the page reads a
      stated fact rather than inferring one from a payload. Anything other than a
      recorded 'pending' answers false, which shows the row rather than hiding
-     it -- the safe direction, since hiding is what loses information. */
-  const wasPendingWhenRemoved = (transaction) => isRemovedByBank(transaction)
-    && transaction.removed_from_status === 'pending';
+     it -- the safe direction, since hiding is what loses information.
+
+     One case cannot be recorded on the row at all. If the batch was already
+     approved or posted when the feed retired the id, the immutability trigger
+     on card_transactions refuses every update -- service_role included -- so
+     the row keeps provider_status='pending' forever. The removal is recorded on
+     plaid_sync_exceptions instead, and `retiredIds` carries those transaction
+     ids when the caller has read them. Without that set this answers on the
+     column alone, which is the same safe direction: the row stays visible. */
+  const wasPendingWhenRemoved = (transaction, retiredIds) =>
+    (isRemovedByBank(transaction) && transaction.removed_from_status === 'pending')
+    || (transaction.origin === 'plaid' && transaction.provider_status === 'pending'
+      && !!retiredIds && retiredIds.has(transaction.id));
   const canEditBatch = (batch) => !!batch && ['draft', 'categorized'].includes(batch.status);
   function eligibleForAi(transaction, source) {
     if (transaction.status !== 'uncoded' || transaction.qbo_account_id || !isAvailable(transaction) || !Number(transaction.amount)) return false;

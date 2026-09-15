@@ -752,7 +752,7 @@
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find(source=>source.id===(dateBrowse?workspace?.selected():state.batch?.source_id));
-  const workingRows = () => dateBrowse ? dateRows.filter(t=>!bank.wasPendingWhenRemoved(t) && (showRemoved || !bank.isRemovedByBank(t))) : state.txns;
+  const workingRows = () => dateBrowse ? dateRows.filter(t=>!bank.wasPendingWhenRemoved(t,state.feedRetired) && (showRemoved || !bank.isRemovedByBank(t))) : state.txns;
   /* A bank row that is not posted yet. It is real activity and stays on screen,
      but it cannot be coded: the id changes when it settles, so anything coded
      now would be coded against an id the bank is about to retire. Say that,
@@ -795,6 +795,9 @@
     // qbo_account_id is null, so anything reading only that column sees
     // "no account" rather than one account standing for several.
     splits: new Map(),
+    // Transaction ids the feed retired while their batch was already closed.
+    // Their own row cannot say so -- see loadFeedRetirements.
+    feedRetired: new Set(),
   };
   const splitsFor = (t) => (t && state.splits.get(t.id)) || null;
   const isSplit = (t) => !!(splitsFor(t) || []).length;
@@ -1029,6 +1032,7 @@
     }
     state.txns = rows;
     state.dirty.clear();
+    await loadFeedRetirements(rows);
     await loadSplits(rows);
   }
 
@@ -1037,6 +1041,44 @@
      costs the split display and nothing else; the page still codes ordinary
      rows. What it must never do is silently show a split row as uncoded with
      no account, so a failure says so. */
+  /* Which of these rows the feed has retired while their batch was already
+     closed. Those rows keep provider_status='pending' forever -- the
+     immutability trigger on card_transactions refuses every update to a row in
+     an approved or posted batch, service_role included -- so the page would go
+     on offering "codeable once it settles" for an id the bank has taken back.
+
+     The removal IS recorded: plaid_project_transaction writes a
+     plaid_sync_exceptions row whose provider_payload carries _silo_removed.
+     That is the only place the fact survives, so it is where this reads it.
+
+     Read separately for the same reason loadSplits is, and filtered here rather
+     than in the query: a jsonb predicate would be a second, unverifiable place
+     for this rule to live. If the read fails, these rows stay visible as
+     pending -- the status quo, and the safe direction. */
+  async function loadFeedRetirements(rows) {
+    const ids = (rows || []).filter((t) => t.origin === 'plaid' && t.provider_status === 'pending')
+      .map((t) => t.id);
+    state.feedRetired = new Set();
+    if (!ids.length || !_co?.id) return;
+    try {
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data, error } = await sb.from('plaid_sync_exceptions')
+          .select('transaction_id,provider_payload').eq('company_entity_id', _co.id)
+          .in('transaction_id', ids.slice(i, i + 200));
+        if (error) throw new Error(error.message);
+        for (const row of data || []) {
+          if (row.provider_payload && row.provider_payload._silo_removed === true) {
+            state.feedRetired.add(row.transaction_id);
+          }
+        }
+      }
+    } catch (e) {
+      // Not surfaced as an error: the only cost is that a retired id keeps
+      // reading as pending, which is exactly what it did before this existed.
+      state.feedRetired = new Set();
+    }
+  }
+
   async function loadSplits(rows) {
     const ids = (rows || []).map((t) => t.id);
     state.splits = new Map();
@@ -1656,7 +1698,7 @@
     // A removal of a row that was still pending is never shown, revealed or not:
     // it was never codeable and never in the books, so there is nothing for a
     // person to do about it and nothing to check.
-    return dateScopedRows().filter(t=>!bank.wasPendingWhenRemoved(t)
+    return dateScopedRows().filter(t=>!bank.wasPendingWhenRemoved(t,state.feedRetired)
       && (showRemoved || !bank.isRemovedByBank(t)));
   }
   /* The removals a person should see: rows that were POSTED when the bank
@@ -1665,7 +1707,7 @@
      the count is a control that shows them. Removals of pending rows are not
      here and are not counted; they are the feed's own bookkeeping. */
   function removedRows() {
-    return dateScopedRows().filter(t=>bank.isRemovedByBank(t) && !bank.wasPendingWhenRemoved(t));
+    return dateScopedRows().filter(t=>bank.isRemovedByBank(t) && !bank.wasPendingWhenRemoved(t,state.feedRetired));
   }
   function dateScopedRows() {
     if(dateBrowse)return dateRows;
@@ -2107,6 +2149,7 @@
       const rows=sourceId && !sourceId.startsWith('plaid:') ? await window.SiloTransactionDates.read(sb,company,sourceId,state.batches,range) : [];
       if(generation!==dateGeneration || company!==_co?.id)return;
       dateRows=rows;
+      await loadFeedRetirements(rows);
       await loadSplits(rows);
       if(generation!==dateGeneration || company!==_co?.id)return;
       for(const t of rows){const s=suggestions.get(t.id);if(s?.dateRevision && s.dateRevision!==window.SiloTransactionDates.fingerprint(t))suggestions.delete(t.id);}
@@ -2907,7 +2950,7 @@
       if(dateBrowse) {
         state.codingBusy=true;renderCoding();
         const rows=await window.SiloTransactionDates.read(sb,_co.id,workspace.selected(),state.batches,dateContext.range);
-        dateRows=rows;await loadSplits(rows);state.dirty.clear();state.selected.clear();suggestions.clear();journalPreviewBatch=null;return;
+        dateRows=rows;await loadFeedRetirements(rows);await loadSplits(rows);state.dirty.clear();state.selected.clear();suggestions.clear();journalPreviewBatch=null;return;
       }
       await loadBatches();
       state.batch = state.batches.find((batch) => batch.id === state.batch.id) || state.batch;
