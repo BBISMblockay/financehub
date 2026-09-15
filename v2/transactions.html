@@ -1734,6 +1734,19 @@
     // X of Y" count are right even when the table itself has nothing to draw.
     const filteredRows = codingRows();
     renderFilterBar(reviewDateRows(), filteredRows.length);
+    /* A removed row cannot be coded, but it can be looked at, and the one that
+       matters is the one nothing replaced. Refreshed HERE, before the early
+       returns below, for the same reason the filter chips are: an account or
+       date change empties the rows and renders a loading or error state
+       through those returns, and a control left behind would still read
+       "Show 1 removed by the bank" for the account you just left -- and on a
+       failed load it would say so indefinitely. Every one of those states
+       reduces to no rows in scope, so the count answers them all. */
+    const removedCount = removedRows().length;
+    el('codeShowRemoved').hidden = !removedCount;
+    el('codeShowRemoved').textContent = showRemoved
+      ? `Hide ${removedCount} removed by the bank`
+      : `Show ${removedCount} removed by the bank`;
     el('btnDateBack').hidden = dateBrowse || !el('dateStart').value;
     el('unsavedCount').textContent = state.dirty.size ? `${state.dirty.size} unsaved` : '';
     renderWorkflow(reviewDateRows(), dateBrowse?state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id)):(state.batch?[state.batch]:[]));
@@ -1758,13 +1771,6 @@
       : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
     if(state.codingBusy)el('codeSub').textContent+=' · Coding in progress';
     el('codeStatus').textContent=dateAiProgress || (state.codingBusy?'Working…':'');
-    // A removed row cannot be coded, but it can be looked at, and the one that
-    // matters is the one nothing replaced.
-    const removedCount = removedRows().length;
-    el('codeShowRemoved').hidden = !removedCount;
-    el('codeShowRemoved').textContent = showRemoved
-      ? `Hide ${removedCount} removed by the bank`
-      : `Show ${removedCount} removed by the bank`;
 
     const coded = reviewDateRows().filter((t) => t.status === 'coded').length;
     const uncoded = reviewDateRows().filter((t) => t.status === 'uncoded').length;

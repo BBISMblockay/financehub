@@ -504,6 +504,42 @@ await test('a removed bank row leaves the default queue but stays inspectable; a
   assert.ok(!/data-txn="txn-removed"/.test(h.el('tblCoding').innerHTML),'and it hides again');
 });
 
+/* The reveal control is drawn before renderCoding's early returns, not after.
+   It was added after them, which left the previous account's control on screen
+   through a load: change accounts or dates and renderCoding takes the
+   loading/error branch, so a control refreshed below it keeps reading "Show 1
+   removed by the bank" for the account you just left -- indefinitely if the
+   read fails, and clicking it toggled state for rows that were never loaded. */
+await test('the removed-row control does not survive a load, a failed load, or having no batch',async()=>{
+  const h=await pageHarness({});
+  h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+  const removed={...h.page.state.txns[0],id:'txn-removed',external_transaction_id:'x9',batch_id:'batch-other',
+    provider_status:'removed',status:'excluded',exclude_reason:'Removed by bank feed'};
+  h.page.state.batches=[{id:'batch-other',source_id:source.id,status:'draft',company_entity_id:'company-one'}];
+  h.window.SiloTransactionDates.read=async()=>[removed];
+  await h.page.browseDates();
+  assert.equal(h.el('codeShowRemoved').hidden,false,'the control is there when a removed row is');
+  assert.equal(h.el('codeShowRemoved').textContent,'Show 1 removed by the bank');
+
+  // Mid-load: browseDates empties the rows and renders the loading branch.
+  let release; h.window.SiloTransactionDates.read=()=>new Promise(r=>{release=r;});
+  const loading=h.page.browseDates();
+  assert.equal(h.page.dateState().dateLoading,true,'the loading branch is the one rendering');
+  assert.equal(h.el('codeShowRemoved').hidden,true,'and the previous account\'s control is gone');
+  release([]); await loading;
+  assert.equal(h.el('codeShowRemoved').hidden,true,'still gone once the empty result lands');
+
+  // A failed load leaves the error branch on screen; the control must not
+  // outlive it, which is the state that would otherwise persist indefinitely.
+  h.window.SiloTransactionDates.read=async()=>[removed];
+  await h.page.browseDates();
+  assert.equal(h.el('codeShowRemoved').hidden,false,'control back with the rows');
+  h.window.SiloTransactionDates.read=async()=>{throw new Error('date read failed');};
+  await h.page.browseDates();
+  assert.ok(h.page.dateState().dateError,'the error branch is rendering');
+  assert.equal(h.el('codeShowRemoved').hidden,true,'and the stale control is gone');
+});
+
 await test('canonical route resumes a matching legacy OAuth callback and rejects unrelated saved URLs',async()=>{
   for(const legacy of ['https://silo.test/v2/card-coding.html?oauth_state_id=callback','https://attacker.invalid/v2/card-coding.html?oauth_state_id=callback','https://silo.test/v2/card-coding.html?oauth_state_id=other']){
     const h=harness();await h.el('btnLinkBank').fire('click');
