@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=2b8df81f2e19"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
+<link rel="stylesheet" href="accounting-books.css?v=902b3be2cce8"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=833b60e00a50"></script><script src="accounting-books.js?v=f685978a8494" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=54a41e259e01"></script><script src="accounting-books.js?v=f685978a8494" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -46,6 +46,6 @@
 <p class="books-caption">Invoices, bills, payment applications and attachments are not archived by this step. Keep QBO connected until the remaining migration checks are complete.</p></article></div>
 <div id="historyStatus" class="bcn-status" role="status" aria-live="polite">Open Setup to seed your accounts, then save a history window here.</div>
 <article id="historyDetail" class="books-card" hidden><div class="books-row"><div><p class="books-eyebrow">Historical ledger · read only</p><h2>Ledger detail</h2></div><label>Account<select id="historyAccount" class="bcn-field"></select></label></div><p class="books-caption">Amounts and running balances use QBO’s natural account sign: positive increases the account’s normal balance. These are historical report lines, not new Silo postings.</p><div id="historyRows"></div><button id="historyMore" class="bcn-btn">Load more lines</button></article>
-<article id="historyChecks" class="books-card" hidden><h2>Account reconciliation</h2><p>Closing balances are normalized as debits minus credits. Review every exception before relying on this window for migration.</p><div id="historyReconciliation"></div></article>
+<article id="historyChecks" class="books-card" hidden><h2>Account reconciliation</h2><p>Closing balances are normalized as debits minus credits. Every account is listed below; anything needing attention is sorted to the top.</p><div id="historyExceptions" hidden></div><div id="historyReconciliation"></div></article>
 </section>
 </div></main></div></body></html>

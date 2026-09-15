@@ -29,3 +29,16 @@
 .accounting-workspace #seedForm[inert]{opacity:.7;}
 .accounting-workspace #historyStatus{margin-bottom:12px;}
 @media(max-width:760px){.accounting-workspace .books-page{padding:10px 12px 24px;}.accounting-workspace .books-card{padding:12px;}.accounting-workspace #seedForm{grid-template-columns:1fr;}.accounting-workspace .books-card select,.accounting-workspace .books-card input{min-height:36px;}}
+
+/* Reconciliation exceptions, grouped by kind. An exception that affects a
+   balance is not the same message as one that cannot, so they do not get the
+   same colour: --bcn-neg is reserved for the ones a person must act on. */
+.books-exception{border:1px solid var(--bcn-border);border-left:3px solid var(--bcn-border-strong);
+  border-radius:10px;padding:14px 16px;margin:0 0 12px;background:var(--bcn-sunken);}
+.books-exception--neg{border-left-color:var(--bcn-neg);}
+.books-exception--info{border-left-color:var(--bcn-accent);}
+.books-exception h3{margin:0 0 4px;font-size:15px;letter-spacing:-.01em;}
+.books-exception p{margin:6px 0 0;font-size:13px;line-height:1.6;}
+.books-exception-count{font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-2);
+  text-transform:uppercase;letter-spacing:.04em;}
+.books-exception-eg{color:var(--bcn-ink-3);font-size:12px;}
