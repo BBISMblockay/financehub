@@ -1782,9 +1782,15 @@
     const why = offsite
       ? ' — a Meta-hosted destination, not the site: this ad resolves through the page post'
       : '';
+    // esc() on this page handles &, < and > and NOT quotes, so a value with a
+    // double quote in it would break out of the title attribute. url already
+    // passed safeUrl (which excludes quotes); link_source is plain database
+    // text and is therefore held to the shape the sync actually writes rather
+    // than trusted. Anything else reads as unknown, which is true.
+    const src = /^[a-z_]{1,40}$/.test(String(a.link_source || '')) ? a.link_source : 'unknown';
     return `<a class="wow-dest${offsite ? ' wow-dest--offsite' : ''}" href="${esc(url)}"
       target="_blank" rel="noopener noreferrer"
-      title="${esc(url)}${esc(why)} [source: ${esc(a.link_source || 'none')}]">${esc(label)}</a>`;
+      title="${esc(url)}${esc(why)} [source: ${esc(src)}]">${esc(label)}</a>`;
   }
 
   function renderCreatives(){

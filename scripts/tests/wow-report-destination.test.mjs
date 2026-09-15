@@ -95,6 +95,15 @@ test('the source travels into the title, always', () => {
   assert.match(out, /source: carousel_card/);
 });
 
+test('a source that is not the shape the sync writes cannot break the title', () => {
+  // link_source is plain database text landing in an attribute, and this
+  // page's esc() does not escape quotes.
+  const out = cell({ link: 'https://baseballism.com/x', link_path: '/x',
+    link_source: 'link_data" onmouseover="alert(1)' });
+  assert.ok(!out.includes('onmouseover'), 'an attribute must not be injectable through the source');
+  assert.match(out, /source: unknown/);
+});
+
 test('an unresolved destination says so, and is never a link', () => {
   const out = cell({ link: null, link_path: null, link_source: null });
   assert.match(out, /destination not resolved/);
