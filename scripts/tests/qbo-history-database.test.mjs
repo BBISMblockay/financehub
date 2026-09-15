@@ -10,11 +10,12 @@ import { generateLedgerPair } from './fixtures/qbo-ledger-generator.mjs';
 // QBO_DB_MUTATION=no-byte-guard     (only the byte ceiling removed; the row ceiling does not cover a dense ledger)
 // QBO_DB_MUTATION=absorbs-unattributed-money (an account-less section with real money filed under the placeholder)
 // QBO_DB_MUTATION=admits-unattributed-balance (the placeholder's running-balance admission test removed)
+// QBO_DB_MUTATION=admits-unattributed-ending-balance (the placeholder's section ENDING BALANCE admission test removed)
 // QBO_DB_MUTATION=exempts-unattributed-problems (every problem on the placeholder exempt from exception_count, not just the notice)
 // QBO_DB_MUTATION=guard-after-hash  (the ceiling kept but moved back below the snapshot hash)
 // QBO_DB_MUTATION=finalize-unguarded (finalization outside its own exception block)
 const mutation=process.env.QBO_DB_MUTATION||'';
-assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded','absorbs-unattributed-money','admits-unattributed-balance','exempts-unattributed-problems'].includes(mutation),'Unknown QBO history mutation');
+assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded','absorbs-unattributed-money','admits-unattributed-balance','admits-unattributed-ending-balance','exempts-unattributed-problems'].includes(mutation),'Unknown QBO history mutation');
 const db=new PGlite({extensions:{pgcrypto}});
 const root=new URL('../../',import.meta.url);
 const dependencies = [
@@ -103,6 +104,15 @@ try{
    const anchor="'{ColData,7,value}',where_),0)<>0;\n    if n>0 then";
    if(!def.includes(anchor))throw new Error('admits-unattributed-balance: the running-balance admission test was not found');
    mutated=def.replace(anchor,"'{ColData,7,value}',where_),0)<>0;\n    if false then");
+  }
+  // Column 7 of the section Summary is the ENDING BALANCE, a separate claim
+  // from the period total in column 6. Removing its test leaves a section that
+  // reports no movement and a balance carried out, which nothing downstream
+  // looks at because the placeholder skips the trial-balance comparison.
+  else if(mutation==='admits-unattributed-ending-balance'){
+   const anchor="'{Summary,ColData,7,value}',where_),0)<>0 then";
+   if(!def.includes(anchor))throw new Error('admits-unattributed-ending-balance: the ending-balance admission test was not found');
+   mutated=def.replace(anchor,"'{Summary,ColData,7,value}',where_),0)<>0 and false then");
   }
   // The blanket exemption this cycle replaced: every problem on the
   // unattributed section excused, not just the intentional notice.
@@ -415,6 +425,36 @@ try{
    const aG=await store(absent.gl,co,conn,{},...scaleWindow),aT=await store(absent.tb,co,conn,{},...scaleWindow);
    await assert.rejects(archive(aG,aT),/Period total cell is missing for the unattributed ledger section/,
      'an absent period total refuses here exactly as it does for a real account, instead of reading as zero');
+   assert.deepEqual(await counts(),before,'and neither writes evidence');
+  }
+  // Summary column 7 is `rbal_nat_amount`, the section's ENDING BALANCE, and it
+  // is a separate claim from the period total in column 6: zero movement and a
+  // balance carried out is a coherent thing for a report to say. On a real
+  // account it would surface as a trial_balance_mismatch, because the closing
+  // balance is compared to the trial balance; the placeholder skips that
+  // comparison, so nothing downstream would ever look at it.
+  {const before=await counts();
+   const mk=(balCell)=>{const pair=generateLedgerPair({rows:200,seed:777});
+    pair.gl.Rows.Row.push({type:'Section',
+      Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+      Rows:{Row:[{type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900009',value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:'.00'},{value:'.00'}]}]},
+      Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},balCell]}});
+    return pair;};
+   const carried=mk({value:'250.00'});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(carried.accounts)]);
+   const cG=await store(carried.gl,co,conn,{},...scaleWindow),cT=await store(carried.tb,co,conn,{},...scaleWindow);
+   if(mutation==='admits-unattributed-ending-balance'){
+    const out=await archive(cG,cT);
+    const recon=await one('select reconciliation r,reconciliation_status s from qbo_history_imports where id=$1',[out.id]);
+    const line=recon.r.find(x=>x.qbo_account_id==='silo:unattributed');
+    assert.fail(`The ending-balance admission test was removed, yet a section reporting a $250 balance carried out was archived reading '${recon.s}' with issues ${JSON.stringify(line&&line.issues)}`);
+   }
+   await assert.rejects(archive(cG,cT),/has no QuickBooks account and reports a non-zero ending balance/,
+     'zero movement and a balance carried out refuses; the period total being zero does not vouch for the balance');
+   const gone=mk({});
+   const gG=await store(gone.gl,co,conn,{},...scaleWindow),gT=await store(gone.tb,co,conn,{},...scaleWindow);
+   await assert.rejects(archive(gG,gT),/Period ending balance cell is missing for the unattributed ledger section/,
+     'an absent ending balance is unknown, never zero');
    assert.deepEqual(await counts(),before,'and neither writes evidence');
   }
   // A row with BOTH cells blank. QBO really does emit these: four of the seven

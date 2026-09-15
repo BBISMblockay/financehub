@@ -30,16 +30,24 @@
 -- exactly the silent mis-attribution this archive exists to prevent. Nothing
 -- is truncated and no row is dropped on either path.
 --
--- "CARRYING MONEY" MEANS THREE CELLS, NOT ONE. The placeholder skips the
+-- "CARRYING MONEY" MEANS FOUR CELLS, NOT ONE. The placeholder skips the
 -- trial-balance comparison, so whatever it admits is never checked against
 -- anything again -- which makes its admission test the only thing standing
 -- between a real balance and an archive that reads 'matched'. A section is
--- therefore admitted only when its amount cells, its running balance cells
--- and its period total are all present and all blank or zero. Checking the
--- amounts alone would admit a section whose closing balance is real money:
+-- therefore admitted only when ALL of these are present and blank or zero:
+--   * every row's amount cell            (ColData[6])
+--   * every row's running balance cell   (ColData[7])
+--   * the section's period total         (Summary.ColData[6])
+--   * the section's ending balance       (Summary.ColData[7], 'rbal_nat_amount')
+-- Each is a separate claim by the provider and none implies the others.
+-- Checking amounts alone admits a section whose closing balance is real money:
 -- a Beginning Balance row with a blank amount and a $250 running balance,
 -- followed by zero movements, passes an amounts-only test, keeps a $250
--- unattributed closing balance, and finishes with exception_count=0.
+-- unattributed closing balance, and finishes with exception_count=0. Checking
+-- the period total but not the ending balance admits a section reporting no
+-- movement and a $250 balance carried out, with the same result. On a real
+-- account both surface as a trial_balance_mismatch; here nothing downstream
+-- looks at them.
 --
 -- A BLANK RUNNING BALANCE on the placeholder reads as zero, because the
 -- admission test above has already established the whole section is zero. On a
@@ -269,6 +277,20 @@ begin
      raise exception 'Period total cell is missing for the %; no archive was written',where_; end if;
     if coalesce(public.qbo_report_number(section#>>'{Summary,ColData,6,value}',where_),0)<>0 then
      raise exception 'The ledger section "%" has no QuickBooks account and reports a non-zero period total. Assign those transactions to an account in QuickBooks, then retry; nothing was written and no row would have been dropped',
+      unattr; end if;
+    -- Column 7 is 'rbal_nat_amount', the section's ENDING BALANCE, and it is a
+    -- separate claim from the period total in column 6: a section can report no
+    -- movement and still report a balance carried out. On a real account an
+    -- inconsistency there surfaces as a trial_balance_mismatch, because the
+    -- closing balance is compared to the trial balance. The placeholder has no
+    -- trial-balance counterpart and skips that comparison, so nothing downstream
+    -- would ever look at it -- zero rows, zero movement and a $250 ending
+    -- balance would archive and report 'matched'. All 14 stored sections carry
+    -- this cell as '', so requiring it changes nothing about the real report.
+    if jsonb_typeof(section#>'{Summary,ColData,7,value}') is distinct from 'string' then
+     raise exception 'Period ending balance cell is missing for the %; no archive was written',where_; end if;
+    if coalesce(public.qbo_report_number(section#>>'{Summary,ColData,7,value}',where_),0)<>0 then
+     raise exception 'The ledger section "%" has no QuickBooks account and reports a non-zero ending balance. Assign those transactions to an account in QuickBooks, then retry; nothing was written and no row would have been dropped',
       unattr; end if;
     if exists(select 1 from public.qbo_history_staging_sections where job_id=job.id and qbo_account_id='silo:unattributed') then
      raise exception 'This ledger has more than one account-less section; SILO archives one. Raise it with your administrator rather than retrying'; end if;

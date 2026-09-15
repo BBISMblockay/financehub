@@ -609,15 +609,18 @@ The section is now **archived, not skipped**: every row kept under
 `Unattributed`, and named in the reconciliation under its own
 `unattributed_ledger_section` issue with a null difference.
 
-**Admission checks three cells, not one.** The placeholder has no trial-balance
+**Admission checks four cells, not one.** The placeholder has no trial-balance
 counterpart, so the comparison is skipped for it and whatever admission lets
 through is never checked again -- admission is the only test this section faces.
-It therefore requires the amount cells, the running balance cells and the period
-total all to be present and all blank or zero; any of them non-zero refuses the
-whole import, naming what it found. Amounts alone would not do: a
-`Beginning Balance` row has a blank amount and a real running balance, so an
-amounts-only test admits a $250 closing balance under the placeholder and
-reports `matched`.
+It therefore requires each row's amount cell, each row's running balance cell,
+the section's period total (`Summary.ColData[6]`) and the section's ending
+balance (`Summary.ColData[7]`, `rbal_nat_amount`) all to be present and all
+blank or zero; any of them non-zero refuses the whole import, naming what it
+found. Each is a separate claim: a `Beginning Balance` row has a blank amount
+and a real running balance, so an amounts-only test admits a $250 closing
+balance and reports `matched`; and a section can report zero movement in column
+6 while reporting a balance carried out in column 7, so the period total does
+not vouch for the balance.
 
 **A blank running balance reads as zero on the placeholder only**, since
 admission has already established the section is all zero; on a real account it
@@ -631,7 +634,7 @@ period total or a missing transaction reference on that section counts like it
 would anywhere else, so `matched` keeps meaning matched.
 
 Additive; re-creates `archive_qbo_ledger` from `20260915000000` with those edits
-only. Apply after it. Verify: the five new rows inside `QBO history bounded
+only. Apply after it. Verify: the six new rows inside `QBO history bounded
 archive`.
 
 ### Card transaction splits (20260915100000)

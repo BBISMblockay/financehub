@@ -3661,6 +3661,12 @@ select 'QBO history bounded archive' as check_name,
  -- stored windows carry such a row); losing this refuses those windows again.
  when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%then row_balance:=0%'
   then 'STALE: a blank running balance on the unattributed section refuses the import again; apply 20260915200000'
+ -- Summary column 7 is the section's ENDING BALANCE, a separate claim from the
+ -- period total in column 6: zero movement and a balance carried out is a
+ -- coherent report. A real account would catch it as a trial_balance_mismatch;
+ -- the placeholder skips that comparison, so nothing else would look at it.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%has no QuickBooks account and reports a non-zero ending balance%'
+  then 'CRITICAL: an account-less ledger section reporting a balance carried out would be archived under the unattributed placeholder and read as matched'
  -- The exemption from exception_count is the NOTICE, never the section. A
  -- blanket exemption hides a running balance gap or a period total mismatch
  -- on that section behind an archive that still reads 'matched'.

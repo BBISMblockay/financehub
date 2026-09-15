@@ -389,21 +389,33 @@ section's own name. It appears in the reconciliation under its own issue,
 `unattributed_ledger_section`, with a null difference because it has no trial
 balance counterpart.
 
-**What still refuses, and why it is three cells and not one.** The placeholder
+**What still refuses, and why it is four cells and not one.** The placeholder
 has no trial-balance counterpart, so the comparison is skipped for it -- which
 means whatever admission lets through is never checked against anything again.
-Admission is the only test this section ever faces, so it requires the amount
-cells, the running balance cells AND the period total to be present and all
-blank or zero. Any of them non-zero fails the whole import, naming what it
-found. That is a bookkeeping problem for a person to fix in QuickBooks, and
-filing it under a placeholder would be exactly the silent mis-attribution this
-archive exists to prevent. Nothing is truncated and no row is dropped on either
-path.
+Admission is the only test this section ever faces, so it requires all four of
+these to be present and blank or zero:
 
-Checking amounts alone is not enough, and the gap is not theoretical: a
+| cell | what the provider is claiming |
+|---|---|
+| each row's `ColData[6]` | the amount that moved on that line |
+| each row's `ColData[7]` | the running balance after that line |
+| `Summary.ColData[6]` | the section's total movement for the period |
+| `Summary.ColData[7]` (`rbal_nat_amount`) | the section's ending balance |
+
+Each is a separate claim and none implies the others. Any of them non-zero fails
+the whole import, naming what it found. That is a bookkeeping problem for a
+person to fix in QuickBooks, and filing it under a placeholder would be exactly
+the silent mis-attribution this archive exists to prevent. Nothing is truncated
+and no row is dropped on either path.
+
+Neither narrower version is sufficient, and neither gap is theoretical. A
 `Beginning Balance` row carries a blank amount and a real running balance, so an
 amounts-only test admits a section with a $250 closing balance, never compares
-it to anything, and reports `matched`.
+it to anything, and reports `matched`. And a section can report zero movement in
+`Summary.ColData[6]` while reporting a balance carried out in
+`Summary.ColData[7]`, so checking the period total does not vouch for the
+balance. On a real account both surface as a `trial_balance_mismatch`; here
+nothing downstream looks at them.
 
 **A blank running balance reads as zero here, and only here.** Once admission
 has established that every amount and every balance in the section is blank or
@@ -426,8 +438,10 @@ message.
 | 2026-07-01 to 2026-07-31 | 2 | 1 | 1 |
 
 Across all seven, amount and running balance cells are only ever `''` or `.00`,
-the period total is always `.00`, and every row carries a transaction id and an
-in-window date -- so none of the admission tests above refuses the real report.
+the period total is always `.00`, the section ending balance is always `''` (a
+present, blank cell in all 14 stored sections), and every row carries a
+transaction id and an in-window date -- so none of the admission tests above
+refuses the real report.
 
 **One judgement call.** The `unattributed_ledger_section` notice does not
 increment `exception_count`, so an otherwise clean archive still reads
