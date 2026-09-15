@@ -84,11 +84,70 @@ For scale, August 2026 alone: **576 posted card rows ($2,267,787.20)** and
 **60 posted journal lines ($3,011,625.84 of debits)**. This is not a toy
 volume waiting on more data; it is unreported activity.
 
+### Snapshot selection: three rules, not one
+
+"Only take in historical snapshots that don't overlap" is the right instinct
+and it is three distinct rules. All three are load-bearing and the first one is
+already live in production.
+
+**Rule 1 — inside the archive, SELECT snapshots, never sum them.** Each
+snapshot stands alone: re-saving a period writes a second complete copy, not a
+second half. Production today holds two byte-identical Jan–Jul imports:
+
+| | Stored | Actual |
+|---|---|---|
+| `qbo_history_lines` | 46,004 | **23,002** |
+| Gross ledger movement | $719,043,978.52 | **$359,521,989.26** |
+
+A `sum()` over the table doubles the company's entire year. The selection is:
+one snapshot per distinct `(period_start, period_end)`, newest by `created_at`;
+then, where windows differ but still overlap, a widest-first non-overlapping
+pass. This shipped in `v2/migration-status.js` as `independentSnapshots()`
+after the flow's own test caught it reporting "142 account exceptions" for 71.
+
+**Rule 2 — the archive is never added to the opening balance.** Everything
+archived is *before* `accounting_start_date`, so the accepted trial balance
+already contains its net effect. The archive contributes **zero dollars** to a
+rolled-forward balance. It is two other things: the drill-down detail *behind*
+an opening balance line, and an independent check *against* it — which is
+exactly the per-account reconciliation that produced the 71 exceptions. Adding
+archived GL movement to the opening TB counts January through July twice.
+
+**Rule 3 — the split between archive and SILO activity is the cutover date,
+not the window boundary.** The roll-forward takes SILO rows strictly from
+`accounting_start_date` forward and archive rows strictly before it, regardless
+of what any window happens to span. Two ways that bites:
+
+- A saved window extending past the cutover overlaps SILO's own period.
+  `coverage()` already computes `beyond` for exactly this case; the views must
+  clip rather than trust the window.
+- **A posted card batch is already in QBO, so it is already inside any archive
+  window covering its date.** Live today: card transactions begin 2026-07-01
+  and the archive runs through 2026-07-31, so the July bank-feed batch (804
+  rows) sits inside archived territory. It is still `draft`, so it is in
+  neither posted figure — but if it were posted and July re-archived, it would
+  be in both.
+
+### One definition of a selected snapshot, not two
+
+`independentSnapshots()` is JavaScript in `v2/migration-status.js`. The
+reporting views will be SQL. That is the same rule written twice, and the next
+correction made to one will be missing from the other — the failure
+`card_coding_effective_lines` exists to prevent ("do not add a second
+definition of a posted line").
+
+So **PR A puts the selection in SQL** — `qbo_history_independent_imports_v`,
+returning the snapshots a figure may be summed over, plus what was set aside
+and why — and `v2/migration-status.js` is changed to read that view instead of
+deciding it in the browser. Doing it the other way round leaves the browser as
+the authority on which snapshots count, which no SQL report can consult.
+
 ### Consequences for the order below
 
-- **PR A is unchanged and is still first.** The views are what make the three
-  sources legible, and `qbo_history_coverage_v` is now reporting over real
-  windows rather than returning "no history retained".
+- **PR A is unchanged and is still first**, with one addition: it also owns
+  `qbo_history_independent_imports_v` (see *One definition* above). The views
+  are what make the three sources legible, and `qbo_history_coverage_v` is now
+  reporting over real windows rather than returning "no history retained".
 - **PR B is re-scoped.** It was "four or five system reports". It becomes
   **`silo_balances_v` — the roll-forward — plus its tie-outs against the stored
   QBO reports**, with the per-account gap as a first-class column. The smaller
