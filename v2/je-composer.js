@@ -97,7 +97,7 @@
       .je-scrim { position: fixed; inset: 0; z-index: 90; background: rgba(15,23,42,.45);
         display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px;
         overflow: auto; }
-      .je-modal { background: var(--bcn-panel, #fff); color: var(--bcn-ink, #16211e);
+      .je-modal { background: var(--bcn-surface); color: var(--bcn-ink, #16211e);
         border: 1px solid var(--bcn-border, #dde3e0); border-radius: 12px;
         width: min(1040px, 100%); box-shadow: 0 18px 48px rgba(15,23,42,.22);
         display: flex; flex-direction: column; max-height: calc(100vh - 64px); }
@@ -126,7 +126,7 @@
       /* A cell that reads as a field until clicked, then becomes a real
          select -- looks like the fields around it, not a button. */
       .je-tbl .je-cell-btn { width: 100%; font-size: 11.5px; text-align: left;
-        background: var(--bcn-panel, #fff); border: 1px solid var(--bcn-border, #dde3e0);
+        background: var(--bcn-surface); border: 1px solid var(--bcn-border, #dde3e0);
         border-radius: 6px; padding: 5px 8px; color: var(--bcn-ink, #16211e);
         font-family: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis;
         white-space: nowrap; }

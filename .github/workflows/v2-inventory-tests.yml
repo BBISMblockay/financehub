@@ -1,8 +1,16 @@
 name: v2 page tests
 
 # Tests for /v2/ page logic extracted into testable modules:
-#   inventory-signals.js   what the inventory page claims about stock
-#   daily-trend-kpis.js    what the daily trend page's headline cards claim
+#   inventory-signals.js     what the inventory page claims about stock
+#   daily-trend-kpis.js      what the daily trend page's headline cards claim
+#   transaction-filters.js   which transactions a filter position selects
+#
+# Plus two browser suites over the Accounting Suite: transactions-filters
+# drives the real register (merchant blanks, split-account matching, chips and
+# counts, rules paging, the suite nav), and accounting-dialogs opens every
+# <dialog> on every suite page in both themes. Both read CSS, which is why
+# `v2/*.css` is a trigger path -- a stylesheet-only change is exactly what the
+# dialog suite exists to catch, and it would otherwise run nothing.
 #
 # Why this exists: v2/inventory-signals.js decides what the inventory page
 # CLAIMS about stock -- whether a days-cover figure exists at all, whether a
@@ -22,12 +30,14 @@ on:
     paths:
       - 'v2/*.html'
       - 'v2/*.js'
+      - 'v2/*.css'
       - 'v2/tests/**'
       - '.github/workflows/v2-inventory-tests.yml'
   pull_request:
     paths:
       - 'v2/*.html'
       - 'v2/*.js'
+      - 'v2/*.css'
       - 'v2/tests/**'
       - '.github/workflows/v2-inventory-tests.yml'
   workflow_dispatch:

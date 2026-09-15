@@ -5,7 +5,7 @@
     return new Promise((resolve) => {
       const dialog = document.createElement('dialog');
       dialog.className = 'bcn-card';
-      dialog.style.cssText = 'width:540px;max-width:calc(100vw - 32px);padding:20px;color:var(--bcn-ink);background:var(--bcn-panel);border:1px solid var(--bcn-border);border-radius:12px';
+      dialog.style.cssText = 'width:540px;max-width:calc(100vw - 32px);padding:20px;color:var(--bcn-ink);background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:12px';
       const heading = document.createElement('h2'); heading.textContent = title;
       const description = document.createElement('p'); description.textContent = message; description.style.whiteSpace = 'pre-line';
       const form = document.createElement('form'); form.method = 'dialog';
