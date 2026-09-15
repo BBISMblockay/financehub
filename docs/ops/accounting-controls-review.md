@@ -17,6 +17,9 @@ since #684). The section "Next bounded PRs" is the recommendation.
 
 **Exists.** `seed_accounting_from_qbo` / `accept_accounting_opening_balances`
 (`20260912231606`), `archive_qbo_ledger` (`20260913022606`), Books & setup page.
+Found after this review: the archive RPC never completed on a real report (quadratic
+line accumulation, ~27 minutes extrapolated for 36,778 rows against an 8 s ceiling);
+`20260915000000` turns it into a bounded, resumable job. See `docs/ops/qbo-history.md`.
 
 | Property | Where enforced | How verified |
 |---|---|---|

@@ -561,6 +561,37 @@ that already held such a row the `ALTER` fails and the migration stops before th
 RPC is re-created (production held no archives when written). Additive; the 20260913 migration is untouched. Apply after it. No
 Edge Function change. `verify_v2_schema.sql` reports STALE until applied.
 
+### QBO history bounded archive (20260915000000)
+
+`20260915000000_qbo_history_bounded_archive.sql` replaces the single-call archive,
+which appended every ledger line to one growing `jsonb` value and was therefore
+quadratic: measured on a real PostgreSQL 16, 1k rows 1.4 s, 2k 5.1 s, 4k 19.7 s,
+8k 77.9 s, 16k 431 s, against PostgREST's 8 s ceiling -- both production imports
+(36,778 rows and a half-year window) fetched their reports and died in the RPC. A
+function-level `statement_timeout` cannot raise that ceiling (the timer is armed
+before the function's SET applies; measured), so the hand-applied 55 s override is
+dropped by this migration's `create or replace` rather than kept. The archive is now
+a job: `qbo_history_jobs` (finance-readable progress, no client writes, partial
+unique index on one running job per source) plus `qbo_history_staging_sections` and
+`qbo_history_staging_lines` (closed to every client). Each call of
+`archive_qbo_ledger(uuid,uuid)` does at most 5,000 rows / ~3 s, persists where it
+stopped inside a section, and returns `in_progress` with counts; the last call
+inserts the import and copies the staged lines set-based, so nothing partial ever
+reaches the evidence tables. A malformed row marks the job failed with the same
+cell-level message and drops its staging. The import's audit trigger now runs
+`qbo_history_audit_event()`, which omits the snapshot body. After: 36,778 rows in
+8 calls / 5.7 s, longest call 2.9 s. Two phases stay unbounded by construction
+(hashing the frozen source; the final copy, which must be atomic because the
+evidence tables are immutable), so a job refuses a report over 100,000 ledger
+rows or 8 MB of stored JSON before any work rather than risking a timeout
+mid-import -- the byte ceiling is measured, since hashing is worse than linear
+in document size (7.7 MB 1.21 s, 15.5 MB 7.10 s, 31 MB 21.1 s against an 8 s
+timeout) -- the refusal runs before the snapshot is built or hashed, and
+finalization carries its own exception block so a final-copy error terminates
+the job instead of stranding it as `running`. Tests: `scripts/tests/qbo-history-database.test.mjs` (40,000-row
+synthetic archive, six mutations), `qbo-history-ui.test.mjs`; timing harness
+`scripts/tests/qbo-history-benchmark.mjs`. Verify: `QBO history bounded archive`.
+
 ### Card transaction splits (20260915100000)
 
 `20260915100000_card_transaction_splits.sql` lets one card or bank transaction be

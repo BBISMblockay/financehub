@@ -18735,6 +18735,11 @@ $c$select (select count(*) from v_po_header_summary
 -- re-creates archive_qbo_ledger. Same test file as the history migration.
 \i migrations/20260914220000_qbo_history_number_formats.sql
 
+-- QBO history archive as a bounded, resumable job: job + staging tables, the
+-- import audit without the snapshot body, and the re-created RPC. Replaces the
+-- quadratic single-call accumulator that timed out on every real report.
+\i migrations/20260915000000_qbo_history_bounded_archive.sql
+
 -- One card or bank transaction split across several accounts (a loan payment's
 -- principal and interest). Splits are RPC-only writes that must total their
 -- transaction to the cent, the posting snapshot reads one shared definition of

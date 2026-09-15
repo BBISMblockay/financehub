@@ -25,7 +25,12 @@ retained. The UI says this even when all account checks match.
 4. `archive_qbo_ledger` accepts only the two stored report IDs. Under finance auth,
    active-company isolation and a company-row lock it re-reads settings and reports,
    checks provider headers, currency, basis, dates, columns, filters and TB totals,
-   then atomically saves copied evidence, normalized browse rows and reconciliation.
+   then works through the ledger as a **job the browser drives with repeated calls
+   of the same RPC**, each bounded to a few thousand rows and a few seconds (see
+   "Bounded archive" below). The page shows rows checked so far; nothing is saved
+   until the last call atomically writes the copied evidence, the normalized browse
+   rows and the reconciliation. An unfinished job can be resumed from the page
+   without a new QBO fetch.
 5. Select one saved snapshot to browse its lines and account checks. Saved views
    query Silo only; a disconnected QBO connection does not prevent reads.
 
@@ -129,12 +134,190 @@ exception even if its closing balance is zero. No fuzzy/name-based account mappi
 or automatic adjustment is attempted. Accounts absent from the saved Silo chart
 stop the import and require chart reconciliation first.
 
+## Bounded archive (20260915000000)
+
+### What failed, measured
+
+Both production imports on 2026-09-14 (2025-08-01..2026-07-31, 36,778 data rows,
+and the reduced 2026-01-01..2026-07-31 window) fetched their reports and then timed
+out inside `archive_qbo_ledger`. Reproduced on a real PostgreSQL 16 server with
+synthetic reports in the production shape (`scripts/tests/qbo-history-benchmark.mjs`,
+generator `scripts/tests/fixtures/qbo-ledger-generator.mjs`: nested accounts, a
+headerless child holding a parent's own rows, a named group without an id, beginning
+balances on balance-sheet accounts, leading-decimal amounts, blank and explicit-zero
+lines, a trial balance that ties):
+
+| data rows | original RPC, one call | a second session wanting the company row waited |
+|---|---|---|
+| 1,000 | 1.4 s | 1.1 s |
+| 2,000 | 5.1 s | 4.8 s |
+| 4,000 | 19.7 s | 19.1 s |
+| 8,000 | 77.9 s | 79.2 s |
+| 16,000 | 431 s | — |
+
+Time quadruples per doubling. The RPC appended every staged line to one growing
+`jsonb` value (`staged := staged || jsonb_build_array(...)`); each append copies the
+whole array, so the cost is the sum of ever-larger copies. The 8 s ceiling is crossed
+near 2,500 rows, which is why the reduced window failed too, and the full-year
+report extrapolates to roughly half an hour. While it ran it held the company row
+`FOR UPDATE`, so any other finance write for the company (approvals, postings,
+another archive) blocked for the whole run.
+
+### Why the 55 s function timeout did not help
+
+Production carried a hand-applied `ALTER FUNCTION archive_qbo_ledger SET
+statement_timeout = '55s'` while `authenticated` stays at 8 s. Measured on the same
+server, under the transaction shape PostgREST uses (`BEGIN; SET LOCAL ROLE; SET LOCAL
+statement_timeout` from the role's settings; `SELECT rpc()`): a function declared
+with `SET statement_timeout = '10s'` is cancelled at the role's limit exactly like a
+function without it, even though `current_setting('statement_timeout')` inside it
+reports 10 s. Postgres arms the timer when the top-level statement starts; the
+function's own SET is applied when the function is entered, after that. The
+effective ceiling for the RPC is therefore the role's 8 s, always. The repository
+records no such setting, and `20260915000000`'s `create or replace` replaces the
+function's configuration, so applying it removes the ineffective override rather
+than leaving unrecorded drift. `verify_v2_schema.sql`'s `QBO history bounded
+archive` row goes STALE if one is ever put back.
+
+### How it works now
+
+**Two phases are not row-bounded, and that is why there is a ceiling.** The
+per-call budget governs row processing. Freezing and hashing the source cannot
+be resumed part-way, and the final copy must be one statement pair in one
+transaction: the evidence tables are immutable by trigger, so there is no
+"incomplete" flag to set and clear, and a half-copied import would read as
+whole to the card categorizer. Both grow with the report. Measured longest
+single call:
+
+| data rows | 36,778 | 80,000 | 100,000 | 120,000 | 150,000 |
+|---|---|---|---|---|---|
+| longest call | 2.5 s | 3.3 s | 3.6 s | 5.2 s | 6.9 s |
+
+So a job refuses before any work when the report exceeds **100,000 ledger rows**
+(longest call measured 3.6 s, a 2.2x margin under the 8 s ceiling) or **8 MB**
+of stored JSON, the byte check first because it is free and screens an absurd
+document out before the counting pass. **Both ceilings are needed and either
+can bind first**: a sparse ledger reaches 100,000 rows while still small, and a
+ledger with long memos reaches 8 MB while still short. The refusal names the count and says to
+archive the period in parts, which is what this runbook already tells an
+operator to do with a report too large to process. Nothing is truncated and no
+row is skipped: the archive covers the window completely or refuses it and says
+why. Baseballism's full year is 36,778 rows, comfortably inside. The ceiling is
+settable (`silo.qbo_archive_max_rows`) for tests; raising it risks a timeout on
+that import, never a partial archive.
+
+**Where the 8 MB comes from, and why the guard runs first.** Hashing the
+snapshot is the largest piece of the unbounded setup, and it is worse than
+linear in the document's size. Measured on the same PostgreSQL 16:
+
+| stored general ledger | byte check | row count (the guard) | build + sha256 the snapshot |
+|---|---|---|---|
+| 2.1 MB / 40,040 rows | 0.6 ms | 0.13 s | 0.33 s |
+| 7.7 MB / 150,040 rows | 0.6 ms | 0.55 s | 1.21 s |
+| ~15.5 MB | 0.6 ms | — | 7.10 s |
+| ~23 MB | 0.6 ms | — | 9.27 s |
+| ~31 MB | 0.6 ms | — | 21.1 s |
+
+Two things follow. First, the byte ceiling has to be about 8 MB: 7.7 MB is the
+largest document measured to hash comfortably inside the budget, and by 15.5 MB
+the hash alone is 7.10 s against an 8 s timeout. A more generous limit would
+admit documents the setup cannot finish, which is the work this guard exists to
+bound. Second, the guard has to run BEFORE the snapshot is built and hashed: a
+guard standing after the hash would let an oversized report be copied and
+sha256'd straight through the timeout and be cancelled, and the operator would
+see a cancellation rather than the refusal telling them to archive the period
+in parts. Running the byte check first costs 0.6 ms. `verify_v2_schema.sql`
+asserts the ORDER, not just that the guard exists. Both ceilings are settable
+(`silo.qbo_archive_max_rows`, `silo.qbo_archive_max_bytes`) for tests; raising
+either risks a timeout on that import, never a partial archive.
+
+Re-archiving the same two stored report runs is answered from their ids before
+any of this, so a period that is already archived returns its existing import
+without rebuilding the snapshot and is never refused as too large. A re-fetch
+of the same period produces new run ids, and the hash comparison after the
+snapshot is built still recognises it as identical content.
+
+The archive is a job (`qbo_history_jobs`) with two staging tables
+(`qbo_history_staging_sections`, `qbo_history_staging_lines`). Every call of
+`archive_qbo_ledger(gl, tb)` is bounded: at most 5,000 ledger rows or about 3 s
+of work, whichever comes first (session settings `silo.qbo_archive_batch_rows` /
+`silo.qbo_archive_batch_ms` override the budget in tests).
+
+- **First call.** Everything the single-call RPC validated is validated up front:
+  finance auth, company lock, settings, report ownership and connection, headers,
+  currency, basis, dates, filters, columns, trial balance totals, and every grouped
+  section's tie to its children. The frozen source snapshot and its sha256 are
+  stored on the job; each leaf account section is staged in provider order. Then
+  rows are processed until the budget is spent.
+- **Every call.** Resumes the first unfinished section from the row it stopped at
+  (running balance, movement, beginning-balance and reference flags, blank and zero
+  counts are persisted per section), inserts normalized lines into staging, and
+  returns `{status:'in_progress', rows_done, rows_total, sections_done,
+  sections_total}`. The page shows that progress. Retrying with the same two stored
+  reports resumes the same job; a resume does not rebuild or re-hash the snapshot.
+- **Last call.** Cross-checks trial balance accounts absent from the ledger, inserts
+  the immutable import header and copies every staged line into
+  `qbo_history_lines` in one set-based statement, empties the staging rows, marks
+  the job complete and returns `{id, status:'complete', ...}` -- the result shape
+  the page always used.
+
+Measured on the same idle server with the same fixtures (calls are sequential;
+elapsed includes a psql round trip per call). Every call, including the heaviest
+last one, sits well under the 8 s ceiling:
+
+| data rows | calls | elapsed | longest call |
+|---|---|---|---|
+| 1,000 | 1 | 0.2 s | 0.2 s |
+| 5,000 | 2 | 0.9 s | 0.6 s |
+| 36,778 | 8 | 5.7 s | 2.9 s (the last call: snapshot insert + 36,818-line copy) |
+| 40,000 | 9 | 5.6 s | 2.3 s |
+
+The local suite archives 40,040 lines in 6 bounded calls on PGlite in about 4 s.
+
+### Completeness, evidence and failure
+
+- **Nothing partial is evidence.** `qbo_history_imports` and `qbo_history_lines`
+  receive rows only in the last call, atomically. The card categorizer reads only
+  those two tables, so an in-flight or failed archive can never steer a coding
+  suggestion. Finance users can read a job's progress; the staging tables are closed
+  to every client role in both directions.
+- **Complete or nothing.** A job completes only when every staged section has been
+  checked; `transaction_count`, zero and blank counts and the reconciliation are
+  accumulated across calls and stored with the import. The last call also asserts
+  the archived line count equals the staged count.
+- **Malformed data at any point** (the same cell-level messages as before) marks the
+  job `failed` with the message, deletes its staging rows, and returns
+  `{status:'failed', error}`; the failing call's own row work rolls back and the
+  evidence tables were never touched. **Finalization has its own such block**: a
+  constraint, trigger or storage error during the final insert and copy
+  terminates the job with its reason too, rather than leaving it `running` at
+  100% for the page to offer as resumable while every resume repeats the same
+  failure. A retry with the same reports starts a fresh
+  job and fails identically; a corrected report (a new source) archives.
+- **Duplicates.** A completed source returns `{already_imported: true}` as before.
+  A partial unique index refuses a second running job for one source even from a
+  service-role write. Only one job per company and connection is live: starting a
+  newer source abandons an unfinished older one and removes its staging.
+- **Locks.** Each call takes the company row lock for its own bounded duration, so
+  other finance writes wait seconds, not the length of the import.
+- **Audit.** The import's `finance_audit_event` trigger now uses
+  `qbo_history_audit_event()`, which records the inserted row without the
+  multi-megabyte `source_snapshot` body (the sha256 `source_hash` stays in the
+  event). The original trigger copied the whole snapshot into
+  `finance_audit_events`, writing it twice.
+
+Unchanged: tenant and connection isolation, the immutable evidence tables and their
+triggers, the number parser and blank-amount rule, `zero_amount` rows kept out of
+coding precedent, the reconciliation issue names, and the `Not Specified` refusal
+(`docs/ops/bugs.md`). Snapshot supersession stays a separate follow-up.
+
 ## Delivery and validation
 
 Migrations, in order: `20260913022606_qbo_historical_ledger.sql` (tables, RLS, the
 RPC) after accounting foundation, then `20260914220000_qbo_history_number_formats.sql`
-(the shared number parser and the re-created RPC). Both are additive; the second
-never edits the first. No Edge Function change or deployment is required. Apply only
+(the shared number parser and the re-created RPC), then
+`20260915000000_qbo_history_bounded_archive.sql` (job and staging tables, the audit
+function, the bounded RPC). All are additive; a later one never edits an earlier one. No Edge Function change or deployment is required. Apply only
 the new migration following review, not the historical `apply_all_post_merge.sql`
 bundle. The PR does not apply it, disconnect QBO, post a journal or alter source
 posting switches.
@@ -160,6 +343,29 @@ posting switches.
    reconciliation shows how many zero-value lines were settled from the running
    balance.
 
+### Deploying the bounded archive and retrying the full-year import
+
+1. Merge the PR. `deployment-drift-check.yml` goes red on the next run because
+   `verify_v2_schema.sql`'s `QBO history bounded archive` row reports MISSING until
+   the migration is applied. That red is the reminder, not a fault.
+2. In the Supabase SQL editor, run the full contents of
+   `supabase/migrations/20260915000000_qbo_history_bounded_archive.sql` once. It is
+   idempotent. It replaces `archive_qbo_ledger`'s configuration, which drops the
+   hand-applied 55 s `statement_timeout` (ineffective, measured above); do not
+   re-apply it. No Edge Function deploy, no secret, no catalog refresh.
+3. Run `supabase/verify_v2_schema.sql`. `QBO history bounded archive`, `QBO history
+   number formats`, `QBO history import RPC` and `QBO history retention and audit`
+   must all read `ok`, and check 6 (company stamp triggers) stays `ok` -- the
+   migration attaches the stamp trigger to its new tables.
+4. Retry from Books & setup -> QBO history with the full window. The page fetches
+   the GL/TB pair once, then calls the RPC repeatedly, showing rows checked; expect
+   roughly 8 calls for the full-year report. If the tab is closed or the network
+   drops mid-way, "Resume unfinished archive" continues from the stored reports.
+5. The stored production reports still carry a `Not Specified` section, which the
+   archive refuses by design in the first call (before any rows are staged). That
+   decision is recorded in `docs/ops/bugs.md` and is not changed here; a window
+   whose report has no such section archives normally.
+
 Known next stop: the stored Baseballism reports (both the 366-day and the
 one-month window fetched on 2026-09-14) contain a `Not Specified` section, QBO's
 group for lines with no account, which the archive refuses as an unidentified
@@ -179,9 +385,12 @@ missing cells, malformed formats, totals, running balances, precision and atomic
 rollback):
 
 ```sh
-node scripts/tests/qbo-history-database.test.mjs
+node scripts/tests/qbo-history-database.test.mjs          # includes a 40,000-row synthetic archive
+QBO_DB_MUTATION=no-resume-state node scripts/tests/qbo-history-database.test.mjs   # must fail
+QBO_DB_MUTATION=unbounded node scripts/tests/qbo-history-database.test.mjs         # must fail
 node --test scripts/tests/qbo-history-ui.test.mjs
 node scripts/tests/plaid-bank-feed-database.test.mjs
+# timing, on a real server (not CI): PGHOST=... node scripts/tests/qbo-history-benchmark.mjs --rows 2000,8000 [--after]
 ```
 
 The synthetic GL fixture preserves observed provider structure (nested accounts,

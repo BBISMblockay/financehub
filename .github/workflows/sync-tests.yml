@@ -48,6 +48,7 @@ on:
       - 'v2/qbo-history.js'
       - 'supabase/migrations/*qbo_historical_ledger.sql'
       - 'supabase/migrations/*qbo_history_number_formats.sql'
+      - 'supabase/migrations/*qbo_history_bounded_archive.sql'
       - 'supabase/migrations/*card_transaction_splits.sql'
       - 'supabase/functions/plaid-finance/**'
       - 'supabase/functions/card-categorize/**'
