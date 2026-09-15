@@ -18756,3 +18756,9 @@ $c$select (select count(*) from v_po_header_summary
 -- review surfaces can tell an id being retired (bookkeeping) from a posted
 -- transaction being retracted (an event a person must see).
 \i migrations/20260915220000_plaid_removed_from_status.sql
+
+-- Pipeline items (product_tracker) can record the PO they came from. The
+-- drawer already searched POs and already labelled Expected Units "(from the
+-- originating PO)" -- there was just nowhere to store which PO. Additive,
+-- nullable, ON DELETE SET NULL.
+\i migrations/20260915230000_product_tracker_po_link.sql

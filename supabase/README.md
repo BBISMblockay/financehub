@@ -784,3 +784,20 @@ Test-Company-only account referenced by no Baseballism row), Test Company
 34 → 2, zero profiles orphaned. Regressions in
 `scripts/tests/profiles-tenant-scope.test.mjs`; `verify_v2_schema.sql` asserts
 exactly one SELECT policy.
+
+`20260915230000_product_tracker_po_link.sql` adds `product_tracker.po_header_id`.
+`/v2/products.html`'s Pipeline drawer has always offered a "PO / Incoming"
+product search and has always labelled its Expected Units field "(from the
+originating PO)", but there was no column to hold which PO — so the pick could
+not be saved, and Expected Units was typed by hand. Additive, nullable, and
+`on delete set null`: a deleted purchase order must not delete the pipeline item
+that came from it, nor block the delete. `product_samples.po_header_id` is the
+existing counterpart on the samples side.
+
+The page **feature-detects the column** (one `select po_header_id limit 1` probe
+at boot) and omits it from the write until it exists, because merging a PR does
+not apply a migration — sending an unknown column fails the whole update, which
+would turn "the PO link is not stored yet" into "nothing on this page saves".
+Only a `42703` is read as absent; any other error is logged and the column is
+still treated as present, so one bad request cannot quietly stop the link being
+saved on a database that has it.

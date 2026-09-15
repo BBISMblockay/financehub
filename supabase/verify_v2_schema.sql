@@ -3781,3 +3781,27 @@ select 'Plaid removal classification' as check_name,
    where origin='plaid' and provider_status='removed' and removed_from_status is null)
    then 'STALE: removed Plaid rows are unclassified; re-run the 20260915220000 backfill'
  else 'ok' end as status;
+
+-- /v2/products.html: a Pipeline item can record the PO it came from. (The
+-- youth/adult snapback split that shipped alongside this is purely client-side
+-- vocabulary in the size columns -- there is no constraint here to assert.)
+select 'Product tracker PO link' as check_name,
+ case when to_regclass('public.product_tracker') is null then 'MISSING: product_tracker table'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='product_tracker' and column_name='po_header_id')
+   then 'MISSING: product_tracker.po_header_id; apply 20260915230000'
+ -- Without the FK the column is a free-text uuid: a PO id that no longer
+ -- exists would keep reading as a live link on every Pipeline drawer.
+ when not exists(select 1 from pg_constraint c
+   where c.conrelid=to_regclass('public.product_tracker') and c.contype='f'
+     and c.confrelid=to_regclass('public.po_headers')
+     and c.conkey = array[(select attnum from pg_attribute
+       where attrelid=to_regclass('public.product_tracker') and attname='po_header_id')])
+   then 'CRITICAL: product_tracker.po_header_id has no FK to po_headers'
+ -- cascade would delete a pipeline item along with its PO. The pipeline item
+ -- is the record of the product, not of the order.
+ when exists(select 1 from pg_constraint c
+   where c.conrelid=to_regclass('public.product_tracker') and c.contype='f'
+     and c.confrelid=to_regclass('public.po_headers') and c.confdeltype <> 'n')
+   then 'CRITICAL: product_tracker.po_header_id does not use ON DELETE SET NULL'
+ else 'ok' end as status;
