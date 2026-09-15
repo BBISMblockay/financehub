@@ -3640,6 +3640,38 @@ select 'QBO history bounded archive' as check_name,
  when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.qbo_history_imports') and tgname='finance_audit_event' and tgenabled<>'D'
   and tgfoid=to_regprocedure('public.qbo_history_audit_event()'))
   then 'STALE: the import audit event still copies the multi-megabyte source snapshot into finance_audit_events; apply 20260915000000'
+ -- QBO emits one account-less housekeeping section ('Not Specified'); the
+ -- archive keeps its rows under a placeholder that cannot be read as a real
+ -- account, and still refuses the import outright if such a section carries
+ -- money. Losing either half is a different failure: the first makes the
+ -- full-year window unarchivable again, the second files real money under a
+ -- placeholder.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%silo:unattributed%'
+  then 'STALE: an account-less ledger section refuses the whole import again, so QBO''s own Not Specified bucket blocks the archive; apply 20260915200000'
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%has no QuickBooks account and carries%'
+  then 'CRITICAL: an account-less ledger section carrying money would be archived under the unattributed placeholder instead of refusing'
+ -- The placeholder skips the trial-balance comparison, so its admission test
+ -- is the only thing between a real balance and an archive reading 'matched'.
+ -- Amounts alone are not enough: a Beginning Balance row with a blank amount
+ -- and a real running balance passes an amounts-only test and keeps that
+ -- balance under the placeholder forever.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%has no QuickBooks account and carries a running balance%'
+  then 'CRITICAL: an account-less ledger section carrying a running balance would be archived under the unattributed placeholder instead of refusing'
+ -- A blank running balance on the placeholder reads as zero (four of seven
+ -- stored windows carry such a row); losing this refuses those windows again.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%then row_balance:=0%'
+  then 'STALE: a blank running balance on the unattributed section refuses the import again; apply 20260915200000'
+ -- Summary column 7 is the section's ENDING BALANCE, a separate claim from the
+ -- period total in column 6: zero movement and a balance carried out is a
+ -- coherent report. A real account would catch it as a trial_balance_mismatch;
+ -- the placeholder skips that comparison, so nothing else would look at it.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%has no QuickBooks account and reports a non-zero ending balance%'
+  then 'CRITICAL: an account-less ledger section reporting a balance carried out would be archived under the unattributed placeholder and read as matched'
+ -- The exemption from exception_count is the NOTICE, never the section. A
+ -- blanket exemption hides a running balance gap or a period total mismatch
+ -- on that section behind an archive that still reads 'matched'.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%p<>''unattributed_ledger_section''%'
+  then 'CRITICAL: every reconciliation problem on the unattributed section is exempt from exception_count, so a real mismatch there still reports matched'
  else 'ok' end as status;
 
 -- Card transaction splits (20260915100000). One coded row carried one account

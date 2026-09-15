@@ -18746,3 +18746,8 @@ $c$select (select count(*) from v_po_header_summary
 -- an effective journal line, and a learned rule remembers accounts, never
 -- amounts.
 \i migrations/20260915100000_card_transaction_splits.sql
+
+-- QBO's own account-less 'Not Specified' ledger section is archived under a
+-- placeholder that cannot be read as an account, instead of refusing the whole
+-- import. A section with no account that carries money still refuses.
+\i migrations/20260915200000_qbo_history_unattributed_section.sql

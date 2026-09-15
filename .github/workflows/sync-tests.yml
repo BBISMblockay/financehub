@@ -50,6 +50,7 @@ on:
       - 'supabase/migrations/*qbo_history_number_formats.sql'
       - 'supabase/migrations/*qbo_history_bounded_archive.sql'
       - 'supabase/migrations/*card_transaction_splits.sql'
+      - 'supabase/migrations/*qbo_history_unattributed_section.sql'
       - 'supabase/functions/plaid-finance/**'
       - 'supabase/functions/card-categorize/**'
       - 'supabase/migrations/*finance_v1_posting_controls.sql'

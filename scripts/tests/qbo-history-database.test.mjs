@@ -8,10 +8,14 @@ import { generateLedgerPair } from './fixtures/qbo-ledger-generator.mjs';
 // QBO_DB_MUTATION=unbounded         (the per-call budget removed: one call does everything)
 // QBO_DB_MUTATION=no-size-guard     (the report-size ceiling on the unbounded phases removed)
 // QBO_DB_MUTATION=no-byte-guard     (only the byte ceiling removed; the row ceiling does not cover a dense ledger)
+// QBO_DB_MUTATION=absorbs-unattributed-money (an account-less section with real money filed under the placeholder)
+// QBO_DB_MUTATION=admits-unattributed-balance (the placeholder's running-balance admission test removed)
+// QBO_DB_MUTATION=admits-unattributed-ending-balance (the placeholder's section ENDING BALANCE admission test removed)
+// QBO_DB_MUTATION=exempts-unattributed-problems (every problem on the placeholder exempt from exception_count, not just the notice)
 // QBO_DB_MUTATION=guard-after-hash  (the ceiling kept but moved back below the snapshot hash)
 // QBO_DB_MUTATION=finalize-unguarded (finalization outside its own exception block)
 const mutation=process.env.QBO_DB_MUTATION||'';
-assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded'].includes(mutation),'Unknown QBO history mutation');
+assert.ok(['','no-resume-state','unbounded','no-size-guard','no-byte-guard','guard-after-hash','finalize-unguarded','absorbs-unattributed-money','admits-unattributed-balance','admits-unattributed-ending-balance','exempts-unattributed-problems'].includes(mutation),'Unknown QBO history mutation');
 const db=new PGlite({extensions:{pgcrypto}});
 const root=new URL('../../',import.meta.url);
 const dependencies = [
@@ -80,6 +84,7 @@ try{
  assert.equal(Number((await one('select count(*) n from qbo_history_imports')).n),0,'The rejected report left no snapshot');
  await db.exec(formats);await db.exec(formats);
  const bounded=await readFile(new URL('supabase/migrations/20260915000000_qbo_history_bounded_archive.sql',root),'utf8');await db.exec(bounded);await db.exec(bounded);
+ const unattributed=await readFile(new URL('supabase/migrations/20260915200000_qbo_history_unattributed_section.sql',root),'utf8');await db.exec(unattributed);await db.exec(unattributed);
  if(mutation){const def=(await one("select pg_get_functiondef('public.archive_qbo_ledger(uuid,uuid)'::regprocedure) d")).d;
   let mutated=def;
   if(mutation==='no-resume-state')mutated=def.replace("state=jsonb_build_object('balance',balance,","state=jsonb_build_object('balance',0,");
@@ -88,6 +93,34 @@ try{
   // The byte ceiling on its own: a dense ledger reaches 8 MB while still short,
   // so the row ceiling does not cover it.
   else if(mutation==='no-byte-guard')mutated=def.replace('if pg_column_size(gl.raw_response) > max_bytes then','if false then');
+  // An account-less section carrying real money filed under the placeholder
+  // instead of refusing -- the silent mis-attribution the guard exists to stop.
+  else if(mutation==='absorbs-unattributed-money')mutated=def.replace('    if n>0 then','    if false then');
+  // The placeholder skips the trial-balance comparison, so a balance it admits
+  // is never checked against anything again. Removing only the running-balance
+  // half of the admission test leaves an amounts-only check -- the exact shape
+  // the cycle-1 review found.
+  else if(mutation==='admits-unattributed-balance'){
+   const anchor="'{ColData,7,value}',where_),0)<>0;\n    if n>0 then";
+   if(!def.includes(anchor))throw new Error('admits-unattributed-balance: the running-balance admission test was not found');
+   mutated=def.replace(anchor,"'{ColData,7,value}',where_),0)<>0;\n    if false then");
+  }
+  // Column 7 of the section Summary is the ENDING BALANCE, a separate claim
+  // from the period total in column 6. Removing its test leaves a section that
+  // reports no movement and a balance carried out, which nothing downstream
+  // looks at because the placeholder skips the trial-balance comparison.
+  else if(mutation==='admits-unattributed-ending-balance'){
+   const anchor="'{Summary,ColData,7,value}',where_),0)<>0 then";
+   if(!def.includes(anchor))throw new Error('admits-unattributed-ending-balance: the ending-balance admission test was not found');
+   mutated=def.replace(anchor,"'{Summary,ColData,7,value}',where_),0)<>0 and false then");
+  }
+  // The blanket exemption this cycle replaced: every problem on the
+  // unattributed section excused, not just the intentional notice.
+  else if(mutation==='exempts-unattributed-problems'){
+   const anchor="exists(select 1 from unnest(problems) p where p<>'unattributed_ledger_section')";
+   if(!def.includes(anchor))throw new Error('exempts-unattributed-problems: the scoped exemption was not found');
+   mutated=def.replace(anchor,"cardinality(problems)>0 and qid<>'silo:unattributed'");
+  }
   // Guard present but AFTER the hash: the shape cycle-2 review found. Moving
   // the ceiling below the snapshot build reproduces it exactly.
   else if(mutation==='guard-after-hash'){
@@ -191,7 +224,7 @@ try{
  await bad(r=>r.Header.Currency='CAD',/currency/);await bad(r=>r.Header.ReportBasis='Cash',/basis/);await bad(r=>r.Header.EndPeriod='2026-09-01',/end date/);
  await bad(r=>r.Columns.Column.pop(),/Unsupported ledger columns/);
  await bad(r=>r.Rows.Row.push(r.Rows.Row[0]),/duplicate ledger account/);
- await bad(r=>delete r.Rows.Row[0].Header.ColData[0].id,/Unsupported or duplicate/);
+ await bad(r=>delete r.Rows.Row[0].Header.ColData[0].id,/has no QuickBooks account and carries \d+ rows with an amount/);
  await bad(r=>r.Rows.Row[0].Rows.Row[1].ColData[6].value='nope',/Unsupported number format in ledger amount at row 2 of account bank/);
  await bad(r=>r.Rows.Row[2].Summary.ColData[6].value='11',/Grouped ledger totals/);
  const filtered=await store(glShape,co,conn,{account:'bank'});const unfilter=await store(tbShape,co,conn,{account:''});await assert.rejects(archive(filtered,unfilter),/Filtered or custom/);
@@ -271,6 +304,210 @@ try{
   const abandoned=await one('select status,error from qbo_history_jobs where id=$1',[started.job_id]);assert.equal(abandoned.status,'abandoned');assert.deepEqual(await staged(started.job_id),{sections:0,lines:0});
   const again=await archive(aG,aT);assert.equal(again.status,'complete');assert.notEqual(again.job_id,started.job_id,'An abandoned job is not resumed; the source is archived from the start');
   assert.equal(Number((await one("select count(*) n from qbo_history_jobs where status='running'")).n),0,'No job is left running');}
+  // QBO's own housekeeping bucket: a leaf section with NO account id, holding
+  // rows nobody can assign an account to. On Baseballism's real ledger it is
+  // called 'Not Specified' and carries 24 rows in the full-year window, every
+  // one a zero Journal Entry or a blank-amount Payment reading 'Created by QB
+  // Online to link credits to ...'. Refusing the import over it left that
+  // window permanently unarchivable.
+  {const pair=generateLedgerPair({rows:200,seed:770});
+   // Built by hand rather than in the generator: this is a PROVIDER shape SILO
+   // never produces, and the whole point is that it carries no id at all.
+   const blank=(v)=>({type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900001',value:'Payment'},{value:''},
+     {value:'Created by QB Online to link credits to the invoice'},{value:''},{value:''},{value:v},{value:'0.00'}]});
+   const nsRows=[blank(''),blank('.00'),blank('0.00')];
+   pair.gl.Rows.Row.push({type:'Section',
+     Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+     Rows:{Row:nsRows},
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'0.00'},{value:'0.00'}]}});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
+   const uG=await store(pair.gl,co,conn,{},...scaleWindow),uT=await store(pair.tb,co,conn,{},...scaleWindow);
+   const out=await archive(uG,uT);
+   assert.equal(out.status,'complete','an account-less ZERO section no longer refuses the whole import');
+   const kept=await q("select row_kind,natural_amount,account_name,account_type from qbo_history_lines where import_id=$1 and qbo_account_id='silo:unattributed' order by row_no",[out.id]);
+   assert.equal(kept.length,nsRows.length,'every row of it is archived, not skipped');
+   assert.ok(kept.every(r=>Number(r.natural_amount)===0),'and every one is zero, which is why it can be archived at all');
+   assert.ok(kept.every(r=>r.account_name==='Not Specified' && r.account_type==='Unattributed'),
+     'filed under a name and type that cannot be read as a QuickBooks account');
+   const recon=await one('select reconciliation r,reconciliation_status s from qbo_history_imports where id=$1',[out.id]);
+   const line=recon.r.find(x=>x.qbo_account_id==='silo:unattributed');
+   assert.ok(line,'the section is named in the reconciliation rather than vanishing from it');
+   assert.deepEqual(line.issues,['unattributed_ledger_section'],'under its own issue, not a trial-balance miss');
+   assert.equal(line.difference,null,'it has no trial balance counterpart to differ from');
+   assert.equal(recon.s,'matched','a provably zero section does not make an otherwise clean archive read as exceptions');
+  }
+  // The half that matters: an account-less section carrying ACTUAL MONEY is a
+  // bookkeeping problem for a person, not something to file under a
+  // placeholder. It refuses the whole import and says how many rows.
+  {const before=await counts();
+   const pair=generateLedgerPair({rows:200,seed:771});
+   const row=(v,bal)=>({type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900002',value:'Journal Entry'},{value:'JE-9'},
+     {value:''},{value:''},{value:''},{value:v},{value:bal}]});
+   pair.gl.Rows.Row.push({type:'Section',
+     Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+     Rows:{Row:[row('0.00','0.00'),row('250.00','250.00')]},
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'250.00'},{value:'250.00'}]}});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
+   const mG=await store(pair.gl,co,conn,{},...scaleWindow),mT=await store(pair.tb,co,conn,{},...scaleWindow);
+   if(mutation==='absorbs-unattributed-money'){await archive(mG,mT);assert.fail('The non-zero guard was removed, yet money with no account was still archived under the placeholder');}
+   await assert.rejects(archive(mG,mT),/has no QuickBooks account and carries 1 rows with an amount/,
+     'money with no account refuses the whole import and names the count');
+   assert.deepEqual(await counts(),before,'and writes no evidence');
+  }
+  // Admission is the ONLY test this section ever faces: the placeholder has no
+  // trial-balance counterpart, so whatever it admits is never checked against
+  // anything again. Amount cells alone are not enough -- these four cases are
+  // the ways a section with no amounts still carries a real fact.
+  //
+  // (1) A Beginning Balance row: blank amount, real balance. It passes an
+  // amounts-only test, keeps a $250 closing balance under the placeholder and
+  // reports 'matched'.
+  {const before=await counts();
+   const pair=generateLedgerPair({rows:200,seed:772});
+   pair.gl.Rows.Row.push({type:'Section',
+     Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+     Rows:{Row:[{type:'Data',ColData:[{value:'Beginning Balance'},{value:''},{value:''},{value:''},{value:''},{value:''},{value:''},{value:'250.00'}]},
+       {type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900003',value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:'.00'},{value:'250.00'}]}]},
+     // The section summary's ending balance is left BLANK, which is what QBO
+     // actually emits here (all 14 stored sections carry ''), so the only guard
+     // that can catch this fixture is the row-level running balance one. If the
+     // summary also said 250 the ending-balance guard would catch it too and
+     // the mutation below would prove nothing about the row-level test.
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:''}]}});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
+   const bG=await store(pair.gl,co,conn,{},...scaleWindow),bT=await store(pair.tb,co,conn,{},...scaleWindow);
+   if(mutation==='admits-unattributed-balance'){
+    const out=await archive(bG,bT);
+    const recon=await one('select reconciliation r,reconciliation_status s from qbo_history_imports where id=$1',[out.id]);
+    const line=recon.r.find(x=>x.qbo_account_id==='silo:unattributed');
+    assert.fail(`The running-balance admission test was removed, yet a $250 unattributed balance was archived reading '${recon.s}' with ledger_debit_net ${line&&line.ledger_debit_net}`);
+   }
+   await assert.rejects(archive(bG,bT),/has no QuickBooks account and carries a running balance on 2 rows/,
+     'a balance with no account refuses the whole import, the same as an amount does');
+   assert.deepEqual(await counts(),before,'and writes no evidence');
+  }
+  // (2) A zero-amount row whose running balance MOVES. Under an amounts-only
+  // test this archived and recorded running_balance_gap; the gap was then
+  // excused from exception_count, so it reported 'matched'. Refusing at
+  // admission is the stronger outcome: the gap is now unreachable rather than
+  // uncounted.
+  {const before=await counts();
+   const pair=generateLedgerPair({rows:200,seed:773});
+   const row=(id,v,bal)=>({type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id,value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:v},{value:bal}]});
+   pair.gl.Rows.Row.push({type:'Section',
+     Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+     Rows:{Row:[row('900004','.00','0.00'),row('900005','.00','40.00')]},
+     // Blank summary ending balance again, for the same isolation reason.
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:''}]}});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
+   const gG=await store(pair.gl,co,conn,{},...scaleWindow),gT=await store(pair.tb,co,conn,{},...scaleWindow);
+   if(mutation==='admits-unattributed-balance'){
+    const out=await archive(gG,gT);
+    const recon=await one('select reconciliation r,reconciliation_status s from qbo_history_imports where id=$1',[out.id]);
+    const line=recon.r.find(x=>x.qbo_account_id==='silo:unattributed');
+    assert.fail(`The running-balance admission test was removed, yet zero movements against a moving balance archived reading '${recon.s}' with issues ${JSON.stringify(line&&line.issues)}`);
+   }
+   await assert.rejects(archive(gG,gT),/has no QuickBooks account and carries a running balance on 1 rows/,
+     'a moving running balance beside zero movements refuses rather than being archived and excused');
+   assert.deepEqual(await counts(),before,'and writes no evidence');
+  }
+  // (3) A period total that disagrees with the rows, and (4) a period total
+  // cell that is absent entirely. Every other account refuses a missing total
+  // when it is staged; the placeholder read it as zero, so QBO telling us money
+  // moved was silently discarded.
+  {const before=await counts();
+   const mk=(summaryCell)=>{const pair=generateLedgerPair({rows:200,seed:774});
+    pair.gl.Rows.Row.push({type:'Section',
+      Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+      Rows:{Row:[{type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900006',value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:'.00'},{value:'.00'}]}]},
+      Summary:{ColData:[...Array(6).fill({value:''}),summaryCell,{value:'.00'}]}});
+    return pair;};
+   const disagrees=mk({value:'500.00'});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(disagrees.accounts)]);
+   const dG=await store(disagrees.gl,co,conn,{},...scaleWindow),dT=await store(disagrees.tb,co,conn,{},...scaleWindow);
+   await assert.rejects(archive(dG,dT),/has no QuickBooks account and reports a non-zero period total/,
+     'a period total saying money moved refuses, rather than being overruled by the rows');
+   const absent=mk({});
+   const aG=await store(absent.gl,co,conn,{},...scaleWindow),aT=await store(absent.tb,co,conn,{},...scaleWindow);
+   await assert.rejects(archive(aG,aT),/Period total cell is missing for the unattributed ledger section/,
+     'an absent period total refuses here exactly as it does for a real account, instead of reading as zero');
+   assert.deepEqual(await counts(),before,'and neither writes evidence');
+  }
+  // Summary column 7 is `rbal_nat_amount`, the section's ENDING BALANCE, and it
+  // is a separate claim from the period total in column 6: zero movement and a
+  // balance carried out is a coherent thing for a report to say. On a real
+  // account it would surface as a trial_balance_mismatch, because the closing
+  // balance is compared to the trial balance; the placeholder skips that
+  // comparison, so nothing downstream would ever look at it.
+  {const before=await counts();
+   const mk=(balCell)=>{const pair=generateLedgerPair({rows:200,seed:777});
+    pair.gl.Rows.Row.push({type:'Section',
+      Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+      Rows:{Row:[{type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900009',value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:'.00'},{value:'.00'}]}]},
+      Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},balCell]}});
+    return pair;};
+   const carried=mk({value:'250.00'});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(carried.accounts)]);
+   const cG=await store(carried.gl,co,conn,{},...scaleWindow),cT=await store(carried.tb,co,conn,{},...scaleWindow);
+   if(mutation==='admits-unattributed-ending-balance'){
+    const out=await archive(cG,cT);
+    const recon=await one('select reconciliation r,reconciliation_status s from qbo_history_imports where id=$1',[out.id]);
+    const line=recon.r.find(x=>x.qbo_account_id==='silo:unattributed');
+    assert.fail(`The ending-balance admission test was removed, yet a section reporting a $250 balance carried out was archived reading '${recon.s}' with issues ${JSON.stringify(line&&line.issues)}`);
+   }
+   await assert.rejects(archive(cG,cT),/has no QuickBooks account and reports a non-zero ending balance/,
+     'zero movement and a balance carried out refuses; the period total being zero does not vouch for the balance');
+   const gone=mk({});
+   const gG=await store(gone.gl,co,conn,{},...scaleWindow),gT=await store(gone.tb,co,conn,{},...scaleWindow);
+   await assert.rejects(archive(gG,gT),/Period ending balance cell is missing for the unattributed ledger section/,
+     'an absent ending balance is unknown, never zero');
+   assert.deepEqual(await counts(),before,'and neither writes evidence');
+  }
+  // A row with BOTH cells blank. QBO really does emit these: four of the seven
+  // stored windows of Baseballism's ledger carry exactly one, and before this
+  // they failed on 'Missing running balance' -- so archiving the account-less
+  // section fixed the one window that was reported and left the rest refusing
+  // with a different message. A blank balance is read as zero HERE and only
+  // here, because admission has already established the section is all zero.
+  {const pair=generateLedgerPair({rows:200,seed:775});
+   pair.gl.Rows.Row.push({type:'Section',
+     Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+     Rows:{Row:[{type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900007',value:'Payment'},{value:''},
+       {value:'Created by QB Online to link credits to the invoice'},{value:''},{value:''},{value:''},{value:''}]},
+       {type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900008',value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:'.00'},{value:'.00'}]}]},
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:''}]}});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
+   const kG=await store(pair.gl,co,conn,{},...scaleWindow),kT=await store(pair.tb,co,conn,{},...scaleWindow);
+   const out=await archive(kG,kT);
+   assert.equal(out.status,'complete','a blank running balance on the all-zero placeholder no longer refuses the window');
+   const kept=await q("select natural_amount,natural_balance from qbo_history_lines where import_id=$1 and qbo_account_id='silo:unattributed' order by row_no",[out.id]);
+   assert.equal(kept.length,2,'both rows are archived, not skipped');
+   assert.ok(kept.every(r=>Number(r.natural_amount)===0 && Number(r.natural_balance)===0),
+     'the blank reads as the zero it is, and is stored as zero rather than as null');
+   const recon=await one('select reconciliation_status s from qbo_history_imports where id=$1',[out.id]);
+   assert.equal(recon.s,'matched','and the window reconciles');
+  }
+  // The exemption from exception_count is the NOTICE, not the section. A real
+  // problem on the placeholder -- here a row QBO gave no transaction id, which
+  // admission does not and should not refuse -- is counted like it would be on
+  // any other account, so 'matched' keeps meaning matched.
+  {const pair=generateLedgerPair({rows:200,seed:776});
+   pair.gl.Rows.Row.push({type:'Section',
+     Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
+     Rows:{Row:[{type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:'.00'},{value:'.00'}]}]},
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:'.00'}]}});
+   await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
+   const rG=await store(pair.gl,co,conn,{},...scaleWindow),rT=await store(pair.tb,co,conn,{},...scaleWindow);
+   const out=await archive(rG,rT);
+   const recon=await one('select reconciliation r,reconciliation_status s,exception_count e from qbo_history_imports where id=$1',[out.id]);
+   const line=recon.r.find(x=>x.qbo_account_id==='silo:unattributed');
+   assert.ok(line.issues.includes('unattributed_ledger_section'),'the notice is still recorded');
+   assert.ok(line.issues.includes('missing_transaction_reference'),'and so is the real problem beside it');
+   // No mutation branch here on purpose: restoring the blanket exemption makes
+   // the two plain assertions below fail on their own, which is the point.
+   assert.equal(Number(recon.e),1,'a real problem on the placeholder counts as an exception');
+   assert.equal(recon.s,'exceptions','so the archive does not report matched over it');
+  }
  // The two phases the per-call budget does not cover -- freezing and hashing
  // the source, and the atomic final copy -- grow with the report, so a size
  // guard refuses an oversized one BEFORE any work rather than letting it time
