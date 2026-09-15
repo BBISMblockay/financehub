@@ -363,19 +363,23 @@ posting switches.
    drops mid-way, "Resume unfinished archive" continues from the stored reports.
 5. The `Not Specified` section no longer stops the import (`20260915200000`).
 
-## The trial balance must cover the ledger's period
+## The trial balance is fiscal-year-to-date, whatever you ask for
 
-QBO's trial balance is **period-scoped**. A balance-sheet account reports its
-as-at balance, so the start date does not move it; an income or expense account
-reports ACTIVITY for the range. A trial balance over a different period is
-therefore a perfectly valid report answering a different question, and the
-reconciliation compares the ledger against it account by account.
+**QBO's TrialBalance ignores `start_date`.** It reports balance-sheet accounts
+as at the end date and income and expense accounts for the **fiscal year to
+date**, and it echoes the requested `StartPeriod` back in the header regardless.
+Measured 2026-09-15: two runs against the same end date, one asking for
+`2025-08-01` and one for `2026-01-01`, returned **byte-identical rows**
+(`0ebb2460535dd4f69dc885eb3c62761a`) with only the header label differing.
 
-`/v2/qbo-history.html` requested the trial balance from the **fiscal year
-start** rather than the ledger's start. Every window anyone tried began on
-January 1, so the two coincided and every archive reconciled. The first window
-to cross a fiscal-year boundary -- 2025-08-01 to 2026-07-31, run 2026-09-15 --
-compared twelve months of ledger against seven months of trial balance:
+The consequence is a hard limit, not a bug we can fix: **only a ledger window
+that begins on the fiscal year start can be reconciled in full.** A window that
+crosses the boundary archives every line correctly and then disagrees with the
+trial balance on every P&L account, because the ledger covers more months than
+the trial balance does.
+
+Measured on the 2025-08-01 → 2026-07-31 window (12 months of ledger against 7
+months of trial balance):
 
 | account type | accounts mismatched | absolute difference |
 |---|---|---|
@@ -384,25 +388,29 @@ compared twelve months of ledger against seven months of trial balance:
 | Expense | 17 | 7,063,382.26 |
 | Other Expense | 6 | 899,499.69 |
 | Equity | 1 | 239,045.48 |
-| Bank / AR / AP / Credit Card | 0 | 0.00 |
+| Bank / AR / AP / Credit Card | **0** | **0.00** |
 
-The page reported 145 exceptions and $54.4m of affected closing balance. **Not
-one ledger line was missing** -- all 36,686 were archived correctly. Only the
-verdict was wrong, and the giveaway is that the damage sorts perfectly by
-account type: a real gap does not spare every balance-sheet account.
+All 36,778 lines were archived correctly. Applying each account's debit/credit
+direction, **63 of the 64 differences equal that account's own
+August–December 2025 activity to the cent, residual $0.00** — the months the
+trial balance does not cover. Not one balance-sheet account moved, because those
+are as-at figures.
 
-Both halves are now closed. The page requests the trial balance for the
-ledger's own window, and `archive_qbo_ledger` **refuses the pair** when the
-stored periods differ or when either report's `Header.StartPeriod` disagrees
-with the ledger's start -- the stored columns say what was asked for, the header
-says what QBO answered, and either can be wrong. Measured across all 22 distinct
-stored report windows on 2026-09-15, every GeneralLedger and TrialBalance run
-carries `Header.StartPeriod` equal to its stored `start_date`, so nothing that
-exists is refused.
+**What was done about it.** `/v2/accounting-books.html` offers the archivable
+**fiscal years as buttons** (`2025`, `2024`, …), each resolving to that fiscal
+year's own window and the most recent one clamped to the day before the
+accounting start date. The window that cannot reconcile is therefore not
+reachable, rather than merely refused after the fact. Manual From/Through stays
+for anyone who needs a different window and can read the result knowing the
+above. Both paths run the same archive function, so they cannot drift.
 
-A UI that asks the wrong question must not be able to turn itself into a
-headline number. That is why the refusal lives in the function, where the
-comparison is made, and not only in the page that was fixed.
+**A correction worth recording.** `20260915210000` was written believing the
+page's fiscal-year-start request was itself the cause, and added two checks:
+`tb.start_date = gl.start_date`, and each report's `Header.StartPeriod` against
+the ledger's start. The first is harmless and still true. **The second cannot
+ever fire for a trial balance**, because QBO echoes whatever start date was
+requested — it verifies a label, not the data, and must not be read as proof
+that the trial balance covers the period it claims. See `docs/ops/bugs.md`.
 
 ## QuickBooks' `Not Specified` section
 

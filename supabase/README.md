@@ -609,8 +609,15 @@ out by $33.3m with every balance-sheet account tying exactly. All 36,686 lines
 were archived correctly; only the verdict was wrong.
 
 Both the stored columns (`tb.start_date` vs `gl.start_date`) and each report's
-own `Header.StartPeriod` are now checked -- the columns say what was ASKED for,
-the header says what QBO ANSWERED. The page is fixed in the same change, but a
+own `Header.StartPeriod` are checked. **Correction (2026-09-15, same day):** the
+header half cannot fire for a trial balance -- QBO ignores `start_date` on that
+report and echoes the requested value back, so two runs asking for different
+starts return byte-identical rows. The diagnosis this migration was written on
+was wrong: the trial balance is fiscal-year-to-date whatever is asked, so only a
+ledger window beginning on the fiscal year start can reconcile at all. The
+practical fix is the fiscal-year buttons on `/v2/accounting-books.html`; this
+migration's remaining value is the stored-column check. Logged P3 in
+`docs/ops/bugs.md`. The page is fixed in the same change, but a
 UI asking the wrong question must not be able to turn itself into a headline
 number, so the refusal lives where the comparison is made. Verified across all
 22 distinct stored report windows: every run carries `Header.StartPeriod` equal
