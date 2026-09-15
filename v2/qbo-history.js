@@ -33,15 +33,15 @@
       action:'Re-fetch this period. The gap names where to look.'},
     missing_ledger_account:{severity:'coverage',label:'In the trial balance, no lines in this window',
       meaning:'The account is on the trial balance but the general ledger returned no lines for it between these dates.',
-      zeroAction:'Nothing is missing from the archive — the account had no activity in this window, and it carries no balance, so nothing is unaccounted for. It is listed because a zero balance now does not prove the account was never active in another period.',
+      zeroAction:'QuickBooks returned no ledger section for this account and its closing balance is zero, so no closing balance is unaccounted for. Whether it had activity in this window that the report did not return cannot be confirmed from here — an account whose debits and credits net to zero would look the same. That is why it is listed rather than passed.',
       balanceAction:'A closing balance with no detail behind it. Archive the period in which this account was active before relying on this window for it.'},
     no_ledger_rows:{severity:'coverage',label:'Account section present but empty',
       meaning:'QuickBooks printed a section for this account and put no lines in it.',
-      zeroAction:'Nothing to retain and no balance at stake.',
+      zeroAction:'The section is empty and the closing balance is zero, so no closing balance is unaccounted for. An empty section is not proof that the account had no activity — only that none was returned.',
       balanceAction:'The account holds a balance but the ledger returned none of the lines behind it. Re-fetch this period.'},
     missing_trial_balance_account:{severity:'coverage',label:'In the ledger, absent from the trial balance',
       meaning:'Lines were retained for this account but the trial balance does not list it, so its closing balance cannot be checked against anything.',
-      zeroAction:'The retained lines net to zero, so nothing is unaccounted for.',
+      zeroAction:'The retained lines net to zero, so no closing balance is at stake. Nothing confirms that figure, because the account is not on the trial balance to compare it with.',
       balanceAction:'The retained lines net to a balance that nothing confirms. Check the account in QuickBooks before relying on this window.'},
     missing_transaction_reference:{severity:'detail',label:'A retained line has no source transaction ID',
       meaning:'The line is archived in full, but without QuickBooks’ own transaction id there is no way to trace it back to its source document.',
@@ -87,7 +87,12 @@
       // is excluded on purpose. Tracking that here is what lets the page's
       // own wording agree with exception_count instead of saying 72 beside 71.
       if(codes.some(code=>ISSUES[code]?.counted!==false))exceptions++;
-      if(severity==='difference'&&balance>0){atRiskAccounts++;atRiskBalance+=balance;}
+      // Every difference-severity row needs attention. The BALANCE affected is
+      // a separate figure: retained detail that is missing or duplicated can
+      // still net to a zero closing balance, and reporting only the balance
+      // told the reader "0 accounts need attention" about a row this very
+      // function had just classified as needing it.
+      if(severity==='difference'){atRiskAccounts++;atRiskBalance+=balance;}
       for(const code of codes){
         const g=groups.get(code)||{code,accounts:0,withBalance:0,balanceTotal:0,examples:[]};
         g.accounts++;
@@ -182,8 +187,8 @@
       const kinds=sum.exceptionGroups.length;
       const shape=!a.exception_count?'Account balances matched'
         :`${a.exception_count} account exception${a.exception_count===1?'':'s'} to review`
-          +(kinds===1?` — all of one kind${sum.balancesAllTie?', and no balance is affected':''}`
-            :sum.balancesAllTie?` across ${kinds} kinds — no balance is affected`:'');
+          +(kinds===1?` — all of one kind${sum.balancesAllTie?', and no closing balance is affected':''}`
+            :sum.balancesAllTie?` across ${kinds} kinds — no closing balance is affected`:'');
       el('historySummary').innerHTML=`<p><strong>${esc(a.period_start)} → ${esc(a.period_end)}</strong></p><p>${esc(a.currency)} · ${esc(a.accounting_basis)} · ${a.transaction_count} transaction lines</p><p>${esc(shape)} · saved ${esc(a.created_at)}</p>`;
       el('historyAccount').innerHTML='<option value="">All accounts</option>'+a.reconciliation.map(r=>`<option value="${esc(r.qbo_account_id)}">${esc(r.account_name)}</option>`).join('');
       el('historyExceptions').innerHTML=explain(sum);
@@ -197,8 +202,11 @@
       el('historyReconciliation').innerHTML=table(['Account','Ledger closing','Trial balance','Difference','Check'],rows.map(({r,c})=>`<tr><td>${esc(r.account_name)}</td><td class="num">${amount(r.ledger_debit_net)}</td><td class="num">${amount(r.trial_balance_debit_net)}</td><td class="num">${amount(r.difference)}</td><td>${c.codes.length?c.codes.map(i=>esc(issueLabel(i))).join('<br>'):'Matched'}</td></tr>`));
       await lines(true);
       status(!a.exception_count?'Saved history is available in Silo. Select an account to inspect its lines.'
-        :sum.balancesAllTie?`Saved. Every account balance tied to the trial balance. ${sum.exceptions} account${sum.exceptions===1?'':'s'} carry a note explaining what could not be compared — none of them holds a balance, so nothing is unaccounted for.`
-        :`Saved, and ${sum.atRiskAccounts} account${sum.atRiskAccounts===1?'':'s'} need attention before this window is relied on — ${amount(sum.atRiskBalance)} ${esc(a.currency)} of balance is affected. They are listed first below.`);
+        :sum.balancesAllTie?`Saved. Every closing balance tied to the trial balance, and no closing balance is unaccounted for. ${sum.exceptions} account${sum.exceptions===1?' carries a note about detail that could not be compared':'s carry a note about detail that could not be compared'} — read them before treating this window as complete.`
+        :`Saved, and ${sum.atRiskAccounts} account${sum.atRiskAccounts===1?' needs':'s need'} attention before this window is relied on`
+          +(sum.atRiskBalance>0?` — ${amount(sum.atRiskBalance)} ${esc(a.currency)} of closing balance is affected.`
+            :' — no closing balance is affected, but the retained detail does not tie.')
+          +' They are listed first below.');
     }
     async function refresh(prefer){
       settings=await result(db.from('accounting_settings').select('qbo_connection_id,accounting_start_date,accounting_basis,base_currency,fiscal_year_start_month').eq('company_entity_id',companyId).maybeSingle());

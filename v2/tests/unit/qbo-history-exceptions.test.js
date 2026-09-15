@@ -99,13 +99,33 @@ r.test('71 accounts of ONE kind, and none of them holds a balance', () => {
   r.eq(g.severity, 'coverage', 'not something to act on while the balance is zero');
 });
 
-r.test('a zero-balance coverage note is explained as benign, not as a defect', () => {
+/* Cycle-1 P1. The first version of this copy said "Nothing is missing from
+   the archive — the account had no activity in this window". Neither claim is
+   established by the data: an account whose debits and credits NET to zero,
+   whose ledger section the report did not return, is indistinguishable from
+   an idle one. The archive raises missing_ledger_account *because* it cannot
+   tell them apart. Saying otherwise could send someone to disconnect QBO over
+   an archive that silently lost detail. */
+r.test('a zero-balance note claims only what the absence proves', () => {
   const copy = H.ISSUES.missing_ledger_account;
-  r.has(copy.zeroAction, 'Nothing is missing from the archive');
-  r.has(copy.zeroAction, 'nothing is unaccounted for');
-  // And it still says WHY it is listed at all, so the archive's conservative
-  // stance is explained rather than contradicted.
-  r.has(copy.zeroAction, 'does not prove');
+  // What IS proved: no closing balance is unaccounted for.
+  r.has(copy.zeroAction, 'no closing balance is unaccounted for');
+  // What is NOT proved, and must not be asserted.
+  r.not(copy.zeroAction, 'Nothing is missing');
+  r.not(copy.zeroAction, 'had no activity in this window,');
+  r.has(copy.zeroAction, 'cannot be confirmed');
+  // And it names the case that makes the absence ambiguous.
+  r.has(copy.zeroAction, 'net to zero');
+});
+
+r.test('no coverage note anywhere claims completeness of detail', () => {
+  // The same overstatement was in every zero-balance branch.
+  for (const [code, def] of Object.entries(H.ISSUES)) {
+    if (!def.zeroAction) continue;
+    for (const overclaim of ['Nothing is missing', 'Nothing to retain', 'nothing is unaccounted for']) {
+      r.not(def.zeroAction, overclaim, `${code} overstates: "${overclaim}"`);
+    }
+  }
 });
 
 r.test('the same note carries a different instruction once a balance exists', () => {
@@ -151,6 +171,42 @@ r.test('a real balance difference is always something to act on', () => {
   r.eq(H.classify(mismatch).severity, 'difference');
   const s = H.summarise([mismatch]);
   r.eq(s.balancesAllTie, false);
+});
+
+/* Cycle-1 P2. A movement or running-balance gap is actionable whether or not
+   the account ends at zero -- retained detail can be missing or duplicated and
+   still net to nothing. Counting only accounts with a non-zero balance told
+   the reader "0 accounts need attention" about a row classify() had just
+   called a difference. */
+r.test('a zero-ending mismatch still counts as an account needing attention', () => {
+  for (const code of ['movement_total_mismatch', 'running_balance_gap', 'trial_balance_mismatch']) {
+    const s = H.summarise([{ account_name: 'Clearing', issues: [code],
+      ledger_debit_net: 0, trial_balance_debit_net: 0, difference: 0 }]);
+    r.eq(s.balancesAllTie, false, code);
+    r.eq(s.atRiskAccounts, 1, `${code} must be counted as needing attention`);
+    r.eq(s.atRiskBalance, 0, `${code} moved no closing balance, and says so`);
+  }
+});
+
+r.test('accounts needing attention and balance affected are separate figures', () => {
+  const s = H.summarise([
+    { account_name: 'Nets to zero', issues: ['movement_total_mismatch'], trial_balance_debit_net: 0 },
+    { account_name: 'Real gap', issues: ['trial_balance_mismatch'], trial_balance_debit_net: -900 },
+  ]);
+  r.eq(s.atRiskAccounts, 2, 'both need attention');
+  r.eq(s.atRiskBalance, 900, 'only one of them moves a balance');
+});
+
+r.test('never zero accounts while balances do not tie', () => {
+  // The bug in one invariant.
+  for (const rows of [
+    [{ issues: ['movement_total_mismatch'], trial_balance_debit_net: 0 }],
+    [{ issues: ['running_balance_gap'], trial_balance_debit_net: 0 }],
+    [{ issues: ['missing_ledger_account'], trial_balance_debit_net: 50 }],
+  ]) {
+    const s = H.summarise(rows);
+    if (!s.balancesAllTie) r.truthy(s.atRiskAccounts > 0, 'claimed nobody needs to act: ' + JSON.stringify(rows));
+  }
 });
 
 r.test('a difference outranks a coverage note on the same account', () => {
