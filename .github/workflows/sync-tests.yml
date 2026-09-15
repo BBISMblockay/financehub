@@ -68,6 +68,7 @@ on:
       - 'v2/transactions.html'
       - 'v2/transactions-tiles.js'
       - 'v2/transaction-dates.js'
+      - 'v2/transaction-filters.js'
       - 'v2/card-splits.js'
       - 'v2/transactions-workspace.css'
       - 'v2/bank-workspace.js'

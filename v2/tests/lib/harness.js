@@ -141,6 +141,7 @@ window.__QUERIES__ = [];
           if (f.op === 'lt')  return Number(v) < Number(f.val);
           if (f.op === 'gt')  return Number(v) > Number(f.val);
           if (f.op === 'ilike') return matchIlike(v, f.val);
+          if (f.op === 'in') return (f.vals || []).map(String).indexOf(String(v)) !== -1;
           return true;
         });
       });
@@ -154,7 +155,10 @@ window.__QUERIES__ = [];
       eq:     function (col, val) { q.filters.push({ op: 'eq',  col: col, val: val }); return api; },
       gte:    function (col, val) { q.filters.push({ op: 'gte', col: col, val: val }); return api; },
       lte:    function (col, val) { q.filters.push({ op: 'lte', col: col, val: val }); return api; },
-      in:     function () { return api; },
+      // Implemented for real: loadSplits() reads split lines with .in() on a
+      // page of transaction ids, and a no-op would hand every fixture split
+      // to whichever page asked first.
+      in:     function (col, vals) { q.filters.push({ op: 'in', col: col, vals: vals || [] }); return api; },
       lt:     function (col, val) { q.filters.push({ op: 'lt',  col: col, val: val }); return api; },
       gt:     function (col, val) { q.filters.push({ op: 'gt',  col: col, val: val }); return api; },
       neq:    function (col, val) { q.filters.push({ op: 'neq', col: col, val: val }); return api; },
@@ -170,6 +174,18 @@ window.__QUERIES__ = [];
       update: function (patch) { q._op = 'update'; q.patch = patch; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
       upsert: function (r) { q._op = 'upsert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
       delete: function () { q._op = 'delete'; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
+      // A single-row read. Pages use both, and a missing method is a
+      // TypeError that reads exactly like a page bug.
+      single: function () {
+        var r = rows();
+        return Promise.resolve(r.length
+          ? { data: r[0], error: null }
+          : { data: null, error: { message: 'no rows' } });
+      },
+      maybeSingle: function () {
+        var r = rows();
+        return Promise.resolve({ data: r.length ? r[0] : null, error: null });
+      },
       then:   function (res, rej) { return Promise.resolve({ data: rows(), error: null }).then(res, rej); }
     };
     return api;

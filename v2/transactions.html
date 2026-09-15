@@ -9,7 +9,7 @@
   <style>
     .silo-main { min-width: 0; overflow: hidden; }
     .bcn-header { position: sticky; top: 0; z-index: 30;
-      background: var(--bcn-panel); border-bottom: 1px solid var(--bcn-border); }
+      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
 
     /* Same shape as the accounting export: the page does not scroll, the
        visible tab's table does. */
@@ -47,7 +47,7 @@
     }
 
     .cc-card { display: flex; flex-direction: column; min-height: 0; min-width: 0;
-      background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      background: var(--bcn-surface); border: 1px solid var(--bcn-border);
       border-radius: 12px; overflow: hidden; }
     .cc-card--grow { flex: 1; }
     .cc-card-head { flex: none; padding: 10px 12px; display: flex; gap: 12px;
@@ -88,6 +88,14 @@
     .cc-chip--manual { background: rgba(100,116,139,.12); }
     .cc-chip--low { background: rgba(217,119,6,.12); border-color: rgba(217,119,6,.4); }
     .cc-chip--none { background: rgba(220,38,38,.10); border-color: rgba(220,38,38,.35); }
+    .cc-chip--split { background: rgba(147,51,234,.12); border-color: rgba(147,51,234,.38); }
+    #rulesNotice { flex: none; margin: 10px 12px 0; }
+    .rules-filters { flex: none; display: flex; gap: 8px 12px; flex-wrap: wrap;
+      align-items: end; padding: 9px 12px; border-bottom: 1px solid var(--bcn-border); }
+    .rules-filters .bcn-btn { min-height: 30px; }
+    .rules-pager { display: flex; gap: 8px; align-items: center; }
+    .rules-pager[hidden] { display: none; }
+    .rules-split-lines { margin: 0; padding-left: 18px; font-size: 11.5px; line-height: 1.6; }
 
     .cc-grid { display: grid; gap: 10px 14px;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
@@ -103,7 +111,7 @@
 
     .cc-kpis { flex: none; display: grid; gap: 10px;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-    .cc-kpi { background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+    .cc-kpi { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
       border-radius: 10px; padding: 9px 11px; }
     .cc-kpi-label { font-family: var(--bcn-mono); font-size: 9.5px;
       text-transform: uppercase; letter-spacing: .05em; color: var(--bcn-ink-3); }
@@ -121,7 +129,7 @@
     .cc-cell { width: 100%; text-align: left; font: inherit; font-size: 12px;
       background: none; border: 1px solid transparent; border-radius: 6px;
       padding: 3px 6px; cursor: pointer; color: var(--bcn-ink); }
-    .cc-cell:hover { border-color: var(--bcn-border-strong); background: var(--bcn-panel); }
+    .cc-cell:hover { border-color: var(--bcn-border-strong); background: var(--bcn-surface); }
     .cc-cell--empty { color: var(--bcn-ink-3); font-style: italic; }
     .cc-cell--req { color: var(--bcn-neg); font-weight: 600;
       border-color: rgba(220,38,38,.35); background: rgba(220,38,38,.06); }
@@ -143,14 +151,14 @@
       padding: 8px 12px 0; }
     .cc-var { font-family: var(--bcn-mono); font-size: 10.5px; cursor: pointer;
       padding: 3px 8px; border-radius: 999px; border: 1px solid var(--bcn-border);
-      background: var(--bcn-panel); color: var(--bcn-ink-2); white-space: nowrap; }
+      background: var(--bcn-surface); color: var(--bcn-ink-2); white-space: nowrap; }
     .cc-var:hover { border-color: var(--bcn-accent); }
     .cc-var--on { background: rgba(37,99,235,.12); border-color: var(--bcn-accent);
       color: var(--bcn-ink); font-weight: 700; }
     .cc-var-n { opacity: .6; margin-left: 4px; }
 
     .cc-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 460px;
-      max-width: 92vw; z-index: 60; background: var(--bcn-panel);
+      max-width: 92vw; z-index: 60; background: var(--bcn-surface);
       border-left: 1px solid var(--bcn-border); box-shadow: -8px 0 28px rgba(15,23,42,.10);
       display: flex; flex-direction: column; }
     .cc-drawer[hidden] { display: none; }
@@ -188,7 +196,7 @@
       align-items: flex-start; justify-content: center; padding: 24px 12px;
       background: rgba(15,23,42,.42); overflow: auto; }
     .txn-split-drawer[hidden] { display: none; }
-    .txn-split-panel { width: 1040px; max-width: 100%; background: var(--bcn-panel);
+    .txn-split-panel { width: 1040px; max-width: 100%; background: var(--bcn-surface);
       border: 1px solid var(--bcn-border); border-radius: 12px;
       box-shadow: 0 18px 48px rgba(15,23,42,.22); }
     .txn-split-head { display: flex; align-items: flex-start; justify-content: space-between;
@@ -212,8 +220,8 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=e152f09a7a28" />
-  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=e4767b717672" />
+  <link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -370,10 +378,67 @@
                   <option value="excluded">Excluded</option>
                 </select>
                 <div id="codeFilterSegments" class="txn-filters" role="group" aria-label="Transaction filters"></div>
+                <button class="bcn-btn" id="btnFilterToggle" type="button" aria-expanded="false" aria-controls="codeFilterPanel">Filters</button>
                 <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
                 <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button><button class="bcn-btn" id="btnApplyRules">Apply saved rules</button></div></details>
                 <button class="bcn-btn" id="btnAiCode">Suggest categories</button>
               </div>
+            </div>
+            <!-- Combinable filters over the WHOLE loaded set. The controls are
+                 written once here and only their option lists are refreshed:
+                 rebuilding the bar's innerHTML on every apply is what made the
+                 v3 filter bar discard whatever was being typed into it. -->
+            <div class="txn-filterpanel" id="codeFilterPanel" role="group" aria-label="Transaction filters" hidden>
+              <div class="txn-filterpanel-note" id="filterScope"></div>
+              <div class="txn-filterpanel-fields">
+                <label class="txn-filterfield txn-filterfield--wide">Merchant or description
+                  <input class="bcn-field" id="fltText" type="search" placeholder="What it says on the statement" />
+                </label>
+                <label class="txn-filterfield">Merchant
+                  <select class="bcn-field" id="fltMerchant"></select>
+                </label>
+                <label class="txn-filterfield">Account or category
+                  <select class="bcn-field" id="fltAccount"></select>
+                </label>
+                <label class="txn-filterfield">Transaction type
+                  <select class="bcn-field" id="fltType"></select>
+                </label>
+                <label class="txn-filterfield">From
+                  <input class="bcn-field" id="fltDateStart" type="date" />
+                </label>
+                <label class="txn-filterfield">To
+                  <input class="bcn-field" id="fltDateEnd" type="date" />
+                </label>
+                <label class="txn-filterfield">Direction
+                  <select class="bcn-field" id="fltDirection">
+                    <option value="any">Money in or out</option>
+                    <option value="out">Money out</option>
+                    <option value="in">Money in</option>
+                  </select>
+                </label>
+                <label class="txn-filterfield">Amount
+                  <select class="bcn-field" id="fltAmountMode">
+                    <option value="any">Any amount</option>
+                    <option value="exact">Exactly</option>
+                    <option value="range">Between</option>
+                  </select>
+                </label>
+                <label class="txn-filterfield" id="fltExactWrap" hidden>Is exactly
+                  <input class="bcn-field bcn-field--mono" id="fltAmountExact" inputmode="decimal" placeholder="25,187.68" />
+                </label>
+                <label class="txn-filterfield" id="fltMinWrap" hidden>At least
+                  <input class="bcn-field bcn-field--mono" id="fltAmountMin" inputmode="decimal" placeholder="0.00" />
+                </label>
+                <label class="txn-filterfield" id="fltMaxWrap" hidden>At most
+                  <input class="bcn-field bcn-field--mono" id="fltAmountMax" inputmode="decimal" placeholder="0.00" />
+                </label>
+              </div>
+              <p class="txn-filterpanel-hint">Amounts are magnitudes: use Direction to choose money in or money out. A transaction split across several accounts is matched on its split lines and listed once.</p>
+            </div>
+            <div class="txn-activefilters" id="codeActiveFilters" hidden>
+              <span class="txn-activefilters-count" id="filterCount" role="status"></span>
+              <div class="txn-activefilters-chips" id="filterChips"></div>
+              <button class="bcn-btn" type="button" id="btnClearFilters">Clear filters</button>
             </div>
             <div class="cc-variants" id="codeVariants"></div>
             <div class="cc-body">
@@ -458,11 +523,51 @@
               <select class="bcn-field bcn-field--mono" id="ruleLocation" style="width:170px"></select>
               <button class="bcn-btn bcn-btn--primary" id="btnAddRule">Add rule</button>
             </div>
+            <!-- Filters run over EVERY rule and the page is taken from the
+                 result, so the count beside them is the number of matches,
+                 not the number on screen. -->
+            <div class="bcn-status bcn-status--neg" id="rulesNotice" role="status" hidden></div>
+            <div class="rules-filters" role="group" aria-label="Rule filters">
+              <label class="txn-filterfield txn-filterfield--wide">Search
+                <input class="bcn-field" id="ruleSearch" type="search" placeholder="Pattern, account, entity, location or card" />
+              </label>
+              <label class="txn-filterfield">Account
+                <select class="bcn-field" id="ruleFilterAccount"></select>
+              </label>
+              <label class="txn-filterfield">Rule type
+                <select class="bcn-field" id="ruleFilterKind">
+                  <option value="">Any rule type</option>
+                  <option value="merchant">Merchant</option>
+                  <option value="card_name">Card name</option>
+                  <option value="split">Saved split</option>
+                </select>
+              </label>
+              <label class="txn-filterfield">Match
+                <select class="bcn-field" id="ruleFilterMatch">
+                  <option value="">Any match</option>
+                  <option value="normalized">matches</option>
+                  <option value="contains">contains</option>
+                  <option value="exact">is exactly</option>
+                </select>
+              </label>
+              <label class="txn-filterfield">Per page
+                <select class="bcn-field" id="rulePageSize">
+                  <option value="25">25</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+              <button class="bcn-btn" type="button" id="btnClearRuleFilters">Clear</button>
+            </div>
             <div class="cc-body">
               <table class="cc-tbl" id="tblRules"></table>
             </div>
             <div class="cc-foot">
-              <span class="cc-note">Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already categorized keep what they have.</span>
+              <div class="rules-pager" id="rulesPager" hidden>
+                <button class="bcn-btn" type="button" id="btnRulesPrev">Previous</button>
+                <span class="cc-note" id="rulesPageLabel" role="status"></span>
+                <button class="bcn-btn" type="button" id="btnRulesNext">Next</button>
+              </div>
+              <span class="cc-note">Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already categorized keep what they have. A saved split remembers its ACCOUNTS and never an amount — edit one from the split editor on a transaction.</span>
             </div>
           </div>
         </section>
@@ -561,6 +666,7 @@
 <script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
+<script src="transaction-filters.js?v=53b49e70ff5e"></script>
 <script>
 (function () {
   'use strict';
@@ -611,6 +717,32 @@
   let journalPreviewBatch=null;
   let dateContext = null, dateAiProgress = '';
   let dateStorage;try {dateStorage=window.sessionStorage;}catch{}
+
+  // -------------------------------------------------------------- filters
+  // The filter POSITION is page state, not DOM state, so opening a row,
+  // refreshing the account or re-running the AI leaves it exactly where it
+  // was -- every one of those paths calls renderCoding(), which reads this.
+  const TF = window.SiloTransactionFilters;
+  let filters = TF.normalize(null);
+  const FILTER_KEY = (company, source) => 'silo:transaction-filters:' + company + ':' + source;
+  function saveFilters() {
+    if (!_co?.id) return;
+    const key = FILTER_KEY(_co.id, workspace?.selected() || state.batch?.source_id || '-');
+    try {
+      if (TF.isActive(filters)) dateStorage?.setItem(key, JSON.stringify(filters));
+      else dateStorage?.removeItem(key);
+    } catch {}
+  }
+  function restoreFilters() {
+    if (!_co?.id) return;
+    const key = FILTER_KEY(_co.id, workspace?.selected() || state.batch?.source_id || '-');
+    let stored = null;
+    try { stored = JSON.parse(dateStorage?.getItem(key) || 'null'); } catch {}
+    // normalize() is the gate: a stored position from an older shape, or one
+    // hand-edited in devtools, can only ever narrow to something valid.
+    filters = TF.normalize(stored);
+    writeFilterInputs();
+  }
   const datePrefs=window.SiloTransactionDates.preferences(dateStorage);
   const dateRange = () => ({start:el('dateStart').value,end:el('dateEnd').value});
   const suggestions = new Map();
@@ -636,6 +768,8 @@
     entities: [],
     batches: [],
     rules: [],
+    splitRules: [],       // saved split SHAPES -- accounts, never amounts
+    splitRulesError: '',
     batch: null,       // open batch
     txns: [],
     parsed: null,      // { headers, rows, file }
@@ -810,12 +944,62 @@
     state.batches = batches;
   }
 
+  /* Every rule, not the first 500. The old `.limit(500)` silently hid the
+     rest -- production carries 813 -- and a rules page that cannot show a rule
+     is a rules page you cannot trust to tell you why a row was coded. Paged
+     the same way loadTxns() pages. */
   async function loadRules() {
-    const { data } = await sb.from('card_coding_rules')
-      .select('*')
-      .order('priority', { ascending: false })
-      .order('hit_count', { ascending: false }).limit(500);
-    state.rules = data || [];
+    const rows = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await sb.from('card_coding_rules')
+        .select('*')
+        .order('priority', { ascending: false })
+        .order('hit_count', { ascending: false })
+        .order('id')
+        .range(offset, offset + 499);
+      if (error) throw new Error(error.message);
+      rows.push(...(data || []));
+      if ((data || []).length < 500) break;
+    }
+    state.rules = rows;
+    await loadSplitRules();
+  }
+
+  /* Saved splits are rules too -- they decide how a recurring payment opens --
+     so they belong on the same page. They are read-only here on purpose: the
+     tables take no client writes (set_card_transaction_splits is the only
+     writer, and there is no delete RPC), so a Delete button would be a
+     control that silently does nothing. An RLS refusal on a delete is a
+     SUCCESS WITH ZERO ROWS, not an error. A failure to read them costs the
+     split rules and nothing else: ordinary rules still list. */
+  async function loadSplitRules() {
+    state.splitRules = [];
+    state.splitRulesError = '';
+    if (!_co?.id) return;
+    try {
+      const { data, error } = await sb.from('card_split_rules')
+        .select('*').eq('company_entity_id', _co.id)
+        .order('priority', { ascending: false }).order('hit_count', { ascending: false });
+      if (error) throw new Error(error.message);
+      const rules = data || [];
+      if (!rules.length) return;
+      const lines = [];
+      const ids = rules.map((r) => r.id);
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: page, error: lineError } = await sb.from('card_split_rule_lines')
+          .select('*').in('rule_id', ids.slice(i, i + 200)).order('line_no');
+        if (lineError) throw new Error(lineError.message);
+        lines.push(...(page || []));
+      }
+      const byRule = new Map();
+      for (const line of lines) {
+        if (!byRule.has(line.rule_id)) byRule.set(line.rule_id, []);
+        byRule.get(line.rule_id).push(line);
+      }
+      state.splitRules = rules.map((r) => Object.assign({}, r, { lines: byRule.get(r.id) || [] }));
+    } catch (error) {
+      state.splitRulesError = error.message;
+    }
   }
 
   async function loadTxns(batchId) {
@@ -1304,7 +1488,7 @@
     }
     buildOptionCache();
     for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity']) el(id).innerHTML = '';
-    if(previousBatch?.id!==id) {state.selected.clear();el('codeSearch').value = '';}
+    if(previousBatch?.id!==id) {state.selected.clear();setQuickSearch('');}
     } catch(error) {state.batch=previousBatch;state.txns=previousRows;throw error;}
     finally {state.codingBusy=false;renderCoding();renderEntry();renderMeta();}
     renderCoding();
@@ -1456,19 +1640,31 @@
   function restoreDateInputs() {
     if(dateContext) {el('dateStart').value=dateContext.range.start;el('dateEnd').value=dateContext.range.end;}
   }
+  /* What the filter module needs to know about THIS page: how to reach a
+     row's split lines, how a merchant key is built, and what to call an
+     account. One context, used by the table, the counts and the chips, so
+     they cannot disagree about which rows are selected. */
+  // Canonical merchant key -> the casing the source used, rebuilt whenever the
+  // option list is. A chip reads "Portland General Electric", not the key.
+  let merchantLabels = new Map();
+  const filterCtx = () => ({
+    splitsFor,
+    merchantKey,
+    merchantLabel: (key) => merchantLabels.get(key) || '',
+    sourceName: () => batchSource()?.display_name || '',
+    hasSuggestion: (t) => suggestions.has(t.id),
+    accountName: (id) => acctName(id) || state.allAccounts.find((a) => a.id === id)?.name || id,
+    typeLabel: (v) => TREATMENTS[v] || v,
+    statusLabel: (v) => ({ uncoded: 'Needs categorizing', conflict: 'Card vs merchant',
+      low: 'Low confidence', ai: 'AI-suggested', excluded: 'Excluded' }[v] || v),
+  });
+
   function codingRows() {
-    const f = el('codeFilter').value;
-    const q = codeSearchTerm();
+    const ctx = filterCtx();
     return reviewDateRows().filter((t) => {
       // Keep checked/edited rows on screen while their status changes under a filter.
       if(state.selected.has(t.id) || state.dirty.has(t.id))return true;
-      if (!matchesSearch(t, q)) return false;
-      if (f === 'uncoded') return t.status === 'uncoded';
-      if (f === 'excluded') return t.status === 'excluded';
-      if (f === 'conflict') return !!t.coding_conflict;
-      if (f === 'low') return t.status !== 'excluded' && (t.confidence ?? 1) < 0.6;
-      if (f === 'ai') return t.coding_source === 'ai' || suggestions.has(t.id);
-      return true;
+      return TF.matches(t, filters, ctx);
     });
   }
 
@@ -1487,8 +1683,8 @@
       if(t.coding_source==='ai' || suggestions.has(t.id))counts.ai++;
       if(t.status==='excluded')counts.excluded++;
     }
-    const filters=[['all','All'],['uncoded','Needs categorizing'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']];
-    el('codeFilterSegments').innerHTML=filters.map(([value,label])=>`<button type="button" data-code-filter="${value}" aria-pressed="${el('codeFilter').value===value}">${label} <span>${counts[value]}</span></button>`).join('');
+    const segments=[['all','All'],['uncoded','Needs categorizing'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']];
+    el('codeFilterSegments').innerHTML=segments.map(([value,label])=>`<button type="button" data-code-filter="${value}" aria-pressed="${filters.status===value}">${label} <span>${counts[value]}</span></button>`).join('');
   }
   function renderSaveBar() {
     el('codeActionBar').hidden=(!dateBrowse && !state.batch) || (!state.selected.size && !state.dirty.size);
@@ -1504,6 +1700,10 @@
     }
     el('btnAiCode').textContent=state.codingBusy && dateAiProgress?'Suggesting…':'Suggest categories';
     renderFilterSegments(reviewDateRows());
+    // Computed before the early returns below so the chips and the "showing
+    // X of Y" count are right even when the table itself has nothing to draw.
+    const filteredRows = codingRows();
+    renderFilterBar(reviewDateRows(), filteredRows.length);
     el('btnDateBack').hidden = dateBrowse || !el('dateStart').value;
     el('unsavedCount').textContent = state.dirty.size ? `${state.dirty.size} unsaved` : '';
     renderWorkflow(reviewDateRows(), dateBrowse?state.batches.filter(b=>dateRows.some(t=>t.batch_id===b.id)):(state.batch?[state.batch]:[]));
@@ -1544,7 +1744,7 @@
 
     renderVariants();
 
-    const rows = codingRows();
+    const rows = filteredRows;
 
     // Selecting rows that a filter has since hidden would apply a bulk change
     // to things nobody can see, so the selection is trimmed to what is shown.
@@ -1554,7 +1754,7 @@
 
     if (!rows.length) {
       el('tblCoding').innerHTML =
-        '<tr><td class="cc-empty">Nothing matches. Clear your search or choose All rows.</td></tr>';
+        `<tr><td class="cc-empty">No transaction in these dates matches ${TF.isActive(filters) ? 'the filters above' : 'this view'}.${TF.isActive(filters) ? ' Clear filters to see all ' + reviewDateRows().length + '.' : ''}</td></tr>`;
       return;
     }
 
@@ -1563,7 +1763,8 @@
 
     el('tblCoding').innerHTML = `<thead><tr>
         <th class="txn-select"><input type="checkbox" class="cc-check" id="codeAll" ${!pickable.length?'disabled':''} ${allChecked ? 'checked' : ''} aria-label="Select editable transactions" title="Select everything shown" /></th>
-        <th class="txn-date">Date</th><th class="txn-description">Transaction</th><th class="txn-amount num">Amount</th>
+        <th class="txn-date">Date</th><th class="txn-description">Transaction</th>
+        <th class="txn-merchant">Merchant</th><th class="txn-amount num">Amount</th>
         <th class="txn-category">Category</th><th class="txn-review"><span class="txn-sr-only">Review transaction</span></th>
       </tr></thead><tbody>` + rows.map((t) => {
       const expanded = expandedTransaction === t.id;
@@ -1575,11 +1776,12 @@
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
           <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(t.provider_status || 'Unavailable')+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+        <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
-      <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="6"><div class="txn-detail-panel">
+      <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
         <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid'?'Bank '+esc(t.provider_status)+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
         <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t)?'<span class="cc-note">set per split line</span>':cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t)?'<span class="cc-note">set per split line</span>':entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button><button class="bcn-btn" data-split title="Code this transaction across several accounts">${isSplit(t)?'Edit split':'Split across accounts'}</button></section>
       </div></td></tr>`;
@@ -1599,6 +1801,20 @@
   // An entity is required on AR/AP lines and meaningless elsewhere, so the cell
   // says which of those it is rather than showing an empty dropdown on every
   // row. Required-and-missing is red: it blocks the post.
+  /* The merchant the SOURCE supplied, and nothing else. Plaid fills
+     clean_merchant from merchant_name and leaves it null when it has none
+     (1,234 of 2,274 production rows); a CSV fills it only where the issuer
+     exports its own cleaned name. Falling back to the description here -- or
+     to normalize_merchant() of it, which is a RULE KEY and not a merchant --
+     would turn "the bank told us nothing" into a claim about who was paid.
+     The descriptor stays one column to the left, and in Source details. */
+  function merchantCell(t) {
+    const merchant = TF.merchantOf(t);
+    return merchant
+      ? `<button class="cc-cell txn-merchant-button" data-merchant-filter="${esc(merchant)}" title="Filter to this merchant">${esc(merchant)}</button>`
+      : '<span class="txn-sr-only">No merchant supplied by the source</span>';
+  }
+
   function entityCell(t) {
     if (!t.qbo_account_id) return '<span class="cc-note">—</span>';
     if (t.entity_name) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
@@ -1824,9 +2040,11 @@
       state.codingBusy=false;dateAiProgress='';renderCoding();renderEntry();
     }
   }
+  // The AI candidate list has to be the rows the table is SHOWING, or
+  // "Suggest categories" works on rows nobody can see. Same predicate, same
+  // module -- this used to be a second hand-written copy of it.
   function dateDisplayRows() {
-    const f=el('codeFilter').value,q=codeSearchTerm();
-    return dateRows.filter(t=>matchesSearch(t,q) && (f==='all' || f==='uncoded' && t.status==='uncoded' || f==='excluded' && t.status==='excluded' || f==='conflict' && t.coding_conflict || f==='low' && t.status!=='excluded' && (t.confidence??1)<.6 || f==='ai' && (t.coding_source==='ai' || suggestions.has(t.id))));
+    return TF.apply(dateRows, filters, filterCtx());
   }
 
   async function browseDates(sourceId=workspace?.selected()) {
@@ -1859,37 +2077,155 @@
   // -------------------------------------------------------- search + bulk
 
   function codeSearchTerm() {
-    return el('codeSearch').value.trim().toLowerCase();
+    return filters.search.toLowerCase();
   }
 
-  // Card name is included so typing "amex" matches wherever you are, even
-  // though every row in one batch shares a card.
-  function matchesSearch(t, q) {
-    if (!q) return true;
-    if (q === '(no card name)') return !t.card_name;
-    return [
-      t.description, t.clean_merchant, merchantKey(t), t.qbo_account_name,
-      t.qbo_location_name, t.entity_name, t.card_name, t.cardholder, t.cardholder_email,
-      t.vendor_name, t.memo, t.exclude_reason,
-      batchSource()?.display_name, String(t.amount), t.txn_date,
-      // A split row's accounts are on its lines, so searching for an account
-      // name has to reach them or a split disappears from its own category
-      // search.
-      ...(splitsFor(t) || []).flatMap((l) => [l.qbo_account_name, l.qbo_location_name, l.memo]),
-    ].some((v) => String(v ?? '').toLowerCase().includes(q));
+  /* The quick search lives in `filters` and is MIRRORED into its input. Every
+     place that used to assign el('codeSearch').value directly went through
+     this, because a box showing a term the predicate is not applying is the
+     same class of bug as a count that does not match its own table. */
+  function setQuickSearch(value) {
+    filters.search = String(value ?? '');
+    el('codeSearch').value = filters.search;
+    saveFilters();
   }
+
+  /* ---- the filter panel -------------------------------------------------
+     The controls exist in the markup and are never rebuilt; only the three
+     option lists and the chip row are refreshed, and an option list only when
+     its contents actually changed. Rebuilding a field someone is typing into
+     is what discards the value. */
+
+  const FILTER_INPUTS = {
+    fltText: 'text', fltMerchant: 'merchant', fltAccount: 'account', fltType: 'type',
+    fltDateStart: 'dateStart', fltDateEnd: 'dateEnd', fltDirection: 'direction',
+    fltAmountMode: 'amountMode', fltAmountExact: 'amountExact',
+    fltAmountMin: 'amountMin', fltAmountMax: 'amountMax',
+  };
+
+  function writeFilterInputs() {
+    el('codeSearch').value = filters.search;
+    el('codeFilter').value = filters.status;
+    for (const [id, key] of Object.entries(FILTER_INPUTS)) {
+      const field = el(id);
+      if (field && field.value !== String(filters[key] ?? '')) field.value = filters[key] ?? '';
+    }
+    el('fltExactWrap').hidden = filters.amountMode !== 'exact';
+    el('fltMinWrap').hidden = filters.amountMode !== 'range';
+    el('fltMaxWrap').hidden = filters.amountMode !== 'range';
+  }
+
+  function readFilterInputs() {
+    const patch = { status: filters.status, search: filters.search };
+    for (const [id, key] of Object.entries(FILTER_INPUTS)) patch[key] = el(id)?.value ?? '';
+    filters = TF.normalize(patch);
+    // normalize() may reorder a reversed range; put the corrected values back.
+    writeFilterInputs();
+  }
+
+  // Only values present in the loaded rows are offered, so a filter can never
+  // select an empty screen, and each carries its own row count.
+  function renderFilterOptions(rows) {
+    const options = TF.options(rows, filterCtx());
+    const build = (id, markup) => {
+      const field = el(id);
+      if (!field) return;
+      const want = filters[FILTER_INPUTS[id]] || '';
+      // Removed BEFORE the signature check: the placeholder below is not part
+      // of the signature, so leaving it in place would strand it in the list
+      // after its filter was cleared.
+      field.querySelector('option[data-absent]')?.remove();
+      if (field.dataset.signature !== markup) {
+        field.dataset.signature = markup;
+        field.innerHTML = markup;
+      }
+      field.value = want;
+      // A stored choice whose rows are no longer loaded would otherwise reset
+      // the select to "any" while the predicate still applied it -- the table
+      // and the control would then disagree about what is on screen.
+      if (want && field.value !== want) {
+        field.insertAdjacentHTML('afterbegin',
+          `<option data-absent value="${esc(want)}">Not in these transactions</option>`);
+        field.value = want;
+      }
+    };
+
+    merchantLabels = new Map(options.merchants.map((m) => [m.key, m.name]));
+    build('fltMerchant', '<option value="">Any merchant</option>'
+      + (options.noMerchant ? `<option value="${TF.NO_MERCHANT}">No merchant from the source (${options.noMerchant})</option>` : '')
+      + options.merchants.map((m) => `<option value="${esc(m.key)}">${esc(m.name)} (${m.count})</option>`).join(''));
+
+    build('fltAccount', '<option value="">Any account</option>'
+      + (options.noAccount ? `<option value="${TF.NO_ACCOUNT}">Uncategorized (${options.noAccount})</option>` : '')
+      + options.accounts.map((a) => `<option value="${esc(a.id)}">${esc(a.name)} (${a.count})</option>`).join(''));
+
+    build('fltType', '<option value="">Any type</option>'
+      + options.types.map((t) => `<option value="${esc(t.type)}">${esc(TREATMENTS[t.type] || t.type)} (${t.count})</option>`).join(''));
+  }
+
+  function renderFilterBar(all, shown) {
+    renderFilterOptions(all);
+    const chips = TF.describe(filters, filterCtx());
+    el('codeActiveFilters').hidden = !chips.length;
+    el('btnFilterToggle').classList.toggle('bcn-btn--primary', chips.length > 0);
+    el('btnFilterToggle').textContent = chips.length ? `Filters · ${chips.length}` : 'Filters';
+    el('filterScope').textContent = all.length
+      ? `Filters apply to all ${all.length} loaded transaction${all.length === 1 ? '' : 's'} for this account and period, not only the rows on screen.`
+      : 'No transactions are loaded for this account and period yet.';
+    if (!chips.length) { el('filterChips').innerHTML = ''; el('filterCount').textContent = ''; return; }
+    el('filterCount').textContent = `Showing ${shown} of ${all.length}`;
+    el('filterChips').innerHTML = chips.map((chip) =>
+      `<button type="button" class="txn-chip" data-clear-filter="${esc(chip.key)}"
+        aria-label="Remove filter: ${esc(chip.label)}">${esc(chip.label)}<span aria-hidden="true">×</span></button>`).join('');
+  }
+
+  el('btnFilterToggle').addEventListener('click', () => {
+    const open = el('codeFilterPanel').hidden;
+    el('codeFilterPanel').hidden = !open;
+    el('btnFilterToggle').setAttribute('aria-expanded', String(open));
+    if (open) el('fltText').focus();
+  });
+
+  let _filterTimer = null;
+  el('codeFilterPanel').addEventListener('input', (event) => {
+    if (!event.target.matches('input, select')) return;
+    state.selected.clear();
+    clearTimeout(_filterTimer);
+    // A typed box settles before it re-filters; a select applies at once.
+    const delay = event.target.tagName === 'SELECT' ? 0 : 150;
+    _filterTimer = setTimeout(() => { readFilterInputs(); saveFilters(); renderCoding(); }, delay);
+  });
+
+  el('btnClearFilters').addEventListener('click', () => {
+    filters = TF.clear(filters, 'all');
+    state.selected.clear();
+    writeFilterInputs(); saveFilters(); renderCoding();
+    el('btnFilterToggle').focus();
+  });
+
+  el('filterChips').addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-clear-filter]');
+    if (!chip) return;
+    filters = TF.clear(filters, chip.dataset.clearFilter);
+    state.selected.clear();
+    writeFilterInputs(); saveFilters(); renderCoding();
+    el('btnClearFilters').focus();
+  });
 
   let _searchTimer = null;
   el('codeSearch').addEventListener('input', () => {
+    filters.search = el('codeSearch').value;
     state.selected.clear();
     clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(renderCoding, 120);
+    _searchTimer = setTimeout(() => { saveFilters(); renderCoding(); }, 120);
   });
-  el('codeFilter').addEventListener('change', ()=>{state.selected.clear();renderCoding();});
+  el('codeFilter').addEventListener('change', ()=>{filters.status=el('codeFilter').value;state.selected.clear();saveFilters();renderCoding();});
   el('codeFilterSegments').addEventListener('click',event=>{
     const button=event.target.closest('[data-code-filter]');if(!button)return;
-    if(el('codeFilter').value!==button.dataset.codeFilter)state.selected.clear();
-    el('codeFilter').value=button.dataset.codeFilter;
+    if(filters.status!==button.dataset.codeFilter)state.selected.clear();
+    filters.status=button.dataset.codeFilter;
+    el('codeFilter').value=filters.status;
+    saveFilters();
     renderCoding();
     el('codeFilterSegments').querySelector(`[data-code-filter="${button.dataset.codeFilter}"]`)?.focus();
   });
@@ -1899,7 +2235,7 @@
     const chip = e.target.closest('[data-var]');
     if (!chip) return;
     const name = chip.dataset.var;
-    el('codeSearch').value = codeSearchTerm() === name.toLowerCase() ? '' : name;
+    setQuickSearch(codeSearchTerm() === name.toLowerCase() ? '' : name);
     renderCoding();
   });
 
@@ -2086,6 +2422,18 @@
       return;
     }
 
+    // The Merchant column sets the MERCHANT filter rather than the quick
+    // search: the value is exactly the one the picker offers, so clicking it
+    // and choosing it from the list select the same rows.
+    const merchantButton = e.target.closest('[data-merchant-filter]');
+    if (merchantButton) {
+      const value = TF.canonicalMerchant(merchantButton.dataset.merchantFilter);
+      filters.merchant = filters.merchant === value ? '' : value;
+      state.selected.clear();
+      writeFilterInputs(); saveFilters(); renderCoding();
+      return;
+    }
+
     const tr0 = e.target.closest('[data-txn]');
     if (!tr0) return;
     const t0 = workingRows().find((x) => x.id === tr0.dataset.txn);
@@ -2126,7 +2474,7 @@
     if(e.target.matches('[data-journal]')) {await reviewJournal(t0.batch_id || state.batch?.id);return;}
 
     if (e.target.matches('[data-merch]') || e.target.matches('[data-card-name]')) {
-      el('codeSearch').value = e.target.textContent.trim();
+      setQuickSearch(e.target.textContent.trim());
       renderCoding();
       return;
     }
@@ -2590,10 +2938,13 @@
 
   async function reviewJournal(id) {
     if(state.dirty.size || state.codingBusy)return setStatus('Save or discard your edits before reviewing a journal.','neg');
-    const selected=new Set(state.selected),search=el('codeSearch').value;
+    // Reviewing a journal must not silently reset where someone had filtered
+    // to: openBatch() clears the selection and the search, so the whole
+    // position is restored here, not just the search box.
+    const selected=new Set(state.selected),position=TF.normalize(filters);
     try {await openBatch(id);journalPreviewBatch=id;renderEntry();showPane('entry');}
     catch(error){setStatus('Journal could not load — '+error.message,'neg');}
-    finally {state.selected=selected;el('codeSearch').value=search;renderCoding();}
+    finally {state.selected=selected;filters=position;writeFilterInputs();saveFilters();renderCoding();}
   }
   el('tblEntry').addEventListener('click',async event=>{
     const button=event.target.closest('[data-entry-batch]');if(button)await reviewJournal(button.dataset.entryBatch);
@@ -2871,8 +3222,98 @@
 
   // -------------------------------------------------------------- rules
 
+  /* ---- the rules list ---------------------------------------------------
+     One list holds both kinds of rule. A saved split is shown beside the
+     ordinary rules because it answers the same question -- "why did this open
+     coded the way it did" -- and hiding it on another screen is how someone
+     concludes SILO has no rule for a merchant that in fact has one. */
+
+  let rulePage = 0;
+
+  const ruleKindOf = (r) => (r.kind === 'split' ? 'split' : (r.match_field || 'merchant'));
+
+  // Every rule, ordinary and split, as one shape the filter and the table read.
+  function allRules() {
+    const splits = (state.splitRules || []).map((r) => Object.assign({}, r, { kind: 'split' }));
+    return state.rules.map((r) => Object.assign({}, r, { kind: 'coding' })).concat(splits);
+  }
+
+  // The account ids a rule codes to: one for an ordinary rule, one per line
+  // for a split -- so filtering by account finds a split that touches it.
+  const ruleAccountIds = (r) => (r.kind === 'split'
+    ? (r.lines || []).map((l) => l.qbo_account_id).filter(Boolean)
+    : (r.qbo_account_id ? [r.qbo_account_id] : []));
+
+  const ruleAccountNames = (r) => (r.kind === 'split'
+    ? (r.lines || []).map((l) => l.qbo_account_name || l.qbo_account_id).filter(Boolean)
+    : (r.qbo_account_name ? [r.qbo_account_name] : []));
+
+  const ruleFilterState = () => ({
+    q: el('ruleSearch').value.trim().toLowerCase(),
+    account: el('ruleFilterAccount').value,
+    kind: el('ruleFilterKind').value,
+    match: el('ruleFilterMatch').value,
+  });
+
+  // Takes the already-read controls: production carries 813 rules, and
+  // reading four DOM fields per rule per keystroke is 3,252 reads a keypress.
+  function ruleMatchesFilters(r, { q, account, kind, match }) {
+    if (kind && ruleKindOf(r) !== kind) return false;
+    // A saved split has no match_type of its own; a match filter therefore
+    // excludes it rather than matching it by accident.
+    if (match && (r.kind === 'split' || (r.match_type || '') !== match)) return false;
+    if (account && !ruleAccountIds(r).includes(account)) return false;
+    if (!q) return true;
+    return [
+      r.pattern, ...ruleAccountNames(r), r.entity_name, r.qbo_location_name,
+      r.direction, r.accounting_treatment,
+      state.sources.find((x) => x.id === r.source_id)?.display_name || 'Legacy CSV cards',
+      ...(r.lines || []).flatMap((l) => [l.qbo_location_name, l.memo_template]),
+    ].some((v) => String(v ?? '').toLowerCase().includes(q));
+  }
+
+  function renderRuleFilterOptions(rules) {
+    const seen = new Map();
+    for (const r of rules) {
+      const ids = ruleAccountIds(r);
+      const names = ruleAccountNames(r);
+      ids.forEach((id, i) => { if (!seen.has(id)) seen.set(id, names[i] || id); });
+    }
+    const markup = '<option value="">Any account</option>'
+      + [...seen].sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+        .map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
+    const field = el('ruleFilterAccount');
+    if (field.dataset.signature === markup) return;
+    const chosen = field.value;
+    field.dataset.signature = markup;
+    field.innerHTML = markup;
+    field.value = chosen;
+    if (field.value !== chosen) field.value = '';
+  }
+
+  const ruleFilterControls = ['ruleSearch', 'ruleFilterAccount', 'ruleFilterKind', 'ruleFilterMatch'];
+  for (const id of ruleFilterControls) {
+    el(id).addEventListener('input', () => { rulePage = 0; renderRules(); });
+  }
+  el('rulePageSize').addEventListener('change', () => { rulePage = 0; renderRules(); });
+  el('btnClearRuleFilters').addEventListener('click', () => {
+    for (const id of ruleFilterControls) el(id).value = '';
+    rulePage = 0; renderRules(); el('ruleSearch').focus();
+  });
+  el('btnRulesPrev').addEventListener('click', () => { rulePage -= 1; renderRules(); });
+  el('btnRulesNext').addEventListener('click', () => { rulePage += 1; renderRules(); });
+
   function renderRules() {
-    el('rulesCount').textContent = `${state.rules.length} rules`;
+    const every = allRules();
+    renderRuleFilterOptions(every);
+    // Filter first, then take the page from the result: paging a list and
+    // filtering the page would show "3 of 25" over a set of 800.
+    const active = ruleFilterState();
+    const matching = every.filter((rule) => ruleMatchesFilters(rule, active));
+    const filtered = matching.length !== every.length;
+    el('rulesCount').textContent = filtered
+      ? `${matching.length} of ${every.length} rules`
+      : `${every.length} rule${every.length === 1 ? '' : 's'}`;
 
     const selectedSource = el('ruleSource').value;
     el('ruleSource').innerHTML = '<option value="">Choose a source…</option>' + state.sources.map((source) =>
@@ -2885,17 +3326,61 @@
       el('ruleLocation').innerHTML = `<option value="">Location…</option>${_locOptions}`;
     }
 
-    if (!state.rules.length) {
+    // An inline notice, not a toast: renderRules() runs on every keystroke in
+    // the search box, and a toast per keystroke is noise. It also has to STAY
+    // on screen -- a list that is silently missing its saved splits reads as a
+    // company that has none.
+    el('rulesNotice').hidden = !state.splitRulesError;
+    el('rulesNotice').textContent = state.splitRulesError
+      ? 'Saved splits could not load — ' + state.splitRulesError
+        + '. Ordinary rules are listed below; saved splits are not, so this list is incomplete.'
+      : '';
+
+    el('rulesPager').hidden = true;
+    if (!every.length) {
       el('tblRules').innerHTML =
         '<tr><td class="cc-empty">No rules yet. Add one above, or code a batch and hit “Learn rules”.</td></tr>';
       return;
     }
+    if (!matching.length) {
+      el('tblRules').innerHTML =
+        `<tr><td class="cc-empty">No rule matches these filters. Clear them to see all ${every.length}.</td></tr>`;
+      return;
+    }
+
+    const pageSize = Number(el('rulePageSize').value) || 25;
+    const pageCount = Math.ceil(matching.length / pageSize);
+    // A filter that shortens the list must not strand the reader on a page
+    // that no longer exists.
+    rulePage = Math.min(Math.max(rulePage, 0), pageCount - 1);
+    const start = rulePage * pageSize;
+    const page = matching.slice(start, start + pageSize);
+
+    el('rulesPager').hidden = pageCount <= 1;
+    el('btnRulesPrev').disabled = rulePage === 0;
+    el('btnRulesNext').disabled = rulePage >= pageCount - 1;
+    el('rulesPageLabel').textContent =
+      `${start + 1}–${start + page.length} of ${matching.length}` + (pageCount > 1 ? ` · page ${rulePage + 1} of ${pageCount}` : '');
+
+    const sourceName = (r) => state.sources.find((x) => x.id === r.source_id)?.display_name || 'Legacy CSV cards';
 
     el('tblRules').innerHTML = `<thead><tr>
         <th>Matches on</th><th>Pattern</th><th style="min-width:220px">Account</th>
         <th style="min-width:150px">Entity</th><th style="min-width:150px">Location</th>
         <th>Source / direction / treatment</th><th class="num">Used</th><th></th>
-      </tr></thead><tbody>` + state.rules.map((r) => `<tr data-rule="${esc(r.id)}">
+      </tr></thead><tbody>` + page.map((r) => (r.kind === 'split' ? `<tr data-split-rule="${esc(r.id)}">
+        <td><span class="cc-chip cc-chip--split">saved split</span>
+          <div class="cc-note">${esc(r.match_field === 'card_name' ? 'card name' : 'merchant')}</div></td>
+        <td class="cc-mono">${esc(r.pattern)}</td>
+        <td colspan="3">${(r.lines || []).length
+          ? `<ol class="rules-split-lines">${(r.lines || []).map((l) => `<li>${esc(l.qbo_account_name || l.qbo_account_id)}${
+              l.qbo_location_name ? ` · ${esc(l.qbo_location_name)}` : ''}${l.entity_qbo_id ? ' · entity set' : ''}</li>`).join('')}</ol>`
+          : '<span class="cc-note">No lines stored</span>'}
+          <div class="cc-note">Remembers these accounts, in this order. Amounts are typed against the statement every time — an amortizing payment divides differently each month, so none is stored.</div></td>
+        <td class="cc-note">${esc(sourceName(r))}<div>applies to a split, whatever its direction</div></td>
+        <td class="num">${r.hit_count || 0}</td>
+        <td><span class="cc-note">Edit from a transaction’s split editor</span></td>
+      </tr>` : `<tr data-rule="${esc(r.id)}">
         <td><span class="cc-chip ${r.match_field === 'card_name' ? 'cc-chip--ai' : 'cc-chip--rule'}">${
           r.match_field === 'card_name' ? 'card name' : 'merchant'}</span>
           <div class="cc-note">${esc(r.match_type)}</div></td>
@@ -2903,10 +3388,10 @@
         <td data-rcell="account">${cellButton(r.qbo_account_name, 'account')}</td>
         <td data-rcell="entity">${cellButton(r.entity_name, 'entity')}</td>
         <td data-rcell="location">${cellButton(r.qbo_location_name, 'location')}</td>
-        <td class="cc-note">${esc(state.sources.find((x) => x.id === r.source_id)?.display_name || 'Legacy CSV cards')}<div>${esc(r.direction || 'any')} · ${esc(r.accounting_treatment || 'unknown')}</div></td>
+        <td class="cc-note">${esc(sourceName(r))}<div>${esc(r.direction || 'any')} · ${esc(r.accounting_treatment || 'unknown')}</div></td>
         <td class="num">${r.hit_count || 0}</td>
         <td><button class="bcn-btn" data-del-rule>Delete</button></td>
-      </tr>`).join('') + '</tbody>';
+      </tr>`)).join('') + '</tbody>';
   }
 
   async function addRule() {
@@ -2974,6 +3459,9 @@
     const edit = e.target.closest('[data-edit]');
     if (!edit) return;
     const tr = e.target.closest('[data-rule]');
+    // A saved-split row carries data-split-rule and no editable cells; this
+    // guard keeps a stray click from dereferencing a null row.
+    if (!tr) return;
     const r = state.rules.find((x) => x.id === tr.dataset.rule);
     if (!r) return;
     openEditor(edit.closest('td'), {
@@ -3363,6 +3851,9 @@
         ++dateGeneration; dateBrowse=false; dateRows=[];
         const restored=datePrefs.get(_co.id,id) || dateContext?.range || dateRange();
         dateContext={company:_co.id,source:id,range:restored};restoreDateInputs();
+        // Each account keeps its own filter position: the cut that makes sense
+        // on an Amex is not the cut that makes sense on the operating account.
+        restoreFilters();
         suggestions.clear(); state.batch=null;state.txns=[];state.selected.clear();renderCoding();renderEntry();
         if (!id) return;
         const periods=[];
@@ -3380,6 +3871,7 @@
       }
     });
     workspace.render();
+    restoreFilters();
     // Presentation layer over the two selects. It observes them, so it needs no
     // further calls — and if it fails to construct the selects still work.
     if (!tilesUi && window.SiloTransactionTiles) tilesUi = window.SiloTransactionTiles.create({info: async id => {

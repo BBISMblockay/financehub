@@ -39,6 +39,8 @@ No open P1s.
 | Issue | Notes |
 |-------|-------|
 | Error UX differs (`alert` vs status line vs debug box) | See [errors.md](errors.md) |
+| **Two undefined Beacon tokens survive OUTSIDE the Accounting Suite.** `v2/products.html` reads `var(--bcn-bg-2)` and `v2/po-builder-beacon.css` / `v2/po-workbench.css` read `var(--bcn-surface-2)`; neither is defined in `beacon.css` and neither use carries a fallback, so those declarations are invalid at computed-value time and the property falls back to its initial value (`transparent` for a background). Same cause as the see-through Accounting dialogs fixed 2026-09-15; left alone rather than swept into an accounting PR. Found 2026-09-15 | Replace each with the real token (`--bcn-sunken` or `--bcn-surface`) in a purchasing/products PR, then delete its entry from `KNOWN_ELSEWHERE` in `v2/tests/unit/beacon-tokens.test.js`, which fails if the list grows |
+| **Saved split rules cannot be deleted or edited from SILO.** `card_split_rules` / `card_split_rule_lines` take no client writes at all (select-only grants; `set_card_transaction_splits` is the sole writer and there is no delete RPC), so the Rules page lists them read-only. Re-saving a split for the same merchant or card replaces its shape, but a rule for a merchant you no longer want remembered can only be removed in SQL | Re-save the split with the accounts you do want, or remove the row in the SQL editor. A delete RPC is a small migration, deliberately not added in a UI-only PR |
 | Planning v2 UX was clunky | Rebuilt from v1; old analysis in [planning-scenarios-v2-ux-plan.md](../planning-scenarios-v2-ux-plan.md) |
 
 ---

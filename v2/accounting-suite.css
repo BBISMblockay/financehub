@@ -1,11 +1,58 @@
 /* Shared accounting surfaces. Scoped so other working modules keep their layout. */
-.accounting-suite {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;background:var(--bcn-panel);border-bottom:1px solid var(--bcn-border);min-width:0;}
+.accounting-suite {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
 .accounting-suite-label {font-size:12px;font-weight:650;color:var(--bcn-ink);}
 .accounting-suite-links {display:flex;align-items:stretch;gap:18px;overflow-x:auto;min-width:0;}
-.accounting-suite a {font-size:12px;padding:10px 0 9px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);border-bottom:2px solid transparent;}
+.accounting-suite a {position:relative;display:inline-flex;align-items:center;gap:7px;font-size:12px;padding:10px 0 9px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);border-bottom:2px solid transparent;}
+.accounting-suite a svg {flex:none;opacity:.75;}
 .accounting-suite a[aria-current="page"] {color:var(--bcn-accent);border-bottom-color:var(--bcn-accent);font-weight:650;}
+.accounting-suite a[aria-current="page"] svg {opacity:1;}
 .accounting-suite a:hover {color:var(--bcn-ink);}
+.accounting-suite a:hover svg {opacity:1;}
 .accounting-suite a:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:-2px;}
+
+/* Icons only, with the label shown on hover and on keyboard focus. The label
+   TEXT stays in the DOM and is only clipped, so the link's accessible name is
+   the same in both modes -- a title attribute alone is not a reliable name and
+   an icon-only link with none is unusable with a screen reader. */
+.accounting-suite-compact {display:inline-flex;align-items:center;justify-content:center;flex:none;
+  width:26px;height:26px;margin-left:auto;border:1px solid var(--bcn-border);border-radius:6px;
+  background:transparent;color:var(--bcn-ink-3);cursor:pointer;}
+.accounting-suite-compact:hover {color:var(--bcn-ink);border-color:var(--bcn-border-strong);}
+.accounting-suite-compact[aria-pressed="true"] {color:var(--bcn-accent);border-color:var(--bcn-accent-border);background:var(--bcn-accent-soft);}
+.accounting-suite-compact:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:2px;}
+/* The links row scrolls horizontally when labels are shown, and a scrollable
+   axis forces the OTHER axis from visible to auto -- so the row becomes a
+   scrollport that clips its own descendants vertically. The compact tooltip
+   sits 4px BELOW each link, outside that box, so it reached opacity 1 and
+   painted nothing (measured: scrollport bottom 74px, tooltip top 78px).
+   Compact only exists on a fine pointer at 760px and up, where seven icons
+   never need to scroll, so the scrollport is dropped there and restored with
+   the labels in the touch/narrow block below. */
+.accounting-suite--compact .accounting-suite-links {gap:10px;overflow:visible;}
+.accounting-suite--compact a {padding:10px 7px 9px;border-radius:6px 6px 0 0;}
+.accounting-suite--compact .accounting-suite-text {position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
+.accounting-suite--compact a[aria-current="page"] {background:var(--bcn-accent-soft);}
+/* The tooltip is drawn from data-label, so it cannot drift from the link. */
+.accounting-suite--compact a::after {
+  content:attr(data-label);position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  margin-top:4px;padding:4px 8px;border-radius:6px;background:var(--bcn-band);color:var(--bcn-band-ink);
+  font:500 11px var(--bcn-font);white-space:nowrap;opacity:0;pointer-events:none;z-index:40;}
+.accounting-suite--compact a:hover::after,
+.accounting-suite--compact a:focus-visible::after {opacity:1;}
+@media (prefers-reduced-motion: no-preference) {
+  .accounting-suite--compact a::after {transition:opacity .12s ease;}
+}
+/* A label behind hover is unreachable by touch, so compact does not apply on a
+   coarse pointer or a narrow screen -- the toggle is hidden there rather than
+   left as a control that appears to do nothing. */
+@media (hover: none), (max-width: 760px) {
+  .accounting-suite-compact {display:none;}
+  .accounting-suite--compact .accounting-suite-text {position:static;width:auto;height:auto;overflow:visible;clip:auto;}
+  .accounting-suite--compact a::after {content:none;}
+  /* Labels are shown here, so the row can be long enough to need scrolling
+     again -- and with no tooltip there is nothing left to clip. */
+  .accounting-suite--compact .accounting-suite-links {overflow-x:auto;}
+}
 .accounting-workspace > .bcn-header {padding:10px 18px;gap:18px;align-items:center;justify-content:space-between;}
 .accounting-workspace .bcn-header-title {display:block;font-size:18px;font-weight:650;line-height:1.3;letter-spacing:-.025em;margin:0;}
 .accounting-workspace .bcn-header-sub {font-size:12px;font-weight:400;letter-spacing:0;line-height:1.4;margin-top:3px;max-width:80ch;color:var(--bcn-ink-2);}
@@ -24,7 +71,7 @@
 .accounting-workspace :is(.qr-table,.sc-table,.fa-table,.cf-table) td {padding:6px 10px;}
 .accounting-workspace :is(.qr-empty,.sc-empty,.fa-empty,.cf-empty,.ax-empty) {padding:28px 16px!important;line-height:1.6;}
 .accounting-workspace :is(.sc-tie,.cf-low) {border-radius:8px;padding:12px 14px;gap:20px;}
-.accounting-workspace .cf-low {background:var(--bcn-panel);border-left:3px solid var(--bcn-border-strong);}
+.accounting-workspace .cf-low {background:var(--bcn-surface);border-left:3px solid var(--bcn-border-strong);}
 .accounting-workspace .cf-low--warn {border-left-color:var(--bcn-neg);}
 .accounting-workspace .cf-low--ok {border-left-color:var(--bcn-pos);}
 .accounting-workspace .cf-low-value {font:650 20px var(--bcn-font);letter-spacing:-.025em;font-variant-numeric:tabular-nums;}
@@ -42,7 +89,7 @@
 .accounting-workspace #ccMeta {display:none;}
 .accounting-workspace .wtile-wrap .wtile {padding:7px 10px;gap:4px;}
 .accounting-workspace .transaction-list .cc-card-head {padding:7px 10px;}
-.accounting-workspace .txn-flow {background:var(--bcn-panel);border:1px solid var(--bcn-border);border-radius:7px;padding:7px 0;}
+.accounting-workspace .txn-flow {background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:7px;padding:7px 0;}
 .accounting-workspace .txn-secondary {margin-top:1px;}
 @media(max-width:1100px) {
  .accounting-workspace #ccTabs {order:3;flex-basis:100%;}
@@ -62,4 +109,39 @@
  .accounting-workspace .qr-field--wide {flex-basis:100%;}
  .accounting-workspace .qr-field select,.accounting-workspace .qr-field input {width:100%;min-width:0;}
  .accounting-workspace .cf-low {gap:12px 22px;}
+}
+
+/* ======================================================================
+   Dialogs across the suite.
+
+   Every dialog here was see-through. The cause was one missing token: 57
+   rules across the accounting pages set their background from a --bcn-panel
+   variable with no fallback, and that name is defined in no stylesheet in
+   this repo -- so the declaration was invalid at computed-value time and the
+   background fell back to `transparent`. The register scrolled visibly
+   through the row-detail drawer, the split editor and the confirm dialogs.
+   Those call sites now use --bcn-surface, the real Beacon token, and
+   v2/tests/unit/beacon-tokens.test.js fails if an undefined one returns.
+
+   This block is the second half: a native <dialog> takes its background
+   from the UA (`Canvas`), and beacon.css declares no `color-scheme`, so an
+   unstyled dialog paints WHITE even in dark theme. schedules.html and
+   fixed-assets.html both styled `dialog` for border and radius and never
+   set a background, which is how they got there. One baseline for all
+   seven suite pages, declaring only what was missing -- each page's own
+   border, radius and padding still win, because this file loads after
+   their <style> block and these properties are not in it.
+   ====================================================================== */
+dialog {
+  background: var(--bcn-surface);
+  color: var(--bcn-ink);
+  /* A dialog taller than the window used to run off the bottom with no way
+     to reach its own buttons. */
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+}
+dialog::backdrop { background: rgba(15,23,42,.45); }
+@media(max-width:760px) {
+  dialog { max-width: calc(100vw - 20px); }
 }

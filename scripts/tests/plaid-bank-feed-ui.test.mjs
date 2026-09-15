@@ -13,6 +13,9 @@ const workspaceSource = await readFile(new URL('../../v2/bank-workspace.js', imp
 // sharing `window` AND the document, since the module resolves getElementById
 // from its own scope.
 const splitsSource = await readFile(new URL('../../v2/card-splits.js', import.meta.url), 'utf8');
+// The page reads its filter position through SiloTransactionFilters from its
+// first statement, so the harness has to load it exactly as the page does.
+const filtersSource = await readFile(new URL('../../v2/transaction-filters.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../../v2/transactions.html', import.meta.url), 'utf8');
 const inlineSource = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>', html.indexOf('<script>')));
 class Element {
@@ -23,6 +26,10 @@ class Element {
   set innerHTML(value) { this.html = value; }
   get innerHTML() { return this.html || ''; }
   setAttribute() {} removeAttribute() {} appendChild() {} focus() {}
+  // A real Element carries remove() and insertAdjacentHTML(); querySelector()
+  // here always answers with one, so both have to exist or a page doing
+  // ordinary DOM work throws inside the stub rather than in a browser.
+  remove() {} insertAdjacentHTML() {}
   async fire(type, event = { target: this }) { for (const fn of this.listeners[type] || []) await fn(event); }
 }
 function dom() {
@@ -89,6 +96,7 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
   vm.runInNewContext(moduleSource, { window });
   vm.runInNewContext(datesSource, { window });
   vm.runInNewContext(splitsSource, { window, document: d.document });
+  vm.runInNewContext(filtersSource, { window });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
     + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
   vm.runInNewContext(testable, { window, URL, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
@@ -608,7 +616,11 @@ await test('journal review explicitly loads the full import while retaining the 
  const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
  const batch={...h.page.state.batch,id:'other',company_entity_id:'company-one'};h.page.state.batches=[batch];
  const row={...transaction,batch_id:'other'};h.window.SiloTransactionDates.read=async()=>[row];await h.page.browseDates();
- h.page.state.selected.add(row.id);h.el('codeSearch').value='Merchant';
+ // Typed, not assigned: the quick search is page state mirrored into the
+ // box, so setting .value alone is a state a real keystroke cannot produce.
+ // Typing clears the selection (it always has), so the row is checked after.
+ h.el('codeSearch').value='Merchant';await h.el('codeSearch').fire('input');
+ h.page.state.selected.add(row.id);
  h.el('btnReopen').hidden=false;h.el('btnVoid').hidden=false;h.page.renderEntry();
  assert.equal(h.el('btnApprove').disabled,true);assert.equal(h.el('btnReopen').hidden,true);assert.equal(h.el('btnVoid').hidden,true);
  assert.match(h.el('tblEntry').innerHTML,/data-entry-batch="other"/);

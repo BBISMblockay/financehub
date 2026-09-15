@@ -9,12 +9,12 @@
   <style>
     .silo-main { min-width: 0; overflow: hidden; }
     .bcn-header { position: sticky; top: 0; z-index: 30;
-      background: var(--bcn-panel); border-bottom: 1px solid var(--bcn-border); }
+      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
     .qr-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
 
     .qr-filters {
       display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
-      background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      background: var(--bcn-surface); border: 1px solid var(--bcn-border);
       border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
     }
     .qr-field { display: flex; flex-direction: column; gap: 4px; }
@@ -26,7 +26,7 @@
     .qr-field--wide select { min-width: 280px; }
 
     .qr-card {
-      background: var(--bcn-panel); border: 1px solid var(--bcn-border);
+      background: var(--bcn-surface); border: 1px solid var(--bcn-border);
       border-radius: 12px; overflow: hidden;
     }
     .qr-card-head {
@@ -82,7 +82,7 @@
        not a one-off state -- it was live from the moment the drill-down
        shipped. */
     .qr-drill-scrim[hidden] { display: none; }
-    .qr-drill-modal { background: var(--bcn-panel); color: var(--bcn-ink);
+    .qr-drill-modal { background: var(--bcn-surface); color: var(--bcn-ink);
       border: 1px solid var(--bcn-border); border-radius: 12px;
       width: min(1180px, 96vw); box-shadow: 0 18px 48px rgba(15,23,42,.35);
       display: flex; flex-direction: column; max-height: calc(100vh - 64px);
@@ -118,7 +118,7 @@
       letter-spacing: .04em; color: var(--bcn-ink-3); }
     .qr-je-meta strong { font-size: 12.5px; font-weight: 650; }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css?v=2578100541d8" />
+  <link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
