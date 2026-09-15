@@ -368,7 +368,12 @@ try{
      Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
      Rows:{Row:[{type:'Data',ColData:[{value:'Beginning Balance'},{value:''},{value:''},{value:''},{value:''},{value:''},{value:''},{value:'250.00'}]},
        {type:'Data',ColData:[{value:pair.gl.Header.StartPeriod},{id:'900003',value:'Journal Entry'},{value:''},{value:''},{value:''},{value:''},{value:'.00'},{value:'250.00'}]}]},
-     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:'250.00'}]}});
+     // The section summary's ending balance is left BLANK, which is what QBO
+     // actually emits here (all 14 stored sections carry ''), so the only guard
+     // that can catch this fixture is the row-level running balance one. If the
+     // summary also said 250 the ending-balance guard would catch it too and
+     // the mutation below would prove nothing about the row-level test.
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:''}]}});
    await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
    const bG=await store(pair.gl,co,conn,{},...scaleWindow),bT=await store(pair.tb,co,conn,{},...scaleWindow);
    if(mutation==='admits-unattributed-balance'){
@@ -392,7 +397,8 @@ try{
    pair.gl.Rows.Row.push({type:'Section',
      Header:{ColData:[{value:'Not Specified'},...Array(7).fill({value:''})]},
      Rows:{Row:[row('900004','.00','0.00'),row('900005','.00','40.00')]},
-     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:'40.00'}]}});
+     // Blank summary ending balance again, for the same isolation reason.
+     Summary:{ColData:[...Array(6).fill({value:''}),{value:'.00'},{value:''}]}});
    await q("insert into accounting_accounts(company_entity_id,qbo_connection_id,qbo_account_id,name,account_type,is_active,source_snapshot) select $1,$2,x.qbo_account_id,x.name,x.account_type,true,'{}' from jsonb_to_recordset($3::jsonb) as x(qbo_account_id text,name text,account_type text) on conflict do nothing",[co,conn,JSON.stringify(pair.accounts)]);
    const gG=await store(pair.gl,co,conn,{},...scaleWindow),gT=await store(pair.tb,co,conn,{},...scaleWindow);
    if(mutation==='admits-unattributed-balance'){
