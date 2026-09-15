@@ -1,10 +1,103 @@
 # A SILO reporting layer over QBO reports and retained GL detail
 
-Assessment written 2026-09-15 alongside the Accounting Suite usability PR.
+Assessment written 2026-09-15 alongside the Accounting Suite usability PR, and
+**revised the same night** (see *What changed since this was written* below).
 **Nothing here is implemented.** It is a bounded plan, deliberately kept out of
 that PR: a reporting engine and a filter bar do not belong in one change, and
 the engine question has an answer that only shows up once you count what is
 actually in the database.
+
+---
+
+## What changed since this was written
+
+Two things, hours apart, and together they move this from "wait for data" to
+"build the roll-forward".
+
+**1. The archive is no longer empty.** The count below was taken before the
+bounded-job fix was run. Production now holds **46,004 `qbo_history_lines`
+across 2 imports** covering 2026-01-01 → 2026-07-31, contiguous to the
+2026-08-01 cutover with no gap. The sentence below about "reporting over an
+empty table" was true when written and is not true now. The requirement it
+produced — that a partial archive must *read* as partial — still stands and is
+now enforced on screen by the migration flow on Books & setup.
+
+**2. Nothing reports over any of it.** Measured across every row of
+`silo_chat_saved_reports`:
+
+| Reads | Reports |
+|---|---|
+| `quickbooks_report_runs` | 6 |
+| `qbo_history_lines` | **0** |
+| `card_coding_effective_lines` | **0** |
+| `card_transactions` | **0** |
+| `journal_adjustment_lines` | **0** |
+| `accounting_opening_balances` | **0** |
+
+Those 6 re-parse `raw_response` out of a stored QBO report. QuickBooks did the
+arithmetic; SILO is displaying a photograph of it, of whatever was last
+fetched. `/v2/qbo-reports.html` is the same relationship live, one round trip
+per click. **Neither picks up where QBO left off, and both stop working the
+day the connection is dropped.**
+
+So all three sources now exist and nothing joins them. There is no view
+computing *opening balance + SILO activity = balance now*;
+`accounting_journal_register` is a list of entries, not balances; and there is
+no SILO-computed trial balance, P&L or balance sheet anywhere.
+
+### The reframing: a roll-forward is not a merged ledger
+
+"No merged SILO + QBO ledger" (below, under *What this plan deliberately does
+not do*) still holds — that is a book-of-record change and `books_authority`
+is still `qbo`. But the thing worth building is not a merge. It is a
+**roll-forward**:
+
+> frozen trial balance at the cutover **+** everything SILO has posted since
+> **=** SILO's own balances now
+
+computed entirely from tables SILO owns, and compared against the stored QBO
+reports as a check. That is the `silo_report_tieouts` shape, not a union.
+
+**The constraint that decides how to build it:** SILO sees card feeds, bank
+feeds and hand-written journals. It does **not** see invoices, bills, payroll,
+or anything entered directly in QuickBooks. A SILO-computed P&L today is
+therefore materially incomplete, and the failure mode is that it looks like a
+*number* rather than a *gap* — the exact thing the migration flow was built to
+prevent, so the reporting layer must not reintroduce it.
+
+Which is why one object serves both phases:
+
+- **Today it is a reconciliation.** "SILO accounts for $X of QBO's $Y for this
+  account this month; here is the $Z it cannot see." The $Z **is** the
+  migration checklist: it names, per account, in dollars, which sources still
+  have to flow through SILO.
+- **When $Z reaches zero for an account**, that account's SILO number *is* the
+  number and QBO is a second opinion. Nothing gets rebuilt; the same view
+  changes meaning.
+
+This is also what gives the migration flow's fifth step teeth. That step counts
+*whether* entries were posted for a month. The roll-forward measures *how much
+of the business* those entries represent — which is the question "are we ready
+to leave QBO" actually reduces to.
+
+For scale, August 2026 alone: **576 posted card rows ($2,267,787.20)** and
+**60 posted journal lines ($3,011,625.84 of debits)**. This is not a toy
+volume waiting on more data; it is unreported activity.
+
+### Consequences for the order below
+
+- **PR A is unchanged and is still first.** The views are what make the three
+  sources legible, and `qbo_history_coverage_v` is now reporting over real
+  windows rather than returning "no history retained".
+- **PR B is re-scoped.** It was "four or five system reports". It becomes
+  **`silo_balances_v` — the roll-forward — plus its tie-outs against the stored
+  QBO reports**, with the per-account gap as a first-class column. The smaller
+  report definitions listed under PR B follow from it rather than preceding it.
+- **PR C and PR D are unchanged**, and PR D's freshness/completeness rule is
+  what keeps the gap column honest.
+
+Start with the reconciliation view and one board, on real August numbers,
+before committing to anything past it.
 
 ---
 
@@ -15,8 +108,8 @@ Production, read 2026-09-15:
 | | Rows |
 |---|---|
 | `quickbooks_report_runs` (stored QBO report snapshots) | **187** |
-| `qbo_history_imports` (retained GL detail) | **0** |
-| `qbo_history_lines` | **0** |
+| `qbo_history_imports` (retained GL detail) | **0** *(now 2 — see above)* |
+| `qbo_history_lines` | **0** *(now 46,004 — see above)* |
 | `card_import_batches` / of those `posted` | 15 / **4** |
 | `journal_adjustments` | 3 |
 | `silo_chat_saved_reports` | 81 |
@@ -212,7 +305,10 @@ prints nothing.
   `qbo_history_*`, which is immutable by trigger anyway.
 - **No merged "SILO + QBO" ledger.** That is a book-of-record change, not a
   reporting change, and the boundary in [qbo-history.md](qbo-history.md) says
-  QBO remains the book of record in this phase.
+  QBO remains the book of record in this phase. The roll-forward described at
+  the top of this file is **not** that merge: it computes SILO's balances from
+  SILO's own rows and *compares* them to QBO's, which is the opposite of
+  summing the two.
 - **No claim of disconnect-readiness.** Matching GL closing balances to a trial
   balance does not prove every source document was retained, and the existing
   UI already says so. A reporting layer must not quietly start implying
