@@ -4,7 +4,135 @@
   const el=id=>document.getElementById(id);
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const amount=value=>value==null?'—':Number(value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const issues={no_ledger_rows:'Account section has no retained lines',running_balance_gap:'Running balance does not follow the prior line',missing_transaction_reference:'A source transaction ID is missing',movement_total_mismatch:'Period movement does not tie to QBO’s total',missing_trial_balance_account:'Account missing from trial balance',trial_balance_mismatch:'Closing balance differs from trial balance',missing_ledger_account:'Trial balance account missing from ledger detail'};
+  /* What each reconciliation issue MEANS, and what it asks of a person.
+     The archive counts a trial-balance account with no ledger lines as an
+     exception even when its balance is zero, on purpose -- a zero closing
+     balance in THIS window does not prove the account had no activity in
+     another one. That stance is right and stays. What it produced on the
+     first real import was a screen reading "71 account exceptions to review
+     -- this window is not yet reconciled", over 71 rows of two em-dashes and
+     a 0.00, with nothing saying that every one of them carries no balance
+     and so leaves nothing unaccounted for. The count is the database's; the
+     explanation is this file's job.
+
+     `severity` is what the reader has to DO, not how the code was raised:
+       difference -- a number disagrees with another number. Real.
+       coverage   -- something was not there to compare. Benign at zero,
+                     serious the moment the account carries a balance, which
+                     is computed per import rather than assumed.
+       detail     -- a note about one line or section, no balance effect. */
+  const ISSUES={
+    trial_balance_mismatch:{severity:'difference',label:'Closing balance differs from the trial balance',
+      meaning:'The closing balance computed from the retained lines is not the balance QuickBooks reports for this account.',
+      action:'Do not rely on this window for this account until it is explained. Re-fetch the period, or archive it in smaller windows to find where the two diverge.'},
+    movement_total_mismatch:{severity:'difference',label:'Period movement does not tie to QuickBooks’ own total',
+      meaning:'The retained lines for this account do not add up to the section total QuickBooks printed for them.',
+      action:'A line is missing or duplicated inside the account. Re-fetch this period before relying on it.'},
+    running_balance_gap:{severity:'difference',label:'A running balance does not follow the line before it',
+      meaning:'QuickBooks’ own running balance jumps between two consecutive retained lines, so a line between them is missing.',
+      action:'Re-fetch this period. The gap names where to look.'},
+    missing_ledger_account:{severity:'coverage',label:'In the trial balance, no lines in this window',
+      meaning:'The account is on the trial balance but the general ledger returned no lines for it between these dates.',
+      zeroAction:'Nothing is missing from the archive — the account had no activity in this window, and it carries no balance, so nothing is unaccounted for. It is listed because a zero balance now does not prove the account was never active in another period.',
+      balanceAction:'A closing balance with no detail behind it. Archive the period in which this account was active before relying on this window for it.'},
+    no_ledger_rows:{severity:'coverage',label:'Account section present but empty',
+      meaning:'QuickBooks printed a section for this account and put no lines in it.',
+      zeroAction:'Nothing to retain and no balance at stake.',
+      balanceAction:'The account holds a balance but the ledger returned none of the lines behind it. Re-fetch this period.'},
+    missing_trial_balance_account:{severity:'coverage',label:'In the ledger, absent from the trial balance',
+      meaning:'Lines were retained for this account but the trial balance does not list it, so its closing balance cannot be checked against anything.',
+      zeroAction:'The retained lines net to zero, so nothing is unaccounted for.',
+      balanceAction:'The retained lines net to a balance that nothing confirms. Check the account in QuickBooks before relying on this window.'},
+    missing_transaction_reference:{severity:'detail',label:'A retained line has no source transaction ID',
+      meaning:'The line is archived in full, but without QuickBooks’ own transaction id there is no way to trace it back to its source document.',
+      action:'Balances are unaffected. It limits tracing that line later, nothing else.'},
+    unattributed_ledger_section:{severity:'detail',counted:false,label:'QuickBooks’ own “Not Specified” group',
+      meaning:'Records QuickBooks generates itself to link credits. They belong to no account and carry no amount, and every line is retained under a placeholder rather than filed against an account that is not theirs.',
+      action:'No action. The section is proved to be all zeroes before it is admitted, which is why it is not counted as an exception.'},
+  };
+  // An unrecognised code is humanised rather than shown as raw snake_case --
+  // unattributed_ledger_section reached this screen that way.
+  const issueLabel=code=>ISSUES[code]?.label||String(code).replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+  const num=value=>value==null||value===''?null:(Number.isFinite(Number(value))?Number(value):null);
+
+  /* One row's worth of judgement, from the row itself. A coverage issue on an
+     account carrying a balance is a different fact from the same issue at
+     zero, so severity is decided per row and never from the code alone. */
+  function classify(row){
+    const codes=Array.isArray(row&&row.issues)?row.issues:[];
+    if(!codes.length)return {severity:'matched',codes:[],balance:0};
+    const balance=Math.abs(num(row.trial_balance_debit_net)??num(row.ledger_debit_net)??0);
+    let severity='detail';
+    for(const code of codes){
+      const kind=ISSUES[code]?.severity||'difference';
+      if(kind==='difference'){severity='difference';break;}
+      if(kind==='coverage')severity=balance>0?'difference':'coverage';
+    }
+    return {severity,codes,balance};
+  }
+
+  /* What the whole reconciliation amounts to: one entry per issue kind with
+     its count, how many of those accounts carry a balance, and how much. The
+     page prints this instead of leaving a reader to scan 264 rows. */
+  function summarise(reconciliation){
+    const rows=Array.isArray(reconciliation)?reconciliation:[];
+    const groups=new Map();
+    let matched=0,flagged=0,exceptions=0,atRiskAccounts=0,atRiskBalance=0;
+    for(const row of rows){
+      const {severity,codes,balance}=classify(row);
+      if(!codes.length){matched++;continue;}
+      flagged++;
+      // The archive does not count every note as an exception -- the
+      // "Not Specified" placeholder is proved all-zero before admission and
+      // is excluded on purpose. Tracking that here is what lets the page's
+      // own wording agree with exception_count instead of saying 72 beside 71.
+      if(codes.some(code=>ISSUES[code]?.counted!==false))exceptions++;
+      if(severity==='difference'&&balance>0){atRiskAccounts++;atRiskBalance+=balance;}
+      for(const code of codes){
+        const g=groups.get(code)||{code,accounts:0,withBalance:0,balanceTotal:0,examples:[]};
+        g.accounts++;
+        if(balance>0){g.withBalance++;g.balanceTotal+=balance;}
+        if(g.examples.length<3&&row.account_name)g.examples.push(String(row.account_name));
+        groups.set(code,g);
+      }
+    }
+    const rank={difference:0,coverage:1,detail:2};
+    const list=[...groups.values()].map(g=>Object.assign(g,{
+      severity:g.withBalance>0&&ISSUES[g.code]?.severity==='coverage'?'difference':(ISSUES[g.code]?.severity||'difference'),
+    })).sort((a,b)=>(rank[a.severity]-rank[b.severity])||(b.accounts-a.accounts));
+    return {total:rows.length,matched,flagged,exceptions,groups:list,
+      exceptionGroups:list.filter(g=>ISSUES[g.code]?.counted!==false),
+      atRiskAccounts,atRiskBalance,
+      // Every flagged account is a coverage or detail note and none carries a
+      // balance: the balances all tie and nothing is unaccounted for.
+      balancesAllTie:list.every(g=>g.severity!=='difference')};
+  }
+
+  /* One block per issue kind: what it means, what it asks of you, and the
+     accounts it names. Written from the rows, so the zero-balance and
+     carries-a-balance cases cannot be described with the same sentence. */
+  function explain(sum){
+    if(!sum.flagged)return '';
+    const tone={difference:'neg',coverage:'info',detail:'info'};
+    return sum.groups.map(g=>{
+      const def=ISSUES[g.code]||{};
+      const carries=g.withBalance>0;
+      const action=carries?(def.balanceAction||def.action||''):(def.zeroAction||def.action||'');
+      const counts=`${g.accounts} account${g.accounts===1?'':'s'}`
+        +(def.counted===false?' · not counted as an exception':'')
+        +(def.severity==='coverage'?(carries
+          ? ` · ${g.withBalance} of them carry a balance, ${amount(g.balanceTotal)} in total`
+          : ' · none of them carries a balance'):'');
+      return `<div class="books-exception books-exception--${tone[g.severity]||'info'}">`
+        +`<h3>${esc(issueLabel(g.code))}</h3>`
+        +`<p class="books-exception-count">${esc(counts)}</p>`
+        +(def.meaning?`<p>${esc(def.meaning)}</p>`:'')
+        +(action?`<p><strong>${carries||g.severity==='difference'?'What to do':'Why it is listed'}:</strong> ${esc(action)}</p>`:'')
+        +(g.examples.length?`<p class="books-exception-eg">For example: ${g.examples.map(esc).join(', ')}${g.accounts>g.examples.length?'…':''}</p>`:'')
+        +'</div>';
+    }).join('');
+  }
+
   const result=async query=>{const r=await query;if(r.error)throw new Error(r.error.message);return r.data;};
   const table=(heads,rows)=>'<div class="books-table-scroll"><table><thead><tr>'+heads.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
   function windowDates(start,end,cutover){
@@ -48,10 +176,29 @@
       el('historyDetail').hidden=!selected;el('historyChecks').hidden=!selected;
       if(!selected){status(settings?'Choose dates before your Silo start date to save QBO history.':'Open Setup to prepare your opening balances first.');el('historySummary').textContent='No snapshots saved yet. Choose a historical window and save QBO history.';return;}
       const a=selected;
-      el('historySummary').innerHTML=`<p><strong>${esc(a.period_start)} → ${esc(a.period_end)}</strong></p><p>${esc(a.currency)} · ${esc(a.accounting_basis)} · ${a.transaction_count} transaction lines</p><p>${a.exception_count?`${a.exception_count} account exceptions to review`:'Account balances matched'} · saved ${esc(a.created_at)}</p>`;
+      const sum=summarise(a.reconciliation);
+      // The count is the archive's; the SHAPE is what makes it readable. "71
+      // exceptions" is one thing to understand when all 71 are the same kind.
+      const kinds=sum.exceptionGroups.length;
+      const shape=!a.exception_count?'Account balances matched'
+        :`${a.exception_count} account exception${a.exception_count===1?'':'s'} to review`
+          +(kinds===1?` — all of one kind${sum.balancesAllTie?', and no balance is affected':''}`
+            :sum.balancesAllTie?` across ${kinds} kinds — no balance is affected`:'');
+      el('historySummary').innerHTML=`<p><strong>${esc(a.period_start)} → ${esc(a.period_end)}</strong></p><p>${esc(a.currency)} · ${esc(a.accounting_basis)} · ${a.transaction_count} transaction lines</p><p>${esc(shape)} · saved ${esc(a.created_at)}</p>`;
       el('historyAccount').innerHTML='<option value="">All accounts</option>'+a.reconciliation.map(r=>`<option value="${esc(r.qbo_account_id)}">${esc(r.account_name)}</option>`).join('');
-      el('historyReconciliation').innerHTML=table(['Account','Ledger closing','Trial balance','Difference','Check'],a.reconciliation.map(r=>`<tr><td>${esc(r.account_name)}</td><td class="num">${amount(r.ledger_debit_net)}</td><td class="num">${amount(r.trial_balance_debit_net)}</td><td class="num">${amount(r.difference)}</td><td>${r.issues.length?r.issues.map(i=>esc(issues[i]||i)).join('<br>'):'Matched'}</td></tr>`));
-      await lines(true);status(a.exception_count?'History saved with exceptions. Review account reconciliation below; this window is not yet reconciled.':'Saved history is available in Silo. Select an account to inspect its lines.');
+      el('historyExceptions').innerHTML=explain(sum);
+      el('historyExceptions').hidden=!sum.flagged;
+      // Sorted so anything a person must act on is at the top: the 71 benign
+      // coverage notes used to sit above a real mismatch purely by luck.
+      const order={difference:0,coverage:1,detail:2,matched:3};
+      const rows=a.reconciliation.map(r=>({r,c:classify(r)}))
+        .sort((x,y)=>(order[x.c.severity]-order[y.c.severity])||(y.c.balance-x.c.balance)
+          ||String(x.r.account_name||'').localeCompare(String(y.r.account_name||'')));
+      el('historyReconciliation').innerHTML=table(['Account','Ledger closing','Trial balance','Difference','Check'],rows.map(({r,c})=>`<tr><td>${esc(r.account_name)}</td><td class="num">${amount(r.ledger_debit_net)}</td><td class="num">${amount(r.trial_balance_debit_net)}</td><td class="num">${amount(r.difference)}</td><td>${c.codes.length?c.codes.map(i=>esc(issueLabel(i))).join('<br>'):'Matched'}</td></tr>`));
+      await lines(true);
+      status(!a.exception_count?'Saved history is available in Silo. Select an account to inspect its lines.'
+        :sum.balancesAllTie?`Saved. Every account balance tied to the trial balance. ${sum.exceptions} account${sum.exceptions===1?'':'s'} carry a note explaining what could not be compared — none of them holds a balance, so nothing is unaccounted for.`
+        :`Saved, and ${sum.atRiskAccounts} account${sum.atRiskAccounts===1?'':'s'} need attention before this window is relied on — ${amount(sum.atRiskBalance)} ${esc(a.currency)} of balance is affected. They are listed first below.`);
     }
     async function refresh(prefer){
       settings=await result(db.from('accounting_settings').select('qbo_connection_id,accounting_start_date,accounting_basis,base_currency,fiscal_year_start_month').eq('company_entity_id',companyId).maybeSingle());
@@ -98,5 +245,5 @@
     }
     await work(()=>refresh());
   }
-  window.SiloQboHistory={mount};
+  window.SiloQboHistory={mount,summarise,classify,issueLabel,ISSUES};
 })();
