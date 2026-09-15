@@ -90,6 +90,23 @@ What to do with that, in order of preference:
    filler commit to re-trigger review is forbidden and would be dishonest
    about what the next cycle is reviewing.
 
+### Record settled outcomes only — a row about the push it rides in is false
+
+Found by cycle 2 of #708, against the first version of #708's own row in the
+table below. That row said the second cycle had "not fired: no further push
+was made, so the second cycle remained unspent" and that no head had been
+independently reviewed — written truthfully, then committed in the very push
+that fired cycle 2 and made both clauses false. Merging it would have left
+the steward's own evidence file wrong at the moment it landed, and a later
+readiness pass reading it would have misreported the remaining budget and the
+reviewed head.
+
+The rule this file runs on: **a lifecycle row states what has already
+settled.** A cycle that is running, or that the committing push is about to
+start, is not evidence yet. Write the row in the batch that answers it, or
+leave the cell out; a description of the present tense does not survive being
+committed.
+
 ## Cycle accounting — partly observed
 
 - Cycle 1 fired on the PR as opened, about one minute after creation.
@@ -126,8 +143,8 @@ transitions, dropped webhooks).
 | PR | Opened | Cycle 1 marker | Cycle 2 marker | Final status | Notes |
 |----|--------|----------------|----------------|--------------|-------|
 | #690 | 2026-09-14 02:20 UTC, head `2b8dd20` | `complete` 02:23:40 on `2b8dd20`, 2 findings (P1, P2), both valid, fixed in `133561c` | `complete` 02:30:30 on `133561c`, 2 findings (both P1: same-second claim order, release tombstone), both valid, fixed in the commit after | Needs additional independent review | first live run; all four findings were against the skill's own claim fallback; the final commit is unreviewed by construction |
-| #708 | 2026-09-15 20:56 UTC, head `2bc4e79` | `blocked` 21:00:18 on `2bc4e79`, **zero findings published** — the head moved to `23dd0aa` mid-review | not fired: no further push was made, so the second cycle remained unspent | Needs additional independent review | third live run, and the first `blocked` marker. CI went red 34 s before the reviewer claimed the head; the drive-to-green rule required the fix, which superseded the cycle. No head on this PR has been independently reviewed |
 | #692 | 2026-09-14 04:49 UTC, head `f0d76c0` | `complete` 04:53:55 on `f0d76c0`, 4 findings (2 P1, 2 P2), all valid, fixed in `d8c571a` | `complete` 05:08 on `d8c571a`, 2 findings (P1 valid: late upserts from an older run; P2 disputed: `20260909300000` already pins the baseline helper to Pacific, verify's `seo_baseline_business_timezone` enforces it, boundary test added) | Needs additional independent review | second live run; the PR-event path fired on `issue_comment.created`, `.edited` and `check_suite.completed` within seconds each time; the hourly check-in never had to fire and was cancelled after the report. Claim released by a `released` tombstone comment (no comment-edit tool in the harness) |
+| #708 | 2026-09-15 20:56 UTC, head `2bc4e79` | `blocked` 21:00:18 on `2bc4e79`, **zero findings published** — the head moved to `23dd0aa` mid-review | `complete` 21:06 on `ef2472f`, 1 finding (P2: the first version of this very row asserted a still-running cycle as settled), valid, fixed in the commit after | Needs additional independent review | third live run, and the first `blocked` marker. CI went red 34 s before the reviewer claimed head `2bc4e79`; the drive-to-green rule required the fix, which superseded the cycle. Budget exhausted at cycle 2, so the correction commit is unreviewed by construction |
 
 ## Protocol traces
 
