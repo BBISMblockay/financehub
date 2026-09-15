@@ -348,5 +348,38 @@ r.test('a completed migration says so plainly', () => {
   r.has(model.headline, 'can measure', 'the headline never claims more than it measured');
 });
 
+/* The panel's density rule. Figures answer a step; paragraphs elaborate. But a
+   step with no figures has nothing BUT paragraphs, and on those steps the
+   paragraph is the instruction for getting past them -- so collapsing by habit
+   would hide "fetch a trial balance from QuickBooks" on the one screen whose
+   whole job is to ask for it. */
+r.test('a step with figures collapses its prose; a step with none keeps it open', () => {
+  const model = M.assess(LIVE());
+  const withMetrics = model.stages.find(s => s.metrics.length);
+  r.truthy(withMetrics, 'the live position has at least one measured step');
+  const rich = M.detailMarkup(withMetrics);
+  r.has(rich, 'class="migration-more"', 'the prose is behind a disclosure');
+  r.has(rich, 'What this means');
+  r.truthy(rich.indexOf('migration-metrics') < rich.indexOf('migration-more'),
+    'the figures stay outside the disclosure, above it');
+  r.has(rich, 'migration-limit', 'the limit still ships, inside the disclosure');
+  /* Inside the disclosure, not merely after it -- a limit stranded below a
+     closed <details> is the step's caveat reading as though it applied to the
+     figures, which is the opposite of what it says. */
+  r.truthy(rich.indexOf('migration-limit') > rich.indexOf('migration-more')
+    && rich.indexOf('migration-limit') < rich.indexOf('</details>'),
+    'and it is inside the disclosure, not stranded below it');
+
+  /* Nothing read at all: no figures exist to stand in for the words. */
+  const blind = LIVE();
+  blind.bank = U; blind.sources = U;
+  const unknown = M.assess(blind).stages.find(s => s.id === 'feeds');
+  r.eq(unknown.state, 'unknown');
+  r.eq(unknown.metrics.length, 0, 'an unreadable step has no figures');
+  const bare = M.detailMarkup(unknown);
+  r.not(bare, 'migration-more', 'so its prose is not collapsed');
+  r.has(bare, 'migration-limit');
+});
+
 const out = r.summary();
 process.exit(out.fail ? 1 : 0);
