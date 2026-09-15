@@ -21,7 +21,7 @@ function harness({disconnected=false,failTb=false,failArchive=false,preloaded=fa
  rpc:async(name,args)=>{calls.push({name,args});assert.equal(name,'archive_qbo_ledger');if(failArchive)return {error:{message:'Archive unavailable'}};const n=calls.filter(c=>c.name==='archive_qbo_ledger').length;if(failedJob&&n===2)return {data:{status:'failed',job_id:'job-1',error:'Blank ledger amount with a changed running balance at row 3 of account bank is ambiguous; no archive was written'}};if(n<steps)return {data:{status:'in_progress',job_id:'job-1',rows_done:n*1000,rows_total:steps*1000,sections_done:n,sections_total:steps}};archives=[snapshot];return {data:{id:'archive-1',status:'complete'}};}};
  const window={};vm.runInNewContext(code,{window,document:{getElementById:el},console});
  const statuses=[];const st=el('historyStatus');Object.defineProperty(st,'textContent',{set(v){statuses.push(v);this._t=v;},get(){return this._t||'';}});
- return {el,calls,statuses,boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async()=>{el('historyForm').events.submit({preventDefault(){}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
+ return {el,calls,statuses,fiscalYears:(...a)=>window.SiloQboHistory.fiscalYears(...a),boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async()=>{el('historyForm').events.submit({preventDefault(){}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
 }
 test('actual history handler reads scoped GL then TB, archives stored IDs and displays escaped retained details',async()=>{
  const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Choose dates before/);assert.equal(h.el('historyFrom').value,'2026-08-01');assert.equal(h.el('historyTo').value,'2026-08-31');await h.submit();
@@ -54,6 +54,175 @@ test('a window crossing the fiscal year boundary still reads the trial balance o
   assert.equal(f.body.params.end_date,'2026-07-31');
  }
  assert.notEqual(fetch[1].body.params.start_date,'2026-01-01','the fiscal year start is not what the trial balance is asked for');
+});
+
+// QBO's trial balance is fiscal-year-to-date whatever range is requested, so a
+// window beginning on the fiscal year start is the only one it can check in
+// full. The year buttons exist so the crossing window is unreachable.
+test('fiscal year buttons offer only windows the trial balance can check, clamped at the cutover',async()=>{
+ const h=harness();await h.boot();
+ const years=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},[]);
+ // the module runs in its own vm realm, so arrays are not reference-equal
+ assert.deepEqual(JSON.parse(JSON.stringify(years.map(y=>[y.label,y.start_date,y.end_date]))),[
+  ['2026','2026-01-01','2026-08-31'],
+  ['2025','2025-01-01','2025-12-31'],
+  ['2024','2024-01-01','2024-12-31'],
+  ['2023','2023-01-01','2023-12-31'],
+ ]);
+ assert.equal(years[0].partial,true,'the current year stops at the day before the Silo start date');
+ assert.equal(years[1].partial,false);
+ for(const y of years)assert.ok((Date.parse(y.end_date)-Date.parse(y.start_date))/86400000<=365,
+   `${y.label} must be a window the archive accepts`);
+});
+
+test('a non-January fiscal year is offered as its own span, not the calendar year',async()=>{
+ const h=harness();await h.boot();
+ const years=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:7},[],2);
+ // the module runs in its own vm realm, so arrays are not reference-equal
+ assert.deepEqual(JSON.parse(JSON.stringify(years.map(y=>[y.label,y.start_date,y.end_date]))),[
+  ['2026–27','2026-07-01','2026-08-31'],
+  ['2025–26','2025-07-01','2026-06-30'],
+ ]);
+});
+
+test('a year button reports what is already saved and what it collides with',async()=>{
+ const h=harness();await h.boot();
+ const settings={accounting_start_date:'2026-09-01',fiscal_year_start_month:1};
+ const saved=h.fiscalYears(settings,[
+  {period_start:'2025-01-01',period_end:'2025-12-31',exception_count:0,created_at:'2026-09-01'},
+  {period_start:'2025-01-01',period_end:'2025-12-31',exception_count:4,created_at:'2026-09-02'},
+  {period_start:'2024-06-01',period_end:'2024-09-30',exception_count:0,created_at:'2026-09-01'},
+ ]);
+ const y2025=saved.find(y=>y.label==='2025'),y2024=saved.find(y=>y.label==='2024');
+ assert.equal(y2025.saved,true);
+ assert.equal(y2025.exceptions,4,'the newest snapshot of that window wins, never the sum');
+ assert.equal(y2024.saved,false);
+ assert.equal(y2024.covered,false,'four months inside the year is not coverage of the year');
+ assert.equal(y2024.partlyCovered,true);
+});
+
+// "Covered" is a claim about the whole year. Inferring it from any
+// intersection let a single overlapping day read as coverage while eleven
+// months were missing, which would talk a reader out of the archive this
+// control exists to offer.
+test('a partial overlap is reported as partly saved, with the missing dates named',async()=>{
+ const h=harness();await h.boot();
+ const settings={accounting_start_date:'2026-09-01',fiscal_year_start_month:1};
+ const y=h.fiscalYears(settings,[{period_start:'2025-07-01',period_end:'2025-12-31',exception_count:0,created_at:'2026-09-01'}])
+   .find(x=>x.label==='2025');
+ assert.equal(y.covered,false,'half a year is not a covered year');
+ assert.equal(y.partlyCovered,true);
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[['2025-01-01','2025-06-30']],'the missing months are named');
+});
+
+test('one overlapping day is not coverage', async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},
+   [{period_start:'2024-12-31',period_end:'2025-01-01',exception_count:0,created_at:'2026-09-01'}])
+   .find(x=>x.label==='2025');
+ assert.equal(y.covered,false);
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[['2025-01-02','2025-12-31']]);
+});
+
+test('adjacent saved windows together do cover the year', async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},[
+   {period_start:'2025-01-01',period_end:'2025-06-30',exception_count:0,created_at:'2026-09-01'},
+   {period_start:'2025-07-01',period_end:'2025-12-31',exception_count:0,created_at:'2026-09-01'},
+ ]).find(x=>x.label==='2025');
+ assert.equal(y.covered,true,'day-adjacent windows are one stretch, so the year really is covered');
+ assert.equal(y.partlyCovered,false);
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[]);
+});
+
+// refresh() loads archives ordered by created_at DESC, never by period, so the
+// coverage walk has to order them itself. Saved out of order, these two halves
+// still cover the year.
+test('coverage does not depend on the order archives arrive in',async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},[
+   {period_start:'2025-07-01',period_end:'2025-12-31',exception_count:0,created_at:'2026-09-02'},
+   {period_start:'2025-01-01',period_end:'2025-06-30',exception_count:0,created_at:'2026-09-01'},
+ ]).find(x=>x.label==='2025');
+ assert.equal(y.covered,true,'newest-first input must not read as a gap at the start of the year');
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[]);
+});
+
+// The list holds every saved window, not just this year's. One from another
+// year must not make the year look partly saved.
+test('an archive from another year leaves the year reading not saved',async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},
+   [{period_start:'2023-01-01',period_end:'2023-12-31',exception_count:0,created_at:'2026-09-01'}])
+   .find(x=>x.label==='2025');
+ assert.equal(y.covered,false);
+ assert.equal(y.partlyCovered,false,'an unrelated window is not partial coverage of this one');
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[['2025-01-01','2025-12-31']]);
+});
+
+test('the rendered state says partly saved rather than covered', async()=>{
+ const h=harness({preloaded:false});await h.boot();
+ const html=h.el('historyYears').innerHTML;
+ assert.ok(!/Covered by another window/.test(html),'the old wording that overstated coverage is gone');
+});
+
+test('clicking a year archives that window through the same path as the form',async()=>{
+ const h=harness();await h.boot();
+ h.el('historyYears').events.click({target:{dataset:{start:'2025-01-01',end:'2025-12-31'}}});
+ await settle();
+ assert.equal(h.el('historyFrom').value,'2025-01-01');
+ assert.equal(h.el('historyTo').value,'2025-12-31');
+ const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
+ assert.equal(fetch.length,2);
+ for(const f of fetch){
+  assert.equal(f.body.params.start_date,'2025-01-01');
+  assert.equal(f.body.params.end_date,'2025-12-31');
+ }
+ assert.ok(h.calls.some(x=>x.name==='archive_qbo_ledger'),'and it archives, rather than only filling the fields');
+});
+
+// A company that has closed June but not July archives through June. Only the
+// START must be the fiscal year start -- the trial balance is as-at its end
+// date, so any end inside the year reconciles.
+test('the open fiscal year is archived through a date the reader chooses',async()=>{
+ const h=harness();await h.boot();
+ assert.match(h.el('historyYears').innerHTML,/id="historyYearEnd"/,'the open year offers an end date');
+ assert.match(h.el('historyYears').innerHTML,/min="2026-01-01" max="2026-08-31"/,'bounded by the year itself');
+ assert.equal(h.el('historyYearEnd').value,'2026-08-31','defaulting to the latest archivable day');
+ h.el('historyYearEnd').value='2026-06-30';
+ h.el('historyYears').events.click({target:{dataset:{start:'2026-01-01',end:'2026-08-31',editable:'1'}}});
+ await settle();
+ assert.equal(h.el('historyFrom').value,'2026-01-01','the start stays the fiscal year start');
+ assert.equal(h.el('historyTo').value,'2026-06-30');
+ const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
+ assert.equal(fetch.length,2);
+ for(const f of fetch){assert.equal(f.body.params.start_date,'2026-01-01');assert.equal(f.body.params.end_date,'2026-06-30');}
+});
+
+test('an end date outside the open year is refused by name and archives nothing',async()=>{
+ const h=harness();await h.boot();
+ h.el('historyYearEnd').value='2025-06-30';
+ const before=h.calls.length;
+ h.el('historyYears').events.click({target:{dataset:{start:'2026-01-01',end:'2026-08-31',editable:'1'}}});
+ await settle();
+ assert.match(h.el('historyStatus').textContent,/end date between 2026-01-01 and 2026-08-31/);
+ assert.equal(h.calls.length,before,'no report is fetched');
+});
+
+test('a completed fiscal year ignores the open year end and archives the whole year',async()=>{
+ const h=harness();await h.boot();
+ h.el('historyYearEnd').value='2026-06-30';
+ h.el('historyYears').events.click({target:{dataset:{start:'2025-01-01',end:'2025-12-31'}}});
+ await settle();
+ assert.equal(h.el('historyTo').value,'2025-12-31','a closed year is not shortened by the open year control');
+});
+
+test('a click that carries no window archives nothing',async()=>{
+ const h=harness();await h.boot();
+ const before=h.calls.length;
+ h.el('historyYears').events.click({target:{dataset:{}}});
+ await settle();
+ assert.equal(h.calls.length,before,'no report is fetched and no archive is driven');
 });
 
 test('invalid or overlapping cutover window makes no QBO calls',async()=>{

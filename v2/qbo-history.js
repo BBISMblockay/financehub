@@ -140,6 +140,81 @@
 
   const result=async query=>{const r=await query;if(r.error)throw new Error(r.error.message);return r.data;};
   const table=(heads,rows)=>'<div class="books-table-scroll"><table><thead><tr>'+heads.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
+  /* QBO's trial balance is FISCAL-YEAR-TO-DATE for income and expense accounts
+     whatever range is asked for. It ignores start_date entirely and echoes the
+     requested value back in Header.StartPeriod, so the header cannot be used to
+     tell the difference -- measured 2026-09-15, two runs asking for 2025-08-01
+     and 2026-01-01 returned BYTE-IDENTICAL rows.
+
+     So the only windows QuickBooks can check in full are those beginning on the
+     fiscal year start. A window that crosses the boundary archives every line
+     correctly and then reports a mismatch on every P&L account: the
+     2025-08-01..2026-07-31 run put 64 accounts out by $33.3m, which was exactly
+     its own August-December activity, while every balance-sheet account tied to
+     the cent.
+
+     These buttons exist so that window is not reachable rather than merely
+     refused. Manual dates stay available for anyone who needs a different one
+     and can read the result knowing this. */
+  /* What of a window is actually archived. Intersection is NOT coverage: the
+     saved windows are walked in date order and whatever they leave behind is
+     reported as the gaps it is. Walking in order handles overlapping, adjacent
+     and fully-contained windows without a separate merge step -- January-June
+     plus July-December leaves no gap and so really does cover the year, while
+     one overlapping day leaves the rest of the year as a gap. */
+  function coverage(start_date,end_date,archives){
+    const day=86400000;
+    const ms=d=>Date.parse(d+'T00:00:00Z');
+    const at=n=>new Date(n).toISOString().slice(0,10);
+    const saved=(archives||[])
+      .filter(a=>a&&a.period_start&&a.period_end&&a.period_start<=end_date&&start_date<=a.period_end)
+      .sort((x,y)=>x.period_start<y.period_start?-1:x.period_start>y.period_start?1:0);
+    const gaps=[];let cur=start_date;
+    for(const a of saved){
+      if(a.period_start>cur)gaps.push([cur,at(ms(a.period_start)-day)]);
+      if(a.period_end>=cur)cur=at(ms(a.period_end)+day);
+    }
+    if(cur<=end_date)gaps.push([cur,end_date]);
+    return {covered:saved.length>0&&gaps.length===0,partial:saved.length>0&&gaps.length>0,gaps};
+  }
+  function fiscalYears(settings,archives,count=4){
+    if(!settings||!settings.accounting_start_date)return [];
+    const month=Number(settings.fiscal_year_start_month)||1;
+    if(!(month>=1&&month<=12))return [];
+    const cut=new Date(settings.accounting_start_date+'T00:00:00Z');
+    if(!Number.isFinite(cut.getTime()))return [];
+    const iso=d=>d.toISOString().slice(0,10);
+    const utc=(y,m)=>new Date(Date.UTC(y,m-1,1));
+    const back=d=>{const c=new Date(d.getTime());c.setUTCDate(c.getUTCDate()-1);return c;};
+    const last=back(cut);
+    let y=last.getUTCFullYear();if((last.getUTCMonth()+1)<month)y-=1;
+    const rows=[];
+    for(let i=0;i<count;i++,y--){
+      const start=utc(y,month);const full=back(utc(y+1,month));
+      const end=full>last?last:full;
+      // A fiscal year is at most 366 days, so every window offered here is one
+      // the archive accepts; the suite asserts that rather than a dead guard.
+      if(start>end)continue;
+      const start_date=iso(start),end_date=iso(end);
+      const exact=(archives||[]).filter(a=>a.period_start===start_date&&a.period_end===end_date)
+        .sort((a,b)=>String(a.created_at)<String(b.created_at)?1:-1);
+      const newest=exact[0]||null;
+      const cov=coverage(start_date,end_date,archives);
+      rows.push({label:month===1?String(y):`${y}–${String((y+1)%100).padStart(2,'0')}`,
+        start_date,end_date,
+        partial:end_date!==iso(full),
+        saved:!!newest,
+        exceptions:newest?Number(newest.exception_count)||0:null,
+        // "Covered" is a claim about the WHOLE year, so it is computed rather
+        // than inferred from any intersection: a single overlapping day used to
+        // make a year read as covered while eleven months were missing, which
+        // would talk a reader out of the archive this control exists to offer.
+        covered:!newest&&cov.covered,
+        partlyCovered:!newest&&cov.partial,
+        gaps:newest?[]:cov.gaps});
+    }
+    return rows;
+  }
   function windowDates(start,end,cutover){
     const date=s=>/^\d{4}-\d{2}-\d{2}$/.test(s||'')&&Number.isFinite(Date.parse(s+'T00:00:00Z'))&&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
     if(!date(start)||!date(end)||!date(cutover)||start>end||end>=cutover||((Date.parse(end)-Date.parse(start))/86400000)>365)throw new Error('Choose a window of at most 366 days ending before your Silo start date');
@@ -209,7 +284,7 @@
           +' They are listed first below.');
     }
     async function refresh(prefer){
-      settings=await result(db.from('accounting_settings').select('qbo_connection_id,accounting_start_date,accounting_basis,base_currency').eq('company_entity_id',companyId).maybeSingle());
+      settings=await result(db.from('accounting_settings').select('qbo_connection_id,accounting_start_date,accounting_basis,base_currency,fiscal_year_start_month').eq('company_entity_id',companyId).maybeSingle());
       // Paginate archives without downloading their raw report copies.
       archives=[];for(let page=0;;page+=100){const rows=await result(db.from('qbo_history_imports').select('id,period_start,period_end,currency,accounting_basis,created_at,exception_count,transaction_count,reconciliation').eq('company_entity_id',companyId).order('created_at',{ascending:false}).order('id').range(page,page+99));archives.push(...rows);if(rows.length<100)break;}
       // An unfinished job (the tab was closed, the network dropped) can be
@@ -222,41 +297,85 @@
       el('historyArchive').innerHTML=archives.length?archives.map(a=>`<option value="${esc(a.id)}">${esc(a.period_start)} – ${esc(a.period_end)} · ${a.exception_count?'Exceptions':'Matched'} · ${esc(a.created_at)}</option>`).join(''):'<option value="">No saved history</option>';
       if(prefer&&archives.some(a=>a.id===prefer))el('historyArchive').value=prefer;
       el('historyConnection').textContent=settings?`Uses your QBO company selected in Setup · ${settings.base_currency} · ${settings.accounting_basis}. Silo starts ${settings.accounting_start_date}.`:'Prepare your opening balances in Setup before importing history.';
+      renderYears();
       if(settings&&!el('historyTo').value){const end=new Date(settings.accounting_start_date+'T00:00:00Z');end.setUTCDate(end.getUTCDate()-1);el('historyTo').value=end.toISOString().slice(0,10);el('historyFrom').value=el('historyTo').value.slice(0,7)+'-01';}
       await show();
+    }
+    function renderYears(){
+      const years=fiscalYears(settings,archives);
+      const open=years.find(y=>y.partial)||null;
+      el('historyYears').innerHTML=years.length?years.map(y=>{
+        const gap=y.gaps&&y.gaps[0];
+        const state=y.saved?(y.exceptions?`Saved · ${y.exceptions} to review`:'Saved · matched')
+          :y.covered?'Covered by other windows'
+          :y.partlyCovered?`Partly saved · ${gap[0]} → ${gap[1]} missing${y.gaps.length>1?` (+${y.gaps.length-1} more)`:''}`
+          :'Not saved';
+        return `<button type="button" class="bcn-btn books-year${y.saved?' is-saved':''}" data-start="${esc(y.start_date)}" data-end="${esc(y.end_date)}"${y.partial?' data-editable="1"':''}>`
+          +`<span class="books-year-label">${esc(y.label)}</span>`
+          +`<span class="books-year-range">${esc(y.start_date)} → ${esc(y.end_date)}${y.partial?' · editable':''}</span>`
+          +`<span class="books-year-state">${esc(state)}</span></button>`;}).join(''):'';
+      // The year still running is archived THROUGH a date the reader picks. A
+      // company that has closed June but not July should archive through June
+      // rather than being forced to the day before the cutover. Only the START
+      // has to be the fiscal year start: the trial balance is as-at its end
+      // date, so any end inside the year reconciles just as well.
+      if(open){
+        el('historyYears').insertAdjacentHTML('beforeend',
+          `<label class="books-year-end">Through<input id="historyYearEnd" class="bcn-field" type="date" min="${esc(open.start_date)}" max="${esc(open.end_date)}"></label>`);
+        const v=el('historyYearEnd').value;
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(v||'')||v<open.start_date||v>open.end_date)el('historyYearEnd').value=open.end_date;
+      }
+    }
+    // One archive path. The year buttons fill the same two fields and run this,
+    // so a fiscal year and a hand-typed window cannot drift apart.
+    async function archiveWindow(){
+      // Re-read settings: another reviewer may have changed a draft cutover.
+      settings=await result(db.from('accounting_settings').select('*').eq('company_entity_id',companyId).maybeSingle());
+      if(!settings)throw new Error('Prepare opening balances in Setup first');
+      const dates=windowDates(el('historyFrom').value,el('historyTo').value,settings.accounting_start_date);
+      const params={...dates,accounting_method:settings.accounting_basis};
+      status('Reading your general ledger from QuickBooks…');
+      const gl=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'GeneralLedger',params}}));
+      if(!gl?.run_id)throw new Error(gl?.error||'QBO did not save the general ledger report');
+      status('Reading the same-period trial balance for reconciliation…');
+      // The trial balance must cover THE SAME PERIOD as the ledger. QBO reports
+      // it fiscal-year-to-date regardless (see fiscalYears above), so asking for
+      // the ledger's own window is the honest request even though the provider
+      // narrows it; the year buttons are what make the two actually agree.
+      const tb=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'TrialBalance',params}}));
+      if(!tb?.run_id)throw new Error(tb?.error||'QBO did not save the trial balance report');
+      const saved=await drive(gl.run_id,tb.run_id);
+      await refresh(saved.id);
     }
     // Wire before first load so a missing migration can be retried in place.
     if(!wired){wired=true;
       el('historyRefresh').addEventListener('click',()=>work(()=>refresh(selected?.id)));
       el('historyArchive').addEventListener('change',()=>work(show));el('historyAccount').addEventListener('change',()=>work(()=>lines(true)));el('historyMore').addEventListener('click',()=>work(()=>lines()));
-      el('historyForm').addEventListener('submit',e=>{e.preventDefault();work(async()=>{
-        // Re-read settings: another reviewer may have changed a draft cutover.
-        settings=await result(db.from('accounting_settings').select('*').eq('company_entity_id',companyId).maybeSingle());
-        if(!settings)throw new Error('Prepare opening balances in Setup first');
-        const dates=windowDates(el('historyFrom').value,el('historyTo').value,settings.accounting_start_date);
-        const params={...dates,accounting_method:settings.accounting_basis};
-        status('Reading your general ledger from QuickBooks…');
-        const gl=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'GeneralLedger',params}}));
-        if(!gl?.run_id)throw new Error(gl?.error||'QBO did not save the general ledger report');
-        status('Reading the same-period trial balance for reconciliation…');
-        // The trial balance must cover THE SAME PERIOD as the ledger, not the
-        // fiscal year to date. QBO's trial balance is period-scoped: a
-        // balance-sheet account reports its as-at balance, so the start date
-        // does not move it, but an income or expense account reports ACTIVITY
-        // for the range. Requesting the fiscal year start happened to be right
-        // for every window tried until 2026-09-15, because all of them began on
-        // January 1 and so already were the fiscal year to date. The first
-        // window that crossed a fiscal-year boundary (2025-08-01 → 2026-07-31)
-        // compared twelve months of ledger against seven months of trial
-        // balance and reported a mismatch on 63 P&L accounts worth $33.3m,
-        // while every balance-sheet account tied -- the signature of a period
-        // mismatch rather than lost data. archive_qbo_ledger now refuses the
-        // pair outright, so this cannot silently produce exceptions again.
-        const tb=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'TrialBalance',params}}));
-        if(!tb?.run_id)throw new Error(tb?.error||'QBO did not save the trial balance report');
-        const saved=await drive(gl.run_id,tb.run_id);
-        await refresh(saved.id);
-      });});
+      el('historyForm').addEventListener('submit',e=>{e.preventDefault();work(archiveWindow);});
+      // Delegated so the buttons can be re-rendered on every refresh. Reads the
+      // window off the button rather than re-deriving it, so what was clicked is
+      // what is archived.
+      el('historyYears').addEventListener('click',e=>{
+        const t=e&&e.target;const b=t&&typeof t.closest==='function'?t.closest('button[data-start]'):t;
+        const at=k=>b&&(b.dataset?b.dataset[k]:b.getAttribute&&b.getAttribute('data-'+k));
+        const start=at('start');let end=at('end');
+        if(!start||!end)return;
+        // The open year's end is the reader's to choose, bounded by the year
+        // itself; anything outside it is refused by name rather than silently
+        // clamped, because a window that is not the one they asked for would
+        // reconcile fine and answer the wrong question.
+        if(at('editable')){
+          const chosen=el('historyYearEnd').value;
+          if(chosen&&chosen!==end){
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(chosen)||chosen<start||chosen>end){
+              work(async()=>{throw new Error(`Choose an end date between ${start} and ${end}`);});return;
+            }
+            end=chosen;
+          }
+        }
+        el('historyFrom').value=start;el('historyTo').value=end;
+        work(archiveWindow);
+      });
       el('historyResume').addEventListener('click',()=>work(async()=>{
         if(!unfinished)throw new Error('There is no unfinished archive to resume');
         const saved=await drive(unfinished.gl_run_id,unfinished.tb_run_id);
@@ -265,5 +384,5 @@
     }
     await work(()=>refresh());
   }
-  window.SiloQboHistory={mount,summarise,classify,issueLabel,ISSUES};
+  window.SiloQboHistory={mount,summarise,classify,issueLabel,fiscalYears,ISSUES};
 })();

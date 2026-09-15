@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=b060f1f5fe0c"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
+<link rel="stylesheet" href="accounting-books.css?v=0549ef800832"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=60d294724238"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=aa72cbc11506"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -44,7 +44,7 @@
 <section id="history" class="books-surface" hidden>
 <div class="books-columns"><article class="books-card"><h2>Save QBO history</h2>
 <p>Save a copy of your QuickBooks general ledger, with transaction references, memos, counterparties and running balances. Silo checks each account against a trial balance at the same end date.</p>
-<form id="historyForm"><fieldset id="historyInputs"><label>From<input id="historyFrom" class="bcn-field" type="date" required></label><label>Through<input id="historyTo" class="bcn-field" type="date" required></label><p id="historyConnection" class="books-caption"></p><button class="bcn-btn bcn-btn--primary" type="submit">Save QBO history</button> <button id="historyResume" class="bcn-btn" type="button" hidden>Resume unfinished archive</button></fieldset></form>
+<form id="historyForm"><fieldset id="historyInputs"><p class="books-caption">QuickBooks reports a trial balance for the fiscal year to date, so a window starting on the fiscal year start is the only one it can check in full. Pick a year:</p><div id="historyYears" class="books-years" role="group" aria-label="Archive a fiscal year"></div><label>From<input id="historyFrom" class="bcn-field" type="date" required></label><label>Through<input id="historyTo" class="bcn-field" type="date" required></label><p id="historyConnection" class="books-caption"></p><button class="bcn-btn bcn-btn--primary" type="submit">Save QBO history</button> <button id="historyResume" class="bcn-btn" type="button" hidden>Resume unfinished archive</button></fieldset></form>
 <p class="books-caption">One window of up to 366 days at a time, before your Silo start date. Reads reports from QBO and saves them in Silo. It creates no journal entry.</p></article>
 <article class="books-card"><h2>Saved snapshots</h2><label>History window<select id="historyArchive" class="bcn-field"></select></label><button id="historyRefresh" class="bcn-btn">Refresh saved history</button><div id="historySummary"></div>
 <p class="books-caption">Each snapshot stands alone. Overlapping windows are never added together. A balance match checks report consistency; it does not prove that every source document was retained.</p>
