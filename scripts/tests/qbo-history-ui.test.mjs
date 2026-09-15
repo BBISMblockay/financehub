@@ -21,17 +21,20 @@ function harness({disconnected=false,failTb=false,failArchive=false,preloaded=fa
  rpc:async(name,args)=>{calls.push({name,args});assert.equal(name,'archive_qbo_ledger');if(failArchive)return {error:{message:'Archive unavailable'}};const n=calls.filter(c=>c.name==='archive_qbo_ledger').length;if(failedJob&&n===2)return {data:{status:'failed',job_id:'job-1',error:'Blank ledger amount with a changed running balance at row 3 of account bank is ambiguous; no archive was written'}};if(n<steps)return {data:{status:'in_progress',job_id:'job-1',rows_done:n*1000,rows_total:steps*1000,sections_done:n,sections_total:steps}};archives=[snapshot];return {data:{id:'archive-1',status:'complete'}};}};
  const window={};vm.runInNewContext(code,{window,document:{getElementById:el},console});
  const statuses=[];const st=el('historyStatus');Object.defineProperty(st,'textContent',{set(v){statuses.push(v);this._t=v;},get(){return this._t||'';}});
- return {el,calls,statuses,fiscalYears:(...a)=>window.SiloQboHistory.fiscalYears(...a),boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async()=>{el('historyForm').events.submit({preventDefault(){}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
+ return {el,calls,statuses,fiscalYears:(...a)=>window.SiloQboHistory.fiscalYears(...a),boot:()=>window.SiloQboHistory.mount({db,companyId:'test-company'}),submit:async(start='2026-01-01',end='2026-08-31',extra={})=>{el('historyYears').events.click({target:{dataset:{start,end,...extra}}});await settle();},resume:async()=>{el('historyResume').events.click();await settle();}};
 }
 test('actual history handler reads scoped GL then TB, archives stored IDs and displays escaped retained details',async()=>{
- const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Choose dates before/);assert.equal(h.el('historyFrom').value,'2026-08-01');assert.equal(h.el('historyTo').value,'2026-08-31');await h.submit();
+ const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Choose dates before/);
+ // There are no date fields to fill any more: a year IS the request.
+ assert.ok(!/id="historyFrom"|id="historyTo"/.test(h.el('historyYears').innerHTML));
+ await h.submit();
  const fetch=h.calls.filter(x=>x.name==='quickbooks-report');assert.equal(fetch.length,2);assert.equal(fetch[0].body.report_name,'GeneralLedger');assert.equal(fetch[1].body.report_name,'TrialBalance');
  // Both reports must describe the SAME PERIOD. This assertion previously
  // pinned the trial balance to '2026-01-01', the fiscal year start -- which is
  // the defect, written down as an expectation: a trial balance is period-scoped
  // for income and expense accounts, so one over a different range disagrees
  // with the ledger on every P&L account.
- for(const f of fetch){assert.equal(f.body.connection_id,'connection-test');assert.equal(f.body.params.start_date,'2026-08-01');assert.equal(f.body.params.end_date,'2026-08-31');assert.equal(f.body.params.accounting_method,'Accrual');}
+ for(const f of fetch){assert.equal(f.body.connection_id,'connection-test');assert.equal(f.body.params.start_date,'2026-01-01');assert.equal(f.body.params.end_date,'2026-08-31');assert.equal(f.body.params.accounting_method,'Accrual');}
  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(x=>x.name==='archive_qbo_ledger').args)),{p_gl_run_id:'GeneralLedger-run',p_tb_run_id:'TrialBalance-run'});
  assert.match(h.el('historyRows').innerHTML,/&lt;script&gt;bad/);assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.equal(h.el('historyDetail').hidden,false);
  assert.ok(!h.calls.some(x=>x.name==='quickbooks-post-journal'));assert.ok(!h.calls.some(x=>x.cols?.includes('source_snapshot')));
@@ -44,16 +47,14 @@ test('actual history handler reads scoped GL then TB, archives stored IDs and di
 // account tying exactly.
 test('a window crossing the fiscal year boundary still reads the trial balance over the ledger period',async()=>{
  const h=harness();await h.boot();
- h.el('historyFrom').value='2025-08-01';h.el('historyTo').value='2026-07-31';
- await h.submit();
+ await h.submit('2025-01-01','2025-12-31');
  const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
  assert.equal(fetch.length,2);
  assert.equal(fetch[0].body.report_name,'GeneralLedger');assert.equal(fetch[1].body.report_name,'TrialBalance');
  for(const f of fetch){
-  assert.equal(f.body.params.start_date,'2025-08-01','both reports cover the ledger window, not the fiscal year to date');
-  assert.equal(f.body.params.end_date,'2026-07-31');
+  assert.equal(f.body.params.start_date,'2025-01-01','both reports cover the ledger window');
+  assert.equal(f.body.params.end_date,'2025-12-31');
  }
- assert.notEqual(fetch[1].body.params.start_date,'2026-01-01','the fiscal year start is not what the trial balance is asked for');
 });
 
 // QBO's trial balance is fiscal-year-to-date whatever range is requested, so a
@@ -170,8 +171,6 @@ test('clicking a year archives that window through the same path as the form',as
  const h=harness();await h.boot();
  h.el('historyYears').events.click({target:{dataset:{start:'2025-01-01',end:'2025-12-31'}}});
  await settle();
- assert.equal(h.el('historyFrom').value,'2025-01-01');
- assert.equal(h.el('historyTo').value,'2025-12-31');
  const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
  assert.equal(fetch.length,2);
  for(const f of fetch){
@@ -192,11 +191,12 @@ test('the open fiscal year is archived through a date the reader chooses',async(
  h.el('historyYearEnd').value='2026-06-30';
  h.el('historyYears').events.click({target:{dataset:{start:'2026-01-01',end:'2026-08-31',editable:'1'}}});
  await settle();
- assert.equal(h.el('historyFrom').value,'2026-01-01','the start stays the fiscal year start');
- assert.equal(h.el('historyTo').value,'2026-06-30');
  const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
  assert.equal(fetch.length,2);
- for(const f of fetch){assert.equal(f.body.params.start_date,'2026-01-01');assert.equal(f.body.params.end_date,'2026-06-30');}
+ for(const f of fetch){
+  assert.equal(f.body.params.start_date,'2026-01-01','the start stays the fiscal year start');
+  assert.equal(f.body.params.end_date,'2026-06-30','and the chosen end is what is asked for');
+ }
 });
 
 test('an end date outside the open year is refused by name and archives nothing',async()=>{
@@ -214,7 +214,25 @@ test('a completed fiscal year ignores the open year end and archives the whole y
  h.el('historyYearEnd').value='2026-06-30';
  h.el('historyYears').events.click({target:{dataset:{start:'2025-01-01',end:'2025-12-31'}}});
  await settle();
- assert.equal(h.el('historyTo').value,'2025-12-31','a closed year is not shortened by the open year control');
+ const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
+ assert.equal(fetch.length,2);
+ for(const f of fetch)assert.equal(f.body.params.end_date,'2025-12-31','a closed year is not shortened by the open year control');
+});
+
+// Removing the date fields removed the only way to reach a year further back
+// than the list shows, so the list has to be extendable.
+test('earlier years can be asked for, and the control retires at the cap',async()=>{
+ const h=harness();await h.boot();
+ const first=h.el('historyYears').innerHTML;
+ assert.equal((first.match(/data-start=/g)||[]).length,4,'four years to begin with');
+ assert.equal(h.el('historyMoreYears').hidden,false);
+ h.el('historyMoreYears').events.click();await settle();
+ assert.equal((h.el('historyYears').innerHTML.match(/data-start=/g)||[]).length,8);
+ h.el('historyMoreYears').events.click();await settle();
+ const all=h.el('historyYears').innerHTML;
+ assert.equal((all.match(/data-start=/g)||[]).length,12,'capped at twelve');
+ assert.match(all,/2015-01-01/,'reaching back far enough to be worth having');
+ assert.equal(h.el('historyMoreYears').hidden,true,'the control retires once there is no more to show');
 });
 
 test('a click that carries no window archives nothing',async()=>{
@@ -225,8 +243,15 @@ test('a click that carries no window archives nothing',async()=>{
  assert.equal(h.calls.length,before,'no report is fetched and no archive is driven');
 });
 
-test('invalid or overlapping cutover window makes no QBO calls',async()=>{
- const h=harness();await h.boot();for(const [start,end] of [['2026-08-01','2026-09-01'],['2025-01-01','2026-08-31'],['2026-02-30','2026-08-31'],['2026-08-31','2026-08-01']]){h.el('historyFrom').value=start;h.el('historyTo').value=end;await h.submit();assert.match(h.el('historyStatus').textContent,/366 days/);}assert.ok(!h.calls.some(x=>x.name));
+// The year buttons cannot produce any of these, which is the point of removing
+// the date fields. windowDates stays as the backstop, so it is driven directly.
+test('a window the archive would refuse makes no QBO calls',async()=>{
+ const h=harness();await h.boot();
+ for(const [start,end] of [['2026-08-01','2026-09-01'],['2025-01-01','2026-08-31'],['2026-02-30','2026-08-31'],['2026-08-31','2026-08-01']]){
+  await h.submit(start,end);
+  assert.match(h.el('historyStatus').textContent,/366 days/);
+ }
+ assert.ok(!h.calls.some(x=>x.name));
 });
 test('saved history loads without any QBO connection request; disconnected fetch leaves it usable',async()=>{
  const h=harness({disconnected:true,preloaded:true});await h.boot();assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.ok(!h.calls.some(x=>x.name));await h.submit();assert.match(h.el('historyStatus').textContent,/inactive/);assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.ok(!h.calls.some(x=>x.name==='archive_qbo_ledger'));

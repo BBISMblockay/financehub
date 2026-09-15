@@ -222,6 +222,7 @@
   }
   async function mount({db,companyId}){
     let settings,archives=[],selected=null,offset=0,busy=false,wired=false,ready=false,unfinished=null;
+    let shown=4; // fiscal years offered at a time; "Earlier years" asks for more
     const status=(message,error=false)=>{el('historyStatus').textContent=message;el('historyStatus').className='bcn-status'+(error?' bcn-status--neg':'');};
     async function work(fn){if(busy)return;busy=true;el('historyInputs').disabled=true;for(const id of ['historyArchive','historyAccount','historyMore','historyRefresh','historyResume'])el(id).disabled=true;
       try{await fn();}catch(e){status(`${e.message}. Your saved history is unchanged. Check the period and QBO connection, then retry or ask your administrator for help.`,true);}
@@ -298,11 +299,11 @@
       if(prefer&&archives.some(a=>a.id===prefer))el('historyArchive').value=prefer;
       el('historyConnection').textContent=settings?`Uses your QBO company selected in Setup · ${settings.base_currency} · ${settings.accounting_basis}. Silo starts ${settings.accounting_start_date}.`:'Prepare your opening balances in Setup before importing history.';
       renderYears();
-      if(settings&&!el('historyTo').value){const end=new Date(settings.accounting_start_date+'T00:00:00Z');end.setUTCDate(end.getUTCDate()-1);el('historyTo').value=end.toISOString().slice(0,10);el('historyFrom').value=el('historyTo').value.slice(0,7)+'-01';}
       await show();
     }
     function renderYears(){
-      const years=fiscalYears(settings,archives);
+      const years=fiscalYears(settings,archives,shown);
+      el('historyMoreYears').hidden=!years.length||shown>=12;
       const open=years.find(y=>y.partial)||null;
       el('historyYears').innerHTML=years.length?years.map(y=>{
         const gap=y.gaps&&y.gaps[0];
@@ -328,11 +329,14 @@
     }
     // One archive path. The year buttons fill the same two fields and run this,
     // so a fiscal year and a hand-typed window cannot drift apart.
-    async function archiveWindow(){
+    async function archiveWindow(from,through){
       // Re-read settings: another reviewer may have changed a draft cutover.
       settings=await result(db.from('accounting_settings').select('*').eq('company_entity_id',companyId).maybeSingle());
       if(!settings)throw new Error('Prepare opening balances in Setup first');
-      const dates=windowDates(el('historyFrom').value,el('historyTo').value,settings.accounting_start_date);
+      // windowDates stays as the backstop even though the years cannot produce
+      // a window it rejects: it is the one place that knows the archive's own
+      // limits, and a future caller should meet them here rather than at QBO.
+      const dates=windowDates(from,through,settings.accounting_start_date);
       const params={...dates,accounting_method:settings.accounting_basis};
       status('Reading your general ledger from QuickBooks…');
       const gl=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'GeneralLedger',params}}));
@@ -351,10 +355,6 @@
     if(!wired){wired=true;
       el('historyRefresh').addEventListener('click',()=>work(()=>refresh(selected?.id)));
       el('historyArchive').addEventListener('change',()=>work(show));el('historyAccount').addEventListener('change',()=>work(()=>lines(true)));el('historyMore').addEventListener('click',()=>work(()=>lines()));
-      el('historyForm').addEventListener('submit',e=>{e.preventDefault();work(archiveWindow);});
-      // Delegated so the buttons can be re-rendered on every refresh. Reads the
-      // window off the button rather than re-deriving it, so what was clicked is
-      // what is archived.
       el('historyYears').addEventListener('click',e=>{
         const t=e&&e.target;const b=t&&typeof t.closest==='function'?t.closest('button[data-start]'):t;
         const at=k=>b&&(b.dataset?b.dataset[k]:b.getAttribute&&b.getAttribute('data-'+k));
@@ -373,9 +373,11 @@
             end=chosen;
           }
         }
-        el('historyFrom').value=start;el('historyTo').value=end;
-        work(archiveWindow);
+        work(()=>archiveWindow(start,end));
       });
+      el('historyMoreYears').addEventListener('click',()=>{shown+=4;work(async()=>{renderYears();});});
+      // The cap lives in renderYears' hidden rule, which retires the control at
+      // twelve years, so `shown` cannot climb past it and needs no second clamp.
       el('historyResume').addEventListener('click',()=>work(async()=>{
         if(!unfinished)throw new Error('There is no unfinished archive to resume');
         const saved=await drive(unfinished.gl_run_id,unfinished.tb_run_id);

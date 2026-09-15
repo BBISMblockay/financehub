@@ -419,9 +419,13 @@ really does cover the year while a single overlapping day leaves the rest of it
 as a gap. An earlier version set the covered state from any intersection, which
 would have told a reader a year was covered when eleven months of it were
 missing — talking them out of the archive this control exists to offer. The window that cannot reconcile is therefore not
-reachable, rather than merely refused after the fact. Manual From/Through stays
-for anyone who needs a different window and can read the result knowing the
-above. Both paths run the same archive function, so they cannot drift.
+reachable, rather than merely refused after the fact. **The manual From/Through fields are gone.** They were the only way left to
+request a window that does not begin on the fiscal year start -- that is, the
+only way to reach the wall of false P&L exceptions described above. A year now
+IS the request. An **Earlier years** control extends the list four at a time to
+twelve, so nothing the fields could reach is lost except the windows that could
+never reconcile. `windowDates()` stays as the backstop inside `archiveWindow()`,
+since it is the one place that knows the archive's own limits.
 
 **A correction worth recording.** `20260915210000` was written believing the
 page's fiscal-year-start request was itself the cause, and added two checks:
