@@ -473,20 +473,27 @@ await test('a removed bank row leaves the default queue but stays inspectable; a
   h.page.state.txns=[
     {...h.page.state.txns[0],id:'txn-posted',external_transaction_id:'x1',provider_status:'posted',status:'uncoded'},
     {...h.page.state.txns[0],id:'txn-pending',external_transaction_id:'x2',provider_status:'pending',status:'excluded',exclude_reason:'Pending bank transaction'},
+    // Removed while POSTED: real, retracted, and a person's problem.
     {...h.page.state.txns[0],id:'txn-removed',external_transaction_id:'x3',provider_status:'removed',status:'excluded',
-      exclude_reason:'Removed by bank feed',description:'VANISHED ACH DEBIT',amount:4321.55},
+      exclude_reason:'Removed by bank feed',description:'VANISHED ACH DEBIT',amount:4321.55,removed_from_status:'posted'},
+    // Removed while PENDING: the feed retiring an id nobody could act on.
+    {...h.page.state.txns[0],id:'txn-cleared',external_transaction_id:'x4',provider_status:'removed',status:'excluded',
+      exclude_reason:'Removed by bank feed',description:'SETTLED ACH DEBIT',amount:999.99,removed_from_status:'pending'},
   ];
   h.page.renderCoding();
   let table=h.el('tblCoding').innerHTML;
   assert.match(table,/data-txn="txn-posted"/,'the posted row is codeable and shown');
   assert.match(table,/data-txn="txn-pending"/,'the pending row is real activity and stays on screen');
   assert.ok(!/data-txn="txn-removed"/.test(table),'the removed row is out of the default queue');
+  assert.ok(!/data-txn="txn-cleared"/.test(table),'and a pending row the feed retired is not there either');
   assert.match(table,/Pending at the bank — codeable once it settles/);
   assert.ok(!/>pending</.test(table),'the provider\'s own word is not what a reader gets');
 
   // The count is a control, and it never calls a removal a supersession: this
   // row has no replacement anywhere and the page cannot know one exists.
   assert.equal(h.el('codeShowRemoved').hidden,false);
+  // One, not two: the pending removal is the feed's bookkeeping and is not
+  // counted, because nobody should have to follow an id being retired.
   assert.equal(h.el('codeShowRemoved').textContent,'Show 1 removed by the bank');
   assert.ok(!/superseded/i.test(h.el('codeShowRemoved').textContent+h.el('codeSub').textContent+table));
 
@@ -500,6 +507,8 @@ await test('a removed bank row leaves the default queue but stays inspectable; a
   assert.ok(!/>removed</.test(table) && !/· removed ·/.test(table),'the raw word never reaches a reader');
   assert.match(table,/4,321\.55/,'and its amount');
   assert.equal(h.el('codeShowRemoved').textContent,'Hide 1 removed by the bank');
+  assert.ok(!/data-txn="txn-cleared"/.test(table),'revealing never surfaces the pending removal');
+  assert.ok(!/SETTLED ACH DEBIT/.test(table));
   await h.el('codeShowRemoved').fire('click');
   assert.ok(!/data-txn="txn-removed"/.test(h.el('tblCoding').innerHTML),'and it hides again');
 });

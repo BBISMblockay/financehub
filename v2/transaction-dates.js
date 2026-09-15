@@ -14,7 +14,7 @@
     return date(start) && date(end) && start<=end;
   }
   // Preserve every coding field when editing across imports; fetch the raw payload only on demand.
-  const LIST_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason,origin,provider_status,provider_updated_at,currency,qbo_account_id,accounting_treatment,qbo_location_id,entity_qbo_id,entity_type,rule_id,ai_reasoning,row_no,last4,external_transaction_id';
+  const LIST_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason,origin,provider_status,provider_updated_at,currency,qbo_account_id,accounting_treatment,qbo_location_id,entity_qbo_id,entity_type,rule_id,ai_reasoning,row_no,last4,external_transaction_id,removed_from_status';
   async function read(db, company, source, batches, range) {
     if(!company || !source || !valid(range)) throw new Error('Choose an account and valid dates.');
     // Batch membership, not a guessed source column on transactions, scopes CSV and bank rows alike.

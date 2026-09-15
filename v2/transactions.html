@@ -661,10 +661,10 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="je-composer.js"></script>
-<script src="plaid-bank-feed.js?v=6d298bc95758"></script>
+<script src="plaid-bank-feed.js?v=0d4ec5dd42fc"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transaction-dates.js?v=7eb0e80bc3fe"></script>
+<script src="transaction-dates.js?v=0bad96d29084"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
 <script src="transaction-filters.js?v=53b49e70ff5e"></script>
@@ -752,7 +752,7 @@
   const suggestions = new Map();
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find(source=>source.id===(dateBrowse?workspace?.selected():state.batch?.source_id));
-  const workingRows = () => dateBrowse ? dateRows.filter(t=>showRemoved || !bank.isRemovedByBank(t)) : state.txns;
+  const workingRows = () => dateBrowse ? dateRows.filter(t=>!bank.wasPendingWhenRemoved(t) && (showRemoved || !bank.isRemovedByBank(t))) : state.txns;
   /* A bank row that is not posted yet. It is real activity and stays on screen,
      but it cannot be coded: the id changes when it settles, so anything coded
      now would be coded against an id the bank is about to retire. Say that,
@@ -1653,14 +1653,19 @@
      filters rather than dropping from state.txns, because a save still has to
      patch the row it loaded. */
   function reviewDateRows() {
-    return dateScopedRows().filter(t=>showRemoved || !bank.isRemovedByBank(t));
+    // A removal of a row that was still pending is never shown, revealed or not:
+    // it was never codeable and never in the books, so there is nothing for a
+    // person to do about it and nothing to check.
+    return dateScopedRows().filter(t=>!bank.wasPendingWhenRemoved(t)
+      && (showRemoved || !bank.isRemovedByBank(t)));
   }
-  /* Removed rows are out of the default queue, not out of reach. A removal the
-     bank never replaces is the case that actually needs a person -- the money
-     may simply be gone -- and a count alone does not let anyone check the
-     amount, date or merchant. So the count is a control that shows them. */
+  /* The removals a person should see: rows that were POSTED when the bank
+     retracted them. Those were real, codeable, possibly already coded, and a
+     count alone would not let anyone check the amount, date or merchant -- so
+     the count is a control that shows them. Removals of pending rows are not
+     here and are not counted; they are the feed's own bookkeeping. */
   function removedRows() {
-    return dateScopedRows().filter(t=>bank.isRemovedByBank(t));
+    return dateScopedRows().filter(t=>bank.isRemovedByBank(t) && !bank.wasPendingWhenRemoved(t));
   }
   function dateScopedRows() {
     if(dateBrowse)return dateRows;

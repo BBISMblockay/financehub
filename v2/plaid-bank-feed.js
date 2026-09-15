@@ -22,6 +22,24 @@
      reachable, because "removed and not replaced" is exactly the case someone
      needs to look at. */
   const isRemovedByBank = (transaction) => transaction.origin === 'plaid' && transaction.provider_status === 'removed';
+  /* ...and whether it was still PENDING when that happened, which is the line
+     between bookkeeping and an event.
+
+     A pending row is excluded and fails isAvailable(), so it was never codeable
+     and never reached the books. Retiring its id costs a reader nothing: either
+     the transaction posted (and the posted row IS the transaction) or it never
+     happened. Neither is something a person should have to follow.
+
+     A row that was POSTED when the bank removed it is the opposite: it was real,
+     codeable, possibly already coded, and it is now retracted. That one is an
+     event and stays reachable.
+
+     plaid_project_transaction records this at removal time, so the page reads a
+     stated fact rather than inferring one from a payload. Anything other than a
+     recorded 'pending' answers false, which shows the row rather than hiding
+     it -- the safe direction, since hiding is what loses information. */
+  const wasPendingWhenRemoved = (transaction) => isRemovedByBank(transaction)
+    && transaction.removed_from_status === 'pending';
   const canEditBatch = (batch) => !!batch && ['draft', 'categorized'].includes(batch.status);
   function eligibleForAi(transaction, source) {
     if (transaction.status !== 'uncoded' || transaction.qbo_account_id || !isAvailable(transaction) || !Number(transaction.amount)) return false;
@@ -320,5 +338,5 @@
     return { load, resume, sync, repair: id => run(() => connect(id)),
       snapshot: () => ({ connections, accounts, exceptions, syncing }) };
   }
-  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
+  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, wasPendingWhenRemoved, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
 })();

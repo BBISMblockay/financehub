@@ -18752,3 +18752,7 @@ $c$select (select count(*) from v_po_header_summary
 -- import. A section with no account that carries money still refuses.
 \i migrations/20260915200000_qbo_history_unattributed_section.sql
 \i migrations/20260915210000_qbo_history_trial_balance_period.sql
+-- A bank removal records WHAT THE ROW WAS when the feed retired it, so the
+-- review surfaces can tell an id being retired (bookkeeping) from a posted
+-- transaction being retracted (an event a person must see).
+\i migrations/20260915220000_plaid_removed_from_status.sql
