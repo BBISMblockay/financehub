@@ -4,18 +4,23 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=902b3be2cce8"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
+<link rel="stylesheet" href="accounting-books.css?v=b060f1f5fe0c"><link rel="stylesheet" href="accounting-suite.css?v=6cfc72589630">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=54a41e259e01"></script><script src="accounting-books.js?v=f685978a8494" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=54a41e259e01"></script><script src="migration-status.js?v=b14050e1c32d"></script><script src="accounting-books.js?v=89c124fa4266" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
 <header class="books-hero"><div><h1 id="booksTitle">Books &amp; setup</h1>
 <p id="booksIntro">Your accounts, opening balances and journal history.</p></div><span id="booksBadge" class="books-badge">Loading setup…</span></header>
 <div id="status" class="bcn-status" role="status" aria-live="polite">Loading your company’s books…</div>
+<section class="migration-flow" id="migrationFlow" aria-labelledby="migrationFlowTitle" hidden>
+<div class="migration-flow-head"><div><p class="books-eyebrow">QuickBooks → Silo</p><h2 id="migrationFlowTitle" data-migration-headline>Reading where your migration stands…</h2></div><p class="migration-flow-caption">Every step is read from your books each time this page loads. Nothing here is a checkbox someone ticks, and a step Silo could not measure reads “Unknown”, never “Done”.</p></div>
+<ol class="migration-steps" data-migration-steps aria-label="Migration steps"></ol>
+<div id="migrationDetail" class="migration-detail" hidden></div>
+</section>
 <nav class="books-tabs" aria-label="Books"><button class="bcn-btn" data-surface="setup" aria-pressed="true">Setup & opening balances</button><button class="bcn-btn" data-surface="accounts" aria-pressed="false">Chart of accounts</button><button class="bcn-btn" data-surface="register" aria-pressed="false">Journal register</button><button class="bcn-btn" data-surface="history" aria-pressed="false">QBO history</button></nav>
 <section id="setup" class="books-surface">
 <div class="books-columns"><article class="books-card"><details id="setupInputs" open><summary id="setupInputsLabel">Prepare opening balances</summary>

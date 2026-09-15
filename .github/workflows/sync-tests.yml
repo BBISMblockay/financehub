@@ -46,6 +46,7 @@ on:
       - 'v2/fixed-assets.html'
       - 'v2/accounting-export.html'
       - 'v2/qbo-history.js'
+      - 'v2/migration-status.js'
       - 'supabase/migrations/*qbo_historical_ledger.sql'
       - 'supabase/migrations/*qbo_history_number_formats.sql'
       - 'supabase/migrations/*qbo_history_bounded_archive.sql'
