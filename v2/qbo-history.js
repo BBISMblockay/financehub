@@ -156,6 +156,27 @@
      These buttons exist so that window is not reachable rather than merely
      refused. Manual dates stay available for anyone who needs a different one
      and can read the result knowing this. */
+  /* What of a window is actually archived. Intersection is NOT coverage: the
+     saved windows are walked in date order and whatever they leave behind is
+     reported as the gaps it is. Walking in order handles overlapping, adjacent
+     and fully-contained windows without a separate merge step -- January-June
+     plus July-December leaves no gap and so really does cover the year, while
+     one overlapping day leaves the rest of the year as a gap. */
+  function coverage(start_date,end_date,archives){
+    const day=86400000;
+    const ms=d=>Date.parse(d+'T00:00:00Z');
+    const at=n=>new Date(n).toISOString().slice(0,10);
+    const saved=(archives||[])
+      .filter(a=>a&&a.period_start&&a.period_end&&a.period_start<=end_date&&start_date<=a.period_end)
+      .sort((x,y)=>x.period_start<y.period_start?-1:x.period_start>y.period_start?1:0);
+    const gaps=[];let cur=start_date;
+    for(const a of saved){
+      if(a.period_start>cur)gaps.push([cur,at(ms(a.period_start)-day)]);
+      if(a.period_end>=cur)cur=at(ms(a.period_end)+day);
+    }
+    if(cur<=end_date)gaps.push([cur,end_date]);
+    return {covered:saved.length>0&&gaps.length===0,partial:saved.length>0&&gaps.length>0,gaps};
+  }
   function fiscalYears(settings,archives,count=4){
     if(!settings||!settings.accounting_start_date)return [];
     const month=Number(settings.fiscal_year_start_month)||1;
@@ -178,12 +199,19 @@
       const exact=(archives||[]).filter(a=>a.period_start===start_date&&a.period_end===end_date)
         .sort((a,b)=>String(a.created_at)<String(b.created_at)?1:-1);
       const newest=exact[0]||null;
+      const cov=coverage(start_date,end_date,archives);
       rows.push({label:month===1?String(y):`${y}–${String((y+1)%100).padStart(2,'0')}`,
         start_date,end_date,
         partial:end_date!==iso(full),
         saved:!!newest,
         exceptions:newest?Number(newest.exception_count)||0:null,
-        overlapped:!newest&&(archives||[]).some(a=>a.period_start<=end_date&&start_date<=a.period_end)});
+        // "Covered" is a claim about the WHOLE year, so it is computed rather
+        // than inferred from any intersection: a single overlapping day used to
+        // make a year read as covered while eleven months were missing, which
+        // would talk a reader out of the archive this control exists to offer.
+        covered:!newest&&cov.covered,
+        partlyCovered:!newest&&cov.partial,
+        gaps:newest?[]:cov.gaps});
     }
     return rows;
   }
@@ -277,8 +305,11 @@
       const years=fiscalYears(settings,archives);
       const open=years.find(y=>y.partial)||null;
       el('historyYears').innerHTML=years.length?years.map(y=>{
+        const gap=y.gaps&&y.gaps[0];
         const state=y.saved?(y.exceptions?`Saved · ${y.exceptions} to review`:'Saved · matched')
-          :y.overlapped?'Covered by another window':'Not saved';
+          :y.covered?'Covered by other windows'
+          :y.partlyCovered?`Partly saved · ${gap[0]} → ${gap[1]} missing${y.gaps.length>1?` (+${y.gaps.length-1} more)`:''}`
+          :'Not saved';
         return `<button type="button" class="bcn-btn books-year${y.saved?' is-saved':''}" data-start="${esc(y.start_date)}" data-end="${esc(y.end_date)}"${y.partial?' data-editable="1"':''}>`
           +`<span class="books-year-label">${esc(y.label)}</span>`
           +`<span class="books-year-range">${esc(y.start_date)} → ${esc(y.end_date)}${y.partial?' · editable':''}</span>`

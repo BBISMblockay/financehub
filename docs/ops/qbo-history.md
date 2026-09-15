@@ -408,7 +408,17 @@ has closed June but not July archives through June rather than being forced to
 the latest possible day. An end date outside the year is refused by name rather
 than silently clamped, because a clamped window would reconcile perfectly and
 answer a question nobody asked. A completed year archives whole and ignores that
-control. The window that cannot reconcile is therefore not
+control.
+
+**"Covered" is computed, never inferred from an overlap.** Each year reports one
+of four states: *saved* (a snapshot of exactly that window, with the newest
+one's exception count), *covered by other windows*, *partly saved* with the
+missing dates named, or *not saved*. Coverage walks the saved windows in date
+order and reports what they leave behind, so January–June plus July–December
+really does cover the year while a single overlapping day leaves the rest of it
+as a gap. An earlier version set the covered state from any intersection, which
+would have told a reader a year was covered when eleven months of it were
+missing — talking them out of the archive this control exists to offer. The window that cannot reconcile is therefore not
 reachable, rather than merely refused after the fact. Manual From/Through stays
 for anyone who needs a different window and can read the result knowing the
 above. Both paths run the same archive function, so they cannot drift.

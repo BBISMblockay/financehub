@@ -97,7 +97,73 @@ test('a year button reports what is already saved and what it collides with',asy
  assert.equal(y2025.saved,true);
  assert.equal(y2025.exceptions,4,'the newest snapshot of that window wins, never the sum');
  assert.equal(y2024.saved,false);
- assert.equal(y2024.overlapped,true,'a partial window inside the year is reported, not counted as saved');
+ assert.equal(y2024.covered,false,'four months inside the year is not coverage of the year');
+ assert.equal(y2024.partlyCovered,true);
+});
+
+// "Covered" is a claim about the whole year. Inferring it from any
+// intersection let a single overlapping day read as coverage while eleven
+// months were missing, which would talk a reader out of the archive this
+// control exists to offer.
+test('a partial overlap is reported as partly saved, with the missing dates named',async()=>{
+ const h=harness();await h.boot();
+ const settings={accounting_start_date:'2026-09-01',fiscal_year_start_month:1};
+ const y=h.fiscalYears(settings,[{period_start:'2025-07-01',period_end:'2025-12-31',exception_count:0,created_at:'2026-09-01'}])
+   .find(x=>x.label==='2025');
+ assert.equal(y.covered,false,'half a year is not a covered year');
+ assert.equal(y.partlyCovered,true);
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[['2025-01-01','2025-06-30']],'the missing months are named');
+});
+
+test('one overlapping day is not coverage', async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},
+   [{period_start:'2024-12-31',period_end:'2025-01-01',exception_count:0,created_at:'2026-09-01'}])
+   .find(x=>x.label==='2025');
+ assert.equal(y.covered,false);
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[['2025-01-02','2025-12-31']]);
+});
+
+test('adjacent saved windows together do cover the year', async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},[
+   {period_start:'2025-01-01',period_end:'2025-06-30',exception_count:0,created_at:'2026-09-01'},
+   {period_start:'2025-07-01',period_end:'2025-12-31',exception_count:0,created_at:'2026-09-01'},
+ ]).find(x=>x.label==='2025');
+ assert.equal(y.covered,true,'day-adjacent windows are one stretch, so the year really is covered');
+ assert.equal(y.partlyCovered,false);
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[]);
+});
+
+// refresh() loads archives ordered by created_at DESC, never by period, so the
+// coverage walk has to order them itself. Saved out of order, these two halves
+// still cover the year.
+test('coverage does not depend on the order archives arrive in',async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},[
+   {period_start:'2025-07-01',period_end:'2025-12-31',exception_count:0,created_at:'2026-09-02'},
+   {period_start:'2025-01-01',period_end:'2025-06-30',exception_count:0,created_at:'2026-09-01'},
+ ]).find(x=>x.label==='2025');
+ assert.equal(y.covered,true,'newest-first input must not read as a gap at the start of the year');
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[]);
+});
+
+// The list holds every saved window, not just this year's. One from another
+// year must not make the year look partly saved.
+test('an archive from another year leaves the year reading not saved',async()=>{
+ const h=harness();await h.boot();
+ const y=h.fiscalYears({accounting_start_date:'2026-09-01',fiscal_year_start_month:1},
+   [{period_start:'2023-01-01',period_end:'2023-12-31',exception_count:0,created_at:'2026-09-01'}])
+   .find(x=>x.label==='2025');
+ assert.equal(y.covered,false);
+ assert.equal(y.partlyCovered,false,'an unrelated window is not partial coverage of this one');
+ assert.deepEqual(JSON.parse(JSON.stringify(y.gaps)),[['2025-01-01','2025-12-31']]);
+});
+
+test('the rendered state says partly saved rather than covered', async()=>{
+ const h=harness({preloaded:false});await h.boot();
+ const html=h.el('historyYears').innerHTML;
+ assert.ok(!/Covered by another window/.test(html),'the old wording that overstated coverage is gone');
 });
 
 test('clicking a year archives that window through the same path as the form',async()=>{
