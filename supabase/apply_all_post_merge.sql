@@ -18739,3 +18739,10 @@ $c$select (select count(*) from v_po_header_summary
 -- import audit without the snapshot body, and the re-created RPC. Replaces the
 -- quadratic single-call accumulator that timed out on every real report.
 \i migrations/20260915000000_qbo_history_bounded_archive.sql
+
+-- One card or bank transaction split across several accounts (a loan payment's
+-- principal and interest). Splits are RPC-only writes that must total their
+-- transaction to the cent, the posting snapshot reads one shared definition of
+-- an effective journal line, and a learned rule remembers accounts, never
+-- amounts.
+\i migrations/20260915100000_card_transaction_splits.sql

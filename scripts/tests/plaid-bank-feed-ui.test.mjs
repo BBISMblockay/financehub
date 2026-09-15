@@ -8,6 +8,11 @@ import {webcrypto} from 'node:crypto';
 const moduleSource = await readFile(new URL('../../v2/plaid-bank-feed.js', import.meta.url), 'utf8');
 const datesSource = await readFile(new URL('../../v2/transaction-dates.js', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../../v2/bank-workspace.js', import.meta.url), 'utf8');
+// transactions.html loads this as its own <script>, and its inline script mounts
+// it at boot, so the page harness has to supply it the way the browser does --
+// sharing `window` AND the document, since the module resolves getElementById
+// from its own scope.
+const splitsSource = await readFile(new URL('../../v2/card-splits.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../../v2/transactions.html', import.meta.url), 'utf8');
 const inlineSource = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>', html.indexOf('<script>')));
 class Element {
@@ -83,6 +88,7 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
   vm.runInNewContext(datesSource, { window });
+  vm.runInNewContext(splitsSource, { window, document: d.document });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
     + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
   vm.runInNewContext(testable, { window, URL, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
@@ -382,6 +388,23 @@ await test('CSV statement path parses, imports, codes, saves and builds a balanc
   const entry=h.page.buildEntry(),lines=[...entry.lines,entry.creditLine];
   assert.equal(lines.reduce((n,l)=>n+l.debit,0),37.5);assert.equal(lines.reduce((n,l)=>n+l.credit,0),37.5);
   assert.ok(h.fetches.every(f=>!f.url.includes('quickbooks-post-journal')));
+});
+
+await test('the split preview describes each line by its memo, the same text the approved payload freezes', async()=>{
+  const h=await pageHarness();
+  const row=h.page.state.txns[0];
+  Object.assign(row,{qbo_account_id:null,qbo_account_name:null,status:'coded',coding_source:'split'});
+  h.page.state.splits=new Map([[row.id,[
+    {line_no:1,amount:'6.00',qbo_account_id:'2',qbo_account_name:'Expense',memo:'September principal'},
+    {line_no:2,amount:'4.00',qbo_account_id:'2',qbo_account_name:'Expense',memo:null},
+  ]]]);
+  const entry=h.page.buildEntry();
+  assert.equal(entry.lines.length,2,'a split row contributes one preview line per split line');
+  assert.equal(entry.lines[0].description.split(' · ').pop(),'September principal',
+    'the memo the person typed is what the preview shows');
+  assert.equal(entry.lines[1].description.split(' · ').pop(),'split 2',
+    'and a line with no memo falls back to its number, exactly as the snapshot does');
+  assert.equal(entry.lines.reduce((n,l)=>n+l.debit-l.credit,0),10,'the split lines still total the transaction');
 });
 
 await test('failed history preview permits mapping only after unknown-history acknowledgement', async()=>{

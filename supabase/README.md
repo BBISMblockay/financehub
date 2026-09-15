@@ -583,11 +583,79 @@ cell-level message and drops its staging. The import's audit trigger now runs
 8 calls / 5.7 s, longest call 2.9 s. Two phases stay unbounded by construction
 (hashing the frozen source; the final copy, which must be atomic because the
 evidence tables are immutable), so a job refuses a report over 100,000 ledger
-rows or 48 MB before any work rather than risking a timeout mid-import, and
+rows or 8 MB of stored JSON before any work rather than risking a timeout
+mid-import -- the byte ceiling is measured, since hashing is worse than linear
+in document size (7.7 MB 1.21 s, 15.5 MB 7.10 s, 31 MB 21.1 s against an 8 s
+timeout) -- the refusal runs before the snapshot is built or hashed, and
 finalization carries its own exception block so a final-copy error terminates
 the job instead of stranding it as `running`. Tests: `scripts/tests/qbo-history-database.test.mjs` (40,000-row
-synthetic archive, two mutations), `qbo-history-ui.test.mjs`; timing harness
+synthetic archive, six mutations), `qbo-history-ui.test.mjs`; timing harness
 `scripts/tests/qbo-history-benchmark.mjs`. Verify: `QBO history bounded archive`.
+
+### Card transaction splits (20260915100000)
+
+`20260915100000_card_transaction_splits.sql` lets one card or bank transaction be
+coded across several accounts. A coded row carried exactly one `qbo_account_id`
+and the approval snapshot built exactly one journal line per row, so a $25,187.68
+loan payment that is part principal and part interest had three bad options: all
+to the liability (overstating principal paid), all to interest (never reducing
+the loan), or excluding the row and hand-writing a journal adjustment every
+month with nothing linking the two. The same shape covers a card payment with a
+fee, payroll drafts and a charge spanning two cost centres.
+
+`card_transaction_splits` holds the lines: a signed `numeric(14,2)` that may not
+be zero, its own account, location, entity and memo, and a composite FK to
+`(card_transactions.id, company_entity_id)` so a split can never point across
+tenants. **The lines must total the parent to the cent**, which is the whole
+safety property -- the settlement leg of the journal entry is computed from the
+batch total, so a split that summed to anything else would unbalance the entry or
+move money the statement never moved. It is enforced three times: in
+`set_card_transaction_splits`, by the deferred constraint trigger
+`card_splits_must_tie` that a service-role write cannot dodge, and again by
+`approve_card_import_batch` before it freezes the snapshot. A split row's own
+`qbo_account_id` is null and `card_transaction_splits_still_tie` keeps it that
+way, so a query reading only that column returns "no account" rather than one
+account standing for several.
+
+`card_split_rules` / `card_split_rule_lines` learn the SHAPE of a recurring
+split -- the ordered accounts, matched on merchant or card name -- and
+**deliberately have no amount column at all**: an amortizing payment divides
+differently every month, so a remembered amount would be wrong by construction
+and would look authoritative while being wrong. `suggest_card_transaction_splits`
+returns those lines with `amount` null, and refuses to suggest anything when a
+merchant rule and a card-name rule disagree, the same stance `card_coding_rules`
+takes on a conflicting single-account coding. `verify_v2_schema.sql` fails
+CRITICAL if any amount-shaped column appears on either rule table.
+
+`card_coding_effective_lines` (security_invoker) is the one definition of a
+posted line -- the split lines of a split row, or the single line of an unsplit
+row -- and `approve_card_import_batch` is re-created from `20260912000000` to
+validate and aggregate through it. Duplicating the account/location/entity
+checks for splits would have been the obvious change and the wrong one: the next
+check added to one copy would be missing from the other, and the gap would be
+invisible until a split line posted to an account nobody validated.
+
+**Two bank-feed interactions the first version got wrong** and this migration
+now owns. `plaid_guard_batch` is re-created from `20260912052930` because its
+direction and clearing-account checks ran through one INNER JOIN on
+`card_transactions.qbo_account_id` -- null on a split row, so every split row
+fell out of the join and skipped all four: a `card_payment` could be split into
+expense accounts and approved where the same row unsplit is refused. Direction
+is now checked on the transaction (no account join) and account type through
+`card_coding_effective_lines`, per posted line. And
+`card_splits_follow_provider_change` drops a split when the bank corrects a
+DRAFT row's amount, because the feed discards that row's coding and a split is
+coding: left behind, the tie check would raise inside `plaid_apply_sync` and
+roll back its cursor, so every later sync of that account would re-read the
+same correction and fail identically -- one split would stop the feed for good.
+
+Writes are RPC-only (`revoke all`, `grant select`), finance-gated by
+`can_manage_journal_entries()`, and refused once the batch leaves `draft` /
+`categorized`. UI: the split editor in `v2/card-splits.js`, opened from the
+category cell and the review panel on `/v2/transactions.html`. Tests:
+`scripts/tests/card-splits-database.test.mjs` (28 cases, two mutations) and
+`scripts/tests/card-splits-ui.test.mjs`. Verify: `Card transaction splits`.
+Apply after `20260912000000`. No Edge Function change.
 
 ### Profiles active-company scope (20260913054723)
 

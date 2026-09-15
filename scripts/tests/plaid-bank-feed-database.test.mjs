@@ -193,7 +193,7 @@ try {
     // of the file, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }
@@ -795,6 +795,45 @@ try {
       [co, row.id, outsider])), /permission denied|row.level security/i);
     }
     assert.equal(await asRole('authenticated', otherFinance, () => scalar('select count(*)::integer from finance_audit_events where object_id=$1', [row.id])), 0);
+  });
+
+  // A split row is coding, and the feed discards coding when the provider
+  // corrects a DRAFT row's accounting facts. If the split lines survived that
+  // reset, the tie check on card_transactions would raise inside
+  // plaid_apply_sync, rolling the whole call back -- cursor included -- so
+  // every later sync of that account re-reads the same correction and fails
+  // the same way. One split transaction would stop the account's feed for good.
+  // Verified to have teeth by disabling card_splits_follow_provider_change's
+  // condition in the migration and re-running: the correction then raises
+  // "This transaction is split into lines totalling 100.00; changing its amount
+  // to 105.00 would leave the split short" from inside plaid_apply_sync.
+  await test('a provider amount correction to a split row clears the split and lets the cursor advance', async () => {
+    const account = await bankAccount();
+    const provider = providerTransaction(account, { amount: 100 });
+    await apply(account, { added: [provider] });
+    const row = await transaction(account, provider.transaction_id);
+    await asFinance(() => rpc('set_card_transaction_splits',
+      [row.id, JSON.stringify([{ amount: 60, qbo_account_id: 'expense' }, { amount: 40, qbo_account_id: account.qboId }]), false, 'merchant']));
+    assert.equal(await scalar('select count(*)::integer from card_transaction_splits where transaction_id=$1', [row.id]), 2,
+      'the row is split before the bank corrects it');
+    assert.equal((await first('select status,qbo_account_id from card_transactions where id=$1', [row.id])).qbo_account_id, null,
+      'a split row carries no single account');
+
+    const cursorBefore = await scalar('select cursor from plaid_accounts where id=$1', [account.id]);
+    await apply(account, { modified: [{ ...provider, amount: 105 }] });
+
+    const after = await first('select amount,status,qbo_account_id from card_transactions where id=$1', [row.id]);
+    assert.equal(Number(after.amount), 105, 'the correction is applied');
+    assert.equal(after.status, 'uncoded', 'and the row needs coding again, as an unsplit row would');
+    assert.equal(await scalar('select count(*)::integer from card_transaction_splits where transaction_id=$1', [row.id]), 0,
+      'the split went with the coding: its lines allocated an amount the statement no longer says');
+    assert.notEqual(await scalar('select cursor from plaid_accounts where id=$1', [account.id]), cursorBefore,
+      'the cursor advanced, so the next sync does not re-read the same correction for ever');
+
+    // And a second sync still works, which is what "wedged" would break.
+    await apply(account, { modified: [{ ...provider, amount: 105, name: 'Synthetic merchant renamed' }] });
+    assert.equal((await first('select description from card_transactions where id=$1', [row.id])).description,
+      'Synthetic merchant renamed', 'the feed keeps flowing after the correction');
   });
 
   console.log(`${passed} Plaid database tests passed (local PostgreSQL only).`);
