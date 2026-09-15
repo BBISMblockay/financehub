@@ -26,11 +26,36 @@ function harness({disconnected=false,failTb=false,failArchive=false,preloaded=fa
 test('actual history handler reads scoped GL then TB, archives stored IDs and displays escaped retained details',async()=>{
  const h=harness();await h.boot();assert.match(h.el('historyStatus').textContent,/Choose dates before/);assert.equal(h.el('historyFrom').value,'2026-08-01');assert.equal(h.el('historyTo').value,'2026-08-31');await h.submit();
  const fetch=h.calls.filter(x=>x.name==='quickbooks-report');assert.equal(fetch.length,2);assert.equal(fetch[0].body.report_name,'GeneralLedger');assert.equal(fetch[1].body.report_name,'TrialBalance');
- for(const f of fetch){assert.equal(f.body.connection_id,'connection-test');assert.equal(f.body.params.end_date,'2026-08-31');assert.equal(f.body.params.accounting_method,'Accrual');}assert.equal(fetch[1].body.params.start_date,'2026-01-01');
+ // Both reports must describe the SAME PERIOD. This assertion previously
+ // pinned the trial balance to '2026-01-01', the fiscal year start -- which is
+ // the defect, written down as an expectation: a trial balance is period-scoped
+ // for income and expense accounts, so one over a different range disagrees
+ // with the ledger on every P&L account.
+ for(const f of fetch){assert.equal(f.body.connection_id,'connection-test');assert.equal(f.body.params.start_date,'2026-08-01');assert.equal(f.body.params.end_date,'2026-08-31');assert.equal(f.body.params.accounting_method,'Accrual');}
  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.find(x=>x.name==='archive_qbo_ledger').args)),{p_gl_run_id:'GeneralLedger-run',p_tb_run_id:'TrialBalance-run'});
  assert.match(h.el('historyRows').innerHTML,/&lt;script&gt;bad/);assert.match(h.el('historyRows').innerHTML,/txn-1/);assert.equal(h.el('historyDetail').hidden,false);
  assert.ok(!h.calls.some(x=>x.name==='quickbooks-post-journal'));assert.ok(!h.calls.some(x=>x.cols?.includes('source_snapshot')));
 });
+// The window that actually broke it. With a January fiscal year, any window
+// beginning on January 1 IS the fiscal year to date, so the old code happened to
+// send the right dates and every archive reconciled. The first window to cross a
+// fiscal-year boundary compared twelve months of ledger against seven months of
+// trial balance: 63 P&L accounts out by $33.3m on 2026-09-15, every balance-sheet
+// account tying exactly.
+test('a window crossing the fiscal year boundary still reads the trial balance over the ledger period',async()=>{
+ const h=harness();await h.boot();
+ h.el('historyFrom').value='2025-08-01';h.el('historyTo').value='2026-07-31';
+ await h.submit();
+ const fetch=h.calls.filter(x=>x.name==='quickbooks-report');
+ assert.equal(fetch.length,2);
+ assert.equal(fetch[0].body.report_name,'GeneralLedger');assert.equal(fetch[1].body.report_name,'TrialBalance');
+ for(const f of fetch){
+  assert.equal(f.body.params.start_date,'2025-08-01','both reports cover the ledger window, not the fiscal year to date');
+  assert.equal(f.body.params.end_date,'2026-07-31');
+ }
+ assert.notEqual(fetch[1].body.params.start_date,'2026-01-01','the fiscal year start is not what the trial balance is asked for');
+});
+
 test('invalid or overlapping cutover window makes no QBO calls',async()=>{
  const h=harness();await h.boot();for(const [start,end] of [['2026-08-01','2026-09-01'],['2025-01-01','2026-08-31'],['2026-02-30','2026-08-31'],['2026-08-31','2026-08-01']]){h.el('historyFrom').value=start;h.el('historyTo').value=end;await h.submit();assert.match(h.el('historyStatus').textContent,/366 days/);}assert.ok(!h.calls.some(x=>x.name));
 });

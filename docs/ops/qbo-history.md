@@ -363,6 +363,47 @@ posting switches.
    drops mid-way, "Resume unfinished archive" continues from the stored reports.
 5. The `Not Specified` section no longer stops the import (`20260915200000`).
 
+## The trial balance must cover the ledger's period
+
+QBO's trial balance is **period-scoped**. A balance-sheet account reports its
+as-at balance, so the start date does not move it; an income or expense account
+reports ACTIVITY for the range. A trial balance over a different period is
+therefore a perfectly valid report answering a different question, and the
+reconciliation compares the ledger against it account by account.
+
+`/v2/qbo-history.html` requested the trial balance from the **fiscal year
+start** rather than the ledger's start. Every window anyone tried began on
+January 1, so the two coincided and every archive reconciled. The first window
+to cross a fiscal-year boundary -- 2025-08-01 to 2026-07-31, run 2026-09-15 --
+compared twelve months of ledger against seven months of trial balance:
+
+| account type | accounts mismatched | absolute difference |
+|---|---|---|
+| Income | 35 | 16,518,388.26 |
+| Cost of Goods Sold | 5 | 8,565,950.91 |
+| Expense | 17 | 7,063,382.26 |
+| Other Expense | 6 | 899,499.69 |
+| Equity | 1 | 239,045.48 |
+| Bank / AR / AP / Credit Card | 0 | 0.00 |
+
+The page reported 145 exceptions and $54.4m of affected closing balance. **Not
+one ledger line was missing** -- all 36,686 were archived correctly. Only the
+verdict was wrong, and the giveaway is that the damage sorts perfectly by
+account type: a real gap does not spare every balance-sheet account.
+
+Both halves are now closed. The page requests the trial balance for the
+ledger's own window, and `archive_qbo_ledger` **refuses the pair** when the
+stored periods differ or when either report's `Header.StartPeriod` disagrees
+with the ledger's start -- the stored columns say what was asked for, the header
+says what QBO answered, and either can be wrong. Measured across all 22 distinct
+stored report windows on 2026-09-15, every GeneralLedger and TrialBalance run
+carries `Header.StartPeriod` equal to its stored `start_date`, so nothing that
+exists is refused.
+
+A UI that asks the wrong question must not be able to turn itself into a
+headline number. That is why the refusal lives in the function, where the
+comparison is made, and not only in the page that was fixed.
+
 ## QuickBooks' `Not Specified` section
 
 QBO groups ledger lines that have no account under a header called

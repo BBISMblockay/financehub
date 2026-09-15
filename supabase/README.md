@@ -592,6 +592,32 @@ the job instead of stranding it as `running`. Tests: `scripts/tests/qbo-history-
 synthetic archive, six mutations), `qbo-history-ui.test.mjs`; timing harness
 `scripts/tests/qbo-history-benchmark.mjs`. Verify: `QBO history bounded archive`.
 
+### QBO history trial balance period (20260915210000)
+
+`20260915210000_qbo_history_trial_balance_period.sql` makes `archive_qbo_ledger`
+refuse a trial balance that does not cover the ledger's own period. It checked
+only that the two reports ENDED on the same date.
+
+QBO's trial balance is period-scoped: a balance-sheet account reports its as-at
+balance, so the start date does not move it, but an income or expense account
+reports ACTIVITY for the range. `/v2/qbo-history.js` had been requesting the
+trial balance from the FISCAL YEAR START rather than the ledger's start; every
+window tried began on January 1 so the two coincided, and the first window to
+cross a fiscal-year boundary (2025-08-01 → 2026-07-31, 2026-09-15) compared
+twelve months of ledger against seven months of trial balance -- 63 P&L accounts
+out by $33.3m with every balance-sheet account tying exactly. All 36,686 lines
+were archived correctly; only the verdict was wrong.
+
+Both the stored columns (`tb.start_date` vs `gl.start_date`) and each report's
+own `Header.StartPeriod` are now checked -- the columns say what was ASKED for,
+the header says what QBO ANSWERED. The page is fixed in the same change, but a
+UI asking the wrong question must not be able to turn itself into a headline
+number, so the refusal lives where the comparison is made. Verified across all
+22 distinct stored report windows: every run carries `Header.StartPeriod` equal
+to its `start_date`, so nothing existing is refused. Additive; re-creates
+`archive_qbo_ledger` from `20260915200000` with that one edit. Apply after it.
+Verify: the two new rows inside `QBO history bounded archive`.
+
 ### QBO history unattributed section (20260915200000)
 
 `20260915200000_qbo_history_unattributed_section.sql` stops `archive_qbo_ledger`

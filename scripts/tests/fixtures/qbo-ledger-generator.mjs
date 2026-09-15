@@ -150,7 +150,11 @@ export function generateLedgerPair({ rows, accounts = 60, start = '2025-08-01', 
     return { ColData: [{ id: a.id, value: a.name }, { value: net > 0 ? qboMoney(net) : '' }, { value: net < 0 ? qboMoney(-net) : '' }] };
   });
   tbRows.push({ type: 'Section', group: 'GrandTotal', Summary: { ColData: [{ value: 'TOTAL' }, { value: qboMoney(debits) }, { value: qboMoney(credits) }] } });
-  const tb = { Header: { ReportName: 'TrialBalance', Currency: 'USD', EndPeriod: end, ReportBasis: 'Accrual' },
+  // StartPeriod is present on every TrialBalance QBO returns (verified across
+  // all 16 stored runs, 2026-09-15). It matters because the trial balance is
+  // PERIOD-SCOPED for income and expense accounts, so a report over a different
+  // range answers a different question than the ledger it is checked against.
+  const tb = { Header: { ReportName: 'TrialBalance', Currency: 'USD', StartPeriod: start, EndPeriod: end, ReportBasis: 'Accrual' },
     Columns: { Column: [{ ColType: 'Account', ColTitle: '' }, { ColType: 'Money', ColTitle: 'Debit' }, { ColType: 'Money', ColTitle: 'Credit' }] }, Rows: { Row: tbRows } };
   const accounts_ = chart.map((a) => ({ qbo_account_id: a.id, name: a.name, account_type: TYPES[a.kind].type }));
   const dataRows = [...sections.values()].reduce((t, s) => t + s.n, 0);

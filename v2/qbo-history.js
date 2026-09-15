@@ -209,7 +209,7 @@
           +' They are listed first below.');
     }
     async function refresh(prefer){
-      settings=await result(db.from('accounting_settings').select('qbo_connection_id,accounting_start_date,accounting_basis,base_currency,fiscal_year_start_month').eq('company_entity_id',companyId).maybeSingle());
+      settings=await result(db.from('accounting_settings').select('qbo_connection_id,accounting_start_date,accounting_basis,base_currency').eq('company_entity_id',companyId).maybeSingle());
       // Paginate archives without downloading their raw report copies.
       archives=[];for(let page=0;;page+=100){const rows=await result(db.from('qbo_history_imports').select('id,period_start,period_end,currency,accounting_basis,created_at,exception_count,transaction_count,reconciliation').eq('company_entity_id',companyId).order('created_at',{ascending:false}).order('id').range(page,page+99));archives.push(...rows);if(rows.length<100)break;}
       // An unfinished job (the tab was closed, the network dropped) can be
@@ -238,9 +238,21 @@
         status('Reading your general ledger from QuickBooks…');
         const gl=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'GeneralLedger',params}}));
         if(!gl?.run_id)throw new Error(gl?.error||'QBO did not save the general ledger report');
-        status('Reading the same-date trial balance for reconciliation…');
-        const fiscal=settings.fiscal_year_start_month;const year=Number(dates.end_date.slice(0,4))-(Number(dates.end_date.slice(5,7))<fiscal?1:0);
-        const tb=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'TrialBalance',params:{...params,start_date:`${year}-${String(fiscal).padStart(2,'0')}-01`}}}));
+        status('Reading the same-period trial balance for reconciliation…');
+        // The trial balance must cover THE SAME PERIOD as the ledger, not the
+        // fiscal year to date. QBO's trial balance is period-scoped: a
+        // balance-sheet account reports its as-at balance, so the start date
+        // does not move it, but an income or expense account reports ACTIVITY
+        // for the range. Requesting the fiscal year start happened to be right
+        // for every window tried until 2026-09-15, because all of them began on
+        // January 1 and so already were the fiscal year to date. The first
+        // window that crossed a fiscal-year boundary (2025-08-01 → 2026-07-31)
+        // compared twelve months of ledger against seven months of trial
+        // balance and reported a mismatch on 63 P&L accounts worth $33.3m,
+        // while every balance-sheet account tied -- the signature of a period
+        // mismatch rather than lost data. archive_qbo_ledger now refuses the
+        // pair outright, so this cannot silently produce exceptions again.
+        const tb=await result(db.functions.invoke('quickbooks-report',{body:{connection_id:settings.qbo_connection_id,report_name:'TrialBalance',params}}));
         if(!tb?.run_id)throw new Error(tb?.error||'QBO did not save the trial balance report');
         const saved=await drive(gl.run_id,tb.run_id);
         await refresh(saved.id);

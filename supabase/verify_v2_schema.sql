@@ -3667,6 +3667,16 @@ select 'QBO history bounded archive' as check_name,
  -- the placeholder skips that comparison, so nothing else would look at it.
  when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%has no QuickBooks account and reports a non-zero ending balance%'
   then 'CRITICAL: an account-less ledger section reporting a balance carried out would be archived under the unattributed placeholder and read as matched'
+ -- A trial balance over a DIFFERENT PERIOD than the ledger is a valid report
+ -- answering a different question: balance-sheet accounts report as-at, so they
+ -- tie either way, but income and expense accounts report activity for the
+ -- range. Without this the page's fiscal-year-start request turned a twelve
+ -- month ledger against a seven month trial balance into 63 P&L mismatches
+ -- worth $33.3m (2026-09-15) that looked like lost history and were not.
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%tb.start_date is distinct from gl.start_date%'
+  then 'CRITICAL: a trial balance covering a different period than the ledger is accepted, so every P&L account reconciles against the wrong figure'
+ when pg_get_functiondef(to_regprocedure('public.archive_qbo_ledger(uuid,uuid)')) not like '%Header,StartPeriod%'
+  then 'CRITICAL: neither report''s declared StartPeriod is checked, so QBO answering for a different range than it was asked passes unnoticed'
  -- The exemption from exception_count is the NOTICE, never the section. A
  -- blanket exemption hides a running balance gap or a period total mismatch
  -- on that section behind an archive that still reads 'matched'.
