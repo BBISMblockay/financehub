@@ -549,6 +549,66 @@ await test('the removed-row control does not survive a load, a failed load, or h
   assert.equal(h.el('codeShowRemoved').hidden,true,'and the stale control is gone');
 });
 
+/* The one removal a row cannot record about itself. A pending row inside a
+   batch that is later approved or posted is frozen: the immutability trigger on
+   card_transactions refuses every update to it, service_role included, so when
+   the feed retires that id provider_status stays 'pending' and
+   removed_from_status stays null. The page went on offering "codeable once it
+   settles" for a transaction the bank had taken back.
+
+   plaid_project_transaction does record it -- as a plaid_sync_exceptions row
+   whose provider_payload carries _silo_removed -- so the page reads it there.
+   The evidence is what does the work here, not the frozen status: an
+   outstanding pending row in the same closed batch must stay. */
+await test('a pending row the feed retired inside a closed batch leaves the queue; an outstanding one stays',async()=>{
+  const frozen={...transaction,id:'txn-frozen',external_transaction_id:'f1',batch_id:'batch-closed',
+    origin:'plaid',provider_status:'pending',removed_from_status:null,status:'excluded',
+    exclude_reason:'Pending bank transaction',description:'RETIRED WHILE CLOSED',amount:640.25};
+  const live={...transaction,id:'txn-live',external_transaction_id:'f2',batch_id:'batch-closed',
+    origin:'plaid',provider_status:'pending',removed_from_status:null,status:'excluded',
+    exclude_reason:'Pending bank transaction',description:'STILL OUTSTANDING',amount:15.75};
+  const closed=[{id:'batch-closed',source_id:source.id,status:'posted',company_entity_id:'company-one'}];
+
+  const h=await pageHarness({tables:{plaid_sync_exceptions:[
+    {transaction_id:'txn-frozen',provider_payload:{pending:true,_silo_removed:true}},
+  ]}});
+  h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+  h.page.state.batches=closed;
+  h.window.SiloTransactionDates.read=async()=>[frozen,live];
+  await h.page.browseDates();
+  let table=h.el('tblCoding').innerHTML;
+  assert.ok(!/data-txn="txn-frozen"/.test(table),'the retired id is gone');
+  assert.ok(!/RETIRED WHILE CLOSED/.test(table));
+  assert.match(table,/data-txn="txn-live"/,'the one still outstanding stays');
+  assert.match(table,/Pending at the bank — codeable once it settles/);
+  // Not a "removed by the bank" row either: that control is for POSTED
+  // transactions the bank retracted, and this one never posted.
+  assert.equal(h.el('codeShowRemoved').hidden,true);
+
+  // Same rows, nothing on record: neither is hidden. The evidence is doing the
+  // work, not the frozen status -- otherwise every outstanding authorisation in
+  // a closed month would vanish.
+  const plain=await pageHarness({});
+  plain.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+  plain.page.state.batches=closed;
+  plain.window.SiloTransactionDates.read=async()=>[frozen,live];
+  await plain.page.browseDates();
+  table=plain.el('tblCoding').innerHTML;
+  assert.match(table,/data-txn="txn-frozen"/,'with no evidence the row stays visible');
+  assert.match(table,/data-txn="txn-live"/);
+
+  // An exception that is NOT a removal must not hide anything either.
+  const other=await pageHarness({tables:{plaid_sync_exceptions:[
+    {transaction_id:'txn-frozen',provider_payload:{pending:true,amount:640.25}},
+  ]}});
+  other.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
+  other.page.state.batches=closed;
+  other.window.SiloTransactionDates.read=async()=>[frozen,live];
+  await other.page.browseDates();
+  assert.match(other.el('tblCoding').innerHTML,/data-txn="txn-frozen"/,
+    'only _silo_removed retires a row');
+});
+
 await test('canonical route resumes a matching legacy OAuth callback and rejects unrelated saved URLs',async()=>{
   for(const legacy of ['https://silo.test/v2/card-coding.html?oauth_state_id=callback','https://attacker.invalid/v2/card-coding.html?oauth_state_id=callback','https://silo.test/v2/card-coding.html?oauth_state_id=other']){
     const h=harness();await h.el('btnLinkBank').fire('click');

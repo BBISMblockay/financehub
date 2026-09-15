@@ -14,7 +14,20 @@
     return date(start) && date(end) && start<=end;
   }
   // Preserve every coding field when editing across imports; fetch the raw payload only on demand.
-  const LIST_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason,origin,provider_status,provider_updated_at,currency,qbo_account_id,accounting_treatment,qbo_location_id,entity_qbo_id,entity_type,rule_id,ai_reasoning,row_no,last4,external_transaction_id,removed_from_status';
+  const CORE_FIELDS='id,batch_id,txn_date,description,amount,status,coding_source,confidence,coding_conflict,clean_merchant,card_name,qbo_account_name,qbo_location_name,entity_name,cardholder,cardholder_email,vendor_name,memo,exclude_reason,origin,provider_status,provider_updated_at,currency,qbo_account_id,accounting_treatment,qbo_location_id,entity_qbo_id,entity_type,rule_id,ai_reasoning,row_no,last4,external_transaction_id';
+  /* Columns whose migration may not have been applied yet. PostgREST rejects a
+     select naming a column that does not exist, so ONE unapplied migration takes
+     the whole transaction list down -- which is exactly what happened on
+     2026-09-15 when removed_from_status shipped inside this list and the page
+     rendered nothing between merge and apply. A column here degrades to absent
+     instead: every reader already treats a missing value as "not recorded", and
+     that direction shows rows rather than hiding them. */
+  const OPTIONAL_FIELDS=['removed_from_status'];
+  const LIST_FIELDS=CORE_FIELDS+','+OPTIONAL_FIELDS.join(',');
+  // Sticky for the session: one probe per load, not one per page of 500.
+  let optionalFieldsMissing=false;
+  const missingColumn=(error,field)=>!!error && /column/i.test(error.message || '')
+    && String(error.message).includes(field);
   async function read(db, company, source, batches, range) {
     if(!company || !source || !valid(range)) throw new Error('Choose an account and valid dates.');
     // Batch membership, not a guessed source column on transactions, scopes CSV and bank rows alike.
@@ -22,9 +35,16 @@
     const rows=[];
     for(let i=0;i<ids.length;i+=50) {
       for(let offset=0;;offset+=500) {
-        const {data,error}=await db.from('card_transactions').select(LIST_FIELDS).eq('company_entity_id',company)
+        const page=fields=>db.from('card_transactions').select(fields).eq('company_entity_id',company)
           .in('batch_id',ids.slice(i,i+50)).gte('txn_date',range.start).lte('txn_date',range.end)
           .order('txn_date',{ascending:false}).order('id').range(offset,offset+499);
+        let {data,error}=await page(optionalFieldsMissing?CORE_FIELDS:LIST_FIELDS);
+        // Retried WITHOUT the optional columns, once, and only for the error
+        // that names one. Any other failure is still a failure.
+        if(error && !optionalFieldsMissing && OPTIONAL_FIELDS.some(f=>missingColumn(error,f))) {
+          optionalFieldsMissing=true;
+          ({data,error}=await page(CORE_FIELDS));
+        }
         if(error) throw new Error(error.message);
         rows.push(...(data || [])); if(!data || data.length<500) break;
       }

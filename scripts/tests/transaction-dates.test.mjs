@@ -51,3 +51,42 @@ for(const [type,amount,sourceType,expected] of [
 ]) assert.equal(api.inferTreatment({origin:'plaid',qbo_account_id:'a',amount},type,sourceType),expected);
 
 });
+
+/* One unapplied migration must not take the whole transaction list down.
+   PostgREST rejects a select naming a column that does not exist, so shipping
+   removed_from_status inside the field list made its migration a hard deploy
+   prerequisite: between merge and apply on 2026-09-15 the page rendered nothing
+   at all. Optional columns now degrade to absent, which every reader already
+   treats as "not recorded" -- and that direction shows rows, never hides them. */
+test('a column whose migration has not been applied costs that column, not the list',async()=>{
+ const selects=[];let full=0;
+ // Two pages, so a probe repeated per page is visible rather than assumed.
+ const db={from(){const chain={};for(const key of ['select','eq','in','gte','lte','order'])chain[key]=(...a)=>{if(key==='select')selects.push(a[0]);return chain;};
+  chain.range=()=>{
+   if(selects[selects.length-1].includes('removed_from_status')) {
+    return Promise.resolve({error:{message:'column card_transactions.removed_from_status does not exist'}});
+   }
+   // First successful page comes back full, so read() asks for another.
+   return Promise.resolve({data:full++===0
+    ? Array.from({length:500},(_,i)=>({id:'p'+i,txn_date:'2026-09-14'}))
+    : [{id:'kept',txn_date:'2026-09-15'}]});
+  };
+  return chain;}};
+ const rows=await api.read(db,'co','s',[{id:'a',company_entity_id:'co',source_id:'s'}],{start:'2026-09-01',end:'2026-09-30'})
+  .catch(e=>assert.fail('the list must survive an unapplied migration, but read() threw: '+e.message));
+ assert.equal(rows.length,501,'the list still renders, in full');
+ assert.equal(rows[0].id,'kept');
+ assert.ok(selects[0].includes('removed_from_status'),'it is asked for first');
+ assert.ok(!selects[1].includes('removed_from_status'),'and dropped on the retry');
+ // The answer is remembered: the second page does not re-ask and take another
+ // refusal, which would double every query on an unmigrated database.
+ assert.equal(selects.length,3,'one probe, one retry, then straight to the second page');
+ assert.ok(!selects[2].includes('removed_from_status'),'the second page never re-probes');
+
+ // The retry is only for that error. Anything else is still a failure, or a
+ // real outage would be swallowed as a missing column.
+ const other={from(){const chain={};for(const key of ['select','eq','in','gte','lte','order'])chain[key]=()=>chain;
+  chain.range=()=>Promise.resolve({error:{message:'permission denied for table card_transactions'}});return chain;}};
+ await assert.rejects(api.read(other,'co','s',[{id:'a',company_entity_id:'co',source_id:'s'}],{start:'2026-09-01',end:'2026-09-30'}),
+  /permission denied/);
+});
