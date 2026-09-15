@@ -465,6 +465,96 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
   return rows;
 }
 
+/** The creative field list, in two tiers.
+ *
+ * The base tier is what shipped with the copy work and is known to be
+ * accepted. The link tier is everything the DESTINATION lives in, and it is
+ * separable because Meta rejects a request over ONE bad field name -- the
+ * same hazard that already forced drop-and-retry on thruplays at both
+ * insights levels.
+ *
+ * It is worse here than there. These reads go through the Graph BATCH API,
+ * where a bad field is not a thrown request error: the outer POST returns
+ * 200 and every item inside it comes back non-200. The existing code skips a
+ * non-200 item silently, so an unaccepted field would not fail the sync --
+ * it would write 4,000 creative rows with every link null and look exactly
+ * like an account whose ads have no destinations. That is why the caller
+ * inspects the ITEM errors and downgrades, rather than trusting the throw. */
+function metaCreativeFields(includeLinkFields) {
+  const sub = 'id,thumbnail_url,body,title,object_type,'
+    + 'effective_object_story_id,object_story_spec'
+    // effective_object_url is the one that matters for this account: 2,565 of
+    // 4,079 stored creatives are object_type SHARE, which carry no
+    // object_story_spec of their own. Resolving the link from the spec alone
+    // would cover a third of the ads and read as "most ads go nowhere".
+    // url_tags is the UTM string on the same creative -- free on a request
+    // already being made, and the difference between knowing the path and
+    // knowing which campaign the click was tagged as.
+    + (includeLinkFields ? ',effective_object_url,url_tags,asset_feed_spec{link_urls}' : '');
+  return encodeURIComponent(
+    `id,name,effective_status,campaign_id,adset_id,creative{${sub}}`);
+}
+
+/** True when a batch response carries a per-item error that names a field.
+ *
+ * Deliberately not "any item failed": a single deleted ad or a permission
+ * error on one creative is normal and must not downgrade the field set for
+ * the whole run. An unknown-field error is deterministic across every item,
+ * so seeing one is enough to conclude the tier is not accepted. */
+function metaBatchRejectedFields(data) {
+  if (!Array.isArray(data)) return false;
+  return data.some((item) => {
+    if (!item || item.code === 200) return false;
+    let msg = item.body || '';
+    try { msg = JSON.parse(item.body)?.error?.message || msg; } catch { /* keep raw */ }
+    return isMetaUnknownFieldError(new Error(String(msg)));
+  });
+}
+
+/** Where an ad's destination URL comes from, most specific first.
+ *
+ * Order is the whole design. link_data/video_data hold the destination the
+ * ADVERTISER typed on this ad, so they win wherever they exist.
+ * effective_object_url is last because it is the creative's resolved
+ * destination and, on a page-post (SHARE) ad, Meta may resolve that to the
+ * POST rather than to the advertiser's site. That is not a reason to drop it
+ * -- it is the only source those ads have -- but it is a reason to record
+ * which source answered, and for every reader to show the host rather than
+ * just the path. A facebook.com host visible on screen is the reader finding
+ * that out; a bare "/collections/new" that was never on the site is not.
+ *
+ * Every entry returns a string or null. The first non-null wins, and its key
+ * is stored as link_url_source. */
+function resolveCreativeLink(creative) {
+  const spec = creative?.object_story_spec || {};
+  const ctaLink = (d) => d?.call_to_action?.value?.link ?? null;
+  const firstCard = (spec.link_data?.child_attachments || [])
+    .find((c) => c && typeof c.link === 'string' && c.link.trim());
+  const feedUrl = (creative?.asset_feed_spec?.link_urls || [])
+    .find((u) => u && typeof u.website_url === 'string' && u.website_url.trim());
+  const candidates = [
+    ['link_data', spec.link_data?.link],
+    ['video_cta', ctaLink(spec.video_data)],
+    ['link_data_cta', ctaLink(spec.link_data)],
+    ['carousel_card', firstCard?.link],
+    ['photo_cta', ctaLink(spec.photo_data)],
+    ['asset_feed', feedUrl?.website_url],
+    ['effective_object_url', creative?.effective_object_url],
+  ];
+  for (const [source, raw] of candidates) {
+    if (typeof raw !== 'string') continue;
+    const v = raw.trim();
+    // Only http(s), and no whitespace -- the same single gate v3 puts between
+    // a stored value and an href. A destination that is not a web URL (an
+    // app deep link, a messenger thread) is not a landing page, and storing
+    // it would put a value in front of a reader that the UI must then refuse
+    // to render anyway.
+    if (!/^https?:\/\/[^\s<>"']+$/i.test(v)) continue;
+    return { url: v, source };
+  }
+  return { url: null, source: null };
+}
+
 /** Creative metadata (thumbnail, copy, format, status) for a specific set of
  * ad ids — the ads that actually have performance rows in the window. The
  * account-wide /ads listing spans the account's ENTIRE ad history and trips
@@ -494,23 +584,53 @@ export async function fetchMetaAdCreatives(connection, adIds) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   const ids = [...new Set((adIds || []).map(String))];
-  const fields = encodeURIComponent(
-    'id,name,effective_status,campaign_id,adset_id,'
-    + 'creative{id,thumbnail_url,body,title,object_type,'
-    + 'effective_object_story_id,object_story_spec}');
   const out = [];
   // ad ids still needing copy, keyed by the post that holds it
   const needPost = new Map();
+  // Cleared for the rest of the run the first time Meta refuses a link field,
+  // exactly like withThruplays at both insights levels. Recorded so the
+  // caller can say "no links because the fields were refused" rather than
+  // "no links because the ads have none" -- two states that produce an
+  // identical table of nulls.
+  let withLinkFields = true;
+  let linkFieldsDropped = false;
 
-  for (let i = 0; i < ids.length; i += 50) {
-    const batch = ids.slice(i, i + 50).map((id) => ({
+  const postBatch = async (slice, includeLinkFields) => {
+    const fields = metaCreativeFields(includeLinkFields);
+    const batch = slice.map((id) => ({
       method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=${fields}`,
     }));
-    const data = await fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
+    return fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ access_token: token, batch: JSON.stringify(batch) }).toString(),
     }, 'Meta ads batch');
+  };
+
+  for (let i = 0; i < ids.length; i += 50) {
+    const slice = ids.slice(i, i + 50);
+    let data;
+    try {
+      data = await postBatch(slice, withLinkFields);
+    } catch (err) {
+      // The outer POST throwing on a field name is the less likely of the two
+      // failure modes (batch normally reports per item) but it is the one
+      // that would take the whole creative sync down, copy included.
+      if (!withLinkFields || !isMetaUnknownFieldError(err)) throw err;
+      console.warn('[warn] Meta rejected the creative link fields, retrying without them:', err.message);
+      withLinkFields = false;
+      linkFieldsDropped = true;
+      data = await postBatch(slice, withLinkFields);
+    }
+    // The mode that matters: 200 outside, every item failed inside. Without
+    // this the run would write a full set of creative rows with null links
+    // and no warning anywhere.
+    if (withLinkFields && metaBatchRejectedFields(data)) {
+      console.warn('[warn] Meta rejected the creative link fields per item, retrying without them');
+      withLinkFields = false;
+      linkFieldsDropped = true;
+      data = await postBatch(slice, withLinkFields);
+    }
     if (!Array.isArray(data)) throw new Error(`Meta ads batch: unexpected response shape`);
     for (const item of data) {
       if (!item || item.code !== 200 || !item.body) continue;
@@ -526,6 +646,8 @@ export async function fetchMetaAdCreatives(connection, adIds) {
         ?? null;
       const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
+      const link = resolveCreativeLink(a.creative);
+
       const row = {
         adId: a.id,
         adName: a.name ?? null,
@@ -539,6 +661,18 @@ export async function fetchMetaAdCreatives(connection, adIds) {
         objectType: a.creative?.object_type ?? null,
         bodySource: clean(a.creative?.body) ? 'creative_body'
                   : clean(inline) ? 'object_story_spec' : null,
+        // Null or non-null TOGETHER, always. A source with no url describes
+        // nothing, and a url with no source cannot be judged -- the whole
+        // point of recording the source is that effective_object_url may be
+        // the page post rather than the site. resolveCreativeLink returns
+        // them as one object so they cannot drift apart here; the database
+        // asserts the same invariant.
+        linkUrl: link.url,
+        linkUrlSource: link.source,
+        // The UTM string as Meta stores it, unparsed. Whoever needs the
+        // campaign tag can split it; guessing at a canonical parse here
+        // would bake one reading of a free-text field into the table.
+        linkUrlTags: clean(a.creative?.url_tags),
       };
       out.push(row);
 
@@ -621,6 +755,24 @@ export async function fetchMetaAdCreatives(connection, adIds) {
     });
   }
 
+  // The coverage line. There is no probe run behind this feature -- the
+  // account's ad shapes are only observable through a real sync -- so the
+  // run reports what it resolved, by source, and that log line is the
+  // measurement. A drop to zero after a Meta API version bump reads here as
+  // a changed field list rather than as an account that stopped linking
+  // anywhere, and linkFieldsDropped separates "refused" from "absent".
+  const withLink = out.filter((r) => r.linkUrl).length;
+  const bySource = out.reduce((acc, r) => {
+    if (r.linkUrlSource) acc[r.linkUrlSource] = (acc[r.linkUrlSource] || 0) + 1;
+    return acc;
+  }, {});
+  const sourceSummary = Object.entries(bySource)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k}=${n}`)
+    .join(' ') || 'none';
+  console.log(`[meta] creative links: ${withLink}/${out.length} resolved (${sourceSummary})`
+    + (linkFieldsDropped ? ' — link fields REFUSED by Meta this run' : ''));
+
   return out;
 }
 
@@ -687,6 +839,9 @@ export async function runMetaAdLevelSync(supabase, connection, {
     thumbnail_url: c.thumbnailUrl,
     body: c.body,
     body_source: c.bodySource ?? null,
+    link_url: c.linkUrl ?? null,
+    link_url_source: c.linkUrlSource ?? null,
+    link_url_tags: c.linkUrlTags ?? null,
     title: c.title,
     object_type: c.objectType,
     synced_at: syncedAt,

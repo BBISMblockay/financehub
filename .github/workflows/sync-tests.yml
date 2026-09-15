@@ -75,6 +75,9 @@ on:
       - 'v2/transactions-workspace.css'
       - 'v2/bank-workspace.js'
       - 'v2/accounting-suite*'
+      - 'v2/wow-report.html'
+      - 'supabase/migrations/*meta_creative_link_url.sql'
+      - 'supabase/migrations/*wow_creatives_link.sql'
       - 'v2/nav-config.js'
       - 'v2/silo-chrome.js'
       - 'v2/plaid-bank-feed.js'
@@ -184,6 +187,18 @@ jobs:
       - name: Search Console sync
         run: node scripts/tests/search-console-sync.test.mjs
 
+      # Meta ad destinations. The assertion that earns its place is the
+      # DOWNGRADE: these reads go through the Graph batch API, where a field
+      # Meta does not accept returns 200 on the outer POST and fails every
+      # item inside it -- which the loop skipped silently. Without the
+      # per-item check, one refused field writes thousands of creative rows
+      # with no copy and no links, warning about nothing.
+      - name: Meta creative destinations
+        run: node scripts/tests/meta-creative-links.test.mjs
+
+      - name: Marketing Report destination rendering
+        run: node scripts/tests/wow-report-destination.test.mjs
+
       # products_master is one row per (company, sku), so its shopify_product_id
       # is decided by nightly sync ORDER for the 26.9% of sold SKUs that exist
       # in more than one shop. These assert the properties that mapping table
@@ -269,6 +284,15 @@ jobs:
 
       - name: Execute cashflow override, liquidity and audit regressions
         run: node scripts/tests/cashflow-database.test.mjs
+
+      # The destination columns, run twice to prove the migration is
+      # re-appliable (apply_all_post_merge.sql promises that, and the first
+      # version of this migration broke it: the view depends on the generated
+      # column, so a drop-then-add failed on the second run). Also pins the
+      # thruplays/leads that production carried and this repo did not, so a
+      # future rebuild of wow_creatives cannot silently delete them again.
+      - name: Execute Meta creative destination regressions
+        run: node scripts/tests/meta-creative-links-database.test.mjs
 
       # The SEO workflow's approval RLS, publication guard, window ordering and
       # the deterministic capture, executed as authenticated users against the
