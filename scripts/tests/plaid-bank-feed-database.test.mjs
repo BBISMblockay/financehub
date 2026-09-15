@@ -748,6 +748,55 @@ try {
     assert.equal(back.removed_from_status, null, 'a live row is not described as removed from anything');
   });
 
+  /* The one place removed_from_status cannot be recorded, pinned so it is not
+     rediscovered as a surprise.
+
+     A pending row can sit inside a batch that is later approved and posted: it
+     is excluded, so it never reaches the journal, but it is still a row in that
+     month. When the bank afterwards retires that pending id, the projection
+     records the change as a resolved no-impact exception and returns without
+     touching card_transactions -- and it could not touch it anyway. The
+     immutability trigger on card_transactions raises for ANY update to a row
+     whose batch has left draft/categorized, service_role included ("Approved or
+     posted transactions are immutable").
+
+     So the row keeps provider_status='pending' and removed_from_status=null,
+     and the page goes on showing it as pending. That predates this work -- the
+     row read 'pending' forever before removed_from_status existed -- and fixing
+     it means either weakening a finance immutability guard for the sake of a
+     label, which is the wrong trade, or holding live feed state outside the
+     frozen snapshot, which is a design decision rather than a patch. The
+     removal is not lost: the exception row below is the record. */
+  await test('a pending row retired after its batch is posted stays frozen, and the removal is recorded as an exception', async () => {
+    const account = await bankAccount();
+    const pending = providerTransaction(account, { pending: true, amount: 21 });
+    const posted = providerTransaction(account, { amount: 77 });
+    await apply(account, { added: [pending, posted] });
+    const pendingRow = await transaction(account, pending.transaction_id);
+    const postedRow = await transaction(account, posted.transaction_id);
+    assert.equal(pendingRow.status, 'excluded', 'a pending row is excluded, so the batch can still be posted');
+    await code(postedRow);
+    await approve(postedRow.batch_id);
+    await markPosted('card_import_batches', postedRow.batch_id);
+
+    await apply(account, { removed: [{ account_id: account.providerId, transaction_id: pending.transaction_id }] });
+    const after = await load('card_transactions', pendingRow.id);
+    assert.equal(after.provider_status, 'pending', 'the frozen snapshot wins over the feed');
+    assert.equal(after.removed_from_status, null, 'so the classification cannot be written here');
+
+    // The write is refused by the database, not merely skipped by the function.
+    await assert.rejects(
+      q(`update public.card_transactions set removed_from_status='pending' where id=$1`, [pendingRow.id]),
+      /Approved or posted transactions are immutable/,
+      'and no caller can route around it');
+
+    // What the removal DID leave behind, so it is recoverable.
+    const change = await first(`select * from plaid_sync_exceptions where transaction_id=$1
+      order by created_at desc limit 1`, [pendingRow.id]);
+    assert.equal(change.status, 'resolved', 'recorded, and no false alarm for finance');
+    assert.equal(change.provider_payload._silo_removed, true, 'the exception is the record that the id was retired');
+  });
+
   await test('only pending, posted or null can be stored in the removed-from column', async () => {
     const account = await bankAccount();
     const raw = providerTransaction(account, { amount: 5 });
