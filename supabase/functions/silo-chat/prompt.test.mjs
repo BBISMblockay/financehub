@@ -398,6 +398,19 @@ test('a bucket straddling an event is named by its dates, not before/after', () 
   has(GENERAL, 'never "before"/"after"/"the following week"');
 });
 
+test('an unreadable period is not a period (cycle 1)', () => {
+  // The envelope stopped publishing a window it could not support; the prompt
+  // has to say what to do when one is absent, or the model fills the gap.
+  has(GENERAL, 'A PERIOD YOU CANNOT READ IS NOT A PERIOD');
+  has(GENERAL, 'must not name a period from it');
+});
+
+test('the direction of a restriction is read, not just its presence (cycle 1)', () => {
+  has(GENERAL, 'a value under excludes is what the result LEAVES OUT');
+  has(GENERAL, 'never that value');
+  has(GENERAL, 'neither one value nor all of them');
+});
+
 test('a campaign name is not an objective, and two names are two populations', () => {
   has(GENERAL, 'A NAME IS NOT A FACT ABOUT WHAT SOMETHING DID');
   has(GENERAL, 'Two campaign names are two populations');

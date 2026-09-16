@@ -181,37 +181,73 @@ function mentions(text, col) {
   return new RegExp(`(?<![a-z0-9_])${col}(?![a-z0-9_])`).test(text);
 }
 
-/** Literal values a column was restricted to, recovered through the
- *  placeholders.
+/** How a column is restricted, and by what.
  *
- *  Two things this deliberately does NOT count as narrowing, both found by
- *  the fixture tests rather than by reading:
- *   - `a.ad_id = b.ad_id` is a JOIN KEY, not a filter. The right-hand side
- *     must be a literal or a number, or the column is still pooled.
+ *  Returns one of four kinds:
+ *    'included'  -- `= 'x'` / `in ('x','y')`. `values` is what the result IS.
+ *    'excluded'  -- `<> 'x'` / `!= 'x'` / `not in ('x')`. `values` is what the
+ *                   result is NOT. Reporting these as `included` was the cycle-1
+ *                   finding: a correct non-Meta total came back carrying
+ *                   `narrowed_to: platform = ['meta_ads']`, which is this module
+ *                   making exactly the mislabelling it exists to prevent.
+ *    'restricted'-- a predicate exists whose effect cannot be written as a value
+ *                   list (a range, LIKE, IS NULL). Narrower than pooled, but the
+ *                   population is not one value either, so it says neither.
+ *    null        -- no predicate found; the caller treats it as pooled.
+ *
+ *  Two things deliberately do NOT count as a restriction, both found by the
+ *  fixture tests rather than by reading:
+ *   - `a.ad_id = b.ad_id` is a JOIN KEY. The right-hand side must be a literal
+ *     or a number, or the column is still pooled.
  *   - a predicate's value list stops at that predicate. An unbounded scan
  *     forward attributed `campaign_name = 'Subscribers'` to the `platform`
- *     filter sitting two tokens earlier, which is exactly the class of
- *     mislabelling this module exists to stop -- in the module itself.
+ *     filter sitting two tokens earlier.
  */
-function narrowedValues(text, literals, col) {
-  const values = [];
-  let narrowed = false;
-  const pushRefs = (seg) => {
+function columnRestriction(text, literals, col) {
+  const included = [];
+  const excluded = [];
+  let restricted = false;
+  const refs = (seg) => {
+    const out = [];
     for (const r of seg.match(/'@(\d+)'/g) || []) {
       const v = literals[Number(r.slice(2, -1))];
-      if (v != null && !values.includes(v)) values.push(v);
+      if (v != null) out.push(v);
     }
+    return out;
   };
-  const inList = new RegExp(`(?<![a-z0-9_])${col}\\s+(?:not\\s+)?in\\s*\\(([^()]*)\\)`, 'g');
+  const add = (into, seg) => {
+    for (const v of refs(seg)) if (!into.includes(v)) into.push(v);
+  };
+
+  // IN / NOT IN. The `not` is captured, not swallowed, which is the fix.
+  const inList = new RegExp(`(?<![a-z0-9_])${col}\\s+(not\\s+)?in\\s*\\(([^()]*)\\)`, 'g');
   let m;
-  while ((m = inList.exec(text))) { narrowed = true; pushRefs(m[1]); }
-  const equality = new RegExp(`(?<![a-z0-9_])${col}\\s*(?:=|<>|!=)\\s*('@\\d+'|-?\\d+(?:\\.\\d+)?)`, 'g');
-  while ((m = equality.exec(text))) { narrowed = true; pushRefs(m[1]); }
-  if (!narrowed) {
-    const ranged = new RegExp(`(?<![a-z0-9_])${col}\\s*(?:<=|>=|<|>|~~|between\\b|like\\b|ilike\\b|is\\s+(?:not\\s+)?null)`);
-    if (ranged.test(text)) narrowed = true;
+  while ((m = inList.exec(text))) add(m[1] ? excluded : included, m[2]);
+
+  // = vs <> / != . Same fix: the operator decides which list the value joins.
+  const equality = new RegExp(
+    `(?<![a-z0-9_])${col}\\s*(=|<>|!=)\\s*('@\\d+'|-?\\d+(?:\\.\\d+)?)`, 'g',
+  );
+  while ((m = equality.exec(text))) add(m[1] === '=' ? included : excluded, m[2]);
+
+  // Anything else that narrows but cannot be stated as values. `not like` is
+  // matched here rather than left to fall through as pooled, and `is not null`
+  // lands here rather than being reported as a narrowing to some value.
+  const ranged = new RegExp(
+    `(?<![a-z0-9_])${col}\\s*(?:(?:not\\s+)?(?:<=|>=|<|>|~~|between\\b|like\\b|ilike\\b)|is\\s+(?:not\\s+)?null)`,
+  );
+  if (ranged.test(text)) restricted = true;
+
+  if (included.length) {
+    return {
+      kind: 'included',
+      values: included.slice(0, MAX_VALUES_REPORTED),
+      ...(excluded.length ? { excluded: excluded.slice(0, MAX_VALUES_REPORTED) } : {}),
+    };
   }
-  return { kind: narrowed ? 'narrowed' : null, values: values.slice(0, MAX_VALUES_REPORTED) };
+  if (excluded.length) return { kind: 'excluded', values: excluded.slice(0, MAX_VALUES_REPORTED) };
+  if (restricted) return { kind: 'restricted', values: [] };
+  return { kind: null, values: [] };
 }
 
 function groupedOn(text, col) {
@@ -237,6 +273,50 @@ export function buildCatalogIndex(rows) {
   return map;
 }
 
+/** What the statement's date predicates actually bound, which is a different
+ *  question from which dates it happens to mention.
+ *
+ *  The cycle-1 finding was that those two were conflated in both directions:
+ *  `day_date >= current_date - 30` has no ISO literal, so it was reported as
+ *  "not restricted -- covers every date", and `day_date >= '2026-09-01'` has
+ *  one, so it was reported as a window from 1 September TO 1 September. The
+ *  first is a month of data described as all history; the second is an
+ *  open-ended range described as a single day. Both are the envelope asserting
+ *  a period the statement never set.
+ *
+ *  So bounds are read from the OPERATORS, and a window is only ever published
+ *  when both ends are actually bounded. The right-hand side must be a literal,
+ *  a number, or a date function -- `a.day_date = b.day_date` is a join, not a
+ *  window, and would otherwise report a fully bounded period on a query with no
+ *  date filter at all.
+ */
+export function dateBounds(text, dateColumns) {
+  const RHS = "('@\\d+'|-?\\d+(?:\\.\\d+)?|current_date|current_timestamp|localtimestamp|now\\s*\\(|date\\s*'|interval\\s)";
+  let any = false;
+  let lower = false;
+  let upper = false;
+  for (const col of dateColumns) {
+    // A NEGATED range or set restricts without BOUNDING: `not between 'a' and
+    // 'b'` reaches both edges of the data with a hole in the middle, so
+    // treating it as a window would publish the excluded range as the period.
+    const between = new RegExp(`(?<![a-z0-9_])${col}\\s+(not\\s+)?between\\b`).exec(text);
+    if (between) { any = true; if (!between[1]) { lower = true; upper = true; } }
+    const inSet = new RegExp(`(?<![a-z0-9_])${col}\\s+(not\\s+)?in\\s*\\(\\s*'@`).exec(text);
+    if (inSet) { any = true; if (!inSet[1]) { lower = true; upper = true; } }
+    const ops = new RegExp(`(?<![a-z0-9_])${col}\\s*(>=|<=|<>|!=|=|>|<)\\s*${RHS}`, 'g');
+    let m;
+    while ((m = ops.exec(text))) {
+      any = true;
+      const op = m[1];
+      if (op === '=') { lower = true; upper = true; }
+      else if (op === '>=' || op === '>') lower = true;
+      else if (op === '<=' || op === '<') upper = true;
+      // <> / != narrow without bounding either end.
+    }
+  }
+  return { any, lower, upper };
+}
+
 /**
  * The scope envelope for one executed statement.
  *
@@ -256,6 +336,8 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
 
   const pooled = [];
   const narrowed = [];
+  const excluded = [];
+  const restrictedOnly = [];
   const brokenOut = [];
   const absent = [];
   const dateColumns = new Set();
@@ -274,9 +356,17 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
       // how the restricted population was split. Reporting the grouping alone
       // loses the restriction, which is how a one-campaign result reads as
       // every campaign.
-      const { kind, values } = narrowedValues(text, literals, col);
-      if (kind === 'narrowed') {
-        narrowed.push({ relation: name, column: col, ...(values.length ? { values } : {}) });
+      const r = columnRestriction(text, literals, col);
+      if (r.kind === 'included') {
+        narrowed.push({ relation: name, column: col, values: r.values, ...(r.excluded ? { also_excluding: r.excluded } : {}) });
+        continue;
+      }
+      if (r.kind === 'excluded') {
+        excluded.push({ relation: name, column: col, values: r.values });
+        continue;
+      }
+      if (r.kind === 'restricted') {
+        restrictedOnly.push({ relation: name, column: col });
         continue;
       }
       if (groupedOn(text, col)) brokenOut.push({ relation: name, column: col });
@@ -297,7 +387,7 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
   }
 
   const dates = dateLiteralsIn(sql);
-  const dateNarrowed = [...dateColumns].some((c) => mentions(text, c)) && dates.length > 0;
+  const bounds = dateBounds(text, [...dateColumns]);
 
   const rowCount = Number.isFinite(meta.rowCount) ? meta.rowCount : null;
   const atCap = rowCount === QUERY_ROW_CAP;
@@ -311,6 +401,17 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
       ? { page_cap_reached: `exactly ${QUERY_ROW_CAP} rows came back, which is the per-page cap -- this is the FIRST PAGE, not necessarily the whole result. Re-query with a narrower scope or an aggregate before ranking, counting or calling anything absent.` }
       : {}),
     ...(narrowed.length ? { narrowed_to: narrowed } : {}),
+    // EXCLUSION IS NOT INCLUSION. `platform <> 'meta_ads'` means the result is
+    // everything BUT Meta; folding that value into narrowed_to told the reader
+    // the opposite of what the statement asked for.
+    ...(excluded.length ? { excludes: excluded } : {}),
+    ...(restrictedOnly.length
+      ? {
+          restricted_no_readable_values: restrictedOnly,
+          restricted_no_readable_values_means:
+            'a predicate narrows this column (a range, a LIKE, a null test) but its effect cannot be written as a value list. The result is neither one value nor all of them -- say so, or read the statement.',
+        }
+      : {}),
     ...(brokenOut.length ? { broken_out_per_value: brokenOut } : {}),
     ...(pooled.length ? { pooled_across: pooled } : {}),
     ...(absent.length
@@ -320,17 +421,51 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
             'that relation has no such column AT ALL, so every figure aggregated from it is already a total across every value of them. It cannot be attributed to one platform, campaign, channel or location, however the question was phrased. To split it, query a relation that carries the column.',
         }
       : {}),
-    date_scope: dateNarrowed
-      ? {
-          literals_in_statement: dates.slice(0, MAX_DATE_LITERALS_REPORTED),
-          window: { from: dates[0], to: dates[dates.length - 1] },
-          ...(dates.length > 2
-            ? { note: 'more than two dates appear, so this result is BUCKETED -- every figure belongs to the bucket its edges define, and a bucket spanning an event (a launch, a price change, a campaign start) is on both sides of it. Name the bucket edges, never "before"/"after".' }
-            : {}),
-        }
-      : { window: 'not restricted -- this result covers every date present in the relation(s) above' },
+    date_scope: dateScope(bounds, dates),
     derivation:
       'Read off the statement text and the auto-generated column lists in the schema map. It describes the QUERY, not the values: it does not verify a number and it cannot see meaning. Where it could not tell whether a dimension was narrowed it reports it as POOLED, so pooled is the safe reading. Two things it cannot resolve, so check the statement yourself before leaning on them: a predicate is matched against the whole statement, so when two relations here carry the same column a filter on one is reported for both, and a filter inside a subquery or CTE is reported even if that branch does not reach the rows returned.',
+  };
+}
+
+/** The date half of the envelope. Publishes a window ONLY when the operators
+ *  bound both ends AND dates were written into the statement; every other case
+ *  says what is and is not known instead of asserting a period. "No predicate
+ *  found" is deliberately not phrased as "covers every date": this reads the
+ *  statement textually and a date filter it could not parse would otherwise be
+ *  reported as no filter at all. */
+function dateScope(bounds, dates) {
+  const literals = dates.slice(0, MAX_DATE_LITERALS_REPORTED);
+  if (!bounds.any) {
+    return {
+      restriction:
+        'no date predicate was readable in this statement, so this may cover the whole history the relation holds. That is what was PARSED, not a guarantee -- check the statement before naming a period.',
+      ...(literals.length ? { dates_mentioned: literals } : {}),
+    };
+  }
+  if (bounds.lower && bounds.upper && dates.length) {
+    return {
+      literals_in_statement: literals,
+      window: { from: dates[0], to: dates[dates.length - 1] },
+      ...(dates.length > 2
+        ? { note: 'more than two dates appear, so this result is BUCKETED -- every figure belongs to the bucket its edges define, and a bucket spanning an event (a launch, a price change, a campaign start) is on both sides of it. Name the bucket edges, never "before"/"after".' }
+        : {}),
+    };
+  }
+  // Both-false is reachable: `day_date <> '2026-09-01'` narrows without
+  // bounding either end.
+  const missing = !bounds.lower && !bounds.upper ? 'neither end is bounded'
+    : !bounds.lower ? 'no start'
+    : !bounds.upper ? 'no end'
+    : 'no readable dates';
+  return {
+    ...(literals.length ? { literals_in_statement: literals } : {}),
+    restriction: `this IS restricted on a date, but the period is not fully readable here: ${missing}. ${
+      !dates.length
+        ? 'The bound is relative or computed (something like current_date - N) rather than written as a date.'
+        : (bounds.lower || bounds.upper)
+        ? 'One end is open, so the result runs to the edge of the data on that side.'
+        : 'The predicate excludes rather than bounds, so the result reaches both edges of the data.'
+    } Do not state a period from this -- read the statement, or re-query with explicit dates.`,
   };
 }
 

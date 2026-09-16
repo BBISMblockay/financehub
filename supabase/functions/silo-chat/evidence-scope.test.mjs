@@ -128,10 +128,14 @@ test('a creative-text match with no campaign predicate is reported as pooling ca
   assert(pooledCols(s).includes('meta_ad_performance_daily.ad_id'), 'ad_id not reported as pooled');
 });
 
-test('...and an unrestricted date range says so rather than going quiet', () => {
+test('...and a query with no date predicate says so without claiming all history', () => {
   const s = scopeOf(CREATIVE_MATCH_SQL);
-  assert(typeof s.date_scope.window === 'string' && /not restricted/i.test(s.date_scope.window),
-    `an unbounded query claimed a window: ${JSON.stringify(s.date_scope)}`);
+  assert(!s.date_scope.window, `an unbounded query claimed a window: ${JSON.stringify(s.date_scope)}`);
+  assert(/no date predicate was readable/i.test(s.date_scope.restriction), 'the absent predicate is not reported');
+  // It used to say "this result covers every date present in the relation(s)".
+  // That is an assertion about the data made from a textual read of the
+  // statement: a date filter this parser cannot see reads as no filter at all.
+  assert(/not a guarantee/i.test(s.date_scope.restriction), 'the parser-not-prover caveat is missing');
 });
 
 test('a campaign that IS filtered is reported with the value it was filtered to', () => {
@@ -140,6 +144,98 @@ test('a campaign that IS filtered is reported with the value it was filtered to'
   assert(n && n.values && n.values.includes('Subscribers'), `campaign filter not recovered: ${JSON.stringify(s.narrowed_to)}`);
   const p = (s.narrowed_to || []).find((x) => x.column === 'platform');
   assert(p && p.values && p.values.includes('meta_ads'), 'platform filter not recovered');
+});
+
+console.log('\n-- CYCLE 1: an exclusion is not an inclusion --');
+
+// Reported by the independent review and reproduced before fixing: a correct
+// non-Meta total came back carrying `narrowed_to: platform = ['meta_ads']`.
+// Every exclusion operator was being read by the same positive-value collector,
+// so the envelope said the opposite of what the statement asked for -- this
+// module committing the mislabelling it exists to prevent.
+for (const [label, sql] of [
+  ['<>', "select sum(spend) from marketing_kpis_daily where platform <> 'meta_ads'"],
+  ['!=', "select sum(spend) from marketing_kpis_daily where platform != 'meta_ads'"],
+  ['NOT IN', "select sum(spend) from marketing_kpis_daily where platform not in ('meta_ads','tiktok_ads')"],
+]) {
+  test(`${label} is reported as an exclusion, never as a narrowing to that value`, () => {
+    const s = scopeOf(sql);
+    assert(!narrowedCols(s).includes('marketing_kpis_daily.platform'),
+      `an exclusion was reported as a narrowing: ${JSON.stringify(s.narrowed_to)}`);
+    const x = (s.excludes || []).find((e) => e.column === 'platform');
+    assert(x, `no exclusion recorded: ${JSON.stringify(s)}`);
+    assert(x.values.includes('meta_ads'), `excluded values not recovered: ${JSON.stringify(x)}`);
+  });
+}
+
+test('an inclusion and an exclusion in one statement stay on their own sides', () => {
+  const s = scopeOf(
+    "select sum(spend) from marketing_kpis_daily where platform = 'meta_ads' and campaign_name not in ('Subscribers')",
+  );
+  const inc = (s.narrowed_to || []).find((n) => n.column === 'platform');
+  eq(inc && inc.values, ['meta_ads'], 'included values');
+  const exc = (s.excludes || []).find((e) => e.column === 'campaign_name');
+  eq(exc && exc.values, ['Subscribers'], 'excluded values');
+});
+
+test('a predicate with no readable values is neither one value nor all of them', () => {
+  const s = scopeOf("select sum(spend) from marketing_kpis_daily where campaign_name ilike '%sonic%'");
+  assert(!narrowedCols(s).includes('marketing_kpis_daily.campaign_name'), 'a LIKE was read as a value filter');
+  assert(!pooledCols(s).includes('marketing_kpis_daily.campaign_name'), 'a LIKE was read as no filter');
+  eq((s.restricted_no_readable_values || []).map((r) => r.column), ['campaign_name'], 'restricted columns');
+});
+
+console.log('\n-- CYCLE 1: a date window is read from the operators, not from stray dates --');
+
+test('a relative bound is restricted, and is NOT reported as all history', () => {
+  const s = scopeOf('select sum(spend) from marketing_kpis_daily where day_date >= current_date - 30');
+  assert(!s.date_scope.window, 'a relative range was given a window');
+  assert(/this IS restricted on a date/i.test(s.date_scope.restriction),
+    `a 30-day query was reported as unrestricted: ${JSON.stringify(s.date_scope)}`);
+  assert(/relative or computed/i.test(s.date_scope.restriction), 'the reason the edges are unreadable is not given');
+});
+
+test('a one-sided bound is not collapsed into a single-day window', () => {
+  const s = scopeOf("select sum(spend) from marketing_kpis_daily where day_date >= '2026-09-01'");
+  assert(!s.date_scope.window,
+    `an open-ended range was published as a window: ${JSON.stringify(s.date_scope)}`);
+  eq(s.date_scope.literals_in_statement, ['2026-09-01'], 'the literal is still surfaced');
+  assert(/no end/.test(s.date_scope.restriction), `the open end is not named: ${s.date_scope.restriction}`);
+});
+
+test('...and the mirror case, an upper bound with no lower one', () => {
+  const s = scopeOf("select sum(spend) from marketing_kpis_daily where day_date < '2026-09-01'");
+  assert(!s.date_scope.window, 'an open-started range was published as a window');
+  assert(/no start/.test(s.date_scope.restriction), `the open start is not named: ${s.date_scope.restriction}`);
+});
+
+test('two one-sided bounds together DO make a window', () => {
+  const s = scopeOf(
+    "select sum(spend) from marketing_kpis_daily where day_date >= '2026-09-01' and day_date <= '2026-09-07'",
+  );
+  eq(s.date_scope.window, { from: '2026-09-01', to: '2026-09-07' }, 'window');
+});
+
+test('a NEGATED range restricts without bounding, so it is not a window', () => {
+  // `not between 'a' and 'b'` reaches both edges of the data with a hole in the
+  // middle. Publishing a window from its literals would name the EXCLUDED range
+  // as the period -- the date-side twin of the exclusion bug above.
+  const s = scopeOf(
+    "select sum(spend) from marketing_kpis_daily where day_date not between '2026-09-01' and '2026-09-07'",
+  );
+  assert(!s.date_scope.window, `a negated range was published as a window: ${JSON.stringify(s.date_scope)}`);
+  assert(/this IS restricted on a date/i.test(s.date_scope.restriction), 'a negated range was read as no filter');
+});
+
+test('a date used only as a join key does not become a window', () => {
+  // The same class as the ad_id join key on the value side: `t.day_date =
+  // m.day_date` bounds nothing, and treating `=` as a full bound would report a
+  // fully specified period on a query with no date filter at all.
+  const s = scopeOf(
+    'select sum(m.spend) from marketing_kpis_daily m join marketing_daily_totals_v t on t.day_date = m.day_date',
+  );
+  assert(!s.date_scope.window, `a join key was published as a window: ${JSON.stringify(s.date_scope)}`);
+  assert(/no date predicate was readable/i.test(s.date_scope.restriction), 'a join key was read as a predicate');
 });
 
 console.log('\n-- the derivation does not overclaim --');
