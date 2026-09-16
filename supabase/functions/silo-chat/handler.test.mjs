@@ -28,7 +28,10 @@
  * Run: node supabase/functions/silo-chat/handler.test.mjs
  */
 import { CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL, PER_PLATFORM_ROWS } from './evidence-fixtures.mjs';
-import { correctionRoundFits, GATEWAY_SAFE_MS, MODEL_CALL_FLOOR_MS, QUERY_CEILING_MS } from './budget-lib.mjs';
+import {
+  correctionRoundFits, modelCallTimeoutMs,
+  GATEWAY_SAFE_MS, MODEL_CALL_FLOOR_MS, QUERY_CEILING_MS, MIN_FINAL_CALL_MS,
+} from './budget-lib.mjs';
 import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -1207,6 +1210,59 @@ console.log('\n-- one round is held back to use the correction --');
 
 const WALL_CLOCK_BUDGET_MS = 95_000;
 
+/**
+ * Runs a scripted request where each model call costs a DIFFERENT amount of
+ * time, and a nominated call is cut off the way AbortSignal.timeout cuts one
+ * off in production.
+ *
+ * askWithClock's single `perCall` cannot express the failure this exists for:
+ * a call that is SLOWER than the samples the grant was admitted on. With a
+ * fixed latency the estimate is always right by construction, which is exactly
+ * why the estimator looked like an enforcement boundary.
+ */
+async function askWithSpike(rounds, callMs, { abortOnCall = [], ...clientOpts } = {}) {
+  const aborts = new Set([abortOnCall].flat());
+  const clock = installClock();
+  const sent = [];
+  const signalled = [];
+  try {
+    const queue = rounds.slice();
+    globalThis.fetch = async (url, init) => {
+      if (!String(url).includes('api.anthropic.com')) {
+        throw new Error(`unexpected outbound fetch in test: ${url}`);
+      }
+      sent.push(JSON.parse(init.body));
+      signalled.push(Boolean(init.signal));
+      const n = sent.length;
+      clock.advance(callMs[n - 1] ?? callMs[callMs.length - 1]);
+      if (aborts.has(n)) {
+        // What a deadline-aborted fetch throws. Scripted rather than driven by
+        // a real AbortSignal because the signal fires on REAL time and this
+        // clock is fake -- the assertions below pin the deadline VALUE that
+        // reached the fetch, which is the half a fake clock can check.
+        const err = new Error('The operation was aborted due to timeout');
+        err.name = 'TimeoutError';
+        throw err;
+      }
+      if (!queue.length) throw new Error('model called more times than the test scripted');
+      const body = queue.shift();
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+    };
+    const out = await ask(BASIC, clientOpts);
+    return { ...out, sent, signalled, remaining: () => queue.length };
+  } finally {
+    clock.restore();
+  }
+}
+
+/** The handler drives a REAL clock through a fake offset, so a deadline it
+ *  computes lands a millisecond or two under the arithmetic. modelCallTimeoutMs
+ *  pins the exact number; here the band only has to be tight enough to tell the
+ *  right reservation from a missing one (22s against 44s). */
+function eqDeadline(actual, expected, msg) {
+  assert(Math.abs(actual - expected) <= 100, `${msg} -- expected ~${expected}ms, got ${actual}ms`);
+}
+
 /** Runs a scripted request with time advanced by `perCall` on each model call. */
 async function askWithClock(rounds, perCall, clientOpts) {
   const clock = installClock();
@@ -1272,6 +1328,57 @@ test('the Sonic request would NOT have been granted one', () => {
   // would not have fired on it either -- F1's catalog hint is the half that
   // works regardless of budget.
   eq(correctionRoundFits({ elapsedMs: 120_893, modelCallMs: [17_094, 17_094] }), false, 'Sonic would have been granted a round');
+});
+
+// --- the deadline that the estimate above is NOT ---
+//
+// correctionRoundFits admits a correction from what earlier rounds cost. Cycle
+// 2 named the gap: the two calls it reserves for have not happened yet, and a
+// call slower than the samples is ordinary latency variation rather than a code
+// error. Nothing made the estimate binding on those calls, so overshooting it
+// reached the 150s gateway -- which writes no answer and no audit row.
+
+test('a correction round reserves its query AND the forced final', () => {
+  // 96s in, 44s of margin left. The correction call may have 22s of it; the
+  // other 22s belongs to the query it will run and the answer that reports it.
+  eq(modelCallTimeoutMs({ elapsedMs: 96_000, reserveMs: QUERY_CEILING_MS + MIN_FINAL_CALL_MS }), 22_000,
+    'the correction deadline stopped reserving what has to follow it');
+  eq(modelCallTimeoutMs({ elapsedMs: 96_000 }), 44_000,
+    'the case does not actually discriminate');
+});
+
+test('the forced final may use the whole remaining margin', () => {
+  // Nothing is reserved past it, so reserving anything would shorten the one
+  // call that has to produce the answer.
+  eq(modelCallTimeoutMs({ elapsedMs: 118_000 }), 22_000, 'the final answer lost margin it was owed');
+});
+
+test('a deadline already passed is 0, never negative', () => {
+  // A negative would be handed to AbortSignal.timeout as a duration, which
+  // rounds it to an immediate abort at best; 0 is what callers read as "do not
+  // start this call".
+  eq(modelCallTimeoutMs({ elapsedMs: 145_000 }), 0, 'an expired deadline came back negative');
+  eq(modelCallTimeoutMs({ elapsedMs: 139_999 }), 1, 'the case does not actually discriminate');
+});
+
+test('the deadline is measured from the gateway-safe line, not the 150s gateway', () => {
+  eq(modelCallTimeoutMs({ elapsedMs: 0 }), GATEWAY_SAFE_MS, 'the hard deadline moved off the safe line');
+  assert(GATEWAY_SAFE_MS < 150_000, 'a call could be admitted right up to the gateway itself');
+});
+
+test('every admissible grant leaves the correction call real time to run in', () => {
+  // This is the invariant that makes a zero-deadline guard at the grant site
+  // dead code, so it is asserted where a change to either constant fails it.
+  // Scanned rather than argued: any elapsed/latency pair the estimator admits
+  // must leave the correction call more than nothing.
+  for (let elapsedMs = 95_000; elapsedMs <= 140_000; elapsedMs += 250) {
+    for (const call of [0, 12_000, 15_000, 17_100, 25_000]) {
+      const modelCallMs = call ? [call] : [];
+      if (!correctionRoundFits({ elapsedMs, modelCallMs })) continue;
+      const deadline = modelCallTimeoutMs({ elapsedMs, reserveMs: QUERY_CEILING_MS + MIN_FINAL_CALL_MS });
+      assert(deadline > 0, `admitted at ${elapsedMs}ms with ${call}ms calls but left ${deadline}ms to run in`);
+    }
+  }
 });
 
 test('the gateway margin is real', () => {
@@ -1417,6 +1524,115 @@ await test('a healthy request is unaffected by any of this', async () => {
   eq(model.remaining(), 0, 'round count changed for a healthy request');
   eq(json.answer, 'fine', 'answer');
   assert(!('partial' in json), 'a healthy request was marked partial');
+});
+
+console.log('\n-- an admitted correction is bounded, not just predicted --');
+
+// 16s x 6 = 96s elapsed at the seventh round's top. worstCall 16s, so
+// 96 + 32 + 10 = 138 <= 140: admitted. The grant then reserves the query and
+// the final, leaving the correction call 140 - 96 - 22 = 22s.
+const SPIKE_CALLS = [16_000, 16_000, 16_000, 16_000, 16_000, 16_000];
+const spikeRounds = (tail) => [...failingRounds(6), ...tail];
+
+await test('the correction call is handed an absolute deadline, not a hope', async () => {
+  const { client } = await askWithSpike(
+    spikeRounds([sqlRound(AD_SQL), say('partial answer')]),
+    [...SPIKE_CALLS, 15_000, 15_000],
+    { rpcError: colErr('date') },
+  );
+  const ctx = auditRow(client).diagnostics.context;
+  eq(ctx.correction_round_granted, true, 'the scenario did not actually grant a correction');
+  eq(ctx.model_call_deadline_ms.slice(0, 6), [0, 0, 0, 0, 0, 0],
+    'an ordinary in-budget round was given a deadline it does not need');
+  eqDeadline(ctx.model_call_deadline_ms[6], 22_000,
+    'the correction call carried no deadline, or not the one that reserves what follows it');
+});
+
+await test('a correction slower than every sample loses the round, not the answer', async () => {
+  // The cycle-2 failure exactly: earlier calls cheap enough to admit the grant,
+  // then a correction call that runs long. Unbounded it reaches the gateway at
+  // 96 + 60 + 15 = 171s and the user gets a bare 504 with no audit row. Bounded
+  // it is cut off at its 22s deadline, and the time that was held back for the
+  // forced final is still there to write the partial answer with.
+  const { json, client, signalled, remaining } = await askWithSpike(
+    spikeRounds([say('partial answer')]),
+    [...SPIKE_CALLS, 22_000, 15_000],
+    { rpcError: colErr('date'), abortOnCall: 7 },
+  );
+  eq(signalled[6], true, 'the correction fetch went out with no abort signal at all');
+  eq(remaining(), 0, 'the forced final never ran');
+  assert(json.answer && json.answer.includes('partial answer'), `no answer came back: ${JSON.stringify(json).slice(0, 200)}`);
+  eq(json.partial, true, 'a deadline-cut correction was reported as a complete answer');
+  const ctx = auditRow(client).diagnostics.context;
+  assert(ctx.elapsed_ms < GATEWAY_MS, `finished at ${ctx.elapsed_ms}ms, at or past the ${GATEWAY_MS}ms gateway`);
+  eqDeadline(ctx.model_call_deadline_ms[7], 22_000, 'the forced final was left unbounded');
+});
+
+await test('...and the queries gathered before it are still in the answer path', async () => {
+  // Losing the correction must not lose the investigation: the six results that
+  // preceded it are what the partial answer is built from.
+  const { client } = await askWithSpike(
+    spikeRounds([say('partial answer')]),
+    [...SPIKE_CALLS, 22_000, 15_000],
+    { rpcError: colErr('date'), abortOnCall: 7 },
+  );
+  eq(auditRow(client).diagnostics.queries.length, 6, 'the gathered queries were dropped with the round');
+  eq(auditRow(client).status, 'ok', 'a deadline-cut correction was audited as a failed request');
+});
+
+await test('...and prose already written is shipped rather than dropped', async () => {
+  // A round answered and was cut off by the output limit, so answerSoFar holds
+  // real text; then the forced continuation runs past its deadline. Before this
+  // branch that paid-for prose was replaced by the generic out-of-time message.
+  const { json, client } = await askWithSpike(
+    // Calls 1-5 query and fail, call 6 answers and is cut off by the output
+    // limit (96s elapsed), and the forced final that would finish it is then
+    // cut off by its own deadline.
+    [...failingRounds(5), say('THE PART THAT WAS WRITTEN.', 'max_tokens'), say('never arrives')],
+    [...SPIKE_CALLS, 22_000, 22_000],
+    { rpcError: colErr('date'), abortOnCall: 7 },
+  );
+  assert(json.answer && json.answer.includes('THE PART THAT WAS WRITTEN.'),
+    `the already-written prose was dropped: ${JSON.stringify(json).slice(0, 300)}`);
+  eq(json.partial, true, 'a deadline-cut answer was reported as complete');
+  const row = auditRow(client);
+  assert(row, 'no audit row was written');
+  assert(/cut off by its own deadline/.test(row.error_message || ''),
+    `the deadline cause was not recorded: ${row.error_message}`);
+});
+
+await test('one slow in-budget round cannot push an UNBOUNDED final past the gateway', async () => {
+  // Only post-budget calls carry a deadline, so an ordinary round that starts
+  // at 94s and runs long is the one way to arrive at the forced final with the
+  // safe line already spent. A remaining budget of 0 must not read as
+  // "unbounded" there -- that call is exactly the one the gateway kills, and a
+  // gateway kill writes nothing at all.
+  const { json, client, remaining } = await askWithSpike(
+    [sqlRound(AD_SQL), say('should never be asked for')],
+    [145_000],
+    { rpcError: colErr('date') },
+  );
+  eq(remaining(), 1, 'the forced final went out with no time left to run in');
+  assert(!json.answer, `an answer came back from a call that should not have been made: ${JSON.stringify(json).slice(0, 200)}`);
+  const row = auditRow(client);
+  assert(row, 'no audit row was written -- the invisible-504 failure mode survived');
+  eq(row.status, 'error', 'an unanswered request was audited as ok');
+});
+
+await test('a forced final that also overruns still leaves an audit row behind', async () => {
+  // The harsher case, and the one the gateway handles worst. There is no answer
+  // to be had -- but "no answer, recorded as out of time" is a row in
+  // silo_chat_health_v, where the 504 it replaces is invisible.
+  const { json, client } = await askWithSpike(
+    spikeRounds([say('never arrives')]),
+    [...SPIKE_CALLS, 22_000, 22_000],
+    { rpcError: colErr('date'), abortOnCall: [7, 8] },
+  );
+  assert(!json.answer, `an answer came back from a call that never returned: ${JSON.stringify(json).slice(0, 200)}`);
+  const row = auditRow(client);
+  assert(row, 'no audit row was written -- the 504 failure mode survived');
+  assert(row.diagnostics.context.elapsed_ms < GATEWAY_MS,
+    `finished at ${row.diagnostics.context.elapsed_ms}ms, at or past the ${GATEWAY_MS}ms gateway`);
 });
 
 console.log('\n-- the record says which round, and whether a correction was granted --');

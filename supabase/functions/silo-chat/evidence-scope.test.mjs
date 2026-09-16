@@ -394,6 +394,32 @@ test('the mixed note says the figures are on different bases, not that none rest
   assert(!/nothing that was queried restricted/.test(note), 'the mixed case used the nothing-restricted wording');
 });
 
+test('...and the mixed note does not then close by contradicting itself (cycle-2 finding)', () => {
+  // The per-flag clause was corrected in cycle 1; the SHARED closing sentence
+  // was not, so the note said the results were mixed and then that no executed
+  // query established the label. Both cannot be true, and an answer that
+  // correctly cites the online-only figure as "online" was told the label was
+  // unsupported.
+  const mixed = [...sonicSalesScope(), describeEvidenceScope(
+    "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'", INDEX, {},
+  )];
+  const note = formatClaimNote(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed));
+  assert(!/was not established by anything that ran/.test(note),
+    `the mixed note still claims nothing established the label: ${note}`);
+  assert(/At least one query did restrict it/.test(note), `the mixed closing is missing: ${note}`);
+  assert(/cannot tell which result/.test(note), `the mixed closing does not say what it cannot do: ${note}`);
+});
+
+test('a wholly pooled scope KEEPS the nothing-established closing', () => {
+  // The other half of the branch: where no query restricted the dimension the
+  // strong sentence is accurate and must not be softened away with it.
+  const note = formatClaimNote(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, sonicSalesScope()));
+  assert(/was not established by anything that ran/.test(note),
+    `the pooled note lost its accurate closing: ${note}`);
+  assert(!/At least one query did restrict it/.test(note),
+    `the pooled note used the mixed closing: ${note}`);
+});
+
 test('the ask-a-total-then-split shape is caught (cycle-1 finding)', () => {
   // R1 returns combined Meta+Google+TikTok spend; R2 groups the same week by
   // platform. The answer calls R1's combined figure "Meta ad spend".

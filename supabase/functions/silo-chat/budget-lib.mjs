@@ -53,3 +53,37 @@ export function correctionRoundFits({
   const worstCall = Math.max(floorMs, ...modelCallMs);
   return elapsedMs + worstCall * 2 + queryCeilingMs <= gatewaySafeMs;
 }
+
+/** The cheapest forced final answer worth reserving for. Below this the model
+ *  has no room to write even a short partial, so a correction that would leave
+ *  less than this is not worth granting -- the request would reach the gateway
+ *  having spent its last round on a query nobody gets told about. */
+export const MIN_FINAL_CALL_MS = 12_000;
+
+/**
+ * How long THIS model call may take, as an absolute deadline rather than a
+ * prediction.
+ *
+ * correctionRoundFits above is an ADMISSION check: it decides, from what
+ * earlier rounds cost, whether a correction is worth starting. It cannot be the
+ * enforcement boundary, because it reasons about calls that have not happened
+ * yet -- two future calls at 25s each are ordinary latency variation, not a
+ * code error, and they overshoot a grant admitted on 15s samples by enough to
+ * reach the gateway. The fetch then has no timeout of its own, so the request
+ * is killed with no answer and no audit row.
+ *
+ * So the admission check stays, and this draws the line it cannot: what remains
+ * before the safe deadline, minus whatever must still happen afterwards.
+ * `reserveMs` is that remainder -- for a correction round, the query it will run
+ * plus the forced final that reports it; for the forced final itself, nothing.
+ *
+ * Returns 0 when the deadline has already passed, which callers read as "do not
+ * start this call".
+ */
+export function modelCallTimeoutMs({
+  elapsedMs,
+  reserveMs = 0,
+  hardDeadlineMs = GATEWAY_SAFE_MS,
+} = {}) {
+  return Math.max(0, hardDeadlineMs - elapsedMs - reserveMs);
+}

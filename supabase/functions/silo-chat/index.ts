@@ -404,7 +404,12 @@ import {
   createInspectionBudget,
   looksInspectable,
 } from './seo-lib.mjs';
-import { correctionRoundFits } from './budget-lib.mjs';
+import {
+  correctionRoundFits,
+  modelCallTimeoutMs,
+  MIN_FINAL_CALL_MS,
+  QUERY_CEILING_MS,
+} from './budget-lib.mjs';
 import {
   auditAnswerClaims,
   buildCatalogIndex,
@@ -899,53 +904,81 @@ function buildSystemPrompt(notes: Note[], schemaSection: string) {
   return BASE_PROMPT_BEFORE_SCHEMA + schemaSection + '\n\n' + BASE_PROMPT_AFTER_SCHEMA + dateBlock + brandBlock + strategyBlock + notesBlock;
 }
 
+/** Thrown when a model call is cut off by its own deadline. Distinct from a
+ *  transport error because the caller's response to it is different: there is
+ *  no point retrying, but there IS still time reserved to write an answer. */
+class ModelCallDeadlineError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Anthropic call exceeded its ${timeoutMs}ms deadline`);
+    this.name = 'ModelCallDeadlineError';
+  }
+}
+
 async function callAnthropic(
   messages: unknown[],
   systemPrompt: string,
   tools: unknown[],
-  opts: { forceAnswer?: boolean; forceTool?: string } = {},
+  // timeoutMs bounds THIS call against the absolute gateway deadline. Without
+  // it the fetch runs unbounded, which is what let a grant admitted on cheap
+  // samples overshoot 150s and lose both the answer and the audit row. 0 or
+  // undefined leaves the call unbounded, as it was.
+  opts: { forceAnswer?: boolean; forceTool?: string; timeoutMs?: number } = {},
 ) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      // Was 4096. A live holiday-collection draft (full launch-plan brief in
-      // prose after hitting query errors) got cut off mid-word at the old
-      // cap -- stop_reason was "max_tokens" but the code only checked "is
-      // there text?", so it shipped the truncated fragment as a finished
-      // answer. Raised as a mitigation; the real fix is the stop_reason
-      // check below, which now refuses to treat a max_tokens cutoff as done
-      // regardless of the cap.
-      max_tokens: 8192,
-      // Cached as one block -- render order is tools -> system -> messages,
-      // so this breakpoint covers TOOLS too. System prompt is long enough to
-      // clear Sonnet 5's 1024-token minimum cacheable prefix. Content is
-      // identical across every tool-round of a single request (notes are
-      // fetched once, up front), so every round after the first hits the
-      // cache instead of repaying full input-token price for it. Different
-      // requests only miss the cache when the notes list itself changed.
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-      // forceAnswer: tools stay declared (the transcript contains tool_use /
-      // tool_result blocks that must resolve against them) but tool_choice
-      // 'none' forbids any further calls, so the model can only answer.
-      // forceTool: same idea, but forces the NEXT round to call one specific
-      // tool -- used to make the phase-1 draft nudge below an actual
-      // enforcement instead of a request the model can (and, live, did)
-      // answer past with a prose apology instead.
-      tools,
-      ...(opts.forceAnswer
-        ? { tool_choice: { type: 'none' } }
-        : opts.forceTool
-        ? { tool_choice: { type: 'tool', name: opts.forceTool } }
-        : {}),
-      messages,
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        // Was 4096. A live holiday-collection draft (full launch-plan brief in
+        // prose after hitting query errors) got cut off mid-word at the old
+        // cap -- stop_reason was "max_tokens" but the code only checked "is
+        // there text?", so it shipped the truncated fragment as a finished
+        // answer. Raised as a mitigation; the real fix is the stop_reason
+        // check below, which now refuses to treat a max_tokens cutoff as done
+        // regardless of the cap.
+        max_tokens: 8192,
+        // Cached as one block -- render order is tools -> system -> messages,
+        // so this breakpoint covers TOOLS too. System prompt is long enough to
+        // clear Sonnet 5's 1024-token minimum cacheable prefix. Content is
+        // identical across every tool-round of a single request (notes are
+        // fetched once, up front), so every round after the first hits the
+        // cache instead of repaying full input-token price for it. Different
+        // requests only miss the cache when the notes list itself changed.
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        // forceAnswer: tools stay declared (the transcript contains tool_use /
+        // tool_result blocks that must resolve against them) but tool_choice
+        // 'none' forbids any further calls, so the model can only answer.
+        // forceTool: same idea, but forces the NEXT round to call one specific
+        // tool -- used to make the phase-1 draft nudge below an actual
+        // enforcement instead of a request the model can (and, live, did)
+        // answer past with a prose apology instead.
+        tools,
+        ...(opts.forceAnswer
+          ? { tool_choice: { type: 'none' } }
+          : opts.forceTool
+          ? { tool_choice: { type: 'tool', name: opts.forceTool } }
+          : {}),
+        messages,
+      }),
+    });
+  } catch (err) {
+    // An aborted fetch surfaces as TimeoutError/AbortError depending on
+    // runtime. Named separately so the caller can tell "the deadline closed"
+    // apart from "the network failed" -- the first still has reserved time to
+    // write an answer with, the second does not.
+    const name = (err as { name?: string } | null)?.name;
+    if (opts.timeoutMs && (name === 'TimeoutError' || name === 'AbortError')) {
+      throw new ModelCallDeadlineError(opts.timeoutMs);
+    }
+    throw err;
+  }
   if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -1630,6 +1663,10 @@ Deno.serve(async (req: Request) => {
       // The inputs to that decision, so a refusal is diagnosable from the record
       // rather than being indistinguishable from "no correctable error".
       model_call_ms: modelCallMs,
+      // The deadline each of those calls actually carried (0 = unbounded). The
+      // pair is what makes the enforcement boundary auditable: model_call_ms
+      // alone cannot show whether a fast request was fast or merely lucky.
+      model_call_deadline_ms: modelCallDeadlineMs,
       workflow: activeWorkflow,
       elapsed_ms: elapsedMs(),
       investigation_checkpoint_sent: investigationCheckpointSent,
@@ -1770,8 +1807,14 @@ Deno.serve(async (req: Request) => {
     // spent here, not in the database, so this is the only number that makes a
     // time reservation meaningful.
     const modelCallMs: number[] = [];
+    // Every deadline actually imposed on a call, in call order; 0 means the
+    // call ran unbounded. Recorded because a deadline that is never applied and
+    // one that is generous look identical from the outside once the request
+    // succeeds, and the whole point of this is the case that does not succeed.
+    const modelCallDeadlineMs: number[] = [];
     const timedCallAnthropic = async (...args: Parameters<typeof callAnthropic>) => {
       const startedCallAt = Date.now();
+      modelCallDeadlineMs.push(args[3]?.timeoutMs || 0);
       try {
         return await callAnthropic(...args);
       } finally {
@@ -1779,6 +1822,21 @@ Deno.serve(async (req: Request) => {
       }
     };
     const correctionFits = () => correctionRoundFits({ elapsedMs: elapsedMs(), modelCallMs });
+    // A granted correction round is the one place a call is started AFTER the
+    // budget is spent, so it is the one place a slow call has nothing left to
+    // absorb it. It gets an absolute deadline that reserves the query it is
+    // about to run plus the forced final that reports the result; set for that
+    // round only, then cleared.
+    let correctionCallTimeoutMs = 0;
+    /** The deadline for a forced final answer: everything left, since nothing
+     *  is reserved past it. A remaining budget of 0 is NOT "unbounded" -- an
+     *  unbounded call at 140s is precisely the one the gateway kills -- so it
+     *  raises instead, which still reaches the audit row. */
+    const finalCallDeadline = () => {
+      const ms = modelCallTimeoutMs({ elapsedMs: elapsedMs() });
+      if (!ms) throw new ModelCallDeadlineError(0);
+      return ms;
+    };
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       if (elapsedMs() >= WALL_CLOCK_BUDGET_MS) {
@@ -1787,6 +1845,15 @@ Deno.serve(async (req: Request) => {
           && correctionFits();
         if (!canCorrect) break;
         correctionRoundGranted = true;
+        // Always positive where a grant is possible at all: correctionRoundFits
+        // cannot admit a round past ~100s elapsed, and this reserves 22s of the
+        // 140s line. Guarding for 0 here would be a branch nothing can reach --
+        // budget-lib's own suite asserts the two constants keep that invariant
+        // instead, where a change to either one is what actually fails.
+        correctionCallTimeoutMs = modelCallTimeoutMs({
+          elapsedMs: elapsedMs(),
+          reserveMs: QUERY_CEILING_MS + MIN_FINAL_CALL_MS,
+        });
         // Consume the investigation checkpoint if it has not fired yet. The two
         // say opposite things -- the checkpoint asks for breadth across
         // unmeasured areas, this asks for one specific failed query -- and the
@@ -1812,12 +1879,30 @@ Deno.serve(async (req: Request) => {
           content: 'Investigation checkpoint: the remaining query time is limited. Tools are still available. Revisit every part of the original question and prioritize the smallest useful aggregate for requested areas you have not measured yet before drilling further into areas already covered. Reuse existing results and exact columns already described; do not repeat discovery. Keep the comparison dates and units compatible. If a missing linkage or coverage gap blocks the decision, say what is missing rather than substituting a different metric. This is not an instruction to stop early or to write anything to the database.',
         });
       }
-      const data = await timedCallAnthropic(
-        messages,
-        systemPrompt,
-        tools,
-        forceNudgeTool ? { forceTool: 'create_product_concept' } : {},
-      );
+      // Untyped, matching the `const data = await ...` it replaces: callAnthropic
+      // returns res.json(). An annotation here would be narrower than the block
+      // callbacks below already assume.
+      let data;
+      try {
+        data = await timedCallAnthropic(
+          messages,
+          systemPrompt,
+          tools,
+          {
+            ...(forceNudgeTool ? { forceTool: 'create_product_concept' as const } : {}),
+            ...(correctionCallTimeoutMs ? { timeoutMs: correctionCallTimeoutMs } : {}),
+          },
+        );
+      } catch (err) {
+        // A correction round that runs past its deadline is not a failed
+        // request: everything gathered before it is still good, and the time
+        // it was holding back was reserved precisely so the forced final below
+        // can still write that up. Anything else propagates as before.
+        if (!(err instanceof ModelCallDeadlineError)) throw err;
+        correctionCallTimeoutMs = 0;
+        break;
+      }
+      correctionCallTimeoutMs = 0;
       forceNudgeTool = false;
       const blocks = data.content || [];
       collectSources(blocks, sources);
@@ -2438,7 +2523,15 @@ Deno.serve(async (req: Request) => {
 
 Then stop. Do not fill the shape of the question with the piece you did not get to: if the question asked for actions or a recommendation and the evidence only reaches an observation, give the observation and say what would have to be true for it to become a recommendation. An unfinished investigation reported as unfinished is a good answer. An invented conclusion is not, and neither is a confident one caveated in a trailing note.`,
       });
-      let finalData = await timedCallAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
+      // Nothing is reserved past this call -- it IS the last thing that has to
+      // happen before the audit row is written -- so it may use the whole
+      // remaining margin. Bounded all the same: the gateway's 504 writes no
+      // audit row at all, where an abort here still reaches the error path and
+      // records that the request ran out of time.
+      let finalData = await timedCallAnthropic(messages, systemPrompt, tools, {
+        forceAnswer: true,
+        timeoutMs: finalCallDeadline(),
+      });
       collectSources(finalData.content || [], sources);
       // Raw, then trimmed separately -- same seam problem as the main loop.
       let finalRaw = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('');
@@ -2453,7 +2546,10 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
           role: 'user',
           content: "That got cut off by the output length limit. Finish it concisely -- lead with the key numbers/decision, don't restate what you already said.",
         });
-        finalData = await timedCallAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
+        finalData = await timedCallAnthropic(messages, systemPrompt, tools, {
+          forceAnswer: true,
+          timeoutMs: finalCallDeadline(),
+        });
         collectSources(finalData.content || [], sources);
         const continuedRaw = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('');
         // APPEND, never replace. Replacing was the same bug as the main
@@ -2480,6 +2576,18 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
       }
     } catch (err) {
       console.error('[silo-chat] forced final answer failed', err);
+      // A deadline closing on the forced final is a NEW way to reach here, and
+      // it must not throw away prose the model had already written. answerSoFar
+      // holds a turn that was cut off by the output limit -- real, already-paid-
+      // for text. Shipping it beats the generic out-of-time message below;
+      // anything else still falls through to that message as before.
+      if (err instanceof ModelCallDeadlineError && answerSoFar.trim()) {
+        return await finishWithAnswer(answerSoFar.trim(), {
+          toolRounds: roundsUsed,
+          partial: 'the time budget ran out while this answer was being written; it stops where it stops',
+          errorMessage: `forced final answer cut off by its own deadline (${Math.round(elapsedMs() / 1000)}s, ${roundsUsed} rounds)`,
+        });
+      }
     }
 
     // Distinguish "the SQL was too heavy to finish" from "the model got

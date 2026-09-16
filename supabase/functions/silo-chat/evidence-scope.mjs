@@ -733,7 +733,19 @@ export function formatClaimNote(flags) {
       ? `it uses ${words}, and the results behind this answer are NOT all on the same ${f.label} -- some restricted it and at least one did not, so a figure taken from the unrestricted one covers every value`
       : `it uses ${words}, but nothing that was queried restricted ${f.label} -- every figure above covers all of its values together`;
   });
+  // The closing sentence has to branch for the same reason the clause above
+  // does. "Nothing that ran established the label" is true of a wholly pooled
+  // scope and FALSE as soon as one query restricted the dimension: an answer
+  // that correctly quotes the online-only figure as online would be told, in
+  // consecutive sentences, that the results are mixed and that no executed
+  // query established the label. The second sentence is the one a reader acts
+  // on, and it was the wrong one -- what the checker actually cannot do in the
+  // mixed case is tie the label to the particular figure it sits on.
+  const anyMixed = flags.some((f) => f.mixed);
+  const closing = anyMixed
+    ? 'At least one query did restrict it, so the wording is not unsupported -- but this check cannot tell which result a given figure came from. Confirm which one backs the number before relying on the label.'
+    : 'Read that wording as unverified: the figures are real, the label on them was not established by anything that ran.';
   return `\n\n---\n**Scope check (automatic):** ${parts.join('; ')}. `
-    + 'Read that wording as unverified: the figures are real, the label on them was not established by anything that ran. '
+    + closing + ' '
     + 'This is a word check over the text above, so it can be wrong in both directions.';
 }

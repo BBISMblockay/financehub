@@ -261,6 +261,16 @@ better query. Pooled anywhere now means unresolved, and `mixedDimensions`
 distinguishes "nothing restricted it" from "some results did and some did not",
 which are different sentences for the reader.
 
+**...and then the note contradicted its own correction.** Cycle 1 fixed the
+per-flag clause and left the note's *shared closing sentence* saying the label
+"was not established by anything that ran" — true of a wholly pooled scope, and
+false the moment one query restricted the dimension. An answer correctly citing
+the online-only figure as "online" was told, in consecutive sentences, that the
+results were mixed and that no executed query established the label; the second
+is the one a reader acts on. The closing branches now: for a mixed scope it says
+at least one query did restrict it and that the check cannot tell which result a
+given figure came from, which is what it actually cannot do.
+
 **The correction round did not reserve time for the forced final answer.** The
 fixed 115s cutoff left ~35s before the 150s gateway, and a correction costs a
 model call, then a query, then the final answer's own model call. At the traced
@@ -280,6 +290,40 @@ catalog hint is the half that works regardless of budget. Setting the floor to
 The arithmetic lives in `budget-lib.mjs` rather than in the handler because two
 handler-level mutations survived inside a millisecond of the boundary: driving
 real elapsed time cannot pin a formula. There the numbers are inputs.
+
+**An estimate is not a deadline, and the second review said so.** The
+reservation above is an *admission* check: it reasons from what earlier rounds
+cost about two calls that have not happened yet. Nothing made it binding on
+them, and the `fetch` in `callAnthropic` carried no abort signal at all — so a
+grant admitted on 15s samples whose correction and forced final each took 25s
+reached ~155s and was killed by the gateway, with no answer and no audit row.
+Ordinary latency variation, not a code error. The fixed-latency tests could not
+show it, because a fixed latency makes the estimate right by construction.
+
+So the admission check stays and an enforcement boundary is added beside it:
+`modelCallTimeoutMs` turns "what is left before the 140s safe line, minus what
+must still happen after this call" into an `AbortSignal.timeout` on each
+post-budget call. A correction reserves the query it will run plus the forced
+final that reports it (22s at a 96s grant); the forced final reserves nothing,
+because it is the last thing that has to happen. Three consequences worth
+knowing:
+
+- A correction cut off by its deadline **loses the round, not the request** —
+  the time held back for the forced final is still there, and the six results
+  gathered before it still reach the answer.
+- A forced final cut off by its own deadline still writes an audit row, where
+  the 504 it replaces is invisible in `silo_chat_health_v`. If prose had already
+  been written and truncated, that prose ships rather than being replaced by the
+  generic out-of-time message.
+- A remaining budget of 0 is **not** "unbounded". That is reachable without any
+  correction at all: only post-budget calls carry a deadline, so one ordinary
+  round starting at 94s and running 50s arrives at the forced final with the
+  safe line already spent.
+
+`diagnostics.context.model_call_deadline_ms` records the deadline each call
+actually carried (0 = unbounded), beside `model_call_ms`. The pair is what makes
+this auditable — on a request that succeeds, a deadline that was never applied
+and one that was generous look identical.
 
 ### Deliberate limitations
 
