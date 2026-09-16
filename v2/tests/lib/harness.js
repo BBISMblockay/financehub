@@ -298,7 +298,21 @@ window.__QUERIES__ = [];
           getSession: function () {
             return new Promise(function (res) {
               setTimeout(function () {
-                res({ data: { session: { user: { email: 'test@baseballism.com' } } }, error: null });
+                // Carries an access_token and a user id because a real one
+                // does, and pages legitimately depend on both: v2/silo-chat.html
+                // reads a fresh token per request (a tab open past the token's
+                // lifetime was posting an expired one) and scopes its stored
+                // conversation by user id. Without these a page that is working
+                // correctly refuses to send, which reads as a page bug.
+                res({
+                  data: {
+                    session: {
+                      access_token: 'fake-access-token',
+                      user: { id: 'test-user', email: 'test@baseballism.com' },
+                    },
+                  },
+                  error: null,
+                });
               }, 0);
             });
           },

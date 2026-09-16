@@ -58,6 +58,7 @@ on:
       - 'supabase/migrations/*finance_v1_posting_controls.sql'
       - 'supabase/migrations/*plaid_bank_feed.sql'
       - 'supabase/migrations/*profiles_active_company_scope.sql'
+      - 'supabase/migrations/*chat_readonly_query_read_only_txn.sql'
       - 'supabase/migrations/*seo_measurement_capture.sql'
       - 'supabase/migrations/*seo_project_workflow.sql'
       - 'supabase/migrations/*seo_workflow_integrity.sql'
@@ -281,6 +282,17 @@ jobs:
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs
+
+      # Ask SILO's shared query engine. Its guard is a check on the SHAPE of the
+      # statement text, and a SELECT is not a read: `select
+      # set_active_company(...)` is one semicolon-free SELECT that repoints the
+      # caller's whole session at another company. Also pins the two mechanisms
+      # that LOOK like the fix and are not -- a transaction_read_only function
+      # SET clause (Postgres rejects it outright) and declaring the function
+      # STABLE (a nested volatile function still writes) -- because the second
+      # is what the next person will reach for.
+      - name: Execute Ask SILO read-only query boundary regressions
+        run: node scripts/tests/chat-readonly-query-database.test.mjs
 
       - name: Execute cashflow override, liquidity and audit regressions
         run: node scripts/tests/cashflow-database.test.mjs

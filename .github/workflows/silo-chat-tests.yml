@@ -1,6 +1,7 @@
-name: Ask SILO prompt tests
+name: Ask SILO tests
 
-# Guards the silo-chat edge function's prompt assembly.
+# Guards the silo-chat edge function: its prompt assembly, and its request
+# handler.
 #
 # Why this exists as CI rather than a script someone remembers to run: the
 # failure it catches is SILENT. The rule "ABSENCE OF HISTORY IS NOT EVIDENCE
@@ -16,8 +17,14 @@ name: Ask SILO prompt tests
 # against the deployed function, which is a different (and much slower) kind
 # of test than this file.
 #
-# Needs NO secrets and no install -- it reads index.ts off the checkout and
-# asserts on string content, so it is safe to run on pull requests.
+# Two jobs' worth of assertions, in one job. prompt.test.mjs asserts on the
+# prompt's string content (right for a prompt, useless for a handler);
+# handler.test.mjs executes the actual request handler against a mocked model
+# and database, which is the only way to assert things like "the answer
+# returned is the whole answer".
+#
+# Needs NO secrets and no install -- both read index.ts off the checkout, so
+# they are safe to run on pull requests.
 
 on:
   push:
@@ -38,7 +45,7 @@ concurrency:
 
 jobs:
   prompt:
-    name: Prompt assembly
+    name: Prompt assembly + request handler
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,3 +56,12 @@ jobs:
       # ever needs an install step, that is a regression worth failing over.
       - name: Run prompt assertions
         run: node supabase/functions/silo-chat/prompt.test.mjs
+
+      # Runs the real Deno.serve handler out of index.ts with the model API
+      # and the database mocked. The prompt job above asserts on SOURCE TEXT,
+      # which is right for a prompt and cannot reach a handler: the 2026-09-16
+      # audit found five reliability defects here and the string-matching
+      # suites passed on every one of them. Node strips the TypeScript
+      # annotations, so this still needs no install and no secrets.
+      - name: Run request-handler assertions
+        run: node supabase/functions/silo-chat/handler.test.mjs

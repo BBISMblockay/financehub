@@ -27,12 +27,25 @@ const ok = (n, c) => { if (c) { console.log('  ok   ' + n); pass++; } else { con
  // Seed the chat history sessionStorage key, so the page's own
  // restoreHistoryFromSession() renders a real assistant message with a real
  // "Save report" button. No test hooks in production code.
+ //
+ // The key is scoped to the user and the active company, and the blob repeats
+ // both (2026-09-16): a tab outlives a company switch and a sign-out, and the
+ // old single fixed key meant the previous identity's conversation was
+ // replayed into the log AND posted back as context. U1/C1 are what the fake
+ // client and fake config hand this page. A blob that does not match is
+ // refused, so this seeding IS the contract -- if it stops rendering, the
+ // storage contract changed and that is the thing to look at.
  await p.addInitScript(() => {
-   sessionStorage.setItem('silo_chat_history_v1', JSON.stringify([
-     { role: 'user', content: 'What were our top products last 30 days?' },
-     { role: 'assistant', content: 'Top products are...',
-       queries: ['select product_title, net_sales, units from sales'] },
-   ]));
+   sessionStorage.setItem('silo_chat_history_v2:U1:C1', JSON.stringify({
+     v: 2,
+     user_id: 'U1',
+     company_id: 'C1',
+     messages: [
+       { role: 'user', content: 'What were our top products last 30 days?' },
+       { role: 'assistant', content: 'Top products are...',
+         queries: ['select product_title, net_sales, units from sales'] },
+     ],
+   }));
  });
  await p.goto(`${BASE}/v2/silo-chat.html`);
  await p.waitForSelector('[data-save-id]', { timeout: 15000 });
@@ -141,6 +154,54 @@ const ok = (n, c) => { if (c) { console.log('  ok   ' + n); pass++; } else { con
     reported[id0] && reported[id0].w === stored.w && reported[id0].w !== 1);
  ok('the tile still renders its chart at phone width',
     (await pm.locator('.dw-chart canvas').count())>=1);
+
+ // ── a conversation belongs to who was in it (2026-09-16) ──
+ // sessionStorage is per TAB, and a tab outlives a company switch
+ // (/v2/company-picker.html navigates in place) and a sign-out/sign-in. Under
+ // the old single fixed key the previous identity's conversation was replayed
+ // into the log AND posted back to the edge function as context for the next
+ // question -- an answer about one company quoted at someone now in another.
+ // Seeded here the way it would really arrive: a blob left behind by another
+ // identity, in ITS key, while the page boots as U1/C1.
+ const foreign = await suite.newContext();
+ const pf = await foreign.newPage();
+ const ferrs = []; pf.on('pageerror', e => ferrs.push(String(e)));
+ await pf.addInitScript(() => {
+   const blob = JSON.stringify({
+     v: 2, user_id: 'U9', company_id: 'C9',
+     messages: [
+       { role: 'user', content: 'SECRET QUESTION FROM ANOTHER COMPANY' },
+       { role: 'assistant', content: 'SECRET ANSWER FROM ANOTHER COMPANY', queries: ['select 1'] },
+     ],
+   });
+   sessionStorage.setItem('silo_chat_history_v2:U9:C9', blob);
+   // ...and the SAME foreign conversation filed under THIS identity's key.
+   // The key scoping alone would sail straight past this, which is why the
+   // identity is written into the blob as well and checked on read. Without
+   // this case the second guard is untested and the purge above hides it.
+   sessionStorage.setItem('silo_chat_history_v2:U1:C1', blob);
+   // ...and the pre-2026-09-16 unscoped key, which is what a tab open across
+   // the upgrade actually has sitting in it.
+   sessionStorage.setItem('silo_chat_history_v1', JSON.stringify([
+     { role: 'assistant', content: 'LEGACY ANSWER FROM BEFORE THE FIX' },
+   ]));
+ });
+ await pf.goto(`${BASE}/v2/silo-chat.html`);
+ await pf.waitForSelector('#log', { timeout: 15000 });
+ await pf.waitForTimeout(600);
+ const log = await pf.textContent('#log');
+ ok('another identity\'s conversation is not replayed into the log',
+    !log.includes('SECRET ANSWER FROM ANOTHER COMPANY') && !log.includes('SECRET QUESTION'));
+ ok('...nor is a conversation stored under the pre-fix unscoped key',
+    !log.includes('LEGACY ANSWER FROM BEFORE THE FIX'));
+ ok('...and it is not carried in memory as context for the next question either',
+    (await pf.evaluate(() => JSON.stringify(sessionStorage.getItem('silo_chat_history_v2:U9:C9')))) === 'null');
+ ok('the legacy unscoped key is purged too',
+    (await pf.evaluate(() => JSON.stringify(sessionStorage.getItem('silo_chat_history_v1')))) === 'null');
+ ok('a blob naming another identity is refused even under the right key',
+    (await pf.evaluate(() => JSON.stringify(sessionStorage.getItem('silo_chat_history_v2:U1:C1')))) === 'null');
+ ok('no page errors booting a tab with a foreign conversation in it',
+    ferrs.length === 0 || (console.log(ferrs.slice(0, 4)), false));
 
  ok('no page errors in Ask SILO', errs.length===0||(console.log(errs.slice(0,4)),false));
  ok('no page errors on the dashboard', errs2.length===0||(console.log(errs2.slice(0,4)),false));

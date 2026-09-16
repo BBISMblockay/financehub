@@ -18777,3 +18777,12 @@ $c$select (select count(*) from v_po_header_summary
 -- said to "rely on it" are the ones resolving through asset_feed_spec. Targeted
 -- replace of the one wrong sentence, not a rewritten description.
 \i migrations/20260916030000_meta_destination_catalog_correction.sql
+
+-- Ask SILO reliability (2026-09-16 audit). "Read-only" becomes a database
+-- guarantee rather than a shape check on the statement text, so a write
+-- reached THROUGH a volatile function (set_active_company is the live example)
+-- is refused by the executor; and a chat request gets an id of its own, so
+-- crash recovery asks for the answer to THAT request instead of the newest
+-- answer to a question with the same words.
+\i migrations/20260916120000_chat_readonly_query_read_only_txn.sql
+\i migrations/20260916121000_silo_chat_audit_request_id.sql

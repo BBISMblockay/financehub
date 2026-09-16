@@ -185,7 +185,19 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); passed += 1; };
     'official/licensed language is refused');
   ok(/SILO stores no licensing status field/i.test(SRC),
     'and the reason given is the absence of a field to verify against');
-  ok(/For love of the game" is protected/i.test(SRC), 'the protected phrase is named');
+  // Was: `ok(/For love of the game" is protected/ ...)`. That pinned ONE
+  // company's tagline into a prompt every tenant on SILO is served, which is
+  // the thing the edge function's own header forbids ("nothing about brand
+  // identity/voice is hardcoded here -- it is per-company DATA"). Removed
+  // 2026-09-16 with the tagline itself. The rule it was protecting is real and
+  // survives, sourced from the taught Brand context instead, so a protected
+  // phrase is still reproduced exactly -- for whichever company taught one.
+  ok(/take it from the Brand context section above/i.test(SRC),
+    'voice is taken from taught brand context, not hardcoded');
+  ok(/If it names a protected tagline or phrase, reproduce that exactly/i.test(SRC),
+    'and a protected phrase is still reproduced verbatim, never reworded');
+  ok(!/For love of the game/i.test(SRC),
+    'no single tenant\'s tagline is left in the shared prompt');
 }
 
 

@@ -848,3 +848,75 @@ against a later migration reintroducing the claim.
 
 Confirmed against production before commit: the expected sentence matches
 exactly, and the verify check flags today (pre-apply) as it should.
+
+## 20260916120000 / 20260916121000 — Ask SILO reliability (2026-09-16 audit)
+
+**`chat_run_readonly_query` now runs in a read-only transaction.** The
+existing guard — single `SELECT`/`WITH`, no semicolon — is a check on the
+*shape of the statement text*, and a SELECT is not a read. A SELECT can call a
+VOLATILE function, which runs with the caller's own privileges, and
+`set_active_company(uuid)` is granted to `authenticated`:
+
+```sql
+select public.set_active_company('<an entity the caller belongs to>');
+```
+
+is a single semicolon-free SELECT that passes every existing check and
+**UPDATEs `profiles.active_company_id`** — the column every RLS policy in SILO
+reads to decide which company's rows the caller sees. It is not a cross-tenant
+read (the function validates membership first), but it silently repoints the
+caller's session at another of their companies mid-answer, which is precisely
+what a shared read-only reporting engine must not be able to do.
+
+`20260916120000` issues **`SET TRANSACTION READ ONLY` through `EXECUTE`** before
+it runs the caller's statement. Enforcement moves to the executor, so it holds
+however the write is reached — directly, through a function, or through a
+function called by a function — and a write attempt raises `25006` like any
+other query error. Nothing changes for a genuine read; every caller today (Ask
+SILO's tool loop and Refresh button, every `/v3/` widget, the report builder
+preview) runs SELECTs only.
+
+**It is a TRANSACTION property, not a function one, so the rest of the
+transaction stays read-only after the call returns.** Under PostgREST that is
+the end of the request, and every caller today is an HTTP RPC from the browser
+or the silo-chat edge function — nothing in this repo calls it from SQL inside
+a larger transaction. If something ever does, its later write fails loudly with
+`25006` rather than quietly, which is the right direction for that mistake to
+fall, but it is a real constraint on where this function may be called from.
+
+**Two mechanisms that look like this fix are not, and both were measured**
+(`scripts/tests/chat-readonly-query-database.test.mjs` pins all three):
+
+- A function-level `set transaction_read_only to 'on'` clause, or a `set local`
+  in the body. Postgres marks the parameter `GUC_DISALLOW_IN_FUNC` and rejects
+  both: `parameter "transaction_read_only" cannot be set locally in functions`.
+- Declaring the function **`STABLE`**, since PostgREST runs a STABLE function in
+  a read-only transaction. This is the one to know about, because it reads as
+  the safer declaration and is not: SPI's non-volatile guard is **per function**,
+  so a nested VOLATILE function still wrote the row in test, and a non-volatile
+  function may not run `set local statement_timeout` at all — which would
+  silently drop the 30s query budget as well. The function must stay `VOLATILE`;
+  `verify_v2_schema.sql` fails CRITICAL if it does not.
+
+**Scope, so nobody reads more into it than it earns:** this stops WRITES. It
+does not allowlist which functions may be called, and it does not stop a
+function that writes outside transactional visibility (dblink, an untrusted PL
+opening its own connection). No such function is reachable from
+`authenticated` today. An allowlist would be the stronger boundary and is
+deliberately not attempted, since it would have to enumerate every function
+every legitimate report already calls.
+
+**`silo_chat_audit_log.request_id`** gives one chat request an identity.
+`/v2/silo-chat.html` recovers a finished answer out of this table when the
+fetch dies but the edge function completed — it matched on `question` text
+plus recency, and question text repeats inside a conversation ("yes", "keep
+going", "now by month"). Worse, the select policy is `created_by = auth.uid()
+OR is_exec_or_owner()`, so for an exec the match was not scoped to their own
+rows at all. The column is nullable (pre-migration rows and cached browser tabs
+have none; recovery simply does not fire for them, which is the right failure)
+and deliberately **not unique** — a unique violation would fail the audit
+INSERT, and the edge function now reports insert failures rather than swallowing
+them, so a duplicate id must not become a user-visible error on a good answer.
+`silo_chat_audit_log_v` carries an explicit column list, so `request_id` is
+appended at the END (a `create or replace view` can only add columns after the
+existing ones) and `verify_v2_schema.sql` checks the view, not only the table.
