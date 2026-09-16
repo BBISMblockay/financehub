@@ -60,6 +60,12 @@ const has = (hay, needle, label) => {
 const lacks = (hay, needle, label) => {
   if (hay.includes(needle)) throw new Error(`${label || 'text'} unexpectedly contains: "${needle}"`);
 };
+function assert(cond, message) { if (!cond) throw new Error(message); }
+const eq = (a, b, label) => {
+  if (JSON.stringify(a) !== JSON.stringify(b)) {
+    throw new Error(`${label || 'value'}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+  }
+};
 
 console.log('\n-- the four evidence-discipline rules reach ORDINARY questions --');
 
@@ -280,7 +286,9 @@ test('the answer leads with the business figure, not the route to it', () => {
 });
 test('backend vocabulary is kept out of the answer, tool names included', () => {
   has(GENERAL, 'NO BACKEND VOCABULARY IN THE ANSWER');
-  has(GENERAL, 'run_sql, save_note, web_search, view_ad_creative_image, inspect_storefront_page');
+  // Every tool the model is given has to be named here, or the one that is
+  // missing is the one whose name ends up in an answer.
+  has(GENERAL, 'run_sql, describe_relations, save_note, web_search, view_ad_creative_image, inspect_storefront_page');
   has(GENERAL, 'ALREADY shown to the user in the query panel');
 });
 test('...with an escape hatch for someone actually asking about the plumbing', () => {
@@ -359,6 +367,86 @@ test('the general rules are NOT only in the concept block', () => {
 test('the pre-existing summing caveat for landing pages survives elsewhere', () => {
   // The prompt defers schema facts to silo_chat_schema_catalog by design.
   has(SRC, 'do NOT add schema facts back here', 'index.ts');
+});
+
+console.log('\n-- a figure keeps the population it came from (2026-09-16 traces) --');
+
+// These are PROMPT assertions and nothing more: they prove the rules reach the
+// prompt an ordinary (non-concept) question is built from, which is the exact
+// failure this file was created for. They do not prove the model follows them
+// -- that is evals/evidence-scope.eval.mjs. The controls that hold regardless
+// of the model are in evidence-scope.mjs and the handler, with their own
+// tests.
+
+test('the scope rules are in the BASE prompt, not gated behind concept mode', () => {
+  has(GENERAL, 'EVERY FIGURE KEEPS THE POPULATION IT CAME FROM');
+  lacks(CONCEPT, 'EVERY FIGURE KEEPS THE POPULATION IT CAME FROM', 'concept block');
+});
+
+test('a pooled figure may not wear a single value as its label', () => {
+  has(GENERAL, 'A FIGURE MAY ONLY WEAR A LABEL ITS RESULT SUPPORTS');
+  has(GENERAL, 'Having the split in ANOTHER result does not license labelling this one');
+});
+
+test('a ratio has to name the results its two halves came from', () => {
+  has(GENERAL, 'A RATIO NAMES ITS OWN TOP AND BOTTOM, AND THEY COME FROM THE SAME RESULT');
+  has(GENERAL, 'the ratio does not exist -- do not compute it');
+});
+
+test('a bucket straddling an event is named by its dates, not before/after', () => {
+  has(GENERAL, 'A PERIOD THAT SPANS AN EVENT IS ON BOTH SIDES OF IT');
+  has(GENERAL, 'never "before"/"after"/"the following week"');
+});
+
+test('a campaign name is not an objective, and two names are two populations', () => {
+  has(GENERAL, 'A NAME IS NOT A FACT ABOUT WHAT SOMETHING DID');
+  has(GENERAL, 'Two campaign names are two populations');
+});
+
+test('current creative metadata is not evidence about a past date', () => {
+  has(GENERAL, 'describes the ad NOW');
+  has(GENERAL, 'not a campaign and not a historical one');
+});
+
+test('a lead-gen campaign is not cut on purchase return without the linkage', () => {
+  has(GENERAL, 'A BEFORE/AFTER PATTERN IS NOT A CAUSE');
+  has(GENERAL, 'cannot be judged, cut or defended on immediate purchase return');
+  has(GENERAL, 'never a reason to recommend moving the budget');
+});
+
+test('the prompt refuses unearned claims about its own rigour', () => {
+  has(GENERAL, 'QUERIED IS NOT RECONCILED');
+  has(GENERAL, 'Never write that figures are reconciled');
+});
+
+test('the prompt points at the envelope rather than describing its contents', () => {
+  // The envelope is built by evidence-scope.mjs. If the prompt restated its
+  // fields they would be a second definition, free to drift from the one the
+  // handler actually sends -- the same failure as the hand-typed schema cheat
+  // sheet this file already guards against.
+  has(GENERAL, 'Each run_sql result arrives with an evidence_scope block');
+  has(GENERAL, 'it is not a check on the values');
+});
+
+test('every tool the model is actually given is named in the no-vocabulary list', () => {
+  // Structural rather than literal: the previous version pinned one exact
+  // string, so adding a tool passed the test and left its name free to appear
+  // in an answer. TOOLS is a plain array literal, so the names can be read
+  // straight out of the source.
+  const block = SRC.slice(SRC.indexOf('const TOOLS = ['), SRC.indexOf('const STRUCTURED_CONCEPT_FIELDS'));
+  const declared = [...block.matchAll(/^\s*name: '([a-z_0-9]+)',/gm)].map((m) => m[1]);
+  assert(declared.length >= 5, `only found ${declared.length} tool names in TOOLS`);
+  for (const name of declared) has(GENERAL, name);
+  const counted = GENERAL.match(/You have (\w+) tools\./);
+  const WORDS = { four: 4, five: 5, six: 6, seven: 7, eight: 8 };
+  assert(counted, 'the prompt no longer states how many tools there are');
+  eq(WORDS[counted[1]], declared.length,
+    `the prompt says "${counted[1]}" tools; TOOLS declares ${declared.length}`);
+});
+
+test('the schema index tells the model its slice is a slice', () => {
+  has(SRC, 'a one-line entry below is a POINTER, not a description', 'index.ts');
+  has(SRC, 'call describe_relations for its full card', 'index.ts');
 });
 
 console.log(`\n${run - failures}/${run} passed`);

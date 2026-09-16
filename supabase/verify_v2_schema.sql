@@ -3624,6 +3624,47 @@ select 'Ask SILO ad destination caveat' as check_name,
    then 'STALE: the catalog no longer explains link_url_source; a later migration replaced the description instead of appending'
  else 'ok' end as status;
 
+-- Ask SILO evidence scope + diagnostics (20260916140000).
+--
+-- Three things, all of which failed silently rather than loudly when they were
+-- wrong, which is why they are asserted here rather than left to a reader.
+--
+--  1. silo_chat_audit_log.diagnostics. The edge function retries its insert
+--     WITHOUT this column when it is missing, so a forgotten migration costs
+--     diagnostics with no error anywhere -- exactly the "prod is not what the
+--     repo claims" gap deployment-drift-check.yml exists for.
+--  2. The view's explicit column list. A `create or replace view` that drops
+--     the column does not error; every reader just keeps seeing the old shape.
+--     Same trap request_id documented.
+--  3. The stale coverage claim staying gone. A card that states its own
+--     history depth in words cannot notice that it aged: this one said "about
+--     7 weeks, from 2026-07-08, too shallow for launch comps" over a table
+--     holding 415 days back to 2025-07-28, and steered questions off it. A
+--     replacement RANGE would age identically, so the check is that no
+--     hardcoded range returns at all, not that a newer one is present.
+select 'Ask SILO evidence scope' as check_name,
+ case when to_regclass('public.silo_chat_audit_log') is null then 'MISSING: silo_chat_audit_log'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='silo_chat_audit_log' and column_name='diagnostics')
+   then 'MISSING: silo_chat_audit_log.diagnostics; apply 20260916140000'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='silo_chat_audit_log_v' and column_name='diagnostics')
+   then 'MISSING: silo_chat_audit_log_v does not expose diagnostics; a create-or-replace dropped it'
+ when to_regclass('public.silo_chat_schema_catalog') is null then 'MISSING: schema catalog'
+ when exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_daily'
+     and description ~* '(weeks of history|from 20[0-9]{2}-[0-9]{2}-[0-9]{2}\)|do not use it for launch comps)')
+   then 'CRITICAL: the Meta ad-level card states a hardcoded coverage range again; coverage is measured by describe_relations, never written into a card'
+ when not exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_daily'
+     and description like '%COVERAGE IS MEASURED, NEVER REMEMBERED%')
+   then 'STALE: the Meta ad-level card lost its measure-it-first instruction; a later migration replaced the description instead of appending'
+ when not exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'marketing_daily_totals_v'
+     and description like '%ALREADY COMBINED ACROSS PLATFORMS%')
+   then 'STALE: marketing_daily_totals_v no longer warns that its figures pool every platform'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
