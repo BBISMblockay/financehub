@@ -18757,6 +18757,15 @@ $c$select (select count(*) from v_po_header_summary
 -- transaction being retracted (an event a person must see).
 \i migrations/20260915220000_plaid_removed_from_status.sql
 
+-- Where a Meta ad sends the customer: link_url plus the SOURCE that resolved
+-- it (a page-post ad's last-resort source may be the Facebook post, not the
+-- site) and a generated link_path for joining an ad to the landing page it
+-- fed. The second file also reconciles wow_creatives with the version
+-- production was running, which carried thruplays/leads that no migration in
+-- this repo contained -- apply them in this order.
+\i migrations/20260915140000_meta_creative_link_url.sql
+\i migrations/20260915150000_wow_creatives_link.sql
+
 -- Pipeline items (product_tracker) can record the PO they came from. The
 -- drawer already searched POs and already labelled Expected Units "(from the
 -- originating PO)" -- there was just nowhere to store which PO. Additive,

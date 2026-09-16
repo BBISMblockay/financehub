@@ -138,6 +138,7 @@ failed, without them.
 | `v2/*.html`, `v2/*.js`, `v2/tests/**` | `node v2/tests/run.js --unit` (and `--browser`) |
 | `supabase/functions/silo-chat/**` | `node supabase/functions/silo-chat/prompt.test.mjs` |
 | `scripts/lib/**`, `scripts/tests/**`, sync scripts, `supabase/functions/{plaid-*,quickbooks-*,card-categorize,page-inspect,shopify-oauth-start}/**`, the finance/cashflow/accounting v2 pages | the matching `node scripts/tests/*.test.mjs` steps in `.github/workflows/sync-tests.yml` (open the file and run the steps whose paths match) |
+| `supabase/verify_v2_schema.sql` | `node scripts/tests/plaid-bank-feed-database.test.mjs`. That test executes every check from the `-- Plaid ingestion` marker to the END of the file against a finance/Plaid-only fixture, so a check appended at the end fails it. Put a check for anything outside that schema ABOVE the marker. PR #708 lost a review cycle to this; #684 and #686 turned main red with it |
 | `supabase/migrations/**` | Cannot be run here. State in the PR: needs `verify_v2_schema.sql` all-ok after apply; `deployment-drift-check.yml` will be red after merge until applied, and that red is expected |
 | `supabase/functions/**` (any) | State in the PR that merge does not deploy; name the function for `deploy-edge-function.yml` |
 | `.github/workflows/**` | `python3 -c "import yaml,sys;yaml.safe_load(open(sys.argv[1]))" <file>` to confirm it parses, and note that scheduled runs are unverified until they fire |
