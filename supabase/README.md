@@ -960,7 +960,7 @@ The migration ends with `refresh_chat_schema_catalog()` — `silo_chat_audit_log
 and its view are both in the catalog and both gained a column, which
 `verify_v2_schema.sql` otherwise flags as STALE. The refresh preserves the
 curated descriptions set above it.
-## 20260916120000 — a job_type for the Meta creative backfill
+## 20260916150000 — a job_type for the Meta creative backfill
 
 One line of schema: `meta_creative_backfill` added to the `sync_jobs.job_type`
 CHECK. The interesting part is why it is its own type rather than reusing

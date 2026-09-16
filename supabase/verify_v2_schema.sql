@@ -3667,7 +3667,7 @@ select 'Ask SILO evidence scope' as check_name,
 --
 -- scripts/meta-creative-backfill.mjs opens a sync_jobs row with job_type
 -- 'meta_creative_backfill' before it fetches anything, so without
--- 20260916120000 the whole backfill dies on its first statement with a CHECK
+-- 20260916150000 the whole backfill dies on its first statement with a CHECK
 -- violation. That is a loud failure rather than a silent one -- but it fails
 -- at the moment someone runs a 3-hour job they wanted the results of, which
 -- is the worst time to discover a migration was never applied. The daily
@@ -3683,7 +3683,7 @@ select 'Meta creative backfill job type' as check_name,
    where conrelid = 'public.sync_jobs'::regclass and contype = 'c'
      and conname = 'sync_jobs_job_type_check'
      and pg_get_constraintdef(oid) like '%meta_creative_backfill%')
-   then 'MISSING: sync_jobs.job_type does not accept meta_creative_backfill; apply 20260916120000'
+   then 'MISSING: sync_jobs.job_type does not accept meta_creative_backfill; apply 20260916150000'
  else 'ok' end as status;
 
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.

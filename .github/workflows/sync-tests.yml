@@ -23,6 +23,7 @@ on:
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
+      - 'scripts/meta-creative-backfill.mjs'
       - 'scripts/qbo-sandbox-validation.mjs'
       - 'supabase/functions/plaid-scheduled-sync/**'
       - 'scripts/plaid-sync.mjs'

@@ -59,7 +59,7 @@ export function createClient() {
           return { data: { id: 'job-' + (S.jobs.length) }, error: null };
         },
         insert(row) { S.jobs.push({ ...row, status: row.status }); return q; },
-        update(patch) { q._patch = patch; return q; },
+        update(patch) { q._patch = patch; q._isUpdate = true; return q; },
         upsert: async (rows) => { S.upserts.push({ table, rows }); return { error: null }; },
         then: undefined,
       };
@@ -72,6 +72,9 @@ export function createClient() {
           S.pageSizeSeen.push([a, b]);
           data = S.creatives.slice(a, b + 1);
         } else if (table === 'sync_jobs') {
+          if (q._isUpdate && S.failJobUpdate) {
+            return Promise.resolve({ data: null, error: { message: 'terminal update boom' } }).then(res, rej);
+          }
           if (q._patch) { S.jobs[S.jobs.length - 1] = { ...S.jobs[S.jobs.length - 1], ...q._patch }; }
           data = [];
         }
@@ -83,10 +86,35 @@ export function createClient() {
 }
 `);
 
-const src = readFileSync(DRIVER, 'utf8')
+/* Mutations (each must make this file FAIL):
+ *   META_BF_DRV_MUTATION=ignores-job-error  (terminal sync_jobs error discarded)
+ *   META_BF_DRV_MUTATION=unpaged-load       (stored creatives read in one page)
+ */
+const mutation = process.env.META_BF_DRV_MUTATION || '';
+assert.ok(['', 'ignores-job-error', 'unpaged-load'].includes(mutation),
+  `Unknown mutation ${mutation}`);
+
+let src = readFileSync(DRIVER, 'utf8')
   .replace("from '@supabase/supabase-js'", `from '${pathToFileURL(join(dir, 'supabase-stub.mjs')).href}'`)
   .replace("from './lib/ad-platforms-sync-core.mjs'",
     `from '${pathToFileURL(join(ROOT, 'scripts/lib/ad-platforms-sync-core.mjs')).href}'`);
+
+if (mutation === 'ignores-job-error') {
+  // The finding cycle 1 raised: the terminal update is awaited and its error
+  // thrown away, so a run whose job row is stuck on 'running' still prints
+  // [ok] and exits 0.
+  const before = 'const { error: jobUpdateErr } = await supabase.from(\'sync_jobs\').update({';
+  assert.ok(src.includes(before), 'mutation hook missing for ignores-job-error');
+  src = src.replace(before, 'const { error: _ignored } = await supabase.from(\'sync_jobs\').update({')
+           .replace('  if (jobUpdateErr) {', '  if (false) {');
+} else if (mutation === 'unpaged-load') {
+  // A single unpaged select: the backfill would cover the first 1,000 ads and
+  // report success, the failure mode with no symptom.
+  const before = '    if (data.length < PAGE) break;';
+  assert.ok(src.includes(before), 'mutation hook missing for unpaged-load');
+  src = src.replace(before, '    break;');
+}
+if (mutation) assert.notEqual(src, readFileSync(DRIVER, 'utf8'), 'mutation did not apply');
 
 let passed = 0;
 async function test(name, fn) { await fn(); passed += 1; console.log(`ok ${passed} - ${name}`); }
@@ -100,13 +128,15 @@ const adWithLink = (id) => ({
 });
 
 /** Runs the driver as a module, with env applied, returning what it did. */
-async function runDriver(env, { creatives, listPages = [] }) {
+async function runDriver(env, opts) {
+  const { creatives, listPages = [] } = opts;
   state.creatives = creatives;
   state.connections = [{
     id: 'conn-1', company_entity_id: 'co-1', display_name: 'Meta',
     access_token: 'tok', meta_ad_account_id: 'act_1', platform: 'meta_ads',
   }];
   state.jobs = []; state.upserts = []; state.pageSizeSeen = [];
+  state.failJobUpdate = opts.failJobUpdate || false;
   globalThis.__BF_STATE__ = state;
 
   const asked = [];
@@ -138,16 +168,27 @@ async function runDriver(env, { creatives, listPages = [] }) {
   let exitCode = 0;
   const realExit = process.exit;
   process.exit = (c) => { exitCode = c ?? 0; throw new Error('__EXIT__'); };
-  try { await import(pathToFileURL(file).href); }
-  catch (e) { if (!String(e.message).includes('__EXIT__')) throw e; }
+  // The driver's own `main().catch(... process.exit(1))` runs AFTER import
+  // resolves, so the sentinel thrown by the stubbed exit surfaces as an
+  // unhandled rejection and would kill this test process. Swallow only the
+  // sentinel; anything else is a real failure and must still propagate.
+  const onUnhandled = (err) => {
+    if (!String(err?.message).includes('__EXIT__')) throw err;
+  };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    await import(pathToFileURL(file).href);
+    // main() is not awaited by the module, so let it (and any rejection it
+    // produces) settle BEFORE the handler above is removed.
+    await new Promise((r) => setTimeout(r, 40));
+  } catch (e) { if (!String(e.message).includes('__EXIT__')) throw e; }
   finally {
     process.exit = realExit;
+    process.off('unhandledRejection', onUnhandled);
     for (const [k, v] of Object.entries(prev)) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }
-  // Let the driver's async main() settle.
-  await new Promise((r) => setTimeout(r, 30));
   return { asked, exitCode };
 }
 
@@ -219,4 +260,19 @@ await test('LIMIT caps how many ads a run asks about', async () => {
   assert.equal(asked.length, 5);
 });
 
-console.log(`\n${passed} assertions passed`);
+await test('a failed terminal sync_jobs update is NOT reported as success', async () => {
+  // The data writes land, then closing out the job row fails. Discarding that
+  // error would print [ok] and exit 0 while sync_jobs still says 'running' --
+  // a status someone diagnosing a half-finished backfill has to trust. The
+  // run must fail loudly instead.
+  const { exitCode } = await runDriver(
+    { META_BACKFILL_DISCOVER: 'false' },
+    {
+      creatives: [{ ad_id: 'm1', link_url: null, synced_at: '2026-09-16' }],
+      failJobUpdate: true,
+    });
+  assert.notEqual(exitCode, 0, 'a run whose job row could not be closed must exit non-zero');
+  assert.ok(state.upserts.length > 0, 'and the creative writes that DID land are still written');
+});
+
+console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);

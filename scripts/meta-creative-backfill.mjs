@@ -140,13 +140,31 @@ async function backfillConnection(connection) {
   // has no per-row batch column to carry it.
   result.batch_id = BATCH_ID;
 
-  await supabase.from('sync_jobs').update({
+  // The terminal update is NOT fire-and-forget. If it fails after the creative
+  // writes landed, discarding its error would print [ok], exit 0, and leave
+  // the durable job row stuck on 'running' -- so sync_jobs would say a run is
+  // still going while the process is gone, which is exactly the state someone
+  // diagnosing a half-finished backfill has to trust. Better to exit non-zero
+  // over a run whose DATA succeeded than to record a status that is false:
+  // re-running is cheap and idempotent (the default `missing` mode skips
+  // whatever resolved), whereas a wrong job row is not self-correcting.
+  const { error: jobUpdateErr } = await supabase.from('sync_jobs').update({
     status: result.failed ? 'error' : 'success',
     finished_at: new Date().toISOString(),
     ...(result.failed
       ? { error: `chunk ${result.failed.chunk}: ${result.failed.error}`.slice(0, 2000), result }
       : { result }),
   }).eq('id', job.id);
+  if (jobUpdateErr) {
+    // Print what the run actually achieved before throwing: the counts are
+    // the only record left once the job row is known to be wrong.
+    console.error(`[error] ${label}: creative writes finished`
+      + ` (${result.chunks_completed}/${result.chunks_planned} chunks,`
+      + ` ${result.links_resolved} destinations resolved,`
+      + ` ${result.link_rows_written} links and ${result.body_rows_written} bodies written)`
+      + ` but the sync_jobs row could not be closed out: ${jobUpdateErr.message}`);
+    throw new Error(`sync_jobs update failed for job ${job.id}: ${jobUpdateErr.message}`);
+  }
 
   return result;
 }
