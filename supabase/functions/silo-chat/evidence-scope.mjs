@@ -471,7 +471,7 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
             'that relation has no such column AT ALL, so every figure aggregated from it is already a total across every value of them. It cannot be attributed to one platform, campaign, channel or location, however the question was phrased. To split it, query a relation that carries the column.',
         }
       : {}),
-    date_scope: dateScope(bounds, dates, betweenRanges(text, literals, [...dateColumns])),
+    date_scope: dateScope(bounds, dates, betweenRanges(text, literals, [...dateColumns]), meta.knownDates),
     derivation:
       'Read off the statement text and the auto-generated column lists in the schema map. It describes the QUERY, not the values: it does not verify a number and it cannot see meaning. Where it could not tell whether a dimension was narrowed it reports it as POOLED, so pooled is the safe reading. Two things it cannot resolve, so check the statement yourself before leaning on them: a predicate is matched against the whole statement, so when two relations here carry the same column a filter on one is reported for both, and a filter inside a subquery or CTE is reported even if that branch does not reach the rows returned.',
   };
@@ -483,14 +483,55 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
  *  found" is deliberately not phrased as "covers every date": this reads the
  *  statement textually and a date filter it could not parse would otherwise be
  *  reported as no filter at all. */
-function dateScope(bounds, dates, ranges) {
+/** Where each date in a statement CAME FROM.
+ *
+ *  The 2026-09-16 Sonic request asked whether prelaunch advertising was worth
+ *  it. Its first query answered the launch date from the planning record and
+ *  showed `preview_start_date` NULL on every Sonic row -- the record does not
+ *  say when prelaunch began. The next sales query then ran
+ *  `between '2026-08-01' and '2026-09-15'`, and every "before the launch"
+ *  figure in the answer rests on an 1 August boundary that came from nowhere.
+ *  The envelope reported it as a clean window, because as far as the STATEMENT
+ *  went it was one.
+ *
+ *  A date is not more or less true for having been chosen, so this classifies
+ *  rather than warns: from_results (it appeared in something already queried),
+ *  from_question (the person supplied it), or unsourced. Only the last gets a
+ *  sentence, and the sentence asks for the assumption to be stated -- not for
+ *  the query to be different.
+ */
+function boundaryProvenance(dates, known) {
+  if (!dates.length) return null;
+  const fromResults = [];
+  const fromQuestion = [];
+  const unsourced = [];
+  for (const d of dates) {
+    if (known && known.results && known.results.has(d)) fromResults.push(d);
+    else if (known && known.question && known.question.has(d)) fromQuestion.push(d);
+    else unsourced.push(d);
+  }
+  return {
+    ...(fromResults.length ? { from_results: fromResults } : {}),
+    ...(fromQuestion.length ? { from_question: fromQuestion } : {}),
+    ...(unsourced.length ? { unsourced } : {}),
+    ...(unsourced.length
+      ? {
+          note: `${unsourced.join(', ')} ${unsourced.length === 1 ? 'appears' : 'appear'} in no earlier result and not in the question -- ${unsourced.length === 1 ? 'that boundary is one' : 'those boundaries are ones'} you chose. A before/after or period comparison resting on them is an ASSUMPTION, not a measurement: say so in the answer, or derive the boundary from a value you actually queried.`,
+        }
+      : {}),
+  };
+}
+
+function dateScope(bounds, dates, ranges, known) {
   const literals = dates.slice(0, MAX_DATE_LITERALS_REPORTED);
+  const provenance = boundaryProvenance(literals, known);
+  const withProvenance = (obj) => (provenance ? { ...obj, boundary_provenance: provenance } : obj);
   if (!bounds.any) {
-    return {
+    return withProvenance({
       restriction:
         'no date predicate was readable in this statement, so this may cover the whole history the relation holds. That is what was PARSED, not a guarantee -- check the statement before naming a period.',
       ...(literals.length ? { dates_mentioned: literals } : {}),
-    };
+    });
   }
   // SEVERAL PERIODS, NOT ONE. min..max of the literals spans the GAP between
   // them, which on a year-on-year comparison is the whole year nobody asked
@@ -499,7 +540,7 @@ function dateScope(bounds, dates, ranges) {
   // as the complete one, which is the failure this file is about.
   if (bounds.disjoint) {
     const named = ranges.length === bounds.dateBranches ? ranges : null;
-    return {
+    return withProvenance({
       literals_in_statement: literals,
       ...(named ? { periods: named } : {}),
       restriction: `the date predicates sit in ${bounds.dateBranches} separate OR-ed branches, so this covers SEVERAL SEPARATE PERIODS, not one continuous range -- a year-on-year comparison is the usual shape. ${
@@ -507,16 +548,16 @@ function dateScope(bounds, dates, ranges) {
           ? 'The periods are listed above; describe them individually.'
           : 'Not every branch could be read as a from/to pair, so the periods are NOT all listed here -- read the statement.'
       } The span from the earliest date to the latest is NOT the window: the time between the periods is not in this result at all.`,
-    };
+    });
   }
   if (bounds.lower && bounds.upper && dates.length) {
-    return {
+    return withProvenance({
       literals_in_statement: literals,
       window: { from: dates[0], to: dates[dates.length - 1] },
       ...(dates.length > 2
         ? { note: 'more than two dates appear, so this result is BUCKETED -- every figure belongs to the bucket its edges define, and a bucket spanning an event (a launch, a price change, a campaign start) is on both sides of it. Name the bucket edges, never "before"/"after".' }
         : {}),
-    };
+    });
   }
   // Both-false is reachable: `day_date <> '2026-09-01'` narrows without
   // bounding either end.
@@ -524,7 +565,7 @@ function dateScope(bounds, dates, ranges) {
     : !bounds.lower ? 'no start'
     : !bounds.upper ? 'no end'
     : 'no readable dates';
-  return {
+  return withProvenance({
     ...(literals.length ? { literals_in_statement: literals } : {}),
     restriction: `this IS restricted on a date, but the period is not fully readable here: ${missing}. ${
       !dates.length
@@ -533,7 +574,7 @@ function dateScope(bounds, dates, ranges) {
         ? 'One end is open, so the result runs to the edge of the data on that side.'
         : 'The predicate excludes rather than bounds, so the result reaches both edges of the data.'
     } Do not state a period from this -- read the statement, or re-query with explicit dates.`,
-  };
+  });
 }
 
 /** True when SOME relation in the schema map carries this column. Keeps the
@@ -563,4 +604,148 @@ export function renderQueryResult(sql, rows, catalogIndex, meta = {}) {
   if (!rels.length) return JSON.stringify(rows);
   const scope = describeEvidenceScope(sql, catalogIndex, { ...meta, rowCount });
   return JSON.stringify({ evidence_scope: scope, rows });
+}
+
+// ── THE ANSWER, CHECKED AGAINST THE ENVELOPES IT WAS WRITTEN FROM ───────────
+//
+// Everything above describes a QUERY. This is the one thing here that looks at
+// what was written, and it exists because describing the query turned out not
+// to be enough.
+//
+// Measured, 2026-09-16 (silo_chat_audit_log b44e03ab…): the sales result's
+// envelope said `pooled_across: location_tag`, no statement in the whole
+// request restricted sales channel, and the answer published "14 Sonic
+// products, online sales_by_day". The control fired, correctly, and the
+// sentence was written anyway. A prompt rule for exactly this already exists
+// ("A FIGURE MAY ONLY WEAR A LABEL ITS RESULT SUPPORTS") and did not hold.
+//
+// WHAT THIS IS NOT. It is a word search over prose. It cannot read meaning, it
+// will flag "online" in a sentence that had every right to it, and it will miss
+// a channel claim phrased without any of these words. So it ANNOTATES and never
+// rewrites, never blocks, and never edits a figure: a false positive costs one
+// visible line that a reader can dismiss, where a false rewrite would corrupt a
+// correct answer. Nothing downstream may treat a clean result as verification.
+
+/** Dimensions whose value a sentence can assert in ordinary business words.
+ *  Deliberately short. `campaign_name` is absent: "the campaign" is the phrase
+ *  that would catch the 2026-09-16 two-campaigns-as-one failure, and it is far
+ *  too common in legitimate prose to flag without crying wolf. That gap is a
+ *  stated limitation, not an oversight. */
+export const CLAIM_DIMENSIONS = [
+  {
+    columns: ['location_tag', 'location_name'],
+    label: 'sales channel',
+    terms: ['online', 'retail', 'wholesale', 'in-store', 'in store', 'pos', 'dtc', 'd2c', 'e-commerce', 'ecommerce', 'brick and mortar'],
+  },
+  {
+    columns: ['platform'],
+    label: 'ad platform',
+    terms: ['meta', 'facebook', 'instagram', 'google', 'tiktok'],
+  },
+];
+
+/**
+ * Scope dimensions some result in this request POOLED.
+ *
+ * A DIMENSION ANOTHER QUERY RESOLVED IS STILL UNRESOLVED FOR THE POOLED ONE,
+ * and the first version of this got that wrong in the most damaging possible
+ * way. It cleared a dimension request-wide as soon as any result narrowed or
+ * grouped it, reasoning that "a request that grouped by platform has earned the
+ * right to name one". True of a claim drawn from THAT result. False of a claim
+ * drawn from the pooled one -- and this audit reads the answer as a whole, with
+ * no linkage from a sentence back to the result behind it.
+ *
+ * The shape that breaks it is the ordinary one: ask for a total, then ask for
+ * the split. R1 returns combined Meta+Google+TikTok spend, R2 groups the same
+ * week by platform, and the old rule let the answer call R1's combined $118,946
+ * "Meta ad spend" with no note at all -- the exact failure the envelope exists
+ * to prevent, silently disabled by a second, better query. Found in review; a
+ * test of mine had pinned the clearing as correct.
+ *
+ * So pooled anywhere means unresolved, and `mixedDimensions` below says whether
+ * something else in the request did resolve it, because the two cases deserve
+ * different sentences. Until a claim can be tied to the result that supports it,
+ * the conservative reading is the only sound one.
+ *
+ * Only `pooled_across` feeds this -- NOT `totals_only.carries_none_of`, and that
+ * distinction is load-bearing. meta_ad_performance_daily has no platform column
+ * at all, so it appears there; every row in it is Meta's, and saying "Meta"
+ * about it is simply correct.
+ */
+export function unresolvedDimensions(scopes) {
+  const pooled = new Set();
+  for (const s of scopes || []) {
+    if (!s) continue;
+    for (const p of s.pooled_across || []) pooled.add(p.column);
+  }
+  return pooled;
+}
+
+/** Dimensions some result pooled AND another resolved -- the mixed-basis case,
+ *  where the figures above are not all on the same footing. */
+export function mixedDimensions(scopes) {
+  const pooled = unresolvedDimensions(scopes);
+  const resolved = new Set();
+  for (const s of scopes || []) {
+    if (!s) continue;
+    for (const n of s.narrowed_to || []) resolved.add(n.column);
+    for (const b of s.broken_out_per_value || []) resolved.add(b.column);
+    for (const e of s.excludes || []) resolved.add(e.column);
+  }
+  return new Set([...pooled].filter((c) => resolved.has(c)));
+}
+
+/** Terms the answer asserts for a dimension nothing in the request resolved. */
+export function auditAnswerClaims(answerText, scopes) {
+  const text = String(answerText || '');
+  if (!text.trim()) return [];
+  const unresolved = unresolvedDimensions(scopes);
+  const mixed = mixedDimensions(scopes);
+  const flags = [];
+  for (const dim of CLAIM_DIMENSIONS) {
+    if (!dim.columns.some((c) => unresolved.has(c))) continue;
+    const found = dim.terms.filter((t) => {
+      // Word-bounded on both sides so `pos` does not match "position" and
+      // `meta` does not match "metadata" -- a lookaround rather than \b
+      // because several terms contain a space or a hyphen.
+      const esc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, 'i').test(text);
+    });
+    if (found.length) {
+      const columns = dim.columns.filter((c) => unresolved.has(c));
+      flags.push({ label: dim.label, columns, terms: found, mixed: columns.some((c) => mixed.has(c)) });
+    }
+  }
+  return flags;
+}
+
+/** The line appended to an answer that asserts an unresolved dimension. Kept
+ *  here so its wording is testable, and written in business words because the
+ *  reader is the person who asked the question, not an engineer. */
+export function formatClaimNote(flags) {
+  if (!flags || !flags.length) return '';
+  const parts = flags.map((f) => {
+    const words = f.terms.map((t) => `"${t}"`).join(', ');
+    // The mixed case is the more dangerous one and reads differently: some
+    // figure above IS on that basis and some is not, so the reader needs to
+    // know which, not to be told nothing restricted it.
+    return f.mixed
+      ? `it uses ${words}, and the results behind this answer are NOT all on the same ${f.label} -- some restricted it and at least one did not, so a figure taken from the unrestricted one covers every value`
+      : `it uses ${words}, but nothing that was queried restricted ${f.label} -- every figure above covers all of its values together`;
+  });
+  // The closing sentence has to branch for the same reason the clause above
+  // does. "Nothing that ran established the label" is true of a wholly pooled
+  // scope and FALSE as soon as one query restricted the dimension: an answer
+  // that correctly quotes the online-only figure as online would be told, in
+  // consecutive sentences, that the results are mixed and that no executed
+  // query established the label. The second sentence is the one a reader acts
+  // on, and it was the wrong one -- what the checker actually cannot do in the
+  // mixed case is tie the label to the particular figure it sits on.
+  const anyMixed = flags.some((f) => f.mixed);
+  const closing = anyMixed
+    ? 'At least one query did restrict it, so the wording is not unsupported -- but this check cannot tell which result a given figure came from. Confirm which one backs the number before relying on the label.'
+    : 'Read that wording as unverified: the figures are real, the label on them was not established by anything that ran.';
+  return `\n\n---\n**Scope check (automatic):** ${parts.join('; ')}. `
+    + closing + ' '
+    + 'This is a word check over the text above, so it can be wrong in both directions.';
 }

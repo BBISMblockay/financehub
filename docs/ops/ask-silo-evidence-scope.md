@@ -203,6 +203,144 @@ date branch and keeps its window.
 **This commit landed after the last independent review**, so nothing in it has
 been reviewed by the automation. See the readiness assessment on the PR.
 
+## The second trace: Sonic, 2026-09-16 (`b44e03ab-ca29-47d5-b546-492d217cd964`)
+
+Replayed from `diagnostics` rather than re-derived, which is what that column was
+added for. 13 queries, **18.3s of database time inside a 138s request** — the
+budget went on model round-trips, not on SQL.
+
+Three failures, and the reason each one is a CODE fix here rather than another
+prompt rule:
+
+**A guessed column ended the investigation.** The statement that would have
+isolated Sonic ad spend ran in the last round as `min(date)` against
+`meta_ad_performance_daily`, whose column is `day_date`. It failed in 110ms, the
+loop was already past the wall-clock guard, and the answer shipped listing that
+measure as unchecked. The request had already called `describe_relations` **on
+that table** and been handed every column with its type; the schema map says
+"never guess a column that isn't listed"; the 45s investigation checkpoint had
+fired. Three interventions, all upstream, all ineffective. So `annotateColumnError`
+now answers from the catalog — real columns of the relations the statement reads,
+closest-by-name first — and one round is held back to use it (at most one per
+request, never after a timeout, only inside the gateway margin).
+
+**A pooled channel was published as "online".** The sales result's envelope said
+`pooled_across: location_tag`; no statement in the request restricted channel;
+the answer said *"14 Sonic products, online sales_by_day"* — wrong channel and
+wrong source. The prompt rule for exactly this ("A FIGURE MAY ONLY WEAR A LABEL
+ITS RESULT SUPPORTS") was already in place. `auditAnswerClaims` now checks the
+finished answer against the envelopes it was written from and appends a visible
+scope note. It **annotates and never rewrites**: it is a word search over prose,
+it will flag "online" in a sentence entitled to it, and it will miss a channel
+claim phrased without any of its terms.
+
+**A period boundary came from nowhere.** The planning record answered the launch
+date (2026-09-01) and showed `preview_start_date` NULL on every Sonic row — it
+does not say when prelaunch began. The sales query then ran
+`between '2026-08-01' and '2026-09-15'`, and every "before the launch" figure
+rests on an 1 August that appears in no earlier result. The envelope reported a
+clean window, because as far as the statement went it was one. Date literals now
+carry `boundary_provenance`: `from_results`, `from_question`, or `unsourced`.
+
+### Corrections from the independent review (PR #716, cycle 1)
+
+Two P1 findings, both reproduced before fixing, and one of them says a test of
+mine had pinned the wrong behaviour.
+
+**A dimension another query resolved is still unresolved for the pooled one.**
+`unresolvedDimensions` cleared a dimension request-wide as soon as any result
+narrowed or grouped it — reasoning that a request which grouped by platform has
+earned the right to name one. True of a claim drawn from *that* result; false of
+a claim drawn from the pooled one, and this audit reads the answer as a whole
+with no linkage from a sentence back to the result behind it. The shape that
+breaks it is the ordinary one: ask for a total, then ask for the split. R1
+returns combined Meta+Google+TikTok spend, R2 groups the same week by platform,
+and the answer could call R1's combined $118,946 "Meta ad spend" with no note —
+the exact failure the envelope exists to prevent, silently disabled by a second,
+better query. Pooled anywhere now means unresolved, and `mixedDimensions`
+distinguishes "nothing restricted it" from "some results did and some did not",
+which are different sentences for the reader.
+
+**...and then the note contradicted its own correction.** Cycle 1 fixed the
+per-flag clause and left the note's *shared closing sentence* saying the label
+"was not established by anything that ran" — true of a wholly pooled scope, and
+false the moment one query restricted the dimension. An answer correctly citing
+the online-only figure as "online" was told, in consecutive sentences, that the
+results were mixed and that no executed query established the label; the second
+is the one a reader acts on. The closing branches now: for a mixed scope it says
+at least one query did restrict it and that the check cannot tell which result a
+given figure came from, which is what it actually cannot do.
+
+**The correction round did not reserve time for the forced final answer.** The
+fixed 115s cutoff left ~35s before the 150s gateway, and a correction costs a
+model call, then a query, then the final answer's own model call. At the traced
+17.1s per model call that is 157s — past the gateway, which returns a bare 504
+and writes no audit row. Worse, it would not have fired on Sonic anyway: elapsed
+at that request's round-6 boundary was ~121s, already past 115s. The reservation
+is now measured from the request's own model calls (`budget-lib.mjs`), so slow
+rounds mean there is genuinely no room and cheap ones mean there is.
+
+**What that honestly buys.** A grant is only possible while
+`95 + 2×worstCall + 10 ≤ 140`, i.e. while a model call costs ≤17.5s. So the
+correction round fires for a request that reached the budget through many quick
+rounds and not for one that crawled there — *including Sonic itself*. F1's
+catalog hint is the half that works regardless of budget. Setting the floor to
+20s made a grant arithmetically impossible, which a re-scripted test caught.
+
+The arithmetic lives in `budget-lib.mjs` rather than in the handler because two
+handler-level mutations survived inside a millisecond of the boundary: driving
+real elapsed time cannot pin a formula. There the numbers are inputs.
+
+**An estimate is not a deadline, and the second review said so.** The
+reservation above is an *admission* check: it reasons from what earlier rounds
+cost about two calls that have not happened yet. Nothing made it binding on
+them, and the `fetch` in `callAnthropic` carried no abort signal at all — so a
+grant admitted on 15s samples whose correction and forced final each took 25s
+reached ~155s and was killed by the gateway, with no answer and no audit row.
+Ordinary latency variation, not a code error. The fixed-latency tests could not
+show it, because a fixed latency makes the estimate right by construction.
+
+So the admission check stays and an enforcement boundary is added beside it:
+`modelCallTimeoutMs` turns "what is left before the 140s safe line, minus what
+must still happen after this call" into an `AbortSignal.timeout` on each
+post-budget call. A correction reserves the query it will run plus the forced
+final that reports it (22s at a 96s grant); the forced final reserves nothing,
+because it is the last thing that has to happen. Three consequences worth
+knowing:
+
+- A correction cut off by its deadline **loses the round, not the request** —
+  the time held back for the forced final is still there, and the six results
+  gathered before it still reach the answer.
+- A forced final cut off by its own deadline still writes an audit row, where
+  the 504 it replaces is invisible in `silo_chat_health_v`. If prose had already
+  been written and truncated, that prose ships rather than being replaced by the
+  generic out-of-time message.
+- A remaining budget of 0 is **not** "unbounded". That is reachable without any
+  correction at all: only post-budget calls carry a deadline, so one ordinary
+  round starting at 94s and running 50s arrives at the forced final with the
+  safe line already spent.
+
+`diagnostics.context.model_call_deadline_ms` records the deadline each call
+actually carried (0 = unbounded), beside `model_call_ms`. The pair is what makes
+this auditable — on a request that succeeds, a deadline that was never applied
+and one that was generous look identical.
+
+### Deliberate limitations
+
+- **`campaign_name` is not a claim dimension.** "the campaign" is the phrase that
+  would catch the two-campaigns-as-one failure and is far too common in
+  legitimate prose to flag without crying wolf.
+- **`totals_only` is not treated as pooled.** `marketing_daily_totals_v` and
+  `meta_ad_performance_daily` both lack a `platform` column; every row in the
+  second is Meta's, every row in the first spans three platforms, and the
+  envelope cannot tell them apart. Feeding `totals_only` in would flag "Meta"
+  every time a Meta-only table is aggregated. The cost: a figure taken *only*
+  from that view and called "Meta" is missed by this route — caught by the
+  pooled route whenever the same request also reads `marketing_kpis_daily`,
+  which is what the 2026-09-16 request did.
+- **Provenance is per-literal, not per-claim.** It says a boundary was chosen; it
+  cannot say whether the answer admitted that.
+
 ## Tests, and the line between them
 
 `evidence-scope.test.mjs`, `handler.test.mjs` and `prompt.test.mjs` are
