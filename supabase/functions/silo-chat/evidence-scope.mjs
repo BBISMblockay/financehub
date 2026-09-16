@@ -291,6 +291,30 @@ export function buildCatalogIndex(rows) {
  *  date filter at all.
  */
 export function dateBounds(text, dateColumns) {
+  // DISJOINT PERIODS ARE NOT ONE WINDOW. A year-on-year query --
+  // `day_date between '2025-09-01' and '2025-09-07' or day_date between
+  // '2026-09-01' and '2026-09-07'` -- reads two seven-day periods, and
+  // reporting min..max of its literals called that a 372-day window. Cycle-2
+  // finding, and the third instance of the same root error: the envelope
+  // asserting a period the statement never set.
+  //
+  // Detection is a heuristic, deliberately so, and it fails CLOSED. The text is
+  // split on OR and a branch counts only if it carries a predicate on a date
+  // column, so an unrelated disjunction -- `(platform = 'a' or platform = 'b')
+  // and day_date between x and y` -- leaves ONE date branch and still publishes
+  // its window. Two or more date branches means no window is published at all;
+  // under-reporting a period is recoverable, asserting a wrong one is not.
+  const datePredicate = (seg) => dateColumns.some((col) =>
+    new RegExp(`(?<![a-z0-9_])${col}\\s*(?:>=|<=|<>|!=|=|>|<)`).test(seg)
+    || new RegExp(`(?<![a-z0-9_])${col}\\s+(?:not\\s+)?(?:between|in)\\b`).test(seg));
+  const dateBranches = text.split(/\bor\b/).filter(datePredicate).length;
+
+  return { ...readBounds(text, dateColumns), disjoint: dateBranches > 1, dateBranches };
+}
+
+/** The bound directions a statement's date predicates establish, ignoring how
+ *  they are combined. dateBounds() adds the combining question on top. */
+function readBounds(text, dateColumns) {
   const RHS = "('@\\d+'|-?\\d+(?:\\.\\d+)?|current_date|current_timestamp|localtimestamp|now\\s*\\(|date\\s*'|interval\\s)";
   let any = false;
   let lower = false;
@@ -315,6 +339,32 @@ export function dateBounds(text, dateColumns) {
     }
   }
   return { any, lower, upper };
+}
+
+/** Each `col between 'a' and 'b'` written into the statement, in order, deduped.
+ *  Only BETWEEN: it is the one form whose two edges are unambiguously a pair.
+ *  Used to name the separate periods of a disjoint query, and only when every
+ *  OR-branch is one of these -- otherwise a branch would be missing from the
+ *  list and a short list reads as the whole answer. */
+export function betweenRanges(text, literals, dateColumns) {
+  const out = [];
+  const seen = new Set();
+  for (const col of dateColumns) {
+    const re = new RegExp(
+      `(?<![a-z0-9_])${col}\\s+between\\s+'@(\\d+)'\\s+and\\s+'@(\\d+)'`, 'g',
+    );
+    let m;
+    while ((m = re.exec(text))) {
+      const from = literals[Number(m[1])];
+      const to = literals[Number(m[2])];
+      if (from == null || to == null) continue;
+      const key = `${from}|${to}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ from, to });
+    }
+  }
+  return out;
 }
 
 /**
@@ -421,7 +471,7 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
             'that relation has no such column AT ALL, so every figure aggregated from it is already a total across every value of them. It cannot be attributed to one platform, campaign, channel or location, however the question was phrased. To split it, query a relation that carries the column.',
         }
       : {}),
-    date_scope: dateScope(bounds, dates),
+    date_scope: dateScope(bounds, dates, betweenRanges(text, literals, [...dateColumns])),
     derivation:
       'Read off the statement text and the auto-generated column lists in the schema map. It describes the QUERY, not the values: it does not verify a number and it cannot see meaning. Where it could not tell whether a dimension was narrowed it reports it as POOLED, so pooled is the safe reading. Two things it cannot resolve, so check the statement yourself before leaning on them: a predicate is matched against the whole statement, so when two relations here carry the same column a filter on one is reported for both, and a filter inside a subquery or CTE is reported even if that branch does not reach the rows returned.',
   };
@@ -433,13 +483,30 @@ export function describeEvidenceScope(sql, catalogIndex, meta = {}) {
  *  found" is deliberately not phrased as "covers every date": this reads the
  *  statement textually and a date filter it could not parse would otherwise be
  *  reported as no filter at all. */
-function dateScope(bounds, dates) {
+function dateScope(bounds, dates, ranges) {
   const literals = dates.slice(0, MAX_DATE_LITERALS_REPORTED);
   if (!bounds.any) {
     return {
       restriction:
         'no date predicate was readable in this statement, so this may cover the whole history the relation holds. That is what was PARSED, not a guarantee -- check the statement before naming a period.',
       ...(literals.length ? { dates_mentioned: literals } : {}),
+    };
+  }
+  // SEVERAL PERIODS, NOT ONE. min..max of the literals spans the GAP between
+  // them, which on a year-on-year comparison is the whole year nobody asked
+  // about. `periods` is published only when every date branch is a BETWEEN and
+  // so every period is actually named -- a partial list of periods would read
+  // as the complete one, which is the failure this file is about.
+  if (bounds.disjoint) {
+    const named = ranges.length === bounds.dateBranches ? ranges : null;
+    return {
+      literals_in_statement: literals,
+      ...(named ? { periods: named } : {}),
+      restriction: `the date predicates sit in ${bounds.dateBranches} separate OR-ed branches, so this covers SEVERAL SEPARATE PERIODS, not one continuous range -- a year-on-year comparison is the usual shape. ${
+        named
+          ? 'The periods are listed above; describe them individually.'
+          : 'Not every branch could be read as a from/to pair, so the periods are NOT all listed here -- read the statement.'
+      } The span from the earliest date to the latest is NOT the window: the time between the periods is not in this result at all.`,
     };
   }
   if (bounds.lower && bounds.upper && dates.length) {

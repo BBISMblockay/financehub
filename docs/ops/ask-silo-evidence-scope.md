@@ -102,7 +102,7 @@ round budget (trace 1 had a round left; trace 2 finished in 11).
 
 | | |
 |---|---|
-| **`evidence-scope.mjs`** | Derives, from the statement text and the catalog's `pg_catalog`-generated column lists: which relations were read; which scope dimensions (`platform`, `campaign_name`, `ad_id`, `location_name`, …) the result is **narrowed to** (with the literal values), **excludes**, is **restricted on with no readable values**, is **broken out** per value, or **pools**; which relations carry *none* of them and are therefore `totals_only`; what the date predicates bound; and whether the result hit the 1000-row page cap. `run_sql` returns `{ evidence_scope, rows }`, scope first. |
+| **`evidence-scope.mjs`** | Derives, from the statement text and the catalog's `pg_catalog`-generated column lists: which relations were read; which scope dimensions (`platform`, `campaign_name`, `ad_id`, `location_name`, …) the result is **narrowed to** (with the literal values), **excludes**, is **restricted on with no readable values**, is **broken out** per value, or **pools**; which relations carry *none* of them and are therefore `totals_only`; what the date predicates bound — a single `window` only when both ends are bounded and the branches are not disjoint, separate `periods` when they are; and whether the result hit the 1000-row page cap. `run_sql` returns `{ evidence_scope, rows }`, scope first. |
 | **`describe_relations` tool** | Up to 6 relations per call, 3 calls per request: full columns, the full curated card (capped at 2400 chars, marked when truncated), and **measured** min/max of the day-grain date column. Widens guidance mid-investigation without touching the cached prompt prefix. |
 | **Budget-exhausted instruction** | Two named parts — what the evidence supports, and which checks are still unrun — plus an explicit refusal to promote an observation to a recommendation to fill the shape of the question. The response carries `partial: true` and `partial_reason`. |
 | **`silo_chat_audit_log.diagnostics`** | Per query: statement, derived scope, row count, duration, error. Plus which relations were in the up-front slice vs fetched mid-request. |
@@ -175,6 +175,33 @@ the statement did not support:
 
 Both now have regression tests, and four mutations restoring the old behaviour
 each fail the suite.
+
+## Corrections from the independent review (cycle 2)
+
+Cycle 2 confirmed both cycle-1 fixes and found **a third instance of the same
+root error** — the envelope asserting a period the statement never set:
+
+- **Disjoint periods were collapsed into one window.** A year-on-year query,
+  `day_date between '2025-09-01' and '2025-09-07' or day_date between
+  '2026-09-01' and '2026-09-07'`, reads two seven-day periods; the envelope
+  published a 372-day window from the earliest literal to the latest, spanning
+  the year nobody asked about. Fixed: the text is split on `OR` and a branch
+  counts only if it carries a date predicate, so two or more date branches
+  publish **no window at all** and name the periods instead.
+
+Two details of that fix are load-bearing, and each has a mutation behind it.
+Counting `BETWEEN`s rather than OR-branches would have stripped the window from
+`WEEKLY_BUCKET_SQL` — the query with five `BETWEEN`s and no `OR` whose bucket
+edges are the whole point of failure 2. And `periods` is published only when
+every date branch is a readable from/to pair, because a partial list of periods
+reads as the complete one.
+
+Detection is a heuristic and it fails closed: an `OR` that is not about dates
+(`(platform = 'a' or platform = 'b') and day_date between x and y`) leaves one
+date branch and keeps its window.
+
+**This commit landed after the last independent review**, so nothing in it has
+been reviewed by the automation. See the readiness assessment on the PR.
 
 ## Tests, and the line between them
 

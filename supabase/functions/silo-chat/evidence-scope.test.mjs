@@ -238,6 +238,61 @@ test('a date used only as a join key does not become a window', () => {
   assert(/no date predicate was readable/i.test(s.date_scope.restriction), 'a join key was read as a predicate');
 });
 
+console.log('\n-- CYCLE 2: separate periods are not one window --');
+
+// Reported by the independent review and reproduced before fixing: a
+// year-on-year query read two seven-day periods and the envelope called it a
+// 372-day window. Third instance of the same root error -- asserting a period
+// the statement never set -- so the fix fails closed.
+const YOY_SQL = "select sum(spend) from marketing_kpis_daily where day_date between '2025-09-01' and '2025-09-07' or day_date between '2026-09-01' and '2026-09-07'";
+
+test('a year-on-year comparison is not published as one continuous window', () => {
+  const s = scopeOf(YOY_SQL);
+  assert(!s.date_scope.window,
+    `two seven-day periods were published as a window: ${JSON.stringify(s.date_scope.window)}`);
+  assert(/SEVERAL SEPARATE PERIODS/.test(s.date_scope.restriction), 'the disjunction is not reported');
+  assert(/is NOT the window/.test(s.date_scope.restriction),
+    'nothing stops the earliest-to-latest span being read as the period');
+});
+
+test('...and each period is named, so the answer has something to describe', () => {
+  eq(scopeOf(YOY_SQL).date_scope.periods,
+    [{ from: '2025-09-01', to: '2025-09-07' }, { from: '2026-09-01', to: '2026-09-07' }],
+    'periods');
+});
+
+test('an OR that is not about dates does NOT suppress the window', () => {
+  // The detection has to be about DATE branches, not about the word `or`.
+  // Failing closed on every disjunction would strip the window from a routine
+  // "these two platforms over this week" query.
+  const s = scopeOf(
+    "select sum(spend) from marketing_kpis_daily where (platform = 'meta_ads' or platform = 'google_ads') and day_date between '2026-09-01' and '2026-09-07'",
+  );
+  eq(s.date_scope.window, { from: '2026-09-01', to: '2026-09-07' }, 'window');
+  assert(!s.date_scope.periods, 'a single period was reported as several');
+});
+
+test('a disjoint branch that is not a from/to pair leaves periods UNLISTED, not short', () => {
+  // A partial list of periods reads as the complete one, which is the failure
+  // this whole file is about.
+  const s = scopeOf(
+    "select sum(spend) from marketing_kpis_daily where day_date between '2025-09-01' and '2025-09-07' or day_date >= '2026-09-01'",
+  );
+  assert(!s.date_scope.window, 'a disjoint query was published as a window');
+  assert(!s.date_scope.periods, 'an incomplete period list was published as the whole set');
+  assert(/NOT all listed here/.test(s.date_scope.restriction), 'the incompleteness is not stated');
+});
+
+test('the bucketed single-range query keeps its window (no false positive)', () => {
+  // WEEKLY_BUCKET_SQL carries FIVE `between` predicates -- four inside a CASE
+  // plus the enclosing WHERE -- and no OR. Counting BETWEENs instead of OR
+  // branches would have stripped the window from the very query whose bucket
+  // edges are the point of failure 2.
+  const s = scopeOf(WEEKLY_BUCKET_SQL);
+  eq(s.date_scope.window, { from: '2026-08-17', to: '2026-09-13' }, 'window');
+  assert(!s.date_scope.periods, 'a bucketed single range was reported as several periods');
+});
+
 console.log('\n-- the derivation does not overclaim --');
 
 test('a column that is merely mentioned is reported as pooled, not as narrowed', () => {

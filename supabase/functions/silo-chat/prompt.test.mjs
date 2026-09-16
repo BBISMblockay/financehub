@@ -405,6 +405,11 @@ test('an unreadable period is not a period (cycle 1)', () => {
   has(GENERAL, 'must not name a period from it');
 });
 
+test('several periods are described separately, never spanned (cycle 2)', () => {
+  has(GENERAL, 'Where it reports SEVERAL PERIODS instead of a window');
+  has(GENERAL, 'never span them into one');
+});
+
 test('the direction of a restriction is read, not just its presence (cycle 1)', () => {
   has(GENERAL, 'a value under excludes is what the result LEAVES OUT');
   has(GENERAL, 'never that value');
