@@ -18786,3 +18786,12 @@ $c$select (select count(*) from v_po_header_summary
 -- answer to a question with the same words.
 \i migrations/20260916120000_chat_readonly_query_read_only_txn.sql
 \i migrations/20260916121000_silo_chat_audit_request_id.sql
+
+-- Keep Ask SILO's claims tied to queried evidence (2026-09-16 traces). Adds
+-- silo_chat_audit_log.diagnostics (per-query outcomes and context selection --
+-- never result rows, size-capped in the edge function before insert), names it
+-- into the view's explicit column list, and replaces the Meta ad-level card's
+-- hardcoded coverage sentence with a measure-it-first instruction. Ends with
+-- refresh_chat_schema_catalog(), which the new column makes necessary and
+-- which preserves the curated descriptions above it.
+\i migrations/20260916140000_silo_chat_evidence_diagnostics.sql

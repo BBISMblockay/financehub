@@ -105,6 +105,27 @@
 // field carrying the rows touched this turn so the client can render the
 // structured card; a non-concept question omits it entirely and every
 // other part of this function's behavior is unchanged.
+// Evidence scope (2026-09-16): two traced answers ran correct SQL and
+// published the figures under labels the SQL never supported -- a week of ad
+// spend pooled across every platform called "Meta spend" and then divided by
+// Meta's own attributed value; a weekly bucket starting 31 August called "the
+// week after the 1 September launch"; ads selected by today's creative copy,
+// spanning two campaigns, described as one campaign changing behaviour. None
+// of those is an arithmetic bug and none is fixed by more prompt text alone:
+// by the time the answer is written the model is looking at a dozen anonymous
+// JSON arrays and has to REMEMBER which one was scoped to what. So it no
+// longer has to. evidence-scope.mjs derives, from the statement and the
+// catalog's auto-generated column lists, what each result is and is not
+// restricted to, and run_sql returns it WITH the rows. Three things ride
+// alongside: describe_relations, because the schema detail slice is ranked on
+// the opening question's words and frozen for the request (it must be -- it is
+// the cached prompt prefix) while an investigation moves; a budget-exhausted
+// instruction that asks for supported findings AND named unfinished checks
+// instead of "answer anyway"; and silo_chat_audit_log.diagnostics, which
+// records query outcomes and context selection -- never result rows -- so the
+// next mismatch can be diagnosed from the record instead of by re-running
+// statements against data that has since changed. See
+// docs/ops/ask-silo-evidence-scope.md.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding/base64';
 
@@ -137,7 +158,7 @@ Brand context: SILO is used by more than one company, so nothing about brand ide
 
 Voice for data answers specifically: even where brand context exists and describes a playful/distinctive voice, keep data answers direct and number-first -- lead with the figure, stay concise. That playfulness belongs in campaign-name/marketing-copy suggestions, not in a sales report, unless the brand context explicitly says otherwise.
 
-You have five tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns the rows as JSON -- row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do. web_search looks up public information on the open internet -- use it for anything outside this company's own database: competitor research, industry trends/benchmarks, or evaluating this brand's own public website/marketing the way an outside visitor sees it. view_ad_creative_image fetches the actual creative image for a specific Meta ad by ad_id, for visual-design questions (color, layout, imagery, composition) that the text fields in meta_ad_creatives can't answer. inspect_storefront_page fetches ONE page of this company's own verified storefront and reports what that page currently says about itself (title, meta description, canonical, headings, word count, images missing alt, structured data). You may call it up to FIVE times per question, one page per call, and the URL must either be one the user gave you or come verbatim from the inspect_url column of a company-scoped SILO query (seo_collection_candidates). Never build a URL from a path plus a domain yourself, and never walk links found on a page -- it is not a crawler.
+You have six tools. run_sql executes a single read-only Postgres SELECT/WITH statement and returns { evidence_scope, rows } -- the rows, plus a derived statement of what they are and are NOT restricted to (see the scope rules below) -- and row-level security automatically scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. There is no separate "report" layer you're limited to -- you're querying the live operational database directly, the same tables every other SILO page reads from, not a pre-built summary. save_note records a piece of taught knowledge (brand context or a specific correction -- see below) -- it never reads or modifies real business data, and RLS restricts who can call it successfully regardless of what you're asked to do. web_search looks up public information on the open internet -- use it for anything outside this company's own database: competitor research, industry trends/benchmarks, or evaluating this brand's own public website/marketing the way an outside visitor sees it. view_ad_creative_image fetches the actual creative image for a specific Meta ad by ad_id, for visual-design questions (color, layout, imagery, composition) that the text fields in meta_ad_creatives can't answer. describe_relations returns the full schema card for tables or views you are working with -- every column, the curated business meaning, and the date coverage MEASURED from the data right now -- for the relations the map below only gives a one-line entry for; use it whenever an investigation moves somewhere the original question did not name. inspect_storefront_page fetches ONE page of this company's own verified storefront and reports what that page currently says about itself (title, meta description, canonical, headings, word count, images missing alt, structured data). You may call it up to FIVE times per question, one page per call, and the URL must either be one the user gave you or come verbatim from the inspect_url column of a company-scoped SILO query (seo_collection_candidates). Never build a URL from a path plus a domain yourself, and never walk links found on a page -- it is not a crawler.
 
 Internal data vs. public web knowledge: run_sql results are this company's own, verified, real operational numbers. web_search results are external, unverified, and can be wrong, outdated, written by a competitor about themselves, or simply not match SILO's own data -- never blend a web-sourced figure into an internal number, and never state a web claim with the same confidence as a number you actually queried. Say plainly when a fact came from the web rather than from SILO's own data. Use web_search efficiently -- a handful of well-targeted searches beats many near-duplicate ones.`;
 
@@ -170,7 +191,7 @@ When you answer, be explicit about data confidence -- don't let a mediocre answe
 HOW AN ANSWER READS -- these bind every answer, the one-line ones and the follow-ups included:
 
 - LEAD WITH THE BUSINESS ANSWER, NOT WITH HOW YOU GOT IT. The first sentence carries the figure, the period and the thing being measured -- "MLB product brought in $55,463 over the first six days of September, 8.7% of total sales" -- never the route you took to it. If the question was a decision ("should we restock this?"), the first sentence is the recommendation.
-- NO BACKEND VOCABULARY IN THE ANSWER. Table, view, column, function and tool names, SQL keywords, and words like schema, join, materialized view, RLS, RPC, null or cast do not appear in what you write to the user. Neither do the names of your own tools (run_sql, save_note, web_search, view_ad_creative_image, inspect_storefront_page) -- the user does not call them and cannot see them. Every statement you ran is ALREADY shown to the user in the query panel beside your answer, so restating it in prose adds nothing and costs readability. One exception: if the user is explicitly asking about the plumbing ("which table is that in", "show me the query", "why is that blank"), answer the question they actually asked, in their words where you can. Names of REAL THINGS are not backend vocabulary and must stay: products, collections, factories, sales channels, store locations, campaign names, people. "Bubbles and Doubles Hoodie", "Black Friday 2025", "Sugar Hill" all belong in the prose -- it is the SYSTEM vocabulary that comes out, never the business's own.
+- NO BACKEND VOCABULARY IN THE ANSWER. Table, view, column, function and tool names, SQL keywords, and words like schema, join, materialized view, RLS, RPC, null or cast do not appear in what you write to the user. Neither do the names of your own tools (run_sql, describe_relations, save_note, web_search, view_ad_creative_image, inspect_storefront_page) -- the user does not call them and cannot see them. Every statement you ran is ALREADY shown to the user in the query panel beside your answer, so restating it in prose adds nothing and costs readability. One exception: if the user is explicitly asking about the plumbing ("which table is that in", "show me the query", "why is that blank"), answer the question they actually asked, in their words where you can. Names of REAL THINGS are not backend vocabulary and must stay: products, collections, factories, sales channels, store locations, campaign names, people. "Bubbles and Doubles Hoodie", "Black Friday 2025", "Sugar Hill" all belong in the prose -- it is the SYSTEM vocabulary that comes out, never the business's own.
 - SAY THE SAME THING IN BUSINESS WORDS. This does NOT weaken any rule above -- every qualifier is still kept and still bound into the claim sentence; only its VOCABULARY changes. "Website orders, after returns" rather than a table name; "we only hold data back to 28 July, about six weeks" rather than a min/max of a date column; "stock is as of last night's sync" rather than the name of the snapshot it came from. A caveat nobody can read is a caveat nobody keeps.
 - LENGTH FOLLOWS THE QUESTION. A number question gets the number plus the one line that makes it trustworthy. An open-ended question ("how is the business doing") earns structure. Default to short; never pad an answer out to look thorough, and never open with a restatement of the question.
 
@@ -185,6 +206,15 @@ A METRIC THAT COMPUTES IS NOT A METRIC THAT ANSWERS. A query succeeding proves t
 - A share needs part and whole over the same window, company, channel and grain.
 - A per-unit figure needs both sides counting the same units.
 When the data cannot support the metric asked for, say which piece is missing and offer the nearest thing it CAN support. Do not publish the invalid one with a caveat bolted on.
+
+EVERY FIGURE KEEPS THE POPULATION IT CAME FROM. Each run_sql result arrives with an evidence_scope block stating what those rows are and are NOT restricted to. It is derived from your own statement and the schema map, it is not a check on the values, and where it could not tell whether a dimension was narrowed it reports it as pooled. Read it before you use a number, and hold these:
+
+- A FIGURE MAY ONLY WEAR A LABEL ITS RESULT SUPPORTS. If evidence_scope says a dimension is pooled -- or lists the relation under totals_only, meaning it has no such column at all -- then the figure is a combined figure across every value of it. Read the DIRECTION of a restriction too: a value under excludes is what the result LEAVES OUT, so a figure restricted that way is everything-but, never that value; and a column under restricted_no_readable_values is narrowed by something whose effect cannot be stated as values, so the population is neither one value nor all of them. Call it what it is ("all paid platforms combined", "across both campaigns") or do not publish it. Having the split in ANOTHER result does not license labelling this one: use that result instead. This is the single most damaging error made here -- a week of combined spend across every ad platform was published as one platform's spend and then divided by that one platform's attributed value, producing a return figure that was not a ratio of anything.
+- A RATIO NAMES ITS OWN TOP AND BOTTOM, AND THEY COME FROM THE SAME RESULT. Before writing any ROAS, CPA, cost per lead, rate or share, say which result gave the numerator and which gave the denominator. If they are different results with different scope, the ratio does not exist -- do not compute it and do not caveat it into existence.
+- A PERIOD THAT SPANS AN EVENT IS ON BOTH SIDES OF IT, AND A PERIOD YOU CANNOT READ IS NOT A PERIOD. evidence_scope publishes a window only where the statement bounds both ends; otherwise it says what it could not read (a relative bound like the last 30 days, an open end, or no date predicate at all) and you must not name a period from it -- re-query with explicit dates or say the window is not established. Where it reports SEVERAL PERIODS instead of a window, the result is a comparison of separate ranges -- a year-on-year query is the usual shape -- and the time BETWEEN those ranges is not in the result at all: describe each period on its own and never span them into one. When a result is bucketed it lists the bucket edges. A bucket running 31 Aug - 6 Sep contains 31 August: it is not "the week after a 1 September launch", and money spent inside it may all have gone out before the event while the returns all landed after. Name the actual dates ("the week beginning 31 August, which includes the day before launch"), never "before"/"after"/"the following week", and never build a before/after comparison on buckets whose edges you have not checked against the event date. If the comparison needs the split, query the day grain.
+- A NAME IS NOT A FACT ABOUT WHAT SOMETHING DID. A campaign called "Subscribers" is evidence of what someone named it, not of its bid objective, not that its sign-ups are unique people, and not that a platform's attributed value belongs to it. Two campaign names are two populations and stay separate in the prose, however similar the numbers. And metadata you read today -- an ad's creative copy, its headline, its destination link -- describes the ad NOW; it is not evidence of what that ad said or pointed at on a past date, so a set of ads selected by today's copy is a population of ads-as-they-are-now, not a campaign and not a historical one.
+- A BEFORE/AFTER PATTERN IS NOT A CAUSE, and one funnel stage is not judged on another stage's metric. Spend that falls while sales rise is a sequence; calling it an effect needs something that links them, and if the link is missing say which one and stop there. Specifically: an acquisition or lead-generation campaign cannot be judged, cut or defended on immediate purchase return unless you have actually traced the people it acquired through to orders. Where no key joins them, that is an UNKNOWN to state plainly -- not a weak signal to reason from, and never a reason to recommend moving the budget.
+- QUERIED IS NOT RECONCILED. A figure you queried is a figure one statement returned. It becomes reconciled only when a second, independent route produced the same number and you say what that route was. Never write that figures are reconciled, that ratios were checked, that scope was verified, or that any rule here was followed, unless that specific thing was done in this conversation -- a claim about your own rigour is a claim like any other, and an unearned one costs more than the finding it decorates. "Two platforms' spend summed here" is a fact; "all figures reconciled" is almost never one.
 
 EVIDENCE DISCIPLINE -- these four rules bind every answer, and breaking them produces confident statements that are simply false:
 
@@ -370,17 +400,38 @@ import {
   createInspectionBudget,
   looksInspectable,
 } from './seo-lib.mjs';
+import {
+  buildCatalogIndex,
+  describeEvidenceScope,
+  relationsInStatement,
+  renderQueryResult,
+} from './evidence-scope.mjs';
 
 const TOOLS = [
   {
     name: 'run_sql',
-    description: 'Execute a single read-only Postgres SELECT or WITH statement against the SILO database and return the resulting rows as JSON. Automatically scoped to the asking user\'s own company via row-level security.',
+    description: 'Execute a single read-only Postgres SELECT or WITH statement against the SILO database. Returns { evidence_scope, rows }: evidence_scope is derived from your statement and the schema map and states what the rows are and are NOT restricted to -- which platform/campaign/channel/location values it is narrowed TO, which it EXCLUDES, which are broken out per value or pooled together, which dimensions the relation has no column for at all, what the date predicates actually bound (a window only when both ends are), and whether the result hit the per-page row cap. Read it before using a figure; it is what stops a number being published under a label the query never supported. Automatically scoped to the asking user\'s own company via row-level security.',
     input_schema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'A single SELECT or WITH statement, no semicolon.' },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'describe_relations',
+    description: "Get the FULL schema-map card -- every column with its type, the curated business meaning, and the MEASURED date coverage -- for tables or views you are already working with. The map in your system prompt only carries full columns for the handful of relations that matched the question's own wording; everything else is a one-line entry, and an investigation reliably ends up somewhere the opening question never named. Call this the moment you are about to query, join or draw a conclusion from a relation you only have a one-liner for -- especially before any claim about what a relation does or does not contain, or how far back it goes. Ask for the relations you are ACTUALLY using; it is not a browser. Up to 6 names per call, 3 calls per question.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        relations: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Exact table/view names as they appear in the database map, up to 6.',
+        },
+      },
+      required: ['relations'],
     },
   },
   {
@@ -646,11 +697,14 @@ const SCHEMA_CORE_RELS = [
   'shopify_orders_v',
 ];
 
-function buildSchemaSection(question: string, rows: CatalogRow[]): string {
+function buildSchemaSection(question: string, rows: CatalogRow[]): { text: string; detailRelations: string[] } {
   if (!rows.length) {
     // Catalog unavailable (fetch failed / table empty) -- degrade to
     // discovery guidance rather than breaking chat.
-    return '\n\nSchema map unavailable for this request -- discover table and column names via information_schema before querying; never guess a column name.';
+    return {
+      text: '\n\nSchema map unavailable for this request -- discover table and column names via information_schema before querying; never guess a column name.',
+      detailRelations: [],
+    };
   }
   const q = question.toLowerCase();
   const tokens = [...new Set(q.match(/[a-z0-9_]{4,}/g) || [])];
@@ -687,14 +741,25 @@ function buildSchemaSection(question: string, rows: CatalogRow[]): string {
     const short = firstSentence.length > 140 ? firstSentence.slice(0, 137) + '...' : firstSentence;
     return `- ${r.relname} (${r.relkind})${short ? ` -- ${short}` : ''}`;
   };
-  return `\n\nDatabase map (auto-generated from the live schema -- the table/view names and column names below are EXACT; trust them over memory, and never guess a column that isn't listed):
+  return {
+    // The detail slice is ranked on the OPENING QUESTION's own words, and an
+    // investigation does not stay where its first sentence pointed: both
+    // traced failures of 2026-09-16 ended up querying relations that had only
+    // a one-line entry here. So the index now says, in the map itself, that a
+    // one-liner is not the guidance -- and names the tool that fetches the
+    // rest. Selection stays question-ranked because the alternative is paying
+    // for the whole catalog on every question; what changes is that the model
+    // is told the slice is a slice, and can widen it.
+    text: `\n\nDatabase map (auto-generated from the live schema -- the table/view names and column names below are EXACT; trust them over memory, and never guess a column that isn't listed):
 
 Most relevant to this question, with full columns:
 
 ${detail.map(card).join('\n\n')}
 
-Everything else available (query directly; check information_schema for their columns first):
-${rows.filter((r) => !detailNames.has(r.relname)).map(indexLine).join('\n')}`;
+Everything else available: a one-line entry below is a POINTER, not a description -- it carries no columns and none of the caveats that decide whether a figure means what it looks like. Before you query, join or conclude anything from one of these, call describe_relations for its full card:
+${rows.filter((r) => !detailNames.has(r.relname)).map(indexLine).join('\n')}`,
+    detailRelations: detail.map((r) => r.relname),
+  };
 }
 
 // Notes are folded into the cached system-prompt block (fetched once per
@@ -809,6 +874,26 @@ async function callAnthropic(
 // the user gets an answer either way.
 const MAX_TOOL_ROUNDS = 20;
 
+// describe_relations budget. Six relations is a join plus its lookups; three
+// calls is enough for an investigation that moves twice. Bounded because the
+// alternative to a bound is a model that pages the whole catalog into context
+// one call at a time -- which costs the same tokens the per-question slice
+// exists to save, and adds a round trip for each of them.
+const MAX_DESCRIBE_RELATIONS_PER_CALL = 6;
+const MAX_DESCRIBE_CALLS_PER_REQUEST = 3;
+// A catalog card can be long (marketing_kpis_daily's is ~1.6KB of genuinely
+// load-bearing caveats). Capped rather than dropped: a truncated card says it
+// was truncated, where a missing one reads as "nothing to know here".
+const MAX_CARD_DESCRIPTION_CHARS = 2400;
+
+// Diagnostics. Enough to tell a future mismatch apart from the outside;
+// deliberately NOT enough to reconstitute a result set. See the comment on
+// buildDiagnostics below for what is stored and what is refused.
+const MAX_LOGGED_QUERIES = 40;
+const MAX_LOGGED_SQL_CHARS = 2000;
+const MAX_LOGGED_ERROR_CHARS = 400;
+const MAX_DIAGNOSTIC_BYTES = 120_000;
+
 // WRITE_COMPANY_NOTE -- how a write is kept inside the company the question was
 // asked in, and why it takes two mechanisms rather than one.
 //
@@ -878,6 +963,79 @@ const WALL_CLOCK_BUDGET_MS = 95_000;
 // ship what we have -- a slightly short answer beats a 504 with nothing.
 const FINAL_CONTINUATION_CUTOFF_MS = 125_000;
 
+// DIAGNOSTIC EVIDENCE, bounded.
+//
+// silo_chat_audit_log already stored the question, the SQL text and the final
+// answer. Reconstructing the two mislabelling failures of 2026-09-16 from that
+// still meant re-running every statement by hand against live data -- which
+// answers what the database says TODAY, not what the model was looking at, and
+// historical attribution moves. What was missing was the OUTCOME of each query
+// and the CONTEXT it was chosen against.
+//
+// WHAT IS STORED: per query, the statement (already stored in queries_run, kept
+// here so an outcome is not orphaned from its cause), its derived evidence
+// scope, the row count, whether it errored and the error text; plus which
+// relations got full schema cards up front and which were fetched mid-request.
+//
+// WHAT IS REFUSED, and why the distinction is the design rather than a setting:
+//   * NO RESULT ROWS. Not a sample, not the first row. A returned row is
+//     business data -- it is what RLS spent its whole existence scoping -- and
+//     copying it into a second table is a second copy to get the policy right
+//     on. Counts and shapes diagnose a mislabelling; values are not needed for
+//     it.
+//   * Errors are capped and are the DATABASE's message about a statement the
+//     model wrote. They can echo a literal the model itself supplied; they do
+//     not carry rows.
+//   * The row lands through the caller's own JWT into a table whose select
+//     policy is already `company_entity_id = active_company_id() AND
+//     (created_by = auth.uid() OR is_exec_or_owner())`. This adds a column to
+//     that row. It does not add a reader, a table, or a path to another
+//     tenant's data.
+//   * Size is capped HERE, before the insert, because an oversized payload
+//     would fail the insert -- and a logging failure must never be the thing
+//     that turns a good answer into a bad request. Detail is shed in order
+//     (scope objects first, then whole entries) and what was shed is recorded.
+function buildDiagnostics(
+  queryLog: Array<Record<string, unknown>>,
+  contextLog: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (!queryLog.length && !Object.keys(contextLog).length) return null;
+  const trim = (v: unknown, n: number) => {
+    const t = String(v ?? '');
+    return t.length > n ? `${t.slice(0, n)}…[truncated]` : t;
+  };
+  let entries = queryLog.slice(0, MAX_LOGGED_QUERIES).map((q) => ({
+    ...q,
+    // A coverage probe carries no `sql` key; writing an empty string for it
+    // would put a query with no statement in the record.
+    ...(q.sql ? { sql: trim(q.sql, MAX_LOGGED_SQL_CHARS) } : {}),
+    ...(q.error ? { error: trim(q.error, MAX_LOGGED_ERROR_CHARS) } : {}),
+  }));
+  const dropped = Math.max(0, queryLog.length - entries.length);
+  const build = (list: unknown[], note: string | null) => ({
+    schema_version: 1,
+    queries: list,
+    context: contextLog,
+    ...(dropped ? { queries_not_logged: dropped } : {}),
+    ...(note ? { reduced: note } : {}),
+    contains: 'statements, derived query scope, row counts and error text. No result rows, ever.',
+  });
+  let payload = build(entries, null);
+  if (JSON.stringify(payload).length <= MAX_DIAGNOSTIC_BYTES) return payload;
+  // Shed the scope objects first: they are the largest part and the least
+  // recoverable-from-nothing part is the outcome, not the derivation.
+  entries = entries.map(({ scope: _scope, ...rest }: Record<string, unknown>) => rest);
+  payload = build(entries, 'evidence_scope objects dropped to fit the size limit');
+  while (JSON.stringify(payload).length > MAX_DIAGNOSTIC_BYTES && entries.length) {
+    entries = entries.slice(0, Math.max(1, Math.floor(entries.length / 2)));
+    payload = build(entries, 'evidence_scope objects and older entries dropped to fit the size limit');
+    if (entries.length === 1) break;
+  }
+  return JSON.stringify(payload).length <= MAX_DIAGNOSTIC_BYTES
+    ? payload
+    : { schema_version: 1, queries: [], context: {}, reduced: 'diagnostics exceeded the size limit and were not stored' };
+}
+
 // One row per request: the question, the SQL actually run, the answer (or
 // error), and how many tool-rounds it took. Prerequisite for closing the
 // feedback loop and for a future eval set -- never lets a logging failure
@@ -895,6 +1053,7 @@ async function logAudit(
     toolRounds: number;
     status: 'ok' | 'error';
     errorMessage?: string | null;
+    diagnostics?: Record<string, unknown> | null;
   },
 ): Promise<boolean> {
   try {
@@ -907,7 +1066,7 @@ async function logAudit(
     // reliability figure computed over a log with holes in it. Two things
     // depend on the row existing: that scoreboard, and the client's
     // crash-recovery lookup, which can only find an answer that got logged.
-    const { error } = await callerClient.from('silo_chat_audit_log').insert({
+    const base: Record<string, unknown> = {
       request_id: params.requestId ?? null,
       question: params.question,
       history_snapshot: params.historySnapshot,
@@ -917,7 +1076,32 @@ async function logAudit(
       status: params.status,
       error_message: params.errorMessage ?? null,
       model: MODEL,
+    };
+    let { error } = await callerClient.from('silo_chat_audit_log').insert({
+      ...base,
+      diagnostics: params.diagnostics ?? null,
     });
+    // The diagnostics column arrives by migration and this function by a
+    // manual deploy, in whichever order they happen. A function running ahead
+    // of its migration must not lose the whole audit row over a column that is
+    // not there yet -- the row is what the crash-recovery path and
+    // silo_chat_health_v both read. So: one retry without the new column, and
+    // only for the error that actually means "no such column" (PostgREST
+    // PGRST204 / Postgres 42703), never as a blanket second attempt that would
+    // hide a real rejection.
+    const missingColumn = (e: typeof error) => {
+      if (!e) return false;
+      const code = String((e as { code?: string }).code ?? '');
+      const msg = String(e.message || '');
+      return code === 'PGRST204' || code === '42703'
+        || (/diagnostics/i.test(msg) && /(column|schema cache)/i.test(msg));
+    };
+    if (missingColumn(error)) {
+      console.warn('[silo-chat] audit diagnostics column absent; logging without it', {
+        request_id: params.requestId ?? null,
+      });
+      ({ error } = await callerClient.from('silo_chat_audit_log').insert(base));
+    }
     if (error) {
       // The edge-function log is the operational channel available here. It
       // is deliberately NOT surfaced to the user: the answer itself is fine,
@@ -1230,14 +1414,28 @@ Deno.serve(async (req: Request) => {
       ? `\n\nProduct Concepts: you have access to a structured product-concept workflow, but it is NOT active in this chat, so you currently have no tools to create, revise or approve a concept. If the user asks you to draft, save, revise or approve a product concept, do not improvise one in prose as though it were saved -- ask them whether they want to start it -- a one-click button to do so is shown beneath your answer, so end with that offer rather than a lecture about where to click. Make clear nothing is saved until they start it. Answering an ordinary data question is unaffected.`
       : '';
 
-    const systemPrompt = buildSystemPrompt(
-      notes ?? [],
-      buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]),
-    ) + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : conceptModeHint);
+    const schemaSlice = buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]);
+    const systemPrompt = buildSystemPrompt(notes ?? [], schemaSlice.text)
+      + (conceptsEnabled ? PRODUCT_CONCEPT_SYSTEM_BLOCK : conceptModeHint);
     const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;
 
     queriesRun = [];
     let sawTimeout = false;
+    // One index over the catalog rows already fetched above -- no extra round
+    // trip. It is what lets a result say which of its dimensions are narrowed
+    // and which are pooled, using the column lists pg_catalog generated rather
+    // than anything hand-maintained.
+    const catalogIndex = buildCatalogIndex((catalogRows ?? []) as CatalogRow[]);
+    // Per-query outcomes, for the audit row. Never result rows -- see
+    // buildDiagnostics.
+    const queryLog: Array<Record<string, unknown>> = [];
+    // Which relations the model was given full cards for up front (keyword
+    // ranking on the opening question) versus which it had to ask for
+    // mid-investigation. A mismatch between the two IS the diagnosis when an
+    // answer misreads a relation: it tells you whether the guidance was in
+    // front of it at all.
+    const describedRelations: string[] = [];
+    let describeCallsUsed = 0;
     // Concepts created/updated/approved during THIS request, keyed by id so
     // a concept revised twice in one turn is returned once, in its final
     // state. Returned alongside the answer so the client can render the
@@ -1258,6 +1456,19 @@ Deno.serve(async (req: Request) => {
     const sources = new Map<string, { url: string; title: string | null }>();
     const sourcesPayload = () => (sources.size ? { sources: [...sources.values()] } : {});
 
+    // Everything about HOW this answer was put together that is worth keeping:
+    // which relations were in front of the model from the start, which it had
+    // to fetch, and how much of the budget it spent. Assembled at logging time
+    // so it always reflects the finished request.
+    const contextLog = () => ({
+      schema_detail_relations: schemaSlice.detailRelations,
+      relations_described_mid_request: describedRelations,
+      describe_calls_used: describeCallsUsed,
+      describe_calls_allowed: MAX_DESCRIBE_CALLS_PER_REQUEST,
+      workflow: activeWorkflow,
+      elapsed_ms: elapsedMs(),
+    });
+
     // THE ONLY WAY AN ANSWER LEAVES THIS FUNCTION. Both success paths (the
     // model finishing normally, and the forced final answer at the round or
     // wall-clock budget) go through here, so the mid-flight company re-check
@@ -1265,7 +1476,7 @@ Deno.serve(async (req: Request) => {
     // exactly how a guard like this usually rots.
     const finishWithAnswer = async (
       text: string,
-      opts: { toolRounds: number; errorMessage?: string | null },
+      opts: { toolRounds: number; errorMessage?: string | null; partial?: string | null },
     ) => {
       const companyNow = await readActiveCompany();
       // Cannot establish it => cannot deliver. See readActiveCompany: letting an
@@ -1300,10 +1511,17 @@ Deno.serve(async (req: Request) => {
         toolRounds: opts.toolRounds,
         status: 'ok',
         errorMessage: opts.errorMessage ?? null,
+        diagnostics: buildDiagnostics(queryLog, contextLog()),
       });
       return reply({
         answer: text,
         queries_run: queriesRun,
+        // Only present when the investigation was cut short. The client and
+        // anyone auditing can then tell a finished answer from one written
+        // against an unfinished check -- which the answer text is also
+        // required to say, but a flag is not something prose compression can
+        // drop.
+        ...(opts.partial ? { partial: true, partial_reason: opts.partial } : {}),
         // Only ever sent when it is FALSE. The client uses it to avoid
         // promising a recovery it cannot perform -- an answer whose audit row
         // was rejected is not findable after a dropped connection.
@@ -1748,16 +1966,159 @@ Deno.serve(async (req: Request) => {
           } catch (err) {
             resultContent = `Error: could not approve product concept -- ${String((err as Error)?.message || err)}. This likely means the caller doesn't have purchasing write access yet (the same access PO Builder requires) -- tell the user plainly rather than retrying.`;
           }
+        } else if (use.name === 'describe_relations') {
+          // Fixes the half of the context problem that ranking cannot: the
+          // detail slice is chosen from the OPENING question's words, once,
+          // and frozen for the request (it has to be -- the system prompt is
+          // one cached block and must stay byte-identical across rounds). An
+          // investigation moves. This is the way to widen the guidance
+          // WITHOUT touching the cached prefix: the card arrives as a tool
+          // result instead.
+          const asked = Array.isArray(use.input?.relations)
+            ? use.input.relations.map((r: unknown) => String(r || '').trim()).filter(Boolean)
+            : [];
+          if (!asked.length) {
+            resultContent = 'Error: relations must be a non-empty array of table/view names.';
+          } else if (describeCallsUsed >= MAX_DESCRIBE_CALLS_PER_REQUEST) {
+            resultContent = `Error: the describe_relations budget for this question (${MAX_DESCRIBE_CALLS_PER_REQUEST} calls) is spent. Work with the cards you already have; if a relation you need is still only a one-liner, say in your answer that you could not confirm its meaning rather than assuming it.`;
+          } else {
+            describeCallsUsed++;
+            const wanted = asked.slice(0, MAX_DESCRIBE_RELATIONS_PER_CALL);
+            const byName = new Map(
+              ((catalogRows ?? []) as CatalogRow[]).map((r) => [r.relname, r]),
+            );
+            const cards = wanted.map((name) => {
+              const row = byName.get(name);
+              if (!row) {
+                return {
+                  relation: name,
+                  found: false,
+                  note: 'not in the schema map. It may be hidden (credential/internal tables are excluded), misspelled, or not exist. Check information_schema before concluding anything about it.',
+                };
+              }
+              const desc = row.description || '';
+              return {
+                relation: row.relname,
+                kind: row.relkind,
+                columns: (row.columns || []).map((c) => `${c.name} (${c.type})`),
+                business_meaning: desc.length > MAX_CARD_DESCRIPTION_CHARS
+                  ? `${desc.slice(0, MAX_CARD_DESCRIPTION_CHARS)}…[card truncated]`
+                  : desc,
+              };
+            });
+            for (const name of wanted) if (!describedRelations.includes(name)) describedRelations.push(name);
+            // COVERAGE IS MEASURED, NOT REMEMBERED. A card that states its own
+            // history depth in words goes stale silently and then misdirects:
+            // meta_ad_performance_daily's said "only about 7 weeks of history
+            // (from 2026-07-08) ... do not use it for launch comps" while the
+            // table actually held 415 days back to 2025-07-28. Replacing that
+            // sentence with a fresher sentence just restarts the clock, so the
+            // range is read off the data at request time instead. Day-grain
+            // date columns only: created_at/synced_at describe when a row was
+            // written, not what period it covers, and reporting one as
+            // "coverage" is its own wrong answer.
+            const measurable = wanted
+              .map((n) => byName.get(n))
+              .filter((r): r is CatalogRow => !!r)
+              .map((r) => ({
+                rel: r.relname,
+                col: (r.columns || []).find((c) => c.name === 'day_date' && /^date$/i.test(c.type))
+                  || (r.columns || []).find((c) => /^date$/i.test(c.type)),
+              }))
+              .filter((x) => !!x.col);
+            let coverage: unknown = null;
+            // Every identifier here comes from the catalog row we just read,
+            // never from the model's input -- byName.get() IS the allowlist,
+            // and the shape check below is belt to its braces: an identifier
+            // that is not a plain lowercase name is skipped rather than
+            // interpolated. The statement also runs through
+            // chat_run_readonly_query, which is SECURITY INVOKER, read-only
+            // and SELECT/WITH-only, so this is the caller's own access either
+            // way.
+            const plainIdent = /^[a-z_][a-z0-9_]*$/;
+            const safe = measurable.filter((x) => plainIdent.test(x.rel) && plainIdent.test(x.col!.name));
+            if (safe.length) {
+              const sql = safe
+                .map((x) => `select '${x.rel}' as relation, '${x.col!.name}' as date_column, min(${x.col!.name})::text as earliest, max(${x.col!.name})::text as latest from ${x.rel}`)
+                .join(' union all ');
+              const startedCoverageAt = Date.now();
+              try {
+                const { data, error } = await callerClient.rpc('chat_run_readonly_query', { query: sql });
+                if (error) throw new Error(error.message);
+                coverage = data;
+                // Logged as its own kind. It is deliberately NOT pushed into
+                // queriesRun -- that array is what the user's query panel shows
+                // and what "Save report" re-runs, and a coverage probe is
+                // neither of those. But it is a query that can fail or be slow,
+                // so leaving it out of the diagnostics would put a blind spot
+                // in the very record added to remove blind spots.
+                queryLog.push({
+                  kind: 'coverage',
+                  relations: safe.map((x) => x.rel),
+                  ok: true,
+                  ms: Date.now() - startedCoverageAt,
+                });
+              } catch (err) {
+                const why = String((err as Error)?.message || err);
+                coverage = { measured: false, why };
+                queryLog.push({
+                  kind: 'coverage',
+                  relations: safe.map((x) => x.rel),
+                  ok: false,
+                  ms: Date.now() - startedCoverageAt,
+                  error: why,
+                });
+              }
+            }
+            resultContent = JSON.stringify({
+              cards,
+              measured_coverage: coverage,
+              coverage_note: coverage
+                ? 'earliest/latest are the real min and max of that day-grain column, read just now under your own access. A relation with no day-grain date column is absent from this list -- that is "not measured here", never "no history". Where measured_coverage says measured:false the range is UNKNOWN; do not fall back to any range written in a card.'
+                : 'none of these relations carries a day-grain date column, so no coverage was measured. That is not a statement that they lack history.',
+              budget: `${MAX_DESCRIBE_CALLS_PER_REQUEST - describeCallsUsed} describe_relations call(s) left on this question`,
+            });
+          }
         } else {
           const query = String(use.input?.query || '');
           queriesRun.push(query);
+          const resultId = `R${queriesRun.length}`;
+          const startedQueryAt = Date.now();
           try {
             const { data: rows, error } = await callerClient.rpc('chat_run_readonly_query', { query });
             if (error) throw new Error(error.message);
-            resultContent = JSON.stringify(rows);
+            // The rows no longer travel alone. What they are -- and are not --
+            // restricted to is derived here and returned WITH them, because by
+            // the time the answer is written the model is looking at a dozen
+            // anonymous arrays and cannot tell which was all-platform and
+            // which was per-platform. That is not a hypothetical: it is the
+            // confirmed cause of the 2026-09-16 mislabelling.
+            resultContent = renderQueryResult(query, rows, catalogIndex, { resultId });
+            queryLog.push({
+              result_id: resultId,
+              sql: query,
+              ok: true,
+              row_count: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
+              ms: Date.now() - startedQueryAt,
+              ...(relationsInStatement(query).length
+                ? {
+                    scope: describeEvidenceScope(query, catalogIndex, {
+                      resultId,
+                      rowCount: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
+                    }),
+                  }
+                : {}),
+            });
           } catch (err) {
             resultContent = `Error: ${annotateColumnError(String((err as Error)?.message || err))}`;
             if (/statement timeout/i.test(resultContent)) sawTimeout = true;
+            queryLog.push({
+              result_id: resultId,
+              sql: query,
+              ok: false,
+              ms: Date.now() - startedQueryAt,
+              error: String((err as Error)?.message || err),
+            });
           }
         }
         toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: resultContent });
@@ -1801,11 +2162,30 @@ Deno.serve(async (req: Request) => {
         // gets a RESTART -- which then gets concatenated onto the half already
         // kept, producing an answer that says everything twice. Ask it to
         // finish instead.
+        // WHAT THIS USED TO SAY, and why it changed. Both budget prompts ended
+        // "state the assumption or caveat in one short line INSTEAD OF
+        // REFUSING TO ANSWER". That sentence was written against a real
+        // failure (18 clean queries thrown away because no round was left to
+        // write them up) and it overshot: it reads as a demand for a complete
+        // answer, and a complete answer to "give me three actions" is three
+        // actions -- whether or not the evidence reached them. The traced
+        // 2026-09-16 answer stopped at round 19 of 20 and recommended cutting
+        // subscriber-acquisition spend on immediate purchase ROAS alone, with
+        // no subscriber-to-order linkage anywhere in what it had.
+        //
+        // Returning the gathered work is still right. Manufacturing the part
+        // that was never gathered is not. So the instruction now asks for the
+        // same thing in two named parts -- what is supported, and what is
+        // unfinished -- and says plainly that an observation may not be
+        // promoted to a recommendation to fill the shape of the question.
         content: answerSoFar
-          ? 'You are out of budget on this request -- no more queries or tools. The answer you had started above was cut off by the output length limit. Finish that same answer from exactly where it stopped, in a few lines, using ONLY the results already gathered. Do not restart it and do not repeat what you already wrote.'
-          : hitWallClock
-          ? 'You are out of TIME on this request -- no more queries or tools, and the answer has to be written now or the request dies with nothing. Using ONLY the results already gathered above, give your best answer immediately, and keep it tight. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.'
-          : 'Your tool budget is exhausted -- you cannot run any more queries or tools. Using ONLY the results already gathered above, give your best final answer to the original question now. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.',
+          ? 'You are out of budget on this request -- no more queries or tools. The answer you had started above was cut off by the output length limit. Finish that same answer from exactly where it stopped, in a few lines, using ONLY the results already gathered. Do not restart it and do not repeat what you already wrote. If a check you had planned never ran, name it as unfinished rather than writing round it.'
+          : `You are out of ${hitWallClock ? 'TIME' : 'tool budget'} on this request -- no more queries or tools, and what you write now is what the user gets. Do NOT refuse: a partial answer built from real results is the goal. Write it in two parts, in this order:
+
+1. WHAT THE EVIDENCE SUPPORTS. Only findings the results above actually carry, each one carrying its own scope inside the sentence (which platform or campaign, which dates, which source). A figure whose result was pooled across platforms or campaigns is named as a combined figure or left out.
+2. WHAT IS STILL UNCHECKED. Name the specific checks you had not run and what each would have settled. Say it plainly; this is the useful half for deciding whether to act.
+
+Then stop. Do not fill the shape of the question with the piece you did not get to: if the question asked for actions or a recommendation and the evidence only reaches an observation, give the observation and say what would have to be true for it to become a recommendation. An unfinished investigation reported as unfinished is a good answer. An invented conclusion is not, and neither is a confident one caveated in a trailing note.`,
       });
       let finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
       collectSources(finalData.content || [], sources);
@@ -1834,6 +2214,9 @@ Deno.serve(async (req: Request) => {
       if (finalRaw.trim()) {
         return await finishWithAnswer((answerSoFar + finalRaw).trim(), {
           toolRounds: roundsUsed,
+          partial: hitWallClock
+            ? 'the time budget ran out before the investigation finished; this answer covers what had been gathered'
+            : 'the tool-round budget ran out before the investigation finished; this answer covers what had been gathered',
           // Not an error, but flagged so saturation stays visible when
           // auditing. A cluster of round-cap rows means the cap needs
           // raising; a cluster of wall-clock rows means the queries got
@@ -1869,6 +2252,7 @@ Deno.serve(async (req: Request) => {
       toolRounds: roundsUsed,
       status: 'error',
       errorMessage: message,
+      diagnostics: buildDiagnostics(queryLog, contextLog()),
     });
     return reply({ error: message, queries_run: queriesRun, retryable: true }, 500);
   } catch (err) {

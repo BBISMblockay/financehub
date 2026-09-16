@@ -65,3 +65,21 @@ jobs:
       # annotations, so this still needs no install and no secrets.
       - name: Run request-handler assertions
         run: node supabase/functions/silo-chat/handler.test.mjs
+
+      # Pure functions: what a statement's evidence scope is derived to be,
+      # from the two traced 2026-09-16 failures' real SQL. No model, no
+      # database, no network.
+      - name: Run evidence-scope assertions
+        run: node supabase/functions/silo-chat/evidence-scope.test.mjs
+
+      # The model EVALUATION is deliberately NOT run here -- it makes paid
+      # Anthropic calls and its results are not deterministic, so it would be a
+      # red check for reasons unrelated to the change under review (see
+      # supabase/functions/silo-chat/evals/README.md). What runs is its dry
+      # run: it builds every prompt and transcript and sends nothing. That is
+      # what catches the failure this step exists for -- the eval scrapes
+      # prompt constants and the budget-exhausted instruction out of index.ts,
+      # and a rename there would otherwise surface as a crash partway through
+      # a paid run that somebody had already started.
+      - name: Check the model evaluation still assembles (no API calls)
+        run: node supabase/functions/silo-chat/evals/evidence-scope.eval.mjs --dry-run

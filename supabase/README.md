@@ -920,3 +920,43 @@ them, so a duplicate id must not become a user-visible error on a good answer.
 `silo_chat_audit_log_v` carries an explicit column list, so `request_id` is
 appended at the END (a `create or replace view` can only add columns after the
 existing ones) and `verify_v2_schema.sql` checks the view, not only the table.
+
+### 20260916140000_silo_chat_evidence_diagnostics.sql
+
+Two traced Ask SILO answers (`silo_chat_audit_log`
+`c0b642ca-3bc4-4703-be94-995cb7f0a7b9`, `7c90b2cd-84a2-4ce8-888f-a2186ba0927c`)
+published correct figures under labels their SQL never supported — a week of ad
+spend pooled across every platform was called one platform's spend and then
+divided by that platform's own attributed value. Establishing that from the
+audit log meant re-running every statement by hand against live data, which
+answers what the database says *today*; marketing attribution moves, so today
+is not the evidence.
+
+`silo_chat_audit_log.diagnostics jsonb` closes that: per query, the statement,
+the evidence scope derived from it, the row count, the duration and the error
+text; plus which relations were in the up-front schema slice and which the
+model fetched mid-request. **No result rows, ever** — a returned row is the
+business data RLS exists to scope, and a second copy is a second policy to get
+right; counts and shapes are what diagnose a mislabelled figure. No new table,
+grant or reader: it is a column on a row that already lands through the
+caller's own JWT under this table's existing select policy. Size is capped in
+the edge function *before* the insert (detail shed in order, what was shed
+recorded), and the function retries the insert without the column when it is
+absent — so the function and this migration apply in either order. Retention is
+deliberately unchanged: the table has no update or delete policy at all, and
+adding a sweep here would be the first thing in it that could destroy a record.
+
+The same file drops the Meta ad-level card's coverage sentence. It said about
+seven weeks from 2026-07-08 and *do not use it for launch comps*; measured
+2026-09-16 the table held 415 days back to 2025-07-28, so a true sentence had
+become an instruction to avoid the history it forbade using. It is **not**
+replaced with a fresher range — a hardcoded range is the defect, and the next
+one ages the same way. The card now says to measure, `describe_relations` reads
+min/max of the day-grain column at request time, and `verify_v2_schema.sql`
+goes CRITICAL if any hardcoded range returns. `marketing_daily_totals_v`'s card
+gains the fact that it carries no platform or campaign column at all.
+
+The migration ends with `refresh_chat_schema_catalog()` — `silo_chat_audit_log`
+and its view are both in the catalog and both gained a column, which
+`verify_v2_schema.sql` otherwise flags as STALE. The refresh preserves the
+curated descriptions set above it.

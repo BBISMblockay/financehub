@@ -27,6 +27,7 @@
  *
  * Run: node supabase/functions/silo-chat/handler.test.mjs
  */
+import { CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL, PER_PLATFORM_ROWS } from './evidence-fixtures.mjs';
 import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -35,6 +36,7 @@ import { tmpdir } from 'node:os';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX = join(HERE, 'index.ts');
 const SEO_LIB_URL = pathToFileURL(join(HERE, 'seo-lib.mjs')).href;
+const EVIDENCE_LIB_URL = pathToFileURL(join(HERE, 'evidence-scope.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -83,10 +85,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
       "import { encodeBase64 } from 'jsr:@std/encoding/base64';",
       'const encodeBase64 = (bytes) => Buffer.from(bytes).toString("base64");',
     )
-    .replace("from './seo-lib.mjs';", `from ${JSON.stringify(SEO_LIB_URL)};`);
+    .replace("from './seo-lib.mjs';", `from ${JSON.stringify(SEO_LIB_URL)};`)
+    .replace("from './evidence-scope.mjs';", `from ${JSON.stringify(EVIDENCE_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -114,20 +117,37 @@ const COMPANY_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 /** A supabase-js-shaped stub. Query builders are thenable, so `await
  *  client.from(t).select().eq().maybeSingle()` resolves through `resolve`. */
-function makeClient({ activeCompanies = [COMPANY_A], auditError = null, profileErrorOn = [] } = {}) {
+function makeClient({
+  activeCompanies = [COMPANY_A],
+  auditError = null,
+  profileErrorOn = [],
+  catalog = CATALOG_FIXTURE,
+  // Queued chat_run_readonly_query results, consumed in call order. A plain
+  // array is reused for every call; an array of arrays is a script.
+  rpcResults = null,
+  rpcError = null,
+  // Insert errors that clear after the first attempt, so the "column is not
+  // there yet" retry can be exercised.
+  insertErrorOnce = null,
+} = {}) {
   const state = {
     inserts: [],
     updates: [],
     rpcCalls: [],
     profileReads: 0,
+    auditAttempts: 0,
   };
+  const rpcQueue = Array.isArray(rpcResults) && Array.isArray(rpcResults[0]) ? rpcResults.slice() : null;
   const remaining = activeCompanies.slice();
   let lastCompany = remaining[remaining.length - 1] ?? null;
 
   const resolve = (b) => {
     if (b._table === 'silo_chat_audit_log' && b._op === 'insert') {
+      state.auditAttempts++;
+      if (insertErrorOnce && state.auditAttempts === 1) return { data: null, error: insertErrorOnce };
       return { data: null, error: auditError };
     }
+    if (b._table === 'silo_chat_schema_catalog') return { data: catalog, error: null };
     if (b._table === 'product_concepts') {
       // A SELECT here is the duplicate-title lookup, which uses maybeSingle():
       // it must resolve to null (no duplicate), not to the generic empty ARRAY
@@ -186,7 +206,9 @@ function makeClient({ activeCompanies = [COMPANY_A], auditError = null, profileE
     from: (table) => builder(table),
     rpc: async (name, args) => {
       state.rpcCalls.push({ name, args });
-      return { data: [], error: null };
+      if (rpcError) return { data: null, error: rpcError };
+      if (rpcQueue) return { data: rpcQueue.length ? rpcQueue.shift() : [], error: null };
+      return { data: rpcResults || [], error: null };
     },
   };
 }
@@ -194,15 +216,38 @@ function makeClient({ activeCompanies = [COMPANY_A], auditError = null, profileE
 /** Scripted Anthropic responses, one per model round, in order. */
 function installModel(rounds) {
   const queue = rounds.slice();
-  globalThis.fetch = async (url) => {
+  // Every request body the handler sent. The assertions that matter most here
+  // are about what the model was SHOWN -- a tool result's evidence envelope,
+  // the wording of the budget-exhausted instruction -- and that is only
+  // visible on the way out.
+  const sent = [];
+  globalThis.fetch = async (url, init) => {
     if (!String(url).includes('api.anthropic.com')) {
       throw new Error(`unexpected outbound fetch in test: ${url}`);
     }
+    sent.push(JSON.parse(init.body));
     if (!queue.length) throw new Error('model called more times than the test scripted');
     const body = queue.shift();
     return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
   };
-  return { remaining: () => queue.length };
+  return { remaining: () => queue.length, sent };
+}
+
+/** Every tool_result string the handler fed back to the model, once each.
+ *  Read off the LAST request body: messages accumulate across rounds, so the
+ *  final one holds the whole transcript and every earlier body is a prefix of
+ *  it. Scanning all of them counts each result once per remaining round. */
+function toolResultsSeen(sent) {
+  const out = [];
+  for (const body of sent.slice(-1)) {
+    for (const m of body.messages || []) {
+      if (!Array.isArray(m.content)) continue;
+      for (const block of m.content) {
+        if (block && block.type === 'tool_result' && typeof block.content === 'string') out.push(block.content);
+      }
+    }
+  }
+  return out;
 }
 
 const say = (text, stop_reason = 'end_turn') => ({
@@ -673,6 +718,275 @@ await test('one transient failure is retried rather than refused', async () => {
   const { res, json } = await ask(BASIC, { profileErrorOn: [2] });
   eq(res.status, 200, 'status');
   eq(json.answer, 'Sales were $10.', 'answer');
+});
+
+
+// ── evidence scope, retrieval and deadline honesty (2026-09-16 traces) ─────
+//
+// These run the REAL tool loop. The distinction that matters: they assert on
+// what the handler PUT IN FRONT OF THE MODEL and what it wrote to the audit
+// row, both of which are code. They assert nothing about what a model then
+// says -- that is evals/evidence-scope.eval.mjs, which costs money and is not
+// run in CI. A green run here is not evidence of better answers.
+
+console.log('\n-- a query result carries what it is scoped to --');
+
+const sqlRound = (sql) => ({
+  content: [{ type: 'tool_use', id: 'tu-sql', name: 'run_sql', input: { query: sql } }],
+  stop_reason: 'tool_use',
+});
+const describeRound = (relations, id = 'tu-d') => ({
+  content: [{ type: 'tool_use', id, name: 'describe_relations', input: { relations } }],
+  stop_reason: 'tool_use',
+});
+
+await test('a pooled result tells the model it is pooled, in the same payload as the rows', async () => {
+  const model = installModel([sqlRound(COMBINED_SPEND_SQL), say('done')]);
+  await ask(BASIC, { rpcResults: COMBINED_SPEND_ROWS });
+  const results = toolResultsSeen(model.sent);
+  assert(results.length === 1, `expected one tool result, got ${results.length}`);
+  const payload = JSON.parse(results[0]);
+  assert(payload.evidence_scope, 'the rows came back with no scope at all');
+  const totals = (payload.evidence_scope.totals_only || []).find((t) => t.relation === 'marketing_daily_totals_v');
+  assert(totals && totals.carries_none_of.includes('platform'),
+    `the all-platform result did not say so: ${JSON.stringify(payload.evidence_scope)}`);
+  eq(payload.rows, COMBINED_SPEND_ROWS, 'the rows themselves');
+});
+
+await test('...and a per-platform result does not, so the two are told apart', async () => {
+  const model = installModel([sqlRound(PER_PLATFORM_SQL), say('done')]);
+  await ask(BASIC, { rpcResults: PER_PLATFORM_ROWS });
+  const payload = JSON.parse(toolResultsSeen(model.sent)[0]);
+  assert(!payload.evidence_scope.totals_only, 'a per-platform result claimed to be pooled');
+  eq((payload.evidence_scope.broken_out_per_value || []).map((b) => b.column), ['platform'], 'broken out');
+});
+
+await test('a schema-discovery query is not given a business-scope envelope', async () => {
+  const model = installModel([
+    sqlRound("select column_name from information_schema.columns where table_name='sales_by_day'"),
+    say('done'),
+  ]);
+  await ask(BASIC, { rpcResults: [{ column_name: 'day_date' }] });
+  assert(!toolResultsSeen(model.sent)[0].includes('evidence_scope'), 'a catalog lookup paid for an envelope');
+});
+
+await test('a failing query is reported as an error, not as an empty scoped result', async () => {
+  const model = installModel([sqlRound('select nope from sales_by_day'), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'column "nope" does not exist' } });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(r.startsWith('Error:'), `an error was dressed as a result: ${r}`);
+  assert(!r.includes('evidence_scope'), 'an error carried a scope envelope');
+});
+
+console.log('\n-- guidance can be fetched for where the investigation actually went --');
+
+await test('describe_relations returns the full card for a relation the question never named', async () => {
+  const model = installModel([describeRound(['marketing_kpis_daily']), say('done')]);
+  await ask(BASIC, { rpcResults: [{ relation: 'marketing_kpis_daily', date_column: 'day_date', earliest: '2025-07-28', latest: '2026-09-15' }] });
+  const payload = JSON.parse(toolResultsSeen(model.sent)[0]);
+  const card = payload.cards[0];
+  eq(card.relation, 'marketing_kpis_daily', 'relation');
+  assert(card.columns.some((c) => c.startsWith('campaign_name')), 'columns are missing from the card');
+  assert(/CLAIMED, NOT ACTUAL/.test(card.business_meaning), 'the curated caveats did not come with it');
+});
+
+await test('coverage is MEASURED from the data, not read out of the card', async () => {
+  const model = installModel([describeRound(['meta_ad_performance_daily']), say('done')]);
+  const { client } = await ask(BASIC, {
+    rpcResults: [{ relation: 'meta_ad_performance_daily', date_column: 'day_date', earliest: '2025-07-28', latest: '2026-09-15' }],
+  });
+  const payload = JSON.parse(toolResultsSeen(model.sent)[0]);
+  eq(payload.measured_coverage[0].earliest, '2025-07-28', 'measured earliest');
+  const coverageCall = client.__state.rpcCalls.find((c) => /min\(day_date\)/.test(c.args?.query || ''));
+  assert(coverageCall, 'no min/max was actually run -- coverage would be a remembered claim again');
+  assert(/from meta_ad_performance_daily/.test(coverageCall.args.query), 'the measured relation is wrong');
+});
+
+await test('a coverage measurement that fails says UNKNOWN rather than falling back', async () => {
+  const model = installModel([describeRound(['meta_ad_performance_daily']), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'canceling statement due to statement timeout' } });
+  const payload = JSON.parse(toolResultsSeen(model.sent)[0]);
+  eq(payload.measured_coverage.measured, false, 'measured flag');
+  assert(/do not fall back to any range written in a card/i.test(payload.coverage_note), 'no instruction not to fall back');
+});
+
+await test('a relation with no day-grain date column is "not measured", never "no history"', async () => {
+  const model = installModel([describeRound(['meta_ad_creatives']), say('done')]);
+  const { client } = await ask(BASIC, {});
+  const payload = JSON.parse(toolResultsSeen(model.sent)[0]);
+  assert(payload.measured_coverage === null, 'coverage was invented for a relation with no date column');
+  assert(/not a statement that they lack history/i.test(payload.coverage_note), 'absence read as emptiness');
+  assert(!client.__state.rpcCalls.some((c) => /min\(/.test(c.args?.query || '')), 'a pointless coverage query ran');
+});
+
+await test('an unknown relation is reported as unknown, not silently skipped', async () => {
+  const model = installModel([describeRound(['marketing_kpis_daily', 'no_such_relation']), say('done')]);
+  await ask(BASIC, { rpcResults: [] });
+  const payload = JSON.parse(toolResultsSeen(model.sent)[0]);
+  const miss = payload.cards.find((c) => c.relation === 'no_such_relation');
+  assert(miss && miss.found === false, `a missing relation vanished: ${JSON.stringify(payload.cards)}`);
+});
+
+await test('the describe budget is enforced in code, not asked for in prose', async () => {
+  const model = installModel([
+    describeRound(['marketing_kpis_daily'], 'd1'),
+    describeRound(['sales_by_day'], 'd2'),
+    describeRound(['meta_ad_creatives'], 'd3'),
+    describeRound(['launch_calendar'], 'd4'),
+    say('done'),
+  ]);
+  await ask(BASIC, { rpcResults: [] });
+  const results = toolResultsSeen(model.sent);
+  assert(results.length === 4, `expected four describe results, got ${results.length}`);
+  assert(!results[3].startsWith('Error:') === false, 'the fourth call was not refused');
+  assert(/budget for this question/.test(results[3]), `unexpected refusal text: ${results[3]}`);
+  assert(/could not confirm its meaning/.test(results[3]), 'the refusal does not say what to do instead');
+});
+
+await test('more relations than the per-call cap are trimmed, not refused wholesale', async () => {
+  const many = ['marketing_kpis_daily', 'sales_by_day', 'meta_ad_creatives', 'launch_calendar',
+    'meta_ad_performance_daily', 'marketing_daily_totals_v', 'products_master'];
+  const model = installModel([describeRound(many), say('done')]);
+  await ask(BASIC, { rpcResults: [] });
+  const payload = JSON.parse(toolResultsSeen(model.sent)[0]);
+  eq(payload.cards.length, 6, 'cards returned');
+});
+
+console.log('\n-- running out of budget returns partial findings, not a manufactured conclusion --');
+
+await test('the budget-exhausted instruction asks for supported findings AND unfinished checks', async () => {
+  const model = installModel([...exhaustRounds(), say('partial answer')]);
+  await ask(BASIC, { rpcResults: [] });
+  const last = model.sent[model.sent.length - 1];
+  const nudge = last.messages[last.messages.length - 1].content;
+  assert(/WHAT THE EVIDENCE SUPPORTS/.test(nudge), `no supported-findings section: ${nudge}`);
+  assert(/WHAT IS STILL UNCHECKED/.test(nudge), 'no unfinished-checks section');
+  assert(/only reaches an observation/.test(nudge), 'nothing stops an observation being promoted to a recommendation');
+  assert(!/instead of refusing to answer/.test(nudge),
+    'the old "answer anyway" wording is back -- that is what produced a recommendation with no evidence behind it');
+});
+
+await test('...and the response says it is partial, in a field prose cannot drop', async () => {
+  installModel([...exhaustRounds(), say('partial answer')]);
+  const { json } = await ask(BASIC, { rpcResults: [] });
+  eq(json.partial, true, 'partial flag');
+  assert(/budget ran out/.test(json.partial_reason || ''), `partial_reason: ${json.partial_reason}`);
+  eq(json.answer, 'partial answer', 'the gathered answer is still returned');
+});
+
+await test('a normal answer carries no partial flag at all', async () => {
+  installModel([say('a complete answer')]);
+  const { json } = await ask(BASIC, {});
+  assert(!('partial' in json), 'a finished answer was marked partial');
+  assert(!('partial_reason' in json), 'a finished answer carried a partial reason');
+});
+
+console.log('\n-- diagnostics: enough to diagnose, never a second copy of the data --');
+
+const auditRow = (client) => wrote(client, 'silo_chat_audit_log').slice(-1)[0]?.payload;
+
+await test('each query records its outcome and its derived scope', async () => {
+  installModel([sqlRound(COMBINED_SPEND_SQL), say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: COMBINED_SPEND_ROWS });
+  const d = auditRow(client).diagnostics;
+  assert(d, 'no diagnostics were written');
+  eq(d.queries.length, 1, 'queries logged');
+  eq(d.queries[0].ok, true, 'ok flag');
+  eq(d.queries[0].row_count, 1, 'row count');
+  assert(d.queries[0].scope.totals_only, 'the derived scope was not kept with the outcome');
+});
+
+await test('a query that errored records WHY, which is the half that was missing', async () => {
+  installModel([sqlRound('select nope from sales_by_day'), say('done')]);
+  const { client } = await ask(BASIC, { rpcError: { message: 'column "nope" does not exist' } });
+  const d = auditRow(client).diagnostics;
+  eq(d.queries[0].ok, false, 'ok flag');
+  assert(/does not exist/.test(d.queries[0].error), `error not recorded: ${JSON.stringify(d.queries[0])}`);
+});
+
+await test('NO result rows are copied into the audit row', async () => {
+  installModel([sqlRound(PER_PLATFORM_SQL), say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: PER_PLATFORM_ROWS });
+  const serialized = JSON.stringify(auditRow(client).diagnostics);
+  assert(!serialized.includes('114334.99'), 'a returned figure was copied into the diagnostics');
+  assert(!serialized.includes('meta_ads'), 'a returned value was copied into the diagnostics');
+  assert(/No result rows, ever/.test(serialized), 'the payload does not state what it refuses to carry');
+});
+
+await test('the coverage probe is logged but is not offered as one of the user\'s queries', async () => {
+  installModel([describeRound(['meta_ad_performance_daily']), say('done')]);
+  const { client, json } = await ask(BASIC, {
+    rpcResults: [{ relation: 'meta_ad_performance_daily', date_column: 'day_date', earliest: '2025-07-28', latest: '2026-09-15' }],
+  });
+  eq(json.queries_run, [], 'a coverage probe leaked into the query panel and into Save report');
+  const probe = auditRow(client).diagnostics.queries.find((q) => q.kind === 'coverage');
+  assert(probe, 'the coverage probe left no trace in the diagnostics');
+  eq(probe.ok, true, 'probe outcome');
+  assert(!('sql' in probe), 'a probe with no statement was logged as having one');
+});
+
+await test('which relations were in context, and which had to be fetched, is recorded', async () => {
+  installModel([describeRound(['marketing_kpis_daily']), say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: [] });
+  const ctx = auditRow(client).diagnostics.context;
+  assert(Array.isArray(ctx.schema_detail_relations), 'the up-front slice was not recorded');
+  eq(ctx.relations_described_mid_request, ['marketing_kpis_daily'], 'mid-request fetches');
+  eq(ctx.describe_calls_used, 1, 'describe calls used');
+});
+
+const HUGE_SQL = `select ${'x'.repeat(5000)} from marketing_kpis_daily where day_date = '2026-09-01'`;
+// Eight statements per round is well within what one model turn can ask for,
+// and it is the only way to reach the logging caps inside 20 rounds.
+const busyRound = () => ({
+  content: Array.from({ length: 8 }, (_, i) => ({
+    type: 'tool_use', id: `tu-${i}`, name: 'run_sql', input: { query: HUGE_SQL },
+  })),
+  stop_reason: 'tool_use',
+});
+
+await test('a very long statement is truncated in the log and says it was', async () => {
+  installModel([sqlRound(HUGE_SQL), say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: [] });
+  const logged = auditRow(client).diagnostics.queries[0].sql;
+  assert(logged.length < HUGE_SQL.length, 'a 5KB statement was stored whole');
+  assert(/\[truncated\]$/.test(logged), `truncation not marked: ${logged.slice(-40)}`);
+});
+
+await test('more queries than the log holds are COUNTED, not silently dropped', async () => {
+  const rounds = Array.from({ length: MAX_TOOL_ROUNDS }, busyRound);
+  installModel([...rounds, say('done')]);
+  const { client, json } = await ask(BASIC, { rpcResults: [] });
+  const d = auditRow(client).diagnostics;
+  assert(d.queries.length <= 40, `logged ${d.queries.length} entries`);
+  assert(d.queries_not_logged > 0, 'the queries beyond the cap vanished without a count');
+  eq(json.answer, 'done', 'capping the log changed the answer');
+});
+
+await test('...and the whole payload stays inside the size budget', async () => {
+  const rounds = Array.from({ length: MAX_TOOL_ROUNDS }, busyRound);
+  installModel([...rounds, say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: [] });
+  const size = JSON.stringify(auditRow(client).diagnostics).length;
+  assert(size <= 120_000, `diagnostics were ${size} bytes -- an insert this large is one that fails`);
+});
+
+await test('an audit table without the diagnostics column still logs the row', async () => {
+  installModel([sqlRound(PER_PLATFORM_SQL), say('done')]);
+  const { client, json } = await ask(BASIC, {
+    rpcResults: PER_PLATFORM_ROWS,
+    insertErrorOnce: { code: 'PGRST204', message: "Could not find the 'diagnostics' column of 'silo_chat_audit_log' in the schema cache" },
+  });
+  eq(client.__state.auditAttempts, 2, 'the retry without the new column did not happen');
+  const second = wrote(client, 'silo_chat_audit_log')[1].payload;
+  assert(!('diagnostics' in second), 'the retry sent the column again');
+  assert(!('audit_logged' in json), 'a recovered log was still reported as failed');
+});
+
+await test('a genuine insert rejection is NOT retried into a false success', async () => {
+  installModel([say('done')]);
+  const { client, json } = await ask(BASIC, { auditError: { code: '42501', message: 'new row violates row-level security policy' } });
+  eq(client.__state.auditAttempts, 1, 'an RLS refusal was retried');
+  eq(json.audit_logged, false, 'an RLS refusal was reported as logged');
 });
 
 console.log(`\n${run - failures}/${run} passed`);
