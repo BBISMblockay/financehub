@@ -3516,6 +3516,32 @@ select 'Product tracker PO link' as check_name,
    then 'CRITICAL: product_tracker.po_header_id does not use ON DELETE SET NULL'
  else 'ok' end as status;
 
+-- Did the newest Meta creative sync actually resolve any ad destinations?
+--
+-- THE ALARM THAT WAS MISSING. The feature's first production run resolved
+-- 0 of 126 -- one refused field dropped every other, including the one the
+-- account accepts -- and the only thing that said so was a log line a person
+-- happened to paste. This makes the same collapse fail the daily drift check.
+--
+-- Quiet until a sync has actually run (a fresh database has no rows and is not
+-- broken), and judged only on the newest window, since older rows predate the
+-- feature and are legitimately null. Coverage is partial by nature -- 82 of 126
+-- on 2026-09-16, because VIDEO and some SHARE ads expose no destination field
+-- at all -- so this deliberately fires on ZERO, not on a threshold: a number
+-- nobody can justify would be tuned until it stopped firing.
+select 'Meta ad destination coverage' as check_name,
+ case when to_regclass('public.meta_ad_creatives') is null then 'MISSING: meta ad creative migration'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='meta_ad_creatives' and column_name='link_url')
+   then 'MISSING: link_url; apply 20260915140000'
+ when not exists(select 1 from public.meta_ad_creatives
+   where synced_at > now() - interval '3 days')
+   then 'ok'
+ when not exists(select 1 from public.meta_ad_creatives
+   where link_url is not null and synced_at > now() - interval '3 days')
+   then 'CRITICAL: the newest Meta creative sync resolved NO ad destinations; a field the account accepts was probably dropped alongside a refused one -- read the run log line [asked: ..., refused: ...]'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
