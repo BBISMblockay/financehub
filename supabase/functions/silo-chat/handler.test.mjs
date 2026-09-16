@@ -206,7 +206,10 @@ function makeClient({
     from: (table) => builder(table),
     rpc: async (name, args) => {
       state.rpcCalls.push({ name, args });
-      if (rpcError) return { data: null, error: rpcError };
+      // A function lets one test script a failure THEN a success, which is the
+      // whole shape of a correction: the retry has to be able to work.
+      const err = typeof rpcError === 'function' ? rpcError(state.rpcCalls.length, args) : rpcError;
+      if (err) return { data: null, error: err };
       if (rpcQueue) return { data: rpcQueue.length ? rpcQueue.shift() : [], error: null };
       return { data: rpcResults || [], error: null };
     },
@@ -232,6 +235,24 @@ function installModel(rounds, onCall = () => {}) {
     return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
   };
   return { remaining: () => queue.length, sent };
+}
+
+/** A controllable clock.
+ *
+ *  The wall-clock paths could not be tested before this: the handler measures
+ *  elapsed time with Date.now(), and every existing budget test reaches the
+ *  ROUND cap instead, which is a different branch. Advancing on each model call
+ *  is also the honest shape -- the 2026-09-16 Sonic request spent 18.3s of its
+ *  138s in the database and the rest waiting on the model.
+ */
+function installClock() {
+  const realNow = Date.now;
+  let offset = 0;
+  Date.now = () => realNow.call(Date) + offset;
+  return {
+    advance: (ms) => { offset += ms; },
+    restore: () => { Date.now = realNow; },
+  };
 }
 
 /** Every tool_result string the handler fed back to the model, once each.
@@ -1090,6 +1111,190 @@ await test('partial label survives a missing diagnostics column and a rejected a
       eq(auditRow(client).answer, json.answer, 'fallback lost recovery label');
     }
   }
+});
+
+// ── a guessed column is answered from the catalog, and gets a round to use it ──
+//
+// The 2026-09-16 Sonic request (silo_chat_audit_log b44e03ab…) ended without
+// the one measure it was built around. The statement that would have isolated
+// Sonic ad spend ran in the last round, failed in 110ms on `min(date)` against
+// meta_ad_performance_daily (whose column is day_date), and the loop was
+// already past the wall-clock guard, so no round remained to use the
+// correction. Both halves are tested here: the hint, and the round.
+//
+// Guidance was not the missing piece. That same request had called
+// describe_relations ON that table and been handed every column with its type.
+
+console.log('\n-- a column error is answered from the schema map, not from a list --');
+
+const AD_SQL = "select ad_id, min(date) as first_day, sum(spend) spend from meta_ad_performance_daily where ad_id in ('1','2') group by ad_id";
+const colErr = (col) => ({ message: `column "${col}" does not exist`, code: '42703' });
+
+await test('an unknown column is answered with the relation\'s real columns', async () => {
+  const model = installModel([sqlRound(AD_SQL), say('done')]);
+  await ask(BASIC, { rpcError: colErr('date') });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(/column "date" does not exist/.test(r), `the original error was lost: ${r}`);
+  assert(/There is no column "date" on the relations this statement reads/.test(r), `no catalog hint: ${r}`);
+  assert(/meta_ad_performance_daily has: /.test(r), 'the real column list is missing');
+  assert(/day_date/.test(r), 'day_date -- the actual column -- was not named');
+});
+
+await test('...with the near-miss called out ahead of the full list', async () => {
+  const model = installModel([sqlRound(AD_SQL), say('done')]);
+  await ask(BASIC, { rpcError: colErr('date') });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(/Closest by name: [^:]*meta_ad_performance_daily\.day_date/.test(r), `day_date not offered as the near match: ${r}`);
+  assert(r.indexOf('Closest by name') < r.indexOf('has: '), 'the near match is buried under the full column list');
+});
+
+await test('...and is told to re-run rather than drop the measure', async () => {
+  const model = installModel([sqlRound(AD_SQL), say('done')]);
+  await ask(BASIC, { rpcError: colErr('date') });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(/do not guess a second time/.test(r), 'nothing discourages a second guess');
+  assert(/do not drop the measure this query was for/.test(r), 'nothing protects the measure itself');
+});
+
+await test('a relation outside the schema map degrades to the bare error', async () => {
+  const model = installModel([sqlRound('select nope from not_catalogued_at_all'), say('done')]);
+  await ask(BASIC, { rpcError: colErr('nope') });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(/column "nope" does not exist/.test(r), 'the error was lost');
+  assert(!/has: /.test(r), `columns were invented for an unknown relation: ${r}`);
+});
+
+await test('a timeout is not dressed up as a column problem', async () => {
+  const model = installModel([sqlRound(AD_SQL), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'canceling statement due to statement timeout' } });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(!/There is no column/.test(r), `a timeout got a column hint: ${r}`);
+});
+
+await test('the hand-written traps still fire', async () => {
+  // These encode real, hard-won mistakes; the catalog lookup is additional, not
+  // a replacement.
+  // Postgres names a qualified column as it was written, which is what the
+  // hand-written patterns match on.
+  const model = installModel([sqlRound('select f.name from factories f'), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'column f.name does not exist', code: '42703' } });
+  assert(/factory_name, not name/.test(toolResultsSeen(model.sent)[0]), 'the static hint was dropped');
+});
+
+console.log('\n-- one round is held back to use the correction --');
+
+const WALL_CLOCK_BUDGET_MS = 95_000;
+
+/** Runs a scripted request with time advanced by `perCall` on each model call. */
+async function askWithClock(rounds, perCall, clientOpts) {
+  const clock = installClock();
+  try {
+    const model = installModel(rounds, () => clock.advance(perCall));
+    const out = await ask(BASIC, clientOpts);
+    return { ...out, model };
+  } finally {
+    clock.restore();
+  }
+}
+
+await test('a correctable failure past the budget buys exactly one more round', async () => {
+  // Round 1 costs 100s of model time, so the loop is past the 95s guard when
+  // round 2 is considered -- which is precisely where the Sonic request died.
+  const { model, json, client } = await askWithClock(
+    [sqlRound(AD_SQL), sqlRound(AD_SQL.replace('min(date)', 'min(day_date)')), say('corrected answer')],
+    100_000,
+    { rpcError: (n) => (n === 1 ? colErr('date') : null), rpcResults: [{ ad_id: '1', spend: 25488.06 }] },
+  );
+  eq(model.remaining(), 0, 'the granted round was never taken');
+  // THE POINT OF THE ROUND is that the measure gets taken. The answer is still
+  // written by the forced final and still flagged partial -- the budget did run
+  // out -- but it is now written with the figure in hand instead of listing it
+  // as unchecked, which is exactly what the Sonic answer had to do.
+  const q = auditRow(client).diagnostics.queries;
+  eq(q.length, 2, 'the retry did not run');
+  eq(q[0].ok, false, 'the first attempt should have failed');
+  eq(q[1].ok, true, 'the corrected query did not succeed');
+  eq(q[1].round, 2, 'the correction did not run in the granted round');
+  assert(json.answer.includes('corrected answer'), `answer text: ${json.answer}`);
+  eq(json.partial, true, 'a budget-terminated request should still say so');
+});
+
+await test('...and the granted round is told to spend it on the failed query', async () => {
+  const { model } = await askWithClock(
+    [sqlRound(AD_SQL), sqlRound(AD_SQL), say('done')],
+    100_000,
+    { rpcError: colErr('date') },
+  );
+  const bodies = model.sent;
+  const granted = bodies[1].messages[bodies[1].messages.length - 1].content;
+  assert(/One extra round/.test(granted), `no correction instruction: ${JSON.stringify(granted).slice(0, 200)}`);
+  assert(!/Investigation checkpoint/.test(granted), 'the checkpoint contradicted the correction in the same round');
+  assert(/SINGLE most valuable query that failed/.test(granted), 'it was not pointed at the failed query');
+  assert(/do not repeat a query that timed out/.test(granted), 'a timeout retry is not excluded');
+});
+
+await test('a TIMEOUT past the budget buys nothing', async () => {
+  // Re-running the same heavy statement is not a correction, and against the
+  // real 8s query ceiling it would time out again. This pins the exclusion in
+  // CORRECTABLE_QUERY_ERROR itself: widen that pattern to match a timeout and
+  // this test goes red.
+  const { model, json } = await askWithClock(
+    [sqlRound(AD_SQL), say('partial answer')],
+    100_000,
+    { rpcError: { message: 'canceling statement due to statement timeout' } },
+  );
+  eq(model.remaining(), 0, 'the model was called an unexpected number of times');
+  eq(json.partial, true, 'a timed-out request was not reported as partial');
+});
+
+await test('at most ONE correction round, however many failures follow', async () => {
+  const { model, json } = await askWithClock(
+    [sqlRound(AD_SQL), sqlRound(AD_SQL), say('still partial')],
+    100_000,
+    { rpcError: colErr('date') },
+  );
+  eq(model.remaining(), 0, 'more than one correction round was granted');
+  eq(json.partial, true, 'the second failure should still end as a partial answer');
+});
+
+await test('past the gateway margin, no correction round at all', async () => {
+  // 120s is beyond CORRECTION_ROUND_CUTOFF_MS: a correction must never be the
+  // reason a request dies at the 150s gateway limit with nothing.
+  const { model, json } = await askWithClock(
+    [sqlRound(AD_SQL), say('partial answer')],
+    120_000,
+    { rpcError: colErr('date') },
+  );
+  eq(model.remaining(), 0, 'a round was granted past the cutoff');
+  eq(json.partial, true, 'expected a partial answer');
+});
+
+await test('a healthy request is unaffected by any of this', async () => {
+  const { model, json } = await askWithClock([sqlRound(AD_SQL), say('fine')], 1_000, { rpcResults: [{ a: 1 }] });
+  eq(model.remaining(), 0, 'round count changed for a healthy request');
+  eq(json.answer, 'fine', 'answer');
+  assert(!('partial' in json), 'a healthy request was marked partial');
+});
+
+console.log('\n-- the record says which round, and whether a correction was granted --');
+
+await test('every logged query carries the round it ran in', async () => {
+  // Absent until now, and its absence is what left the Sonic trace unable to
+  // say whether the failed spend query shared a round with a successful one.
+  installModel([sqlRound(AD_SQL), say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
+  eq(auditRow(client).diagnostics.queries[0].round, 1, 'round index');
+});
+
+await test('the correction grant is recorded either way', async () => {
+  const granted = await askWithClock(
+    [sqlRound(AD_SQL), sqlRound(AD_SQL), say('done')], 100_000, { rpcError: colErr('date') },
+  );
+  eq(auditRow(granted.client).diagnostics.context.correction_round_granted, true, 'granted case');
+
+  installModel([sqlRound(AD_SQL), say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
+  eq(auditRow(client).diagnostics.context.correction_round_granted, false, 'ungranted case');
 });
 
 console.log(`\n${run - failures}/${run} passed`);

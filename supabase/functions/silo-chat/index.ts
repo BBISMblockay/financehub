@@ -661,8 +661,84 @@ const KNOWN_COLUMN_ERRORS: Array<{ pattern: RegExp; hint: string }> = [
   { pattern: /\btotal_units\b/i, hint: "po_headers has no total_units -- per-line quantities live on po_lines.qty, and rolled-up totals on v_po_header_summary / v_po_incoming_summary." },
 ];
 
-function annotateColumnError(message: string): string {
+// WHY THE STATIC LIST ABOVE IS NOT ENOUGH, measured rather than argued.
+//
+// On 2026-09-16 a Sonic investigation spent its last round on
+// `select ad_id, ..., min(date) ... from meta_ad_performance_daily` -- whose
+// date column is `day_date`. It failed in 110ms with `column "date" does not
+// exist`, and that query was the one that would have isolated Sonic ad spend.
+// The answer shipped without it.
+//
+// The list above had no entry for it, and a list never will: it holds the five
+// traps someone happened to write down. But the CORRECT ANSWER WAS ALREADY IN
+// MEMORY -- silo_chat_schema_catalog carries every column of every relation,
+// auto-generated from pg_catalog, and `catalogIndex` is built from it at the
+// top of each request for the evidence envelope. So the fix is to answer the
+// error from the catalog instead of from a list of remembered mistakes.
+//
+// And guidance demonstrably is not the lever here. That same request had
+// called describe_relations ON meta_ad_performance_daily and been handed every
+// column with its type, the schema map says "never guess a column that isn't
+// listed", and a mid-flight investigation checkpoint had already fired. Three
+// interventions, all present, all upstream of the mistake. This one is at the
+// error itself, which is the one moment the model is certainly reading.
+const MAX_HINT_COLUMNS = 24;
+
+/** How close two identifiers are, cheaply. A real edit distance is overkill:
+ *  the mistakes seen here are a missing prefix (`date` for `day_date`), a
+ *  missing suffix (`spend` for `ad_spend`), or a near-synonym, so containment
+ *  either way catches them and costs nothing. */
+function nearMatches(wanted: string, columns: string[]): string[] {
+  const w = wanted.toLowerCase();
+  return columns.filter((c) => {
+    const n = c.toLowerCase();
+    return n !== w && (n.includes(w) || w.includes(n));
+  });
+}
+
+/**
+ * Turn a failed statement into a correctable one.
+ *
+ * Takes the SQL and the catalog index so it can name the columns the relations
+ * in THIS statement actually have. Falls back to the static hints (which encode
+ * real, hard-won traps) and to the bare message when it cannot do better --
+ * never worse than before.
+ */
+function annotateColumnError(
+  message: string,
+  sql?: string,
+  catalogIndex?: Map<string, { relkind: string | null; columns: Array<{ name: string; type: string }> }>,
+): string {
   const hints = KNOWN_COLUMN_ERRORS.filter((c) => c.pattern.test(message)).map((c) => c.hint);
+
+  // Postgres names the offending identifier, which is the whole reason this
+  // can be mechanical. Both shapes appear: a bare column and a qualified one.
+  const named = /column\s+"?([a-z_][a-z0-9_]*)"?(?:\.\s*"?([a-z_][a-z0-9_]*)"?)?\s+does not exist/i.exec(message)
+    || /column\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\s+does not exist/i.exec(message);
+  const wanted = named ? (named[2] || named[1]) : null;
+
+  if (wanted && sql && catalogIndex) {
+    const parts: string[] = [];
+    const near: string[] = [];
+    for (const rel of relationsInStatement(sql)) {
+      const entry = catalogIndex.get(rel);
+      if (!entry) continue;
+      const cols = (entry.columns || []).map((c) => String(c && c.name || '')).filter(Boolean);
+      if (!cols.length) continue;
+      for (const m of nearMatches(wanted, cols)) if (!near.includes(m)) near.push(`${rel}.${m}`);
+      const shown = cols.slice(0, MAX_HINT_COLUMNS);
+      parts.push(`${rel} has: ${shown.join(', ')}${cols.length > shown.length ? `, …(${cols.length - shown.length} more)` : ''}`);
+    }
+    if (parts.length) {
+      hints.push(
+        `There is no column "${wanted}" on the relations this statement reads.`
+        + (near.length ? ` Closest by name: ${near.slice(0, 6).join(', ')}.` : '')
+        + ` ${parts.join('; ')}.`
+        + ' Use one of these exact names and re-run -- do not guess a second time,'
+        + ' and do not drop the measure this query was for.',
+      );
+    }
+  }
   return hints.length ? `${message} Hint: ${hints.join(' ')}` : message;
 }
 
@@ -965,6 +1041,39 @@ const WRONG_COMPANY_ROW =
 const WALL_CLOCK_BUDGET_MS = 95_000;
 // One checkpoint while tools remain available, not a larger gateway budget.
 const INVESTIGATION_CHECKPOINT_MS = 45_000;
+
+// ONE ROUND HELD BACK FOR A CORRECTION, and why it is worth a hard-coded
+// exception to the wall-clock guard.
+//
+// Measured on the 2026-09-16 Sonic request: the statement that would have
+// isolated Sonic ad spend ran in the LAST round, failed in 110ms on a guessed
+// column name, and the loop had already passed WALL_CLOCK_BUDGET_MS -- so the
+// model never got a round in which to use the correction. The answer went out
+// saying that exact measure was unchecked. Total database time for the whole
+// request was 18.3s of the 138s; the budget was spent on model round-trips,
+// not on queries, so the round that was missing was affordable.
+//
+// Bounded hard, because "just allow more rounds" is the fix this is NOT:
+//   * at most ONE per request, whatever happens;
+//   * only when the previous round actually hit a correctable error (an
+//     unknown column, relation or function -- never a timeout, which would
+//     simply time out again, and never a permission error, which is an answer);
+//   * only inside the gateway's own margin, so a correction can never be the
+//     reason a request dies at 150s with nothing.
+const CORRECTION_ROUND_CUTOFF_MS = 115_000;
+/** Errors where the model has something specific to do differently next round.
+ *  A statement timeout matches NOTHING here, and that is the whole exclusion:
+ *  re-running the same heavy statement unchanged is what "flake is not a root
+ *  cause" means, and against a real 8s ceiling (measured 2026-09-16; the 30s the
+ *  RPC declares never governs, because SET LOCAL cannot re-arm the timeout of
+ *  the statement already running) it would simply time out again.
+ *
+ *  A belt-and-braces `!timedOut` check used to sit at the call site as well. It
+ *  was removed after mutation testing showed it could not change any outcome --
+ *  a dead branch credited as a safeguard is worse than no branch, because the
+ *  test covering it passes either way. Widen this pattern and that exclusion is
+ *  what you have to re-establish. */
+const CORRECTABLE_QUERY_ERROR = /does not exist|no such (?:column|table|function)|could not identify|is ambiguous/i;
 // Past this, skip the max_tokens continuation in the forced-answer path and
 // ship what we have -- a slightly short answer beats a 504 with nothing.
 const FINAL_CONTINUATION_CUTOFF_MS = 125_000;
@@ -1472,6 +1581,7 @@ Deno.serve(async (req: Request) => {
       relations_described_mid_request: describedRelations,
       describe_calls_used: describeCallsUsed,
       describe_calls_allowed: MAX_DESCRIBE_CALLS_PER_REQUEST,
+      correction_round_granted: correctionRoundGranted,
       workflow: activeWorkflow,
       elapsed_ms: elapsedMs(),
       investigation_checkpoint_sent: investigationCheckpointSent,
@@ -1589,7 +1699,32 @@ Deno.serve(async (req: Request) => {
     // because at that point the prose it had started is abandoned, not paused.
     let answerSoFar = '';
 
-    for (let round = 0; round < MAX_TOOL_ROUNDS && elapsedMs() < WALL_CLOCK_BUDGET_MS; round++) {
+    // See CORRECTION_ROUND_CUTOFF_MS. `lastRoundHadCorrectableError` is reset
+    // at the top of every round, so it always describes the round just
+    // finished, never an older one.
+    let correctionRoundGranted = false;
+    let lastRoundHadCorrectableError = false;
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      if (elapsedMs() >= WALL_CLOCK_BUDGET_MS) {
+        const canCorrect = !correctionRoundGranted
+          && lastRoundHadCorrectableError
+          && elapsedMs() < CORRECTION_ROUND_CUTOFF_MS;
+        if (!canCorrect) break;
+        correctionRoundGranted = true;
+        // Consume the investigation checkpoint if it has not fired yet. The two
+        // say opposite things -- the checkpoint asks for breadth across
+        // unmeasured areas, this asks for one specific failed query -- and the
+        // handler test caught them landing in the same round, in that order, so
+        // the correction was the instruction NOT read last. Two contradictory
+        // instructions in one round are worse than either alone.
+        investigationCheckpointSent = true;
+        messages.push({
+          role: 'user',
+          content: 'One extra round, granted because your last round hit a correctable error and the budget is otherwise spent. Spend it on the SINGLE most valuable query that failed, using the exact column names the error hint gave you. Do not start a new line of investigation, do not re-run discovery, and do not repeat a query that timed out. If the correction succeeds you will write the answer immediately afterwards, so make this the measure the question most depends on.',
+        });
+      }
+      lastRoundHadCorrectableError = false;
       roundsUsed = round + 1;
       // Do not interrupt a cut-off prose continuation or the separate concept
       // workflow. Tool results have already been appended before this point.
@@ -2125,6 +2260,7 @@ Deno.serve(async (req: Request) => {
             resultContent = renderQueryResult(query, rows, catalogIndex, { resultId });
             queryLog.push({
               result_id: resultId,
+              round: roundsUsed,
               sql: query,
               ok: true,
               row_count: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
@@ -2139,14 +2275,20 @@ Deno.serve(async (req: Request) => {
                 : {}),
             });
           } catch (err) {
-            resultContent = `Error: ${annotateColumnError(String((err as Error)?.message || err))}`;
+            const rawMessage = String((err as Error)?.message || err);
+            resultContent = `Error: ${annotateColumnError(rawMessage, query, catalogIndex)}`;
             if (/statement timeout/i.test(resultContent)) sawTimeout = true;
+            if (CORRECTABLE_QUERY_ERROR.test(rawMessage)) lastRoundHadCorrectableError = true;
             queryLog.push({
               result_id: resultId,
+              // Which round a statement ran in. Absent until now, and its
+              // absence is what made the Sonic trace ambiguous about whether
+              // the failed spend query shared a round with a successful one.
+              round: roundsUsed,
               sql: query,
               ok: false,
               ms: Date.now() - startedQueryAt,
-              error: String((err as Error)?.message || err),
+              error: rawMessage,
             });
           }
         }
