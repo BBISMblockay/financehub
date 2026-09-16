@@ -536,6 +536,13 @@
   // The request id of the last attempt that failed, so "Try again" can ask
   // whether THAT request finished before paying for a fresh one.
   let lastFailedRequestId = null;
+  // The user turn of a request that failed with NO answer. It stays in
+  // `history` on purpose so "Try again" can resend it -- but if the user types
+  // something ELSE instead, it must come back out before the new question goes
+  // up. Two consecutive user turns means Ask SILO sees both, and can answer the
+  // abandoned one or blend it into the new answer. Cleared the moment an
+  // assistant turn lands, by any route (a normal answer, or a recovery).
+  let unansweredEntry = null;
 
   // A refresh (accidental, or the "refresh the page" prompt on an error
   // bubble) used to wipe the whole conversation -- history only ever lived
@@ -1043,6 +1050,7 @@
 
   function renderRecovered(recovered) {
     lastFailedRequestId = null;
+    unansweredEntry = null;
     const historyEntry = { role: 'assistant', content: recovered.answer };
     if (recovered.queries_run?.length) historyEntry.queries = recovered.queries_run;
     history.push(historyEntry);
@@ -1106,6 +1114,10 @@
     activeTurn = turn;
     const isCurrent = () => activeTurn === turn && turn.generation === conversationGeneration;
 
+    const askedEntry = history[history.length - 1]?.role === 'user'
+      ? history[history.length - 1]
+      : null;
+
     el('btnSend').disabled = true;
     renderTyping();
     // Whether the request actually left the browser. A failure BEFORE it did
@@ -1117,6 +1129,7 @@
       const { data: fresh } = await sb.auth.getSession();
       if (!fresh?.session?.access_token) {
         removeTyping();
+        unansweredEntry = askedEntry;
         renderMessage({
           role: 'assistant',
           content: 'Your sign-in has expired — nothing was sent. Refresh the page to sign in again, then ask again.',
@@ -1168,6 +1181,9 @@
           if (data.company_changed && history[history.length - 1]?.role === 'user') history.pop();
           saveHistoryToSession();
           lastFailedRequestId = null;
+          // 409 popped the turn already; 503 kept it, so it is now an
+          // unanswered turn that must not ride along on a different question.
+          unansweredEntry = data.company_changed ? null : askedEntry;
           renderMessage({
             role: 'assistant',
             content: data.error,
@@ -1184,6 +1200,7 @@
         // silo_chat_audit_log). Try recovery here too, not just on a thrown
         // network exception.
         lastFailedRequestId = requestId;
+        unansweredEntry = askedEntry;
         await recoverOrShowError(requestId, data.error || 'Something went wrong.', data.retryable);
         return;
       }
@@ -1200,6 +1217,7 @@
       // replay can only show what the entry carries.
       if (data.sources && data.sources.length) historyEntry.sources = data.sources;
       history.push(historyEntry);
+      unansweredEntry = null;
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
       renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, sources: data.sources, suggestWorkflow: data.suggest_workflow });
@@ -1224,6 +1242,7 @@
       // instead of discarding a completed answer and forcing an expensive
       // full re-ask.
       lastFailedRequestId = sent ? requestId : null;
+      unansweredEntry = askedEntry;
       await recoverOrShowError(sent ? requestId : null, 'Request failed: ' + err.message, true, sent);
     } finally {
       if (activeTurn === turn) activeTurn = null;
@@ -1266,6 +1285,28 @@
     // running, with a half-built history and two replies racing to append to
     // it. One turn at a time; the text is left in the box rather than eaten.
     if (activeTurn) { setStatus('Still working on your last question — one at a time.', 'info', 3000); return; }
+
+    // A question that failed with no answer stays in `history` so "Try again"
+    // can resend it. Typing something else instead is the user abandoning it,
+    // and it must come out before the new question goes up -- otherwise the
+    // request carries two consecutive user turns and Ask SILO can answer the
+    // abandoned one, or blend it into the answer to this one. Guarded on
+    // identity, not position, so it can only ever remove the exact entry that
+    // went unanswered. That identity check is the ACTUAL protection: the
+    // `unansweredEntry = null` assignments elsewhere are belt-and-braces with
+    // no observable behaviour of their own (mutation-tested -- removing one
+    // fails nothing, because once an assistant turn lands the stale reference
+    // can no longer BE the last entry). Do not drop the identity check on the
+    // grounds that the clearing covers it; it is the other way round.
+    if (unansweredEntry && history[history.length - 1] === unansweredEntry) {
+      history.pop();
+      // Its "Try again" button now refers to a question that is no longer in
+      // the conversation, so it would resend THIS one under that bubble.
+      document.querySelectorAll('#log .ac-retry-btn').forEach((b) => { b.disabled = true; });
+    }
+    unansweredEntry = null;
+    lastFailedRequestId = null;
+
     el('input').value = '';
     el('input').style.height = 'auto';
     const entry = { role: 'user', content: text };

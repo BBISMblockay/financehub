@@ -117,6 +117,7 @@ const COMPANY_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function makeClient({ activeCompanies = [COMPANY_A], auditError = null, profileErrorOn = [] } = {}) {
   const state = {
     inserts: [],
+    updates: [],
     rpcCalls: [],
     profileReads: 0,
   };
@@ -126,6 +127,15 @@ function makeClient({ activeCompanies = [COMPANY_A], auditError = null, profileE
   const resolve = (b) => {
     if (b._table === 'silo_chat_audit_log' && b._op === 'insert') {
       return { data: null, error: auditError };
+    }
+    if (b._table === 'product_concepts') {
+      // A SELECT here is the duplicate-title lookup, which uses maybeSingle():
+      // it must resolve to null (no duplicate), not to the generic empty ARRAY
+      // the list reads want -- an array is truthy and reads as "a duplicate
+      // exists", which silently skips the insert the test is asserting on.
+      if (b._op === 'select') return { data: null, error: null };
+      const row = { id: '33333333-3333-4333-8333-333333333333', ...(b._payload || {}) };
+      return { data: row, error: null };
     }
     if (b._table === 'profiles') {
       state.profileReads++;
@@ -145,14 +155,20 @@ function makeClient({ activeCompanies = [COMPANY_A], auditError = null, profileE
       _table: table,
       _op: 'select',
       _payload: null,
+      _eq: [],
       select() { return b; },
-      eq() { return b; },
+      eq(col, val) { b._eq.push([col, val]); return b; },
       ilike() { return b; },
       order() { return b; },
       limit() { return b; },
       maybeSingle() { return b; },
       single() { return b; },
-      update() { b._op = 'update'; return b; },
+      update(payload) {
+        b._op = 'update';
+        b._payload = payload;
+        state.updates.push({ table, payload, eq: b._eq });
+        return b;
+      },
       insert(payload) {
         b._op = 'insert';
         b._payload = payload;
@@ -216,6 +232,7 @@ async function ask(body, clientOpts, user = USER) {
   }
 }
 const wrote = (client, table) => client.__state.inserts.filter((i) => i.table === table);
+const updated = (client, table) => client.__state.updates.filter((u) => u.table === table);
 
 const BASIC = {
   history: [{ role: 'user', content: 'What did we sell last week?' }],
@@ -532,8 +549,13 @@ await test('every tool that writes is named in WRITE_TOOLS', () => {
     name: m[1],
     body: loop.slice(m.index, i + 1 < marks.length ? marks[i + 1].index : m.index + 6000),
   }));
+  // Any branch containing an insert or an update at all is a writer. NOT a
+  // proximity match against `callerClient`: the first version of this used a
+  // 400-character window and stopped seeing save_note the moment a comment was
+  // added between the table and the call. A false positive here just means a
+  // tool gets added to WRITE_TOOLS unnecessarily, which is the safe direction.
   const writers = [...new Set(
-    segments.filter((seg) => /callerClient[\s\S]{0,400}?\.(insert|update)\(/.test(seg.body)).map((seg) => seg.name),
+    segments.filter((seg) => /\.(insert|update)\(/.test(seg.body)).map((seg) => seg.name),
   )];
 
   for (const w of writers) {
@@ -544,6 +566,81 @@ await test('every tool that writes is named in WRITE_TOOLS', () => {
   for (const expected of ['save_note', 'create_product_concept', 'update_product_concept', 'approve_product_concept']) {
     assert(writers.includes(expected), `the write detector missed ${expected}; found ${JSON.stringify(writers)}`);
   }
+});
+
+// Cycle-2 review finding (PR #712, P1). The gate and the write are separate
+// round trips, so the gate can always be raced -- create_product_concept even
+// runs a duplicate-title lookup in between. The gate is a pre-check; what makes
+// the write safe is that it carries the STARTING company explicitly, so
+// stamp_company_entity_id leaves it alone (it only fills a NULL) and the insert
+// policy's `company_entity_id = active_company_id()` refuses the row outright
+// if the active company has moved. These assert the value actually goes.
+await test('save_note sends the starting company rather than leaving it to the trigger', async () => {
+  installModel([useTool('save_note', { note: 'x' }), say('Saved.')]);
+  const { client } = await ask(BASIC);
+  const [row] = wrote(client, 'silo_chat_notes');
+  assert(row, 'no note was written');
+  eq(row.payload.company_entity_id, COMPANY_A, 'stamped company');
+});
+
+await test('a concept insert sends it too, across the duplicate lookup', async () => {
+  installModel([useTool('create_product_concept', { title: 'Youth Hoodie' }), say('Drafted.')]);
+  const { client } = await ask(
+    { ...BASIC, workflow: 'product_concept' }, undefined, CONCEPT_TESTER,
+  );
+  const [row] = wrote(client, 'product_concepts');
+  assert(row, 'no concept was written');
+  eq(row.payload.company_entity_id, COMPANY_A, 'stamped company');
+});
+
+// The race the gate cannot close: it reads A, the duplicate lookup runs, the
+// profile flips to B, and only THEN does the insert go. The gate passes, and
+// the row must still carry A so the database refuses it.
+await test('a switch after the gate still leaves the insert carrying the starting company', async () => {
+  installModel([useTool('create_product_concept', { title: 'Youth Hoodie' }), say('Drafted.')]);
+  // Reads: 1 start (A), 2 gate (A), then B for everything after.
+  const { client } = await ask(
+    { ...BASIC, workflow: 'product_concept' },
+    { activeCompanies: [COMPANY_A, COMPANY_A, COMPANY_B] },
+    CONCEPT_TESTER,
+  );
+  const [row] = wrote(client, 'product_concepts');
+  assert(row, 'the gate should have passed, so the insert should have been attempted');
+  eq(row.payload.company_entity_id, COMPANY_A, 'stamped company');
+});
+
+// An UPDATE cannot be refused by a WITH CHECK it still satisfies, so it is
+// addressed by company instead.
+await test('a concept update is scoped to the starting company', async () => {
+  installModel([
+    useTool('update_product_concept', { id: '33333333-3333-4333-8333-333333333333', title: 'Revised' }),
+    say('Revised.'),
+  ]);
+  const { client } = await ask(
+    { ...BASIC, workflow: 'product_concept' }, undefined, CONCEPT_TESTER,
+  );
+  const [u] = updated(client, 'product_concepts');
+  assert(u, 'no update was issued');
+  assert(
+    u.eq.some(([col, val]) => col === 'company_entity_id' && val === COMPANY_A),
+    `update was not scoped to the starting company: ${JSON.stringify(u.eq)}`,
+  );
+});
+
+await test('...and so is an approve', async () => {
+  installModel([
+    useTool('approve_product_concept', { id: '33333333-3333-4333-8333-333333333333' }),
+    say('Approved.'),
+  ]);
+  const { client } = await ask(
+    { ...BASIC, workflow: 'product_concept' }, undefined, CONCEPT_TESTER,
+  );
+  const [u] = updated(client, 'product_concepts');
+  assert(u, 'no update was issued');
+  assert(
+    u.eq.some(([col, val]) => col === 'company_entity_id' && val === COMPANY_A),
+    `approve was not scoped to the starting company: ${JSON.stringify(u.eq)}`,
+  );
 });
 
 console.log('\n-- company verification fails closed, never open --');

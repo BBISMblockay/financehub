@@ -809,19 +809,50 @@ async function callAnthropic(
 // the user gets an answer either way.
 const MAX_TOOL_ROUNDS = 20;
 
-// Every tool that WRITES. The tool loop gates each of these on the active
-// company being confirmed unchanged immediately before the write -- see the
-// gate in the loop for why after-the-fact checking is not enough. Adding a
-// write tool without adding it here is the one way to reopen that hole, which
-// is why this is a named set beside the loop rather than a condition inside
-// each branch. `handler.test.mjs` asserts the set matches the tools that
-// actually write.
+// WRITE_COMPANY_NOTE -- how a write is kept inside the company the question was
+// asked in, and why it takes two mechanisms rather than one.
+//
+// RLS scopes everything through profiles.active_company_id: ONE mutable
+// per-user field, not a property of this request. A single request makes many
+// separate database round trips over a minute or more, so a company switch in
+// another tab lands BETWEEN two of them. Checking after the tool loop is far
+// too late -- the row is committed long before the answer is assembled.
+//
+// 1. THE GUARANTEE is that every write sends `company_entity_id` EXPLICITLY,
+//    set to the company read at the start of the request. stamp_company_entity_id
+//    only fills the column when it is NULL, so an explicit value survives, and
+//    each insert policy's `company_entity_id = active_company_id()` then
+//    REFUSES the row if the active company has moved. One statement, no window.
+//    Updates cannot be refused by a WITH CHECK they still satisfy, so they are
+//    ADDRESSED by company instead (`.eq('company_entity_id', ...)`) and a write
+//    that matches no row is an error, never a silent no-op.
+//
+// 2. THE GATE below is a pre-check, not the boundary. It exists so the common
+//    case produces a sentence a person can act on ("nothing was saved, reload
+//    and ask again") instead of a raw RLS rejection. It reads the company and
+//    the write happens in a LATER round trip, so it can always be raced -- as
+//    the cycle-2 review of #712 pointed out, create_product_concept even runs a
+//    duplicate-title lookup in between, widening that window. Do not mistake it
+//    for the thing that makes this safe, and do not remove the explicit stamp
+//    on the grounds that the gate is there.
+//
+// Every tool that writes is named here. Adding one without adding it to this
+// set is the one way to lose the gate silently, which is why the set sits
+// beside the loop rather than as a condition inside each branch;
+// `handler.test.mjs` reads the loop structurally and fails if a branch that
+// writes is missing from it.
 const WRITE_TOOLS = new Set([
   'save_note',
   'create_product_concept',
   'update_product_concept',
   'approve_product_concept',
 ]);
+
+// An update that matched nothing. Covers both reachable causes honestly: the
+// concept is in another company (the race this guards), or the id is simply
+// wrong. Saying "wrong company" alone would misdescribe the second.
+const WRONG_COMPANY_ROW =
+  'no concept with that id exists in the company this chat is working in -- it may belong to another company, or the id may be wrong. Nothing was changed.';
 
 // Supabase's edge gateway kills a request at 150s and returns a bare 504 --
 // the function never finishes, so it never writes an audit row either. That
@@ -1395,25 +1426,20 @@ Deno.serve(async (req: Request) => {
         let resultContent: string | Array<Record<string, unknown>>;
         if (use.name === 'create_product_concept' || use.name === 'update_product_concept') hasDraftedConcept = true;
 
-        // EVERY write goes through this gate, immediately before it happens.
+        // Pre-check, NOT the boundary -- see WRITE_COMPANY_NOTE above. It
+        // turns the common case into a sentence a person can act on rather
+        // than a raw RLS rejection. The row itself is kept in the right
+        // company by the explicit company_entity_id on each write, because
+        // this read and that write are different round trips and anything
+        // between them can race.
         //
-        // The company re-check in finishWithAnswer runs after the tool loop,
-        // and a WRITE does not wait for the answer. A request starts under
-        // company A, another tab switches the user to B, the model then saves a
-        // note or a concept: the row is stamped with B by
-        // stamp_company_entity_id (which reads active_company_id(), now B), it
-        // is committed, and only then does the final check notice and discard
-        // the answer with a 409. The answer being thrown away does nothing for
-        // the row already sitting in the wrong company's data.
-        //
-        // Centralized here rather than repeated in each branch, because the
-        // failure mode of the repeated version is that the NEXT write tool
-        // added quietly has no guard, and nothing would show that.
+        // Centralized here rather than repeated per branch: the failure mode
+        // of the repeated version is that the NEXT write tool added quietly
+        // has no check, and nothing would show that.
         //
         // Stricter than the delivery check on purpose: a write requires the
-        // company to be KNOWN, non-null, and equal. Delivering an answer under
-        // an unverifiable company is bad; committing a row under one is worse
-        // and is not undoable by refusing afterwards.
+        // company KNOWN, non-null and equal. Delivering an answer under an
+        // unverifiable company is bad; committing a row under one is worse.
         if (WRITE_TOOLS.has(use.name)) {
           const companyNow = await readActiveCompany();
           const sameCompany = companyNow.ok
@@ -1449,7 +1475,21 @@ Deno.serve(async (req: Request) => {
           try {
             if (!note) throw new Error('Empty note');
             const { error } = await callerClient.from('silo_chat_notes')
-              .insert({ note, category, effective_until: effectiveUntil });
+              // EXPLICIT company, not left to the stamping trigger. See
+              // WRITE_COMPANY_NOTE above the tool loop: the gate and this
+              // insert are two round trips, and the trigger fills an OMITTED
+              // company from active_company_id() AT WRITE TIME -- so a switch
+              // landing between them stamps the new company and passes its
+              // RLS. Sending the starting company makes the check atomic:
+              // the trigger leaves a non-null value alone, and the insert
+              // policy's `company_entity_id = active_company_id()` then
+              // REFUSES the row if the active company has moved.
+              .insert({
+                note,
+                category,
+                effective_until: effectiveUntil,
+                company_entity_id: companyAtStart.companyId,
+              });
             if (error) throw new Error(error.message);
             resultContent = 'Saved.';
           } catch (err) {
@@ -1598,6 +1638,10 @@ Deno.serve(async (req: Request) => {
             // below adds keys dynamically; an inferred literal type makes
             // that a compile error.
             const payload: Record<string, unknown> = {
+              // See WRITE_COMPANY_NOTE. This insert is especially exposed: a
+              // duplicate-title lookup runs between the gate and the write,
+              // widening the window the gate cannot cover.
+              company_entity_id: companyAtStart.companyId,
               title,
               concept_summary: input.concept_summary ?? null,
               marketing_angle: input.marketing_angle ?? null,
@@ -1664,9 +1708,16 @@ Deno.serve(async (req: Request) => {
               .from('product_concepts')
               .update(patch)
               .eq('id', id)
+              // Scoped to the STARTING company for the same reason the inserts
+              // stamp it: an update cannot be refused by a WITH CHECK it still
+              // satisfies, so the row is addressed by company instead. If the
+              // active company moved, this matches nothing rather than editing
+              // a row in the company that is now active.
+              .eq('company_entity_id', companyAtStart.companyId)
               .select('*')
-              .single();
+              .maybeSingle();
             if (error) throw new Error(error.message);
+            if (!row) throw new Error(WRONG_COMPANY_ROW);
             if (row) conceptsTouched.set(row.id, row);
             resultContent = JSON.stringify(row);
           } catch (err) {
@@ -1686,9 +1737,12 @@ Deno.serve(async (req: Request) => {
                 revision_note: 'Approved.',
               })
               .eq('id', id)
+              // Same company scoping as update_product_concept above.
+              .eq('company_entity_id', companyAtStart.companyId)
               .select('*')
-              .single();
+              .maybeSingle();
             if (error) throw new Error(error.message);
+            if (!row) throw new Error(WRONG_COMPANY_ROW);
             if (row) conceptsTouched.set(row.id, row);
             resultContent = JSON.stringify(row);
           } catch (err) {
