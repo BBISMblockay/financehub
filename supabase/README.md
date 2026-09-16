@@ -832,6 +832,23 @@ Only a `42703` is read as absent; any other error is logged and the column is
 still treated as present, so one bad request cannot quietly stop the link being
 saved on a database that has it.
 
+## 20260916030000 — the Ask SILO destination caveat, corrected by measurement
+
+`20260915140000` taught the catalog that `effective_object_url` is the source
+page-post ads "rely on". The first clean sync disproved both halves: the
+account **refuses** that field as unknown, and the SHARE ads said to rely on it
+are the 82 resolving through `asset_feed_spec`.
+
+It is a **targeted `replace()` of that one sentence**, because rewriting this
+column whole is how two caveats were silently dropped and had to be restored in
+`20260910150000`. It is idempotent, and it no-ops silently if production's text
+has drifted — so `verify_v2_schema.sql` asserts the OUTCOME (`Ask SILO ad
+destination caveat`) rather than trusting the update, and doubles as a guard
+against a later migration reintroducing the claim.
+
+Confirmed against production before commit: the expected sentence matches
+exactly, and the verify check flags today (pre-apply) as it should.
+
 ## 20260916120000 / 20260916121000 — Ask SILO reliability (2026-09-16 audit)
 
 **`chat_run_readonly_query` now runs in a read-only transaction.** The

@@ -436,6 +436,46 @@ await test('an ordinary per-item failure does NOT narrow the field set', async (
   assert.equal(asked.length, 1, 'no retry for an ordinary item failure');
 });
 
+// ── the two field lists, which have now been wrong twice ──────────────────
+// Read out of the SHIPPED source text rather than re-declared here: a copy of
+// the lists in the test would agree with itself while the module drifted.
+const listFrom = (name) => {
+  const m = new RegExp(`const ${name} = \\[([^\\]]*)\\]`).exec(source);
+  assert.ok(m, `${name} not found in the module`);
+  return m[1].split(',').map((x) => x.trim().replace(/^'|'$/g, '')).filter(Boolean);
+};
+
+await test('the drop order keeps the field that supplies every destination for LAST', async () => {
+  // Measured 2026-09-16: asset_feed_spec produced 82 of 82 resolved links on
+  // the live account. It was TWICE written down as "the riskiest" and dropped
+  // FIRST -- an unnamed refusal would have discarded every destination the
+  // account has. This assertion exists because the belief was wrong twice and
+  // a comment did not stop it.
+  const order = listFrom('CREATIVE_DROP_ORDER');
+  assert.equal(order[order.length - 1], 'asset_feed_spec',
+    `asset_feed_spec must be dropped last, saw order: ${order.join(',')}`);
+});
+
+await test('every optional field is droppable, and nothing droppable is unrequested', async () => {
+  // A field added to one list and not the other is a silent hole: an unnamed
+  // refusal could never narrow past it, and the run would keep re-sending a
+  // field it cannot drop.
+  const optional = listFrom('CREATIVE_OPTIONAL_FIELDS');
+  const order = listFrom('CREATIVE_DROP_ORDER');
+  assert.deepEqual([...optional].sort(), [...order].sort(),
+    `the two lists must cover the same fields; optional=${optional} order=${order}`);
+});
+
+await test('effective_object_url is not requested and not read', async () => {
+  // The account refuses it as an unknown field. Requesting it cost a retry and
+  // a [warn] on every run; READING it was dead code that read like coverage,
+  // and is what made it look like the page-post ads' lifeline.
+  assert.ok(!listFrom('CREATIVE_OPTIONAL_FIELDS').includes('effective_object_url'),
+    'effective_object_url must not be requested');
+  assert.ok(!/\['effective_object_url',/.test(source),
+    'effective_object_url must not be a resolver candidate while it is unrequested');
+});
+
 // ── the integrated path, which is where this kind of change actually breaks ──
 // Everything above exercises fetchMetaAdCreatives. NOTHING above proves the
 // orchestrator carries its output to the database -- and a helper passing in
