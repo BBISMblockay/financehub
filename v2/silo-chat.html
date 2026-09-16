@@ -1149,16 +1149,31 @@
       if (!isCurrent()) return;
       removeTyping();
       if (!res.ok || data.error) {
-        // A company switch in another tab lands here. Nothing was answered, so
-        // there is nothing to recover and nothing to retry -- the tab has to
-        // reload to pick up the company it is actually in.
-        if (res.status === 409 && data.company_changed) {
-          // Drop the unanswered question rather than carrying it into the next
-          // request as context for an answer that never happened. Guarded
-          // because "Try again" re-enters here with the same last entry.
-          if (history[history.length - 1]?.role === 'user') history.pop();
+        // Two company refusals, and they want opposite things from the user.
+        //
+        // A switch in another tab (409): nothing was answered, and asking again
+        // from this tab would hit the same wall, because this tab is the one
+        // that is wrong. No retry button; drop the unanswered question rather
+        // than carrying it into the next request as context for an answer that
+        // never happened. Guarded because "Try again" re-enters here with the
+        // same last entry.
+        //
+        // Verification failed (503): the server could not establish which
+        // company the question belongs to and refused rather than guess.
+        // Asking again is exactly the right move, so the question stays and the
+        // retry button is offered. Neither polls the audit log -- there is no
+        // answer to recover in either case, and polling would sit on four
+        // five-second "still working" ticks for a row that will never appear.
+        if ((res.status === 409 && data.company_changed) || (res.status === 503 && data.company_unverified)) {
+          if (data.company_changed && history[history.length - 1]?.role === 'user') history.pop();
           saveHistoryToSession();
-          renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: false });
+          lastFailedRequestId = null;
+          renderMessage({
+            role: 'assistant',
+            content: data.error,
+            isError: true,
+            retryable: !!data.company_unverified,
+          });
           return;
         }
         // A slow request can come back as a non-2xx gateway/platform

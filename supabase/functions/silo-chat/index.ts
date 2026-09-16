@@ -809,6 +809,20 @@ async function callAnthropic(
 // the user gets an answer either way.
 const MAX_TOOL_ROUNDS = 20;
 
+// Every tool that WRITES. The tool loop gates each of these on the active
+// company being confirmed unchanged immediately before the write -- see the
+// gate in the loop for why after-the-fact checking is not enough. Adding a
+// write tool without adding it here is the one way to reopen that hole, which
+// is why this is a named set beside the loop rather than a condition inside
+// each branch. `handler.test.mjs` asserts the set matches the tools that
+// actually write.
+const WRITE_TOOLS = new Set([
+  'save_note',
+  'create_product_concept',
+  'update_product_concept',
+  'approve_product_concept',
+]);
+
 // Supabase's edge gateway kills a request at 150s and returns a bare 504 --
 // the function never finishes, so it never writes an audit row either. That
 // is invisible in silo_chat_health_v: the failure looks like nothing
@@ -998,12 +1012,24 @@ Deno.serve(async (req: Request) => {
     // Re-checked once more before the answer goes out (see finishWithAnswer).
     const declaredCompanyRaw = String(body?.company_entity_id || '');
     const declaredCompany = UUID_RE.test(declaredCompanyRaw) ? declaredCompanyRaw : null;
-    // Returns null for "could not establish it" as well as for "no active
-    // company", and those are deliberately treated the same downstream: a
-    // comparison is only acted on when BOTH sides are known. A transient read
-    // failure must not discard a finished answer, which is what a strict
-    // inequality here would do -- null !== '<company>' reads as a switch.
-    const readActiveCompany = async (): Promise<string | null> => {
+    // DISCRIMINATED, because "this user has no active company" and "the lookup
+    // failed" are different facts and conflating them fails OPEN. The first
+    // version of this returned a bare `string | null` and every comparison was
+    // then written as "only act when both sides are known" -- which means a
+    // transient PostgREST/RLS error on either read silently skips the check
+    // entirely. The dangerous shape of that: the request starts in A, the user
+    // switches to B while tools run, the final lookup errors, and a B-scoped
+    // answer is delivered into the A conversation with nothing having gone
+    // wrong anywhere it can be seen. Verification failing is now a refusal,
+    // not a shrug.
+    //
+    // Retried once before giving up, because the alternative to a retry is
+    // discarding a minute of finished work over one blip. This is the caller's
+    // own single-row profile read -- the same PostgREST the request has
+    // already used many times -- so two consecutive failures mean something is
+    // genuinely wrong with the session, and refusing then is correct.
+    type CompanyLookup = { ok: boolean; companyId: string | null };
+    const readActiveCompanyOnce = async (): Promise<CompanyLookup> => {
       try {
         const { data, error } = await callerClient!
           .from('profiles')
@@ -1012,16 +1038,27 @@ Deno.serve(async (req: Request) => {
           .maybeSingle();
         if (error) {
           console.warn('[silo-chat] could not read active company', error.message);
-          return null;
+          return { ok: false, companyId: null };
         }
-        return ((data?.active_company_id as string | null) ?? null);
+        return { ok: true, companyId: (data?.active_company_id as string | null) ?? null };
       } catch (err) {
         console.warn('[silo-chat] active company read threw', err);
-        return null;
+        return { ok: false, companyId: null };
       }
     };
+    const readActiveCompany = async (): Promise<CompanyLookup> => {
+      const first = await readActiveCompanyOnce();
+      return first.ok ? first : await readActiveCompanyOnce();
+    };
+    const UNVERIFIED = {
+      error: "Couldn't confirm which company this question belongs to, so it wasn't run -- answering without that confirmed is how one company's numbers end up in another company's chat. Try again; if it keeps happening, reload the page.",
+      company_unverified: true,
+      retryable: true,
+    };
+
     const companyAtStart = await readActiveCompany();
-    if (declaredCompany && companyAtStart && declaredCompany !== companyAtStart) {
+    if (!companyAtStart.ok) return reply(UNVERIFIED, 503);
+    if (declaredCompany && companyAtStart.companyId && declaredCompany !== companyAtStart.companyId) {
       return reply({
         error: "This tab is set to a different company than your account is currently active in -- so this question wasn't run, rather than being answered against the wrong company's numbers. Reload the page and ask again.",
         company_changed: true,
@@ -1200,11 +1237,14 @@ Deno.serve(async (req: Request) => {
       opts: { toolRounds: number; errorMessage?: string | null },
     ) => {
       const companyNow = await readActiveCompany();
-      // Both sides must be KNOWN before a disagreement means anything -- see
-      // readActiveCompany. An unknown is logged and let through: this check
-      // exists to catch a switch, not to throw away a minute of work because
-      // one profile read blipped.
-      if (companyAtStart && companyNow && companyNow !== companyAtStart) {
+      // Cannot establish it => cannot deliver. See readActiveCompany: letting an
+      // unverifiable company through is the same outcome as not checking at all,
+      // and it fails in the direction that shows one company's rows to another.
+      if (!companyNow.ok) {
+        console.error('[silo-chat] could not re-verify active company; answer discarded', { request_id: requestId });
+        return reply(UNVERIFIED, 503);
+      }
+      if (companyNow.companyId !== companyAtStart.companyId) {
         // Deliberately NOT logged to silo_chat_audit_log: company_entity_id on
         // that row is stamped from active_company_id(), which now resolves to
         // the OTHER company, so logging would file this question's text under
@@ -1212,8 +1252,8 @@ Deno.serve(async (req: Request) => {
         // place for it.
         console.error('[silo-chat] active company changed mid-request; answer discarded', {
           request_id: requestId,
-          from: companyAtStart,
-          to: companyNow,
+          from: companyAtStart.companyId,
+          to: companyNow.companyId,
         });
         return reply({
           error: "Your active company changed while this answer was being put together, so it was discarded instead of being shown against the wrong company. Switch back and ask again.",
@@ -1354,6 +1394,47 @@ Deno.serve(async (req: Request) => {
       for (const use of toolUses) {
         let resultContent: string | Array<Record<string, unknown>>;
         if (use.name === 'create_product_concept' || use.name === 'update_product_concept') hasDraftedConcept = true;
+
+        // EVERY write goes through this gate, immediately before it happens.
+        //
+        // The company re-check in finishWithAnswer runs after the tool loop,
+        // and a WRITE does not wait for the answer. A request starts under
+        // company A, another tab switches the user to B, the model then saves a
+        // note or a concept: the row is stamped with B by
+        // stamp_company_entity_id (which reads active_company_id(), now B), it
+        // is committed, and only then does the final check notice and discard
+        // the answer with a 409. The answer being thrown away does nothing for
+        // the row already sitting in the wrong company's data.
+        //
+        // Centralized here rather than repeated in each branch, because the
+        // failure mode of the repeated version is that the NEXT write tool
+        // added quietly has no guard, and nothing would show that.
+        //
+        // Stricter than the delivery check on purpose: a write requires the
+        // company to be KNOWN, non-null, and equal. Delivering an answer under
+        // an unverifiable company is bad; committing a row under one is worse
+        // and is not undoable by refusing afterwards.
+        if (WRITE_TOOLS.has(use.name)) {
+          const companyNow = await readActiveCompany();
+          const sameCompany = companyNow.ok
+            && !!companyNow.companyId
+            && companyNow.companyId === companyAtStart.companyId;
+          if (!sameCompany) {
+            console.error('[silo-chat] refused a write: active company not confirmed unchanged', {
+              request_id: requestId,
+              tool: use.name,
+              from: companyAtStart.companyId,
+              to: companyNow.ok ? companyNow.companyId : 'unverified',
+            });
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: use.id,
+              content: 'Error: nothing was saved. The company this chat is working in changed (or could not be confirmed) since the question was asked, and a write is not allowed to land in a different company than the one being discussed. Tell the user plainly that it was NOT saved and that they should reload the page and ask again -- do not retry this tool.',
+            });
+            continue;
+          }
+        }
+
         if (use.name === 'save_note') {
           const note = String(use.input?.note || '').trim();
           const category = ['brand', 'strategy'].includes(String(use.input?.category))

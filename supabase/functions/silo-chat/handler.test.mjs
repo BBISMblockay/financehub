@@ -105,12 +105,16 @@ if (typeof capturedHandler !== 'function') {
 // ── mocks ─────────────────────────────────────────────────────────────────
 
 const USER = { id: '11111111-1111-4111-8111-111111111111', email: 'nobody@example.com' };
+// The concept tools are gated to PRODUCT_CONCEPT_TESTERS in index.ts; a test
+// that exercises them has to be that person.
+const CONCEPT_TESTER = { id: USER.id, email: 'blake@baseballism.com' };
+let currentUser = USER;
 const COMPANY_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const COMPANY_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 /** A supabase-js-shaped stub. Query builders are thenable, so `await
  *  client.from(t).select().eq().maybeSingle()` resolves through `resolve`. */
-function makeClient({ activeCompanies = [COMPANY_A], auditError = null } = {}) {
+function makeClient({ activeCompanies = [COMPANY_A], auditError = null, profileErrorOn = [] } = {}) {
   const state = {
     inserts: [],
     rpcCalls: [],
@@ -125,6 +129,10 @@ function makeClient({ activeCompanies = [COMPANY_A], auditError = null } = {}) {
     }
     if (b._table === 'profiles') {
       state.profileReads++;
+      // 1-indexed, counting every attempt including the built-in retry.
+      if (profileErrorOn.includes(state.profileReads)) {
+        return { data: null, error: { message: 'could not connect', code: 'PGRST000' } };
+      }
       const value = remaining.length > 1 ? remaining.shift() : (remaining[0] ?? lastCompany);
       return { data: { active_company_id: value }, error: null };
     }
@@ -158,7 +166,7 @@ function makeClient({ activeCompanies = [COMPANY_A], auditError = null } = {}) {
 
   return {
     __state: state,
-    auth: { getUser: async () => ({ data: { user: USER }, error: null }) },
+    auth: { getUser: async () => ({ data: { user: currentUser }, error: null }) },
     from: (table) => builder(table),
     rpc: async (name, args) => {
       state.rpcCalls.push({ name, args });
@@ -196,12 +204,18 @@ function request(body) {
   });
 }
 
-async function ask(body, clientOpts) {
+async function ask(body, clientOpts, user = USER) {
   const client = makeClient(clientOpts);
   currentClientFactory = () => client;
-  const res = await capturedHandler(request(body));
-  return { res, json: await res.json(), client };
+  currentUser = user;
+  try {
+    const res = await capturedHandler(request(body));
+    return { res, json: await res.json(), client };
+  } finally {
+    currentUser = USER;
+  }
 }
+const wrote = (client, table) => client.__state.inserts.filter((i) => i.table === table);
 
 const BASIC = {
   history: [{ role: 'user', content: 'What did we sell last week?' }],
@@ -419,6 +433,147 @@ await test('a matching declared company is answered normally', async () => {
 await test('a request with no declared company is not refused', async () => {
   installModel([say('Sales were $10.')]);
   const { res, json } = await ask(BASIC, { activeCompanies: [COMPANY_A] });
+  eq(res.status, 200, 'status');
+  eq(json.answer, 'Sales were $10.', 'answer');
+});
+
+console.log('\n-- a write never lands in a company the question was not asked in --');
+
+// Cycle-1 review finding (PR #712, P1). The delivery check runs AFTER the tool
+// loop, and a write does not wait for the answer: the row is stamped with the
+// NEW company by stamp_company_entity_id, committed, and only then does the
+// final check discard the answer. Refusing to deliver does nothing about a row
+// already sitting in another company's data.
+const useTool = (name, input) => ({
+  stop_reason: 'tool_use',
+  content: [{ type: 'tool_use', id: `tu_${name}`, name, input }],
+});
+
+await test('save_note is refused when the company changed mid-request', async () => {
+  installModel([
+    useTool('save_note', { note: 'Pin of Month is a one-time drop.' }),
+    say('I could not save that.'),
+  ]);
+  // A at the start, B by the time the tool fires.
+  const { client } = await ask(BASIC, { activeCompanies: [COMPANY_A, COMPANY_B] });
+  eq(wrote(client, 'silo_chat_notes').length, 0, 'notes written');
+});
+
+await test('...and the model is told plainly that nothing was saved', async () => {
+  let relayed = null;
+  installModel([
+    useTool('save_note', { note: 'x' }),
+    say('Nothing was saved.'),
+  ]);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init?.body || '{}');
+    for (const m of body.messages || []) {
+      for (const blk of Array.isArray(m.content) ? m.content : []) {
+        if (blk.type === 'tool_result') relayed = String(blk.content);
+      }
+    }
+    return realFetch(url, init);
+  };
+  await ask(BASIC, { activeCompanies: [COMPANY_A, COMPANY_B] });
+  assert(relayed && /nothing was saved/i.test(relayed), `tool result did not say nothing was saved: ${relayed}`);
+  assert(/do not retry/i.test(relayed), 'the model was not told to stop retrying');
+});
+
+await test('a concept write is refused on the same change', async () => {
+  installModel([
+    useTool('create_product_concept', { title: 'Youth Hoodie' }),
+    say('Nothing was saved.'),
+  ]);
+  const { client } = await ask(
+    { ...BASIC, workflow: 'product_concept' },
+    { activeCompanies: [COMPANY_A, COMPANY_B] },
+    CONCEPT_TESTER,
+  );
+  eq(wrote(client, 'product_concepts').length, 0, 'concepts written');
+});
+
+// The gate is stricter than the delivery check on purpose: a row committed
+// under a company nobody could confirm is not undoable by refusing afterwards.
+await test('a write is refused when the company cannot be confirmed at all', async () => {
+  installModel([
+    useTool('save_note', { note: 'x' }),
+    say('Nothing was saved.'),
+  ]);
+  // Read 1 is the start check; the gate's read (2) fails and so does its retry (3).
+  const { client } = await ask(BASIC, { profileErrorOn: [2, 3] });
+  eq(wrote(client, 'silo_chat_notes').length, 0, 'notes written');
+});
+
+await test('an unchanged company still lets a write through', async () => {
+  installModel([
+    useTool('save_note', { note: 'Pin of Month is a one-time drop.' }),
+    say('Saved.'),
+  ]);
+  const { client, json } = await ask(BASIC);
+  eq(wrote(client, 'silo_chat_notes').length, 1, 'notes written');
+  eq(json.answer, 'Saved.', 'answer');
+});
+
+// The set beside the tool loop is the whole guard. A write tool added to the
+// loop and not to the set has no gate, and nothing else would show it.
+await test('every tool that writes is named in WRITE_TOOLS', () => {
+  const src = readFileSync(INDEX, 'utf8');
+  const setSrc = src.slice(src.indexOf('const WRITE_TOOLS'), src.indexOf(']);', src.indexOf('const WRITE_TOOLS')));
+  const declared = new Set((setSrc.match(/'([a-z_]+)'/g) || []).map((q) => q.slice(1, -1)));
+
+  // Slice the tool loop into one segment per branch, then ask which segments
+  // reach a write on the caller client. Deliberately structural rather than a
+  // hand-kept list: a hand-kept list in the test has exactly the defect the
+  // set in index.ts has, one layer further away.
+  const loop = src.slice(src.indexOf('for (const use of toolUses)'));
+  const marks = [...loop.matchAll(/use\.name === '([a-z_]+)'/g)];
+  const segments = marks.map((m, i) => ({
+    name: m[1],
+    body: loop.slice(m.index, i + 1 < marks.length ? marks[i + 1].index : m.index + 6000),
+  }));
+  const writers = [...new Set(
+    segments.filter((seg) => /callerClient[\s\S]{0,400}?\.(insert|update)\(/.test(seg.body)).map((seg) => seg.name),
+  )];
+
+  for (const w of writers) {
+    assert(declared.has(w), `${w} writes but is not in WRITE_TOOLS, so it has no company gate`);
+  }
+  // The detector itself has to be working, or this test passes by finding
+  // nothing. These four are the writes that exist today.
+  for (const expected of ['save_note', 'create_product_concept', 'update_product_concept', 'approve_product_concept']) {
+    assert(writers.includes(expected), `the write detector missed ${expected}; found ${JSON.stringify(writers)}`);
+  }
+});
+
+console.log('\n-- company verification fails closed, never open --');
+
+// Cycle-1 review finding (PR #712, P1). The first version converted a lookup
+// error to null and only compared when both sides were known, so a transient
+// error on either read skipped the check entirely -- the same outcome as not
+// checking, arrived at silently.
+await test('a start lookup that cannot be established refuses the request', async () => {
+  installModel([]);
+  const { res, json } = await ask(BASIC, { profileErrorOn: [1, 2] });
+  eq(res.status, 503, 'status');
+  eq(json.company_unverified, true, 'company_unverified flag');
+  assert(!json.answer, 'no answer should be produced');
+});
+
+await test('a final lookup that cannot be established discards the answer', async () => {
+  installModel([say('Sales were $10.')]);
+  // Read 1 is the start check; reads 2 and 3 are the delivery check and its retry.
+  const { res, json, client } = await ask(BASIC, { profileErrorOn: [2, 3] });
+  eq(res.status, 503, 'status');
+  eq(json.company_unverified, true, 'company_unverified flag');
+  assert(!json.answer, 'the answer must not be delivered');
+  eq(wrote(client, 'silo_chat_audit_log').length, 0, 'audit rows for a discarded answer');
+});
+
+// The retry is what keeps a single blip from discarding a minute of work.
+await test('one transient failure is retried rather than refused', async () => {
+  installModel([say('Sales were $10.')]);
+  const { res, json } = await ask(BASIC, { profileErrorOn: [2] });
   eq(res.status, 200, 'status');
   eq(json.answer, 'Sales were $10.', 'answer');
 });
