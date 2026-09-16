@@ -960,3 +960,31 @@ The migration ends with `refresh_chat_schema_catalog()` — `silo_chat_audit_log
 and its view are both in the catalog and both gained a column, which
 `verify_v2_schema.sql` otherwise flags as STALE. The refresh preserves the
 curated descriptions set above it.
+## 20260916120000 — a job_type for the Meta creative backfill
+
+One line of schema: `meta_creative_backfill` added to the `sync_jobs.job_type`
+CHECK. The interesting part is why it is its own type rather than reusing
+`meta_ads_kpis`.
+
+The nightly (`runMetaAdLevelSync`) asks Meta about creatives only for ad ids
+that have **insights rows in its trailing window** (`days_back ?? 30`). That is
+correct for a nightly and it is why destination coverage looked thin. Measured
+2026-09-16 on Baseballism: **126 of 4,079 stored creatives had ever been asked
+about**, 82 resolved a destination, and **$5,304,686 of SHARE spend sat on ads
+that had never been requested at all** — not refused, never asked.
+
+`scripts/meta-creative-backfill.mjs` (manual workflow) fills that in. It writes
+no performance rows whatsoever, so folding its runs into `meta_ads_kpis` would
+make "did the nightly run" unanswerable from `sync_jobs` — the same reason
+`search_console_daily` was split out.
+
+The backfill **only ever adds**: a resolved link, recovered page-post copy, or
+a full row for an ad that had none. It never writes a null over a destination
+the nightly already found, and never blanks copy the page-post pass recovered.
+That safety rests on `ON CONFLICT DO UPDATE` touching only the columns named in
+its SET list, which `meta-creative-links-database.test.mjs` proves against a
+real Postgres rather than trusting to documentation.
+
+Idempotent: `drop constraint if exists` then re-add. Verified against
+production before commit that no stored `job_type` falls outside the new list,
+so the `ADD CONSTRAINT` cannot fail on existing rows.

@@ -1517,3 +1517,193 @@ export async function runConnectionSync(supabase, env, connection, {
     synced_at: syncedAt,
   };
 }
+
+// ── Meta creative destination backfill ──────────────────────────────────────
+// The nightly (runMetaAdLevelSync) fetches creatives only for ad ids that have
+// INSIGHTS ROWS IN ITS WINDOW -- `connection.days_back ?? 30`. That is the
+// right scope for a nightly and it is why destination coverage looked thin:
+// measured 2026-09-16, 126 of 4,079 stored creatives had been asked about at
+// all, 82 resolved, and $5.3M of SHARE spend sat on ads nobody had ever asked
+// Meta about. Those ads were not REFUSED, they were never requested.
+//
+// A destination is a property of the CREATIVE, not of a date, so an old ad can
+// be asked about at any time -- as long as it still exists. Some never will:
+// POST_DELETED and PRIVACY_CHECK_FAIL creatives are gone at Meta's end, and
+// the batch API reports those per item, which fetchMetaAdCreatives already
+// skips without narrowing the field set for everyone else.
+//
+// THREE WRITE RULES, and each exists because the obvious version loses data:
+//
+//   1. A resolved link is only ever written, never a null over a non-null one.
+//      Re-asking about an ad whose asset_feed_spec was refused mid-run would
+//      otherwise DESTROY a destination the nightly had already resolved. A
+//      null here keeps its established meaning -- "not resolved" -- and never
+//      becomes "asked and has none".
+//   2. `body` is written only when it came back non-null. The page-post pass
+//      degrades gracefully (a missing scope, a deleted post) and a blanket
+//      full-row upsert would blank the copy that pass had already recovered.
+//   3. An ad with no row yet gets the FULL row, because there is nothing to
+//      clobber and a partial insert would leave ad_name/object_type null
+//      forever -- the nightly would never revisit it either.
+//
+// Chunks are written before the next is fetched, so a failure keeps what
+// landed and the caller can say which ads were covered. Re-running is an
+// idempotent upsert on the nightly's own identity (company_entity_id,ad_id).
+
+/** Every ad id the account has, newest first, via a paginated ID-ONLY listing.
+ *
+ * The account-wide /ads listing is noted above (fetchMetaAdCreatives) as
+ * tripping Meta's request-size limits -- that was with full creative fields
+ * selected. `fields=id` alone is a different request: it is what pagination is
+ * for, and it is the only way to reach ads that never landed in our tables.
+ *
+ * Returns null (rather than throwing) when the listing fails, so discovery is
+ * strictly additive: the caller falls back to the ids it already has instead
+ * of losing a backfill to an optional widening step. */
+export async function fetchMetaAccountAdIds(connection, { pageSize = 500, maxPages = 200 } = {}) {
+  const token = connection.access_token;
+  const accountId = connection.meta_ad_account_id;
+  if (!token || !accountId) return null;
+  const act = String(accountId).startsWith('act_') ? String(accountId) : `act_${accountId}`;
+  const ids = [];
+  let url = `https://graph.facebook.com/${META_API_VERSION}/${act}/ads`
+    + `?fields=id&limit=${pageSize}&access_token=${encodeURIComponent(token)}`;
+  try {
+    for (let page = 0; url && page < maxPages; page++) {
+      const data = await fetchMetaJsonOrThrow(url, {}, 'Meta account ads listing');
+      for (const r of data?.data ?? []) if (r?.id) ids.push(String(r.id));
+      // paging.next carries its own access_token; absent means the last page.
+      url = data?.paging?.next || null;
+    }
+  } catch (err) {
+    console.warn(`[warn] Meta account ad listing failed, backfilling stored ids only: ${err.message || err}`);
+    return null;
+  }
+  return [...new Set(ids)];
+}
+
+/** Backfill creative destinations for a set of ad ids, chunk by chunk.
+ *
+ * `knownIds` is the set of ad ids that already have a meta_ad_creatives row;
+ * it decides full-row insert vs. partial update per rule 3 above. `onChunk`
+ * reports after each chunk is WRITTEN, never before, so a log line means the
+ * rows are durable. */
+export async function runMetaCreativeBackfill(supabase, connection, {
+  adIds,
+  knownIds = new Set(),
+  chunkSize = 300,
+  onChunk = null,
+  pauseMs = 0,
+} = {}) {
+  // No batchId here on purpose: meta_ad_creatives has no sync_batch_id column
+  // (that one is on meta_ad_performance_daily), so accepting one would imply a
+  // per-row traceability that does not exist. The driver records the batch on
+  // the sync_jobs row instead, which is where a run is actually traceable.
+  const ids = [...new Set((adIds || []).map(String))];
+  const chunksPlanned = Math.ceil(ids.length / chunkSize);
+  const result = {
+    ads_requested: ids.length,
+    chunks_planned: chunksPlanned,
+    chunks_completed: 0,
+    ads_returned: 0,
+    links_resolved: 0,
+    link_rows_written: 0,
+    body_rows_written: 0,
+    new_creative_rows: 0,
+    failed: null,
+  };
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const chunkNo = Math.floor(i / chunkSize) + 1;
+    try {
+      const creatives = await fetchMetaAdCreatives(connection, chunk);
+      const syncedAt = new Date().toISOString();
+
+      // Rule 3: never seen before -> full row, nothing to clobber.
+      const newRows = creatives
+        .filter((c) => !knownIds.has(String(c.adId)))
+        .map((c) => ({
+          company_entity_id: connection.company_entity_id,
+          ad_id: String(c.adId),
+          account_id: connection.meta_ad_account_id ?? null,
+          ad_name: c.adName,
+          campaign_id: c.campaignId != null ? String(c.campaignId) : null,
+          adset_id: c.adsetId != null ? String(c.adsetId) : null,
+          effective_status: c.effectiveStatus,
+          creative_id: c.creativeId != null ? String(c.creativeId) : null,
+          thumbnail_url: c.thumbnailUrl,
+          body: c.body,
+          body_source: c.bodySource ?? null,
+          link_url: c.linkUrl ?? null,
+          link_url_source: c.linkUrlSource ?? null,
+          link_url_tags: c.linkUrlTags ?? null,
+          title: c.title,
+          object_type: c.objectType,
+          synced_at: syncedAt,
+        }));
+
+      // Rule 1: only RESOLVED links are written back onto an existing row.
+      const linkRows = creatives
+        .filter((c) => knownIds.has(String(c.adId)) && c.linkUrl)
+        .map((c) => ({
+          company_entity_id: connection.company_entity_id,
+          ad_id: String(c.adId),
+          link_url: c.linkUrl,
+          link_url_source: c.linkUrlSource,
+          link_url_tags: c.linkUrlTags ?? null,
+          synced_at: syncedAt,
+        }));
+
+      // Rule 2: only recovered copy is written back.
+      const bodyRows = creatives
+        .filter((c) => knownIds.has(String(c.adId)) && c.body)
+        .map((c) => ({
+          company_entity_id: connection.company_entity_id,
+          ad_id: String(c.adId),
+          body: c.body,
+          body_source: c.bodySource ?? null,
+        }));
+
+      if (newRows.length) {
+        result.new_creative_rows += await upsertInChunks(
+          supabase, 'meta_ad_creatives', newRows, 'company_entity_id,ad_id');
+      }
+      if (linkRows.length) {
+        result.link_rows_written += await upsertInChunks(
+          supabase, 'meta_ad_creatives', linkRows, 'company_entity_id,ad_id');
+      }
+      if (bodyRows.length) {
+        result.body_rows_written += await upsertInChunks(
+          supabase, 'meta_ad_creatives', bodyRows, 'company_entity_id,ad_id');
+      }
+
+      // Counted from what Meta returned, not from what was written: a new row
+      // carrying a link is a resolved link too, and it lands in newRows.
+      const resolvedHere = creatives.filter((c) => c.linkUrl).length;
+      result.ads_returned += creatives.length;
+      result.links_resolved += resolvedHere;
+      result.chunks_completed += 1;
+      if (onChunk) {
+        onChunk({
+          chunk: chunkNo,
+          of: chunksPlanned,
+          requested: chunk.length,
+          returned: creatives.length,
+          resolved: resolvedHere,
+          new_rows: newRows.length,
+          link_rows: linkRows.length,
+          body_rows: bodyRows.length,
+        });
+      }
+      if (pauseMs) await sleep(pauseMs);
+    } catch (err) {
+      // Everything already written stays written; the caller reports how far
+      // it got and exits non-zero. Resuming is just re-running -- the default
+      // candidate set excludes ads that now have a link.
+      result.failed = { chunk: chunkNo, error: String(err?.message || err).slice(0, 500) };
+      break;
+    }
+  }
+  return result;
+}
