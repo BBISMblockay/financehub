@@ -473,8 +473,8 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
  *
  *   v1 requested all of these as ONE tier with an all-or-nothing downgrade.
  *   Production: `0/126 resolved (none) — link fields REFUSED`. One unacceptable
- *   field cost every other, including effective_object_url, which is the only
- *   source a page-post (SHARE) ad has -- 63% of this account.
+ *   field cost every other, including asset_feed_spec -- which measurement
+ *   later showed supplies EVERY resolved destination on this account.
  *
  *   v2 replaced that with a fixed six-step ladder that always dropped
  *   asset_feed_spec first. It parsed the field Meta named and used it ONLY for
@@ -486,10 +486,31 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
  *
  * So: Meta names the field in its error, and that is the field that goes. The
  * ordered list below is the fallback for a refusal that names NOTHING, and only
- * then -- riskiest first, effective_object_url last because losing it is what
- * empties most of this account. */
-const CREATIVE_OPTIONAL_FIELDS = ['effective_object_url', 'object_url', 'url_tags', 'asset_feed_spec'];
-const CREATIVE_DROP_ORDER = ['asset_feed_spec', 'object_url', 'url_tags', 'effective_object_url'];
+ * then.
+ *
+ * MEASURED ON THE LIVE ACCOUNT, 2026-09-16, and it inverted the guess this file
+ * used to encode. The run log:
+ *
+ *   [warn] Meta refused creative field effective_object_url per item
+ *   [meta] creative links: 82/126 resolved (asset_feed=82)
+ *          [asked: object_url,url_tags,asset_feed_spec, refused: effective_object_url]
+ *
+ *   - effective_object_url is REFUSED by this account as an unknown field, so
+ *     it can never resolve anything. It is no longer requested at all. It was
+ *     described here as "the only source a page-post ad has"; that was wrong.
+ *     All 82 resolved ads ARE object_type SHARE and every one came from
+ *     asset_feed_spec. To reinstate it (a different account, a later API
+ *     version) add it back to CREATIVE_OPTIONAL_FIELDS, CREATIVE_DROP_ORDER
+ *     and resolveCreativeLink's candidate list.
+ *   - asset_feed_spec supplies 100% of resolved links. It used to be dropped
+ *     FIRST as "the riskiest"; on an unnamed refusal that would have discarded
+ *     every destination this account has.
+ *
+ * The drop order is therefore least-costly-to-lose first: url_tags is UTM
+ * metadata, object_url is a destination candidate that currently resolves
+ * nothing, asset_feed_spec is everything. */
+const CREATIVE_OPTIONAL_FIELDS = ['object_url', 'url_tags', 'asset_feed_spec'];
+const CREATIVE_DROP_ORDER = ['url_tags', 'object_url', 'asset_feed_spec'];
 /** Fields whose Graph selection is not just the field name. */
 const CREATIVE_FIELD_SELECTION = { asset_feed_spec: 'asset_feed_spec{link_urls}' };
 /** A refusal can name the SUBfield; map it back to the field that carries it. */
@@ -572,14 +593,16 @@ function metaRejectedFieldName(data) {
 /** Where an ad's destination URL comes from, most specific first.
  *
  * Order is the whole design. link_data/video_data hold the destination the
- * ADVERTISER typed on this ad, so they win wherever they exist.
- * effective_object_url is last because it is the creative's resolved
- * destination and, on a page-post (SHARE) ad, Meta may resolve that to the
- * POST rather than to the advertiser's site. That is not a reason to drop it
- * -- it is the only source those ads have -- but it is a reason to record
- * which source answered, and for every reader to show the host rather than
- * just the path. A facebook.com host visible on screen is the reader finding
- * that out; a bare "/collections/new" that was never on the site is not.
+ * ADVERTISER typed on this ad, so they win wherever they exist. asset_feed_spec
+ * (Dynamic Creative) and object_url come after, being the creative's resolved
+ * destination rather than one typed on the ad.
+ *
+ * The source is recorded because a resolved destination is not automatically a
+ * landing page: on a page-post ad Meta can resolve one to the POST. Measured
+ * 2026-09-16, none did -- all 82 were baseballism.com -- but "none did on this
+ * run" is not "none can", so every reader still shows the HOST. A facebook.com
+ * host visible on screen is the reader finding that out; a bare
+ * "/collections/new" that was never on the site is not.
  *
  * Every entry returns a string or null. The first non-null wins, and its key
  * is stored as link_url_source. */
@@ -597,11 +620,10 @@ function resolveCreativeLink(creative) {
     ['carousel_card', firstCard?.link],
     ['photo_cta', ctaLink(spec.photo_data)],
     ['asset_feed', feedUrl?.website_url],
-    // Both, and effective_ first: they are separately documented and either
-    // may be the one a given API version returns. Whichever arrives is the
-    // page-post ad's only source, so asking for one and not the other is a
-    // coin flip on 63% of this account.
-    ['effective_object_url', creative?.effective_object_url],
+    // effective_object_url is deliberately absent: this account refuses it as
+    // an unknown field, so it is not requested and could never arrive. Reading
+    // a field nothing asks for is dead code that reads like coverage -- and
+    // this one read like the page-post ads' lifeline while supplying nothing.
     ['object_url', creative?.object_url],
   ];
   for (const [source, raw] of candidates) {
@@ -741,7 +763,7 @@ export async function fetchMetaAdCreatives(connection, adIds) {
                   : clean(inline) ? 'object_story_spec' : null,
         // Null or non-null TOGETHER, always. A source with no url describes
         // nothing, and a url with no source cannot be judged -- the whole
-        // point of recording the source is that effective_object_url may be
+        // point of recording the source is that a resolved destination may be
         // the page post rather than the site. resolveCreativeLink returns
         // them as one object so they cannot drift apart here; the database
         // asserts the same invariant.

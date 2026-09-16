@@ -815,6 +815,23 @@ both migrations twice, so a non-re-appliable one fails here rather than during
 an `apply_all_post_merge.sql` re-run) and, for the sync and page,
 `meta-creative-links.test.mjs` / `wow-report-destination.test.mjs`.
 
+`20260915230000_product_tracker_po_link.sql` adds `product_tracker.po_header_id`.
+`/v2/products.html`'s Pipeline drawer has always offered a "PO / Incoming"
+product search and has always labelled its Expected Units field "(from the
+originating PO)", but there was no column to hold which PO — so the pick could
+not be saved, and Expected Units was typed by hand. Additive, nullable, and
+`on delete set null`: a deleted purchase order must not delete the pipeline item
+that came from it, nor block the delete. `product_samples.po_header_id` is the
+existing counterpart on the samples side.
+
+The page **feature-detects the column** (one `select po_header_id limit 1` probe
+at boot) and omits it from the write until it exists, because merging a PR does
+not apply a migration — sending an unknown column fails the whole update, which
+would turn "the PO link is not stored yet" into "nothing on this page saves".
+Only a `42703` is read as absent; any other error is logged and the column is
+still treated as present, so one bad request cannot quietly stop the link being
+saved on a database that has it.
+
 ## 20260916120000 / 20260916121000 — Ask SILO reliability (2026-09-16 audit)
 
 **`chat_run_readonly_query` now runs in a read-only transaction.** The
@@ -834,14 +851,35 @@ read (the function validates membership first), but it silently repoints the
 caller's session at another of their companies mid-answer, which is precisely
 what a shared read-only reporting engine must not be able to do.
 
-`20260916120000` adds a function-level `set transaction_read_only to 'on'`.
-Enforcement moves to the executor, so it holds however the write is reached —
-directly, through a function, or through a function called by a function — and
-a write attempt raises `25006` like any other query error. A function-level
-SET (not `set local`) is saved and restored around the call, so it can never
-outlive the function. Nothing changes for a genuine read; every caller today
-(Ask SILO's tool loop and Refresh button, every `/v3/` widget, the report
-builder preview) runs SELECTs only.
+`20260916120000` issues **`SET TRANSACTION READ ONLY` through `EXECUTE`** before
+it runs the caller's statement. Enforcement moves to the executor, so it holds
+however the write is reached — directly, through a function, or through a
+function called by a function — and a write attempt raises `25006` like any
+other query error. Nothing changes for a genuine read; every caller today (Ask
+SILO's tool loop and Refresh button, every `/v3/` widget, the report builder
+preview) runs SELECTs only.
+
+**It is a TRANSACTION property, not a function one, so the rest of the
+transaction stays read-only after the call returns.** Under PostgREST that is
+the end of the request, and every caller today is an HTTP RPC from the browser
+or the silo-chat edge function — nothing in this repo calls it from SQL inside
+a larger transaction. If something ever does, its later write fails loudly with
+`25006` rather than quietly, which is the right direction for that mistake to
+fall, but it is a real constraint on where this function may be called from.
+
+**Two mechanisms that look like this fix are not, and both were measured**
+(`scripts/tests/chat-readonly-query-database.test.mjs` pins all three):
+
+- A function-level `set transaction_read_only to 'on'` clause, or a `set local`
+  in the body. Postgres marks the parameter `GUC_DISALLOW_IN_FUNC` and rejects
+  both: `parameter "transaction_read_only" cannot be set locally in functions`.
+- Declaring the function **`STABLE`**, since PostgREST runs a STABLE function in
+  a read-only transaction. This is the one to know about, because it reads as
+  the safer declaration and is not: SPI's non-volatile guard is **per function**,
+  so a nested VOLATILE function still wrote the row in test, and a non-volatile
+  function may not run `set local statement_timeout` at all — which would
+  silently drop the 30s query budget as well. The function must stay `VOLATILE`;
+  `verify_v2_schema.sql` fails CRITICAL if it does not.
 
 **Scope, so nobody reads more into it than it earns:** this stops WRITES. It
 does not allowlist which functions may be called, and it does not stop a
