@@ -3542,6 +3542,34 @@ select 'Meta ad destination coverage' as check_name,
    then 'CRITICAL: the newest Meta creative sync resolved NO ad destinations; a field the account accepts was probably dropped alongside a refused one -- read the run log line [asked: ..., refused: ...]'
  else 'ok' end as status;
 
+-- Is Ask SILO still being told the disproved thing about ad destinations?
+--
+-- 20260915140000 taught the catalog that effective_object_url is the source
+-- page-post ads "rely on", which a live sync disproved: the account refuses
+-- that field outright and every resolved destination comes from
+-- asset_feed_spec. 20260916030000 corrects the sentence with a targeted
+-- replace -- which NO-OPS SILENTLY if production's text has drifted from what
+-- the migration expects, leaving the wrong claim in the model's prompt with
+-- nothing to show for it.
+--
+-- So this asserts the outcome rather than trusting the update, and it doubles
+-- as a guard against a later migration reintroducing the claim. Same stance as
+-- the Search Console caveat that verify goes CRITICAL on if it returns.
+select 'Ask SILO ad destination caveat' as check_name,
+ case when to_regclass('public.silo_chat_schema_catalog') is null then 'MISSING: schema catalog'
+ when not exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_v')
+   then 'STALE: meta_ad_performance_v is not in the Ask SILO catalog; run refresh_chat_schema_catalog()'
+ when exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_v'
+     and description like '%that relies on it%')
+   then 'CRITICAL: the catalog still tells Ask SILO that page-post ads rely on effective_object_url, which this account refuses; apply 20260916030000'
+ when not exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_v'
+     and description like '%link_url_source%')
+   then 'STALE: the catalog no longer explains link_url_source; a later migration replaced the description instead of appending'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
