@@ -523,13 +523,61 @@
 
   let history = [];
   let session = null;
+  // Who this tab's conversation belongs to. Set once in boot(), before
+  // anything is restored or sent.
+  let identity = { userId: null, companyId: null };
+  // Bumped by "New chat" (and by an identity change). A reply that comes back
+  // carrying an older generation belongs to a conversation that no longer
+  // exists and is dropped rather than appended to the new one.
+  let conversationGeneration = 0;
+  // The request currently in flight: { requestId, generation, controller }.
+  // One at a time -- see sendMessage().
+  let activeTurn = null;
+  // The request id of the last attempt that failed, so "Try again" can ask
+  // whether THAT request finished before paying for a fresh one.
+  let lastFailedRequestId = null;
 
   // A refresh (accidental, or the "refresh the page" prompt on an error
   // bubble) used to wipe the whole conversation -- history only ever lived
   // in this JS variable. sessionStorage is tab-scoped, which is exactly
   // right here: a reload of THIS tab restores it, a fresh tab starts clean.
-  const HISTORY_STORAGE_KEY = 'silo_chat_history_v1';
-  const WORKFLOW_KEY = 'silo_chat_workflow_v1';
+  // Conversation storage is keyed by WHO and WHICH COMPANY, not by page.
+  //
+  // It used to be one fixed key, `silo_chat_history_v1`, read back on boot
+  // with no check on who was asking. sessionStorage is per-tab, but a tab
+  // outlives both a company switch (/v2/company-picker.html navigates in the
+  // same tab) and a sign-out/sign-in, and neither clears this. So the tab
+  // restored the previous identity's conversation into the log AND posted it
+  // back to the edge function as context for the next question -- an answer
+  // about one company quoted at someone who is now in another.
+  //
+  // Fixed twice over: the key carries the identity, and the stored blob
+  // repeats it so a restore that somehow reaches the wrong key is still
+  // refused rather than rendered.
+  const HISTORY_KEY_PREFIX = 'silo_chat_history_v2';
+  const WORKFLOW_KEY_PREFIX = 'silo_chat_workflow_v2';
+  const LEGACY_KEYS = ['silo_chat_history_v1', 'silo_chat_workflow_v1'];
+
+  function scopeKey(prefix) {
+    return `${prefix}:${identity.userId || 'anon'}:${identity.companyId || 'none'}`;
+  }
+  // Called once identity is known. Drops the unscoped v1 blobs and any v2 blob
+  // belonging to an identity this tab is no longer signed in as -- leaving
+  // them would keep another company's conversation sitting in this tab's
+  // storage for as long as the tab lives.
+  function purgeForeignConversations() {
+    try {
+      const mine = new Set([scopeKey(HISTORY_KEY_PREFIX), scopeKey(WORKFLOW_KEY_PREFIX)]);
+      const doomed = LEGACY_KEYS.slice();
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (!k) continue;
+        const scoped = k.startsWith(HISTORY_KEY_PREFIX + ':') || k.startsWith(WORKFLOW_KEY_PREFIX + ':');
+        if (scoped && !mine.has(k)) doomed.push(k);
+      }
+      doomed.forEach((k) => sessionStorage.removeItem(k));
+    } catch {}
+  }
 
   // Product Concepts: an EXPLICIT mode rather than inferred intent.
   // Concept tools and the concept prompt block are only sent when this is
@@ -556,7 +604,8 @@
   function setWorkflow(name) {
     activeWorkflow = WORKFLOWS[name] ? name : null;
     try {
-      activeWorkflow ? sessionStorage.setItem(WORKFLOW_KEY, activeWorkflow) : sessionStorage.removeItem(WORKFLOW_KEY);
+      const k = scopeKey(WORKFLOW_KEY_PREFIX);
+      activeWorkflow ? sessionStorage.setItem(k, activeWorkflow) : sessionStorage.removeItem(k);
     } catch {}
     const bar = el('workflowBar');
     if (bar) {
@@ -571,11 +620,20 @@
   }
 
   function saveHistoryToSession() {
-    try { sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history)); } catch {}
+    // The identity is written INTO the blob, not only into the key, so a
+    // restore is refused on a mismatch even if the key somehow lines up.
+    try {
+      sessionStorage.setItem(scopeKey(HISTORY_KEY_PREFIX), JSON.stringify({
+        v: 2,
+        user_id: identity.userId,
+        company_id: identity.companyId,
+        messages: history,
+      }));
+    } catch {}
   }
 
   function clearHistorySession() {
-    try { sessionStorage.removeItem(HISTORY_STORAGE_KEY); } catch {}
+    try { sessionStorage.removeItem(scopeKey(HISTORY_KEY_PREFIX)); } catch {}
   }
 
   // Replays a saved conversation into the log on boot. Per-message SQL
@@ -588,15 +646,24 @@
   function restoreHistoryFromSession() {
     let saved;
     try {
-      const raw = sessionStorage.getItem(HISTORY_STORAGE_KEY);
+      const raw = sessionStorage.getItem(scopeKey(HISTORY_KEY_PREFIX));
       saved = raw ? JSON.parse(raw) : null;
     } catch { saved = null; }
-    if (!Array.isArray(saved) || !saved.length) return;
-    history = saved;
+    // Second check, independent of the key: the blob has to name the identity
+    // that is actually signed in right now. A conversation that fails this is
+    // dropped, never rendered and never posted back as context.
+    if (!saved || saved.v !== 2
+      || saved.user_id !== identity.userId
+      || (saved.company_id || null) !== (identity.companyId || null)) {
+      clearHistorySession();
+      return;
+    }
+    if (!Array.isArray(saved.messages) || !saved.messages.length) return;
+    history = saved.messages;
     history.forEach((m, i) => {
       if (m.role === 'assistant') {
         const question = [...history.slice(0, i)].reverse().find(x => x.role === 'user')?.content || '';
-        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, saveCtx: { question } });
+        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, sources: m.sources, saveCtx: { question } });
       } else {
         renderMessage({ role: 'user', content: m.content, images: m.imageUrls });
       }
@@ -849,7 +916,7 @@
     await askSilo();
   });
 
-  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, suggestWorkflow }) {
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, sources, suggestWorkflow }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -864,6 +931,25 @@
       queriesHtml = `<details class="ac-queries"><summary>${queries.length} quer${queries.length === 1 ? 'y' : 'ies'} run</summary>${
         queries.map(q => `<pre>${esc(q)}</pre>`).join('')
       }</details>`;
+    }
+    // Pages the web search actually returned. Without these the user was told
+    // a claim "came from the web" with no way to see WHICH web -- an external,
+    // unverified figure standing next to queried numbers with nothing to tell
+    // them apart. Rendered separately from the query panel on purpose: the two
+    // have very different standing, which is the whole point.
+    let sourcesHtml = '';
+    if (Array.isArray(sources) && sources.length) {
+      sourcesHtml = `<details class="ac-queries"><summary>${sources.length} web source${sources.length === 1 ? '' : 's'}</summary><ul style="margin:0;padding-left:18px">${
+        sources.map((src) => {
+          // Only http(s) becomes a link; anything else renders as inert text,
+          // same guard /v3/ uses on link cells.
+          const url = String(src?.url || '');
+          const label = esc(src?.title || url);
+          return /^https?:\/\//i.test(url) && !/\s/.test(url)
+            ? `<li><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${label}</a></li>`
+            : `<li>${label}</li>`;
+        }).join('')
+      }</ul></details>`;
     }
     // Only answers that ran real SQL are worth pinning -- a clarification
     // reply with no queries has nothing to re-run later.
@@ -900,6 +986,7 @@
         ${conceptsHtml}
         ${suggestHtml}
         ${queriesHtml}
+        ${sourcesHtml}
         ${saveHtml}
         ${retryHtml}
       </div>`;
@@ -922,35 +1009,31 @@
     el('typingIndicator')?.remove();
   }
 
-  // Looks up the most recent successful answer to the current question in
-  // silo_chat_audit_log (RLS already lets a user read their own rows) --
-  // used whenever the request comes back as a failure (thrown network
-  // exception, or a non-2xx/errorless response), to recover an answer the
-  // edge function actually finished computing. Tightly scoped (exact
-  // question text, recent only, status ok) so this can't surface a stale
-  // answer to a repeated identical question.
-  async function tryRecoverAnswer() {
+  // Looks up the answer to ONE request in silo_chat_audit_log -- used when the
+  // fetch dies (a gateway timeout on a long draft, a backgrounded tab) but the
+  // edge function kept running and logged a real answer.
+  //
+  // Keyed on the request id this tab minted, plus created_by. It used to match
+  // on the QUESTION TEXT, which is not an identity: a conversation is mostly
+  // short replies ("yes", "keep going", "now by month"), so a dropped request
+  // could recover the answer to an EARLIER turn and present it as the reply to
+  // this one -- and the select policy on that table is `created_by = auth.uid()
+  // OR is_exec_or_owner()`, so for an exec the match was not scoped to their
+  // own rows at all. The old recency window is gone with it: a request id is
+  // unique, so age proves nothing, and the window was cutting off exactly the
+  // long drafts recovery exists for.
+  async function tryRecoverAnswer(requestId) {
+    if (!requestId || !identity.userId) return null;
     try {
-      const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
-      if (!lastUserMsg) return null;
       const { data } = await sb.from('silo_chat_audit_log')
         .select('answer, queries_run, status, created_at')
-        .eq('question', lastUserMsg.content)
+        .eq('request_id', requestId)
+        .eq('created_by', identity.userId)
         .eq('status', 'ok')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (!data?.answer) return null;
-      // Product Concepts drafts can run 20 full tool-rounds server-side
-      // (Anthropic call + DB round-trips per round) before the forced-
-      // final-answer fallback kicks in -- observed taking long enough that
-      // a platform/gateway timeout can kill the client's connection before
-      // that finishes. 2 minutes was too tight for that class of request;
-      // widened after a real case where both the gateway-timeout response
-      // AND the completed audit-log row were confirmed to exist for the
-      // same question, 3+ minutes apart.
-      if (Date.now() - new Date(data.created_at).getTime() > 6 * 60 * 1000) return null;
-      return data;
+      return data?.answer ? data : null;
     } catch {
       return null;
     }
@@ -959,6 +1042,7 @@
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
   function renderRecovered(recovered) {
+    lastFailedRequestId = null;
     const historyEntry = { role: 'assistant', content: recovered.answer };
     if (recovered.queries_run?.length) historyEntry.queries = recovered.queries_run;
     history.push(historyEntry);
@@ -974,11 +1058,15 @@
   // had already failed and a single immediate check came up empty. This
   // bridges that narrow gap without making a hard failure (bad auth, no
   // request ever sent) wait too long before showing the error.
-  async function recoverOrShowError(fallbackContent, retryable) {
-    const POLL_ATTEMPTS = 4;
+  async function recoverOrShowError(requestId, fallbackContent, retryable, recoverable = true) {
+    // An answer whose audit row was rejected is not in the log, so there is
+    // nothing to poll for -- show the error immediately instead of making the
+    // user watch four five-second "still working" ticks for a row that will
+    // never appear.
+    const POLL_ATTEMPTS = recoverable && requestId ? 4 : 0;
     const POLL_DELAY_MS = 5000;
     for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
-      const recovered = await tryRecoverAnswer();
+      const recovered = await tryRecoverAnswer(requestId);
       if (recovered) {
         renderRecovered(recovered);
         setStatus('Recovered your answer after a connection drop.', 'pos', 4000);
@@ -993,24 +1081,86 @@
     renderMessage({ role: 'assistant', content: fallbackContent, isError: true, retryable });
   }
 
+  function newRequestId() {
+    try { return crypto.randomUUID(); } catch { return null; }
+  }
+
   // Posts the current `history` as-is and renders the reply. Split out from
   // sendMessage so a failed request can be retried (via the error bubble's
   // "Try again" button) without re-pushing/re-rendering the user's message.
+  //
+  // Three things this owns beyond the fetch:
+  //   * A FRESH access token. `session` is captured once in boot() and a tab
+  //     left open past the token's lifetime was posting an expired one, which
+  //     arrives as a 401 the user reads as "SILO is broken". getSession()
+  //     refreshes when needed.
+  //   * A REQUEST ID, minted here and sent with the body, so a dropped
+  //     connection can ask the audit log for THIS request's answer.
+  //   * A GENERATION check. "New chat" (and an aborted turn) invalidate the
+  //     conversation a reply was meant for; a late reply to a conversation
+  //     that no longer exists is dropped, not appended to whatever replaced it.
   async function askSilo() {
+    const requestId = newRequestId();
+    const controller = new AbortController();
+    const turn = { requestId, generation: conversationGeneration, controller };
+    activeTurn = turn;
+    const isCurrent = () => activeTurn === turn && turn.generation === conversationGeneration;
+
     el('btnSend').disabled = true;
     renderTyping();
+    // Whether the request actually left the browser. A failure BEFORE it did
+    // (an expired session, a token refresh that threw) has no audit row to
+    // recover, so there is nothing to poll for and the user should see the
+    // error now rather than after twenty seconds of "still working".
+    let sent = false;
     try {
+      const { data: fresh } = await sb.auth.getSession();
+      if (!fresh?.session?.access_token) {
+        removeTyping();
+        renderMessage({
+          role: 'assistant',
+          content: 'Your sign-in has expired — nothing was sent. Refresh the page to sign in again, then ask again.',
+          isError: true,
+          retryable: false,
+        });
+        return;
+      }
+      session = fresh.session;
+
+      sent = true;
       const res = await fetch(`${FUNCTIONS_URL}/silo-chat`, {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ history, workflow: activeWorkflow }),
+        body: JSON.stringify({
+          history,
+          workflow: activeWorkflow,
+          request_id: requestId,
+          // Which company this tab believes it is asking from. The server reads
+          // the authoritative value itself and uses this only to REFUSE a
+          // disagreement -- it can never widen what the asker may see.
+          company_entity_id: identity.companyId,
+        }),
       });
       const data = await res.json();
+      if (!isCurrent()) return;
       removeTyping();
       if (!res.ok || data.error) {
+        // A company switch in another tab lands here. Nothing was answered, so
+        // there is nothing to recover and nothing to retry -- the tab has to
+        // reload to pick up the company it is actually in.
+        if (res.status === 409 && data.company_changed) {
+          // Drop the unanswered question rather than carrying it into the next
+          // request as context for an answer that never happened. Guarded
+          // because "Try again" re-enters here with the same last entry.
+          if (history[history.length - 1]?.role === 'user') history.pop();
+          saveHistoryToSession();
+          renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: false });
+          return;
+        }
         // A slow request can come back as a non-2xx gateway/platform
         // response (e.g. a timeout) rather than throwing -- that resolves
         // here, not in the catch below, but the edge function may well have
@@ -1018,7 +1168,8 @@
         // both res-not-ok cases here had a matching status='ok' row in
         // silo_chat_audit_log). Try recovery here too, not just on a thrown
         // network exception.
-        await recoverOrShowError(data.error || 'Something went wrong.', data.retryable);
+        lastFailedRequestId = requestId;
+        await recoverOrShowError(requestId, data.error || 'Something went wrong.', data.retryable);
         return;
       }
       const historyEntry = { role: 'assistant', content: data.answer };
@@ -1030,12 +1181,24 @@
       // refresh mid-draft made the drafted concept vanish from the thread
       // even though the row existed in the database the whole time.
       if (data.concepts && data.concepts.length) historyEntry.concepts = data.concepts;
+      // Same reasoning for the web sources behind a web_search-backed answer:
+      // replay can only show what the entry carries.
+      if (data.sources && data.sources.length) historyEntry.sources = data.sources;
       history.push(historyEntry);
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, suggestWorkflow: data.suggest_workflow });
+      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, sources: data.sources, suggestWorkflow: data.suggest_workflow });
+      // The edge function only sends this when the audit INSERT was rejected.
+      // It means this answer is not in the log, so a later "Try again" cannot
+      // find it -- worth knowing before promising a recovery that cannot work.
+      if (data.audit_logged === false) lastFailedRequestId = null;
     } catch (err) {
+      if (!isCurrent()) return;
       removeTyping();
+      // An aborted request is a deliberate cancellation ("New chat" mid-answer),
+      // not a failure -- say nothing rather than showing an error for something
+      // the user just asked for.
+      if (err?.name === 'AbortError') return;
       // "Load failed" (or any network-level drop) usually means the
       // connection died while waiting, NOT that the request failed --
       // Product Concepts drafts run several tool-rounds server-side and
@@ -1045,27 +1208,37 @@
       // silo_chat_audit_log (the caller can already read their own rows)
       // instead of discarding a completed answer and forcing an expensive
       // full re-ask.
-      await recoverOrShowError('Request failed: ' + err.message, true);
+      lastFailedRequestId = sent ? requestId : null;
+      await recoverOrShowError(sent ? requestId : null, 'Request failed: ' + err.message, true, sent);
     } finally {
-      el('btnSend').disabled = false;
-      el('input').focus();
+      if (activeTurn === turn) activeTurn = null;
+      if (turn.generation === conversationGeneration) {
+        el('btnSend').disabled = false;
+        el('input').focus();
+      }
     }
   }
 
   // "Try again" on a retryable error bubble: a slow Product Concepts draft
   // can genuinely still be running server-side by the time a human notices
   // the error and clicks this (real case: 14 tool rounds, well over a
-  // minute) -- check for a completed answer first, cheaply, before paying
-  // for a full re-ask that repeats the whole expensive generation.
+  // minute) -- check whether THAT request finished before paying for a full
+  // re-ask that repeats the whole expensive generation.
   async function retryAsk() {
-    setStatus('Checking whether that already finished...', 'info');
-    const recovered = await tryRecoverAnswer();
-    if (recovered) {
-      renderRecovered(recovered);
-      setStatus('Recovered your answer -- no need to re-run it.', 'pos', 4000);
-      el('btnSend').disabled = false;
-      return;
+    if (activeTurn) { setStatus('Still working on your last question…', 'info', 3000); return; }
+    const pending = lastFailedRequestId;
+    if (pending) {
+      setStatus('Checking whether that already finished...', 'info');
+      const recovered = await tryRecoverAnswer(pending);
+      if (recovered) {
+        renderRecovered(recovered);
+        setStatus('Recovered your answer -- no need to re-run it.', 'pos', 4000);
+        lastFailedRequestId = null;
+        el('btnSend').disabled = false;
+        return;
+      }
     }
+    lastFailedRequestId = null;
     el('status').hidden = true;
     await askSilo();
   }
@@ -1073,6 +1246,11 @@
   async function sendMessage(text) {
     const images = pendingImages.map(p => p.url);
     if (!text.trim() && !images.length) return;
+    // Enter submits, and Enter does not care that the Send button is disabled
+    // -- so a second question could be posted while the first was still
+    // running, with a half-built history and two replies racing to append to
+    // it. One turn at a time; the text is left in the box rather than eaten.
+    if (activeTurn) { setStatus('Still working on your last question — one at a time.', 'info', 3000); return; }
     el('input').value = '';
     el('input').style.height = 'auto';
     const entry = { role: 'user', content: text };
@@ -1308,6 +1486,16 @@
   el('btnExitConceptMode').addEventListener('click', () => setWorkflow(null));
 
   el('btnNewChat').addEventListener('click', () => {
+    // Starting a new chat while an answer is in flight used to leave that
+    // request running: it came back a minute later and was appended to the
+    // conversation that had replaced it. Bumping the generation makes the
+    // in-flight reply stale; aborting stops it arriving at all.
+    conversationGeneration++;
+    activeTurn?.controller.abort();
+    activeTurn = null;
+    lastFailedRequestId = null;
+    removeTyping();
+    el('btnSend').disabled = false;
     history = [];
     clearHistorySession();
     setWorkflow(null);
@@ -1676,6 +1864,16 @@
     session = sessRes.data.session;
     const user = session.user;
 
+    // Establish WHO and WHICH COMPANY before anything is restored or sent.
+    // ensureActiveCompany() rather than a bare getActiveCompany(): this page is
+    // routinely opened from a bookmark or a deep link, which skips login.html
+    // entirely, so the per-tab cache is empty while the user is fully signed
+    // in -- and a null company here would file the conversation under a
+    // different key than the same user gets after going through login.
+    const co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    identity = { userId: user.id, companyId: co?.id || null };
+    purgeForeignConversations();
+
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', user.id).single();
     // Same lightweight profile-role check review-templates.html uses for its
     // exec-only gate, OR a dedicated silo_chat_managers grant (backend.html
@@ -1711,7 +1909,7 @@
       el('btnConcepts').hidden = false;
       el('btnConceptMode').hidden = false;
       // Restore the mode alongside the thread it belongs to.
-      try { setWorkflow(sessionStorage.getItem(WORKFLOW_KEY)); } catch {}
+      try { setWorkflow(sessionStorage.getItem(scopeKey(WORKFLOW_KEY_PREFIX))); } catch {}
     }
 
     // Arrived from the Product Concepts list via "Open in Ask SILO": bind

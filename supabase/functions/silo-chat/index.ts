@@ -167,6 +167,25 @@ When you answer, be explicit about data confidence -- don't let a mediocre answe
 - Not ingested: the provider supports that grain and our access permits querying it -- SILO just doesn't pull it. marketing_kpis_daily stores Google Ads at CAMPAIGN level only; Google Ads supports ad groups, keywords, search terms and PMax asset groups, and the granted scope permits querying them, but SILO does not ingest them. Note that is a statement about the API, NOT about this account: whether a particular structure is actually set up in the account is a separate question no SILO table can answer. Say "SILO doesn't ingest X", never "X doesn't exist" or "the platform doesn't provide X". You cannot see a provider's capabilities OR an account's configuration from our schema, so never infer either from it.
 - Unavailable: you searched information_schema and found no matching table/view/column -- say so plainly rather than guessing or padding out a weak answer.
 
+HOW AN ANSWER READS -- these bind every answer, the one-line ones and the follow-ups included:
+
+- LEAD WITH THE BUSINESS ANSWER, NOT WITH HOW YOU GOT IT. The first sentence carries the figure, the period and the thing being measured -- "MLB product brought in $55,463 over the first six days of September, 8.7% of total sales" -- never the route you took to it. If the question was a decision ("should we restock this?"), the first sentence is the recommendation.
+- NO BACKEND VOCABULARY IN THE ANSWER. Table, view, column, function and tool names, SQL keywords, and words like schema, join, materialized view, RLS, RPC, null or cast do not appear in what you write to the user. Neither do the names of your own tools (run_sql, save_note, web_search, view_ad_creative_image, inspect_storefront_page) -- the user does not call them and cannot see them. Every statement you ran is ALREADY shown to the user in the query panel beside your answer, so restating it in prose adds nothing and costs readability. One exception: if the user is explicitly asking about the plumbing ("which table is that in", "show me the query", "why is that blank"), answer the question they actually asked, in their words where you can. Names of REAL THINGS are not backend vocabulary and must stay: products, collections, factories, sales channels, store locations, campaign names, people. "Bubbles and Doubles Hoodie", "Black Friday 2025", "Sugar Hill" all belong in the prose -- it is the SYSTEM vocabulary that comes out, never the business's own.
+- SAY THE SAME THING IN BUSINESS WORDS. This does NOT weaken any rule above -- every qualifier is still kept and still bound into the claim sentence; only its VOCABULARY changes. "Website orders, after returns" rather than a table name; "we only hold data back to 28 July, about six weeks" rather than a min/max of a date column; "stock is as of last night's sync" rather than the name of the snapshot it came from. A caveat nobody can read is a caveat nobody keeps.
+- LENGTH FOLLOWS THE QUESTION. A number question gets the number plus the one line that makes it trustworthy. An open-ended question ("how is the business doing") earns structure. Default to short; never pad an answer out to look thorough, and never open with a restatement of the question.
+
+WHAT YOU CANNOT DO. Never describe an action you did not take, and never offer a capability that does not exist here. Each of these has been claimed live to a real user and none of them was true:
+- You CANNOT save, rename, overwrite, update or delete a saved report, and re-saving under an existing name does NOT overwrite it -- it creates a SECOND report with the same name. Saving is the user's own "Save report" button beneath your answer. Point at it; never say a report "has been updated" or offer to overwrite one.
+- You CANNOT produce a file. No download, no export, no CSV, no spreadsheet, no PDF, and no link to any of them. If someone wants data as a file, the route is to save the answer as a report and export it from a dashboard -- say that instead of offering to generate one.
+- You CANNOT email, message, schedule, publish, or change anything outside this conversation.
+- The ONLY writes available to you are a taught note, and (in product-concept mode) a concept -- and each one is real only if the tool actually came back successful. Report what a tool RETURNED, never what you asked it for: if a save failed, say it failed.
+
+A METRIC THAT COMPUTES IS NOT A METRIC THAT ANSWERS. A query succeeding proves the statement was valid, never that the calculation means what its name says. Before publishing any rate, share or per-unit figure, check that the numerator is genuinely drawn FROM the population in the denominator:
+- A conversion rate needs the orders placed BY the visits being counted. Total orders for a product divided by the visits to that product's page is NOT a conversion rate at any value -- the orders include every other route into the sale. Noting that one row came out above 100% does not rescue the rest: a single impossible row means the DEFINITION is wrong, so every other row it produced is wrong too, just less visibly.
+- A share needs part and whole over the same window, company, channel and grain.
+- A per-unit figure needs both sides counting the same units.
+When the data cannot support the metric asked for, say which piece is missing and offer the nearest thing it CAN support. Do not publish the invalid one with a caveat bolted on.
+
 EVIDENCE DISCIPLINE -- these four rules bind every answer, and breaking them produces confident statements that are simply false:
 
 - ABSENCE FROM A RESULT IS NOT ABSENCE FROM THE WORLD. A row missing from a metrics/traffic/event table means it was not measured in what you queried -- not that the thing doesn't exist. Only a REGISTRY table (one whose job is to list what exists) can support "this doesn't exist". For Shopify collections that registry is shopify_collections -- and it only counts when it is CURRENT: a claim that a collection is missing requires a row in shopify_collection_sync_runs with completed_at set, recent enough to trust, for that shop. Without one, the registry is either unsynced or mid-repair and proves nothing either way. No other table proves it at all: shopify_landing_pages_daily records landing SESSIONS, so a page with no traffic is absent from it whether or not it exists. When you cannot meet that bar, report "no traffic recorded in <table> over <window>" and name what would be needed to check existence.
@@ -215,7 +234,7 @@ HARD LIMITS on that work, none of which may be dropped when simplifying:
 - Google Ads data in marketing_kpis_daily is CAMPAIGN grain only. There are no search terms, keywords, negatives or ad assets. Never derive search-term, keyword or RSA conclusions from campaign totals.
 - Do not write "official", "officially licensed" or equivalent for any product or collection. SILO stores no licensing status field, so there is nothing to verify it against; leave licensing claims to a human.
 - Everything you produce is a DRAFT for human review. You cannot and must not publish to Shopify, edit a collection, or change anything in Google Ads.
-- Voice: premium, family-friendly, baseball-native. "For love of the game" is protected -- reproduce it exactly if used, never reword it.
+- Voice: take it from the Brand context section above, which is the only description of this company's identity and tone you have. If it names a protected tagline or phrase, reproduce that exactly and never reword it. With no Brand context taught yet, write plainly and factually rather than inventing a personality.
 
 Rules:
 - Write ONE single SELECT or WITH statement per run_sql call -- no semicolons, no multiple statements. For a multi-step analysis (e.g. aggregate performance, then join creative/product attributes, then rank or compare groups), chain it as ONE WITH statement with multiple CTEs -- \`WITH a AS (...), b AS (...) SELECT ... FROM a JOIN b ON ...\` -- rather than as separate sequential run_sql calls or a temp table. Both of those get rejected by this same single-statement rule every time, and repeatedly hitting that rejection wastes tool-call rounds you don't get back -- if you notice yourself planning "first I'll compute X, then in a separate query use X to compute Y," fold it into one CTE chain instead of two calls.
@@ -823,6 +842,7 @@ const FINAL_CONTINUATION_CUTOFF_MS = 125_000;
 async function logAudit(
   callerClient: ReturnType<typeof createClient>,
   params: {
+    requestId?: string | null;
     question: string;
     historySnapshot: unknown;
     answer: string | null;
@@ -831,9 +851,19 @@ async function logAudit(
     status: 'ok' | 'error';
     errorMessage?: string | null;
   },
-) {
+): Promise<boolean> {
   try {
-    await callerClient.from('silo_chat_audit_log').insert({
+    // supabase-js does NOT throw on a rejected insert -- an RLS violation, a
+    // constraint failure or a dropped column all come back as a RETURNED
+    // `error` object with the promise resolved. The previous version only had
+    // a try/catch, so every one of those was indistinguishable from success:
+    // the answer went out fine, the row was never written, and
+    // silo_chat_health_v -- which counts rows in this table -- reported a
+    // reliability figure computed over a log with holes in it. Two things
+    // depend on the row existing: that scoreboard, and the client's
+    // crash-recovery lookup, which can only find an answer that got logged.
+    const { error } = await callerClient.from('silo_chat_audit_log').insert({
+      request_id: params.requestId ?? null,
       question: params.question,
       history_snapshot: params.historySnapshot,
       answer: params.answer,
@@ -843,8 +873,52 @@ async function logAudit(
       error_message: params.errorMessage ?? null,
       model: MODEL,
     });
+    if (error) {
+      // The edge-function log is the operational channel available here. It
+      // is deliberately NOT surfaced to the user: the answer itself is fine,
+      // and a logging failure is not their problem to act on. The response
+      // carries audit_logged: false so the client knows not to promise
+      // recovery on this one.
+      console.error('[silo-chat] AUDIT INSERT REJECTED', {
+        request_id: params.requestId ?? null,
+        status: params.status,
+        message: error.message,
+        details: (error as { details?: string }).details ?? null,
+        code: (error as { code?: string }).code ?? null,
+      });
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.error('[silo-chat] audit log insert failed', err);
+    console.error('[silo-chat] AUDIT INSERT THREW', err);
+    return false;
+  }
+}
+
+// Every url the hosted web_search tool actually surfaced this request --
+// collected from BOTH places Anthropic puts them: the `citations` array
+// hanging off a text block, and the result items inside a
+// web_search_tool_result block. The answer-assembly path maps content blocks
+// to `b.text` and discards everything else, so before this the user was told
+// a claim came "from the web" with no way to see WHICH web -- an unverifiable
+// external claim presented in the same breath as queried numbers, which is
+// the one thing the prompt's internal-vs-public rule exists to prevent.
+// Deduped by url, first title wins, order preserved.
+function collectSources(
+  blocks: unknown[],
+  into: Map<string, { url: string; title: string | null }>,
+) {
+  for (const raw of blocks || []) {
+    const b = raw as { type?: string; citations?: unknown[]; content?: unknown[] };
+    for (const list of [b?.citations, b?.type === 'web_search_tool_result' ? b?.content : null]) {
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        const c = item as { url?: unknown; title?: unknown };
+        const url = typeof c?.url === 'string' ? c.url : null;
+        if (!url || into.has(url)) continue;
+        into.set(url, { url, title: typeof c?.title === 'string' ? c.title : null });
+      }
+    }
   }
 }
 
@@ -859,6 +933,10 @@ Deno.serve(async (req: Request) => {
 
   let callerClient: ReturnType<typeof createClient> | null = null;
   let question = '';
+  // Hoisted: the outer catch logs an audit row too, and a failed request that
+  // cannot be tied back to the request the browser started is a failed request
+  // the browser cannot tell apart from someone else's.
+  let requestId: string | null = null;
   let history: { role: string; content: string; imageUrls?: string[]; conceptId?: string }[] = [];
   let queriesRun: string[] = [];
   // Crawl guard. "One URL per call" is the tool's signature; this is what stops
@@ -889,6 +967,66 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json();
     ({ history } = body);
+
+    // ONE request, ONE id, minted by the browser. The client's crash-recovery
+    // path (a gateway 504 on a long draft, a backgrounded mobile tab) reads
+    // silo_chat_audit_log for the answer to THIS request. It used to match on
+    // question TEXT, which is not an identity: a conversation is full of
+    // "yes", "keep going", "now by month", and the select policy on that table
+    // is `created_by = auth.uid() OR is_exec_or_owner()`, so for an exec the
+    // match was not even scoped to their own rows. Validated as a uuid because
+    // it goes straight into a uuid column -- a malformed one would fail the
+    // insert and lose the row we are logging precisely so it can be recovered.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const rawRequestId = String(body?.request_id || '');
+    requestId = UUID_RE.test(rawRequestId) ? rawRequestId : null;
+
+    // Which company this question was asked FROM. RLS scopes every read in
+    // this function through profiles.active_company_id -- a single mutable
+    // per-user field, not a property of this request -- and one request makes
+    // many separate database calls over a minute or more. A company switch in
+    // another tab (or, before 20260916120000, a `select set_active_company(...)`
+    // reaching the query tool) therefore lands BETWEEN two of them, and the
+    // answer silently mixes two tenants' rows with nothing to show it happened.
+    //
+    // This cannot be fixed by trusting the client's value -- that would let a
+    // caller name a company instead of being scoped to one. So the server
+    // reads the authoritative field itself, and the client's value is only
+    // ever used to REFUSE: if the browser thinks it is asking from a different
+    // company than the server has recorded, that disagreement is the bug, and
+    // answering either way would be answering a question nobody asked.
+    // Re-checked once more before the answer goes out (see finishWithAnswer).
+    const declaredCompanyRaw = String(body?.company_entity_id || '');
+    const declaredCompany = UUID_RE.test(declaredCompanyRaw) ? declaredCompanyRaw : null;
+    // Returns null for "could not establish it" as well as for "no active
+    // company", and those are deliberately treated the same downstream: a
+    // comparison is only acted on when BOTH sides are known. A transient read
+    // failure must not discard a finished answer, which is what a strict
+    // inequality here would do -- null !== '<company>' reads as a switch.
+    const readActiveCompany = async (): Promise<string | null> => {
+      try {
+        const { data, error } = await callerClient!
+          .from('profiles')
+          .select('active_company_id')
+          .eq('id', userData.user.id)
+          .maybeSingle();
+        if (error) {
+          console.warn('[silo-chat] could not read active company', error.message);
+          return null;
+        }
+        return ((data?.active_company_id as string | null) ?? null);
+      } catch (err) {
+        console.warn('[silo-chat] active company read threw', err);
+        return null;
+      }
+    };
+    const companyAtStart = await readActiveCompany();
+    if (declaredCompany && companyAtStart && declaredCompany !== companyAtStart) {
+      return reply({
+        error: "This tab is set to a different company than your account is currently active in -- so this question wasn't run, rather than being answered against the wrong company's numbers. Reload the page and ask again.",
+        company_changed: true,
+      }, 409);
+    }
     // Named workflow rather than a boolean: Product Concept is the first
     // structured workflow behind this boundary, not the only one intended.
     // `conceptMode` is still accepted because the UI is statically hosted
@@ -1044,6 +1182,66 @@ Deno.serve(async (req: Request) => {
       ...(conceptsTouched.size ? { concepts: [...conceptsTouched.values()] } : {}),
       ...(suggestConceptWorkflow ? { suggest_workflow: 'product_concept' } : {}),
     });
+    // Every url the hosted web_search tool actually surfaced, in the order it
+    // surfaced them. Returned alongside the answer so a web-sourced claim is
+    // checkable; the prompt already forbids blending one into an internal
+    // number, but "say plainly it came from the web" is worth little if the
+    // user cannot see WHICH page said it.
+    const sources = new Map<string, { url: string; title: string | null }>();
+    const sourcesPayload = () => (sources.size ? { sources: [...sources.values()] } : {});
+
+    // THE ONLY WAY AN ANSWER LEAVES THIS FUNCTION. Both success paths (the
+    // model finishing normally, and the forced final answer at the round or
+    // wall-clock budget) go through here, so the mid-flight company re-check
+    // cannot be present on one path and forgotten on the other -- which is
+    // exactly how a guard like this usually rots.
+    const finishWithAnswer = async (
+      text: string,
+      opts: { toolRounds: number; errorMessage?: string | null },
+    ) => {
+      const companyNow = await readActiveCompany();
+      // Both sides must be KNOWN before a disagreement means anything -- see
+      // readActiveCompany. An unknown is logged and let through: this check
+      // exists to catch a switch, not to throw away a minute of work because
+      // one profile read blipped.
+      if (companyAtStart && companyNow && companyNow !== companyAtStart) {
+        // Deliberately NOT logged to silo_chat_audit_log: company_entity_id on
+        // that row is stamped from active_company_id(), which now resolves to
+        // the OTHER company, so logging would file this question's text under
+        // a tenant it was never asked in. The edge-function log is the right
+        // place for it.
+        console.error('[silo-chat] active company changed mid-request; answer discarded', {
+          request_id: requestId,
+          from: companyAtStart,
+          to: companyNow,
+        });
+        return reply({
+          error: "Your active company changed while this answer was being put together, so it was discarded instead of being shown against the wrong company. Switch back and ask again.",
+          company_changed: true,
+        }, 409);
+      }
+      const audited = await logAudit(callerClient!, {
+        requestId,
+        question,
+        historySnapshot: history,
+        answer: text,
+        queriesRun,
+        toolRounds: opts.toolRounds,
+        status: 'ok',
+        errorMessage: opts.errorMessage ?? null,
+      });
+      return reply({
+        answer: text,
+        queries_run: queriesRun,
+        // Only ever sent when it is FALSE. The client uses it to avoid
+        // promising a recovery it cannot perform -- an answer whose audit row
+        // was rejected is not findable after a dropped connection.
+        ...(audited ? {} : { audit_logged: false }),
+        ...conceptsPayload(),
+        ...sourcesPayload(),
+      });
+    };
+
     // Circuit breaker for Product Concepts phase 1: a live draft ran 14
     // rounds before calling create_product_concept at all -- 2 of them were
     // outright redundant re-runs of a query it already had the answer to,
@@ -1067,6 +1265,23 @@ Deno.serve(async (req: Request) => {
     // when a deadline stop cuts the loop short of MAX_TOOL_ROUNDS.
     let roundsUsed = 0;
 
+    // The part of the answer already written before an output-length cutoff.
+    //
+    // The max_tokens handling below was half a fix: it correctly refused to
+    // ship a truncated fragment as finished, and asked the model to continue
+    // -- then RETURNED ONLY THE CONTINUATION. The user got an answer starting
+    // mid-thought, missing its opening figures, and the audit row recorded
+    // that same headless text as the answer given. The longer the answer, the
+    // more of it was lost, so it bit hardest on exactly the questions that
+    // needed the evidence up front. Reproduced end to end through the handler
+    // with mocked model responses before this was written.
+    //
+    // Concatenated with NO separator on purpose: the continuation prompt says
+    // "continue directly from where it left off", and a cutoff lands mid-word
+    // as often as not. Reset whenever the model goes back to running tools,
+    // because at that point the prose it had started is abandoned, not paused.
+    let answerSoFar = '';
+
     for (let round = 0; round < MAX_TOOL_ROUNDS && elapsedMs() < WALL_CLOCK_BUDGET_MS; round++) {
       roundsUsed = round + 1;
       const data = await callAnthropic(
@@ -1077,10 +1292,17 @@ Deno.serve(async (req: Request) => {
       );
       forceNudgeTool = false;
       const blocks = data.content || [];
+      collectSources(blocks, sources);
       const toolUses = blocks.filter((b: { type: string }) => b.type === 'tool_use');
 
       if (!toolUses.length) {
-        const text = blocks.map((b: { text?: string }) => b.text || '').join('').trim();
+        // RAW, then trimmed separately. The seam between a cut-off segment and
+        // its continuation is exactly one space wide, and it lives in the
+        // whitespace at the edges: trimming each half before joining turns
+        // "...before. The" + " biggest mover..." into "Thebiggest". Only the
+        // finished answer is trimmed.
+        const rawText = blocks.map((b: { text?: string }) => b.text || '').join('');
+        const text = rawText.trim();
         // A max_tokens cutoff can still leave non-empty (but truncated,
         // often mid-word) text -- observed live on a holiday-collection
         // draft that hit the old 4096 cap while narrating a long answer.
@@ -1088,19 +1310,14 @@ Deno.serve(async (req: Request) => {
         // the user as if it were complete. Never accept a cut-off response
         // as final, even a long one; ask it to finish instead.
         if (text && data.stop_reason !== 'max_tokens') {
-          await logAudit(callerClient!, {
-            question,
-            historySnapshot: history,
-            answer: text,
-            queriesRun,
-            toolRounds: round + 1,
-            status: 'ok',
-          });
-          return reply({ answer: text, queries_run: queriesRun, ...conceptsPayload() });
+          return await finishWithAnswer((answerSoFar + rawText).trim(), { toolRounds: round + 1 });
         }
         if (text) {
-          // max_tokens cutoff with partial text -- continue the same
-          // answer rather than restarting it from scratch.
+          // max_tokens cutoff with partial text -- keep what was written and
+          // continue the SAME answer rather than restarting it from scratch.
+          // Keeping it is the half that was missing: without this line the
+          // opening of every long answer was thrown away.
+          answerSoFar += rawText;
           messages.push({ role: 'assistant', content: blocks });
           messages.push({
             role: 'user',
@@ -1117,12 +1334,21 @@ Deno.serve(async (req: Request) => {
         messages.push({ role: 'assistant', content: blocks });
         messages.push({
           role: 'user',
-          content: "That last response had no text in it. Answer the question now in plain language, using whatever you've already gathered -- don't just stop silently.",
+          // Branches on whether an answer was already part-written: telling a
+          // model that had been cut off mid-answer to "answer the question
+          // now" invites it to start over, and the restart would be appended
+          // to the half already kept.
+          content: answerSoFar
+            ? "That last response came back empty. You had already started an answer above and it was cut off -- continue it from exactly where it stopped, in plain language, using whatever you've already gathered. Do not restart it and do not repeat what you already wrote."
+            : "That last response had no text in it. Answer the question now in plain language, using whatever you've already gathered -- don't just stop silently.",
         });
         continue;
       }
 
       messages.push({ role: 'assistant', content: blocks });
+      // Back to running tools: whatever prose it had begun is abandoned, not
+      // paused, so it must not be glued to the front of the eventual answer.
+      answerSoFar = '';
 
       const toolResults = [];
       for (const use of toolUses) {
@@ -1435,13 +1661,22 @@ Deno.serve(async (req: Request) => {
     try {
       messages.push({
         role: 'user',
-        content: hitWallClock
+        // Three cases, not two. If an answer was already part-written and cut
+        // off by the output limit, asking for "your best final answer now"
+        // gets a RESTART -- which then gets concatenated onto the half already
+        // kept, producing an answer that says everything twice. Ask it to
+        // finish instead.
+        content: answerSoFar
+          ? 'You are out of budget on this request -- no more queries or tools. The answer you had started above was cut off by the output length limit. Finish that same answer from exactly where it stopped, in a few lines, using ONLY the results already gathered. Do not restart it and do not repeat what you already wrote.'
+          : hitWallClock
           ? 'You are out of TIME on this request -- no more queries or tools, and the answer has to be written now or the request dies with nothing. Using ONLY the results already gathered above, give your best answer immediately, and keep it tight. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.'
           : 'Your tool budget is exhausted -- you cannot run any more queries or tools. Using ONLY the results already gathered above, give your best final answer to the original question now. Where something you wanted to verify is missing, state the assumption or caveat in one short line instead of refusing to answer.',
       });
       let finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
-      let finalText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
-      if (finalText && finalData.stop_reason === 'max_tokens' && elapsedMs() < FINAL_CONTINUATION_CUTOFF_MS) {
+      collectSources(finalData.content || [], sources);
+      // Raw, then trimmed separately -- same seam problem as the main loop.
+      let finalRaw = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('');
+      if (finalRaw.trim() && finalData.stop_reason === 'max_tokens' && elapsedMs() < FINAL_CONTINUATION_CUTOFF_MS) {
         // Same truncation bug as the main loop, hitting this last-resort
         // forced-answer path instead -- give it exactly one bounded
         // continuation rather than shipping a cut-off answer with no
@@ -1453,17 +1688,17 @@ Deno.serve(async (req: Request) => {
           content: "That got cut off by the output length limit. Finish it concisely -- lead with the key numbers/decision, don't restate what you already said.",
         });
         finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
-        const continuedText = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('').trim();
-        if (continuedText) finalText = continuedText;
+        collectSources(finalData.content || [], sources);
+        const continuedRaw = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('');
+        // APPEND, never replace. Replacing was the same bug as the main
+        // loop's: the continuation prompt asks it to finish without restating,
+        // so the continuation alone is a fragment with its own opening
+        // missing, and that fragment was what got returned AND audited.
+        if (continuedRaw.trim()) finalRaw = finalRaw + continuedRaw;
       }
-      if (finalText) {
-        await logAudit(callerClient!, {
-          question,
-          historySnapshot: history,
-          answer: finalText,
-          queriesRun,
+      if (finalRaw.trim()) {
+        return await finishWithAnswer((answerSoFar + finalRaw).trim(), {
           toolRounds: roundsUsed,
-          status: 'ok',
           // Not an error, but flagged so saturation stays visible when
           // auditing. A cluster of round-cap rows means the cap needs
           // raising; a cluster of wall-clock rows means the queries got
@@ -1473,7 +1708,6 @@ Deno.serve(async (req: Request) => {
             ? `forced final answer at wall-clock budget (${Math.round(elapsedMs() / 1000)}s, ${roundsUsed} rounds)`
             : 'forced final answer at round cap',
         });
-        return reply({ answer: finalText, queries_run: queriesRun, ...conceptsPayload() });
       }
     } catch (err) {
       console.error('[silo-chat] forced final answer failed', err);
@@ -1487,11 +1721,12 @@ Deno.serve(async (req: Request) => {
     // must steer the user toward narrowing the question, never toward
     // "wait and retry".
     const message = hitWallClock
-      ? "This one ran out of time before it could finish -- it was still working when the request had to be cut off. Ask for it in smaller pieces (e.g. build one section of the brief at a time, or narrow the date range) rather than retrying the same wording."
+      ? "This one ran out of time before it could finish -- it was still working when the request had to be cut off. Ask for it in smaller pieces (one section at a time, or a shorter date range) rather than retrying the same wording."
       : sawTimeout
-      ? "Some of the SQL this question needed timed out -- it was scanning too much data even after several attempts. Narrow the question (a shorter date range, or a specific SKU/product type) rather than retrying the same wording; if a narrower version still fails, flag it to an admin."
-      : "Couldn't land on an answer after several attempts -- try rephrasing or narrowing the question (e.g. a shorter date range or a specific SKU/product type).";
+      ? "This question needed to read more data than it could get through in time, even after a few attempts at it. Narrowing it usually works -- a shorter date range, one product or one product type rather than all of them. Retrying the same wording will hit the same wall; if a narrower version still fails, flag it to an admin."
+      : "Couldn't land on an answer after several attempts. Try rephrasing it, or narrowing it to a shorter date range or a single product or product type.";
     await logAudit(callerClient!, {
+      requestId,
       question,
       historySnapshot: history,
       answer: null,
@@ -1508,6 +1743,7 @@ Deno.serve(async (req: Request) => {
     // and a parsed question -- an early auth/validation failure has neither.
     if (callerClient && question) {
       await logAudit(callerClient, {
+        requestId,
         question,
         historySnapshot: history,
         answer: null,

@@ -265,6 +265,89 @@ test('the caller JWT is forwarded to page-inspect, not a service-role key', () =
     'SERVICE_ROLE', 'the inspect_storefront_page branch');
 });
 
+console.log('\n-- answers read as business English, not as a query log (2026-09-16) --');
+
+// Measured in silo_chat_audit_log over the 30 days to 2026-09-15: answers
+// opened with the view and filter they came from rather than the figure, and
+// one answer offered to "overwrite" a saved report by re-saving it under the
+// same name, which creates a SECOND report. Both rules therefore have to be in
+// the GENERAL prompt -- the existing "write for a marketer, not a DBA" rule is
+// real and correct and lives in PRODUCT_CONCEPT_SYSTEM_BLOCK, so an ordinary
+// question has never seen it. That is the same failure this whole file exists
+// to catch.
+test('the answer leads with the business figure, not the route to it', () => {
+  has(GENERAL, 'LEAD WITH THE BUSINESS ANSWER, NOT WITH HOW YOU GOT IT');
+});
+test('backend vocabulary is kept out of the answer, tool names included', () => {
+  has(GENERAL, 'NO BACKEND VOCABULARY IN THE ANSWER');
+  has(GENERAL, 'run_sql, save_note, web_search, view_ad_creative_image, inspect_storefront_page');
+  has(GENERAL, 'ALREADY shown to the user in the query panel');
+});
+test('...with an escape hatch for someone actually asking about the plumbing', () => {
+  has(GENERAL, 'if the user is explicitly asking about the plumbing');
+});
+// Without this the no-jargon rule reads as "say nothing specific", and answers
+// start calling a product "the top item".
+test('...and real product/collection/store names are explicitly NOT jargon', () => {
+  has(GENERAL, 'Names of REAL THINGS are not backend vocabulary');
+});
+// The one way this rule could do damage: a model that reads "plain words" as
+// permission to drop the caveat it cannot say plainly.
+test('plain words change the vocabulary of a qualifier, never whether it is kept', () => {
+  has(GENERAL, 'SAY THE SAME THING IN BUSINESS WORDS');
+  has(GENERAL, 'This does NOT weaken any rule above');
+  has(GENERAL, 'only its VOCABULARY changes');
+});
+test('length follows the question rather than a fixed shape', () => {
+  has(GENERAL, 'LENGTH FOLLOWS THE QUESTION');
+});
+
+console.log('\n-- capabilities that do not exist are not offered --');
+
+test('saving a report is the user\'s button, and re-saving does not overwrite', () => {
+  has(GENERAL, 'WHAT YOU CANNOT DO');
+  has(GENERAL, 'does NOT overwrite it -- it creates a SECOND report');
+  has(GENERAL, 'never say a report "has been updated"');
+});
+test('there is no file, export or download from this chat', () => {
+  has(GENERAL, 'You CANNOT produce a file');
+  has(GENERAL, 'No download, no export, no CSV, no spreadsheet, no PDF');
+});
+test('a write is only real if the tool returned success', () => {
+  has(GENERAL, 'Report what a tool RETURNED, never what you asked it for');
+});
+
+console.log('\n-- a query that runs is not a metric that answers --');
+
+// From the same log: total product orders divided by that product's landing
+// sessions, published as a conversion rate, with one row at 144.7%. The
+// answer noticed the impossible row and kept the rest.
+test('the numerator must come from the denominator\'s population', () => {
+  has(GENERAL, 'A METRIC THAT COMPUTES IS NOT A METRIC THAT ANSWERS');
+  has(GENERAL, 'is NOT a conversion rate at any value');
+});
+test('...and one impossible row condemns the definition, not just that row', () => {
+  has(GENERAL, 'a single impossible row means the DEFINITION is wrong');
+});
+test('an unsupportable metric is refused, not published with a caveat', () => {
+  has(GENERAL, 'Do not publish the invalid one with a caveat bolted on');
+});
+
+console.log('\n-- the shared prompt stays tenant-neutral --');
+
+// SILO runs more than one company, and brand identity is DATA
+// (silo_chat_notes, category "brand"), never a constant in this file. One
+// company's voice and protected tagline had been hardcoded into the SEO
+// hard-limits list, which every tenant's SEO answer reads.
+test('no company\'s voice or tagline is hardcoded into the shared prompt', () => {
+  lacks(GENERAL, 'For love of the game', 'general prompt');
+  lacks(GENERAL, 'premium, family-friendly, baseball-native', 'general prompt');
+});
+test('...the voice bullet defers to taught Brand context instead', () => {
+  has(GENERAL, 'take it from the Brand context section above');
+  has(GENERAL, 'If it names a protected tagline or phrase, reproduce that exactly');
+});
+
 console.log('\n-- regressions --');
 
 test('the concept block keeps its own absence rule (not moved, generalized)', () => {

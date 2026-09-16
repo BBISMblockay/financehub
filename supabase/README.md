@@ -814,3 +814,54 @@ Regressions in `scripts/tests/meta-creative-links-database.test.mjs` (executes
 both migrations twice, so a non-re-appliable one fails here rather than during
 an `apply_all_post_merge.sql` re-run) and, for the sync and page,
 `meta-creative-links.test.mjs` / `wow-report-destination.test.mjs`.
+
+## 20260916120000 / 20260916121000 — Ask SILO reliability (2026-09-16 audit)
+
+**`chat_run_readonly_query` now runs in a read-only transaction.** The
+existing guard — single `SELECT`/`WITH`, no semicolon — is a check on the
+*shape of the statement text*, and a SELECT is not a read. A SELECT can call a
+VOLATILE function, which runs with the caller's own privileges, and
+`set_active_company(uuid)` is granted to `authenticated`:
+
+```sql
+select public.set_active_company('<an entity the caller belongs to>');
+```
+
+is a single semicolon-free SELECT that passes every existing check and
+**UPDATEs `profiles.active_company_id`** — the column every RLS policy in SILO
+reads to decide which company's rows the caller sees. It is not a cross-tenant
+read (the function validates membership first), but it silently repoints the
+caller's session at another of their companies mid-answer, which is precisely
+what a shared read-only reporting engine must not be able to do.
+
+`20260916120000` adds a function-level `set transaction_read_only to 'on'`.
+Enforcement moves to the executor, so it holds however the write is reached —
+directly, through a function, or through a function called by a function — and
+a write attempt raises `25006` like any other query error. A function-level
+SET (not `set local`) is saved and restored around the call, so it can never
+outlive the function. Nothing changes for a genuine read; every caller today
+(Ask SILO's tool loop and Refresh button, every `/v3/` widget, the report
+builder preview) runs SELECTs only.
+
+**Scope, so nobody reads more into it than it earns:** this stops WRITES. It
+does not allowlist which functions may be called, and it does not stop a
+function that writes outside transactional visibility (dblink, an untrusted PL
+opening its own connection). No such function is reachable from
+`authenticated` today. An allowlist would be the stronger boundary and is
+deliberately not attempted, since it would have to enumerate every function
+every legitimate report already calls.
+
+**`silo_chat_audit_log.request_id`** gives one chat request an identity.
+`/v2/silo-chat.html` recovers a finished answer out of this table when the
+fetch dies but the edge function completed — it matched on `question` text
+plus recency, and question text repeats inside a conversation ("yes", "keep
+going", "now by month"). Worse, the select policy is `created_by = auth.uid()
+OR is_exec_or_owner()`, so for an exec the match was not scoped to their own
+rows at all. The column is nullable (pre-migration rows and cached browser tabs
+have none; recovery simply does not fire for them, which is the right failure)
+and deliberately **not unique** — a unique violation would fail the audit
+INSERT, and the edge function now reports insert failures rather than swallowing
+them, so a duplicate id must not become a user-visible error on a good answer.
+`silo_chat_audit_log_v` carries an explicit column list, so `request_id` is
+appended at the END (a `create or replace view` can only add columns after the
+existing ones) and `verify_v2_schema.sql` checks the view, not only the table.

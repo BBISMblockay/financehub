@@ -1431,6 +1431,60 @@ select
     else 'ok'
   end as chat_query_timeout;
 
+-- ── Ask SILO read-only boundary (20260916120000) ──────────────────────
+-- The SELECT/WITH check is a check on the SHAPE of the statement text, and a
+-- SELECT is not a read: `select public.set_active_company(...)` is a single
+-- semicolon-free SELECT that UPDATEs the column every RLS policy in SILO
+-- reads. transaction_read_only=on is what makes the refusal the EXECUTOR's,
+-- so it holds however the write is reached. If this reverts, nothing errors
+-- and nothing looks different -- which is why it is checked here.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='chat_run_readonly_query')
+      then 'MISSING — chat_run_readonly_query does not exist'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='chat_run_readonly_query'
+                       and lower(pg_get_functiondef(p.oid)) like '%set transaction read only%')
+      then 'CRITICAL — chat_run_readonly_query does not enter a read-only transaction; a SELECT calling a volatile function can still write. Run 20260916120000_chat_readonly_query_read_only_txn.sql'
+    -- STABLE looks like the safer declaration and is not one: SPI's
+    -- non-volatile guard is per function, so a nested VOLATILE function still
+    -- writes, and a non-volatile function cannot set the statement timeout at
+    -- all. Measured, not assumed -- see the database test.
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='chat_run_readonly_query'
+                   and p.provolatile <> 'v')
+      then 'CRITICAL — chat_run_readonly_query is no longer VOLATILE; it cannot set its own statement timeout, and non-volatility does not stop a nested volatile function from writing'
+    else 'ok'
+  end as chat_query_read_only_txn;
+
+-- ── Ask SILO request identity (20260916121000) ────────────────────────
+-- Without request_id the chat page's crash-recovery path matches on question
+-- TEXT, which repeats inside a conversation ("yes", "keep going") and which
+-- the exec-visibility select policy does not scope to the reader -- so a
+-- dropped request can recover somebody else's answer, or an earlier turn's.
+-- The view carries an explicit column list, so a `create or replace` that
+-- drops the column does not error; it just makes recovery silently impossible
+-- again. Both halves are checked.
+select
+  case
+    when to_regclass('public.silo_chat_audit_log') is null
+      then 'MISSING — silo_chat_audit_log does not exist'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_audit_log'
+                       and column_name='request_id')
+      then 'MISSING — run 20260916121000_silo_chat_audit_request_id.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='silo_chat_audit_log_v'
+                       and column_name='request_id')
+      then 'CRITICAL — silo_chat_audit_log_v lost request_id; chat crash-recovery falls back to matching question text'
+    when not exists (select 1 from pg_indexes
+                     where schemaname='public' and tablename='silo_chat_audit_log'
+                       and indexname='silo_chat_audit_log_request_idx')
+      then 'MISSING — silo_chat_audit_log_request_idx is absent; recovery lookups scan the log'
+    else 'ok'
+  end as chat_audit_request_id;
+
 -- ── Top Sellers variance RPC (20260826120000) ─────────────────────────
 select
   case
