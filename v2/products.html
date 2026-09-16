@@ -2064,6 +2064,16 @@
       // a bogus id.
       if(fromTracker.id) linkedTrackerIds=[fromTracker.id];
       if(fromTracker.request_source) pendingRequestSource=fromTracker.request_source;
+      // These three are searchable selects, and the only sync so far ran
+      // inside populateDrawerSelects ABOVE -- before these values existed.
+      // Two unrelated things happen to refresh them today (the option-list
+      // MutationObserver firing a microtask later, and the document click
+      // that opened this drawer reaching closeAll), so the labels are right
+      // by accident: disable either and the other still covers it. Neither is
+      // about this prefill, and a drawer opened without a click, or a future
+      // fast path that skips fillSelect, would show a stale label over a
+      // value that saves correctly -- the screen disagreeing with the write.
+      SiloCombo.syncAll();
     }
 
     $('prodSearchInput').value='';

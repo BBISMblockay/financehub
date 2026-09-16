@@ -93,7 +93,12 @@ const TABLES = {
       sample_status: 'pps_received', sizes_ready_warehouse: 'M, L',
       size_requests: null, sizes_picked_up: null, photo_status: 'pending', copy_status: 'pending' },
   ],
-  product_tracker: [{ id: 'trk-1', product_title: 'Existing pipeline item', expected_units: 75, photo_complete: 'pending' }],
+  // Carries a factory, a type and a launch, because "+ New Sample from this
+  // Product" copies those three across into the sample drawer — and all three
+  // are searchable selects there.
+  product_tracker: [{ id: 'trk-1', product_title: 'Existing pipeline item', expected_units: 75,
+    photo_complete: 'pending', factory_id: 'fac-2', product_type: 'Cap', launch_id: 'lch-1',
+    collection: 'Caps', product_master_id: null, product_title_snapshot: null }],
   product_sample_tracker_links: [],
   v_launch_po_product_lookup: PO_LOOKUP,
   sample_notification_log_v: [],
@@ -388,6 +393,46 @@ const combo = (id) => `.smp-combo:has(#${id})`;
     const inputCounts = await page.$$eval('#ctFilterSelects .smp-combo', (els) => els.map((e) => e.querySelectorAll('input').length));
     R.test('a rebuild does not stack a second control on the first', () =>
       R.truthy(inputCounts.every((c) => c === 1), 'got: ' + JSON.stringify(inputCounts)));
+
+    // ── 4b. prefilled selects must SHOW what they will save ───────────────
+    // "+ New Sample from this Product" and the Catalog's "+ Request Sample"
+    // both set fldProductType / fldFactoryId / fldLaunchId directly, AFTER
+    // populateDrawerSelects() has already synced. A searchable control is a
+    // view over its select, so a view that was not refreshed shows the old
+    // label while the select holds the new value -- the screen then disagrees
+    // with what the save writes, which is the whole failure mode this page's
+    // changes exist to remove.
+    await page.evaluate(() => {
+      const t = document.getElementById('ptLaunchFilter');
+      t.value = ''; t.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.click('.bcn-tab[data-tab="tracker"]');
+    await page.waitForSelector('#trackerBody tr[data-pt-id="trk-1"]');
+    await page.click('#trackerBody tr[data-pt-id="trk-1"]');
+    await page.click('#ptBtnNewSample');
+    await page.waitForSelector('#drawer.open');
+    const prefilled = await page.evaluate(() => {
+      const read = (id) => {
+        const sel = document.getElementById(id);
+        const wrap = sel.closest('.smp-combo');
+        return {
+          value: sel.value,
+          shownLabel: wrap ? wrap.querySelector('.smp-combo-input').value : null,
+          selectedLabel: sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : '',
+        };
+      };
+      return { type: read('fldProductType'), factory: read('fldFactoryId'), launch: read('fldLaunchId') };
+    });
+    R.test('a prefilled sample drawer shows the factory, type and launch it will save', () => {
+      R.eq(prefilled.factory.value, 'fac-2', 'the select carries the pipeline item\'s factory');
+      R.eq(prefilled.factory.shownLabel, prefilled.factory.selectedLabel,
+        'the search box must show the selected factory, not a stale/blank label');
+      R.eq(prefilled.type.value, 'Cap');
+      R.eq(prefilled.type.shownLabel, prefilled.type.selectedLabel);
+      R.eq(prefilled.launch.value, 'lch-1');
+      R.eq(prefilled.launch.shownLabel, prefilled.launch.selectedLabel);
+    });
+    await page.click('#btnCancelDrawer');
 
     await page.close();
 
