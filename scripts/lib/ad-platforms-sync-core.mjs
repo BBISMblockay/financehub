@@ -1568,12 +1568,23 @@ export async function fetchMetaAccountAdIds(connection, { pageSize = 500, maxPag
   const ids = [];
   let url = `https://graph.facebook.com/${META_API_VERSION}/${act}/ads`
     + `?fields=id&limit=${pageSize}&access_token=${encodeURIComponent(token)}`;
+  let page = 0;
   try {
-    for (let page = 0; url && page < maxPages; page++) {
+    for (; url && page < maxPages; page++) {
       const data = await fetchMetaJsonOrThrow(url, {}, 'Meta account ads listing');
       for (const r of data?.data ?? []) if (r?.id) ids.push(String(r.id));
       // paging.next carries its own access_token; absent means the last page.
       url = data?.paging?.next || null;
+    }
+    // Hitting the page ceiling with a next link still in hand means the walk
+    // stopped short. Say so: a QUIETLY truncated listing is how a backfill
+    // reports success over a fraction of the account, and this repo has been
+    // bitten by exactly that shape before (Page Insights paging, and the
+    // 25k-row Search Console pages). Not an error -- the ids collected are
+    // real and worth backfilling -- but never silent.
+    if (url) {
+      console.warn(`[warn] Meta account ad listing stopped at the ${maxPages}-page ceiling`
+        + ` (${ids.length} ids); ads beyond it were not enumerated`);
     }
   } catch (err) {
     console.warn(`[warn] Meta account ad listing failed, backfilling stored ids only: ${err.message || err}`);

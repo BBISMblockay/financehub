@@ -27,6 +27,7 @@
  *   META_BF_MUTATION=blanks-bodies   (writes null copy back)
  *   META_BF_MUTATION=batch-at-end    (all writes deferred to the end of the run)
  *   META_BF_MUTATION=discover-throws (a listing failure kills the run)
+ *   META_BF_MUTATION=silent-truncation (the page ceiling truncates without a word)
  *
  * No network, no database. Run:
  *   node scripts/tests/meta-creative-backfill.test.mjs
@@ -40,7 +41,7 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CORE = join(ROOT, 'scripts/lib/ad-platforms-sync-core.mjs');
 const mutation = process.env.META_BF_MUTATION || '';
-assert.ok(['', 'blanks-links', 'blanks-bodies', 'batch-at-end', 'discover-throws'].includes(mutation),
+assert.ok(['', 'blanks-links', 'blanks-bodies', 'batch-at-end', 'discover-throws', 'silent-truncation'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 let source = readFileSync(CORE, 'utf8');
@@ -74,6 +75,10 @@ if (mutation === 'blanks-links') {
   source = source.replace(
     '  return result;\n}',
     '  for (const rows of __deferred) await upsertInChunks(supabase, \'meta_ad_creatives\', rows, \'company_entity_id,ad_id\');\n  return result;\n}');
+} else if (mutation === 'silent-truncation') {
+  // The page ceiling stops the walk without a word -- a backfill reporting
+  // success over a fraction of the account.
+  source = source.replace('    if (url) {\n      console.warn(', '    if (false) {\n      console.warn(');
 } else if (mutation === 'discover-throws') {
   source = source.replace(
     "    console.warn(`[warn] Meta account ad listing failed, backfilling stored ids only: ${err.message || err}`);\n    return null;",
@@ -311,6 +316,34 @@ await test('discovery de-duplicates ids', async () => {
   fakeGraph({ ads: {}, listPages: [['x1', 'x1'], ['x1', 'x2']] });
   const ids = await fetchMetaAccountAdIds(CONNECTION, { pageSize: 2 });
   assert.deepEqual(ids, ['x1', 'x2']);
+});
+
+await test('hitting the page ceiling is reported, never silent', async () => {
+  // Three pages available, a ceiling of two: the walk stops short and must
+  // SAY so. A listing that truncates quietly is how a backfill reports
+  // success over a fraction of the account.
+  fakeGraph({ ads: {}, listPages: [['p1'], ['p2'], ['p3']] });
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (...a) => warnings.push(a.join(' '));
+  try {
+    const ids = await fetchMetaAccountAdIds(CONNECTION, { pageSize: 1, maxPages: 2 });
+    assert.deepEqual(ids, ['p1', 'p2'], 'what was collected is still returned');
+    assert.ok(warnings.some((w) => /ceiling/i.test(w)),
+      'stopping at the page ceiling must warn');
+  } finally { console.warn = realWarn; }
+});
+
+await test('a complete walk does NOT warn about the ceiling', async () => {
+  fakeGraph({ ads: {}, listPages: [['p1'], ['p2']] });
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (...a) => warnings.push(a.join(' '));
+  try {
+    await fetchMetaAccountAdIds(CONNECTION, { pageSize: 1, maxPages: 50 });
+    assert.equal(warnings.filter((w) => /ceiling/i.test(w)).length, 0,
+      'a walk that finished must not claim truncation');
+  } finally { console.warn = realWarn; }
 });
 
 await test('a connection with no ad account id discovers nothing, quietly', async () => {
