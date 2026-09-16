@@ -363,30 +363,59 @@ test('...and the note says the figures are real but the label is not', () => {
   assert(/can be wrong in both directions/.test(note), 'the check does not admit its own fallibility');
 });
 
-test('a request that DID narrow the channel is not flagged', () => {
-  const narrowed = [describeEvidenceScope(
-    "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'", INDEX, {},
-  )];
-  eq(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, narrowed), [], 'a narrowed request was flagged');
-});
-
-test('...nor one where ANOTHER result broke the channel out per value', () => {
-  // Grouping by a dimension earns the right to name one of its values. The
-  // pooled result has to be present too, or this passes vacuously: a grouped
-  // column is never in pooled_across in the first place, so a lone grouped
-  // result could not be flagged whatever unresolvedDimensions did. Mutation
-  // testing caught the earlier version of this test doing exactly that.
+test('a result that groups the channel does NOT clear the pooled one', () => {
+  // This asserted the opposite until the cycle-1 review. Grouping earns the
+  // right to name a value for a claim drawn from THAT result -- and this audit
+  // reads the whole answer, with no linkage from a sentence to the result
+  // behind it. So a better second query used to switch the control off for the
+  // first, which is the failure it exists to catch.
   const mixed = [...sonicSalesScope(), describeEvidenceScope(
     'select location_tag, sum(net_sales) from sales_by_product_title_daily_v group by location_tag', INDEX, {},
   )];
-  eq(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed), [], 'grouping elsewhere did not resolve the dimension');
+  const flags = auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed);
+  eq(flags.map((f) => f.label), ['sales channel'], 'a pooled result was cleared by a grouped one');
+  eq(flags[0].mixed, true, 'the mixed basis was not recorded');
 });
 
-test('resolving it in ANY result of the request clears it for all of them', () => {
+test('...and neither does a result that narrows it', () => {
   const mixed = [...sonicSalesScope(), describeEvidenceScope(
     "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'", INDEX, {},
   )];
-  eq(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed), [], 'one pooled result outvoted a narrowed one');
+  const flags = auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed);
+  eq(flags.map((f) => f.mixed), [true], 'a narrowed result cleared the pooled one');
+});
+
+test('the mixed note says the figures are on different bases, not that none restricted it', () => {
+  const mixed = [...sonicSalesScope(), describeEvidenceScope(
+    "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'", INDEX, {},
+  )];
+  const note = formatClaimNote(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed));
+  assert(/NOT all on the same sales channel/.test(note), `mixed wording missing: ${note}`);
+  assert(!/nothing that was queried restricted/.test(note), 'the mixed case used the nothing-restricted wording');
+});
+
+test('the ask-a-total-then-split shape is caught (cycle-1 finding)', () => {
+  // R1 returns combined Meta+Google+TikTok spend; R2 groups the same week by
+  // platform. The answer calls R1's combined figure "Meta ad spend".
+  const combined = describeEvidenceScope(
+    "select sum(spend) as spend from marketing_kpis_daily where day_date between '2026-08-24' and '2026-08-30'", INDEX, {},
+  );
+  const split = describeEvidenceScope(
+    "select platform, sum(spend) from marketing_kpis_daily where day_date between '2026-08-24' and '2026-08-30' group by platform",
+    INDEX, {},
+  );
+  const flags = auditAnswerClaims('Meta ad spend reached $118,946 that week.', [combined, split]);
+  eq(flags.map((f) => f.label), ['ad platform'], 'the combined total escaped the check');
+  eq(flags[0].mixed, true, 'mixed basis not recorded');
+});
+
+test('a dimension NO result pooled is never flagged', () => {
+  // The other side of the conservative rule: if every result restricted it,
+  // there is nothing to warn about.
+  const allNarrowed = [describeEvidenceScope(
+    "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'", INDEX, {},
+  )];
+  eq(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, allNarrowed), [], 'a fully narrowed request was flagged');
 });
 
 test('totals_only is deliberately NOT treated as pooled, and that is a trade', () => {
@@ -428,7 +457,9 @@ test('unresolvedDimensions is the whole basis, and excludes count as resolved', 
   const excl = [describeEvidenceScope(
     "select sum(net_sales) from sales_by_product_title_daily_v where location_tag <> 'retail'", INDEX, {},
   )];
-  assert(!unresolvedDimensions(excl).has('location_tag'), 'an exclusion left the dimension unresolved');
+  // An exclusion resolves the dimension only in the sense that it is not
+  // POOLED there -- the column is narrowed, so it never enters the pooled set.
+  assert(!unresolvedDimensions(excl).has('location_tag'), 'an exclusion left the dimension pooled');
   assert(CLAIM_DIMENSIONS.some((d) => d.columns.includes('location_tag')), 'channel is not a claim dimension');
 });
 

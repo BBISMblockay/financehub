@@ -242,6 +242,45 @@ rests on an 1 August that appears in no earlier result. The envelope reported a
 clean window, because as far as the statement went it was one. Date literals now
 carry `boundary_provenance`: `from_results`, `from_question`, or `unsourced`.
 
+### Corrections from the independent review (PR #716, cycle 1)
+
+Two P1 findings, both reproduced before fixing, and one of them says a test of
+mine had pinned the wrong behaviour.
+
+**A dimension another query resolved is still unresolved for the pooled one.**
+`unresolvedDimensions` cleared a dimension request-wide as soon as any result
+narrowed or grouped it — reasoning that a request which grouped by platform has
+earned the right to name one. True of a claim drawn from *that* result; false of
+a claim drawn from the pooled one, and this audit reads the answer as a whole
+with no linkage from a sentence back to the result behind it. The shape that
+breaks it is the ordinary one: ask for a total, then ask for the split. R1
+returns combined Meta+Google+TikTok spend, R2 groups the same week by platform,
+and the answer could call R1's combined $118,946 "Meta ad spend" with no note —
+the exact failure the envelope exists to prevent, silently disabled by a second,
+better query. Pooled anywhere now means unresolved, and `mixedDimensions`
+distinguishes "nothing restricted it" from "some results did and some did not",
+which are different sentences for the reader.
+
+**The correction round did not reserve time for the forced final answer.** The
+fixed 115s cutoff left ~35s before the 150s gateway, and a correction costs a
+model call, then a query, then the final answer's own model call. At the traced
+17.1s per model call that is 157s — past the gateway, which returns a bare 504
+and writes no audit row. Worse, it would not have fired on Sonic anyway: elapsed
+at that request's round-6 boundary was ~121s, already past 115s. The reservation
+is now measured from the request's own model calls (`budget-lib.mjs`), so slow
+rounds mean there is genuinely no room and cheap ones mean there is.
+
+**What that honestly buys.** A grant is only possible while
+`95 + 2×worstCall + 10 ≤ 140`, i.e. while a model call costs ≤17.5s. So the
+correction round fires for a request that reached the budget through many quick
+rounds and not for one that crawled there — *including Sonic itself*. F1's
+catalog hint is the half that works regardless of budget. Setting the floor to
+20s made a grant arithmetically impossible, which a re-scripted test caught.
+
+The arithmetic lives in `budget-lib.mjs` rather than in the handler because two
+handler-level mutations survived inside a millisecond of the boundary: driving
+real elapsed time cannot pin a formula. There the numbers are inputs.
+
 ### Deliberate limitations
 
 - **`campaign_name` is not a claim dimension.** "the campaign" is the phrase that

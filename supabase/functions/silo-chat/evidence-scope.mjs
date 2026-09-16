@@ -645,26 +645,54 @@ export const CLAIM_DIMENSIONS = [
 ];
 
 /**
- * Scope dimensions this request POOLED and never once distinguished.
+ * Scope dimensions some result in this request POOLED.
  *
- * Narrowed anywhere, or broken out per value anywhere, both count as
- * distinguishing it: a request that grouped by platform has earned the right to
- * name one. Only `pooled_across` feeds the pooled set -- NOT
- * `totals_only.carries_none_of`, and that distinction is load-bearing.
- * meta_ad_performance_daily has no platform column at all, so it appears there;
- * every row in it is Meta's, and saying "Meta" about it is simply correct.
+ * A DIMENSION ANOTHER QUERY RESOLVED IS STILL UNRESOLVED FOR THE POOLED ONE,
+ * and the first version of this got that wrong in the most damaging possible
+ * way. It cleared a dimension request-wide as soon as any result narrowed or
+ * grouped it, reasoning that "a request that grouped by platform has earned the
+ * right to name one". True of a claim drawn from THAT result. False of a claim
+ * drawn from the pooled one -- and this audit reads the answer as a whole, with
+ * no linkage from a sentence back to the result behind it.
+ *
+ * The shape that breaks it is the ordinary one: ask for a total, then ask for
+ * the split. R1 returns combined Meta+Google+TikTok spend, R2 groups the same
+ * week by platform, and the old rule let the answer call R1's combined $118,946
+ * "Meta ad spend" with no note at all -- the exact failure the envelope exists
+ * to prevent, silently disabled by a second, better query. Found in review; a
+ * test of mine had pinned the clearing as correct.
+ *
+ * So pooled anywhere means unresolved, and `mixedDimensions` below says whether
+ * something else in the request did resolve it, because the two cases deserve
+ * different sentences. Until a claim can be tied to the result that supports it,
+ * the conservative reading is the only sound one.
+ *
+ * Only `pooled_across` feeds this -- NOT `totals_only.carries_none_of`, and that
+ * distinction is load-bearing. meta_ad_performance_daily has no platform column
+ * at all, so it appears there; every row in it is Meta's, and saying "Meta"
+ * about it is simply correct.
  */
 export function unresolvedDimensions(scopes) {
   const pooled = new Set();
-  const distinguished = new Set();
   for (const s of scopes || []) {
     if (!s) continue;
     for (const p of s.pooled_across || []) pooled.add(p.column);
-    for (const n of s.narrowed_to || []) distinguished.add(n.column);
-    for (const b of s.broken_out_per_value || []) distinguished.add(b.column);
-    for (const e of s.excludes || []) distinguished.add(e.column);
   }
-  return new Set([...pooled].filter((c) => !distinguished.has(c)));
+  return pooled;
+}
+
+/** Dimensions some result pooled AND another resolved -- the mixed-basis case,
+ *  where the figures above are not all on the same footing. */
+export function mixedDimensions(scopes) {
+  const pooled = unresolvedDimensions(scopes);
+  const resolved = new Set();
+  for (const s of scopes || []) {
+    if (!s) continue;
+    for (const n of s.narrowed_to || []) resolved.add(n.column);
+    for (const b of s.broken_out_per_value || []) resolved.add(b.column);
+    for (const e of s.excludes || []) resolved.add(e.column);
+  }
+  return new Set([...pooled].filter((c) => resolved.has(c)));
 }
 
 /** Terms the answer asserts for a dimension nothing in the request resolved. */
@@ -672,6 +700,7 @@ export function auditAnswerClaims(answerText, scopes) {
   const text = String(answerText || '');
   if (!text.trim()) return [];
   const unresolved = unresolvedDimensions(scopes);
+  const mixed = mixedDimensions(scopes);
   const flags = [];
   for (const dim of CLAIM_DIMENSIONS) {
     if (!dim.columns.some((c) => unresolved.has(c))) continue;
@@ -682,7 +711,10 @@ export function auditAnswerClaims(answerText, scopes) {
       const esc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, 'i').test(text);
     });
-    if (found.length) flags.push({ label: dim.label, columns: dim.columns.filter((c) => unresolved.has(c)), terms: found });
+    if (found.length) {
+      const columns = dim.columns.filter((c) => unresolved.has(c));
+      flags.push({ label: dim.label, columns, terms: found, mixed: columns.some((c) => mixed.has(c)) });
+    }
   }
   return flags;
 }
@@ -694,7 +726,12 @@ export function formatClaimNote(flags) {
   if (!flags || !flags.length) return '';
   const parts = flags.map((f) => {
     const words = f.terms.map((t) => `"${t}"`).join(', ');
-    return `it uses ${words}, but nothing that was queried restricted ${f.label} -- every figure above covers all of its values together`;
+    // The mixed case is the more dangerous one and reads differently: some
+    // figure above IS on that basis and some is not, so the reader needs to
+    // know which, not to be told nothing restricted it.
+    return f.mixed
+      ? `it uses ${words}, and the results behind this answer are NOT all on the same ${f.label} -- some restricted it and at least one did not, so a figure taken from the unrestricted one covers every value`
+      : `it uses ${words}, but nothing that was queried restricted ${f.label} -- every figure above covers all of its values together`;
   });
   return `\n\n---\n**Scope check (automatic):** ${parts.join('; ')}. `
     + 'Read that wording as unverified: the figures are real, the label on them was not established by anything that ran. '

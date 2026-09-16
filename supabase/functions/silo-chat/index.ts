@@ -404,6 +404,7 @@ import {
   createInspectionBudget,
   looksInspectable,
 } from './seo-lib.mjs';
+import { correctionRoundFits } from './budget-lib.mjs';
 import {
   auditAnswerClaims,
   buildCatalogIndex,
@@ -1063,9 +1064,26 @@ const INVESTIGATION_CHECKPOINT_MS = 45_000;
 //   * only when the previous round actually hit a correctable error (an
 //     unknown column, relation or function -- never a timeout, which would
 //     simply time out again, and never a permission error, which is an answer);
-//   * only inside the gateway's own margin, so a correction can never be the
-//     reason a request dies at 150s with nothing.
-const CORRECTION_ROUND_CUTOFF_MS = 115_000;
+//   * only when the time it needs DEMONSTRABLY still fits.
+//
+// THAT LAST ONE WAS A FIXED 115s CUTOFF AND IT WAS WRONG TWICE OVER, found in
+// review and confirmed against the trace it was written for. A correction costs
+// a model call, then a query, then the forced final answer's own model call.
+// The Sonic request averaged 17.1s per model call (119,656ms of model time
+// across 7 calls, against 18,331ms of database time), so 115s + 17.1 + 8 + 17.1
+// = 157s -- past the 150s gateway, which returns a bare 504 and writes no audit
+// row. And it would not have helped anyway: elapsed at that request's round-6
+// boundary was ~121s, already past 115s, so the grant it was built for could
+// never have fired.
+//
+// A constant cannot know any of that, so the reservation is MEASURED from this
+// request's own model calls instead. Slow rounds mean there is genuinely no
+// room and the correction is refused; cheap rounds mean there is. The honest
+// consequence: this fires when a request reached the budget through many quick
+// rounds, and not when it crawled there. F1's catalog hint is the half that
+// works regardless of budget.
+// The arithmetic itself lives in budget-lib.mjs, where it can be tested with
+// exact numbers instead of through a clock that drifts by a millisecond or two.
 /** Errors where the model has something specific to do differently next round.
  *  A statement timeout matches NOTHING here, and that is the whole exclusion:
  *  re-running the same heavy statement unchanged is what "flake is not a root
@@ -1609,6 +1627,9 @@ Deno.serve(async (req: Request) => {
       describe_calls_used: describeCallsUsed,
       describe_calls_allowed: MAX_DESCRIBE_CALLS_PER_REQUEST,
       correction_round_granted: correctionRoundGranted,
+      // The inputs to that decision, so a refusal is diagnosable from the record
+      // rather than being indistinguishable from "no correctable error".
+      model_call_ms: modelCallMs,
       workflow: activeWorkflow,
       elapsed_ms: elapsedMs(),
       investigation_checkpoint_sent: investigationCheckpointSent,
@@ -1745,12 +1766,25 @@ Deno.serve(async (req: Request) => {
     // finished, never an older one.
     let correctionRoundGranted = false;
     let lastRoundHadCorrectableError = false;
+    // What a model round has actually cost THIS request. The wall clock is
+    // spent here, not in the database, so this is the only number that makes a
+    // time reservation meaningful.
+    const modelCallMs: number[] = [];
+    const timedCallAnthropic = async (...args: Parameters<typeof callAnthropic>) => {
+      const startedCallAt = Date.now();
+      try {
+        return await callAnthropic(...args);
+      } finally {
+        modelCallMs.push(Date.now() - startedCallAt);
+      }
+    };
+    const correctionFits = () => correctionRoundFits({ elapsedMs: elapsedMs(), modelCallMs });
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       if (elapsedMs() >= WALL_CLOCK_BUDGET_MS) {
         const canCorrect = !correctionRoundGranted
           && lastRoundHadCorrectableError
-          && elapsedMs() < CORRECTION_ROUND_CUTOFF_MS;
+          && correctionFits();
         if (!canCorrect) break;
         correctionRoundGranted = true;
         // Consume the investigation checkpoint if it has not fired yet. The two
@@ -1778,7 +1812,7 @@ Deno.serve(async (req: Request) => {
           content: 'Investigation checkpoint: the remaining query time is limited. Tools are still available. Revisit every part of the original question and prioritize the smallest useful aggregate for requested areas you have not measured yet before drilling further into areas already covered. Reuse existing results and exact columns already described; do not repeat discovery. Keep the comparison dates and units compatible. If a missing linkage or coverage gap blocks the decision, say what is missing rather than substituting a different metric. This is not an instruction to stop early or to write anything to the database.',
         });
       }
-      const data = await callAnthropic(
+      const data = await timedCallAnthropic(
         messages,
         systemPrompt,
         tools,
@@ -2404,7 +2438,7 @@ Deno.serve(async (req: Request) => {
 
 Then stop. Do not fill the shape of the question with the piece you did not get to: if the question asked for actions or a recommendation and the evidence only reaches an observation, give the observation and say what would have to be true for it to become a recommendation. An unfinished investigation reported as unfinished is a good answer. An invented conclusion is not, and neither is a confident one caveated in a trailing note.`,
       });
-      let finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
+      let finalData = await timedCallAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
       collectSources(finalData.content || [], sources);
       // Raw, then trimmed separately -- same seam problem as the main loop.
       let finalRaw = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('');
@@ -2419,7 +2453,7 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
           role: 'user',
           content: "That got cut off by the output length limit. Finish it concisely -- lead with the key numbers/decision, don't restate what you already said.",
         });
-        finalData = await callAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
+        finalData = await timedCallAnthropic(messages, systemPrompt, tools, { forceAnswer: true });
         collectSources(finalData.content || [], sources);
         const continuedRaw = (finalData.content || []).map((b: { text?: string }) => b.text || '').join('');
         // APPEND, never replace. Replacing was the same bug as the main
