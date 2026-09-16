@@ -214,7 +214,7 @@ function makeClient({
 }
 
 /** Scripted Anthropic responses, one per model round, in order. */
-function installModel(rounds) {
+function installModel(rounds, onCall = () => {}) {
   const queue = rounds.slice();
   // Every request body the handler sent. The assertions that matter most here
   // are about what the model was SHOWN -- a tool result's evidence envelope,
@@ -226,6 +226,7 @@ function installModel(rounds) {
       throw new Error(`unexpected outbound fetch in test: ${url}`);
     }
     sent.push(JSON.parse(init.body));
+    onCall(sent.length);
     if (!queue.length) throw new Error('model called more times than the test scripted');
     const body = queue.shift();
     return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
@@ -342,12 +343,13 @@ const toolRound = (i) => ({
   content: [{ type: 'tool_use', id: `tu_${i}`, name: 'run_sql', input: { query: `select ${i}` } }],
 });
 const exhaustRounds = () => Array.from({ length: MAX_TOOL_ROUNDS }, (_, i) => toolRound(i));
+const ROUND_PARTIAL_PREFIX = '**Partial answer:** the investigation limit was reached before all checks finished; this answer covers what had been gathered.\n\n';
 
 await test('the forced answer at the round cap is returned', async () => {
   installModel([...exhaustRounds(), say('Out of budget, but here is the number: $10.')]);
   const { res, json } = await ask(BASIC);
   eq(res.status, 200, 'status');
-  eq(json.answer, 'Out of budget, but here is the number: $10.', 'answer');
+  eq(json.answer, ROUND_PARTIAL_PREFIX + 'Out of budget, but here is the number: $10.', 'answer');
 });
 
 await test('...and ITS continuation is appended, not substituted for it', async () => {
@@ -357,7 +359,7 @@ await test('...and ITS continuation is appended, not substituted for it', async 
     say(' top mover was the tee.'),
   ]);
   const { json } = await ask(BASIC);
-  eq(json.answer, 'Out of budget. Sales were $412,500, and the top mover was the tee.', 'answer');
+  eq(json.answer, ROUND_PARTIAL_PREFIX + 'Out of budget. Sales were $412,500, and the top mover was the tee.', 'answer');
 });
 
 // The one path that reaches the forced answer holding a half-written one: the
@@ -371,7 +373,7 @@ await test('a half-written answer carried into the forced turn is finished, not 
     say(' top mover was the tee.'),
   ]);
   const { json } = await ask(BASIC);
-  eq(json.answer, 'Sales were $412,500 last week, and the top mover was the tee.', 'answer');
+  eq(json.answer, ROUND_PARTIAL_PREFIX + 'Sales were $412,500 last week, and the top mover was the tee.', 'answer');
 });
 
 console.log('\n-- a rejected audit insert is reported, never swallowed --');
@@ -870,8 +872,8 @@ await test('...and the response says it is partial, in a field prose cannot drop
   installModel([...exhaustRounds(), say('partial answer')]);
   const { json } = await ask(BASIC, { rpcResults: [] });
   eq(json.partial, true, 'partial flag');
-  assert(/budget ran out/.test(json.partial_reason || ''), `partial_reason: ${json.partial_reason}`);
-  eq(json.answer, 'partial answer', 'the gathered answer is still returned');
+  assert(/investigation limit/.test(json.partial_reason || ''), `partial_reason: ${json.partial_reason}`);
+  eq(json.answer, ROUND_PARTIAL_PREFIX + 'partial answer', 'the gathered answer is still returned');
 });
 
 await test('a normal answer carries no partial flag at all', async () => {
@@ -959,7 +961,7 @@ await test('more queries than the log holds are COUNTED, not silently dropped', 
   const d = auditRow(client).diagnostics;
   assert(d.queries.length <= 40, `logged ${d.queries.length} entries`);
   assert(d.queries_not_logged > 0, 'the queries beyond the cap vanished without a count');
-  eq(json.answer, 'done', 'capping the log changed the answer');
+  eq(json.answer, ROUND_PARTIAL_PREFIX + 'done', 'capping the log changed the answer');
 });
 
 await test('...and the whole payload stays inside the size budget', async () => {
@@ -987,6 +989,107 @@ await test('a genuine insert rejection is NOT retried into a false success', asy
   const { client, json } = await ask(BASIC, { auditError: { code: '42501', message: 'new row violates row-level security policy' } });
   eq(client.__state.auditAttempts, 1, 'an RLS refusal was retried');
   eq(json.audit_logged, false, 'an RLS refusal was reported as logged');
+});
+
+// Advance time at the model boundary, never sleep or call a live service.
+async function withClock(fn) {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try { return await fn((ms) => { now += ms; }); }
+  finally { Date.now = realNow; }
+}
+const checkpointMessages = (body) => body.messages.filter((m) =>
+  typeof m.content === 'string' && m.content.startsWith('Investigation checkpoint:'));
+
+await test('eight slow rounds get one early checkpoint, then a visibly partial persisted answer', async () => {
+  await withClock(async (advance) => {
+    const model = installModel([
+      ...Array.from({ length: 8 }, (_, i) => toolRound(i)),
+      say('Spend was $10. Returns remain unchecked.'),
+    ], (n) => advance(n <= 8 ? 12_000 : 27_000));
+    const { json, client } = await ask({ ...BASIC, history: [{ role: 'user', content:
+      'Compare Sonic spend, subscriber acquisition, sales and returns before and after launch. Check coverage first.' }] });
+    eq(model.sent.length, 9, 'eight tool rounds and one forced final');
+    for (const body of model.sent.slice(0, 4)) eq(checkpointMessages(body).length, 0, 'checkpoint before threshold');
+    for (const body of model.sent.slice(4)) eq(checkpointMessages(body).length, 1, 'checkpoint missing or repeated');
+    const checkpoint = model.sent[4];
+    assert(checkpoint.tools.some((t) => t.name === 'run_sql'), 'checkpoint lost SQL tool');
+    assert(checkpoint.tool_choice?.type !== 'none', 'checkpoint forced an early final answer');
+    const prior = checkpoint.messages[checkpoint.messages.length - 2];
+    assert(prior.content.some((b) => b.type === 'tool_result'), 'checkpoint displaced pending tool results');
+    eq(model.sent[8].tool_choice.type, 'none', 'time limit no longer stops tools');
+    eq(json.partial, true, 'response partial status');
+    assert(json.answer.startsWith('**Partial answer:** the time budget ran out'), 'visible time-limit label');
+    assert(json.answer.endsWith('Spend was $10. Returns remain unchecked.'), 'gathered work was lost');
+    const row = auditRow(client);
+    eq(row.answer, json.answer, 'recovery and saved text must keep the label');
+    eq(row.tool_rounds, 8, 'actual rounds');
+    eq(row.error_message, 'forced final answer at wall-clock budget (123s, 8 rounds)', 'stop reason');
+    eq(row.diagnostics.context.partial, true, 'persisted partial status');
+    eq(row.diagnostics.context.partial_reason, json.partial_reason, 'persisted reason');
+    eq(row.diagnostics.context.investigation_checkpoint_sent, true, 'checkpoint audit');
+  });
+});
+
+await test('a natural finish after the checkpoint is not labelled budget-limited', async () => {
+  await withClock(async (advance) => {
+    const model = installModel([toolRound(1), say('Sales were $10.')], () => advance(45_000));
+    const { json, client } = await ask(BASIC);
+    eq(checkpointMessages(model.sent[1]).length, 1, 'checkpoint at threshold');
+    eq(json.answer, 'Sales were $10.', 'normal answer changed');
+    assert(!('partial' in json), 'normal response marked partial');
+    eq(auditRow(client).diagnostics.context.partial, false, 'no forced-stop signal');
+    eq(auditRow(client).diagnostics.context.partial_reason, null, 'no forced-stop reason');
+  });
+});
+
+await test('a fast question gets no checkpoint', async () => {
+  const model = installModel([say('Sales were $10.')]);
+  const { client } = await ask(BASIC);
+  eq(checkpointMessages(model.sent[0]).length, 0, 'fast request was interrupted');
+  eq(auditRow(client).diagnostics.context.investigation_checkpoint_sent, false, 'checkpoint falsely recorded');
+});
+
+await test('the checkpoint does not interrupt a truncated prose continuation or concept workflow', async () => {
+  for (const mode of ['continuation', 'workflow', 'concept-history']) {
+    await withClock(async (advance) => {
+      const model = installModel([
+        mode === 'continuation' ? say('Sales were', 'max_tokens') : toolRound(1),
+        say(' $10.'),
+      ], () => advance(45_000));
+      const body = mode === 'workflow' ? { ...BASIC, workflow: 'product_concept' }
+        : mode === 'concept-history' ? { ...BASIC, history: [{ ...BASIC.history[0], conceptId: 'test-concept' }] }
+        : BASIC;
+      const { json } = await ask(body);
+      eq(checkpointMessages(model.sent[1]).length, 0, `${mode} interrupted`);
+      if (mode === 'continuation') eq(json.answer, 'Sales were $10.', 'continuation seam');
+    });
+  }
+});
+
+await test('forced partial answers still obey the final company guard', async () => {
+  installModel([...exhaustRounds(), say('Company A figures')]);
+  const { res, json, client } = await ask(BASIC, { activeCompanies: [COMPANY_A, COMPANY_B] });
+  eq(res.status, 409, 'company switch was accepted');
+  assert(!json.answer, 'partial answer leaked across company switch');
+  eq(wrote(client, 'silo_chat_audit_log').length, 0, 'cross-company audit written');
+});
+
+await test('partial label survives a missing diagnostics column and a rejected audit', async () => {
+  for (const opts of [
+    { insertErrorOnce: { code: 'PGRST204', message: 'diagnostics column missing' } },
+    { auditError: { code: '42501', message: 'RLS rejection' } },
+  ]) {
+    installModel([...exhaustRounds(), say('Returns remain unchecked.')]);
+    const { json, client } = await ask(BASIC, opts);
+    eq(json.answer, ROUND_PARTIAL_PREFIX + 'Returns remain unchecked.', 'visible partial label');
+    if (opts.auditError) eq(json.audit_logged, false, 'rejection hidden');
+    else {
+      eq(client.__state.auditAttempts, 2, 'missing-column fallback');
+      eq(auditRow(client).answer, json.answer, 'fallback lost recovery label');
+    }
+  }
 });
 
 console.log(`\n${run - failures}/${run} passed`);

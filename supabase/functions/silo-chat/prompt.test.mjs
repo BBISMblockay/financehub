@@ -467,5 +467,14 @@ test('the schema index tells the model its slice is a slice', () => {
   has(SRC, 'call describe_relations for its full card', 'index.ts');
 });
 
+test('ordinary analysis gets whole-question planning and compatible comparison instructions', () => {
+  has(GENERAL, 'Get a small first-pass aggregate for EACH requested area');
+  has(GENERAL, 'A discovered table is not a measured result');
+  has(GENERAL, 'Min/max dates prove endpoints only, not continuous coverage');
+  has(GENERAL, 'Units sold, distinct orders, and platform-attributed purchases are different measures');
+  has(GENERAL, 'Returns recorded during a period are not necessarily returns of that period');
+  has(GENERAL, 'same named periods across the measures being compared');
+});
+
 console.log(`\n${run - failures}/${run} passed`);
 process.exit(failures ? 1 : 0);
