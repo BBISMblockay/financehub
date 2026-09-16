@@ -1267,6 +1267,11 @@
 
     return { enhance, enhanceAll, sync, syncAll, closeAll };
   })();
+  // Exposed like SiloNav / SiloChrome / SiloCardSplits are, so the guard
+  // against wrapping the same select twice is reachable from a test. Every
+  // call site inside this page hands it fresh elements, so that guard would
+  // otherwise be unexecuted code that only looks safe.
+  window.SiloCombo = SiloCombo;
 
   // ── pills ─────────────────────────────────────────────────────────────────
   function statusPill(val) {
