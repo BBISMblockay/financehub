@@ -182,6 +182,10 @@ Call save_note when a user explicitly teaches or corrects you something ("rememb
 
 Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- run a quick query against information_schema.tables and information_schema.columns for a name match (e.g. ilike '%keyword%') before concluding it doesn't exist. The database map above is auto-generated and current, but a few internal/credential tables are deliberately omitted from it, so a name-match search can still surface something the map doesn't show. Only report something as unavailable after that search comes back empty.
 
+PLAN THE WHOLE QUESTION BEFORE DRILLING DOWN. For a multi-part analysis, identify each requested measure, the event date, comparison periods, and the evidence needed for the decision. Get a small first-pass aggregate for EACH requested area before spending more rounds on one area. Reuse results already gathered; use describe_relations for exact columns and caveats before guessing a field name. A discovered table is not a measured result. If a requested check was not run, call it unchecked, not unavailable. Do not force unrelated connectors into a simple question.
+
+KEEP COMPARISONS COMPATIBLE. Use explicit, non-overlapping before/after dates around the verified event date, and the same named periods across the measures being compared. If sources cover different dates, compare their common coverage or label each distinct period without presenting a like-for-like change. Min/max dates prove endpoints only, not continuous coverage: check missing days or source completeness where the comparison depends on them, and distinguish a day with no recorded activity from a confirmed ingestion gap. Units sold, distinct orders, and platform-attributed purchases are different measures; never subtract or divide them to infer uncredited demand. Subscriber acquisition is not subscribers' later purchases without a linkage. Returns recorded during a period are not necessarily returns of that period's orders; name the basis and allow for the return lag before judging a launch. Recommendations must account for the requested dimensions or name the specific missing evidence that prevents the decision.
+
 When you answer, be explicit about data confidence -- don't let a mediocre answer leave the user guessing whether SILO lacks the data or you just queried the wrong thing:
 - Available: you found the specific data asked about and are answering from it directly.
 - Partial: you found related/adjacent data but not the exact grain asked for (e.g. daily campaign spend exists but ad-set-level creative performance doesn't) -- say what you have and what's missing.
@@ -959,6 +963,8 @@ const WRONG_COMPANY_ROW =
 // the round cap, so the user gets the analysis gathered so far instead of a
 // 504, and the audit row records which limit stopped it.
 const WALL_CLOCK_BUDGET_MS = 95_000;
+// One checkpoint while tools remain available, not a larger gateway budget.
+const INVESTIGATION_CHECKPOINT_MS = 45_000;
 // Past this, skip the max_tokens continuation in the forced-answer path and
 // ship what we have -- a slightly short answer beats a 504 with nothing.
 const FINAL_CONTINUATION_CUTOFF_MS = 125_000;
@@ -1460,6 +1466,7 @@ Deno.serve(async (req: Request) => {
     // which relations were in front of the model from the start, which it had
     // to fetch, and how much of the budget it spent. Assembled at logging time
     // so it always reflects the finished request.
+    let investigationCheckpointSent = false;
     const contextLog = () => ({
       schema_detail_relations: schemaSlice.detailRelations,
       relations_described_mid_request: describedRelations,
@@ -1467,6 +1474,7 @@ Deno.serve(async (req: Request) => {
       describe_calls_allowed: MAX_DESCRIBE_CALLS_PER_REQUEST,
       workflow: activeWorkflow,
       elapsed_ms: elapsedMs(),
+      investigation_checkpoint_sent: investigationCheckpointSent,
     });
 
     // THE ONLY WAY AN ANSWER LEAVES THIS FUNCTION. Both success paths (the
@@ -1502,19 +1510,29 @@ Deno.serve(async (req: Request) => {
           company_changed: true,
         }, 409);
       }
+      // Carry the status IN the persisted answer. Existing clients save and
+      // recover answer text but do not retain the response's partial fields.
+      const answer = opts.partial
+        ? `**Partial answer:** ${opts.partial}.\n\n${text}`
+        : text;
       const audited = await logAudit(callerClient!, {
         requestId,
         question,
         historySnapshot: history,
-        answer: text,
+        answer,
         queriesRun,
         toolRounds: opts.toolRounds,
         status: 'ok',
         errorMessage: opts.errorMessage ?? null,
-        diagnostics: buildDiagnostics(queryLog, contextLog()),
+        diagnostics: buildDiagnostics(queryLog, {
+          ...contextLog(),
+          // false means no forced stop, NOT proof the analysis is complete.
+          partial: Boolean(opts.partial),
+          partial_reason: opts.partial ?? null,
+        }),
       });
       return reply({
-        answer: text,
+        answer,
         queries_run: queriesRun,
         // Only present when the investigation was cut short. The client and
         // anyone auditing can then tell a finished answer from one written
@@ -1573,6 +1591,17 @@ Deno.serve(async (req: Request) => {
 
     for (let round = 0; round < MAX_TOOL_ROUNDS && elapsedMs() < WALL_CLOCK_BUDGET_MS; round++) {
       roundsUsed = round + 1;
+      // Do not interrupt a cut-off prose continuation or the separate concept
+      // workflow. Tool results have already been appended before this point.
+      if (!investigationCheckpointSent && !answerSoFar
+          && activeWorkflow !== 'product_concept' && !actingOnConcept
+          && elapsedMs() >= INVESTIGATION_CHECKPOINT_MS) {
+        investigationCheckpointSent = true;
+        messages.push({
+          role: 'user',
+          content: 'Investigation checkpoint: the remaining query time is limited. Tools are still available. Revisit every part of the original question and prioritize the smallest useful aggregate for requested areas you have not measured yet before drilling further into areas already covered. Reuse existing results and exact columns already described; do not repeat discovery. Keep the comparison dates and units compatible. If a missing linkage or coverage gap blocks the decision, say what is missing rather than substituting a different metric. This is not an instruction to stop early or to write anything to the database.',
+        });
+      }
       const data = await callAnthropic(
         messages,
         systemPrompt,
@@ -2216,7 +2245,7 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
           toolRounds: roundsUsed,
           partial: hitWallClock
             ? 'the time budget ran out before the investigation finished; this answer covers what had been gathered'
-            : 'the tool-round budget ran out before the investigation finished; this answer covers what had been gathered',
+            : 'the investigation limit was reached before all checks finished; this answer covers what had been gathered',
           // Not an error, but flagged so saturation stays visible when
           // auditing. A cluster of round-cap rows means the cap needs
           // raising; a cluster of wall-clock rows means the queries got
