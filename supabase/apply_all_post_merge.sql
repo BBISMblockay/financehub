@@ -18765,3 +18765,9 @@ $c$select (select count(*) from v_po_header_summary
 -- this repo contained -- apply them in this order.
 \i migrations/20260915140000_meta_creative_link_url.sql
 \i migrations/20260915150000_wow_creatives_link.sql
+
+-- Pipeline items (product_tracker) can record the PO they came from. The
+-- drawer already searched POs and already labelled Expected Units "(from the
+-- originating PO)" -- there was just nowhere to store which PO. Additive,
+-- nullable, ON DELETE SET NULL.
+\i migrations/20260915230000_product_tracker_po_link.sql

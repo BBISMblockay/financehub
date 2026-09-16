@@ -15,6 +15,15 @@
  *   nav-config / silo-chrome  served from the repo; the sidebar is not under
  *                         test but the page bails without SiloNav
  *   fonts.googleapis.com  empty CSS
+ *
+ * open() options:
+ *   ready            predicate evaluated in the page to decide "loaded"
+ *   rpc              name -> rows (or a function of the args)
+ *   broken           table names whose every read errors
+ *   missingColumns   { table: ['col'] } -- reads and writes naming one of
+ *                    those columns fail with PostgREST's real 42703, so a
+ *                    page that feature-detects an unapplied migration can be
+ *                    tested in BOTH database states
  */
 'use strict';
 
@@ -134,6 +143,10 @@ window.__QUERIES__ = [];
           });
           return;
         }
+        if (f.op === 'not') {
+          all = all.filter(function (r) { return !matchOne(r, f.col, f.innerOp, f.val); });
+          return;
+        }
         var present = all.some(function (r) { return Object.prototype.hasOwnProperty.call(r, f.col); });
         if (!present && f.op !== 'is') return;
         all = all.filter(function (r) {
@@ -167,6 +180,21 @@ window.__QUERIES__ = [];
       return all;
     }
 
+    // An UNAPPLIED MIGRATION, modelled honestly. A page that feature-detects a
+    // column needs the real answer PostgREST gives for one that does not
+    // exist -- code 42703 -- not an empty result, because an empty result is
+    // indistinguishable from "the column is there and no row has a value".
+    // Set window.__FIXTURE_MISSING_COLUMNS__ = { table: ['col', ...] }.
+    function missingColumn(cols) {
+      var miss = (window.__FIXTURE_MISSING_COLUMNS__ || {})[table] || [];
+      if (!miss.length || !cols) return null;
+      var asked = String(cols).split(',').map(function (c) { return c.trim(); });
+      for (var i = 0; i < miss.length; i++) {
+        if (asked.indexOf(miss[i]) !== -1 || asked.indexOf('*') !== -1 && false) return miss[i];
+      }
+      return null;
+    }
+
     var api = {
       // PostgREST's count option, implemented for real: a head+exact count
       // returns {data:null, count:N}, and a page that reads .count off a
@@ -189,6 +217,12 @@ window.__QUERIES__ = [];
       gt:     function (col, val) { q.filters.push({ op: 'gt',  col: col, val: val }); return api; },
       neq:    function (col, val) { q.filters.push({ op: 'neq', col: col, val: val }); return api; },
       ilike:  function (col, val) { q.filters.push({ op: 'ilike', col: col, val: val }); return api; },
+      // PostgREST's .not(col, op, val). Implemented for real, not stubbed to
+      // a no-op: products.html builds its product-type list with
+      // .not('product_type','is',null), and a no-op would hand it the null
+      // rows it explicitly excluded -- a blank entry in a dropdown, which
+      // looks like a real category with no name.
+      not:    function (col, op, val) { q.filters.push({ op: 'not', col: col, innerOp: op, val: val }); return api; },
       // PostgREST's or() takes "col.op.value,col.op.value". Implemented for
       // real rather than stubbed to true: the exception filters on
       // sales-verification.html ARE an or(), and a no-op here would let a
@@ -196,8 +230,32 @@ window.__QUERIES__ = [];
       or:     function (expr) { q.filters.push({ op: 'or', expr: String(expr) }); return api; },
       limit:  function (n) { q.limit = Number(n); return api; },
       range:  function (from, to) { q.range = [from, to]; return api; },
-      insert: function (r) { q._op = 'insert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
-      update: function (patch) { q._op = 'update'; q.patch = patch; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
+      // Chainable, not a bare promise: products.html (and anything else that
+      // needs the id of the row it just created) does
+      // .insert(payload).select().single(). A promise has no .select, so a
+      // bare one is a TypeError the page swallows -- which reads exactly like
+      // the save silently failing. Still thenable with the same resolved
+      // shape, so 'await ...insert(r)' keeps working unchanged.
+      insert: function (r) {
+        q._op = 'insert'; q.rows = r; window.__QUERIES__.push(q);
+        var one = Array.isArray(r) ? r[0] : r;
+        var created = Object.assign({ id: 'fixture-inserted-id' }, one);
+        var mcw = missingColumn(Object.keys(one || {}).join(','));
+        var wErr = mcw ? { code: '42703', message: 'column ' + table + '.' + mcw + ' does not exist' } : null;
+        var ins = {
+          select: function () { return ins; },
+          single: function () { return Promise.resolve(wErr ? { data: null, error: wErr } : { data: created, error: null }); },
+          maybeSingle: function () { return Promise.resolve(wErr ? { data: null, error: wErr } : { data: created, error: null }); },
+          then: function (res, rej) { return Promise.resolve(wErr ? { data: null, error: wErr } : { data: r, error: null }).then(res, rej); }
+        };
+        return ins;
+      },
+      update: function (patch) {
+        q._op = 'update'; q.patch = patch; window.__QUERIES__.push(q);
+        var mcu = missingColumn(Object.keys(patch || {}).join(','));
+        var uErr = mcu ? { code: '42703', message: 'column ' + table + '.' + mcu + ' does not exist' } : null;
+        return { eq: function () { return Promise.resolve({ data: uErr ? null : [], error: uErr }); } };
+      },
       upsert: function (r) { q._op = 'upsert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
       delete: function () { q._op = 'delete'; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
       // A single-row read. Pages use both, and a missing method is a
@@ -215,6 +273,8 @@ window.__QUERIES__ = [];
         return Promise.resolve({ data: r.length ? r[0] : null, error: null });
       },
       then:   function (res, rej) {
+        var mc = missingColumn(q.columns);
+        if (mc) return Promise.resolve({ data: null, error: { code: '42703', message: 'column ' + table + '.' + mc + ' does not exist' } }).then(res, rej);
         if (broken()) return Promise.resolve({ data: null, error: { message: 'fixture: ' + table + ' is unreadable' } }).then(res, rej);
         var got = rows();
         var out = { data: q.head ? null : got, error: null };
@@ -248,6 +308,28 @@ window.__QUERIES__ = [];
           signOut: function () { return Promise.resolve({ error: null }); }
         },
         from: builder,
+        // Storage and edge functions: present so a page that touches them
+        // renders, absent-shaped so nothing here can be mistaken for a real
+        // file. products.html reads sample photos out of the sample-images
+        // bucket on every drawer open, and an undefined .storage is a
+        // TypeError that aborts the handler mid-way -- the drawer opens with
+        // half its fields filled, which looks like a page bug.
+        storage: {
+          from: function () {
+            return {
+              list: function () { return Promise.resolve({ data: [], error: null }); },
+              upload: function () { return Promise.resolve({ data: null, error: null }); },
+              remove: function () { return Promise.resolve({ data: null, error: null }); },
+              getPublicUrl: function (p) { return { data: { publicUrl: 'about:blank#' + p } }; }
+            };
+          }
+        },
+        functions: {
+          invoke: function (name, opts) {
+            (window.__INVOKES__ = window.__INVOKES__ || []).push({ name: name, body: opts && opts.body });
+            return Promise.resolve({ data: {}, error: null });
+          }
+        },
         // RPCs are CHAINED like table queries on some pages
         // (bi-product-search does sb.rpc(...).range(...)), so this returns
         // the same thenable builder rather than a bare promise.
@@ -375,15 +457,16 @@ async function startSuite(options = {}) {
     // fixtures are passed as source and rebuilt inside the page.
     const rpcSrc = {};
     Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
-    await page.addInitScript(({ t, rpc, broken }) => {
+    await page.addInitScript(({ t, rpc, broken, missingColumns }) => {
       window.__FIXTURE_TABLES__ = t;
       window.__FIXTURE_BROKEN__ = broken;
+      window.__FIXTURE_MISSING_COLUMNS__ = missingColumns;
       window.__FIXTURE_RPC__ = {};
       Object.entries(rpc).forEach(([k, src]) => {
         // eslint-disable-next-line no-eval
         window.__FIXTURE_RPC__[k] = eval('(' + src + ')');
       });
-    }, { t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [] });
+    }, { t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [], missingColumns: (opts && opts.missingColumns) || {} });
     await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(ready, { timeout: 20000 });
     return page;

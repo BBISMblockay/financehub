@@ -81,7 +81,12 @@
     /* ── size checkbox grid ──────────────────────────── */
     .smp-size-grid { display:flex; flex-wrap:wrap; gap:5px; }
     .smp-size-chip { display:flex; flex-direction:column; align-items:center; gap:2px; min-width:44px; }
-    .smp-size-chip > span { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; color:var(--bcn-ink-2); }
+    .smp-size-chip > span { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; color:var(--bcn-ink-2); white-space:nowrap; }
+    /* A legacy cap chip is data nobody can re-interpret, not a size anyone
+       should newly pick — dimmed and dashed so it reads as "this row already
+       carries this", never as an option alongside Youth/Adult Snap. */
+    .smp-size-chip--legacy > span { color:var(--bcn-ink-4); font-style:italic; }
+    .smp-size-chip--legacy { border-bottom:1px dashed var(--bcn-border-strong); }
     .smp-size-checks { display:flex; gap:3px; }
     .smp-ck-wrap { display:flex; flex-direction:column; align-items:center; gap:1px; }
     .smp-ck-wrap label { font-size:7.5px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); text-transform:uppercase; }
@@ -103,6 +108,50 @@
     .smp-sizes-compact .smp-ck-pck,
     .smp-sizes-compact .smp-size-legend .leg-req,
     .smp-sizes-compact .smp-size-legend .leg-pck { display:none; }
+
+    /* ── searchable select (combobox) ────────────────── */
+    /* Wraps a real <select> instead of replacing it: the select stays in the
+       DOM and stays the source of truth, so everything already reading or
+       writing `sel.value` (fillSelect, the deep-link handlers, ctFiltered,
+       notifyAssignee's selectedOptions) keeps working untouched. */
+    .smp-combo { position:relative; display:block; width:100%; }
+    /* The filter bar is a 36px flex row of content-sized controls, so a
+       block/100% wrapper would collapse there — size it like the native
+       select it replaced and give the dropdown its own readable width. */
+    .bcn-filter .smp-combo { width:auto; min-width:150px; display:flex; align-items:center; height:100%; }
+    .bcn-filter .smp-combo-list { min-width:230px; }
+    .smp-combo > select.smp-combo-native {
+      position:absolute; width:1px; height:1px; padding:0; margin:0;
+      opacity:0; pointer-events:none; border:0;
+    }
+    .smp-combo-input { width:100%; }
+    .smp-combo-input::placeholder { color:var(--bcn-ink-3); }
+    .smp-combo-list {
+      position:absolute; top:100%; left:0; right:0; z-index:40; margin-top:2px;
+      background:var(--bcn-surface); border:1px solid var(--bcn-border);
+      border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,.12);
+      max-height:240px; overflow-y:auto; display:none;
+    }
+    .smp-combo-list.open { display:block; }
+    .smp-combo-opt {
+      padding:6px 10px; font-size:12px; cursor:pointer;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .smp-combo-opt:hover, .smp-combo-opt.active { background:oklch(.95 .03 245); }
+    .smp-combo-opt.selected { font-weight:700; }
+    .smp-combo-note {
+      padding:6px 10px; font-size:10px; font-family:var(--bcn-mono);
+      color:var(--bcn-ink-3); border-top:1px solid var(--bcn-border);
+    }
+    .smp-combo-empty { padding:8px 10px; font-size:11px; color:var(--bcn-ink-3); }
+
+    /* ── linked-PO chip ──────────────────────────────── */
+    .smp-linked-chip--po {
+      background:oklch(.95 .05 145); color:oklch(.3 .12 145);
+      border-color:oklch(.72 .12 145);
+    }
+    .smp-chip-row { display:flex; flex-wrap:wrap; gap:6px; }
+    .smp-chip-note { font-size:10px; font-family:var(--bcn-mono); color:var(--bcn-ink-3); margin-top:4px; }
 
     /* ── collapsible "More Details" ──────────────────── */
     .smp-more-details summary {
@@ -977,11 +1026,27 @@
   const COPY_LABELS  = { pending:'Pending', complete:'Done', na:'N/A' };
   const BUCKET = 'sample-images';
 
+  // A cap chip is a physical hat, and a youth snapback is not an adult one --
+  // the POs prove they are ordered as separate products ('Beast Mode Cap -
+  // Youth' and an adult snapback both ship a variant literally called 'Snap'),
+  // so a single 'Snap' chip could not say which hat a size request was for.
+  // Split into two explicit values; every other cap size is a fitted size and
+  // is adult-only, which is why only the snap row needed splitting.
   const SIZE_GROUPS = {
     mens:  ['XS','S','M','L','XL','XXL','XXXL'],
     youth: ['YXS','YS','YM','YL','YXL','2YL'],
-    caps:  ['Snap','6⅞','7','7⅛','7¼','7⅜','7½','One Size'],
+    caps:  [
+      { value:'Youth Snap', label:'Youth Snap' },
+      { value:'Adult Snap', label:'Adult Snapback' },
+      '6⅞','7','7⅛','7¼','7⅜','7½','One Size',
+    ],
   };
+  // 14 rows saved before this split carry a bare 'Snap', and which of the two
+  // it meant is not recoverable -- so it is neither rewritten to one of them
+  // nor dropped (dropping it would delete it on the next save of that row).
+  // The chip is rendered, labelled as legacy, ONLY on rows that carry it --
+  // the same treatment the pre-split 'received' sample status gets above.
+  const LEGACY_CAP_SIZE = 'Snap';
 
   // ── state ─────────────────────────────────────────────────────────────────
   let allSamples      = [];
@@ -1029,6 +1094,14 @@
   let ptLinkedProductId   = null;
   let ptLinkedProductTitle = null;
   let ptProdSearchTimer   = null;
+  // A PO/Incoming pick is a PURCHASE ORDER, not a products_master row, so it
+  // has its own state here rather than being crammed into product_master_id.
+  // product_samples already has po_header_id; product_tracker gets it in
+  // 20260915230000, and until that migration is applied ptTrackerHasPoColumn
+  // is false and the pick still prefills the drawer — it just does not persist.
+  let ptLinkedPoId        = null;
+  let ptLinkedPoName      = null;
+  let ptTrackerHasPoColumn = false;
 
   // ── util ──────────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
@@ -1040,6 +1113,165 @@
     if(ms) setTimeout(()=>{ el.hidden=true; }, ms);
   }
   function clearStatus() { $('status').hidden=true; }
+
+  // ── searchable select (combobox) ──────────────────────────────────────────
+  // The long dropdowns on this page are unusable as native selects: 141
+  // factories, every PO the company has ever raised, every launch, and ~130
+  // product types. This WRAPS a real <select> rather than replacing it — the
+  // select stays in the DOM and stays the source of truth, so every existing
+  // read/write of `sel.value` (fillSelect, populateDrawerSelects, ctFiltered,
+  // the ?photo= deep link, notifyAssignee's selectedOptions) is untouched and
+  // a `change` event still fires for the listeners already bound to it.
+  const SiloCombo = (() => {
+    const registry = new Map();   // select element -> { input, list, wrap, hits, active }
+    const MAX_SHOWN = 300;        // a filtered list is never silently truncated — see below
+
+    function prune() {
+      registry.forEach((_, sel) => { if (!sel.isConnected) registry.delete(sel); });
+    }
+
+    function labelFor(sel) {
+      const o = sel.selectedOptions[0];
+      return o ? o.textContent : '';
+    }
+
+    // Mirror the select's CURRENT state into the input. Setting `sel.value`
+    // from code fires no event, so every place that does so calls syncAll().
+    function sync(sel) {
+      const c = registry.get(sel);
+      if (!c) return;
+      c.input.value = labelFor(sel);
+      c.input.placeholder = sel.options[0] ? sel.options[0].textContent : 'Search…';
+      c.input.disabled = sel.disabled;
+    }
+
+    function syncAll() { prune(); registry.forEach((_, sel) => sync(sel)); }
+
+    function close(sel) {
+      const c = registry.get(sel);
+      if (!c) return;
+      c.list.classList.remove('open');
+      c.input.setAttribute('aria-expanded', 'false');
+      c.hits = []; c.active = -1;
+    }
+
+    // Closing without a pick must put the real selection back — leaving
+    // half-typed text where a value should be is how a filter ends up
+    // reading as something it is not set to.
+    function closeAll() { registry.forEach((_, sel) => { close(sel); sync(sel); }); }
+
+    function paint(sel) {
+      const c = registry.get(sel);
+      const shown = c.hits.slice(0, MAX_SHOWN);
+      const over = c.hits.length - shown.length;
+      c.list.innerHTML = shown.length
+        ? shown.map((h, n) => `<div class="smp-combo-opt${n === c.active ? ' active' : ''}${h.i === sel.selectedIndex ? ' selected' : ''}" role="option" data-idx="${h.i}">${esc(h.text)}</div>`).join('')
+          // A cut list says so rather than looking complete — the whole point
+          // of this control is that you can trust what it shows you.
+          + (over > 0 ? `<div class="smp-combo-note">Showing ${shown.length} of ${c.hits.length} — keep typing to narrow.</div>` : '')
+        : '<div class="smp-combo-empty">No matches.</div>';
+      const activeEl = c.list.querySelector('.smp-combo-opt.active');
+      if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+    }
+
+    function open(sel, query) {
+      const c = registry.get(sel);
+      const q = (query || '').trim().toLowerCase();
+      c.hits = Array.from(sel.options)
+        .map((o, i) => ({ i, text: o.textContent, value: o.value }))
+        .filter(o => !q || o.text.toLowerCase().includes(q));
+      c.active = c.hits.findIndex(h => h.i === sel.selectedIndex);
+      if (c.active < 0 && c.hits.length) c.active = 0;
+      c.list.classList.add('open');
+      c.input.setAttribute('aria-expanded', 'true');
+      paint(sel);
+    }
+
+    function pick(sel, optionIndex) {
+      sel.selectedIndex = optionIndex;
+      sync(sel);
+      close(sel);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function enhance(sel) {
+      if (!sel || registry.has(sel)) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'smp-combo';
+      // The select carries the sizing (inline width / max-width) in every one
+      // of its call sites — move it to the wrapper so the control keeps the
+      // footprint the layout was built around.
+      if (sel.getAttribute('style')) wrap.setAttribute('style', sel.getAttribute('style'));
+      sel.parentNode.insertBefore(wrap, sel);
+      wrap.appendChild(sel);
+      sel.classList.add('smp-combo-native');
+      sel.setAttribute('tabindex', '-1');
+      sel.setAttribute('aria-hidden', 'true');
+      sel.removeAttribute('style');
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'bcn-field smp-combo-input';
+      input.setAttribute('role', 'combobox');
+      input.setAttribute('aria-autocomplete', 'list');
+      input.setAttribute('aria-expanded', 'false');
+      input.autocomplete = 'off';
+      // Name it after the label a person can see, not after the element id.
+      const labelText = wrap.parentElement?.querySelector('.bcn-label')?.textContent?.trim();
+      if (labelText) input.setAttribute('aria-label', labelText);
+      else if (sel.options[0]) input.setAttribute('aria-label', sel.options[0].textContent);
+
+      const list = document.createElement('div');
+      list.className = 'smp-combo-list';
+      list.setAttribute('role', 'listbox');
+
+      wrap.appendChild(input);
+      wrap.appendChild(list);
+      registry.set(sel, { input, list, wrap, hits: [], active: -1 });
+      sync(sel);
+
+      input.addEventListener('focus', () => { input.select(); open(sel, ''); });
+      input.addEventListener('input', () => open(sel, input.value));
+      input.addEventListener('keydown', e => {
+        const c = registry.get(sel);
+        const isOpen = c.list.classList.contains('open');
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (!isOpen) { open(sel, ''); return; }
+          if (!c.hits.length) return;
+          c.active = (c.active + (e.key === 'ArrowDown' ? 1 : -1) + c.hits.length) % c.hits.length;
+          paint(sel);
+        } else if (e.key === 'Enter') {
+          if (isOpen && c.hits[c.active]) { e.preventDefault(); pick(sel, c.hits[c.active].i); }
+        } else if (e.key === 'Escape') {
+          if (isOpen) { e.stopPropagation(); close(sel); sync(sel); }
+        }
+      });
+      // Leaving the field without picking must not look like a change — put
+      // the real selection back rather than leaving half-typed text sitting
+      // where a value should be.
+      input.addEventListener('blur', () => { setTimeout(() => { if (!wrap.contains(document.activeElement)) { close(sel); sync(sel); } }, 120); });
+      list.addEventListener('mousedown', e => {
+        const opt = e.target.closest('.smp-combo-opt');
+        if (!opt) return;
+        e.preventDefault();
+        pick(sel, Number(opt.dataset.idx));
+      });
+      // fillSelect() and friends rebuild the option list under us; the stored
+      // value survives that, so the visible label has to be re-read.
+      new MutationObserver(() => sync(sel)).observe(sel, { childList: true });
+      sel.addEventListener('change', () => sync(sel));
+    }
+
+    function enhanceAll(ids) { prune(); ids.forEach(id => enhance(typeof id === 'string' ? $(id) : id)); }
+
+    return { enhance, enhanceAll, sync, syncAll, closeAll };
+  })();
+  // Exposed like SiloNav / SiloChrome / SiloCardSplits are, so the guard
+  // against wrapping the same select twice is reachable from a test. Every
+  // call site inside this page hands it fresh elements, so that guard would
+  // otherwise be unexecuted code that only looks safe.
+  window.SiloCombo = SiloCombo;
 
   // ── pills ─────────────────────────────────────────────────────────────────
   function statusPill(val) {
@@ -1072,20 +1304,38 @@
   }
 
   // ── size grid ─────────────────────────────────────────────────────────────
+  // A size entry is either a plain string (value === label) or {value,label},
+  // which is what lets the two snapback chips read as "Youth Snap" / "Adult
+  // Snapback" while storing the short values the size columns hold.
+  const sizeValue = sz => (typeof sz === 'string' ? sz : sz.value);
+  const sizeLabel = sz => (typeof sz === 'string' ? sz : sz.label);
+
   function renderSizeGrid(containerId, sizes, reqArr, whsArr, pckArr) {
     const c=$(containerId);
     if(!c) return;
     c.innerHTML = sizes.map(sz => {
-      const k = sz.replace(/[^a-zA-Z0-9]/g,'_')+'_'+containerId;
-      return `<div class="smp-size-chip">
-        <span>${esc(sz)}</span>
+      const val = sizeValue(sz), lbl = sizeLabel(sz);
+      const legacy = val === LEGACY_CAP_SIZE;
+      const k = val.replace(/[^a-zA-Z0-9]/g,'_')+'_'+containerId;
+      return `<div class="smp-size-chip${legacy?' smp-size-chip--legacy':''}"${legacy?' title="Saved before youth and adult snapbacks were tracked separately — which one it meant is not recorded. Tick the right one and clear this."':''}>
+        <span>${esc(lbl)}</span>
         <div class="smp-size-checks">
-          <div class="smp-ck-wrap smp-ck-req"><label for="r_${k}">Req</label><input type="checkbox" id="r_${k}" class="ck-req" data-size="${esc(sz)}" data-kind="req" ${reqArr.includes(sz)?'checked':''}></div>
-          <div class="smp-ck-wrap smp-ck-whs"><label for="w_${k}">Whs</label><input type="checkbox" id="w_${k}" class="ck-whs" data-size="${esc(sz)}" data-kind="whs" ${whsArr.includes(sz)?'checked':''}></div>
-          <div class="smp-ck-wrap smp-ck-pck"><label for="p_${k}">Pck</label><input type="checkbox" id="p_${k}" class="ck-pck" data-size="${esc(sz)}" data-kind="pck" ${pckArr.includes(sz)?'checked':''}></div>
+          <div class="smp-ck-wrap smp-ck-req"><label for="r_${k}">Req</label><input type="checkbox" id="r_${k}" class="ck-req" data-size="${esc(val)}" data-kind="req" ${reqArr.includes(val)?'checked':''}></div>
+          <div class="smp-ck-wrap smp-ck-whs"><label for="w_${k}">Whs</label><input type="checkbox" id="w_${k}" class="ck-whs" data-size="${esc(val)}" data-kind="whs" ${whsArr.includes(val)?'checked':''}></div>
+          <div class="smp-ck-wrap smp-ck-pck"><label for="p_${k}">Pck</label><input type="checkbox" id="p_${k}" class="ck-pck" data-size="${esc(val)}" data-kind="pck" ${pckArr.includes(val)?'checked':''}></div>
         </div>
       </div>`;
     }).join('');
+  }
+
+  // The legacy 'Snap' chip is appended only for a row that actually stores it,
+  // so an untouched row keeps (and can re-save) its own data while a new row
+  // is never offered the ambiguous value.
+  function capSizesFor(r, w, p) {
+    const carries = [...r, ...w, ...p].includes(LEGACY_CAP_SIZE);
+    return carries
+      ? [...SIZE_GROUPS.caps, { value:LEGACY_CAP_SIZE, label:'Snap (legacy)' }]
+      : SIZE_GROUPS.caps;
   }
 
   function renderAllSmpSizeGrids(reqStr, whsStr, pckStr) {
@@ -1093,7 +1343,7 @@
     const r=split(reqStr), w=split(whsStr), p=split(pckStr);
     renderSizeGrid('sizeGridMens',  SIZE_GROUPS.mens,  r, w, p);
     renderSizeGrid('sizeGridYouth', SIZE_GROUPS.youth, r, w, p);
-    renderSizeGrid('sizeGridCaps',  SIZE_GROUPS.caps,  r, w, p);
+    renderSizeGrid('sizeGridCaps',  capSizesFor(r,w,p), r, w, p);
   }
 
   function renderAllPtSizeGrids(reqStr, whsStr, pckStr) {
@@ -1101,7 +1351,7 @@
     const r=split(reqStr), w=split(whsStr), p=split(pckStr);
     renderSizeGrid('ptSizeGridMens',  SIZE_GROUPS.mens,  r, w, p);
     renderSizeGrid('ptSizeGridYouth', SIZE_GROUPS.youth, r, w, p);
-    renderSizeGrid('ptSizeGridCaps',  SIZE_GROUPS.caps,  r, w, p);
+    renderSizeGrid('ptSizeGridCaps',  capSizesFor(r,w,p), r, w, p);
   }
 
   function getCheckedSizes(kind, container) {
@@ -1173,30 +1423,103 @@
   }
 
   // ── product search (samples) ───────────────────────────────────────────────
+  // Two independent links live behind this one search box: a catalog product
+  // (products_master, stored in product_master_id) and a purchase order
+  // (po_headers, stored in po_header_id). The PO one is read back off the
+  // Purchase Order select rather than held in a second variable, so the chip
+  // can never disagree with what will actually be saved.
   function updateLinkedChip() {
     const chip = $('linkedProductChip');
+    const poSel = $('fldPoHeaderId');
+    const poId = poSel.value || '';
+    const poName = poId ? (poSel.selectedOptions[0]?.textContent || 'PO') : '';
+    const chips = [];
     if (linkedProductId && linkedProductTitle) {
-      chip.style.display = '';
-      chip.innerHTML = `<span class="smp-linked-chip">${esc(linkedProductTitle)}<button type="button" id="btnUnlinkProduct" title="Unlink">×</button></span>`;
-      $('btnUnlinkProduct').addEventListener('click', () => {
-        linkedProductId = null; linkedProductTitle = null;
-        $('fldProductMasterId').value = '';
+      chips.push(`<span class="smp-linked-chip">${esc(linkedProductTitle)}<button type="button" data-unlink="product" title="Unlink product">×</button></span>`);
+    }
+    if (poId) {
+      chips.push(`<span class="smp-linked-chip smp-linked-chip--po">PO · ${esc(poName)}<button type="button" data-unlink="po" title="Unlink PO">×</button></span>`);
+    }
+    if (!chips.length) { chip.style.display = 'none'; chip.innerHTML = ''; return; }
+    chip.style.display = '';
+    chip.className = 'smp-chip-row';
+    chip.innerHTML = chips.join('');
+    chip.querySelectorAll('[data-unlink]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.unlink === 'po') {
+          $('fldPoHeaderId').value = '';
+          SiloCombo.sync($('fldPoHeaderId'));
+        } else {
+          linkedProductId = null; linkedProductTitle = null;
+          $('fldProductMasterId').value = '';
+        }
         updateLinkedChip();
         $('prodSearchInput').value = '';
       });
-      $('prodSearchInput').value = '';
-      $('prodSearchResults').classList.remove('open');
-    } else {
-      chip.style.display = 'none';
-      chip.innerHTML = '';
-    }
+    });
+    $('prodSearchInput').value = '';
+    $('prodSearchResults').classList.remove('open');
   }
 
-  function linkProduct(id, title) {
-    linkedProductId = id || null;
-    linkedProductTitle = title || null;
-    $('fldProductMasterId').value = id || '';
+  // Fill a field only when it is empty: picking a PO should complete the
+  // drawer, never overwrite something a person typed.
+  function fillIfBlank(id, value) {
+    if (value == null || value === '') return;
+    const el = $(id);
+    if (el.value) return;
+    if (el.tagName === 'SELECT' && !Array.from(el.options).some(o => o.value === value)) return;
+    el.value = value;
+    if (el.tagName === 'SELECT') SiloCombo.sync(el);
+  }
+
+  function linkProduct(source, row) {
+    if (source === 'po_incoming') { linkSamplePo(row); return; }
+    linkedProductId = row?.id || null;
+    linkedProductTitle = row?.product_title || null;
+    $('fldProductMasterId').value = linkedProductId || '';
     updateLinkedChip();
+  }
+
+  // v_launch_po_product_lookup has no `id` column at all — it is grouped by
+  // (PO, product title), and its key is po_header_id. The old handler read
+  // r.id, got undefined, and set product_master_id='' : the click appeared to
+  // do nothing and nothing could be saved. A PO belongs in po_header_id.
+  function linkSamplePo(row) {
+    const poId = row?.po_header_id || null;
+    if (!poId) { setStatus('That PO result carries no PO id — cannot link it.', 'neg', 4000); return; }
+    ensurePoOption('fldPoHeaderId', poId, row.po_name);
+    $('fldPoHeaderId').value = poId;
+    SiloCombo.sync($('fldPoHeaderId'));
+    fillIfBlank('fldTitle', row.product_title);
+    fillIfBlank('fldProductType', row.product_type);
+    fillIfBlank('fldFactoryId', row.factory_id);
+    fillIfBlank('fldBulkEta', row.expected_arrival_date);
+    updateLinkedChip();
+    setStatus(describePoPick(row), 'pos', 5000);
+  }
+
+  // allPOs holds every po_headers row for the active company, so the option
+  // is normally already there — but a select that silently refuses a value is
+  // exactly how the original bug looked, so never rely on it.
+  function ensurePoOption(selectId, poId, poName) {
+    const sel = $(selectId);
+    if (Array.from(sel.options).some(o => o.value === poId)) return;
+    const o = document.createElement('option');
+    o.value = poId; o.textContent = poName || 'PO';
+    sel.appendChild(o);
+  }
+
+  // The units figure is v_launch_po_product_lookup.total_units: the SUM of
+  // every size line for this product on this PO (its GROUP BY is PO + product
+  // title), never one line's qty. Stated with the line count beside it so the
+  // number is checkable against the PO instead of taken on trust.
+  function describePoPick(row) {
+    const units = row.total_units != null ? Number(row.total_units) : null;
+    const lines = row.variant_count != null ? Number(row.variant_count) : null;
+    const qty = units != null
+      ? `${units.toLocaleString()} units${lines ? ` across ${lines} size line${lines !== 1 ? 's' : ''}` : ''}`
+      : 'no unit total on this PO';
+    return `Linked to ${row.po_name || 'PO'} · ${row.product_title || 'product'} — ${qty}.`;
   }
 
   $('prodSearchInput').addEventListener('input', () => {
@@ -1214,28 +1537,61 @@
   // ── product search (tracker) ───────────────────────────────────────────────
   function updatePtLinkedChip() {
     const chip = $('ptLinkedProductChip');
+    const chips = [];
     if (ptLinkedProductId && ptLinkedProductTitle) {
-      chip.style.display = '';
-      chip.innerHTML = `<span class="smp-linked-chip">${esc(ptLinkedProductTitle)}<button type="button" id="ptBtnUnlink" title="Unlink">×</button></span>`;
-      $('ptBtnUnlink').addEventListener('click', () => {
-        ptLinkedProductId = null; ptLinkedProductTitle = null;
-        $('ptFldProductMasterId').value = '';
+      chips.push(`<span class="smp-linked-chip">${esc(ptLinkedProductTitle)}<button type="button" data-pt-unlink="product" title="Unlink product">×</button></span>`);
+    }
+    if (ptLinkedPoId) {
+      chips.push(`<span class="smp-linked-chip smp-linked-chip--po">PO · ${esc(ptLinkedPoName || 'PO')}<button type="button" data-pt-unlink="po" title="Unlink PO">×</button></span>`);
+    }
+    if (!chips.length) { chip.style.display = 'none'; chip.innerHTML = ''; return; }
+    chip.style.display = '';
+    chip.className = 'smp-chip-row';
+    chip.innerHTML = chips.join('')
+      // Saying nothing here would mean the chip claims a link the save cannot
+      // make. It is shown, and it is labelled for what it is.
+      + (ptLinkedPoId && !ptTrackerHasPoColumn
+        // Migration 20260915230000 adds product_tracker.po_header_id.
+        ? '<div class="smp-chip-note" style="flex-basis:100%;">Used to fill this form — storing the PO link itself needs a database update that has not been applied yet.</div>'
+        : '');
+    chip.querySelectorAll('[data-pt-unlink]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.ptUnlink === 'po') { ptLinkedPoId = null; ptLinkedPoName = null; }
+        else { ptLinkedProductId = null; ptLinkedProductTitle = null; $('ptFldProductMasterId').value = ''; }
         updatePtLinkedChip();
         $('ptProdSearchInput').value = '';
       });
-      $('ptProdSearchInput').value = '';
-      $('ptProdSearchResults').classList.remove('open');
-    } else {
-      chip.style.display = 'none';
-      chip.innerHTML = '';
-    }
+    });
+    $('ptProdSearchInput').value = '';
+    $('ptProdSearchResults').classList.remove('open');
   }
 
-  function ptLinkProduct(id, title) {
-    ptLinkedProductId = id || null;
-    ptLinkedProductTitle = title || null;
-    $('ptFldProductMasterId').value = id || '';
+  function ptLinkProduct(source, row) {
+    if (source === 'po_incoming') { ptLinkPo(row); return; }
+    ptLinkedProductId = row?.id || null;
+    ptLinkedProductTitle = row?.product_title || null;
+    $('ptFldProductMasterId').value = ptLinkedProductId || '';
     updatePtLinkedChip();
+  }
+
+  function ptLinkPo(row) {
+    const poId = row?.po_header_id || null;
+    if (!poId) { setStatus('That PO result carries no PO id — cannot link it.', 'neg', 4000); return; }
+    ptLinkedPoId = poId;
+    ptLinkedPoName = row.po_name || 'PO';
+    // Expected Units is labelled "(from the originating PO)" and nothing ever
+    // put a PO number in it — so it was typed by hand, one size line at a
+    // time. total_units is the PO's whole line set for this product summed
+    // (6 sizes of a tee = 325, not the 75 on whichever line was read first),
+    // and it is overwritten rather than filled-if-blank precisely because
+    // replacing a single-size figure with the combined one is the point.
+    if (row.total_units != null) $('ptFldExpectedUnits').value = Number(row.total_units);
+    fillIfBlank('ptFldTitle', row.product_title);
+    fillIfBlank('ptFldProductType', row.product_type);
+    fillIfBlank('ptFldFactoryId', row.factory_id);
+    fillIfBlank('ptFldBulkEta', row.expected_arrival_date);
+    updatePtLinkedChip();
+    setStatus(describePoPick(row), 'pos', 5000);
   }
 
   $('ptProdSearchInput').addEventListener('input', () => {
@@ -1252,6 +1608,7 @@
 
   // ── shared product search runner ───────────────────────────────────────────
   document.addEventListener('click', e => {
+    if (!e.target.closest('.smp-combo')) SiloCombo.closeAll();
     if (!e.target.closest('.smp-prod-search') && !e.target.closest('#prodSource') && !e.target.closest('#ptProdSource')) {
       $('prodSearchResults').classList.remove('open');
       $('ptProdSearchResults').classList.remove('open');
@@ -1287,20 +1644,26 @@
 
     results.innerHTML = rows.map(r => {
       const title = r.product_title || 'Unnamed';
+      // total_units is already summed over every size line of this product on
+      // this PO — show it, with the line count, so the combined figure is
+      // visible BEFORE it is picked rather than taken on trust afterwards.
       const meta = source === 'po_incoming'
-        ? [r.po_name, r.product_type, r.factory_name, r.expected_arrival_date ? `ETA ${r.expected_arrival_date}` : null].filter(Boolean).join(' · ')
+        ? [r.po_name, r.product_type, r.factory_name,
+           r.total_units != null ? `${Number(r.total_units).toLocaleString()} units` : null,
+           r.variant_count ? `${r.variant_count} size line${Number(r.variant_count) !== 1 ? 's' : ''}` : null,
+           r.expected_arrival_date ? `ETA ${r.expected_arrival_date}` : null].filter(Boolean).join(' · ')
         : [r.product_type, r.vendor_original, r.variant_count ? `${r.variant_count} variants` : null].filter(Boolean).join(' · ');
-      const id = r.id || null;
-      return `<div class="smp-prod-hit" data-id="${esc(String(id||''))}" data-title="${esc(title)}">
+      return `<div class="smp-prod-hit">
         <div class="smp-prod-hit-title">${esc(title)}</div>
         <div class="smp-prod-hit-meta">${esc(meta)}</div>
       </div>`;
     }).join('');
 
-    results.querySelectorAll('.smp-prod-hit').forEach(row => {
-      row.addEventListener('click', () => {
-        onSelect(row.dataset.id, row.dataset.title);
-      });
+    // The whole row object goes to the handler, not a scraped data-id: a
+    // po_incoming row has no `id` (the view is grouped by PO + title and keys
+    // on po_header_id), which is exactly why reading data-id silently failed.
+    results.querySelectorAll('.smp-prod-hit').forEach((el, i) => {
+      el.addEventListener('click', () => onSelect(source, rows[i]));
     });
   }
 
@@ -1423,6 +1786,24 @@
     allTrackerItems=data||[];
   }
 
+  // product_tracker.po_header_id arrives with 20260915230000, and merging a PR
+  // does not apply a migration — so the page probes for the column once and
+  // works either way rather than assuming a deploy order. A missing column
+  // comes back as 42703; anything else (an RLS refusal, a network failure) is
+  // NOT treated as "column absent", or one bad request would quietly stop the
+  // link being saved on a database that has it.
+  async function detectTrackerPoColumn() {
+    const {error}=await sb.from('product_tracker').select('po_header_id').limit(1);
+    // ONLY an undefined-column answer means the migration is not applied.
+    // Any other failure (network, RLS, a transient 5xx) leaves the column
+    // treated as present: if it really is missing the save then fails loudly
+    // and visibly, which beats one bad request silently deciding that PO
+    // links stop being stored on a database that has the column.
+    const missing = !!error && (error.code==='42703' || /po_header_id/.test(error.message||''));
+    ptTrackerHasPoColumn = !missing;
+    if(error && !missing) console.warn('product_tracker.po_header_id probe failed, assuming present:', error);
+  }
+
   async function loadSampleTrackerLinks() {
     const {data,error}=await sb.from('product_sample_tracker_links').select('id,sample_id,tracker_id');
     if(error) throw error;
@@ -1468,6 +1849,7 @@
     sel.options[0].textContent=blank;
     items.forEach(item=>{ const o=document.createElement('option'); o.value=valFn(item); o.textContent=lblFn(item); sel.appendChild(o); });
     sel.value=cur;
+    SiloCombo.sync(sel);
   }
 
   function populateLaunchFilter() {
@@ -1475,6 +1857,7 @@
     while(sel.options.length>2) sel.remove(2);
     allLaunches.forEach(l=>{const o=document.createElement('option');o.value=l.id;o.textContent=l.title;sel.appendChild(o);});
     sel.value=cur;
+    SiloCombo.sync(sel);
   }
 
   function populatePtFilters() {
@@ -1482,11 +1865,13 @@
     while(lSel.options.length>1) lSel.remove(1);
     allLaunches.forEach(l=>{const o=document.createElement('option');o.value=l.id;o.textContent=l.title;lSel.appendChild(o);});
     lSel.value=lCur;
+    SiloCombo.sync(lSel);
 
     const tSel=$('ptTypeFilter'); const tCur=tSel.value;
     while(tSel.options.length>1) tSel.remove(1);
     allProductTypes.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;tSel.appendChild(o);});
     tSel.value=tCur;
+    SiloCombo.sync(tSel);
   }
 
   function populateDrawerSelects(sample) {
@@ -1500,6 +1885,7 @@
     $('fldLaunchId').value   = sample?.launch_id    || '';
     $('fldPoHeaderId').value = sample?.po_header_id || '';
     $('fldAssignedTo').value = sample?.assigned_to  || '';
+    SiloCombo.syncAll();
   }
 
   function populatePtDrawerSelects(item) {
@@ -1509,6 +1895,7 @@
     $('ptFldFactoryId').value   = item?.factory_id   || '';
     $('ptFldProductType').value = item?.product_type || '';
     $('ptFldLaunchId').value    = item?.launch_id    || '';
+    SiloCombo.syncAll();
   }
 
   // ── sample table ──────────────────────────────────────────────────────────
@@ -1677,6 +2064,16 @@
       // a bogus id.
       if(fromTracker.id) linkedTrackerIds=[fromTracker.id];
       if(fromTracker.request_source) pendingRequestSource=fromTracker.request_source;
+      // These three are searchable selects, and the only sync so far ran
+      // inside populateDrawerSelects ABOVE -- before these values existed.
+      // Two unrelated things happen to refresh them today (the option-list
+      // MutationObserver firing a microtask later, and the document click
+      // that opened this drawer reaching closeAll), so the labels are right
+      // by accident: disable either and the other still covers it. Neither is
+      // about this prefill, and a drawer opened without a click, or a future
+      // fast path that skips fillSelect, would show a stale label over a
+      // value that saves correctly -- the screen disagreeing with the write.
+      SiloCombo.syncAll();
     }
 
     $('prodSearchInput').value='';
@@ -2021,6 +2418,8 @@
 
     ptLinkedProductId    = item?.product_master_id     || null;
     ptLinkedProductTitle = item?.product_title_snapshot || null;
+    ptLinkedPoId         = item?.po_header_id          || null;
+    ptLinkedPoName       = ptLinkedPoId ? (allPOs.find(po=>po.id===ptLinkedPoId)?.po_name || 'PO') : null;
     $('ptProdSearchInput').value='';
     $('ptProdSearchResults').classList.remove('open');
     updatePtLinkedChip();
@@ -2075,6 +2474,7 @@
     $('ptDrawer').classList.remove('open');
     $('ptDrawer').setAttribute('aria-hidden','true');
     ptDrawerItem=null; ptLinkedProductId=null; ptLinkedProductTitle=null;
+    ptLinkedPoId=null; ptLinkedPoName=null;
   }
 
   // ── product tracker save/delete ────────────────────────────────────────────
@@ -2105,6 +2505,10 @@
       is_live:                $('ptFldLive').checked,
       notes:                  $('ptFldNotes').value.trim()  || null,
     };
+    // Omitted entirely until 20260915230000 is applied — sending an unknown
+    // column fails the whole write, which would turn "the PO link is not
+    // stored yet" into "nothing on this page saves at all".
+    if(ptTrackerHasPoColumn) payload.po_header_id = ptLinkedPoId || null;
 
     setStatus('Saving…','info');
     let error, trackerId=ptDrawerItem?.id||null;
@@ -2137,6 +2541,10 @@
       launch_id:      fields.launch_id,
     };
     if(_co?.id) readinessPayload.company_entity_id=_co.id;
+    // Only SET the PO name, never clear it: the Launch Calendar's own product
+    // form writes this same field, and an update that always included the key
+    // would blank whatever was typed there whenever no PO is linked here.
+    if(ptLinkedPoName) readinessPayload.po_number=ptLinkedPoName;
     if(existing){
       await sb.from('launch_product_readiness').update(readinessPayload).eq('id',existing.id);
     } else {
@@ -2215,6 +2623,9 @@
 
   $('fldLaunchId').addEventListener('change', updateSmpLaunchOpenLink);
   $('ptFldLaunchId').addEventListener('change', updatePtLaunchOpenLink);
+  // The PO chip is a view over this select, so it has to follow a manual
+  // change here as well as a pick from the PO/Incoming search.
+  $('fldPoHeaderId').addEventListener('change', updateLinkedChip);
 
   // ── tab switching ──────────────────────────────────────────────────────────
   function switchTab(tab) {
@@ -2430,7 +2841,11 @@
         <option value="">${esc(f.label)}: all</option>
         ${ctDistinct(f.key).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}
       </select></div>`).join('');
-    document.querySelectorAll('.ct-filter').forEach(sel=>sel.addEventListener('change',()=>{ ctPage=0; renderCatalog(); }));
+    const ctSels=[...document.querySelectorAll('.ct-filter')];
+    ctSels.forEach(sel=>sel.addEventListener('change',()=>{ ctPage=0; renderCatalog(); }));
+    // enhanceAll prunes first, which matters here: this rebuilds
+    // #ctFilterSelects wholesale, so the previous selects are now detached.
+    SiloCombo.enhanceAll(ctSels);
   }
 
   function ctFiltered(){
@@ -2665,8 +3080,18 @@
       }
       currentUser=data.session.user;
     }
+    // Every select here with more than a handful of options: 141 factories,
+    // every PO, every launch, ~130 product types. The short fixed-choice ones
+    // (statuses, photo status, has-samples) stay native — a search box over
+    // four options is worse than the dropdown it replaces. Enhanced before the
+    // data loads, since the control re-reads its options whenever they change.
+    SiloCombo.enhanceAll([
+      'fLaunchFilter', 'ptLaunchFilter', 'ptTypeFilter',
+      'fldFactoryId', 'fldProductType', 'fldLaunchId', 'fldPoHeaderId', 'fldAssignedTo',
+      'ptFldFactoryId', 'ptFldProductType', 'ptFldLaunchId',
+    ]);
     try {
-      await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems(), loadSampleTrackerLinks()]);
+      await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems(), loadSampleTrackerLinks(), detectTrackerPoColumn()]);
       populateLaunchFilter();
       populatePtFilters();
       renderKPIs();
@@ -2682,6 +3107,7 @@
       else if(tabParam==='pipeline') switchTab('tracker');
       const photoParam=qp.get('photo');
       if(photoParam && tabParam==='pipeline'){ $('ptPhotoFilter').value=photoParam; renderTrackerTable(); }
+      SiloCombo.syncAll();
       const itemId=qp.get('item'), sampleId=qp.get('sample');
       if(itemId){
         const t=allTrackerItems.find(x=>x.id===itemId);
