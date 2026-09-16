@@ -203,6 +203,61 @@ date branch and keeps its window.
 **This commit landed after the last independent review**, so nothing in it has
 been reviewed by the automation. See the readiness assessment on the PR.
 
+## The second trace: Sonic, 2026-09-16 (`b44e03ab-ca29-47d5-b546-492d217cd964`)
+
+Replayed from `diagnostics` rather than re-derived, which is what that column was
+added for. 13 queries, **18.3s of database time inside a 138s request** — the
+budget went on model round-trips, not on SQL.
+
+Three failures, and the reason each one is a CODE fix here rather than another
+prompt rule:
+
+**A guessed column ended the investigation.** The statement that would have
+isolated Sonic ad spend ran in the last round as `min(date)` against
+`meta_ad_performance_daily`, whose column is `day_date`. It failed in 110ms, the
+loop was already past the wall-clock guard, and the answer shipped listing that
+measure as unchecked. The request had already called `describe_relations` **on
+that table** and been handed every column with its type; the schema map says
+"never guess a column that isn't listed"; the 45s investigation checkpoint had
+fired. Three interventions, all upstream, all ineffective. So `annotateColumnError`
+now answers from the catalog — real columns of the relations the statement reads,
+closest-by-name first — and one round is held back to use it (at most one per
+request, never after a timeout, only inside the gateway margin).
+
+**A pooled channel was published as "online".** The sales result's envelope said
+`pooled_across: location_tag`; no statement in the request restricted channel;
+the answer said *"14 Sonic products, online sales_by_day"* — wrong channel and
+wrong source. The prompt rule for exactly this ("A FIGURE MAY ONLY WEAR A LABEL
+ITS RESULT SUPPORTS") was already in place. `auditAnswerClaims` now checks the
+finished answer against the envelopes it was written from and appends a visible
+scope note. It **annotates and never rewrites**: it is a word search over prose,
+it will flag "online" in a sentence entitled to it, and it will miss a channel
+claim phrased without any of its terms.
+
+**A period boundary came from nowhere.** The planning record answered the launch
+date (2026-09-01) and showed `preview_start_date` NULL on every Sonic row — it
+does not say when prelaunch began. The sales query then ran
+`between '2026-08-01' and '2026-09-15'`, and every "before the launch" figure
+rests on an 1 August that appears in no earlier result. The envelope reported a
+clean window, because as far as the statement went it was one. Date literals now
+carry `boundary_provenance`: `from_results`, `from_question`, or `unsourced`.
+
+### Deliberate limitations
+
+- **`campaign_name` is not a claim dimension.** "the campaign" is the phrase that
+  would catch the two-campaigns-as-one failure and is far too common in
+  legitimate prose to flag without crying wolf.
+- **`totals_only` is not treated as pooled.** `marketing_daily_totals_v` and
+  `meta_ad_performance_daily` both lack a `platform` column; every row in the
+  second is Meta's, every row in the first spans three platforms, and the
+  envelope cannot tell them apart. Feeding `totals_only` in would flag "Meta"
+  every time a Meta-only table is aggregated. The cost: a figure taken *only*
+  from that view and called "Meta" is missed by this route — caught by the
+  pooled route whenever the same request also reads `marketing_kpis_daily`,
+  which is what the 2026-09-16 request did.
+- **Provenance is per-literal, not per-claim.** It says a boundary was chosen; it
+  cannot say whether the answer admitted that.
+
 ## Tests, and the line between them
 
 `evidence-scope.test.mjs`, `handler.test.mjs` and `prompt.test.mjs` are

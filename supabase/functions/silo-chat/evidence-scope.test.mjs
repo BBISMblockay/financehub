@@ -14,10 +14,12 @@
 import {
   SCOPE_COLUMNS, QUERY_ROW_CAP, denoise, cteNames, relationsInStatement,
   dateLiteralsIn, buildCatalogIndex, describeEvidenceScope, renderQueryResult,
+  auditAnswerClaims, unresolvedDimensions, formatClaimNote, CLAIM_DIMENSIONS,
 } from './evidence-scope.mjs';
 import {
   CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL,
   PER_PLATFORM_ROWS, WEEKLY_BUCKET_SQL, WEEKLY_BUCKET_ROWS, CREATIVE_MATCH_SQL,
+  SONIC_TITLE_SALES_SQL, SONIC_ANSWER_CHANNEL_CLAIM,
 } from './evidence-fixtures.mjs';
 
 let failures = 0;
@@ -291,6 +293,143 @@ test('the bucketed single-range query keeps its window (no false positive)', () 
   const s = scopeOf(WEEKLY_BUCKET_SQL);
   eq(s.date_scope.window, { from: '2026-08-17', to: '2026-09-13' }, 'window');
   assert(!s.date_scope.periods, 'a bucketed single range was reported as several periods');
+});
+
+console.log('\n-- SONIC: a period boundary that came from nowhere --');
+
+// The 2026-09-16 request asked whether prelaunch advertising paid off. Its
+// first query answered the launch date from the planning record and showed
+// preview_start_date NULL on every Sonic row -- the record does not say when
+// prelaunch began. The sales query then ran `between '2026-08-01' and
+// '2026-09-15'` and every "before the launch" figure rests on that 1 August.
+const sonicKnown = { results: new Set(['2026-09-01', '2026-09-03', '2026-09-15']), question: new Set() };
+
+test('a boundary that appears in no earlier result is marked unsourced', () => {
+  const s = describeEvidenceScope(SONIC_TITLE_SALES_SQL, INDEX, { knownDates: sonicKnown });
+  const p = s.date_scope.boundary_provenance;
+  assert(p, `no provenance recorded: ${JSON.stringify(s.date_scope)}`);
+  eq(p.unsourced, ['2026-08-01'], 'unsourced boundaries');
+  eq(p.from_results, ['2026-09-15'], 'boundaries traceable to a queried value');
+});
+
+test('...and is named an assumption rather than a measurement', () => {
+  const p = describeEvidenceScope(SONIC_TITLE_SALES_SQL, INDEX, { knownDates: sonicKnown }).date_scope.boundary_provenance;
+  assert(/ASSUMPTION, not a measurement/.test(p.note), `note: ${p.note}`);
+  assert(/say so in the answer/.test(p.note), 'the answer is not asked to state it');
+});
+
+test('a date the person supplied is sourced, not invented', () => {
+  const s = describeEvidenceScope(SONIC_TITLE_SALES_SQL, INDEX, {
+    knownDates: { results: new Set(['2026-09-15']), question: new Set(['2026-08-01']) },
+  });
+  const p = s.date_scope.boundary_provenance;
+  eq(p.from_question, ['2026-08-01'], 'question-supplied dates');
+  assert(!p.unsourced, 'a date the person gave was called invented');
+  assert(!p.note, 'a fully sourced window was given a warning');
+});
+
+test('provenance rides along with an unreadable period too', () => {
+  const s = describeEvidenceScope(
+    "select sum(spend) from marketing_kpis_daily where day_date >= '2026-08-01'",
+    INDEX, { knownDates: { results: new Set(), question: new Set() } },
+  );
+  assert(s.date_scope.boundary_provenance.unsourced.includes('2026-08-01'),
+    'provenance is only attached to clean windows');
+});
+
+test('with no provenance supplied at all, nothing is claimed either way', () => {
+  // Older callers, and the concept workflow, pass no knownDates. Every literal
+  // would then be "unsourced", which is noise rather than information -- but it
+  // is the safe direction, so it is asserted rather than special-cased away.
+  const s = describeEvidenceScope(SONIC_TITLE_SALES_SQL, INDEX, {});
+  eq(s.date_scope.boundary_provenance.unsourced, ['2026-08-01', '2026-09-15'], 'no-provenance case');
+});
+
+console.log('\n-- SONIC: "online" on a result that pooled every channel --');
+
+const sonicSalesScope = () => [describeEvidenceScope(SONIC_TITLE_SALES_SQL, INDEX, {})];
+
+test('the channel word is flagged when nothing resolved the channel', () => {
+  const flags = auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, sonicSalesScope());
+  eq(flags.length, 1, `flags: ${JSON.stringify(flags)}`);
+  eq(flags[0].label, 'sales channel', 'label');
+  eq(flags[0].terms, ['online'], 'terms');
+});
+
+test('...and the note says the figures are real but the label is not', () => {
+  const note = formatClaimNote(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, sonicSalesScope()));
+  assert(/Scope check \(automatic\)/.test(note), 'no scope-check heading');
+  assert(/the figures are real, the label on them was not established/.test(note), 'the distinction is missing');
+  assert(/can be wrong in both directions/.test(note), 'the check does not admit its own fallibility');
+});
+
+test('a request that DID narrow the channel is not flagged', () => {
+  const narrowed = [describeEvidenceScope(
+    "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'", INDEX, {},
+  )];
+  eq(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, narrowed), [], 'a narrowed request was flagged');
+});
+
+test('...nor one where ANOTHER result broke the channel out per value', () => {
+  // Grouping by a dimension earns the right to name one of its values. The
+  // pooled result has to be present too, or this passes vacuously: a grouped
+  // column is never in pooled_across in the first place, so a lone grouped
+  // result could not be flagged whatever unresolvedDimensions did. Mutation
+  // testing caught the earlier version of this test doing exactly that.
+  const mixed = [...sonicSalesScope(), describeEvidenceScope(
+    'select location_tag, sum(net_sales) from sales_by_product_title_daily_v group by location_tag', INDEX, {},
+  )];
+  eq(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed), [], 'grouping elsewhere did not resolve the dimension');
+});
+
+test('resolving it in ANY result of the request clears it for all of them', () => {
+  const mixed = [...sonicSalesScope(), describeEvidenceScope(
+    "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'", INDEX, {},
+  )];
+  eq(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed), [], 'one pooled result outvoted a narrowed one');
+});
+
+test('totals_only is deliberately NOT treated as pooled, and that is a trade', () => {
+  // marketing_daily_totals_v carries no platform column, so platform appears in
+  // totals_only. So does meta_ad_performance_daily's -- and every row THERE is
+  // Meta's, where every row here spans three platforms. The envelope cannot
+  // tell those apart, so feeding totals_only into the pooled set would flag the
+  // word "Meta" every time a Meta-only table is aggregated, which is constant.
+  //
+  // The cost is real and is stated rather than hidden: a figure taken ONLY from
+  // this view and called "Meta" is not caught by this route. It is caught by
+  // the pooled route whenever the same request also reads marketing_kpis_daily,
+  // which carries platform -- which is what the 2026-09-16 request did.
+  const totalsOnly = [describeEvidenceScope('select sum(ad_spend) from marketing_daily_totals_v', INDEX, {})];
+  eq(auditAnswerClaims('Meta ad spend reached $118,946 that week.', totalsOnly), [],
+    'totals_only was fed into the pooled set');
+});
+
+test('a platform word IS flagged when a multi-platform relation was pooled', () => {
+  const pooled = [describeEvidenceScope(
+    "select sum(spend) from marketing_kpis_daily where day_date between '2026-08-24' and '2026-08-30'", INDEX, {},
+  )];
+  eq(auditAnswerClaims('Meta ad spend reached $118,946 that week.', pooled).map((f) => f.label),
+    ['ad platform'], 'the trace-1 shape was not flagged');
+});
+
+test('word boundaries hold, so common words do not misfire', () => {
+  const pooled = sonicSalesScope();
+  eq(auditAnswerClaims('The position of each product in the metadata was unchanged.', pooled), [],
+    '"pos" matched inside "position", or "meta" inside "metadata"');
+});
+
+test('an empty answer is not audited', () => {
+  eq(auditAnswerClaims('', sonicSalesScope()), [], 'empty answer');
+  eq(formatClaimNote([]), '', 'a note was produced with no flags');
+});
+
+test('unresolvedDimensions is the whole basis, and excludes count as resolved', () => {
+  const excl = [describeEvidenceScope(
+    "select sum(net_sales) from sales_by_product_title_daily_v where location_tag <> 'retail'", INDEX, {},
+  )];
+  assert(!unresolvedDimensions(excl).has('location_tag'), 'an exclusion left the dimension unresolved');
+  assert(CLAIM_DIMENSIONS.some((d) => d.columns.includes('location_tag')), 'channel is not a claim dimension');
 });
 
 console.log('\n-- the derivation does not overclaim --');

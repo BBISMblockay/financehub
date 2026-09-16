@@ -110,6 +110,22 @@ export const CATALOG_FIXTURE = [
     ],
   },
   {
+    relname: 'sales_by_product_title_daily_v',
+    relkind: 'view',
+    keywords: ['sales', 'product', 'title'],
+    description:
+      'Sales rolled up from SKU variants to product title, per location per day.',
+    columns: [
+      { name: 'company_entity_id', type: 'uuid' }, { name: 'product_title', type: 'text' },
+      { name: 'title_source', type: 'text' }, { name: 'product_type', type: 'text' },
+      { name: 'location_tag', type: 'text' }, { name: 'day_date', type: 'date' },
+      { name: 'variant_skus', type: 'bigint' }, { name: 'units_sold', type: 'bigint' },
+      { name: 'orders', type: 'bigint' }, { name: 'gross_sales', type: 'numeric' },
+      { name: 'discounts', type: 'numeric' }, { name: 'refunds', type: 'numeric' },
+      { name: 'net_sales', type: 'numeric' },
+    ],
+  },
+  {
     relname: 'launch_calendar',
     relkind: 'table',
     keywords: ['launch', 'drop', 'campaign'],
@@ -223,3 +239,39 @@ export const CREATIVE_MATCH_BY_CAMPAIGN_ROWS = [
   { campaign_name: 'Purchase Campaigns', spend: 25488.06, leads: 650 },
   { campaign_name: 'Subscribers', spend: 0.0, leads: 8 },
 ];
+
+/** Trace b44e03ab (2026-09-16), R1: the planning record. It ANSWERS the launch
+ *  date and is SILENT on when prelaunch began -- `preview_start_date` is null on
+ *  every Sonic row, as are the budget fields the question asked about. The
+ *  answer went on to treat 2026-08-01 as the prelaunch boundary. */
+export const SONIC_LAUNCH_SQL = `select id, title, launch_date, launch_end_date, preview_start_date, status,
+  expected_units, preview_marketing_budget, actual_preview_spend
+from launch_calendar
+where title ilike '%sonic%' or collection_name ilike '%sonic%'
+order by launch_date`;
+
+export const SONIC_LAUNCH_ROWS = [
+  { id: 'l1', title: 'Baseballism x Sonic the Hedgehog', launch_date: '2026-09-01', launch_end_date: null, preview_start_date: null, status: 'Launched', expected_units: 8000, preview_marketing_budget: null, actual_preview_spend: null },
+  { id: 'l2', title: 'Sonic ICYMI', launch_date: '2026-09-03', launch_end_date: null, preview_start_date: null, status: 'Launched', expected_units: null, preview_marketing_budget: null, actual_preview_spend: null },
+];
+
+/** R8: 192 rows of Sonic sales with NO channel predicate. The live envelope
+ *  reported location_tag pooled; the answer called the figures "online". */
+export const SONIC_TITLE_SALES_SQL = `select product_title, day_date, sum(units_sold) as units, sum(net_sales) as net, sum(orders) as orders
+from sales_by_product_title_daily_v
+where product_title ilike '%sonic%' and day_date between '2026-08-01' and '2026-09-15'
+group by product_title, day_date
+order by product_title, day_date`;
+
+/** R13: the statement that would have isolated Sonic ad spend, with the column
+ *  guess that killed it. meta_ad_performance_daily's date column is day_date. */
+export const SONIC_AD_SPEND_SQL = `select ad_id, campaign_id, min(date) as first_day, max(date) as last_day,
+  sum(spend) as spend, sum(conversions) as conversions
+from meta_ad_performance_daily
+where ad_id in ('52607262852549','52608143563949')
+group by ad_id, campaign_id`;
+
+/** The sentence the 2026-09-16 answer actually published, trimmed. */
+export const SONIC_ANSWER_CHANNEL_CLAIM =
+  'Sales \u2014 14 Sonic products, online sales_by_day, Aug 1 \u2013 Sep 15 2026: sales are overwhelmingly '
+  + 'concentrated on launch day itself, with 924 units on 9/1 falling to single digits within a week.';

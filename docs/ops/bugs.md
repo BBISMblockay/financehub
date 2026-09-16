@@ -12,6 +12,47 @@ No open P1s.
 
 ---
 
+## Ask SILO's 30s query budget has never been in effect (P2)
+
+`chat_run_readonly_query` declares `set local statement_timeout = '30s'`. It does
+not govern. `SET LOCAL` cannot re-arm the timeout of the statement already
+running, and a PostgREST RPC *is* that statement, so the **caller's** timeout
+wins — and the `authenticated` role carries `statement_timeout=8s`.
+
+**Measured through the RPC, 2026-09-16.** A `select pg_sleep(10)`:
+
+| caller `statement_timeout` | outcome |
+|---|---|
+| 20s | succeeded |
+| 4s | cancelled |
+
+If the function's 30s governed, the 4s case would have passed.
+
+**Production agrees.** Across all 54 queries in `silo_chat_audit_log.diagnostics`:
+every timeout at **8,105 / 8,263 / 8,285 ms**, longest successful query
+**7,816 ms**. Nothing has ever run past ~8.3s.
+
+**Why it matters beyond the number.** A heavy query costs a whole tool round to
+discover it cannot run, and `WALL_CLOCK_BUDGET_MS`, `MAX_TOOL_ROUNDS` and the
+CLAUDE.md note that raising 10s → 30s "removed the accidental wall-clock
+governor" are all reasoned against 30s. On the 2026-09-16 Sonic request one
+query died at 8.3s and another spent 6.1s, together burning a round out of six.
+
+**Not obvious what the fix is, which is why this is filed rather than patched.**
+Raising the `authenticated` default widens every query in the app, and 8s is
+load-bearing elsewhere (it is why `wow_sales_daily_type_mv` exists).
+`ALTER FUNCTION … SET statement_timeout` is the obvious candidate and is
+probably inert for the same reason — untested. The honest minimum is to stop
+declaring 30s and correct CLAUDE.md, so nothing downstream keeps reasoning
+against a number that has never held.
+
+**What it does NOT block:** the Sonic acceptance tests. Those assert column
+correction, date provenance, channel labelling and partial-answer structure —
+none depends on how long a query may run. It changes how often the budget path
+is *reached*, not what happens on it.
+
+---
+
 ## Common (P2)
 
 | **P3 — the `Header.StartPeriod` check on a trial balance can never fire.** `20260915210000` checks each report's declared `StartPeriod` against the ledger's start date. For the GeneralLedger that is a real check. For the TrialBalance it is vacuous: **QBO ignores `start_date` on that report and echoes the requested value back in the header** (measured 2026-09-15 — two runs asking for `2025-08-01` and `2026-01-01` returned byte-identical rows, `0ebb2460535dd4f69dc885eb3c62761a`). It produces no false refusals, so it is not urgent; the risk is false assurance, since the migration's own comment claims it catches "QBO answering for a different range than it was asked". Removing or re-scoping it needs another `archive_qbo_ledger` re-creation, which is why it is recorded rather than done. The practical protection is the fiscal-year buttons on `/v2/accounting-books.html`, which make a non-reconcilable window unreachable. See `docs/ops/qbo-history.md` | Open — low priority, no false refusals |

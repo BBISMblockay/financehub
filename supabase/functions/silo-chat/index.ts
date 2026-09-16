@@ -405,8 +405,10 @@ import {
   looksInspectable,
 } from './seo-lib.mjs';
 import {
+  auditAnswerClaims,
   buildCatalogIndex,
   describeEvidenceScope,
+  formatClaimNote,
   relationsInStatement,
   renderQueryResult,
 } from './evidence-scope.mjs';
@@ -711,10 +713,13 @@ function annotateColumnError(
 ): string {
   const hints = KNOWN_COLUMN_ERRORS.filter((c) => c.pattern.test(message)).map((c) => c.hint);
 
-  // Postgres names the offending identifier, which is the whole reason this
-  // can be mechanical. Both shapes appear: a bare column and a qualified one.
-  const named = /column\s+"?([a-z_][a-z0-9_]*)"?(?:\.\s*"?([a-z_][a-z0-9_]*)"?)?\s+does not exist/i.exec(message)
-    || /column\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\s+does not exist/i.exec(message);
+  // Postgres names the offending identifier, which is the whole reason this can
+  // be mechanical. One pattern covers every shape it actually emits -- bare,
+  // qualified, and either of those quoted -- and the qualified capture wins
+  // because `column m.date does not exist` is about `date`, not about `m`. A
+  // second alternative sat here for the qualified case until the four shapes
+  // below were tested against this one and it turned out to be unreachable.
+  const named = /column\s+"?([a-z_][a-z0-9_]*)"?(?:"?\.\s*"?([a-z_][a-z0-9_]*)"?)?\s+does not exist/i.exec(message);
   const wanted = named ? (named[2] || named[1]) : null;
 
   if (wanted && sql && catalogIndex) {
@@ -1551,6 +1556,28 @@ Deno.serve(async (req: Request) => {
     // front of it at all.
     const describedRelations: string[] = [];
     let describeCallsUsed = 0;
+    // WHERE A DATE IN A STATEMENT CAME FROM. Seeded with what the person wrote
+    // and with today, then grown from the values queries actually return, so a
+    // period boundary can be told apart from one the model picked. See
+    // boundaryProvenance in evidence-scope.mjs for the failure this answers.
+    const ISO_DATE = /\d{4}-\d{2}-\d{2}/g;
+    const MAX_KNOWN_DATES = 2000;
+    const knownDates = {
+      results: new Set<string>(),
+      question: new Set<string>([
+        ...String(history.map((m) => m?.content || '').join(' ')).match(ISO_DATE) || [],
+        new Date().toISOString().slice(0, 10),
+      ]),
+    };
+    const harvestDates = (rows: unknown) => {
+      if (knownDates.results.size >= MAX_KNOWN_DATES) return;
+      try {
+        for (const d of JSON.stringify(rows ?? null).match(ISO_DATE) || []) {
+          if (knownDates.results.size >= MAX_KNOWN_DATES) break;
+          knownDates.results.add(d);
+        }
+      } catch { /* a result that will not serialise tells us nothing; not worth failing over */ }
+    };
     // Concepts created/updated/approved during THIS request, keyed by id so
     // a concept revised twice in one turn is returned once, in its final
     // state. Returned alongside the answer so the client can render the
@@ -1620,11 +1647,20 @@ Deno.serve(async (req: Request) => {
           company_changed: true,
         }, 409);
       }
+      // THE ANSWER, CHECKED AGAINST THE ENVELOPES IT WAS WRITTEN FROM. See
+      // auditAnswerClaims: on 2026-09-16 a sales result whose envelope said
+      // `pooled_across: location_tag` was published as "online" sales, with the
+      // prompt rule against exactly that already in place. The note is appended
+      // rather than substituted, and the answer text is never altered -- a word
+      // search must not be allowed to rewrite a correct answer.
+      const claimFlags = auditAnswerClaims(text, queryLog.map((q) => q.scope));
       // Carry the status IN the persisted answer. Existing clients save and
-      // recover answer text but do not retain the response's partial fields.
-      const answer = opts.partial
+      // recover answer text but do not retain the response's partial fields --
+      // and the scope note has to survive that same round trip, since an answer
+      // recovered without it reads as verified.
+      const answer = (opts.partial
         ? `**Partial answer:** ${opts.partial}.\n\n${text}`
-        : text;
+        : text) + formatClaimNote(claimFlags);
       const audited = await logAudit(callerClient!, {
         requestId,
         question,
@@ -1636,6 +1672,7 @@ Deno.serve(async (req: Request) => {
         errorMessage: opts.errorMessage ?? null,
         diagnostics: buildDiagnostics(queryLog, {
           ...contextLog(),
+          claim_flags: claimFlags,
           // false means no forced stop, NOT proof the analysis is complete.
           partial: Boolean(opts.partial),
           partial_reason: opts.partial ?? null,
@@ -1644,6 +1681,10 @@ Deno.serve(async (req: Request) => {
       return reply({
         answer,
         queries_run: queriesRun,
+        // Only when something was flagged. A consumer that wants to render the
+        // scope check as its own element rather than as answer text can; the
+        // note is in the answer either way so nothing has to.
+        ...(claimFlags.length ? { claim_flags: claimFlags } : {}),
         // Only present when the investigation was cut short. The client and
         // anyone auditing can then tell a finished answer from one written
         // against an unfinished check -- which the answer text is also
@@ -2257,7 +2298,11 @@ Deno.serve(async (req: Request) => {
             // anonymous arrays and cannot tell which was all-platform and
             // which was per-platform. That is not a hypothetical: it is the
             // confirmed cause of the 2026-09-16 mislabelling.
-            resultContent = renderQueryResult(query, rows, catalogIndex, { resultId });
+            // Provenance is read BEFORE the harvest, or a statement would
+            // source its own literals from its own result and nothing would
+            // ever be unsourced.
+            resultContent = renderQueryResult(query, rows, catalogIndex, { resultId, knownDates });
+            harvestDates(rows);
             queryLog.push({
               result_id: resultId,
               round: roundsUsed,
@@ -2269,6 +2314,7 @@ Deno.serve(async (req: Request) => {
                 ? {
                     scope: describeEvidenceScope(query, catalogIndex, {
                       resultId,
+                      knownDates,
                       rowCount: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
                     }),
                   }

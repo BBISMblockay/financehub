@@ -211,6 +211,9 @@ function makeClient({
       const err = typeof rpcError === 'function' ? rpcError(state.rpcCalls.length, args) : rpcError;
       if (err) return { data: null, error: err };
       if (rpcQueue) return { data: rpcQueue.length ? rpcQueue.shift() : [], error: null };
+      // A function gets the call index, for a test that needs a DIFFERENT
+      // result per query -- a planning record then a sales rollup, say.
+      if (typeof rpcResults === 'function') return { data: rpcResults(state.rpcCalls.length, args) || [], error: null };
       return { data: rpcResults || [], error: null };
     },
   };
@@ -1156,6 +1159,22 @@ await test('...and is told to re-run rather than drop the measure', async () => 
   assert(/do not drop the measure this query was for/.test(r), 'nothing protects the measure itself');
 });
 
+for (const [shape, msg] of [
+  ['bare', 'column "date" does not exist'],
+  ['unquoted', 'column date does not exist'],
+  ['qualified', 'column m.date does not exist'],
+  ['qualified and quoted', 'column "m"."date" does not exist'],
+]) {
+  await test(`the ${shape} form of the error is understood`, async () => {
+    // One pattern covers all four; a second alternative for the qualified case
+    // was removed once these proved it unreachable.
+    const model = installModel([sqlRound(AD_SQL), say('done')]);
+    await ask(BASIC, { rpcError: { message: msg, code: '42703' } });
+    assert(/Closest by name: [^:]*day_date/.test(toolResultsSeen(model.sent)[0]),
+      `${shape}: day_date was not offered`);
+  });
+}
+
 await test('a relation outside the schema map degrades to the bare error', async () => {
   const model = installModel([sqlRound('select nope from not_catalogued_at_all'), say('done')]);
   await ask(BASIC, { rpcError: colErr('nope') });
@@ -1295,6 +1314,91 @@ await test('the correction grant is recorded either way', async () => {
   installModel([sqlRound(AD_SQL), say('done')]);
   const { client } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
   eq(auditRow(client).diagnostics.context.correction_round_granted, false, 'ungranted case');
+});
+
+console.log('\n-- the answer is checked against the envelopes it was written from --');
+
+const SONIC_SALES_SQL = "select product_title, day_date, sum(units_sold) as units from sales_by_product_title_daily_v where product_title ilike '%sonic%' and day_date between '2026-08-01' and '2026-09-15' group by product_title, day_date";
+
+await test('a channel word on a channel-pooled request is flagged in the answer', async () => {
+  installModel([sqlRound(SONIC_SALES_SQL), say('Sonic sold 924 units online on launch day.')]);
+  const { json } = await ask(BASIC, { rpcResults: [{ product_title: 'Sonic Tee', units: 924 }] });
+  assert(/Scope check \(automatic\)/.test(json.answer), `no scope note in the answer: ${json.answer}`);
+  assert(/"online"/.test(json.answer), 'the offending word is not quoted back');
+  eq(json.claim_flags[0].label, 'sales channel', 'claim_flags on the response');
+});
+
+await test('...and the note is in the PERSISTED answer, not just the response', async () => {
+  // The client saves and recovers answer TEXT and does not retain response
+  // fields, so a note that lived only on the response would vanish on recovery
+  // and the recovered answer would read as verified.
+  installModel([sqlRound(SONIC_SALES_SQL), say('Sonic sold 924 units online on launch day.')]);
+  const { client } = await ask(BASIC, { rpcResults: [{ product_title: 'Sonic Tee', units: 924 }] });
+  const row = auditRow(client);
+  assert(/Scope check \(automatic\)/.test(row.answer), 'the audit row lost the scope note');
+  eq(row.diagnostics.context.claim_flags[0].terms, ['online'], 'claim_flags in diagnostics');
+});
+
+await test('an answer that makes no such claim is left alone', async () => {
+  installModel([sqlRound(SONIC_SALES_SQL), say('Sonic sold 924 units on launch day.')]);
+  const { json, client } = await ask(BASIC, { rpcResults: [{ product_title: 'Sonic Tee', units: 924 }] });
+  eq(json.answer, 'Sonic sold 924 units on launch day.', 'a clean answer was modified');
+  assert(!('claim_flags' in json), 'a clean answer carried claim_flags');
+  eq(auditRow(client).diagnostics.context.claim_flags, [], 'diagnostics should record an empty check');
+});
+
+await test('a request that narrowed the channel may say it', async () => {
+  const narrowed = "select sum(net_sales) from sales_by_product_title_daily_v where location_tag = 'online'";
+  installModel([sqlRound(narrowed), say('Online net sales were $212,080.')]);
+  const { json } = await ask(BASIC, { rpcResults: [{ sum: 212080 }] });
+  assert(!/Scope check/.test(json.answer), `a narrowed request was flagged: ${json.answer}`);
+});
+
+console.log('\n-- a period boundary is traced to where it came from --');
+
+await test('a date from an earlier result is sourced; an invented one is not', async () => {
+  // Mirrors the live shape: the planning record (which answers the launch date
+  // and is SILENT on prelaunch), then a coverage check, then the sales query.
+  // 2026-09-15 is therefore traceable and 2026-08-01 is not -- which is exactly
+  // the asymmetry production had and nothing recorded.
+  const model = installModel([
+    sqlRound('select title, launch_date, preview_start_date from launch_calendar'),
+    sqlRound('select max(day_date) as max_d from sales_by_day'),
+    sqlRound(SONIC_SALES_SQL),
+    say('done'),
+  ]);
+  await ask(BASIC, {
+    rpcResults: (n) => {
+      if (n === 1) return [{ title: 'Baseballism x Sonic the Hedgehog', launch_date: '2026-09-01', preview_start_date: null }];
+      if (n === 2) return [{ max_d: '2026-09-15' }];
+      return [{ product_title: 'Sonic Tee', units: 924 }];
+    },
+  });
+  const shown = JSON.parse(toolResultsSeen(model.sent)[2]);
+  const p = shown.evidence_scope.date_scope.boundary_provenance;
+  eq(p.unsourced, ['2026-08-01'], 'the invented prelaunch boundary');
+  eq(p.from_results, ['2026-09-15'], 'the boundary that WAS traceable to a queried value');
+});
+
+await test('a statement cannot source its own literals from its own result', async () => {
+  // The harvest runs AFTER the envelope is built. Reverse that and every
+  // boundary looks sourced, because the rows contain the dates the query asked
+  // for -- which is the one way this check could quietly become useless.
+  const model = installModel([sqlRound(SONIC_SALES_SQL), say('done')]);
+  await ask(BASIC, { rpcResults: [{ product_title: 'Sonic Tee', day_date: '2026-08-01', units: 3 }] });
+  const p = JSON.parse(toolResultsSeen(model.sent)[0]).evidence_scope.date_scope.boundary_provenance;
+  assert(p.unsourced.includes('2026-08-01'), 'a statement sourced its own boundary from its own rows');
+});
+
+await test('a date the person asked about counts as supplied', async () => {
+  const model = installModel([sqlRound(SONIC_SALES_SQL), say('done')]);
+  await ask({
+    history: [{ role: 'user', content: 'How did Sonic sell between 2026-08-01 and 2026-09-15?' }],
+    request_id: REQUEST_ID,
+  }, { rpcResults: [{ units: 1 }] });
+  const p = JSON.parse(toolResultsSeen(model.sent)[0]).evidence_scope.date_scope.boundary_provenance;
+  assert(!p.unsourced, `dates the person gave were called invented: ${JSON.stringify(p)}`);
+  eq(p.from_question.sort(), ['2026-08-01', '2026-09-15'], 'question-supplied dates');
 });
 
 console.log(`\n${run - failures}/${run} passed`);
