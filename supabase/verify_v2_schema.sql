@@ -3848,6 +3848,52 @@ select 'Forecast candidate baselines' as check_name,
    then 'STALE: no 30-day Youth baseline recorded'
  else 'ok' end as status;
 
+select 'Forecastable product types (modelled, not hardcoded)' as check_name,
+ case when to_regclass('public.product_type_profile') is null
+   then 'MISSING: product_type_profile; run 20260917180000_product_type_profile.sql'
+ when to_regclass('public.product_type_forecastable_v') is null
+   then 'MISSING: product_type_forecastable_v'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.product_type_profile'))
+   then 'CRITICAL: product_type_profile RLS disabled'
+ when has_table_privilege('anon','public.product_type_profile','SELECT')
+   then 'CRITICAL: anon can read product_type_profile'
+ -- The classification view must NOT be security_invoker. po_lines RLS is
+ -- narrower than company (is_admin_user() OR created_by = auth.uid()), and
+ -- "never purchased" is what separates a service line from merchandise -- so an
+ -- invoker view hands a buyer and an admin DIFFERENT classifications for the
+ -- same type, making the answer a property of the reader.
+ when coalesce((select option_value from pg_options_to_table(
+        (select reloptions from pg_class where relname='product_type_forecastable_v'))
+        where option_name='security_invoker'), 'false') = 'true'
+   then 'CRITICAL: product_type_forecastable_v is security_invoker; classification would vary by reader'
+ -- The runner is service-role, where active_company_id() is null, so it cannot
+ -- read the view at all and needs the explicit-company counterpart.
+ when to_regprocedure('public.forecastable_product_types(uuid)') is null
+   then 'MISSING: forecastable_product_types(uuid); the monthly runner cannot enumerate categories'
+ when has_function_privilege('authenticated','public.forecastable_product_types(uuid)','EXECUTE')
+   then 'CRITICAL: forecastable_product_types takes an explicit company and must be service_role only'
+ -- Negative on-hand is OVERSOLD stock, which is evidence the type IS stocked.
+ -- A `> 0` test classifies it as a service line and drops real merchandise from
+ -- every forecast silently (caught on Canvas Totes at -253).
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='forecastable_product_types') like '%coalesce(st.oh,0) > 0%'
+   then 'CRITICAL: on-hand tested with > 0; oversold merchandise is misclassified as a service line'
+ else 'ok' end as status;
+
+select 'Forecast functions carry no tenant-specific default' as check_name,
+ case when to_regprocedure('public.record_forecast_candidate_run(uuid,date,text,text,integer,numeric,numeric,integer)') is null
+   then 'MISSING: forecast candidate migration'
+ -- A default category is a claim about what is normal, and in a component meant
+ -- to serve any tenant the normal category is not one company's catalogue. This
+ -- matches any quoted default on a text parameter named p_sku_category.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public'
+     and p.proname in ('record_forecast_candidate_run','forecast_candidate_cycles','evaluate_forecast_candidate')
+     and pg_get_function_arguments(p.oid) ~ 'p_sku_category text DEFAULT')
+   then 'CRITICAL: a forecast function still defaults its product category to one tenant''s value'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

@@ -34,7 +34,6 @@ import {
   formatSummary,
   FIRST_FROZEN_CUTOFF,
   DEFAULT_CANDIDATE_ID,
-  DEFAULT_SKU_CATEGORY,
   DEFAULT_HORIZON_DAYS,
 } from './lib/forecast-candidate-core.mjs';
 
@@ -47,7 +46,10 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const ONLY_COMPANY = process.env.FC_COMPANY_ID || '';
 const START_CUTOFF = process.env.FC_START_CUTOFF || FIRST_FROZEN_CUTOFF;
 const CANDIDATE_ID = process.env.FC_CANDIDATE_ID || DEFAULT_CANDIDATE_ID;
-const SKU_CATEGORY = process.env.FC_SKU_CATEGORY || DEFAULT_SKU_CATEGORY;
+// Empty means ALL forecastable categories for the company, resolved per tenant
+// from forecastable_product_types(). No hardcoded fallback: a missing category
+// is a question to ask the database, not a guess to make.
+const SKU_CATEGORY = process.env.FC_SKU_CATEGORY || '';
 const HORIZON_DAYS = Number(process.env.FC_HORIZON_DAYS || DEFAULT_HORIZON_DAYS);
 const DRY_RUN = process.env.FC_DRY_RUN === '1';
 

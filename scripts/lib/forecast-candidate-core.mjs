@@ -24,7 +24,11 @@
 // answer, not easier.
 
 export const DEFAULT_CANDIDATE_ID = 'Candidate_YoY_Shift_v1';
-export const DEFAULT_SKU_CATEGORY = 'Youth';
+// There is deliberately NO default category. The candidate id names the METHOD,
+// which is a property of this code; the category names a slice of one tenant's
+// catalogue, which is not. `Youth` sat here as a default until 2026-09-17 and
+// made a component meant to serve any company read as Baseballism's.
+// Callers enumerate categories from forecastable_product_types(company).
 export const DEFAULT_HORIZON_DAYS = 30;
 export const DEFAULT_CLAMP_LOW = 0.60;
 export const DEFAULT_CLAMP_HIGH = 1.80;
@@ -144,7 +148,7 @@ export async function runForecastCandidate({
   companyEntityId,
   startCutoff = FIRST_FROZEN_CUTOFF,
   candidateId = DEFAULT_CANDIDATE_ID,
-  skuCategory = DEFAULT_SKU_CATEGORY,
+  skuCategory,
   horizonDays = DEFAULT_HORIZON_DAYS,
   clampLow = DEFAULT_CLAMP_LOW,
   clampHigh = DEFAULT_CLAMP_HIGH,
@@ -153,6 +157,12 @@ export async function runForecastCandidate({
   logger = console,
 } = {}) {
   if (!companyEntityId) throw new Error('runForecastCandidate: companyEntityId is required');
+  // Required, and checked rather than defaulted. A category that arrives
+  // undefined used to become 'Youth'; now it stops the run, because forecasting
+  // the wrong slice of a catalogue silently is worse than forecasting nothing.
+  if (!skuCategory || !String(skuCategory).trim()) {
+    throw new Error('runForecastCandidate: skuCategory is required (no tenant-specific default)');
+  }
 
   const maturedResult = await client.rpc('forecast_actuals_matured_through', {
     p_company_entity_id: companyEntityId,

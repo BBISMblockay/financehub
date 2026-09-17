@@ -18821,3 +18821,16 @@ $c$select (select count(*) from v_po_header_summary
 -- Idempotent: create-if-not-exists, create-or-replace, and the baseline seed is
 -- ON CONFLICT DO NOTHING so re-applying never overwrites a re-measured value.
 \i migrations/20260917140000_forecast_candidate_ledger.sql
+
+-- Which product types are forecastable, modelled rather than hardcoded
+-- (20260917180000_product_type_profile.sql). Replaces a literal exclusion list
+-- in the buy report -- which was both incomplete (it missed Bundles &
+-- Multi-Packs and custom_sale, and custom_sale was being published as a buy
+-- recommendation) and specific to one tenant's checkout stack. Classification
+-- is evidence-based (sells but never stocked and never purchased = a service or
+-- fee line) with a per-company human override in product_type_profile.
+-- Also drops the 'Youth' default from the three candidate functions, so a
+-- component meant to serve any tenant stops naming one company's catalogue.
+-- NOTE the three functions are DROP + CREATE, not CREATE OR REPLACE: Postgres
+-- refuses to remove a parameter default from an existing function.
+\i migrations/20260917180000_product_type_profile.sql
