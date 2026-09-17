@@ -22,6 +22,8 @@
  *   META_LINK_DB_MUTATION=no-together-check   (the paired-null constraint removed)
  *   META_LINK_DB_MUTATION=path-keeps-query    (link_path stops stripping ?query)
  *   META_LINK_DB_MUTATION=catalog-replaces    (the catalog description overwrites)
+ *   META_LINK_DB_MUTATION=catalog-not-corrected (the disproved "no destination
+ *                                              field" claim stays in the prompt)
  *
  * Run:  node scripts/tests/meta-creative-links-database.test.mjs
  * Needs:  npm ci --prefix scripts/tests/finance-db
@@ -33,7 +35,7 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.META_LINK_DB_MUTATION || '';
-assert.ok(['', 'no-together-check', 'path-keeps-query', 'catalog-replaces'].includes(mutation),
+assert.ok(['', 'no-together-check', 'path-keeps-query', 'catalog-replaces', 'catalog-not-corrected'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -100,6 +102,29 @@ if (mutation === 'path-keeps-query') {
 // is not re-runnable is one nobody can safely re-apply after a partial
 // failure.
 await db.exec(linkSql); await db.exec(linkSql);
+
+/* The two catalog corrections, in order, each applied TWICE.
+ *
+ * 20260916030000 replaced the effective_object_url claim; 20260917120000
+ * replaces what IT wrote, because four of its claims were measured false --
+ * most seriously "expose no destination field at all", an inference from one
+ * 126-ad window that the 2026-09-17 probe disproved 14 of 14. This text is
+ * injected into Ask SILO's prompt verbatim, so a replace that silently missed
+ * would leave the model repeating it.
+ *
+ * Applied twice because both are targeted replaces and a migration nobody can
+ * safely re-run is a migration nobody will re-run. */
+const correctionSql = await read('supabase/migrations/20260916030000_meta_destination_catalog_correction.sql');
+let catalogSql = await read('supabase/migrations/20260917120000_meta_catalog_destination_sources.sql');
+await db.exec(correctionSql); await db.exec(correctionSql);
+if (mutation === 'catalog-not-corrected') {
+  // The correction never lands, so Ask SILO keeps being told that catalog ads
+  // expose no destination field -- the claim the probe disproved 14 of 14.
+  catalogSql = catalogSql.replace(
+    "and position('expose no destination field at all' in coalesce(description, '')) > 0",
+    'and false');
+}
+await db.exec(catalogSql); await db.exec(catalogSql);
 await db.exec(wowSql); await db.exec(wowSql);
 
 await q("insert into entities(id,title) values($1,'Test A')", [co]);
@@ -288,6 +313,46 @@ await test('synced_at defaults, so a partial insert cannot violate NOT NULL', as
   const row = await one('select synced_at, body from meta_ad_creatives where ad_id=$1', ['partial2']);
   assert.ok(row.synced_at, 'synced_at must be filled by its default');
   assert.equal(row.body, 'inserted with no synced_at');
+});
+
+await test('the catalog no longer claims those ads have no destination field', async () => {
+  const row = await one("select description from silo_chat_schema_catalog where relname='meta_ad_performance_v'");
+  // The claim the probe disproved: 14 of 14 sampled ads that had resolved
+  // nothing DID have a destination, in template_data or on the page post.
+  assert.ok(!row.description.includes('expose no destination field at all'),
+    'the disproved "no destination field" claim must be gone');
+  // And the one measured false a day earlier: 759 ads carry UTMs.
+  assert.ok(!row.description.includes('no UTMs on any ad'),
+    'the disproved "no UTMs on any ad" claim must be gone');
+  // A count is what rotted last time (82 of 126 was true for about a day), so
+  // the replacement carries none.
+  assert.ok(!row.description.includes('82 of 126'),
+    'a coverage count does not belong in the catalog -- it rots');
+});
+
+await test('the catalog names the sources that actually resolve, page_post included', async () => {
+  const row = await one("select description from silo_chat_schema_catalog where relname='meta_ad_performance_v'");
+  for (const src of ['template_data', 'template_card', 'page_post', 'link_data', 'asset_feed']) {
+    assert.ok(row.description.includes(src), `the catalog must name ${src}`);
+  }
+  assert.ok(/NOT RESOLVED/.test(row.description),
+    'a null must be documented as not-resolved, never as "has no destination"');
+});
+
+await test('the earlier caveats survive both replaces', async () => {
+  // The whole reason these are targeted replaces: rewriting this column whole
+  // is how two caveats were dropped and had to be restored in 20260910150000.
+  const row = await one("select description from silo_chat_schema_catalog where relname='meta_ad_performance_v'");
+  assert.ok(row.description.includes('Also carries each ad'),
+    'the destination caveat appended by 20260915140000 must still be there');
+  assert.ok(row.description.includes('link_path'),
+    'and the link_path join note with it');
+});
+
+await test('re-running the catalog correction does not double-apply', async () => {
+  const row = await one("select description from silo_chat_schema_catalog where relname='meta_ad_performance_v'");
+  const hits = row.description.split('It names where the destination came from').length - 1;
+  assert.equal(hits, 1, `replacement text present ${hits} times`);
 });
 
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);
