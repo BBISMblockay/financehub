@@ -1042,6 +1042,11 @@ Three things worth knowing before changing any of it:
 - **Voiding requires exec/owner**, not merely the same company: a void can turn
   a HOLD into a promotion recommendation by removing the cycle that broke the
   streak.
+- **A forecast must be issued within a bounded lag** (`max_issuance_lag_days`,
+  default 5, stored per row). One frozen on day 16 would still be scored against
+  the whole month, including the half that had already elapsed. A late freeze is
+  written and labelled `ISSUED LATE — NOT SCORED`, never scored. Recording the
+  lag without gating on it protected nothing.
 
 Runner: `scripts/forecast-candidate-run.mjs` via
 `.github/workflows/forecast-candidate-run.yml` (monthly, the 3rd — not the 1st,

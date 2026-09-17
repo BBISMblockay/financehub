@@ -155,6 +155,21 @@ create table if not exists public.forecast_candidate_ledger (
   frozen_days_into_horizon integer generated always as
     ((timezone('America/Los_Angeles', executed_at))::date - cutoff_date) stored,
 
+  -- The bound `frozen_days_into_horizon` is judged against, stored PER ROW so
+  -- the rule that applied when a forecast was written cannot be changed
+  -- afterwards -- the same reason candidate_spec is on the row. Recording the
+  -- lag without gating on it protected nothing: a forecast issued on day 16 is
+  -- still scored against the WHOLE month, including the half that had already
+  -- happened before it existed.
+  --
+  -- 5 days: the maturity clock cannot clear a cutoff until the day after it at
+  -- the earliest, the monthly job runs on the 3rd (lag 2), and this leaves a
+  -- couple of days of slack for a re-dispatch. Past that, too much of the
+  -- outcome has already elapsed for the row to be evidence -- it is still
+  -- WRITTEN, because a late forecast is a real forecast with operational use;
+  -- it is just not counted toward promotion.
+  max_issuance_lag_days integer not null default 5,
+
   created_by uuid,
 
   -- The single permitted mutation. See the append-only trigger below: a
@@ -189,6 +204,7 @@ create table if not exists public.forecast_candidate_ledger (
   -- it is usable in a CHECK where a bare ::date cast would not be.
   constraint forecast_ledger_frozen_before_outcome
     check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)),
+  constraint forecast_ledger_issuance_lag_sane check (max_issuance_lag_days >= 0),
   constraint forecast_ledger_qty_not_negative check (forecast_qty >= 0),
   constraint forecast_ledger_clamp_ordered check (ratio_clamp_high >= ratio_clamp_low),
   constraint forecast_ledger_clamped_in_bounds
@@ -209,6 +225,9 @@ create table if not exists public.forecast_candidate_ledger (
 alter table public.forecast_candidate_ledger
   add column if not exists frozen_days_into_horizon integer generated always as
     ((timezone('America/Los_Angeles', executed_at))::date - cutoff_date) stored;
+
+alter table public.forecast_candidate_ledger
+  add column if not exists max_issuance_lag_days integer not null default 5;
 
 do $$
 begin
@@ -593,7 +612,8 @@ create or replace function public.record_forecast_candidate_run(
   p_candidate_id text default 'Candidate_YoY_Shift_v1',
   p_horizon_days integer default 30,
   p_clamp_low numeric default 0.60,
-  p_clamp_high numeric default 1.80
+  p_clamp_high numeric default 1.80,
+  p_max_issuance_lag_days integer default 5
 )
 returns table (
   action text,
@@ -673,6 +693,21 @@ begin
     return;
   end if;
 
+  -- The SAME question asked of the CALENDAR rather than of the data, because
+  -- the table's CHECK is written in wall-clock terms and the two can disagree.
+  -- Concretely: on 3 November with October synced only through the 30th, the
+  -- maturity test above passes, the row is computed, and then the INSERT
+  -- violates the constraint -- so a lagging sync surfaced as a raised
+  -- exception, counted by the runner as a failure and exiting nonzero. A late
+  -- sync is not a job failure; it is an expired cutoff. Matching the
+  -- constraint's own expression here means that path can no longer be reached.
+  if timezone('America/Los_Angeles', now())::date >= v_horizon_end then
+    return query select 'expired', null::uuid, null::numeric, p_cutoff_date,
+      format('horizon %s..%s closed on the calendar before this run (today is %s Pacific), whatever the source has synced',
+             p_cutoff_date, v_horizon_end - 1, timezone('America/Los_Angeles', now())::date);
+    return;
+  end if;
+
   select * into v_calc
   from public.forecast_yoy_shift_v1(
     p_company_entity_id, p_cutoff_date, p_sku_category, p_horizon_days, p_clamp_low, p_clamp_high);
@@ -692,7 +727,7 @@ begin
     prior_window_start, prior_window_end, prior_demand,
     prior_year_target_month, prior_year_target_demand,
     raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
-    method_version, candidate_spec, source_relation)
+    method_version, candidate_spec, source_relation, max_issuance_lag_days)
   values (
     p_company_entity_id, p_candidate_id, p_cutoff_date, p_sku_category, p_horizon_days,
     v_calc.forecast_qty, p_cutoff_date, v_horizon_end,
@@ -709,8 +744,9 @@ begin
       'clamp_low', p_clamp_low, 'clamp_high', p_clamp_high,
       'rounding', 'round_half_up_to_whole_units',
       'stockout_imputation', false, 'launch_adjustment', false,
+      'max_issuance_lag_days', p_max_issuance_lag_days,
       'source_report_id', 'f98754f7-47a6-4eeb-8a8b-eece9a069432'),
-    'sales_monthly_product_type_rollup_mv')
+    'sales_monthly_product_type_rollup_mv', p_max_issuance_lag_days)
   -- Two runners racing at the same cutoff: the loser writes nothing and reads
   -- the winner's row back, so a race produces one frozen number, not two.
   on conflict (company_entity_id, candidate_id, sku_category, horizon_days, cutoff_date)
@@ -734,11 +770,13 @@ begin
 end;
 $$;
 
-comment on function public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric) is
+comment on function public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric, integer) is
   'Idempotent writer for one candidate cutoff. Returns the existing frozen row untouched if one exists (without recomputing), writes nothing at all for an ineligible cutoff, and never updates.';
 
-revoke all on function public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric) from public, anon, authenticated;
-grant execute on function public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric) to service_role;
+revoke all on function public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric, integer) from public, anon, authenticated;
+grant execute on function public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric, integer) to service_role;
+-- The pre-lag signature, if an earlier version of this migration created it.
+drop function if exists public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric);
 
 -- The one permitted mutation, with a reason attached.
 create or replace function public.void_forecast_candidate_run(
@@ -908,6 +946,9 @@ returns table (
   actual_qty numeric,
   matured boolean,
   scorable boolean,
+  frozen_days_into_horizon integer,
+  max_issuance_lag_days integer,
+  issued_late boolean,
   status_label text,
   not_scorable_reason text,
   abs_error numeric,
@@ -961,6 +1002,12 @@ begin
         -- gate honest if the constraint is ever relaxed, or if a row arrives
         -- through some entry point that does not exist yet.
         when r.executed_at >= timezone('America/Los_Angeles', r.horizon_end_date::timestamp) then false
+        -- ISSUED LATE. A forecast frozen partway through its own month is
+        -- scored against the WHOLE month, including the part that had already
+        -- happened before the forecast existed. Recording the lag and not
+        -- gating on it left the promotion gate open to exactly that, so the
+        -- bound the row was written under is enforced here.
+        when r.frozen_days_into_horizon > r.max_issuance_lag_days then false
         when not a.matured then false
         when a.actual_qty is null then false
         -- A cycle whose actual is zero or negative has no denominator: a
@@ -976,10 +1023,16 @@ begin
     j.forecast_qty,
     case when j.matured then j.actual_qty else null end,
     j.matured, j.scorable,
+    j.frozen_days_into_horizon, j.max_issuance_lag_days,
+    (j.frozen_days_into_horizon > j.max_issuance_lag_days),
     case
       when j.voided_at is not null then 'VOIDED'
       when j.executed_at >= timezone('America/Los_Angeles', j.horizon_end_date::timestamp)
         then 'NOT PROSPECTIVE'
+      -- Ahead of the maturity label on purpose: being issued late is PERMANENT
+      -- and already known, where "not scored yet" reads as "and one day it
+      -- will be". This row never will be.
+      when j.frozen_days_into_horizon > j.max_issuance_lag_days then 'ISSUED LATE — NOT SCORED'
       when not j.matured then 'PROSPECTIVE — NOT SCORED'
       when j.scorable then 'SCORED'
       else 'NOT SCORABLE'
@@ -989,6 +1042,9 @@ begin
       when j.executed_at >= timezone('America/Los_Angeles', j.horizon_end_date::timestamp)
         then format('frozen %s, after the horizon closed on %s; not prospective evidence',
                     (timezone('America/Los_Angeles', j.executed_at))::date, j.horizon_end_date - 1)
+      when j.frozen_days_into_horizon > j.max_issuance_lag_days
+        then format('frozen %s day(s) into its own horizon, past the %s-day issuance bound; the outcome would be scored over days that had already elapsed',
+                    j.frozen_days_into_horizon, j.max_issuance_lag_days)
       when not j.matured then
         'actuals mature after ' || (j.horizon_end_date - 1)::text
         || '; source synced through ' || coalesce(v_matured_through::text, 'never measured')
@@ -1050,8 +1106,10 @@ returns table (
   cycles_matured integer,
   cycles_voided integer,
   cycles_scorable integer,
+  cycles_issued_late integer,
   consecutive_scorable_cycles integer,
   voids_around_window integer,
+  worst_issuance_lag_days integer,
   evaluated_from date,
   evaluated_to date,
   actual_units numeric,
@@ -1090,7 +1148,8 @@ begin
     select count(*)::integer as written,
            count(*) filter (where cy.matured)::integer as matured,
            count(*) filter (where cy.voided)::integer as voided,
-           count(*) filter (where cy.scorable)::integer as scorable
+           count(*) filter (where cy.scorable)::integer as scorable,
+           count(*) filter (where cy.issued_late)::integer as issued_late
     from cy
   ),
   s as (select * from cy where cy.scorable),
@@ -1128,7 +1187,8 @@ begin
            sum(s.abs_error) / nullif(sum(s.actual_qty), 0) as pooled_wape,
            sum(s.signed_error) / nullif(sum(s.actual_qty), 0) as pooled_bias,
            avg(s.cycle_bias) as mean_bias,
-           max(s.cycle_wape) as worst_cycle_wape
+           max(s.cycle_wape) as worst_cycle_wape,
+           max(s.frozen_days_into_horizon) as worst_lag
     from s join best on s.cutoff_date between best.run_from and best.run_to
   ),
   base_cat as (
@@ -1143,7 +1203,8 @@ begin
   ),
   gated as (
     select
-      c.written, c.matured, c.voided, c.scorable,
+      c.written, c.matured, c.voided, c.scorable, c.issued_late,
+      a.worst_lag,
       coalesce(b.n, 0) as run_n, b.run_from, b.run_to, coalesce(vn.n, 0) as voids_near,
       a.actual_units, a.forecast_units, a.pooled_wape, a.pooled_bias, a.mean_bias, a.worst_cycle_wape,
       bc.wape as cat_wape, bp.wape as port_wape,
@@ -1163,7 +1224,7 @@ begin
   )
   select
     p_candidate_id, p_sku_category, p_horizon_days,
-    g.written, g.matured, g.voided, g.scorable, g.run_n, g.voids_near,
+    g.written, g.matured, g.voided, g.scorable, g.issued_late, g.run_n, g.voids_near, g.worst_lag,
     g.run_from, g.run_to, g.actual_units, g.forecast_units,
     g.pooled_wape, g.pooled_bias, g.mean_bias, g.worst_cycle_wape,
     g.cat_wape, g.port_wape,
@@ -1177,10 +1238,10 @@ begin
     end,
     true,
     case when g.run_n = 0 then
-      format('No scorable cycle yet: %s forecast(s) written, %s matured, %s voided. Nothing is measured until a full cycle has elapsed and synced.',
-             g.written, g.matured, g.voided)
+      format('No scorable cycle yet: %s forecast(s) written, %s matured, %s voided, %s issued too late to score. Nothing is measured until a full cycle has elapsed and synced.',
+             g.written, g.matured, g.voided, g.issued_late)
     else
-      format('%s consecutive scorable cycle(s) %s..%s. Pooled WAPE %s%% vs category baseline %s%% and portfolio baseline %s%%; worst cycle %s%%; mean directional bias %s%% (tolerance +/-%s%%). Gates: cycles=%s, every-cycle-beats-category=%s, pooled-beats-both=%s, bias=%s.%s%s%s Promotion is never automatic: this is a recommendation for planner approval, and nothing in production changes until a planner acts on it.',
+      format('%s consecutive scorable cycle(s) %s..%s. Pooled WAPE %s%% vs category baseline %s%% and portfolio baseline %s%%; worst cycle %s%%; mean directional bias %s%% (tolerance +/-%s%%). Gates: cycles=%s, every-cycle-beats-category=%s, pooled-beats-both=%s, bias=%s.%s%s%s%s Promotion is never automatic: this is a recommendation for planner approval, and nothing in production changes until a planner acts on it.',
              g.run_n, g.run_from, g.run_to,
              round(100 * g.pooled_wape, 1),
              coalesce(round(100 * g.cat_wape, 1)::text, 'NOT RECORDED'),
@@ -1193,6 +1254,9 @@ begin
                then ' A baseline is NOT RECORDED for this company; an absent baseline is never treated as passed.' else '' end,
              case when g.voided > 0
                then format(' %s voided forecast(s) excluded from scoring.', g.voided) else '' end,
+             case when g.issued_late > 0
+               then format(' %s forecast(s) were issued too late into their horizon to be scored and are excluded; worst lag inside the window is %s day(s).', g.issued_late, coalesce(g.worst_lag, 0))
+               else format(' Worst issuance lag inside the window: %s day(s).', coalesce(g.worst_lag, 0)) end,
              case when g.voids_near > 0
                then format(' WARNING: %s voided cycle(s) sit inside or immediately beside this window. A void can turn a HOLD into a pass by removing the cycle that broke the streak -- read their reasons and actors before approving.', g.voids_near)
                else '' end)
@@ -1245,8 +1309,13 @@ select
   l.executed_at,
   l.voided_at,
   l.void_reason,
+  l.frozen_days_into_horizon,
+  l.max_issuance_lag_days,
   case
     when l.voided_at is not null then 'VOIDED'
+    when l.executed_at >= timezone('America/Los_Angeles', l.horizon_end_date::timestamp)
+      then 'NOT PROSPECTIVE'
+    when l.frozen_days_into_horizon > l.max_issuance_lag_days then 'ISSUED LATE — NOT SCORED'
     when l.horizon_end_date
          <= coalesce(public.forecast_actuals_matured_through_active(), date '0001-01-01') + 1
       then 'SCORABLE'

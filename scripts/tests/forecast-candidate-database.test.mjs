@@ -72,6 +72,9 @@ const MUTATIONS = {
   'no-prospective-check': [["    check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)),", '    check (true),']],
   'score-post-hoc': [["        when r.executed_at >= timezone('America/Los_Angeles', r.horizon_end_date::timestamp) then false", '        when false then false']],
   'void-open-to-members': [['  if not public.is_exec_or_owner() then', '  if false then']],
+  // Cycle-2 review findings.
+  'ignore-issuance-lag': [['        when r.frozen_days_into_horizon > r.max_issuance_lag_days then false', '        when false then false']],
+  'no-wallclock-expiry': [["  if timezone('America/Los_Angeles', now())::date >= v_horizon_end then", '  if false then']],
   'absent-baseline-passes': [['coalesce(b.n, 0) >= p_min_cycles as g_cycles', 'coalesce(b.n, 0) >= p_min_cycles as g_cycles'], ['(bc.wape is not null and bp.wape is not null and a.pooled_wape is not null\n        and a.pooled_wape < bc.wape and a.pooled_wape < bp.wape) as g_pooled', '(coalesce(a.pooled_wape < bc.wape, true) and coalesce(a.pooled_wape < bp.wape, true)) as g_pooled'], ['(bc.wape is not null and a.worst_cycle_wape is not null and a.worst_cycle_wape < bc.wape) as g_every', 'coalesce(a.worst_cycle_wape < bc.wape, true) as g_every']],
 };
 const mutation = process.env.FC_DB_MUTATION || '';
@@ -489,6 +492,35 @@ await test('a cutoff whose horizon already closed is refused, not frozen', async
     'the honest record of a month nobody forecast is an ABSENT row');
 });
 
+await test('a closed horizon with a LAGGING source is expired, not a job failure', async () => {
+  // The cycle-2 P2. The RPC decided expiry from data maturity while the table
+  // decided it from wall-clock time, and the two disagree exactly when the
+  // sync is behind: the maturity test passes, the row is computed, and the
+  // INSERT then violates the constraint -- so a late sync surfaced as a raised
+  // exception that the runner counts as a failure and exits nonzero. A late
+  // sync is not a broken job.
+  const co = randomUUID();
+  await makeCompany(co, 'Lagging Co', null);
+  for (let i = 0; i < 30; i++) {
+    const m = new Date(Date.UTC(2024, 0 + i, 5));
+    if (m > new Date(Date.UTC(2026, 7, 5))) break;
+    await sale(co, m.toISOString().slice(0, 10), 'Youth', 100);
+  }
+  // Synced to 30 August and no further: August is NOT provably complete, so
+  // the maturity clock stops at 31 July and the maturity test does not fire.
+  await sale(co, '2026-08-30', 'Youth', 5);
+  await refresh();
+  assert.equal(new Date(await scalar('select public.forecast_actuals_matured_through($1)', [co]))
+    .toISOString().slice(0, 10), '2026-07-31');
+
+  const r = await asService(() => first(
+    "select action, reason from public.record_forecast_candidate_run($1, '2026-08-01')", [co]));
+  assert.equal(r.action, 'expired', `a lagging source must not raise: ${r.reason}`);
+  assert.match(r.reason, /closed on the calendar/);
+  assert.equal(num(await scalar(
+    'select count(*)::int from public.forecast_candidate_ledger where company_entity_id = $1', [co])), 0);
+});
+
 await test('the TABLE refuses a post-hoc freeze, so no job can write one', async () => {
   // The writer's refusal is a check in a function; this is the one a
   // service-role insert cannot dodge.
@@ -521,10 +553,17 @@ await test('a row frozen after its horizon is never scored, even if one exists',
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
        raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
-       method_version, candidate_spec, source_relation, executed_at)
+       method_version, candidate_spec, source_relation, executed_at, max_issuance_lag_days)
      values ($1,'Candidate_YoY_Shift_v1','2026-06-01','Youth',30,100,'2026-06-01','2026-07-01',
              '2026-03-01','2026-06-01',1,'2025-03-01','2025-06-01',1,'2025-06-01',1,
-             1,1,0.6,1.8,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-09-17'::timestamptz)`, [co]);
+             1,1,0.6,1.8,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-09-17'::timestamptz,
+             -- A deliberately huge issuance bound, so the LATE-issue gate does
+             -- not fire and only the written-after-the-horizon rule can
+             -- exclude this row. For a 30-day horizon the two overlap
+             -- completely, which masked this rule until the mutation showed
+             -- it; a future candidate with a long bound is where it earns its
+             -- place, so it is tested where it is the only thing acting.
+             200)`, [co]);
   await q(`alter table public.forecast_candidate_ledger add constraint forecast_ledger_frozen_before_outcome
            check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)) not valid`);
 
@@ -675,12 +714,112 @@ await test('ledger RLS hides another company\'s rows and grants no client writes
 });
 
 // ── 9. Status labelling ─────────────────────────────────────────────────────
-await test('an unmatured cycle is labelled PROSPECTIVE — NOT SCORED', async () => {
-  const row = await asRole('authenticated', planner, () => first(
-    'select cutoff_date, status_label from public.forecast_candidate_ledger_v'));
-  assert.equal(row.status_label, 'PROSPECTIVE — NOT SCORED');
+await test('a forecast issued too late into its own horizon is never scored', async () => {
+  // The cycle-2 finding, and the case it named: the 2026-09-01 cutoff frozen
+  // on 2026-09-17 (this suite's "today"). Sixteen days of September had
+  // already happened before the forecast existed, so scoring it against the
+  // whole of September would credit the model for an outcome it did not
+  // predict. Recording the lag without gating on it protected nothing --
+  // neither the scorer nor the evaluator read the column.
   const cycle = await asRole('authenticated', planner, () => first(
-    'select status_label, actual_qty, cycle_wape, matured, scorable from public.forecast_candidate_cycles($1)', [BASEBALLISM]));
+    `select status_label, scorable, issued_late, frozen_days_into_horizon,
+            max_issuance_lag_days, not_scorable_reason, cycle_wape
+       from public.forecast_candidate_cycles($1)`, [BASEBALLISM]));
+  // Pinned against the PACIFIC business date rather than a literal: at 04:00
+  // UTC on the 17th it is still the 16th in Pacific, so a hardcoded number
+  // here would pass or fail depending on the hour the suite ran. The rule is
+  // what matters, and it is the same rule silo_business_today() uses.
+  const expectedLag = Number(await scalar(
+    "select (timezone('America/Los_Angeles', now())::date - date '2026-09-01')"));
+  assert.equal(Number(cycle.frozen_days_into_horizon), expectedLag);
+  assert.ok(expectedLag > 5, `the fixture must be past the bound; lag was ${expectedLag}`);
+  assert.equal(Number(cycle.max_issuance_lag_days), 5);
+  assert.equal(cycle.issued_late, true);
+  assert.equal(cycle.scorable, false, 'a late issue must never reach the promotion gate');
+  assert.equal(cycle.status_label, 'ISSUED LATE — NOT SCORED');
+  assert.equal(cycle.cycle_wape, null);
+  assert.match(cycle.not_scorable_reason, /past the 5-day issuance bound/);
+  // The label is PERMANENT, so it must beat the temporary one: "not scored
+  // yet" would promise this row eventually counts. It never will.
+  assert.equal(await asRole('authenticated', planner, () => scalar(
+    'select status_label from public.forecast_candidate_ledger_v')), 'ISSUED LATE — NOT SCORED');
+});
+
+await test('a MATURED late issue is excluded from the promotion gate, not just labelled', async () => {
+  // The test above proves the LABEL. This proves the GATE, and the difference
+  // matters: the Baseballism row is unmatured, so it would be unscorable
+  // anyway, and a mutation removing the scorability rule survived that test.
+  // Here the cycle is fully matured and would otherwise score perfectly.
+  const co = randomUUID();
+  const reader = randomUUID();
+  await makeCompany(co, 'Late Issue Co', reader);
+  for (const [cut, lagDays] of [['2026-01-01', 2], ['2026-02-01', 2], ['2026-03-01', 19]]) {
+    await sale(co, `${cut.slice(0, 8)}10`, 'Youth', 100);
+    await q(`insert into public.forecast_candidate_ledger
+      (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
+       horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
+       prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       method_version, candidate_spec, source_relation, executed_at)
+      values ($1,'Candidate_YoY_Shift_v1',$2,'Youth',30,100,
+              $2,($2::date + interval '1 month')::date,
+              ($2::date - interval '3 months')::date, $2, 1,
+              ($2::date - interval '15 months')::date, ($2::date - interval '12 months')::date, 1,
+              ($2::date - interval '12 months')::date, 1,
+              1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'x',
+              ($2::date + $3::integer)::timestamptz + interval '13 hours')`, [co, cut, lagDays]);
+  }
+  await sale(co, '2026-08-31', 'Youth', 0);
+  await sale(co, '2026-09-05', 'Youth', 0);
+  await refresh();
+
+  const late = await asRole('authenticated', reader, () => first(
+    `select matured, scorable, issued_late, frozen_days_into_horizon, cycle_wape, actual_qty
+       from public.forecast_candidate_cycles($1) where cutoff_date = '2026-03-01'`, [co]));
+  assert.equal(late.matured, true, 'the fixture must be matured, or this proves nothing');
+  assert.equal(Number(late.frozen_days_into_horizon), 19);
+  assert.equal(late.issued_late, true);
+  assert.equal(late.scorable, false, 'a perfect but late cycle must not count');
+  assert.equal(late.cycle_wape, null, 'and carries no error figure to be quoted');
+
+  // Three matured cycles, but only two are legitimate evidence -- so the gate
+  // is not satisfied, where before this fix it would have been.
+  const e = await asRole('authenticated', reader, () => first(
+    'select * from public.evaluate_forecast_candidate($1)', [co]));
+  assert.equal(e.cycles_matured, 3);
+  assert.equal(e.cycles_issued_late, 1);
+  assert.equal(e.cycles_scorable, 2);
+  assert.equal(e.consecutive_scorable_cycles, 2, 'the late cycle cannot complete the streak');
+  assert.equal(e.recommendation, 'INSUFFICIENT_DATA');
+  assert.match(e.rationale, /1 forecast\(s\) were issued too late into their horizon to be scored and are excluded/);
+  assert.ok(Number(e.worst_issuance_lag_days) <= 5, 'the reported worst lag covers the SCORED window');
+});
+
+await test('an on-time, unmatured cycle is labelled PROSPECTIVE — NOT SCORED', async () => {
+  const co = randomUUID();
+  const reader = randomUUID();
+  await makeCompany(co, 'On Time Co', reader);
+  await sale(co, '2026-09-10', 'Youth', 100);
+  await refresh();
+  await q(`insert into public.forecast_candidate_ledger
+    (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
+     horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
+     prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
+     raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+     method_version, candidate_spec, source_relation, executed_at)
+    values ($1,'Candidate_YoY_Shift_v1','2026-09-01','Youth',30,100,'2026-09-01','2026-10-01',
+            '2026-06-01','2026-09-01',1,'2025-06-01','2025-09-01',1,'2025-09-01',1,
+            -- 13:00 UTC on the 3rd: the exact moment the monthly workflow
+            -- fires (cron '0 13 3 * *'), which is 06:00 Pacific, so the
+            -- business-day lag is 2. A bare '2026-09-03' would be midnight
+            -- UTC -- still the 2nd in Pacific -- and would quietly test a
+            -- different day than the one the job actually runs on.
+            1,1,0.6,1.8,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-09-03 13:00:00+00'::timestamptz)`, [co]);
+  const cycle = await asRole('authenticated', reader, () => first(
+    `select status_label, actual_qty, cycle_wape, matured, scorable, issued_late, frozen_days_into_horizon
+       from public.forecast_candidate_cycles($1)`, [co]));
+  assert.equal(Number(cycle.frozen_days_into_horizon), 2, 'frozen on the 3rd, like the monthly job');
+  assert.equal(cycle.issued_late, false);
   assert.equal(cycle.status_label, 'PROSPECTIVE — NOT SCORED');
   assert.equal(cycle.matured, false);
   assert.equal(cycle.scorable, false);
@@ -692,8 +831,9 @@ await test('evaluation of an unscored candidate recommends nothing and says why'
   const e = await asRole('authenticated', planner, () => first('select * from public.evaluate_forecast_candidate($1)', [BASEBALLISM]));
   assert.equal(e.recommendation, 'INSUFFICIENT_DATA');
   assert.equal(e.consecutive_scorable_cycles, 0);
+  assert.equal(e.cycles_issued_late, 1, 'and it says the one row it has cannot count');
   assert.equal(e.requires_planner_approval, true);
-  assert.match(e.rationale, /No scorable cycle yet/);
+  assert.match(e.rationale, /issued too late to score/);
 });
 
 // ── 10. Three-cycle gating, WAPE and bias ───────────────────────────────────
@@ -971,7 +1111,12 @@ function pgliteClient() {
         }
         if (fn === 'record_forecast_candidate_run') {
           const rows = await q(
-            'select * from public.record_forecast_candidate_run($1,$2,$3,$4,$5,$6,$7)',
+            // Named notation, and the lag bound deliberately OMITTED: the
+            // database's own default is the single definition of it, exactly
+            // as the real client leaves it out.
+            `select * from public.record_forecast_candidate_run(
+               p_company_entity_id => $1, p_cutoff_date => $2, p_sku_category => $3,
+               p_candidate_id => $4, p_horizon_days => $5, p_clamp_low => $6, p_clamp_high => $7)`,
             [args.p_company_entity_id, args.p_cutoff_date, args.p_sku_category, args.p_candidate_id,
              args.p_horizon_days, args.p_clamp_low, args.p_clamp_high]);
           return { data: rows, error: null };

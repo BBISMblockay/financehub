@@ -3752,6 +3752,15 @@ select 'Forecast candidate ledger' as check_name,
  when exists(select 1 from public.forecast_candidate_ledger
    where executed_at >= timezone('America/Los_Angeles', horizon_end_date::timestamp))
    then 'CRITICAL: a ledger row was frozen at or after its own horizon closed'
+ -- Recording the issuance lag protects nothing unless the scorer reads it: a
+ -- forecast issued on day 16 is otherwise scored against the whole month,
+ -- including the half that had already elapsed before it existed.
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='forecast_candidate_ledger' and column_name='max_issuance_lag_days')
+   then 'MISSING: the issuance-lag bound column'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='forecast_candidate_cycles') not like '%frozen_days_into_horizon > r.max_issuance_lag_days%'
+   then 'CRITICAL: the scorer does not gate on the issuance lag; a forecast issued mid-month still counts toward promotion'
  -- Supabase's default privileges grant ALL on a new public table. With RLS and
  -- no policy an UPDATE then succeeds with ZERO ROWS, which reads exactly like a
  -- write that worked, so the revoke has to be explicit.
@@ -3791,6 +3800,12 @@ select 'Forecast candidate authorization' as check_name,
  when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='void_forecast_candidate_run') not like '%is_exec_or_owner%'
    then 'CRITICAL: voiding a frozen forecast is not gated on exec/owner; any member can exclude an unfavourable cycle'
+ -- The writer must decide expiry by the CALENDAR too, not only by data
+ -- maturity: when the sync lags, the two disagree and the insert hits the
+ -- table constraint instead, turning a late sync into a failed job.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='record_forecast_candidate_run') not like '%now())::date >= v_horizon_end%'
+   then 'CRITICAL: the writer has no wall-clock expiry test; a lagging sync will raise a constraint violation instead of reporting expired'
  else 'ok' end as status;
 
 select 'Forecast candidate baselines' as check_name,

@@ -124,11 +124,23 @@ CHECK), and the scorer refuses to grade one that exists anyway. The refusal is a
 refusal, not a flagged write — the honest record of a month nobody forecast is
 an **absent row**, not a row claiming a forecast was made.
 
-The residual is visible rather than implicit: the maturity clock means a cutoff
-cannot be frozen until a day or two *after* it, so "written before the horizon
-starts" is impossible by construction. `frozen_days_into_horizon` records how
-late into its own horizon each row was frozen, because a row frozen on day 0 and
-one frozen on day 27 are both legal and are not equally good evidence.
+**Issued within a bounded lag.** The maturity clock means a cutoff cannot be
+frozen until a day or two *after* it, so "written before the horizon starts" is
+impossible by construction. That leaves a real gap: a forecast frozen on day 16
+is still scored against the *whole* month, including the half that had already
+happened before it existed. `frozen_days_into_horizon` records the lag and
+`max_issuance_lag_days` (default **5**, stored per row so it cannot be tuned
+retrospectively) bounds it — a later freeze is still **written**, because a late
+forecast is a real forecast with operational use, but it is labelled
+`ISSUED LATE — NOT SCORED`, excluded from scoring, and counted in the evaluation
+output. Recording the lag without gating on it protected nothing, which is what
+review cycle 2 found.
+
+Five days: the monthly job runs on the 3rd (lag 2), with slack for a
+re-dispatch. Consequence worth knowing before applying this — **a September
+cutoff frozen mid-September will not count toward the three-cycle gate.** It is
+recorded and labelled; the promotion clock effectively starts with the first
+cutoff frozen on schedule.
 
 **Idempotency.** One row per `(company, candidate, category, horizon, cutoff)`.
 Re-running a cutoff returns the existing row **without recomputing it** — the
@@ -226,13 +238,27 @@ check ever returns.
 
 ### Independent review
 
-Cycle 1 (`5ee6a71`) raised two P1 findings, both valid and both fixed above:
-the post-hoc freeze, and voiding being open to any company member. Fixing the
-first surfaced two further defects its own regressions caught — an off-by-one
-against the exclusive `horizon_end_date` (which would have let the August cutoff
-be frozen in September with August's outcome in hand), and the append-only
-trigger rejecting a legitimate void, because generated columns are computed
-*after* BEFORE-triggers run so a whole-row comparison sees a phantom change.
+Two cycles, four findings, all valid and all fixed.
+
+**Cycle 1** (`5ee6a71`) — two P1: a post-hoc freeze counted as prospective
+evidence, and voiding open to any company member. Fixing the first surfaced two
+more that its own regressions caught: an off-by-one against the exclusive
+`horizon_end_date` (which would have let the August cutoff be frozen in
+September with August's outcome in hand), and the append-only trigger rejecting
+a legitimate void, because generated columns are computed *after* BEFORE-triggers
+run so a whole-row comparison sees a phantom change.
+
+**Cycle 2** (`6213f92`) — one P1: the issuance lag was recorded but never read,
+so a forecast frozen mid-month still reached the promotion gate. One P2: the
+writer decided expiry from data maturity while the table decided it from
+wall-clock time, so a lagging sync hit the constraint and surfaced as a failed
+job rather than an `expired` cutoff. The first fix also exposed a weak test of
+my own — the original late-issue regression asserted the *label* on an unmatured
+row, and a mutation removing the *gate* survived it; there is now a matured,
+otherwise-perfect late cycle proving the gate itself.
+
+The two-cycle review budget is spent. Everything pushed after `6213f92` is
+independently unreviewed.
 
 ### Open items
 
