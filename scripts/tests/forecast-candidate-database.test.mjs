@@ -43,6 +43,7 @@ import {
   RETROSPECTIVE_SCORES,
 } from './fixtures/youth-monthly-demand.mjs';
 import { bindBacktestSql, runForecastCandidate, formatSummary } from '../lib/forecast-candidate-core.mjs';
+import { splitSqlStatements, findFailures } from '../lib/sql-statements.mjs';
 
 const root = new URL('../../', import.meta.url);
 const MIGRATION = 'supabase/migrations/20260917140000_forecast_candidate_ledger.sql';
@@ -1215,6 +1216,61 @@ await test('the migration re-applies over a populated database without damage', 
   assert.equal(num(await asService(() => scalar(
     "select forecast_qty from public.forecast_yoy_shift_v1($1, '2026-09-01', 'Youth')", [BASEBALLISM]))),
     FROZEN_FIRST_RUN.forecastQty);
+});
+
+// ── 14. verify_v2_schema.sql, run against the MIGRATED schema ───────────────
+// Executes this repo's REAL verify checks for the forecast module against a
+// database that has actually had the migration applied, and requires every one
+// to read 'ok'. It exists because a check can be wrong in a way that is
+// invisible until after apply: `has_function_privilege` RAISES on a signature
+// that does not exist, so naming a function by its argument list means that
+// changing the function turns the check into an ERROR rather than a failure.
+// That happened here -- adding the issuance-lag parameter left the check
+// naming a 7-argument form the migration drops (reported by Blake). The
+// privilege checks are matched by NAME now, and this is what would have caught
+// it.
+//
+// A FRESH database, deliberately: the fixtures above plant rows that some
+// checks are right to flag (a post-hoc row exists on purpose, to prove the
+// scorer's backstop). What is being verified here is that a correctly migrated
+// schema passes, not that this suite's scratch data does.
+await test('the real verify_v2_schema.sql forecast checks all pass on a migrated schema', async () => {
+  const fresh = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await fresh.exec('create extension if not exists pgcrypto;');
+    await fresh.exec(await readFile(new URL('scripts/tests/forecast-db-bootstrap.sql', root), 'utf8'));
+    // The entity FIRST, as in production: the baseline seed is guarded on it
+    // existing, and the checks require those rows.
+    await fresh.query('insert into public.entities (id, title) values ($1, $2)', [BASEBALLISM, 'Baseballism']);
+    await fresh.exec(await readFile(new URL(MIGRATION, root), 'utf8'));
+
+    const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+    // splitSqlStatements returns { text, section, line } and strips comments;
+    // the same splitter deployment-drift-check.yml uses to send this file to
+    // production, so the statements executed here are the ones that run there.
+    const checks = splitSqlStatements(verify)
+      .filter((stmt) => /'Forecast candidate[^']*' as check_name/.test(stmt.text));
+    assert.ok(checks.length >= 3, `expected the forecast checks to be found, got ${checks.length}`);
+
+    for (const stmt of checks) {
+      const name = (stmt.text.match(/'(Forecast candidate[^']*)' as check_name/) || [])[1];
+      let rows;
+      try {
+        rows = (await fresh.query(stmt.text)).rows;
+      } catch (error) {
+        // The failure mode this test exists for: a check that ERRORS rather
+        // than returning a row cannot report anything, in CI or in the daily
+        // production drift run.
+        assert.fail(`check "${name}" raised instead of reporting: ${error.message}`);
+      }
+      assert.equal(rows.length, 1, `check "${name}" returned ${rows.length} rows`);
+      assert.deepEqual(findFailures(rows), [],
+        `check "${name}" did not read ok: ${JSON.stringify(rows[0])}`);
+    }
+    console.log(`    (${checks.length} forecast checks executed against a migrated schema)`);
+  } finally {
+    await fresh.close();
+  }
 });
 
 console.log(`\n# ${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);

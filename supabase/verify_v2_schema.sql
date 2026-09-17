@@ -3775,24 +3775,49 @@ select 'Forecast candidate ledger' as check_name,
 select 'Forecast candidate authorization' as check_name,
  case when to_regprocedure('public.forecast_yoy_shift_v1(uuid,date,text,integer,numeric,numeric)') is null
    then 'MISSING: forecast candidate migration'
- -- The engine takes an explicit company id. It shipped first as a SECURITY
- -- DEFINER function that asked pg_has_role(current_user,'service_role') -- and
- -- inside a definer function current_user is the OWNER, so that answered yes
- -- for every signed-in user. Authorization is the GRANT now; this asserts it.
- when has_function_privilege('authenticated','public.forecast_yoy_shift_v1(uuid,date,text,integer,numeric,numeric)','EXECUTE')
-   or has_function_privilege('anon','public.forecast_yoy_shift_v1(uuid,date,text,integer,numeric,numeric)','EXECUTE')
-   then 'CRITICAL: forecast_yoy_shift_v1 is callable by a browser role; it takes an arbitrary company id'
- when has_function_privilege('authenticated','public.record_forecast_candidate_run(uuid,date,text,text,integer,numeric,numeric)','EXECUTE')
-   or has_function_privilege('anon','public.record_forecast_candidate_run(uuid,date,text,text,integer,numeric,numeric)','EXECUTE')
-   then 'CRITICAL: record_forecast_candidate_run is callable by a browser role'
- when has_function_privilege('authenticated','public.forecast_actuals_matured_through(uuid)','EXECUTE')
-   then 'CRITICAL: forecast_actuals_matured_through(uuid) is callable by a browser role; use the parameterless variant'
+ -- The engine functions take an explicit company id. They shipped first as
+ -- SECURITY DEFINER functions asking pg_has_role(current_user,'service_role')
+ -- -- and inside a definer function current_user is the OWNER, so that
+ -- answered yes for every signed-in user. Authorization is the GRANT now; this
+ -- asserts it.
+ --
+ -- Matched by NAME over pg_proc rather than by a written-out signature. Two
+ -- reasons, one of which already bit: a hardcoded signature ERRORS rather than
+ -- failing when the function's arguments change (adding the issuance-lag
+ -- parameter left this check naming a 7-argument form the migration had
+ -- dropped, so verify would have thrown after apply instead of reporting.
+ -- (Note this comment deliberately does not end in a semicolon: the splitter
+ -- that sends this file to production counts end-of-line terminators, and a
+ -- comment shaped like one breaks that invariant.)
+ -- and a signature names ONE overload, so a leftover or newly added one would
+ -- keep its grants with nothing noticing. Every overload of these names must
+ -- be unreachable from a browser role, whatever its arguments.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('forecast_yoy_shift_v1', 'record_forecast_candidate_run',
+                       'forecast_actuals_matured_through')
+     and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       or has_function_privilege('anon', p.oid, 'EXECUTE')))
+   then 'CRITICAL: an engine function (forecast_yoy_shift_v1 / record_forecast_candidate_run / forecast_actuals_matured_through) is callable by a browser role; they take an arbitrary company id'
  -- ...and the in-function gate must NOT go back to inferring the caller's role.
  when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='forecast_candidate_may_act') like '%pg_has_role%'
    then 'CRITICAL: the tenant gate is inferring the caller role again; inside SECURITY DEFINER that is always the owner'
- when not has_function_privilege('authenticated','public.evaluate_forecast_candidate(uuid,text,text,integer,integer,numeric)','EXECUTE')
+ -- The planner-facing side, also by name: at least one overload must be
+ -- reachable, and none of them may be reachable by anon.
+ when not exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'evaluate_forecast_candidate'
+     and has_function_privilege('authenticated', p.oid, 'EXECUTE'))
    then 'CRITICAL: a planner cannot read the promotion recommendation'
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('evaluate_forecast_candidate', 'forecast_candidate_cycles',
+                       'void_forecast_candidate_run')
+     and has_function_privilege('anon', p.oid, 'EXECUTE'))
+   then 'CRITICAL: a planner-facing forecast function is callable by anon'
  -- Voiding removes a result from scoring, and a void can turn a HOLD into a
  -- pass by deleting the cycle that broke the streak. Same-company is not a
  -- permission: this must require exec/owner, and deliberately NOT
