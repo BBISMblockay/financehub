@@ -1,0 +1,65 @@
+name: Meta Creative Probe
+
+# READ ONLY measurement. Writes nothing to the database and nothing to Meta.
+# Manual only, same posture as search-console-probe.yml: run it BEFORE
+# changing how creatives are read, so the change answers something measured.
+#
+# WHY IT EXISTS. After the 2026-09-17 backfill, 2,468 of 4,079 creatives carry
+# a destination. The largest remaining block is 423 SHARE ads holding
+# $2,347,906 of spend — and 409 of those ($2,346,434) carry their OWN copy
+# (body_source 'creative_body'), so they are not empty page-post shells. Their
+# names ("All Releases Catalog", "Dynamic Products", "Recently Restocked")
+# suggest catalog / Dynamic Product Ads, where the click resolves per-product
+# from the feed rather than to one landing page.
+#
+# A name is not evidence. This asks Meta what is on the creative and prints
+# EVERY url-shaped value with its JSON path, so "there is no destination" can
+# be proven rather than assumed — and if one does exist, the path names the
+# field a resolver would have to read.
+#
+# See scripts/meta-creative-probe.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ad_ids:
+        description: "Comma-separated ad ids to probe (blank = the SHARE/no-destination/own-copy block, newest first)"
+        required: false
+      limit:
+        description: "Max ads to probe (default 25). A probe is a sample, not a sweep"
+        required: false
+        default: "25"
+      connection_id:
+        description: Optional ad_platform_connections.id
+        required: false
+      company_entity_id:
+        description: Optional company UUID
+        required: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      META_PROBE_AD_IDS: ${{ inputs.ad_ids }}
+      META_PROBE_LIMIT: ${{ inputs.limit }}
+      META_PROBE_CONNECTION_ID: ${{ inputs.connection_id }}
+      META_PROBE_COMPANY_ID: ${{ inputs.company_entity_id }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Probe Meta creatives (read only)
+        run: node scripts/meta-creative-probe.mjs
