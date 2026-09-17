@@ -158,16 +158,28 @@ export function blankSummary() {
  * would have exited 1 without writing anything.
  */
 export async function resolveCategories(client, companyEntityId, override = '') {
-  if (override && String(override).trim()) return [String(override).trim()];
+  if (override && String(override).trim()) {
+    return { categories: [String(override).trim()], needsReview: [] };
+  }
   if (!companyEntityId) throw new Error('resolveCategories: companyEntityId is required');
   const { data, error } = await client.rpc('forecastable_product_types', {
     p_company_entity_id: companyEntityId,
   });
   if (error) throw new Error(`could not resolve categories: ${error.message}`);
   const rows = data || [];
-  // A row that is not forecastable is DROPPED, not defaulted in: a service or
-  // fee line has no purchasable unit, so a forecast for it is meaningless.
-  return rows.filter((r) => r && r.is_forecastable).map((r) => r.product_type).filter(Boolean);
+  const categories = rows.filter((r) => r && r.is_forecastable)
+    .map((r) => r.product_type).filter(Boolean);
+  // NOT the same as "excluded". A type with no inventory row, no purchase
+  // history and no human override is UNRESOLVED: a brand-new merchandise line
+  // whose inventory link has not landed yet is indistinguishable from a fee
+  // line on the evidence alone. It is not forecast -- forecasting a fee line is
+  // the defect this classification exists to prevent -- but it is returned so
+  // the caller can say so out loud. A forecast omitted from a cutoff that has
+  // since closed cannot be recreated, so a silent exclusion is permanent, and a
+  // run that quietly dropped one would look exactly like a successful run.
+  const needsReview = rows.filter((r) => r && r.needs_review)
+    .map((r) => r.product_type).filter(Boolean);
+  return { categories, needsReview };
 }
 
 export async function runForecastCandidate({

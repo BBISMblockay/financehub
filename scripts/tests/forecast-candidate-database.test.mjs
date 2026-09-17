@@ -1269,7 +1269,7 @@ await test('a sold-out category is still merchandise; only a never-tracked one i
     (company_entity_id, product_type_snapshot, qty) values ($1,'Purchased',5)`, [co]);
 
   const rows = await asService(() => db.query(
-    'select product_type, is_forecastable, reason from public.forecastable_product_types($1)', [co]));
+    'select product_type, is_forecastable, reason, needs_review from public.forecastable_product_types($1)', [co]));
   const by = Object.fromEntries(rows.rows.map((r) => [r.product_type, r]));
 
   assert.equal(by.SoldOut.is_forecastable, true,
@@ -1280,8 +1280,27 @@ await test('a sold-out category is still merchandise; only a never-tracked one i
   assert.equal(by.Purchased.is_forecastable, true,
     'purchase history alone is enough');
   assert.equal(by.FeeLine.is_forecastable, false,
-    'sells, never inventory-tracked, never purchased -> service line');
+    'sells, never inventory-tracked, never purchased -> not forecast');
   assert.match(by.FeeLine.reason, /never/);
+
+  // ...but NOT silently. Absent evidence is a third state, not a verdict: a new
+  // merchandise line whose inventory link has not landed looks exactly like this
+  // one, and a forecast it misses at a closed cutoff can never be recreated.
+  assert.equal(by.FeeLine.needs_review, true,
+    'an unclassifiable type must be flagged, not quietly excluded');
+  assert.equal(by.SoldOut.needs_review, false, 'tracked stock settles it');
+  assert.equal(by.Purchased.needs_review, false, 'purchase history settles it');
+
+  // A person's override settles it too, and clears the flag.
+  await db.query(`insert into public.product_type_profile
+    (company_entity_id, product_type, is_forecastable, classification)
+    values ($1,'FeeLine',false,'service_or_fee')`, [co]);
+  const after = await asService(() => db.query(
+    'select product_type, is_forecastable, needs_review, reason from public.forecastable_product_types($1)', [co]));
+  const fee = after.rows.find((r) => r.product_type === 'FeeLine');
+  assert.equal(fee.is_forecastable, false);
+  assert.equal(fee.needs_review, false, 'a human decision ends the review state');
+  assert.equal(fee.reason, 'set by a person');
 });
 
 await test('the migration re-applies over a populated database without damage', async () => {

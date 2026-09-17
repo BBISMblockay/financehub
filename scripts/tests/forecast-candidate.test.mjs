@@ -256,7 +256,8 @@ await atest('with no override the driver resolves categories from the database',
     { product_type: 'Hats',    is_forecastable: true },
   ], error: null }; } };
   const got = await resolveCategories(client, 'co-1', '');
-  assert.deepEqual(got, ['Tees', 'Hats'], 'non-forecastable types must be dropped, not defaulted in');
+  assert.deepEqual(got.categories, ['Tees', 'Hats'], 'non-forecastable types must not be forecast');
+  assert.deepEqual(got.needsReview, [], 'a classified type is not review-required');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].fn, 'forecastable_product_types');
   assert.equal(calls[0].args.p_company_entity_id, 'co-1');
@@ -265,13 +266,33 @@ await atest('with no override the driver resolves categories from the database',
 await atest('an explicit category overrides the database and asks it nothing', async () => {
   let asked = false;
   const client = { rpc: async () => { asked = true; return { data: [], error: null }; } };
-  assert.deepEqual(await resolveCategories(client, 'co-1', 'Widgets'), ['Widgets']);
+  assert.deepEqual((await resolveCategories(client, 'co-1', 'Widgets')).categories, ['Widgets']);
   assert.equal(asked, false, 'an explicit category must not cost a round trip');
 });
 
 await atest('a company with no forecastable category resolves to an empty list, not a guess', async () => {
   const client = { rpc: async () => ({ data: [{ product_type: 'Fees', is_forecastable: false }], error: null }) };
-  assert.deepEqual(await resolveCategories(client, 'co-1', ''), []);
+  assert.deepEqual((await resolveCategories(client, 'co-1', '')).categories, []);
+});
+
+await atest('an untracked sold category is reported as review-required, not silently dropped', async () => {
+  // REGRESSION. A brand-new merchandise type that records sales before its
+  // inventory link or PO history lands is indistinguishable, on the evidence
+  // alone, from a fee line. It must not be forecast -- but it must not vanish
+  // either: the ledger's frozen-before-outcome CHECK means a forecast missed at
+  // a cutoff that has since closed can NEVER be recreated, so a silent
+  // exclusion is permanent and a run that dropped one looks like a clean run.
+  const client = { rpc: async () => ({ data: [
+    { product_type: 'Tees',    is_forecastable: true,  needs_review: false },
+    { product_type: 'Fees',    is_forecastable: false, needs_review: false }, // confirmed by a person
+    { product_type: 'BrandNew', is_forecastable: false, needs_review: true },  // cannot tell yet
+  ], error: null }) };
+  const got = await resolveCategories(client, 'co-1', '');
+  assert.deepEqual(got.categories, ['Tees'], 'an unresolved type is still not forecast');
+  assert.deepEqual(got.needsReview, ['BrandNew'],
+    'an unresolved type must be surfaced; a confirmed exclusion must not be');
+  assert.ok(!got.needsReview.includes('Fees'),
+    'a type a person already ruled on is settled, not review-required');
 });
 
 await atest('a failure resolving categories stops the run rather than forecasting nothing quietly', async () => {

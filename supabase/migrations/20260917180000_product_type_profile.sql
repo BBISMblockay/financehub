@@ -159,6 +159,17 @@ select
       then 'inventory-tracked or purchased'
     else 'sells but never stocked and never purchased'
   end                                       as reason,
+  -- THE THIRD STATE. Absent evidence is not evidence of a fee. A brand-new
+  -- merchandise type that sells before its inventory link or PO history lands
+  -- looks identical to a service line, and the cost of guessing is ASYMMETRIC:
+  -- a forecast omitted from a closed cutoff CANNOT be recreated (the ledger's
+  -- frozen-before-outcome CHECK refuses it), so a silent exclusion is permanent.
+  -- Such a type is still not forecast -- forecasting a fee line is the bug this
+  -- table exists to fix -- but it is FLAGGED on every run until a person records
+  -- an override either way.
+  (pr.is_forecastable is null
+   and coalesce(st.inventory_rows, 0) = 0
+   and coalesce(p.po_lines, 0) = 0)         as needs_review,
   -- Surfaced so a disagreement is visible rather than silently overridden.
   (pr.is_forecastable is not null
    and pr.is_forecastable <> (coalesce(st.inventory_rows, 0) > 0 or coalesce(p.po_lines, 0) > 0))
@@ -705,7 +716,7 @@ grant execute on function public.evaluate_forecast_candidate(uuid, text, text, i
 -- SECURITY DEFINER (current_user is the owner, session_user is the authenticator).
 create or replace function public.forecastable_product_types(p_company_entity_id uuid)
 returns table (product_type text, units_365d numeric, on_hand numeric, po_lines integer,
-               is_forecastable boolean, reason text)
+               is_forecastable boolean, reason text, needs_review boolean)
 language plpgsql stable security definer set search_path = public
 as $fn$
 begin
@@ -740,7 +751,8 @@ begin
     case when pr.is_forecastable is not null then 'set by a person'
          when coalesce(st.rows_n,0) > 0 then 'inventory-tracked'
          when coalesce(p.n,0) > 0 then 'has purchase history'
-         else 'sells but is not inventory-tracked and was never purchased' end
+         else 'sells but is not inventory-tracked and was never purchased' end,
+    (pr.is_forecastable is null and coalesce(st.rows_n,0) = 0 and coalesce(p.n,0) = 0)
   from sales s
   left join stock st on st.product_type = s.product_type
   left join po p on p.product_type = s.product_type

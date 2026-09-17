@@ -78,9 +78,21 @@ async function companiesToRun() {
 // An explicit FC_SKU_CATEGORY still wins, so a manual single-category run is
 // unchanged.
 async function categoriesToRun(companyEntityId) {
-  const keep = await resolveCategories(db, companyEntityId, SKU_CATEGORY);
-  if (!SKU_CATEGORY) console.log(`  categories: ${keep.length} forecastable`);
-  return keep;
+  const { categories, needsReview } = await resolveCategories(db, companyEntityId, SKU_CATEGORY);
+  if (!SKU_CATEGORY) {
+    console.log(`  categories: ${categories.length} forecastable`);
+    // Loud, and repeated every run until somebody records an override in
+    // product_type_profile. These are NOT confirmed fee lines -- they are types
+    // the evidence cannot classify, and the forecast they do not get is one
+    // that can never be backfilled once the cutoff closes.
+    if (needsReview.length > 0) {
+      console.log(`  REVIEW REQUIRED - ${needsReview.length} type(s) have no inventory row, no`
+        + ' purchase history and no override, so they are NOT being forecast:');
+      for (const t of needsReview) console.log(`    - ${t}`);
+      console.log('    Confirm each in product_type_profile (is_forecastable true or false).');
+    }
+  }
+  return categories;
 }
 
 const companies = await companiesToRun();
