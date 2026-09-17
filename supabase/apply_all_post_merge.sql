@@ -18795,3 +18795,9 @@ $c$select (select count(*) from v_po_header_summary
 -- refresh_chat_schema_catalog(), which the new column makes necessary and
 -- which preserves the curated descriptions above it.
 \i migrations/20260916140000_silo_chat_evidence_diagnostics.sql
+-- A job_type for the Meta creative destination backfill. The nightly asks
+-- Meta about creatives only for ad ids inside its trailing window, which is
+-- why 126 of 4,079 stored creatives had ever been requested and $5.3M of
+-- SHARE spend sat on ads nobody had asked about. Its own job_type, not
+-- meta_ads_kpis, so "did the nightly run" stays answerable from sync_jobs.
+\i migrations/20260916150000_meta_creative_backfill_job_type.sql

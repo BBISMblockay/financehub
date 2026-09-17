@@ -1,0 +1,92 @@
+name: Meta Creative Backfill
+
+# One-shot destination/copy backfill for meta_ad_creatives. Manual only
+# (workflow_dispatch, no cron) — the nightly ad-platforms-sync.yml keeps the
+# trailing window current; this reaches everything before it.
+#
+# The nightly asks Meta about creatives only for ad ids with insights rows in
+# its window (days_back ?? 30). Measured 2026-09-16: 126 of 4,079 stored
+# creatives had ever been asked about, 82 resolved a destination, and
+# $5,304,686 of SHARE spend sat on ads never requested at all — not refused,
+# never asked.
+#
+# ONLY ADDS. A resolved link, recovered page-post copy, or a full row for an
+# ad with none. It never writes a null over a destination the nightly already
+# found, and never blanks copy the page-post pass recovered. Re-running is an
+# idempotent upsert on (company_entity_id, ad_id), and in the default
+# `missing` mode a re-run naturally skips whatever resolved last time.
+#
+# Deliberately no concurrency group — see CLAUDE.md on how one can silently
+# cancel a scheduled nightly. Overlapping the nightly is safe: both fetch the
+# same truth for an ad and write the same columns, so they converge.
+#
+# See scripts/meta-creative-backfill.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "missing = stored creatives with no destination (default); all = re-ask about every stored creative"
+        required: false
+        type: choice
+        options: ["missing", "all"]
+        default: "missing"
+      discover:
+        description: "Also enumerate the account's own ad ids, reaching ads never stored here (default true)"
+        required: false
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+      limit:
+        description: "Cap ads per connection (0 = no cap). Use a small number for a first dry run"
+        required: false
+        default: "0"
+      chunk:
+        description: "Ads per fetch+write chunk (default 300; each chunk is written before the next is fetched)"
+        required: false
+        default: "300"
+      pause_ms:
+        description: "Pause between chunks in ms (default 0; raise if Meta rate-limits)"
+        required: false
+        default: "0"
+      connection_id:
+        description: Optional ad_platform_connections.id (blank = every active meta_ads connection)
+        required: false
+      company_entity_id:
+        description: Optional company UUID
+        required: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # ~4,000 ads at 50 per batch POST is ~80 requests plus the page-post pass.
+    # Minutes, not hours — but Meta's rate-limit backoff is 30s/90s/180s per
+    # hit, so the ceiling is generous enough to finish a throttled walk rather
+    # than be killed with chunks still to write.
+    timeout-minutes: 180
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      META_BACKFILL_MODE: ${{ inputs.mode }}
+      META_BACKFILL_DISCOVER: ${{ inputs.discover }}
+      META_BACKFILL_LIMIT: ${{ inputs.limit }}
+      META_BACKFILL_CHUNK: ${{ inputs.chunk }}
+      META_BACKFILL_PAUSE_MS: ${{ inputs.pause_ms }}
+      META_CONNECTION_ID: ${{ inputs.connection_id }}
+      META_COMPANY_ID: ${{ inputs.company_entity_id }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Meta creative backfill
+        run: node scripts/meta-creative-backfill.mjs

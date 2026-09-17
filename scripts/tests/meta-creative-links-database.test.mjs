@@ -229,5 +229,66 @@ await test('re-running the migration does not append the caveat twice', async ()
   assert.equal(hits, 1, `caveat appended ${hits} times`);
 });
 
+/* The backfill writes PARTIAL column sets on purpose -- a links-only upsert
+ * and a body-only upsert -- so that re-asking Meta about an old ad can never
+ * blank copy the page-post pass already recovered, or a destination the
+ * nightly already resolved. That safety rests entirely on ON CONFLICT DO
+ * UPDATE touching only the columns named in its SET list. It does, but it is
+ * the single assumption whose failure would make the backfill DELETE data
+ * rather than add it, so it is proven here against a real Postgres rather
+ * than trusted to the client library's documentation.
+ *
+ * (What this does NOT prove is that PostgREST builds that SET list from the
+ * payload keys -- that is the supabase-js layer, asserted in
+ * meta-creative-backfill.test.mjs against the row objects the backfill
+ * hands it.) */
+await test('a partial upsert leaves the columns it does not name alone', async () => {
+  await insertCreative('partial1', {
+    link_url: 'https://baseballism.com/collections/keep',
+    link_url_source: 'asset_feed',
+    body: 'copy the page-post pass recovered',
+    ad_name: 'original name',
+  });
+
+  // A body-only write, exactly the shape runMetaCreativeBackfill sends.
+  await q(`insert into meta_ad_creatives(company_entity_id, ad_id, body, body_source)
+           values($1,$2,$3,$4)
+           on conflict (company_entity_id, ad_id)
+           do update set body = excluded.body, body_source = excluded.body_source`,
+  [co, 'partial1', 'newer copy', 'page_post']);
+
+  const row = await one('select * from meta_ad_creatives where ad_id=$1', ['partial1']);
+  assert.equal(row.body, 'newer copy', 'the named column is updated');
+  assert.equal(row.link_url, 'https://baseballism.com/collections/keep',
+    'a body-only upsert must NOT blank the destination');
+  assert.equal(row.link_url_source, 'asset_feed', 'nor its source');
+  assert.equal(row.ad_name, 'original name', 'nor any other unnamed column');
+
+  // And a links-only write must not blank the copy.
+  await q(`insert into meta_ad_creatives(company_entity_id, ad_id, link_url, link_url_source)
+           values($1,$2,$3,$4)
+           on conflict (company_entity_id, ad_id)
+           do update set link_url = excluded.link_url, link_url_source = excluded.link_url_source`,
+  [co, 'partial1', 'https://baseballism.com/collections/newer', 'asset_feed']);
+  const row2 = await one('select * from meta_ad_creatives where ad_id=$1', ['partial1']);
+  assert.equal(row2.link_url, 'https://baseballism.com/collections/newer');
+  assert.equal(row2.body, 'newer copy', 'a links-only upsert must NOT blank the copy');
+  assert.equal(row2.link_path, '/collections/newer', 'the generated path follows the new url');
+});
+
+/* The backfill omits synced_at from its body-only rows. That is only safe
+ * because the column carries a default -- without one the INSERT half of the
+ * upsert would fail on an ad that has no row yet, which is precisely the
+ * discovery case. */
+await test('synced_at defaults, so a partial insert cannot violate NOT NULL', async () => {
+  await q(`insert into meta_ad_creatives(company_entity_id, ad_id, body)
+           values($1,$2,$3)
+           on conflict (company_entity_id, ad_id) do update set body = excluded.body`,
+  [co, 'partial2', 'inserted with no synced_at']);
+  const row = await one('select synced_at, body from meta_ad_creatives where ad_id=$1', ['partial2']);
+  assert.ok(row.synced_at, 'synced_at must be filled by its default');
+  assert.equal(row.body, 'inserted with no synced_at');
+});
+
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);
 await db.close();

@@ -3663,6 +3663,27 @@ select 'Ask SILO evidence scope' as check_name,
    where relname = 'marketing_daily_totals_v'
      and description like '%ALREADY COMBINED ACROSS PLATFORMS%')
    then 'STALE: marketing_daily_totals_v no longer warns that its figures pool every platform'
+-- Can the Meta creative backfill even record a run?
+--
+-- scripts/meta-creative-backfill.mjs opens a sync_jobs row with job_type
+-- 'meta_creative_backfill' before it fetches anything, so without
+-- 20260916150000 the whole backfill dies on its first statement with a CHECK
+-- violation. That is a loud failure rather than a silent one -- but it fails
+-- at the moment someone runs a 3-hour job they wanted the results of, which
+-- is the worst time to discover a migration was never applied. The daily
+-- drift check reads this instead.
+--
+-- Asserted by TRYING the value against the live constraint rather than by
+-- pattern-matching its text: a CHECK can be rewritten in any number of
+-- equivalent ways, and what matters is whether the insert would be allowed.
+select 'Meta creative backfill job type' as check_name,
+ case when to_regclass('public.sync_jobs') is null then 'MISSING: sync_jobs'
+ when not exists(
+   select 1 from pg_constraint
+   where conrelid = 'public.sync_jobs'::regclass and contype = 'c'
+     and conname = 'sync_jobs_job_type_check'
+     and pg_get_constraintdef(oid) like '%meta_creative_backfill%')
+   then 'MISSING: sync_jobs.job_type does not accept meta_creative_backfill; apply 20260916150000'
  else 'ok' end as status;
 
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.

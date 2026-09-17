@@ -23,6 +23,7 @@ on:
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
+      - 'scripts/meta-creative-backfill.mjs'
       - 'scripts/qbo-sandbox-validation.mjs'
       - 'supabase/functions/plaid-scheduled-sync/**'
       - 'scripts/plaid-sync.mjs'
@@ -199,6 +200,22 @@ jobs:
 
       - name: Marketing Report destination rendering
         run: node scripts/tests/wow-report-destination.test.mjs
+
+      # The backfill that reaches ads the nightly never asks about (it fetches
+      # creatives only for ad ids inside its trailing window, which is why 126
+      # of 4,079 stored creatives had ever been requested). The assertion that
+      # earns its place is that the backfill ONLY ADDS: re-asking about an old
+      # ad must never blank a destination or copy already resolved, because a
+      # backfill that deletes data is worse than one that misses some.
+      - name: Meta creative backfill
+        run: node scripts/tests/meta-creative-backfill.test.mjs
+
+      # ...and the DRIVER, executed for real. The core passing in isolation is
+      # the exact state in which a dead-zone reference shipped inside an
+      # orchestrator callback here: this runs the script's own connection load,
+      # candidate selection, PostgREST paging and sync_jobs bookkeeping.
+      - name: Meta creative backfill driver
+        run: node scripts/tests/meta-creative-backfill-driver.test.mjs
 
       # products_master is one row per (company, sku), so its shopify_product_id
       # is decided by nightly sync ORDER for the 26.9% of sold SKUs that exist
