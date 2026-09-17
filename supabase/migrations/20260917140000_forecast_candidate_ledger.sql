@@ -144,6 +144,17 @@ create table if not exists public.forecast_candidate_ledger (
   candidate_spec jsonb not null,
   source_relation text not null,
 
+  -- How late into its own horizon the row was frozen, in Pacific business
+  -- days. 0 means frozen on the cutoff itself. The CHECK below bounds this to
+  -- "before the outcome was complete", which is the strongest rule that is
+  -- implementable -- the maturity clock means a cutoff cannot be frozen until
+  -- a day or two AFTER it, so "before the horizon starts" is impossible by
+  -- construction. This column is what makes the residual visible instead of
+  -- implicit: a row frozen on day 1 and one frozen on day 27 are both legal
+  -- and are not equally good evidence.
+  frozen_days_into_horizon integer generated always as
+    ((timezone('America/Los_Angeles', executed_at))::date - cutoff_date) stored,
+
   created_by uuid,
 
   -- The single permitted mutation. See the append-only trigger below: a
@@ -164,6 +175,20 @@ create table if not exists public.forecast_candidate_ledger (
   constraint forecast_ledger_no_lookahead
     check (recent_window_end <= cutoff_date and prior_window_end <= cutoff_date
            and prior_year_target_month < cutoff_date),
+  -- THE PROSPECTIVE PROPERTY, enforced by the table rather than by the job
+  -- that fills it. Without this, a missed monthly run is not a gap -- it is a
+  -- licence: the next run's catch-up loop happily freezes a cutoff whose
+  -- 30-day outcome is already complete and known, and the scorer then counts
+  -- that row as matured prospective evidence toward promotion. Verified
+  -- reachable before the fix (a 2026-06-01 cutoff frozen on 2026-09-17 came
+  -- back SCORED with 0% error). A service-role job cannot dodge a CHECK, which
+  -- is why it lives here and not only in the writer.
+  --
+  -- Pacific, not UTC: the business day is the unit everywhere else in SILO
+  -- (see silo_business_today), and timezone(text, timestamp) is IMMUTABLE, so
+  -- it is usable in a CHECK where a bare ::date cast would not be.
+  constraint forecast_ledger_frozen_before_outcome
+    check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)),
   constraint forecast_ledger_qty_not_negative check (forecast_qty >= 0),
   constraint forecast_ledger_clamp_ordered check (ratio_clamp_high >= ratio_clamp_low),
   constraint forecast_ledger_clamped_in_bounds
@@ -174,6 +199,29 @@ create table if not exists public.forecast_candidate_ledger (
   constraint forecast_ledger_category_not_blank check (btrim(sku_category) <> ''),
   constraint forecast_ledger_candidate_not_blank check (btrim(candidate_id) <> '')
 );
+
+-- The pieces above land through `create table if not exists`, which does
+-- NOTHING on a table that already exists. Anything added to this migration
+-- after it has been applied somewhere therefore needs an explicit guard, or a
+-- re-apply silently produces a table missing it -- which is the exact drift
+-- apply_all_post_merge.sql exists to prevent. These two came out of the
+-- cycle-1 review and are written this way for that reason.
+alter table public.forecast_candidate_ledger
+  add column if not exists frozen_days_into_horizon integer generated always as
+    ((timezone('America/Los_Angeles', executed_at))::date - cutoff_date) stored;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.forecast_candidate_ledger'::regclass
+      and conname = 'forecast_ledger_frozen_before_outcome'
+  ) then
+    alter table public.forecast_candidate_ledger
+      add constraint forecast_ledger_frozen_before_outcome
+      check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp));
+  end if;
+end $$;
 
 -- IDEMPOTENCY. One forecast per candidate, per category, per horizon, per
 -- cutoff, per tenant. This is what makes the runner safe to re-run: a second
@@ -211,6 +259,14 @@ create or replace function public.forecast_candidate_ledger_append_only()
 returns trigger
 language plpgsql
 as $$
+declare
+  -- The void columns, plus every GENERATED column on this table. Generated
+  -- columns are computed AFTER before-triggers run, so `new` carries a null
+  -- for them here while `old` carries the stored value -- a whole-row
+  -- comparison therefore sees a phantom change and rejects a legitimate void.
+  -- Read from the catalog rather than listed, so the comparison keeps covering
+  -- a column added later without also breaking on a derived one.
+  v_ignored text[];
 begin
   if tg_op = 'DELETE' then
     raise exception
@@ -234,12 +290,19 @@ begin
       using errcode = 'restrict_violation';
   end if;
 
-  -- Everything except the three void columns must be byte-identical. Written
-  -- as a whole-row comparison rather than a column list on purpose: a column
-  -- added to this table later is covered automatically, where a list would
-  -- silently stop protecting it.
-  if to_jsonb(new) - 'voided_at' - 'void_reason' - 'voided_by'
-     is distinct from to_jsonb(old) - 'voided_at' - 'void_reason' - 'voided_by' then
+  -- Everything except the void columns must be byte-identical. Written as a
+  -- whole-row comparison rather than a column list on purpose: a column added
+  -- to this table later is covered automatically, where a list would silently
+  -- stop protecting it. Generated columns are excluded because they are
+  -- derived -- if every source column is unchanged, so are they.
+  select array['voided_at', 'void_reason', 'voided_by']
+         || coalesce(array_agg(a.attname::text), '{}'::text[])
+    into v_ignored
+  from pg_attribute a
+  where a.attrelid = tg_relid and a.attnum > 0 and not a.attisdropped
+    and a.attgenerated <> '';
+
+  if to_jsonb(new) - v_ignored is distinct from to_jsonb(old) - v_ignored then
     raise exception
       'forecast_candidate_ledger: voiding row % may not alter any other column',
       old.id
@@ -591,6 +654,25 @@ begin
     return;
   end if;
 
+  -- EXPIRED: the horizon this cutoff covers has already finished, so a
+  -- forecast written now would be a retrodiction wearing a prospective label.
+  -- Refused, and deliberately refused rather than written-and-flagged: the
+  -- honest record of a month nobody forecast is an ABSENT row, not a row
+  -- claiming a forecast was made. The catch-up loop stays useful for a horizon
+  -- still open; it just cannot reach back past one that closed.
+  -- `v_horizon_end` is EXCLUSIVE -- the first day NOT covered -- so the outcome
+  -- is complete once the source has synced through `v_horizon_end - 1`, a day
+  -- EARLIER. Getting this comparison wrong by that one day is not cosmetic: it
+  -- let the August cutoff be frozen on 17 September, with August's outcome
+  -- fully in hand, which is precisely the retrodiction this guard exists to
+  -- refuse. Caught by the integrated runner test, not by reading the line.
+  if v_matured_through >= v_horizon_end - 1 then
+    return query select 'expired', null::uuid, null::numeric, p_cutoff_date,
+      format('horizon %s..%s is already fully synced (through %s); a forecast written now would not be prospective',
+             p_cutoff_date, v_horizon_end - 1, v_matured_through);
+    return;
+  end if;
+
   select * into v_calc
   from public.forecast_yoy_shift_v1(
     p_company_entity_id, p_cutoff_date, p_sku_category, p_horizon_days, p_clamp_low, p_clamp_high);
@@ -680,6 +762,23 @@ begin
     raise exception 'void_forecast_candidate_run: not authorized for company %', v_company
       using errcode = 'insufficient_privilege';
   end if;
+  -- Same company is NOT enough. Voiding removes a result from scoring, and a
+  -- void can flip a HOLD into a promotion recommendation: with cycles
+  -- (bad, good, good, good) the gate holds, because the longest scorable run
+  -- includes the bad one and "every cycle beats the baseline" fails -- void the
+  -- bad one and the remaining three pass. The first version granted this to
+  -- every `authenticated` member, which in this org is ~29 people, so anyone
+  -- could have quietly manufactured a passing streak.
+  --
+  -- is_exec_or_owner(), deliberately NOT is_admin_user(): 28 of 29 Baseballism
+  -- profiles are membership 'admin', so that gate is the whole company again --
+  -- the same reason can_manage_journal_entries() exists. There is no planner
+  -- role yet and no UI; starting narrow is the reversible direction, since
+  -- widening this later is additive and narrowing it would not be.
+  if not public.is_exec_or_owner() then
+    raise exception 'void_forecast_candidate_run: voiding a frozen forecast requires executive or owner'
+      using errcode = 'insufficient_privilege';
+  end if;
   if p_reason is null or btrim(p_reason) = '' then
     raise exception 'void_forecast_candidate_run: a reason is required'
       using errcode = 'invalid_parameter_value';
@@ -694,9 +793,10 @@ $$;
 comment on function public.void_forecast_candidate_run(uuid, text) is
   'Voids one frozen forecast with a required reason. The row keeps every number, is excluded from scoring, and is counted in the evaluation output -- a void is recorded, never silent.';
 
--- Authenticated only, and only for a row in the caller's own active company.
--- Voiding is a human act with a written reason attached; a background job has
--- no business deciding a frozen forecast was wrong.
+-- Authenticated only, for a row in the caller's own active company, AND only
+-- exec/owner (checked inside). Voiding is a human act with a written reason
+-- attached; a background job has no business deciding a frozen forecast was
+-- wrong, and neither does an arbitrary member -- see the note in the body.
 revoke all on function public.void_forecast_candidate_run(uuid, text) from public, anon, service_role;
 grant execute on function public.void_forecast_candidate_run(uuid, text) to authenticated;
 
@@ -854,6 +954,13 @@ begin
     select r.*, a.actual_qty, a.matured,
       case
         when r.voided_at is not null then false
+        -- Backstop for the CHECK above. A row frozen at or after its own
+        -- horizon ended is not prospective evidence and is never scored,
+        -- whatever else is true of it. Redundant while the constraint holds,
+        -- and deliberately so: this is the assertion that keeps the promotion
+        -- gate honest if the constraint is ever relaxed, or if a row arrives
+        -- through some entry point that does not exist yet.
+        when r.executed_at >= timezone('America/Los_Angeles', r.horizon_end_date::timestamp) then false
         when not a.matured then false
         when a.actual_qty is null then false
         -- A cycle whose actual is zero or negative has no denominator: a
@@ -871,12 +978,17 @@ begin
     j.matured, j.scorable,
     case
       when j.voided_at is not null then 'VOIDED'
+      when j.executed_at >= timezone('America/Los_Angeles', j.horizon_end_date::timestamp)
+        then 'NOT PROSPECTIVE'
       when not j.matured then 'PROSPECTIVE — NOT SCORED'
       when j.scorable then 'SCORED'
       else 'NOT SCORABLE'
     end,
     case
       when j.voided_at is not null then 'voided: ' || coalesce(j.void_reason, '')
+      when j.executed_at >= timezone('America/Los_Angeles', j.horizon_end_date::timestamp)
+        then format('frozen %s, after the horizon closed on %s; not prospective evidence',
+                    (timezone('America/Los_Angeles', j.executed_at))::date, j.horizon_end_date - 1)
       when not j.matured then
         'actuals mature after ' || (j.horizon_end_date - 1)::text
         || '; source synced through ' || coalesce(v_matured_through::text, 'never measured')
@@ -939,6 +1051,7 @@ returns table (
   cycles_voided integer,
   cycles_scorable integer,
   consecutive_scorable_cycles integer,
+  voids_around_window integer,
   evaluated_from date,
   evaluated_to date,
   actual_units numeric,
@@ -995,6 +1108,20 @@ begin
   -- Longest run; the most recent one wins a tie, because a candidate's recent
   -- behaviour is the thing a promotion decision is actually about.
   best as (select n, run_from, run_to from runs order by n desc, run_to desc limit 1),
+  -- Voids sitting INSIDE the evaluated run, or immediately on either side of
+  -- it. Those are the ones that could have created the run: a void breaks a
+  -- run it sits inside, and a void just outside removes the cycle that would
+  -- otherwise have been part of a longer, worse-scoring one. Exec/owner is now
+  -- required to void and every void carries an actor and a reason, so this is
+  -- surfaced rather than blocked -- promotion is never automatic, and the
+  -- planner approving it should not have to go looking.
+  voids_near as (
+    select count(*)::integer as n
+    from cy, best
+    where cy.voided
+      and cy.cutoff_date >= (best.run_from - interval '1 month')::date
+      and cy.cutoff_date <= (best.run_to + interval '1 month')::date
+  ),
   agg as (
     select sum(s.actual_qty) as actual_units,
            sum(s.forecast_qty) as forecast_units,
@@ -1017,7 +1144,7 @@ begin
   gated as (
     select
       c.written, c.matured, c.voided, c.scorable,
-      coalesce(b.n, 0) as run_n, b.run_from, b.run_to,
+      coalesce(b.n, 0) as run_n, b.run_from, b.run_to, coalesce(vn.n, 0) as voids_near,
       a.actual_units, a.forecast_units, a.pooled_wape, a.pooled_bias, a.mean_bias, a.worst_cycle_wape,
       bc.wape as cat_wape, bp.wape as port_wape,
       coalesce(b.n, 0) >= p_min_cycles as g_cycles,
@@ -1029,13 +1156,14 @@ begin
       (a.mean_bias is not null and a.mean_bias >= -p_bias_tolerance and a.mean_bias <= p_bias_tolerance) as g_bias
     from counts c
     left join best b on true
+    left join voids_near vn on true
     left join agg a on true
     left join base_cat bc on true
     left join base_port bp on true
   )
   select
     p_candidate_id, p_sku_category, p_horizon_days,
-    g.written, g.matured, g.voided, g.scorable, g.run_n,
+    g.written, g.matured, g.voided, g.scorable, g.run_n, g.voids_near,
     g.run_from, g.run_to, g.actual_units, g.forecast_units,
     g.pooled_wape, g.pooled_bias, g.mean_bias, g.worst_cycle_wape,
     g.cat_wape, g.port_wape,
@@ -1052,7 +1180,7 @@ begin
       format('No scorable cycle yet: %s forecast(s) written, %s matured, %s voided. Nothing is measured until a full cycle has elapsed and synced.',
              g.written, g.matured, g.voided)
     else
-      format('%s consecutive scorable cycle(s) %s..%s. Pooled WAPE %s%% vs category baseline %s%% and portfolio baseline %s%%; worst cycle %s%%; mean directional bias %s%% (tolerance +/-%s%%). Gates: cycles=%s, every-cycle-beats-category=%s, pooled-beats-both=%s, bias=%s.%s%s Promotion is never automatic: this is a recommendation for planner approval, and nothing in production changes until a planner acts on it.',
+      format('%s consecutive scorable cycle(s) %s..%s. Pooled WAPE %s%% vs category baseline %s%% and portfolio baseline %s%%; worst cycle %s%%; mean directional bias %s%% (tolerance +/-%s%%). Gates: cycles=%s, every-cycle-beats-category=%s, pooled-beats-both=%s, bias=%s.%s%s%s Promotion is never automatic: this is a recommendation for planner approval, and nothing in production changes until a planner acts on it.',
              g.run_n, g.run_from, g.run_to,
              round(100 * g.pooled_wape, 1),
              coalesce(round(100 * g.cat_wape, 1)::text, 'NOT RECORDED'),
@@ -1064,7 +1192,10 @@ begin
              case when g.cat_wape is null or g.port_wape is null
                then ' A baseline is NOT RECORDED for this company; an absent baseline is never treated as passed.' else '' end,
              case when g.voided > 0
-               then format(' %s voided forecast(s) excluded from scoring.', g.voided) else '' end)
+               then format(' %s voided forecast(s) excluded from scoring.', g.voided) else '' end,
+             case when g.voids_near > 0
+               then format(' WARNING: %s voided cycle(s) sit inside or immediately beside this window. A void can turn a HOLD into a pass by removing the cycle that broke the streak -- read their reasons and actors before approving.', g.voids_near)
+               else '' end)
     end
   from gated g;
 end;

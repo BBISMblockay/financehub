@@ -85,6 +85,14 @@ export function previousDay(iso) {
  * `maturedThrough` is forecast_actuals_matured_through(): null means the
  * source has never been measured, which yields NO cutoffs rather than all of
  * them.
+ *
+ * This deliberately still walks historical cutoffs -- a catch-up after a
+ * dropped monthly run is the whole point -- and it does NOT itself decide
+ * whether a cutoff is too old to freeze. That decision belongs to the database,
+ * which refuses any cutoff whose horizon has already closed ('expired') and
+ * backs the refusal with a CHECK a service-role job cannot dodge. Putting the
+ * rule here as well would be a second definition of "prospective", and the one
+ * that mattered would be the one nobody re-read.
  */
 export function plannedCutoffs({ startCutoff, maturedThrough, maxCutoffs = 60 }) {
   if (!isMonthStart(startCutoff)) {
@@ -110,11 +118,12 @@ export const ACTIONS = Object.freeze({
   existing: 'already frozen; returned untouched and NOT recalculated',
   existing_voided: 'already frozen and since voided; left alone',
   deferred: 'source not synced far enough for this cutoff yet',
+  expired: 'the horizon closed before this run; a forecast written now would not be prospective',
   skipped: 'the candidate is not computable at this cutoff (missing month, non-positive denominator)',
 });
 
 export function blankSummary() {
-  return { attempted: 0, inserted: 0, existing: 0, existing_voided: 0, deferred: 0, skipped: 0, failed: 0 };
+  return { attempted: 0, inserted: 0, existing: 0, existing_voided: 0, deferred: 0, expired: 0, skipped: 0, failed: 0 };
 }
 
 /**
@@ -211,6 +220,7 @@ export function formatSummary(summary) {
     `inserted ${summary.inserted}`,
     `already frozen ${summary.existing + summary.existing_voided}`,
     `deferred ${summary.deferred}`,
+    `expired ${summary.expired}`,
     `not computable ${summary.skipped}`,
     `failed ${summary.failed}`,
   ].join(', ');

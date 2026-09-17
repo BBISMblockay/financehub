@@ -162,21 +162,43 @@ await atest('one cutoff failing does not abandon the rest of the run', async () 
   assert.equal(results[2].action, 'inserted', 'the cutoff after the failure still ran');
 });
 
-await atest('deferred and skipped are counted separately and neither is a failure', async () => {
-  // They mean different things: "not yet" versus "not computable here". A run
-  // that collapsed them would make a stalled sync look like a broken model.
+await atest('deferred, expired and skipped are counted separately and none is a failure', async () => {
+  // Three different things: "not yet", "too late to be prospective", and "not
+  // computable here". A run that collapsed them would make a stalled sync, a
+  // dropped monthly run and a broken model all look alike in the log.
   const client = fakeClient({
     maturedThrough: '2026-11-29',
     responses: {
+      '2026-09-01': { action: 'expired', forecast_qty: null, ledger_id: null, reason: 'horizon ... already fully synced' },
       '2026-10-01': { action: 'deferred', forecast_qty: null, ledger_id: null, reason: 'source is synced through ...' },
       '2026-11-01': { action: 'skipped', forecast_qty: null, ledger_id: null, reason: 'prior-year window ...' },
     },
   });
   const { summary } = await runForecastCandidate({
     client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+  assert.equal(summary.expired, 1);
   assert.equal(summary.deferred, 1);
   assert.equal(summary.skipped, 1);
-  assert.equal(summary.failed, 0);
+  assert.equal(summary.failed, 0, 'a refusal is not an error');
+});
+
+await atest('the planner still offers historical cutoffs; the database refuses the closed ones', async () => {
+  // The catch-up range is deliberately NOT trimmed here. A dropped monthly run
+  // is what catch-up is for, and "is this still prospective" is decided once,
+  // in the database, backed by a CHECK a service-role job cannot dodge --
+  // re-deciding it here would be a second definition of the word.
+  const client = fakeClient({
+    maturedThrough: '2026-11-29',
+    responses: {
+      '2026-09-01': { action: 'expired', forecast_qty: null, ledger_id: null, reason: 'expired' },
+      '2026-10-01': { action: 'expired', forecast_qty: null, ledger_id: null, reason: 'expired' },
+    },
+  });
+  const { cutoffs, summary } = await runForecastCandidate({
+    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+  assert.deepEqual(cutoffs, ['2026-09-01', '2026-10-01', '2026-11-01'], 'all three are attempted');
+  assert.equal(summary.expired, 2);
+  assert.equal(summary.inserted, 1);
 });
 
 await atest('an unrecognised action is counted as a failure, not silently dropped', async () => {
@@ -228,8 +250,9 @@ await atest('a missing company is refused before any call is made', async () => 
 test('the summary reads as one line', () => {
   const s = blankSummary();
   s.attempted = 3; s.inserted = 1; s.existing = 1; s.deferred = 1;
+  s.expired = 1;
   assert.equal(formatSummary(s),
-    'attempted 3, inserted 1, already frozen 1, deferred 1, not computable 0, failed 0');
+    'attempted 3, inserted 1, already frozen 1, deferred 1, expired 1, not computable 0, failed 0');
 });
 
 // ── Backtest parameter binding ──────────────────────────────────────────────

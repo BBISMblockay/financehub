@@ -3741,6 +3741,17 @@ select 'Forecast candidate ledger' as check_name,
  when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.forecast_candidate_ledger')
    and conname='forecast_ledger_no_lookahead')
    then 'CRITICAL: the no-look-ahead constraint is missing'
+ -- Without this a dropped monthly run is not a gap but a licence: the next
+ -- run's catch-up would freeze a cutoff whose outcome is already complete, and
+ -- the scorer would count it as prospective evidence toward promotion.
+ when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.forecast_candidate_ledger')
+   and conname='forecast_ledger_frozen_before_outcome' and convalidated)
+   then 'CRITICAL: the frozen-before-outcome constraint is missing or NOT VALID; a forecast can be written after its own outcome'
+ -- Any row that slipped in before the constraint existed is retrospective
+ -- evidence wearing a prospective label.
+ when exists(select 1 from public.forecast_candidate_ledger
+   where executed_at >= timezone('America/Los_Angeles', horizon_end_date::timestamp))
+   then 'CRITICAL: a ledger row was frozen at or after its own horizon closed'
  -- Supabase's default privileges grant ALL on a new public table. With RLS and
  -- no policy an UPDATE then succeeds with ZERO ROWS, which reads exactly like a
  -- write that worked, so the revoke has to be explicit.
@@ -3773,6 +3784,13 @@ select 'Forecast candidate authorization' as check_name,
    then 'CRITICAL: the tenant gate is inferring the caller role again; inside SECURITY DEFINER that is always the owner'
  when not has_function_privilege('authenticated','public.evaluate_forecast_candidate(uuid,text,text,integer,integer,numeric)','EXECUTE')
    then 'CRITICAL: a planner cannot read the promotion recommendation'
+ -- Voiding removes a result from scoring, and a void can turn a HOLD into a
+ -- pass by deleting the cycle that broke the streak. Same-company is not a
+ -- permission: this must require exec/owner, and deliberately NOT
+ -- is_admin_user(), which nearly the whole company passes.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='void_forecast_candidate_run') not like '%is_exec_or_owner%'
+   then 'CRITICAL: voiding a frozen forecast is not gated on exec/owner; any member can exclude an unfavourable cycle'
  else 'ok' end as status;
 
 select 'Forecast candidate baselines' as check_name,

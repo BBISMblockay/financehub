@@ -67,6 +67,11 @@ const MUTATIONS = {
   'no-tenant-check': [['and p_company_entity_id = public.active_company_id();', 'and true;']],
   'pooled-only-gate': [['(bc.wape is not null and a.worst_cycle_wape is not null and a.worst_cycle_wape < bc.wape) as g_every', '(bc.wape is not null and a.pooled_wape is not null and a.pooled_wape < bc.wape) as g_every']],
   'runs-need-not-be-consecutive': [['(s.cutoff_date - (row_number() over (order by s.cutoff_date) * interval \'1 month\'))::date as island', "date '2000-01-01' as island"]],
+  // Cycle-1 review findings. Each removes one layer of the two P1 fixes.
+  'allow-expired-writes': [['if v_matured_through >= v_horizon_end - 1 then', 'if false then']],
+  'no-prospective-check': [["    check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)),", '    check (true),']],
+  'score-post-hoc': [["        when r.executed_at >= timezone('America/Los_Angeles', r.horizon_end_date::timestamp) then false", '        when false then false']],
+  'void-open-to-members': [['  if not public.is_exec_or_owner() then', '  if false then']],
   'absent-baseline-passes': [['coalesce(b.n, 0) >= p_min_cycles as g_cycles', 'coalesce(b.n, 0) >= p_min_cycles as g_cycles'], ['(bc.wape is not null and bp.wape is not null and a.pooled_wape is not null\n        and a.pooled_wape < bc.wape and a.pooled_wape < bp.wape) as g_pooled', '(coalesce(a.pooled_wape < bc.wape, true) and coalesce(a.pooled_wape < bp.wape, true)) as g_pooled'], ['(bc.wape is not null and a.worst_cycle_wape is not null and a.worst_cycle_wape < bc.wape) as g_every', 'coalesce(a.worst_cycle_wape < bc.wape, true) as g_every']],
 };
 const mutation = process.env.FC_DB_MUTATION || '';
@@ -118,13 +123,22 @@ const SYNTH_CO = randomUUID();
 const planner = randomUUID();
 const outsider = randomUUID();
 
-async function makeCompany(id, title, ownerId) {
+async function makeCompany(id, title, ownerId, role = 'admin') {
   await q('insert into public.entities (id, title) values ($1, $2) on conflict do nothing', [id, title]);
   if (ownerId) {
     await q('insert into auth.users (id) values ($1) on conflict do nothing', [ownerId]);
     await q('insert into public.profiles (id, email, role, active_company_id) values ($1, $2, $3, $4)',
-      [ownerId, `${ownerId}@example.test`, 'admin', id]);
+      [ownerId, `${ownerId}@example.test`, role, id]);
   }
+}
+// An ordinary member and an executive in the SAME company. Voiding needs the
+// second; the first is what the review found could do it.
+async function addUser(company, role) {
+  const id = randomUUID();
+  await q('insert into auth.users (id) values ($1)', [id]);
+  await q('insert into public.profiles (id, email, role, active_company_id) values ($1, $2, $3, $4)',
+    [id, `${id}@example.test`, role, company]);
+  return id;
 }
 async function sale(company, day, productType, units) {
   await q('insert into public.sales_by_day (company_entity_id, day_date, product_type, total_quantity_sold) values ($1,$2,$3,$4)',
@@ -133,6 +147,7 @@ async function sale(company, day, productType, units) {
 const refresh = () => db.exec('refresh materialized view public.sales_monthly_product_type_rollup_mv');
 
 await makeCompany(BASEBALLISM, 'Baseballism', planner);
+const execUser = await addUser(BASEBALLISM, 'executive');
 await makeCompany(OTHER_CO, 'Other Co', outsider);
 await makeCompany(SYNTH_CO, 'Synthetic Co', null);
 
@@ -291,17 +306,19 @@ await test('an extreme raw ratio is stored, not overflowed', async () => {
     const m = new Date(Date.UTC(2024, 6 + i, 5));
     await sale(SYNTH_CO, m.toISOString().slice(0, 10), 'Extreme', 10);
   }
-  for (const mo of ['2025-04', '2025-05', '2025-06']) await sale(SYNTH_CO, `${mo}-20`, 'Extreme', -9);
-  for (const mo of ['2026-04', '2026-05', '2026-06']) await sale(SYNTH_CO, `${mo}-20`, 'Extreme', 3000000);
+  // Cutoff 2026-09-01, whose horizon is still open -- an earlier cutoff would
+  // now be refused as expired before the ledger ever saw the ratio.
+  for (const mo of ['2025-06', '2025-07', '2025-08']) await sale(SYNTH_CO, `${mo}-20`, 'Extreme', -9);
+  for (const mo of ['2026-06', '2026-07', '2026-08']) await sale(SYNTH_CO, `${mo}-20`, 'Extreme', 3000000);
   await sale(SYNTH_CO, '2026-09-02', 'Extreme', 0);
   await refresh();
   const r = await asService(() => first(
     'select raw_ratio, clamped_ratio, forecast_qty from public.forecast_yoy_shift_v1($1, $2, $3)',
-    [SYNTH_CO, '2026-07-01', 'Extreme']));
+    [SYNTH_CO, '2026-09-01', 'Extreme']));
   assert.ok(num(r.raw_ratio) > 1000000, `raw ratio ${r.raw_ratio} should be enormous`);
   assert.equal(num(r.clamped_ratio), 1.80);
   const w = await asService(() => first(
-    "select action, reason from public.record_forecast_candidate_run($1, '2026-07-01', 'Extreme')", [SYNTH_CO]));
+    "select action, reason from public.record_forecast_candidate_run($1, '2026-09-01', 'Extreme')", [SYNTH_CO]));
   assert.equal(w.action, 'inserted', `the ledger must accept it: ${w.reason}`);
   assert.equal(num(await asService(() => scalar(
     "select raw_ratio from public.forecast_candidate_ledger where sku_category = 'Extreme'"))), num(r.raw_ratio));
@@ -401,7 +418,7 @@ await test('re-running a cutoff returns the frozen row and does not recompute', 
     'select count(*)::int from public.forecast_candidate_ledger where company_entity_id = $1', [BASEBALLISM]))), 1);
   // The stored provenance is frozen too, not just the headline number.
   assert.equal(num(await asService(() => scalar(
-    "select prior_year_target_demand from public.forecast_candidate_ledger where cutoff_date = '2026-09-01'"))),
+    "select prior_year_target_demand from public.forecast_candidate_ledger where cutoff_date = '2026-09-01' and company_entity_id = $1", [BASEBALLISM]))),
     FROZEN_FIRST_RUN.priorYearTargetDemand);
 
   // Put the series back.
@@ -431,21 +448,111 @@ await test('a cutoff whose prior month is not fully synced is deferred, not froz
   assert.equal(r.action, 'deferred', 'October needs complete September data');
   assert.match(r.reason, /synced through/);
   assert.equal(num(await asService(() => scalar(
-    "select count(*)::int from public.forecast_candidate_ledger where cutoff_date = '2026-10-01'"))), 0);
+    "select count(*)::int from public.forecast_candidate_ledger where cutoff_date = '2026-10-01' and company_entity_id = $1", [BASEBALLISM]))), 0);
 });
 
 await test('an ineligible cutoff writes no row at all', async () => {
+  // A category whose prior-year window for the CURRENTLY OPEN cutoff is
+  // missing a month. It has to be an open horizon: an expired cutoff is now
+  // refused before eligibility is even computed, which is the right order and
+  // would otherwise hide this path.
+  for (let i = 0; i < 30; i++) {
+    const m = new Date(Date.UTC(2024, 2 + i, 5));
+    if (m > new Date(Date.UTC(2026, 7, 5))) break;
+    if (m.getUTCFullYear() === 2025 && m.getUTCMonth() === 6) continue;   // no 2025-07
+    await sale(SYNTH_CO, m.toISOString().slice(0, 10), 'Skippable', 10);
+  }
+  await sale(SYNTH_CO, '2026-09-02', 'Skippable', 5);
+  await refresh();
   const r = await asService(() => first(
-    "select action, reason from public.record_forecast_candidate_run($1, '2024-01-01')", [BASEBALLISM]));
-  assert.equal(r.action, 'skipped');
+    "select action, reason from public.record_forecast_candidate_run($1, '2026-09-01', 'Skippable')", [SYNTH_CO]));
+  assert.equal(r.action, 'skipped', r.reason);
+  assert.match(r.reason, /prior-year window .* has 2 of 3 months recorded/);
   assert.equal(num(await asService(() => scalar(
-    "select count(*)::int from public.forecast_candidate_ledger where cutoff_date = '2024-01-01'"))), 0,
+    "select count(*)::int from public.forecast_candidate_ledger where sku_category = 'Skippable'"))), 0,
     'a skipped cutoff must be ABSENT, not a row of nulls');
+});
+
+// ── 6b. The prospective property: no writing a forecast after its outcome ───
+await test('a cutoff whose horizon already closed is refused, not frozen', async () => {
+  // The review case (P1, cycle 1): the October run cannot freeze October
+  // because September is still syncing; on the November run the catch-up loop
+  // would reach back and freeze October, whose outcome is by then complete.
+  // Verified reachable before this fix -- a 2026-06-01 cutoff frozen on
+  // 2026-09-17 came back SCORED with 0% error.
+  const r = await asService(() => first(
+    "select action, reason from public.record_forecast_candidate_run($1, '2026-06-01')", [BASEBALLISM]));
+  assert.equal(r.action, 'expired');
+  assert.match(r.reason, /already fully synced/);
+  assert.equal(num(await asService(() => scalar(
+    "select count(*)::int from public.forecast_candidate_ledger where cutoff_date = '2026-06-01'"))), 0,
+    'the honest record of a month nobody forecast is an ABSENT row');
+});
+
+await test('the TABLE refuses a post-hoc freeze, so no job can write one', async () => {
+  // The writer's refusal is a check in a function; this is the one a
+  // service-role insert cannot dodge.
+  await refused(() => asService(() => q(
+    `insert into public.forecast_candidate_ledger
+      (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
+       horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
+       prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       method_version, candidate_spec, source_relation, executed_at)
+     values ($1,'PostHoc','2026-06-01','Youth',30,10,'2026-06-01','2026-07-01',
+             '2026-03-01','2026-06-01',1,'2025-03-01','2025-06-01',1,'2025-06-01',1,
+             1,1,0.6,1.8,false,'v','{}'::jsonb,'x', '2026-09-17'::timestamptz)`, [BASEBALLISM])),
+    /forecast_ledger_frozen_before_outcome/, 'the table accepted a retrodiction');
+});
+
+await test('a row frozen after its horizon is never scored, even if one exists', async () => {
+  // The scorer's own backstop, proven independently of the constraint by
+  // disabling the constraint to plant the row -- which needs table ownership,
+  // so no job could have done it either.
+  const co = randomUUID();
+  const reader = randomUUID();
+  await makeCompany(co, 'PostHoc Co', reader);
+  await sale(co, '2026-06-10', 'Youth', 100);
+  await sale(co, '2026-09-02', 'Youth', 10);
+  await refresh();
+  await q('alter table public.forecast_candidate_ledger drop constraint forecast_ledger_frozen_before_outcome');
+  await q(`insert into public.forecast_candidate_ledger
+      (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
+       horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
+       prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       method_version, candidate_spec, source_relation, executed_at)
+     values ($1,'Candidate_YoY_Shift_v1','2026-06-01','Youth',30,100,'2026-06-01','2026-07-01',
+             '2026-03-01','2026-06-01',1,'2025-03-01','2025-06-01',1,'2025-06-01',1,
+             1,1,0.6,1.8,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-09-17'::timestamptz)`, [co]);
+  await q(`alter table public.forecast_candidate_ledger add constraint forecast_ledger_frozen_before_outcome
+           check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)) not valid`);
+
+  const c = await asRole('authenticated', reader, () => first(
+    'select status_label, scorable, not_scorable_reason, cycle_wape from public.forecast_candidate_cycles($1)', [co]));
+  assert.equal(c.scorable, false, 'a retrodiction must never be scored');
+  assert.equal(c.status_label, 'NOT PROSPECTIVE');
+  assert.equal(c.cycle_wape, null, 'and it carries no error figure to be quoted');
+  assert.match(c.not_scorable_reason, /after the horizon closed/);
+  const e = await asRole('authenticated', reader, () => first(
+    'select consecutive_scorable_cycles, recommendation from public.evaluate_forecast_candidate($1)', [co]));
+  assert.equal(e.consecutive_scorable_cycles, 0, 'and contributes nothing to the promotion gate');
+  assert.equal(e.recommendation, 'INSUFFICIENT_DATA');
+});
+
+await test('how late into its horizon a row was frozen is recorded', async () => {
+  const d = await asService(() => scalar(
+    "select frozen_days_into_horizon from public.forecast_candidate_ledger where cutoff_date = '2026-09-01' and company_entity_id = $1",
+    [BASEBALLISM]));
+  // Frozen on 2026-09-17 for a horizon starting 2026-09-01. Legal, and not the
+  // same quality of evidence as day 0 -- which is why it is a stored fact.
+  assert.ok(Number(d) >= 0 && Number(d) < 30, `frozen_days_into_horizon was ${d}`);
 });
 
 // ── 7. Immutability of frozen runs ──────────────────────────────────────────
 await test('a frozen forecast cannot be updated or deleted, even by the service role', async () => {
-  const id = await asService(() => scalar("select id from public.forecast_candidate_ledger where cutoff_date = '2026-09-01'"));
+  const id = await asService(() => scalar(
+    "select id from public.forecast_candidate_ledger where cutoff_date = '2026-09-01' and company_entity_id = $1", [BASEBALLISM]));
   await refused(() => asService(() => q('update public.forecast_candidate_ledger set forecast_qty = 1 where id = $1', [id])),
     /append-only/, 'forecast_qty was editable');
   await refused(() => asService(() => q('update public.forecast_candidate_ledger set cutoff_date = $2 where id = $1', [id, '2026-08-01'])),
@@ -457,13 +564,17 @@ await test('a frozen forecast cannot be updated or deleted, even by the service 
 });
 
 await test('voiding is the one permitted mutation, requires a reason, and cannot smuggle an edit', async () => {
-  const id = await asService(() => scalar("select id from public.forecast_candidate_ledger where cutoff_date = '2026-09-01'"));
+  const id = await asService(() => scalar(
+    "select id from public.forecast_candidate_ledger where cutoff_date = '2026-09-01' and company_entity_id = $1", [BASEBALLISM]));
   await refused(() => asService(() => q('select public.void_forecast_candidate_run($1, $2)', [id, 'from a job'])),
     /permission denied/, 'the service role could void a frozen forecast');
   await refused(() => asRole('authenticated', outsider, () => q(
     'select public.void_forecast_candidate_run($1, $2)', [id, 'not mine'])),
     /not authorized/, 'another tenant could void this forecast');
   await refused(() => asRole('authenticated', planner, () => q(
+    'select public.void_forecast_candidate_run($1, $2)', [id, 'ordinary member'])),
+    /requires executive or owner/, 'an ordinary same-tenant member could void a frozen forecast');
+  await refused(() => asRole('authenticated', execUser, () => q(
     'select public.void_forecast_candidate_run($1, $2)', [id, '  '])),
     /reason is required/, 'voided with a blank reason');
   // An UPDATE that sets voided_at AND changes a number is refused outright.
@@ -471,12 +582,12 @@ await test('voiding is the one permitted mutation, requires a reason, and cannot
     'update public.forecast_candidate_ledger set voided_at = now(), void_reason = $2, forecast_qty = 1 where id = $1',
     [id, 'sneaky'])), /may not alter any other column/, 'a void carried an edit');
 
-  assert.equal(await asRole('authenticated', planner, () => scalar(
+  assert.equal(await asRole('authenticated', execUser, () => scalar(
     'select public.void_forecast_candidate_run($1, $2)', [id, 'test void'])), true);
   const row = await asService(() => first('select forecast_qty, void_reason from public.forecast_candidate_ledger where id = $1', [id]));
   assert.equal(num(row.forecast_qty), FROZEN_FIRST_RUN.forecastQty, 'a void keeps the numbers');
   assert.equal(row.void_reason, 'test void');
-  await refused(() => asRole('authenticated', planner, () => q(
+  await refused(() => asRole('authenticated', execUser, () => q(
     'select public.void_forecast_candidate_run($1, $2)', [id, 'again'])),
     /already voided/, 'a voided row was voided twice');
 
@@ -591,11 +702,13 @@ await test('evaluation of an unscored candidate recommends nothing and says why'
 // each gate can be driven to a known value. (Direct INSERT is service-role
 // only, and the append-only trigger governs UPDATE/DELETE, not INSERT.)
 const GATE_PLANNER = {};
+const GATE_EXEC = {};
 async function gateScenario(name, cycles, { baselineWape = 0.50, portfolioWape = 0.60, withBaselines = true } = {}) {
   const co = randomUUID();
   const user = randomUUID();
   GATE_PLANNER[co] = user;
   await makeCompany(co, name, user);
+  GATE_EXEC[co] = await addUser(co, 'executive');
   if (withBaselines) {
     await q(`insert into public.forecast_model_baselines
       (company_entity_id, baseline_key, sku_category, horizon_days, wape, bias, measurement_windows, measured_from, measured_to)
@@ -609,13 +722,17 @@ async function gateScenario(name, cycles, { baselineWape = 0.50, portfolioWape =
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
        raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
-       method_version, candidate_spec, source_relation)
+       method_version, candidate_spec, source_relation, executed_at)
       values ($1,'Candidate_YoY_Shift_v1',$2,'Youth',30,$3,
               $2,($2::date + interval '1 month')::date,
               ($2::date - interval '3 months')::date, $2, 1,
               ($2::date - interval '15 months')::date, ($2::date - interval '12 months')::date, 1,
               ($2::date - interval '12 months')::date, 1,
-              1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'sales_monthly_product_type_rollup_mv')`,
+              1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'sales_monthly_product_type_rollup_mv',
+              -- Frozen two days into its own horizon, like a real run. The
+              -- default now() would be months after these cutoffs and the
+              -- prospective CHECK would refuse it -- correctly.
+              ($2::date + 2)::timestamptz)`,
       [co, cutoff, forecast]);
   }
   // Sync coverage well past every cycle, so all of them are matured.
@@ -744,7 +861,7 @@ await test('a voided cycle is excluded from scoring and breaks the run, visibly'
   ]);
   const mid = await asService(() => scalar(
     "select id from public.forecast_candidate_ledger where company_entity_id = $1 and cutoff_date = '2026-02-01'", [co]));
-  await asRole('authenticated', GATE_PLANNER[co], () => q(
+  await asRole('authenticated', GATE_EXEC[co], () => q(
     'select public.void_forecast_candidate_run($1, $2)', [mid, 'computed from a bad sync']));
   const e = await evaluate(co);
   assert.equal(e.cycles_voided, 1);
@@ -752,6 +869,36 @@ await test('a voided cycle is excluded from scoring and breaks the run, visibly'
   assert.equal(e.consecutive_scorable_cycles, 1, 'the void breaks the run');
   assert.equal(e.recommendation, 'INSUFFICIENT_DATA');
   assert.match(e.rationale, /1 voided forecast\(s\) excluded/);
+});
+
+await test('a void that could have created the winning streak is reported', async () => {
+  // The attack the review named: cycles (bad, good, good, good) hold, because
+  // the longest scorable run includes the bad one and "every cycle beats the
+  // baseline" fails. Void the bad one and the remaining three pass. Voiding now
+  // needs exec/owner, and the evaluation says out loud that a void sits beside
+  // the window it scored.
+  const co = await gateScenario('voidflip', [
+    { cutoff: '2026-01-01', forecast: 200, actual: 100 },
+    { cutoff: '2026-02-01', forecast: 100, actual: 100 },
+    { cutoff: '2026-03-01', forecast: 100, actual: 100 },
+    { cutoff: '2026-04-01', forecast: 100, actual: 100 },
+  ]);
+  const held = await evaluate(co);
+  assert.equal(held.consecutive_scorable_cycles, 4);
+  assert.equal(held.gate_beats_category_every_cycle, false, 'the bad cycle blocks it');
+  assert.equal(held.recommendation, 'HOLD');
+  assert.equal(held.voids_around_window, 0);
+
+  const bad = await asService(() => scalar(
+    "select id from public.forecast_candidate_ledger where company_entity_id = $1 and cutoff_date = '2026-01-01'", [co]));
+  await asRole('authenticated', GATE_EXEC[co], () => q(
+    'select public.void_forecast_candidate_run($1, $2)', [bad, 'inconvenient']));
+
+  const after = await evaluate(co);
+  assert.equal(after.consecutive_scorable_cycles, 3, 'the remaining three now form a passing streak');
+  assert.equal(after.gate_beats_category_every_cycle, true);
+  assert.equal(after.voids_around_window, 1, 'and the void beside it is counted');
+  assert.match(after.rationale, /WARNING: 1 voided cycle\(s\) sit inside or immediately beside this window/);
 });
 
 await test('a cycle whose month has not finished syncing is not scored', async () => {
@@ -764,10 +911,10 @@ await test('a cycle whose month has not finished syncing is not scored', async (
      horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
      prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
      raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
-     method_version, candidate_spec, source_relation)
+     method_version, candidate_spec, source_relation, executed_at)
     values ($1,'Candidate_YoY_Shift_v1','2026-03-01','Youth',30,100,'2026-03-01','2026-04-01',
             '2025-12-01','2026-03-01',1,'2024-12-01','2025-03-01',1,'2025-03-01',1,
-            1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'x')`, [co]);
+            1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-03-03'::timestamptz)`, [co]);
   // Coverage stops mid-March: the month is not complete.
   await sale(co, '2026-03-15', 'Youth', 0);
   await refresh();
@@ -867,11 +1014,16 @@ await test('the runner, executed for real, freezes each eligible cutoff exactly 
   } finally { await db.exec('reset role'); }
 
   assert.equal(out.maturedThrough, '2026-08-31');
+  // The runner still ATTEMPTS the catch-up range -- a dropped monthly run is
+  // exactly what it is for. The database decides which of them may still be
+  // frozen, and only the one whose horizon is still open is.
   assert.deepEqual(out.cutoffs, ['2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01']);
-  assert.equal(out.summary.inserted, 4);
-  assert.equal(out.summary.failed, 0);
+  assert.equal(out.summary.inserted, 1, 'only the open horizon');
+  assert.equal(out.summary.expired, 3, 'the three closed horizons are refused, not backfilled');
+  assert.equal(out.summary.failed, 0, 'an expired cutoff is a refusal, not an error');
+  assert.equal(out.results.find((r) => r.cutoff === '2026-09-01').action, 'inserted');
   assert.equal(num(await scalar(
-    'select count(*)::int from public.forecast_candidate_ledger where company_entity_id = $1', [co])), 4);
+    'select count(*)::int from public.forecast_candidate_ledger where company_entity_id = $1', [co])), 1);
 
   // ...and again. The second run must write nothing and recompute nothing.
   await db.exec('set role service_role');
@@ -882,12 +1034,14 @@ await test('the runner, executed for real, freezes each eligible cutoff exactly 
     });
   } finally { await db.exec('reset role'); }
   assert.equal(again.summary.inserted, 0);
-  assert.equal(again.summary.existing, 4);
-  assert.ok(again.results.every((r) => /^frozen at /.test(r.reason)), 'every cutoff took the short-circuit');
+  assert.equal(again.summary.existing, 1);
+  assert.equal(again.summary.expired, 3);
+  assert.ok(again.results.filter((r) => r.action === 'existing').every((r) => /^frozen at /.test(r.reason)),
+    'the frozen cutoff took the short-circuit');
   assert.equal(num(await scalar(
-    'select count(*)::int from public.forecast_candidate_ledger where company_entity_id = $1', [co])), 4);
+    'select count(*)::int from public.forecast_candidate_ledger where company_entity_id = $1', [co])), 1);
   assert.equal(formatSummary(again.summary),
-    'attempted 4, inserted 0, already frozen 4, deferred 0, not computable 0, failed 0');
+    'attempted 4, inserted 0, already frozen 1, deferred 0, expired 3, not computable 0, failed 0');
 });
 
 // ── 13. Re-appliability ─────────────────────────────────────────────────────

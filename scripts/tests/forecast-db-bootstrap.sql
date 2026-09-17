@@ -30,6 +30,11 @@ $$;
 create function public.active_company_id() returns uuid language sql stable security definer as $$
   select active_company_id from public.profiles where id = auth.uid();
 $$;
+-- Used by void_forecast_candidate_run. Same body as production's.
+create function public.is_exec_or_owner() returns boolean language sql stable security definer as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and is_active
+    and role::text in ('owner', 'executive'));
+$$;
 create function public.stamp_company_entity_id() returns trigger
   language plpgsql security definer set search_path = public as $$
 begin

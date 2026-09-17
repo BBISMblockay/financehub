@@ -1033,6 +1033,16 @@ Three things worth knowing before changing any of it:
   `authenticator`, which holds every role. `verify_v2_schema.sql` fails CRITICAL
   if that check returns.
 
+- **A forecast cannot be written after its own outcome.** The runner still
+  attempts a catch-up range — a dropped monthly run is what catch-up is for —
+  but the database refuses any cutoff whose horizon has already fully synced
+  (`expired`), backed by a CHECK a service-role job cannot dodge and by the
+  scorer refusing to grade such a row. Without it a missed run was a licence to
+  backfill retrospective evidence into a prospective ledger.
+- **Voiding requires exec/owner**, not merely the same company: a void can turn
+  a HOLD into a promotion recommendation by removing the cycle that broke the
+  streak.
+
 Runner: `scripts/forecast-candidate-run.mjs` via
 `.github/workflows/forecast-candidate-run.yml` (monthly, the 3rd — not the 1st,
 because a cutoff may only be frozen once the source has synced through the day

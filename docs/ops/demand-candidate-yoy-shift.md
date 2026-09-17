@@ -113,6 +113,23 @@ anyone, including the service role. The single permitted mutation is
 every number, excludes the row from scoring, and is counted in the evaluation
 output so a void is never silent. Corrections are new candidate ids, not edits.
 
+**Written before the outcome.** A cutoff may only be frozen while its horizon
+is still open. Without that rule a dropped monthly run is not a gap but a
+licence: the next run's catch-up loop freezes a cutoff whose 30-day outcome is
+already complete, and the scorer counts that row as matured prospective
+evidence. It was reachable — a `2026-06-01` cutoff frozen on 2026-09-17 came
+back `SCORED` with 0% error. Three layers now: the writer refuses with
+`expired`, a CHECK constraint refuses the row (a service-role job cannot dodge a
+CHECK), and the scorer refuses to grade one that exists anyway. The refusal is a
+refusal, not a flagged write — the honest record of a month nobody forecast is
+an **absent row**, not a row claiming a forecast was made.
+
+The residual is visible rather than implicit: the maturity clock means a cutoff
+cannot be frozen until a day or two *after* it, so "written before the horizon
+starts" is impossible by construction. `frozen_days_into_horizon` records how
+late into its own horizon each row was frozen, because a row frozen on day 0 and
+one frozen on day 27 are both legal and are not equally good evidence.
+
 **Idempotency.** One row per `(company, candidate, category, horizon, cutoff)`.
 Re-running a cutoff returns the existing row **without recomputing it** — the
 short-circuit is the guarantee, because a recompute that happened to agree
@@ -150,6 +167,18 @@ nothing, and returns `requires_planner_approval = true` always. Four gates:
 3. **Pooled WAPE beats both baselines** — the Youth category baseline and the
    34.5% portfolio baseline.
 4. **Mean directional bias within [−10%, +10%].**
+
+**Voiding requires exec/owner.** A void removes a cycle from scoring, and that
+can turn a HOLD into a pass: with cycles (bad, good, good, good) the gate holds,
+because the longest scorable run includes the bad one and "every cycle beats the
+baseline" fails — void the bad one and the remaining three pass. Granting that
+to every `authenticated` member (≈29 people here) let anyone manufacture a
+passing streak. `is_exec_or_owner()`, deliberately not `is_admin_user()`, which
+28 of 29 Baseballism profiles pass. Every void carries an actor and a written
+reason, and the evaluation reports `voids_around_window` with an explicit
+warning when a void sits inside or immediately beside the window it scored —
+promotion is never automatic, and the planner approving it should not have to go
+looking.
 
 Baselines are **measured, not hardcoded**: `forecast_model_baselines` stores
 each with its measurement window and source report id, per company.
@@ -194,6 +223,16 @@ another company's demand. `session_user` is no better: in Supabase that is
 `authenticator`, which holds `anon`, `authenticated` and `service_role` alike.
 The cross-tenant test caught it; `verify_v2_schema.sql` fails CRITICAL if the
 check ever returns.
+
+### Independent review
+
+Cycle 1 (`5ee6a71`) raised two P1 findings, both valid and both fixed above:
+the post-hoc freeze, and voiding being open to any company member. Fixing the
+first surfaced two further defects its own regressions caught — an off-by-one
+against the exclusive `horizon_end_date` (which would have let the August cutoff
+be frozen in September with August's outcome in hand), and the append-only
+trigger rejecting a legitimate void, because generated columns are computed
+*after* BEFORE-triggers run so a whole-row comparison sees a phantom change.
 
 ### Open items
 
