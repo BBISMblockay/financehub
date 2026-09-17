@@ -14,6 +14,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  resolveCategories,
   addMonths,
   previousDay,
   monthStart,
@@ -121,7 +122,8 @@ await atest('a run attempts every eligible cutoff and tallies the outcomes', asy
   // October to be whole) and one day short of December's.
   const client = fakeClient({ maturedThrough: '2026-11-29' });
   const { cutoffs, summary } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+    client, companyEntityId: 'co-1', startCutoff: '2026-09-01',
+    skuCategory: 'Widgets', logger: quiet });
   assert.deepEqual(cutoffs, ['2026-09-01', '2026-10-01', '2026-11-01']);
   assert.equal(summary.attempted, 3);
   assert.equal(summary.inserted, 3);
@@ -129,7 +131,10 @@ await atest('a run attempts every eligible cutoff and tallies the outcomes', asy
   const writes = client.calls.filter((c) => c.fn === 'record_forecast_candidate_run');
   assert.equal(writes.length, 3);
   assert.equal(writes[0].args.p_candidate_id, 'Candidate_YoY_Shift_v1');
-  assert.equal(writes[0].args.p_sku_category, 'Youth');
+  // The category is whatever the CALLER named. Deliberately a non-Baseballism
+  // value: this used to assert 'Youth', which passed only because the module
+  // carried one tenant's catalogue as a default.
+  assert.equal(writes[0].args.p_sku_category, 'Widgets');
   assert.equal(writes[0].args.p_horizon_days, 30);
   assert.equal(writes[0].args.p_clamp_low, 0.60);
   assert.equal(writes[0].args.p_clamp_high, 1.80);
@@ -138,7 +143,8 @@ await atest('a run attempts every eligible cutoff and tallies the outcomes', asy
 await atest('a re-run reports every cutoff as already frozen and writes nothing new', async () => {
   const client = fakeClient({ maturedThrough: '2026-10-30', defaultAction: 'existing' });
   const { summary } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+    client, companyEntityId: 'co-1', startCutoff: '2026-09-01',
+    skuCategory: 'Widgets', logger: quiet });
   assert.equal(summary.attempted, 2);
   assert.equal(summary.existing, 2);
   assert.equal(summary.inserted, 0);
@@ -153,7 +159,7 @@ await atest('one cutoff failing does not abandon the rest of the run', async () 
     responses: { '2026-10-01': new Error('statement timeout') },
   });
   const { summary, results } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+    client, companyEntityId: 'co-1', skuCategory: 'Widgets', startCutoff: '2026-09-01', logger: quiet });
   assert.equal(summary.attempted, 3);
   assert.equal(summary.failed, 1);
   assert.equal(summary.inserted, 2);
@@ -175,7 +181,7 @@ await atest('deferred, expired and skipped are counted separately and none is a 
     },
   });
   const { summary } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+    client, companyEntityId: 'co-1', skuCategory: 'Widgets', startCutoff: '2026-09-01', logger: quiet });
   assert.equal(summary.expired, 1);
   assert.equal(summary.deferred, 1);
   assert.equal(summary.skipped, 1);
@@ -195,7 +201,7 @@ await atest('the planner still offers historical cutoffs; the database refuses t
     },
   });
   const { cutoffs, summary } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+    client, companyEntityId: 'co-1', skuCategory: 'Widgets', startCutoff: '2026-09-01', logger: quiet });
   assert.deepEqual(cutoffs, ['2026-09-01', '2026-10-01', '2026-11-01'], 'all three are attempted');
   assert.equal(summary.expired, 2);
   assert.equal(summary.inserted, 1);
@@ -207,14 +213,14 @@ await atest('an unrecognised action is counted as a failure, not silently droppe
     responses: { '2026-09-01': { action: 'something_new', forecast_qty: null, ledger_id: null, reason: null } },
   });
   const { summary } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+    client, companyEntityId: 'co-1', skuCategory: 'Widgets', startCutoff: '2026-09-01', logger: quiet });
   assert.equal(summary.failed, 1);
 });
 
 await atest('a dry run plans the cutoffs and issues no write', async () => {
   const client = fakeClient({ maturedThrough: '2026-11-29' });
   const { cutoffs, summary } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', dryRun: true, logger: quiet });
+    client, companyEntityId: 'co-1', skuCategory: 'Widgets', startCutoff: '2026-09-01', dryRun: true, logger: quiet });
   assert.equal(cutoffs.length, 3);
   assert.equal(summary.attempted, 3);
   assert.equal(summary.inserted, 0);
@@ -224,7 +230,7 @@ await atest('a dry run plans the cutoffs and issues no write', async () => {
 await atest('an unmeasured source writes nothing at all', async () => {
   const client = fakeClient({ maturedThrough: null });
   const { cutoffs, summary } = await runForecastCandidate({
-    client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet });
+    client, companyEntityId: 'co-1', skuCategory: 'Widgets', startCutoff: '2026-09-01', logger: quiet });
   assert.deepEqual(cutoffs, []);
   assert.equal(summary.attempted, 0);
   assert.equal(client.calls.filter((c) => c.fn === 'record_forecast_candidate_run').length, 0);
@@ -238,8 +244,78 @@ await atest('a failure reading the maturity clock stops the run rather than gues
     },
   };
   await assert.rejects(
-    () => runForecastCandidate({ client, companyEntityId: 'co-1', logger: quiet }),
+    () => runForecastCandidate({ client, companyEntityId: 'co-1', skuCategory: 'Widgets', logger: quiet }),
     /forecast_actuals_matured_through failed: boom/);
+});
+
+await atest('with no override the driver resolves categories from the database', async () => {
+  const calls = [];
+  const client = { rpc: async (fn, args) => { calls.push({ fn, args }); return { data: [
+    { product_type: 'Tees',    is_forecastable: true },
+    { product_type: 'Fees',    is_forecastable: false },
+    { product_type: 'Hats',    is_forecastable: true },
+  ], error: null }; } };
+  const got = await resolveCategories(client, 'co-1', '');
+  assert.deepEqual(got.categories, ['Tees', 'Hats'], 'non-forecastable types must not be forecast');
+  assert.deepEqual(got.needsReview, [], 'a classified type is not review-required');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].fn, 'forecastable_product_types');
+  assert.equal(calls[0].args.p_company_entity_id, 'co-1');
+});
+
+await atest('an explicit category overrides the database and asks it nothing', async () => {
+  let asked = false;
+  const client = { rpc: async () => { asked = true; return { data: [], error: null }; } };
+  assert.deepEqual((await resolveCategories(client, 'co-1', 'Widgets')).categories, ['Widgets']);
+  assert.equal(asked, false, 'an explicit category must not cost a round trip');
+});
+
+await atest('a company with no forecastable category resolves to an empty list, not a guess', async () => {
+  const client = { rpc: async () => ({ data: [{ product_type: 'Fees', is_forecastable: false }], error: null }) };
+  assert.deepEqual((await resolveCategories(client, 'co-1', '')).categories, []);
+});
+
+await atest('an untracked sold category is reported as review-required, not silently dropped', async () => {
+  // REGRESSION. A brand-new merchandise type that records sales before its
+  // inventory link or PO history lands is indistinguishable, on the evidence
+  // alone, from a fee line. It must not be forecast -- but it must not vanish
+  // either: the ledger's frozen-before-outcome CHECK means a forecast missed at
+  // a cutoff that has since closed can NEVER be recreated, so a silent
+  // exclusion is permanent and a run that dropped one looks like a clean run.
+  const client = { rpc: async () => ({ data: [
+    { product_type: 'Tees',    is_forecastable: true,  needs_review: false },
+    { product_type: 'Fees',    is_forecastable: false, needs_review: false }, // confirmed by a person
+    { product_type: 'BrandNew', is_forecastable: false, needs_review: true },  // cannot tell yet
+  ], error: null }) };
+  const got = await resolveCategories(client, 'co-1', '');
+  assert.deepEqual(got.categories, ['Tees'], 'an unresolved type is still not forecast');
+  assert.deepEqual(got.needsReview, ['BrandNew'],
+    'an unresolved type must be surfaced; a confirmed exclusion must not be');
+  assert.ok(!got.needsReview.includes('Fees'),
+    'a type a person already ruled on is settled, not review-required');
+});
+
+await atest('a failure resolving categories stops the run rather than forecasting nothing quietly', async () => {
+  const client = { rpc: async () => ({ data: null, error: { message: 'boom' } }) };
+  await assert.rejects(() => resolveCategories(client, 'co-1', ''), /could not resolve categories: boom/);
+});
+
+await atest('a missing category is refused rather than defaulted to one tenant', async () => {
+  const client = fakeClient({ maturedThrough: '2026-11-29' });
+  await assert.rejects(
+    () => runForecastCandidate({
+      client, companyEntityId: 'co-1', startCutoff: '2026-09-01', logger: quiet }),
+    /skuCategory is required/);
+  assert.equal(client.calls.filter((c) => c.fn === 'record_forecast_candidate_run').length, 0);
+});
+
+await atest('a blank category is refused too', async () => {
+  const client = fakeClient({ maturedThrough: '2026-11-29' });
+  await assert.rejects(
+    () => runForecastCandidate({
+      client, companyEntityId: 'co-1', startCutoff: '2026-09-01',
+      skuCategory: '   ', logger: quiet }),
+    /skuCategory is required/);
 });
 
 await atest('a missing company is refused before any call is made', async () => {

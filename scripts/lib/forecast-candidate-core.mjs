@@ -24,7 +24,11 @@
 // answer, not easier.
 
 export const DEFAULT_CANDIDATE_ID = 'Candidate_YoY_Shift_v1';
-export const DEFAULT_SKU_CATEGORY = 'Youth';
+// There is deliberately NO default category. The candidate id names the METHOD,
+// which is a property of this code; the category names a slice of one tenant's
+// catalogue, which is not. `Youth` sat here as a default until 2026-09-17 and
+// made a component meant to serve any company read as Baseballism's.
+// Callers enumerate categories from forecastable_product_types(company).
 export const DEFAULT_HORIZON_DAYS = 30;
 export const DEFAULT_CLAMP_LOW = 0.60;
 export const DEFAULT_CLAMP_HIGH = 1.80;
@@ -139,12 +143,51 @@ export function blankSummary() {
  * every subsequent month. The failures are counted and returned, and the
  * caller decides the exit code.
  */
+/**
+ * The categories a company actually plans for.
+ *
+ * `override` (FC_SKU_CATEGORY) wins, so a manual single-category run is
+ * unchanged. Otherwise they are resolved from the database, never guessed:
+ * forecastable_product_types() applies the human override where somebody set
+ * one and the evidence -- inventory-tracked, or purchased -- otherwise.
+ *
+ * Lives here rather than in the runner script so it is reachable from a test.
+ * It exists because removing the tenant-specific default left the driver
+ * handing an empty category to a core that requires one: every company would
+ * have thrown before recording a single forecast, and the scheduled workflow
+ * would have exited 1 without writing anything.
+ */
+export async function resolveCategories(client, companyEntityId, override = '') {
+  if (override && String(override).trim()) {
+    return { categories: [String(override).trim()], needsReview: [] };
+  }
+  if (!companyEntityId) throw new Error('resolveCategories: companyEntityId is required');
+  const { data, error } = await client.rpc('forecastable_product_types', {
+    p_company_entity_id: companyEntityId,
+  });
+  if (error) throw new Error(`could not resolve categories: ${error.message}`);
+  const rows = data || [];
+  const categories = rows.filter((r) => r && r.is_forecastable)
+    .map((r) => r.product_type).filter(Boolean);
+  // NOT the same as "excluded". A type with no inventory row, no purchase
+  // history and no human override is UNRESOLVED: a brand-new merchandise line
+  // whose inventory link has not landed yet is indistinguishable from a fee
+  // line on the evidence alone. It is not forecast -- forecasting a fee line is
+  // the defect this classification exists to prevent -- but it is returned so
+  // the caller can say so out loud. A forecast omitted from a cutoff that has
+  // since closed cannot be recreated, so a silent exclusion is permanent, and a
+  // run that quietly dropped one would look exactly like a successful run.
+  const needsReview = rows.filter((r) => r && r.needs_review)
+    .map((r) => r.product_type).filter(Boolean);
+  return { categories, needsReview };
+}
+
 export async function runForecastCandidate({
   client,
   companyEntityId,
   startCutoff = FIRST_FROZEN_CUTOFF,
   candidateId = DEFAULT_CANDIDATE_ID,
-  skuCategory = DEFAULT_SKU_CATEGORY,
+  skuCategory,
   horizonDays = DEFAULT_HORIZON_DAYS,
   clampLow = DEFAULT_CLAMP_LOW,
   clampHigh = DEFAULT_CLAMP_HIGH,
@@ -153,6 +196,12 @@ export async function runForecastCandidate({
   logger = console,
 } = {}) {
   if (!companyEntityId) throw new Error('runForecastCandidate: companyEntityId is required');
+  // Required, and checked rather than defaulted. A category that arrives
+  // undefined used to become 'Youth'; now it stops the run, because forecasting
+  // the wrong slice of a catalogue silently is worse than forecasting nothing.
+  if (!skuCategory || !String(skuCategory).trim()) {
+    throw new Error('runForecastCandidate: skuCategory is required (no tenant-specific default)');
+  }
 
   const maturedResult = await client.rpc('forecast_actuals_matured_through', {
     p_company_entity_id: companyEntityId,

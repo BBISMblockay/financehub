@@ -47,6 +47,10 @@ import { splitSqlStatements, findFailures } from '../lib/sql-statements.mjs';
 
 const root = new URL('../../', import.meta.url);
 const MIGRATION = 'supabase/migrations/20260917140000_forecast_candidate_ledger.sql';
+// The second migration REPLACES three of the first one's functions and reorders
+// two of them. Loading only the first left the evaluator's positional call to
+// forecast_candidate_cycles untested -- and it was wrong.
+const MIGRATION_2 = 'supabase/migrations/20260917180000_product_type_profile.sql';
 const MUTATIONS = {
   'no-clamp': [['least(p_clamp_high, greatest(p_clamp_low, v_raw))', 'v_raw']],
   // BOTH bounds, because the guard is deliberately two-layered: the base CTE
@@ -119,6 +123,7 @@ for (const [from, to] of MUTATIONS[mutation] || []) {
   migrationSql = migrationSql.replace(from, to);
 }
 await db.exec(migrationSql);
+await db.exec(await readFile(new URL(MIGRATION_2, root), 'utf8'));
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 const BASEBALLISM = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
@@ -396,7 +401,7 @@ await test('a RECORDED zero base is kept as zero, not treated as missing', async
 // ── 6. Idempotent ledger writes ─────────────────────────────────────────────
 await test('re-running a cutoff returns the frozen row and does not recompute', async () => {
   const one = await asService(() => first(
-    "select action, forecast_qty, ledger_id from public.record_forecast_candidate_run($1, '2026-09-01')", [BASEBALLISM]));
+    "select action, forecast_qty, ledger_id from public.record_forecast_candidate_run($1, '2026-09-01', 'Youth')", [BASEBALLISM]));
   assert.equal(one.action, 'inserted');
   assert.equal(num(one.forecast_qty), FROZEN_FIRST_RUN.forecastQty);
 
@@ -413,7 +418,7 @@ await test('re-running a cutoff returns the frozen row and does not recompute', 
     'the fixture must actually change the answer, or this test proves nothing');
 
   const two = await asService(() => first(
-    "select action, forecast_qty, ledger_id, reason from public.record_forecast_candidate_run($1, '2026-09-01')", [BASEBALLISM]));
+    "select action, forecast_qty, ledger_id, reason from public.record_forecast_candidate_run($1, '2026-09-01', 'Youth')", [BASEBALLISM]));
   assert.equal(two.action, 'existing');
   assert.equal(two.ledger_id, one.ledger_id);
   assert.equal(num(two.forecast_qty), FROZEN_FIRST_RUN.forecastQty, 'a re-run must not restate a frozen forecast');
@@ -448,7 +453,7 @@ await test('a duplicate identity is refused by the unique index, even for the se
 
 await test('a cutoff whose prior month is not fully synced is deferred, not frozen early', async () => {
   const r = await asService(() => first(
-    "select action, reason from public.record_forecast_candidate_run($1, '2026-10-01')", [BASEBALLISM]));
+    "select action, reason from public.record_forecast_candidate_run($1, '2026-10-01', 'Youth')", [BASEBALLISM]));
   assert.equal(r.action, 'deferred', 'October needs complete September data');
   assert.match(r.reason, /synced through/);
   assert.equal(num(await asService(() => scalar(
@@ -485,7 +490,7 @@ await test('a cutoff whose horizon already closed is refused, not frozen', async
   // Verified reachable before this fix -- a 2026-06-01 cutoff frozen on
   // 2026-09-17 came back SCORED with 0% error.
   const r = await asService(() => first(
-    "select action, reason from public.record_forecast_candidate_run($1, '2026-06-01')", [BASEBALLISM]));
+    "select action, reason from public.record_forecast_candidate_run($1, '2026-06-01', 'Youth')", [BASEBALLISM]));
   assert.equal(r.action, 'expired');
   assert.match(r.reason, /already fully synced/);
   assert.equal(num(await asService(() => scalar(
@@ -515,7 +520,7 @@ await test('a closed horizon with a LAGGING source is expired, not a job failure
     .toISOString().slice(0, 10), '2026-07-31');
 
   const r = await asService(() => first(
-    "select action, reason from public.record_forecast_candidate_run($1, '2026-08-01')", [co]));
+    "select action, reason from public.record_forecast_candidate_run($1, '2026-08-01', 'Youth')", [co]));
   assert.equal(r.action, 'expired', `a lagging source must not raise: ${r.reason}`);
   assert.match(r.reason, /closed on the calendar/);
   assert.equal(num(await scalar(
@@ -569,13 +574,13 @@ await test('a row frozen after its horizon is never scored, even if one exists',
            check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)) not valid`);
 
   const c = await asRole('authenticated', reader, () => first(
-    'select status_label, scorable, not_scorable_reason, cycle_wape from public.forecast_candidate_cycles($1)', [co]));
+    "select status_label, scorable, not_scorable_reason, cycle_wape from public.forecast_candidate_cycles($1, 'Youth')", [co]));
   assert.equal(c.scorable, false, 'a retrodiction must never be scored');
   assert.equal(c.status_label, 'NOT PROSPECTIVE');
   assert.equal(c.cycle_wape, null, 'and it carries no error figure to be quoted');
   assert.match(c.not_scorable_reason, /after the horizon closed/);
   const e = await asRole('authenticated', reader, () => first(
-    'select consecutive_scorable_cycles, recommendation from public.evaluate_forecast_candidate($1)', [co]));
+    "select consecutive_scorable_cycles, recommendation from public.evaluate_forecast_candidate($1, 'Youth')", [co]));
   assert.equal(e.consecutive_scorable_cycles, 0, 'and contributes nothing to the promotion gate');
   assert.equal(e.recommendation, 'INSUFFICIENT_DATA');
 });
@@ -644,15 +649,15 @@ await test('voiding is the one permitted mutation, requires a reason, and cannot
 await test('a signed-in user cannot evaluate or list cycles for another company', async () => {
   // These two ARE reachable from a browser, so they carry the tenant gate.
   await refused(() => asRole('authenticated', outsider, () => q(
-    'select * from public.evaluate_forecast_candidate($1)', [BASEBALLISM])),
+    "select * from public.evaluate_forecast_candidate($1, 'Youth')", [BASEBALLISM])),
     /not authorized/, 'cross-tenant evaluation allowed');
   await refused(() => asRole('authenticated', outsider, () => q(
-    'select * from public.forecast_candidate_cycles($1)', [BASEBALLISM])),
+    "select * from public.forecast_candidate_cycles($1, 'Youth')", [BASEBALLISM])),
     /not authorized/, 'cross-tenant cycle listing allowed');
   // ...including for the caller's own company id spelled differently: the gate
   // compares against active_company_id(), not against anything passed in.
   const mine = await asRole('authenticated', outsider, () => first(
-    'select cycles_written from public.evaluate_forecast_candidate($1)', [OTHER_CO]));
+    "select cycles_written from public.evaluate_forecast_candidate($1, 'Youth')", [OTHER_CO]));
   assert.equal(Number(mine.cycles_written), 0, 'their own company is allowed and simply has no rows');
 });
 
@@ -664,7 +669,7 @@ await test('the engine functions are not reachable from a browser at all', async
   for (const call of [
     "select * from public.forecast_yoy_shift_v1($1, '2026-09-01', 'Youth')",
     'select public.forecast_actuals_matured_through($1)',
-    "select * from public.record_forecast_candidate_run($1, '2026-09-01')",
+    "select * from public.record_forecast_candidate_run($1, '2026-09-01', 'Youth')",
   ]) {
     await refused(() => asRole('authenticated', planner, () => q(call, [BASEBALLISM])),
       /permission denied/, `authenticated could call: ${call}`);
@@ -681,7 +686,7 @@ await test('each tenant computes from its OWN series', async () => {
 });
 
 await test('ledger RLS hides another company\'s rows and grants no client writes', async () => {
-  await asService(() => q("select * from public.record_forecast_candidate_run($1, '2026-09-01')", [BASEBALLISM]));
+  await asService(() => q("select * from public.record_forecast_candidate_run($1, '2026-09-01', 'Youth')", [BASEBALLISM]));
   assert.equal(num(await asRole('authenticated', planner, () => scalar(
     'select count(*)::int from public.forecast_candidate_ledger'))), 1,
     'the owner sees their own row -- and only it, though other tenants have rows too');
@@ -725,7 +730,7 @@ await test('a forecast issued too late into its own horizon is never scored', as
   const cycle = await asRole('authenticated', planner, () => first(
     `select status_label, scorable, issued_late, frozen_days_into_horizon,
             max_issuance_lag_days, not_scorable_reason, cycle_wape
-       from public.forecast_candidate_cycles($1)`, [BASEBALLISM]));
+       from public.forecast_candidate_cycles($1, 'Youth')`, [BASEBALLISM]));
   // Pinned against the PACIFIC business date rather than a literal: at 04:00
   // UTC on the 17th it is still the 16th in Pacific, so a hardcoded number
   // here would pass or fail depending on the hour the suite ran. The rule is
@@ -776,7 +781,7 @@ await test('a MATURED late issue is excluded from the promotion gate, not just l
 
   const late = await asRole('authenticated', reader, () => first(
     `select matured, scorable, issued_late, frozen_days_into_horizon, cycle_wape, actual_qty
-       from public.forecast_candidate_cycles($1) where cutoff_date = '2026-03-01'`, [co]));
+       from public.forecast_candidate_cycles($1, 'Youth') where cutoff_date = '2026-03-01'`, [co]));
   assert.equal(late.matured, true, 'the fixture must be matured, or this proves nothing');
   assert.equal(Number(late.frozen_days_into_horizon), 19);
   assert.equal(late.issued_late, true);
@@ -786,7 +791,7 @@ await test('a MATURED late issue is excluded from the promotion gate, not just l
   // Three matured cycles, but only two are legitimate evidence -- so the gate
   // is not satisfied, where before this fix it would have been.
   const e = await asRole('authenticated', reader, () => first(
-    'select * from public.evaluate_forecast_candidate($1)', [co]));
+    "select * from public.evaluate_forecast_candidate($1, 'Youth')", [co]));
   assert.equal(e.cycles_matured, 3);
   assert.equal(e.cycles_issued_late, 1);
   assert.equal(e.cycles_scorable, 2);
@@ -818,7 +823,7 @@ await test('an on-time, unmatured cycle is labelled PROSPECTIVE — NOT SCORED',
             1,1,0.6,1.8,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-09-03 13:00:00+00'::timestamptz)`, [co]);
   const cycle = await asRole('authenticated', reader, () => first(
     `select status_label, actual_qty, cycle_wape, matured, scorable, issued_late, frozen_days_into_horizon
-       from public.forecast_candidate_cycles($1)`, [co]));
+       from public.forecast_candidate_cycles($1, 'Youth')`, [co]));
   assert.equal(Number(cycle.frozen_days_into_horizon), 2, 'frozen on the 3rd, like the monthly job');
   assert.equal(cycle.issued_late, false);
   assert.equal(cycle.status_label, 'PROSPECTIVE — NOT SCORED');
@@ -829,7 +834,7 @@ await test('an on-time, unmatured cycle is labelled PROSPECTIVE — NOT SCORED',
 });
 
 await test('evaluation of an unscored candidate recommends nothing and says why', async () => {
-  const e = await asRole('authenticated', planner, () => first('select * from public.evaluate_forecast_candidate($1)', [BASEBALLISM]));
+  const e = await asRole('authenticated', planner, () => first("select * from public.evaluate_forecast_candidate($1, 'Youth')", [BASEBALLISM]));
   assert.equal(e.recommendation, 'INSUFFICIENT_DATA');
   assert.equal(e.consecutive_scorable_cycles, 0);
   assert.equal(e.cycles_issued_late, 1, 'and it says the one row it has cannot count');
@@ -886,7 +891,7 @@ async function gateScenario(name, cycles, { baselineWape = 0.50, portfolioWape =
 // company, so each scenario is read by its own signed-in planner -- which is
 // how a planner would actually meet this number.
 const evaluate = (co) => asRole('authenticated', GATE_PLANNER[co], () => first(
-  'select * from public.evaluate_forecast_candidate($1)', [co]));
+  "select * from public.evaluate_forecast_candidate($1, 'Youth')", [co]));
 
 await test('three consecutive winning cycles produce a promotion RECOMMENDATION, never a promotion', async () => {
   const co = await gateScenario('pass', [
@@ -909,6 +914,43 @@ await test('three consecutive winning cycles produce a promotion RECOMMENDATION,
   assert.equal(e.recommendation, 'RECOMMEND_PROMOTION_FOR_PLANNER_APPROVAL');
   assert.equal(e.requires_planner_approval, true);
   assert.match(e.rationale, /Promotion is never automatic/);
+});
+
+await test('the evaluator passes category and model to the scorer in the right places', async () => {
+  // REGRESSION. 20260917180000 reorders forecast_candidate_cycles so the product
+  // category comes first and loses its default. evaluate_forecast_candidate calls
+  // it internally, and that call was left POSITIONAL -- (company, candidate_id,
+  // sku_category, horizon) against a function now expecting (company,
+  // sku_category, candidate_id, horizon). Both are text, so it kept compiling and
+  // silently searched for category 'Candidate_YoY_Shift_v1' and model 'Youth':
+  // INSUFFICIENT_DATA for forecasts that plainly existed. Caught in review, not
+  // by a test, because the suite stopped at the first migration.
+  const co = await gateScenario('pass', [
+    { cutoff: '2026-01-01', forecast: 100, actual: 100 },
+    { cutoff: '2026-02-01', forecast: 110, actual: 100 },
+    { cutoff: '2026-03-01', forecast: 90, actual: 100 },
+  ]);
+
+  // The ledger really does hold these rows under category 'Youth'.
+  const written = await asService(() => first(
+    "select count(*)::int n from public.forecast_candidate_ledger where company_entity_id=$1 and sku_category='Youth'",
+    [co]));
+  assert.equal(written.n, 3, 'fixture should have written three Youth rows');
+
+  // Asking for that category finds them...
+  const hit = await asRole('authenticated', GATE_PLANNER[co], () => first(
+    "select cycles_written, cycles_scorable from public.evaluate_forecast_candidate($1, 'Youth')", [co]));
+  assert.equal(Number(hit.cycles_written), 3,
+    'evaluator found no cycles for a category the ledger holds -- arguments are crossed');
+  assert.equal(Number(hit.cycles_scorable), 3);
+
+  // ...and asking for the MODEL NAME as if it were a category finds nothing.
+  // With the arguments crossed these two results swap, which is exactly the
+  // silence the bug produced.
+  const miss = await asRole('authenticated', GATE_PLANNER[co], () => first(
+    "select cycles_written from public.evaluate_forecast_candidate($1, 'Candidate_YoY_Shift_v1')", [co]));
+  assert.equal(Number(miss.cycles_written), 0,
+    'the model name is not a category; finding rows under it means the arguments are crossed');
 });
 
 await test('two cycles are not three: no recommendation regardless of accuracy', async () => {
@@ -1060,7 +1102,7 @@ await test('a cycle whose month has not finished syncing is not scored', async (
   await sale(co, '2026-03-15', 'Youth', 0);
   await refresh();
   const c = await asRole('authenticated', reader, () => first(
-    'select status_label, matured, scorable, actual_qty from public.forecast_candidate_cycles($1)', [co]));
+    "select status_label, matured, scorable, actual_qty from public.forecast_candidate_cycles($1, 'Youth')", [co]));
   assert.equal(c.matured, false, 'a half-synced month must not be graded');
   assert.equal(c.status_label, 'PROSPECTIVE — NOT SCORED');
   assert.equal(c.actual_qty, null);
@@ -1155,7 +1197,7 @@ await test('the runner, executed for real, freezes each eligible cutoff exactly 
   let out;
   try {
     out = await runForecastCandidate({
-      client: pgliteClient(), companyEntityId: co, startCutoff: '2026-06-01', logger: { log() {}, error() {} },
+      client: pgliteClient(), companyEntityId: co, skuCategory: 'Youth', startCutoff: '2026-06-01', logger: { log() {}, error() {} },
     });
   } finally { await db.exec('reset role'); }
 
@@ -1176,7 +1218,7 @@ await test('the runner, executed for real, freezes each eligible cutoff exactly 
   let again;
   try {
     again = await runForecastCandidate({
-      client: pgliteClient(), companyEntityId: co, startCutoff: '2026-06-01', logger: { log() {}, error() {} },
+      client: pgliteClient(), companyEntityId: co, skuCategory: 'Youth', startCutoff: '2026-06-01', logger: { log() {}, error() {} },
     });
   } finally { await db.exec('reset role'); }
   assert.equal(again.summary.inserted, 0);
@@ -1195,6 +1237,72 @@ await test('the runner, executed for real, freezes each eligible cutoff exactly 
 // this repo has broken that promise before (a view depending on a generated
 // column made a drop-then-add fail on the second pass). Re-run the real file
 // against the database these tests just built, with rows in it.
+await test('a sold-out category is still merchandise; only a never-tracked one is a service line', async () => {
+  // REGRESSION for the classification rule. The first version tested the SUM of
+  // on-hand quantity, which misreads two real cases as "never stocked":
+  //   * a category that has sold out (rows exist, quantity 0)
+  //   * one whose positive and negative locations cancel to 0
+  // Both are merchandise and both would have vanished from every
+  // forecastable-only consumer exactly when replenishment mattered. Presence of
+  // an inventory ROW is what says "inventory-tracked"; a service line has none.
+  const co = randomUUID();
+  await makeCompany(co, 'Classify Co', randomUUID());
+  const day = '2026-08-15';
+  for (const t of ['SoldOut', 'Cancels', 'FeeLine', 'Purchased']) {
+    await db.query(
+      `insert into public.sales_by_product_title_daily_mv
+         (company_entity_id, product_type, product_title, day_date, units_sold)
+       values ($1,$2,$2,$3,10)`, [co, t, day]);
+  }
+  // sold out: a row exists, quantity zero
+  await db.query(`insert into public.inventory_on_hand_current_mv
+    (company_entity_id, product_type, location_tag, total_available_quantity)
+    values ($1,'SoldOut','wh',0)`, [co]);
+  // two locations that cancel
+  await db.query(`insert into public.inventory_on_hand_current_mv
+    (company_entity_id, product_type, location_tag, total_available_quantity)
+    values ($1,'Cancels','a',25), ($1,'Cancels','b',-25)`, [co]);
+  // never tracked, never purchased -> the only genuine service line
+  // (FeeLine gets no inventory row and no PO line at all)
+  // purchased but not currently stocked
+  await db.query(`insert into public.po_lines
+    (company_entity_id, product_type_snapshot, qty) values ($1,'Purchased',5)`, [co]);
+
+  const rows = await asService(() => db.query(
+    'select product_type, is_forecastable, reason, needs_review from public.forecastable_product_types($1)', [co]));
+  const by = Object.fromEntries(rows.rows.map((r) => [r.product_type, r]));
+
+  assert.equal(by.SoldOut.is_forecastable, true,
+    'a sold-out category is merchandise, not a fee line');
+  assert.equal(by.SoldOut.reason, 'inventory-tracked');
+  assert.equal(by.Cancels.is_forecastable, true,
+    'locations that cancel to zero must not read as never stocked');
+  assert.equal(by.Purchased.is_forecastable, true,
+    'purchase history alone is enough');
+  assert.equal(by.FeeLine.is_forecastable, false,
+    'sells, never inventory-tracked, never purchased -> not forecast');
+  assert.match(by.FeeLine.reason, /never/);
+
+  // ...but NOT silently. Absent evidence is a third state, not a verdict: a new
+  // merchandise line whose inventory link has not landed looks exactly like this
+  // one, and a forecast it misses at a closed cutoff can never be recreated.
+  assert.equal(by.FeeLine.needs_review, true,
+    'an unclassifiable type must be flagged, not quietly excluded');
+  assert.equal(by.SoldOut.needs_review, false, 'tracked stock settles it');
+  assert.equal(by.Purchased.needs_review, false, 'purchase history settles it');
+
+  // A person's override settles it too, and clears the flag.
+  await db.query(`insert into public.product_type_profile
+    (company_entity_id, product_type, is_forecastable, classification)
+    values ($1,'FeeLine',false,'service_or_fee')`, [co]);
+  const after = await asService(() => db.query(
+    'select product_type, is_forecastable, needs_review, reason from public.forecastable_product_types($1)', [co]));
+  const fee = after.rows.find((r) => r.product_type === 'FeeLine');
+  assert.equal(fee.is_forecastable, false);
+  assert.equal(fee.needs_review, false, 'a human decision ends the review state');
+  assert.equal(fee.reason, 'set by a person');
+});
+
 await test('the migration re-applies over a populated database without damage', async () => {
   const before = await first(`select
     (select count(*)::int from public.forecast_candidate_ledger) as ledger,
@@ -1243,6 +1351,7 @@ await test('the real verify_v2_schema.sql forecast checks all pass on a migrated
     // existing, and the checks require those rows.
     await fresh.query('insert into public.entities (id, title) values ($1, $2)', [BASEBALLISM, 'Baseballism']);
     await fresh.exec(await readFile(new URL(MIGRATION, root), 'utf8'));
+    await fresh.exec(await readFile(new URL(MIGRATION_2, root), 'utf8'));
 
     const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
     // splitSqlStatements returns { text, section, line } and strips comments;

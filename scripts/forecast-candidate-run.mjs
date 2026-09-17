@@ -30,11 +30,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 import {
+  resolveCategories,
   runForecastCandidate,
   formatSummary,
   FIRST_FROZEN_CUTOFF,
   DEFAULT_CANDIDATE_ID,
-  DEFAULT_SKU_CATEGORY,
   DEFAULT_HORIZON_DAYS,
 } from './lib/forecast-candidate-core.mjs';
 
@@ -47,7 +47,10 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const ONLY_COMPANY = process.env.FC_COMPANY_ID || '';
 const START_CUTOFF = process.env.FC_START_CUTOFF || FIRST_FROZEN_CUTOFF;
 const CANDIDATE_ID = process.env.FC_CANDIDATE_ID || DEFAULT_CANDIDATE_ID;
-const SKU_CATEGORY = process.env.FC_SKU_CATEGORY || DEFAULT_SKU_CATEGORY;
+// Empty means ALL forecastable categories for the company, resolved per tenant
+// from forecastable_product_types(). No hardcoded fallback: a missing category
+// is a question to ask the database, not a guess to make.
+const SKU_CATEGORY = process.env.FC_SKU_CATEGORY || '';
 const HORIZON_DAYS = Number(process.env.FC_HORIZON_DAYS || DEFAULT_HORIZON_DAYS);
 const DRY_RUN = process.env.FC_DRY_RUN === '1';
 
@@ -64,6 +67,34 @@ async function companiesToRun() {
   return [...new Set((data || []).map((r) => r.entity_id))].filter(Boolean);
 }
 
+
+// The categories this company actually plans for. Resolved from the database,
+// never guessed: forecastable_product_types() applies the human override where
+// somebody set one and the evidence (inventory-tracked or purchased) otherwise.
+//
+// This exists because removing the 'Youth' default left the driver passing an
+// empty category to a core that requires one -- every company would have thrown
+// before recording a single forecast, and the scheduled workflow would exit 1.
+// An explicit FC_SKU_CATEGORY still wins, so a manual single-category run is
+// unchanged.
+async function categoriesToRun(companyEntityId) {
+  const { categories, needsReview } = await resolveCategories(db, companyEntityId, SKU_CATEGORY);
+  if (!SKU_CATEGORY) {
+    console.log(`  categories: ${categories.length} forecastable`);
+    // Loud, and repeated every run until somebody records an override in
+    // product_type_profile. These are NOT confirmed fee lines -- they are types
+    // the evidence cannot classify, and the forecast they do not get is one
+    // that can never be backfilled once the cutoff closes.
+    if (needsReview.length > 0) {
+      console.log(`  REVIEW REQUIRED - ${needsReview.length} type(s) have no inventory row, no`
+        + ' purchase history and no override, so they are NOT being forecast:');
+      for (const t of needsReview) console.log(`    - ${t}`);
+      console.log('    Confirm each in product_type_profile (is_forecastable true or false).');
+    }
+  }
+  return categories;
+}
+
 const companies = await companiesToRun();
 if (companies.length === 0) {
   console.log('No companies to run.');
@@ -74,17 +105,32 @@ let failures = 0;
 for (const companyEntityId of companies) {
   console.log(`\n=== company ${companyEntityId} ===`);
   try {
-    const { summary } = await runForecastCandidate({
-      client: db,
-      companyEntityId,
-      startCutoff: START_CUTOFF,
-      candidateId: CANDIDATE_ID,
-      skuCategory: SKU_CATEGORY,
-      horizonDays: HORIZON_DAYS,
-      dryRun: DRY_RUN,
-    });
-    console.log(`  summary: ${formatSummary(summary)}`);
-    failures += summary.failed;
+    const categories = await categoriesToRun(companyEntityId);
+    if (categories.length === 0) {
+      console.log('  no forecastable categories; nothing to record');
+      continue;
+    }
+    for (const skuCategory of categories) {
+      // Per CATEGORY, not per company: one category failing must not cost the
+      // rest of the company's ledger, for the same reason one company failing
+      // must not cost the others.
+      try {
+        const { summary } = await runForecastCandidate({
+          client: db,
+          companyEntityId,
+          startCutoff: START_CUTOFF,
+          candidateId: CANDIDATE_ID,
+          skuCategory,
+          horizonDays: HORIZON_DAYS,
+          dryRun: DRY_RUN,
+        });
+        console.log(`  ${skuCategory}: ${formatSummary(summary)}`);
+        failures += summary.failed;
+      } catch (error) {
+        failures += 1;
+        console.error(`  ${skuCategory} FAILED: ${error.message}`);
+      }
+    }
   } catch (error) {
     // One company failing must not stop the others: each tenant's ledger is
     // an independent record, and aborting would hide every company after the
