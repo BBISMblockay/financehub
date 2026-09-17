@@ -3686,6 +3686,39 @@ select 'Meta creative backfill job type' as check_name,
    then 'MISSING: sync_jobs.job_type does not accept meta_creative_backfill; apply 20260916150000'
  else 'ok' end as status;
 
+-- Is Ask SILO still telling people a catalog ad has no destination?
+--
+-- 20260916030000 wrote a coverage caveat onto meta_ad_performance_v's catalog
+-- description, and that text reaches the model VERBATIM. It asserted that the
+-- ads which resolved nothing "expose no destination field at all" -- an
+-- inference drawn from a single 126-ad window, and DISPROVED on 2026-09-17
+-- when the probe found 14 of 14 such ads carrying one in template_data or on
+-- the page post. It also claimed "no UTMs on any ad" while 759 carry them.
+--
+-- 20260917120000 replaces that block. A targeted replace NO-OPS SILENTLY when
+-- production's text has drifted from what it expects, which would leave the
+-- disproved claim in the prompt with nothing to show for it -- so this asserts
+-- the OUTCOME rather than trusting the update, and doubles as a guard against
+-- a later migration reintroducing it.
+select 'Ask SILO ad destination coverage claim' as check_name,
+ case when to_regclass('public.silo_chat_schema_catalog') is null then 'MISSING: schema catalog'
+ when not exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_v')
+   then 'STALE: meta_ad_performance_v is not in the Ask SILO catalog; run refresh_chat_schema_catalog()'
+ when exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_v'
+     and description like '%expose no destination field at all%')
+   then 'CRITICAL: the catalog still tells Ask SILO those ads have no destination field, which the 2026-09-17 probe disproved; apply 20260917120000'
+ when exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_v'
+     and description like '%no UTMs on any ad%')
+   then 'CRITICAL: the catalog still claims no ad carries UTMs; 759 do. Apply 20260917120000'
+ when not exists(select 1 from public.silo_chat_schema_catalog
+   where relname = 'meta_ad_performance_v'
+     and description like '%template_data%')
+   then 'STALE: the catalog does not name template_data as a destination source; a later migration replaced the description instead of appending'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
