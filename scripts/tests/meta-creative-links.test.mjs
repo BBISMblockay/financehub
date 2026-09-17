@@ -24,6 +24,11 @@
  *   META_LINK_MUTATION=no-item-check     (per-item downgrade removed)
  *   META_LINK_MUTATION=effective-first   (asset_feed wins over the ad's own link_data)
  *   META_LINK_MUTATION=no-url-guard      (any string accepted as a URL)
+ *   META_LINK_MUTATION=no-shim-guard     (l.facebook.com redirector accepted)
+ *   META_LINK_MUTATION=no-template       (the catalog ad's own link field removed)
+ *   META_LINK_MUTATION=post-on-body-only (post read only when copy is missing)
+ *   META_LINK_MUTATION=post-shimmed-url  (the shimmed url stored, not unshimmed)
+ *   META_LINK_MUTATION=post-overwrites-body (post copy overwrites the creative's)
  *
  * No network, no database. Run:
  *   node scripts/tests/meta-creative-links.test.mjs
@@ -37,7 +42,8 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CORE = join(ROOT, 'scripts/lib/ad-platforms-sync-core.mjs');
 const mutation = process.env.META_LINK_MUTATION || '';
-assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard', 'drops-by-order'].includes(mutation),
+assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard', 'drops-by-order',
+  'no-template', 'post-on-body-only', 'post-shimmed-url', 'post-overwrites-body', 'no-shim-guard'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 // The module is loaded from source so a mutation can be applied to the real
@@ -61,10 +67,38 @@ if (mutation === 'no-item-check') {
   source = source.replace(
     "    ['link_data', spec.link_data?.link],",
     "    ['asset_feed', creative?.asset_feed_spec?.link_urls?.[0]?.website_url],\n    ['link_data', spec.link_data?.link],");
+} else if (mutation === 'no-template') {
+  // The catalog field itself removed. 10 of the 14 highest-spend unresolved
+  // ads resolved through it and nothing else.
+  source = source.replace("    ['template_data', spec.template_data?.link],", '');
+} else if (mutation === 'post-on-body-only') {
+  // The gate as it stood until 2026-09-17: a post is read only when the BODY
+  // is missing, so an ad with copy and no link never has its post fetched.
+  source = source.replace('if ((!row.body || !row.linkUrl) && storyId) {', 'if (!row.body && storyId) {');
+} else if (mutation === 'post-shimmed-url') {
+  // Reading the attachment's neighbouring field instead of unshimmed_url,
+  // which stores Facebook's l.facebook.com redirector as the destination.
+  source = source.replace('.map((a) => usableDestination(a?.unshimmed_url))',
+    '.map((a) => (typeof a?.url === "string" ? a.url.trim() : null))');
+} else if (mutation === 'post-overwrites-body') {
+  // The unguarded assignment: now that this list also holds rows enqueued for
+  // a missing LINK, it overwrites copy the creative already carried.
+  source = source.replace('        if (!r.body && msg) {', '        if (msg) {');
 } else if (mutation === 'no-url-guard') {
+  // Repointed 2026-09-17: the gate moved out of resolveCreativeLink into the
+  // shared usableDestination(), so the old hook matched nothing and this
+  // mutation read as CAUGHT while proving nothing. A hook aimed at deleted
+  // text fails the did-it-apply guard, which by exit code alone looks exactly
+  // like catching the bug.
   source = source.replace(
-    'if (!/^https?:\\/\\/[^\\s<>"\']+$/i.test(v)) continue;',
-    'if (!v) continue;');
+    'if (!/^https?:\\/\\/[^\\s<>"\']+$/i.test(v)) return null;',
+    'if (!v) return null;');
+} else if (mutation === 'no-shim-guard') {
+  // The l.facebook.com rejection removed. A shim is valid https, so the url
+  // gate alone lets it through and facebook.com lands in link_url.
+  source = source.replace(
+    'if (/^https?:\\/\\/(?:[a-z0-9-]+\\.)*(?:l|lm)\\.facebook\\.com\\//i.test(v)) return null;',
+    '');
 }
 if (mutation) assert.notEqual(source, readFileSync(CORE, 'utf8'), 'mutation did not apply');
 // Loaded from a temp copy rather than a data: URL, which cannot resolve the
@@ -103,7 +137,8 @@ const asksFor = (asked, field) => new RegExp(`[,{]${field}[,}{]`).test(asked);
  * `ads` maps ad id -> the ad object Meta would return. `rejectFields` names
  * fields that, when requested, make every item in the batch fail the way Meta
  * actually fails an unknown field: HTTP 200 on the POST, code 400 per item. */
-function fakeGraph({ ads, rejectFields = [], rejectMessage = null, onRequest = () => {} }) {
+function fakeGraph({ ads, posts = null, postRejectsAttachments = false,
+  rejectFields = [], rejectMessage = null, onRequest = () => {} }) {
   const requests = [];
   globalThis.fetch = async (url, opts = {}) => {
     const body = String(opts.body || '');
@@ -112,6 +147,34 @@ function fakeGraph({ ads, rejectFields = [], rejectMessage = null, onRequest = (
     const asked = decodeURIComponent(batch[0]?.relative_url || '');
     requests.push(asked);
     onRequest(asked);
+    /* A POST read, not a creative read. The two are told apart by the field
+     * list -- a creative request selects `creative{...}`, a post request does
+     * not -- because that is the only thing that distinguishes them on the
+     * wire, and keying on the id would make the fake agree with whatever the
+     * code happened to send. */
+    if (posts && !asked.includes('creative{')) {
+      const wantsAttachments = asked.includes('attachments');
+      const items = batch.map((b) => {
+        const id = decodeURIComponent(b.relative_url.split('?')[0].split('/').pop());
+        // Meta's real failure shape for this request: 200 on the POST, an
+        // error INSIDE every item, and `message` lost along with the field
+        // that was refused. That is what adding `description` did.
+        if (wantsAttachments && postRejectsAttachments) {
+          return { code: 400, body: JSON.stringify({ error: {
+            message: '(#12) deprecate_post_aggregated_fields_for_attachement is deprecated for versions v3.3 and higher',
+            type: 'OAuthException', code: 12,
+          } }) };
+        }
+        const post = posts[id];
+        if (!post) return { code: 404, body: JSON.stringify({ error: { message: 'no post' } }) };
+        // Serve only what was asked for, same rule as the creative branch.
+        const served = {};
+        if (asked.includes('message') && post.message) served.message = post.message;
+        if (wantsAttachments && post.attachments) served.attachments = post.attachments;
+        return { code: 200, body: JSON.stringify(served) };
+      });
+      return { ok: true, status: 200, text: async () => JSON.stringify(items) };
+    }
     const present = requestedOptionals(asked);
     // A refusal is always caused by ONE field being present -- rejectMessage
     // only changes whether the error NAMES it. A fake that refuses while any
@@ -573,6 +636,149 @@ await test('the written row never carries a url without its source', async () =>
   // The database constraint would reject the other case, which is a failed
   // sync rather than a wrong number -- but failing the nightly is still a
   // failure, so the payload must be right before it gets there.
+});
+
+/* ── Catalog / Dynamic Product Ads ──────────────────────────────────────
+ *
+ * Measured by scripts/meta-creative-probe.mjs on 2026-09-17 over the 14
+ * highest-spend ads that had resolved NO destination ($2,025,098 of the
+ * $2,346,434 block). 14 of 14 had one. The resolver was reading
+ * link_data/video_data/photo_data and these ads keep it in template_data --
+ * they were never refused and never destination-less.
+ */
+
+await test('a catalog ad resolves through object_story_spec.template_data.link', async () => {
+  fakeGraph({ ads: { 1: AD('1', {
+    id: 'cr1', object_type: 'SHARE', body: 'copy',
+    object_story_spec: { page_id: 'p', template_data: {
+      link: 'https://www.baseballism.com/collections/recently-restocked',
+      message: 'restocked', call_to_action: { type: 'SHOP_NOW' },
+    } },
+  }) } });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://www.baseballism.com/collections/recently-restocked');
+  assert.equal(rows['1'].linkUrlSource, 'template_data');
+});
+
+await test('a catalog carousel falls back to its first child card', async () => {
+  fakeGraph({ ads: { 1: AD('1', {
+    id: 'cr1', object_type: 'SHARE', body: 'copy',
+    object_story_spec: { template_data: {
+      child_attachments: [
+        { link: 'https://www.baseballism.com/collections/youth-all' },
+        { link: 'https://www.baseballism.com/' },
+      ],
+    } },
+  }) } });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://www.baseballism.com/collections/youth-all');
+  assert.equal(rows['1'].linkUrlSource, 'template_card');
+});
+
+await test('the parent template link outranks a child card', async () => {
+  // Same rank rule carousel_card already followed: a card is one tile's
+  // destination, the parent link is the ad's. Observed live on ad
+  // 52570592537749, where the two genuinely differ.
+  fakeGraph({ ads: { 1: AD('1', {
+    id: 'cr1', object_type: 'SHARE', body: 'copy',
+    object_story_spec: { template_data: {
+      link: 'https://www.baseballism.com/',
+      child_attachments: [{ link: 'https://www.baseballism.com/collections/youth-all' }],
+    } },
+  }) } });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, 'https://www.baseballism.com/');
+  assert.equal(rows['1'].linkUrlSource, 'template_data');
+});
+
+/* ── The post pass, now reached by a missing LINK ───────────────────────── */
+
+await test('an ad WITH copy and no link still has its post read', async () => {
+  // THE defect: 409 ads carrying $2,346,434 had body_source creative_body and
+  // no link, so the old `!row.body` gate never fetched the one place their
+  // destination existed.
+  const asked = [];
+  fakeGraph({
+    ads: { 1: AD('1', {
+      id: 'cr1', object_type: 'SHARE', body: 'copy it already has',
+      effective_object_story_id: 'story1', object_story_spec: {},
+    }) },
+    posts: { story1: { message: 'post words', attachments: { data: [
+      { unshimmed_url: 'https://www.baseballism.com/collections/mlb' },
+    ] } } },
+    onRequest: (a) => asked.push(a),
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.ok(asked.some((a) => a.includes('story1')), 'the post must be requested');
+  assert.equal(rows['1'].linkUrl, 'https://www.baseballism.com/collections/mlb');
+  assert.equal(rows['1'].linkUrlSource, 'page_post');
+});
+
+await test('the post pass never overwrites copy the creative already carried', async () => {
+  fakeGraph({
+    ads: { 1: AD('1', {
+      id: 'cr1', object_type: 'SHARE', body: 'copy it already has',
+      effective_object_story_id: 'story1', object_story_spec: {},
+    }) },
+    posts: { story1: { message: 'DIFFERENT post words', attachments: { data: [
+      { unshimmed_url: 'https://www.baseballism.com/' },
+    ] } } },
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].body, 'copy it already has');
+  assert.equal(rows['1'].bodySource, 'creative_body');
+});
+
+await test('a shimmed l.facebook.com url is never stored as a destination', async () => {
+  // The post's `url`/`target.url` are Facebook's redirector wrapping the real
+  // target. They are valid https, so the url gate alone passes them.
+  fakeGraph({
+    ads: { 1: AD('1', {
+      id: 'cr1', object_type: 'SHARE', body: 'copy',
+      effective_object_story_id: 'story1', object_story_spec: {},
+    }) },
+    posts: { story1: { message: 'w', attachments: { data: [
+      { unshimmed_url: 'https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.baseballism.com%2F&h=AUD' },
+    ] } } },
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].linkUrl, null, 'a shim is not a destination');
+  assert.equal(rows['1'].linkUrlSource, null);
+});
+
+await test('an ad with BOTH copy and a link costs no post request', async () => {
+  const asked = [];
+  fakeGraph({
+    ads: { 1: AD('1', {
+      id: 'cr1', object_type: 'SHARE', body: 'copy',
+      effective_object_story_id: 'story1',
+      object_story_spec: { template_data: { link: 'https://www.baseballism.com/collections/x' } },
+    }) },
+    posts: { story1: { message: 'unused' } },
+    onRequest: (a) => asked.push(a),
+  });
+  await fetchMetaAdCreatives(CONNECTION, ['1']);
+  assert.ok(!asked.some((a) => a.includes('story1')), 'nothing was missing, so nothing to fetch');
+});
+
+await test('a refused attachment field falls back to message and keeps the copy', async () => {
+  // Widening this request is what broke it once (`description` took `message`
+  // down with it, 100 of 113 reads 400). Losing the NEW field must never cost
+  // the old one.
+  fakeGraph({
+    ads: { 1: AD('1', {
+      id: 'cr1', object_type: 'SHARE', effective_object_story_id: 'story1',
+      object_story_spec: {},
+    }) },
+    posts: { story1: { message: 'recovered copy', attachments: { data: [
+      { unshimmed_url: 'https://www.baseballism.com/' },
+    ] } } },
+    postRejectsAttachments: true,
+  });
+  const rows = byId(await fetchMetaAdCreatives(CONNECTION, ['1']));
+  assert.equal(rows['1'].body, 'recovered copy', 'copy recovery must survive the refusal');
+  assert.equal(rows['1'].bodySource, 'page_post');
+  assert.equal(rows['1'].linkUrl, null, 'and the link is simply unavailable, not invented');
 });
 
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);

@@ -509,6 +509,14 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
  * The drop order is therefore least-costly-to-lose first: url_tags is UTM
  * metadata, object_url is a destination candidate that currently resolves
  * nothing, asset_feed_spec is everything. */
+/* The page-post read. NARROW is what shipped and what has always worked;
+ * WIDE adds the attachment carrying a catalog ad's real destination. The
+ * request tries WIDE and falls back to NARROW for the rest of the run on any
+ * refusal -- see the post pass in fetchMetaAdCreatives for why that direction
+ * matters. */
+const POST_FIELDS_NARROW = 'message';
+const POST_FIELDS_WIDE = 'message,attachments{unshimmed_url}';
+
 const CREATIVE_OPTIONAL_FIELDS = ['object_url', 'url_tags', 'asset_feed_spec'];
 const CREATIVE_DROP_ORDER = ['url_tags', 'object_url', 'asset_feed_spec'];
 /** Fields whose Graph selection is not just the field name. */
@@ -567,6 +575,14 @@ function metaBatchRejectedFields(data) {
   });
 }
 
+/** Every item in a batch failed. For the POST read this is the refusal signal
+ * rather than the error text -- see the post pass for why the wording cannot
+ * be trusted there. An empty batch is not a failure. */
+function allItemsFailed(data) {
+  return Array.isArray(data) && data.length > 0
+    && data.every((item) => !item || item.code !== 200);
+}
+
 /** The field name out of a Meta error message, for dropping and for the log. */
 function metaFieldNameFromMessage(msg) {
   const named = /nonexisting field \(([^)]+)\)|field ([\w{}]+)/i.exec(String(msg || ''));
@@ -606,18 +622,60 @@ function metaRejectedFieldName(data) {
  *
  * Every entry returns a string or null. The first non-null wins, and its key
  * is stored as link_url_source. */
+/** A stored destination, or null. ONE definition, used by both the creative
+ * and the page-post path, so the two cannot drift apart.
+ *
+ * Only http(s) and no whitespace -- the same single gate v3 puts between a
+ * stored value and an href. A destination that is not a web URL (an app deep
+ * link, a messenger thread) is not a landing page, and storing it would put a
+ * value in front of a reader the UI must then refuse to render anyway.
+ *
+ * It also rejects Facebook's LINK SHIM. A post attachment's `url`/`target.url`
+ * are `https://l.facebook.com/l.php?u=<escaped real url>&h=<hmac>` -- valid
+ * https, so the gate above passes them happily, and storing one would put
+ * facebook.com in link_url for an ad that goes to baseballism.com. The post
+ * path reads `unshimmed_url` for exactly this reason; this is the backstop
+ * for the day a post returns no unshimmed_url and someone reaches for the
+ * neighbouring field. Caught by the probe, not in review. */
+function usableDestination(raw) {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim();
+  if (!/^https?:\/\/[^\s<>"']+$/i.test(v)) return null;
+  if (/^https?:\/\/(?:[a-z0-9-]+\.)*(?:l|lm)\.facebook\.com\//i.test(v)) return null;
+  return v;
+}
+
 function resolveCreativeLink(creative) {
   const spec = creative?.object_story_spec || {};
   const ctaLink = (d) => d?.call_to_action?.value?.link ?? null;
   const firstCard = (spec.link_data?.child_attachments || [])
     .find((c) => c && typeof c.link === 'string' && c.link.trim());
+  // A CATALOG / Dynamic Product Ad puts its destination in template_data, not
+  // link_data. Measured by the probe on 2026-09-17 over the 14 highest-spend
+  // unresolved ads: 10 of 14 carried object_story_spec.template_data.link,
+  // every one a real baseballism.com collection or the site root, and 2 of
+  // those also carried per-card child_attachments. This is the field whose
+  // absence left $2,346,434 of SHARE spend with no destination -- the ads
+  // were never refused and were never destination-less, the resolver was
+  // looking only at link_data/video_data/photo_data.
+  const firstTemplateCard = (spec.template_data?.child_attachments || [])
+    .find((c) => c && typeof c.link === 'string' && c.link.trim());
   const feedUrl = (creative?.asset_feed_spec?.link_urls || [])
     .find((u) => u && typeof u.website_url === 'string' && u.website_url.trim());
   const candidates = [
     ['link_data', spec.link_data?.link],
+    // Ranked with link_data, not after it: for a catalog ad this IS the
+    // advertiser's own link. A creative carries one or the other, never both
+    // (measured: every template_data ad had no link_data), so the order
+    // between these two is not load-bearing -- it is written this way so a
+    // creative that somehow had both would still prefer the typed link.
+    ['template_data', spec.template_data?.link],
     ['video_cta', ctaLink(spec.video_data)],
     ['link_data_cta', ctaLink(spec.link_data)],
+    // Below the parent link, matching carousel_card's existing rank: a card
+    // is one tile's destination, the parent link is the ad's.
     ['carousel_card', firstCard?.link],
+    ['template_card', firstTemplateCard?.link],
     ['photo_cta', ctaLink(spec.photo_data)],
     ['asset_feed', feedUrl?.website_url],
     // effective_object_url is deliberately absent: this account refuses it as
@@ -627,14 +685,8 @@ function resolveCreativeLink(creative) {
     ['object_url', creative?.object_url],
   ];
   for (const [source, raw] of candidates) {
-    if (typeof raw !== 'string') continue;
-    const v = raw.trim();
-    // Only http(s), and no whitespace -- the same single gate v3 puts between
-    // a stored value and an href. A destination that is not a web URL (an
-    // app deep link, a messenger thread) is not a landing page, and storing
-    // it would put a value in front of a reader that the UI must then refuse
-    // to render anyway.
-    if (!/^https?:\/\/[^\s<>"']+$/i.test(v)) continue;
+    const v = usableDestination(raw);
+    if (!v) continue;
     return { url: v, source };
   }
   return { url: null, source: null };
@@ -776,9 +828,13 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       };
       out.push(row);
 
-      // Still nothing, but the ad names a post that has it.
+      // The ad names a post, and we are missing SOMETHING the post can
+      // supply. Gated on body ALONE until 2026-09-17, which is why 409 ads
+      // carrying $2,346,434 never had their post read at all: they had copy
+      // (body_source 'creative_body') and no link, so this test was false and
+      // the one place their destination existed was never fetched.
       const storyId = a.creative?.effective_object_story_id;
-      if (!row.body && storyId) {
+      if ((!row.body || !row.linkUrl) && storyId) {
         if (!needPost.has(storyId)) needPost.set(storyId, []);
         needPost.get(storyId).push(row);
       }
@@ -797,25 +853,41 @@ export async function fetchMetaAdCreatives(connection, adIds) {
   const postToken = storyIds.length
     ? ((await fetchFacebookPageAccessToken(connection)) || token)
     : token;
+  // The wide form is ATTEMPTED, never assumed -- see the request below.
+  let postFields = POST_FIELDS_WIDE;
+  let postLinksAvailable = true;
   let postItemErr = 0;
   for (let i = 0; i < storyIds.length; i += 50) {
     const slice = storyIds.slice(i, i + 50);
-    const batch = slice.map((id) => ({
-      // message ONLY. Asking for `description` alongside it failed the whole
-      // request -- Meta returns "(#12) deprecate_post_aggregated_fields_for_
-      // attachement is deprecated for versions v3.3 and higher" and drops
-      // `message` with it, so 100 of 113 post reads came back 400. It was
-      // added as a harmless-looking fallback and was the thing that broke the
-      // call.
-      method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=message`,
+    // `message` plus the attachment's UNSHIMMED url. Widening this request is
+    // the exact thing that broke it once: adding `description` alongside
+    // `message` returned "(#12) deprecate_post_aggregated_fields_for_
+    // attachement is deprecated for versions v3.3 and higher" and dropped
+    // `message` WITH it, so 100 of 113 reads came back 400. So the wide form
+    // is attempted and never assumed -- one refusal drops the rest of this
+    // run back to `message` alone, and copy recovery continues exactly as it
+    // did before links were ever asked for. Losing the new field is a far
+    // smaller failure than losing the old one, so that is the way it fails.
+    //
+    // `unshimmed_url` specifically, never `url` or `target.url`: those are
+    // Facebook's l.facebook.com redirector wrapping the real destination, and
+    // storing one would put facebook.com in link_url for an ad that goes to
+    // baseballism.com.
+    const buildBatch = (fields) => slice.map((id) => ({
+      method: 'GET', relative_url: `${META_API_VERSION}/${id}?fields=${fields}`,
     }));
-    let data;
-    try {
-      data = await fetchMetaJsonOrThrow(`https://graph.facebook.com/${META_API_VERSION}/`, {
+    const postBatch = (fields) => fetchMetaJsonOrThrow(
+      `https://graph.facebook.com/${META_API_VERSION}/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ access_token: postToken, batch: JSON.stringify(batch) }).toString(),
+        body: new URLSearchParams({
+          access_token: postToken, batch: JSON.stringify(buildBatch(fields)),
+        }).toString(),
       }, 'Meta post copy batch');
+
+    let data;
+    try {
+      data = await postBatch(postFields);
     } catch (err) {
       // Copy is an enrichment, not the point of this sync. A page-post read
       // that fails on scope or a deleted post must not lose the creative rows
@@ -823,6 +895,31 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       // before this pass existed.
       console.warn(`[warn] meta post copy batch: ${err.message || err}`);
       break;
+    }
+
+    /* The refusal this guards against does NOT look like an unknown field.
+     * The one that actually broke this request returned "(#12) deprecate_post_
+     * aggregated_fields_for_attachement is deprecated for versions v3.3 and
+     * higher" -- 200 on the POST, an error inside every item, `message` gone
+     * with it. isMetaUnknownFieldError() does not match that text and should
+     * not be taught to: it is not an unknown field, it is a deprecation.
+     *
+     * So the signal here is EVERY item failing, not the wording. A refused
+     * field set fails all of them deterministically; one deleted post fails
+     * one. And the fallback is only believed once the narrow retry SUCCEEDS
+     * on something -- otherwise all-items-failed meant the token or the posts,
+     * the field was never the problem, and permanently dropping the attachment
+     * would be the wrong lesson to learn from it. */
+    if (postFields !== POST_FIELDS_NARROW && allItemsFailed(data)) {
+      let narrow = null;
+      try { narrow = await postBatch(POST_FIELDS_NARROW); } catch { /* keep the wide result */ }
+      if (narrow && !allItemsFailed(narrow)) {
+        console.warn('[warn] meta post: the attachment field was refused, falling back to'
+          + ' message only -- post links are unavailable for the rest of this run');
+        postFields = POST_FIELDS_NARROW;
+        postLinksAvailable = false;
+        data = narrow;
+      }
     }
     if (!Array.isArray(data)) break;
     if (i + 50 >= storyIds.length && postItemErr) {
@@ -847,10 +944,29 @@ export async function fetchMetaAdCreatives(connection, adIds) {
       const msg = typeof post?.message === 'string' && post.message.trim()
         ? post.message.trim()
         : null;
-      if (!msg) return;
+      // unshimmed_url ONLY. The sibling `url`/`target.url` are the
+      // l.facebook.com redirector; usableDestination() rejects those too, but
+      // the right fix is not reading them in the first place.
+      const attachment = (post?.attachments?.data || [])
+        .map((a) => usableDestination(a?.unshimmed_url))
+        .find(Boolean) || null;
+      if (!msg && !attachment) return;
       for (const r of needPost.get(storyId) || []) {
-        r.body = msg;
-        r.bodySource = 'page_post';
+        // Each half is applied ONLY where that half is missing. This list now
+        // holds rows enqueued for a missing LINK as well as a missing body, so
+        // an unguarded assignment would overwrite copy the creative already
+        // carried -- which is most of the ads that brought us here.
+        if (!r.body && msg) {
+          r.body = msg;
+          r.bodySource = 'page_post';
+        }
+        if (!r.linkUrl && attachment) {
+          r.linkUrl = attachment;
+          // The one source that is genuinely the POST rather than the ad. It
+          // is the unshimmed target, so in practice the advertiser's own site
+          // -- but a reader still shows the HOST rather than trusting that.
+          r.linkUrlSource = 'page_post';
+        }
       }
     });
   }
@@ -875,7 +991,12 @@ export async function fetchMetaAdCreatives(connection, adIds) {
     .join(' ') || 'none';
   console.log(`[meta] creative links: ${withLink}/${out.length} resolved (${sourceSummary})`
     + ` [asked: ${[...activeFields].join(',') || 'none'}`
-    + `${refusedFields.length ? `, refused: ${refusedFields.join(',')}` : ''}]`);
+    + `${refusedFields.length ? `, refused: ${refusedFields.join(',')}` : ''}`
+    // Without this, a run where the POST refused the attachment field and a
+    // run where the posts genuinely carried no link print the same line and
+    // the same count. They are different facts and only one of them is worth
+    // re-running.
+    + `${storyIds.length && !postLinksAvailable ? ', post links: REFUSED' : ''}]`);
 
   return out;
 }

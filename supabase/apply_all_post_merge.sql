@@ -18801,3 +18801,11 @@ $c$select (select count(*) from v_po_header_summary
 -- SHARE spend sat on ads nobody had asked about. Its own job_type, not
 -- meta_ads_kpis, so "did the nightly run" stays answerable from sync_jobs.
 \i migrations/20260916150000_meta_creative_backfill_job_type.sql
+
+-- The destination sources a catalog ad actually uses. Measured by the probe
+-- on 2026-09-17: 14 of 14 unresolved high-spend ads HAD a destination, in
+-- object_story_spec.template_data (catalog/DPA) or on the page post. Adds
+-- template_data / template_card / page_post to the documented sources, and
+-- removes effective_object_url, which this account refuses and never supplies.
+-- Comments only.
+\i migrations/20260917120000_meta_catalog_destination_sources.sql
