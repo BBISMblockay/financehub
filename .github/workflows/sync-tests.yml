@@ -52,6 +52,7 @@ on:
       - 'supabase/migrations/*qbo_history_number_formats.sql'
       - 'supabase/migrations/*qbo_history_bounded_archive.sql'
       - 'supabase/migrations/*card_transaction_splits.sql'
+      - 'supabase/migrations/*tenant_boundary_hardening.sql'
       - 'supabase/migrations/*qbo_history_unattributed_section.sql'
       - 'supabase/migrations/*qbo_history_trial_balance_period.sql'
       - 'supabase/functions/plaid-finance/**'
@@ -152,6 +153,14 @@ jobs:
 
       - name: Accounting suite navigation and legacy routes
         run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs
+
+      # Which company's sidebar a session is served. Visibility only -- RLS
+      # decides the data -- but resolveNavProfile(null) used to answer
+      # 'grandfathered', so a second tenant's user on a deep link (no cached
+      # company: sessionStorage is per-tab, the auth session is not) was shown
+      # Baseballism's menu.
+      - name: Nav profile fails closed on an unresolved company
+        run: node --test scripts/tests/nav-profile.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
@@ -311,6 +320,15 @@ jobs:
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs
+
+      # SECURITY DEFINER functions bypass RLS entirely, so their EXECUTE grant
+      # is the whole tenant boundary -- and Supabase grants EXECUTE to anon by
+      # DEFAULT on every new function, so the insecure state arrives without
+      # anyone writing SQL to cause it. Pins both the working guard and the
+      # inert one: `current_user` is the function OWNER inside a definer
+      # function, so the obvious guard never fires while looking correct.
+      - name: Execute SECURITY DEFINER tenant-boundary regressions
+        run: node scripts/tests/tenant-boundary.test.mjs
 
       # Ask SILO's shared query engine. Its guard is a check on the SHAPE of the
       # statement text, and a SELECT is not a read: `select

@@ -3894,6 +3894,99 @@ select 'Forecast functions carry no tenant-specific default' as check_name,
    then 'CRITICAL: a forecast function still defaults its product category to one tenant''s value'
  else 'ok' end as status;
 
+-- ── Tenant boundary: SECURITY DEFINER reachability ──────────────────────────
+-- A SECURITY DEFINER function runs as its owner and therefore bypasses RLS
+-- completely. Its ONLY boundary is the EXECUTE grant -- and Supabase's default
+-- privileges on the `public` schema grant EXECUTE to `public` (so: anon and
+-- authenticated) on every newly created function unless it is revoked
+-- explicitly. That default is how `chat_run_readonly_query` ended up callable
+-- by anon (20260904330000), and on 2026-09-17 an audit found three more:
+-- `purge_better_reports_overlap` (deletes another tenant's sales_by_day),
+-- `backfill_company_entity_batch` (stamps unclaimed rows with any company id)
+-- and `attach_stamp_company_entity_id_triggers` (DDL), all confirmed callable
+-- as `anon` against a company the caller had no relationship to.
+--
+-- The point of an ALLOWLIST rather than a list of the known-bad four: the bug
+-- is a DEFAULT, so the next instance arrives by someone adding a perfectly
+-- ordinary function and not thinking about grants. A denylist cannot see that
+-- one; an allowlist goes red the day it lands. Adding a name here is a
+-- deliberate act -- do it only once the function is safe for an
+-- UNAUTHENTICATED caller, which in practice means it is a trigger function, or
+-- it keys entirely off auth.uid()/active_company_id() (both NULL for anon, so
+-- it returns false or no rows), or it gates itself internally.
+select 'Definer functions reachable by anon' as check_name,
+ case when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f' and p.prosecdef
+     and has_function_privilege('anon', p.oid, 'EXECUTE')
+     and p.proname not in (
+       'ad_platforms_expected','audit_revenue_projections','can_access_entity',
+       'can_approve_seo_tasks','can_manage_journal_entries',
+       'check_publication_after_baselines','check_seo_measurement_window',
+       'check_seo_publication_admissible','create_entity_with_owner',
+       'current_user_can_manage_payment_requests','employees_autolink_profile',
+       'ensure_entity_state','ensure_profile','forecast_candidate_may_act',
+       'handle_new_user','handle_user_email_update','is_active_user',
+       'is_admin_user','is_authenticated_user','is_entity_admin',
+       'is_entity_member','is_owner_admin','is_owner_or_admin','next_location_id',
+       'notify_slack_launch_comment','notify_slack_launch_created',
+       'notify_slack_payment_request','notify_slack_sample_created',
+       'notify_slack_task_created','record_product_concept_revision',
+       'record_seo_task_revision','resync_tasks_on_initiative_move',
+       'saved_report_usage','stamp_changed_by','stamp_company_entity_id',
+       'stamp_created_by','void_card_posting'))
+   then 'CRITICAL: a SECURITY DEFINER function is executable by anon and is not on the reviewed allowlist'
+ else 'ok' end as status;
+
+-- The four closed by 20260917200000, asserted individually. The allowlist check
+-- above would catch an anon re-grant; this one also catches an `authenticated`
+-- re-grant, which is the likelier accident (a `create or replace` restores the
+-- schema default) and is still cross-tenant: none of these four takes the
+-- caller's company from active_company_id(), they all take it as an argument.
+select 'Service-role-only tenant primitives' as check_name,
+ case
+ when to_regprocedure('public.purge_better_reports_overlap(uuid)') is null
+   then 'MISSING: purge_better_reports_overlap; apply 20260917200000'
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('purge_better_reports_overlap','backfill_company_entity_batch',
+                       'attach_stamp_company_entity_id_triggers','refresh_demand_coverage_base_mv')
+     and (has_function_privilege('anon', p.oid, 'EXECUTE')
+       or has_function_privilege('authenticated', p.oid, 'EXECUTE')))
+   then 'CRITICAL: a cross-tenant service-role primitive is callable from a browser session'
+ -- The in-body belt. It must read the `role` GUC, NOT current_user: inside a
+ -- SECURITY DEFINER function current_user is the OWNER, so a current_user guard
+ -- is inert and merely looks like a control. Measured, and caught by a mutation
+ -- test that re-grants EXECUTE and calls as anon/authenticated.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('purge_better_reports_overlap','backfill_company_entity_batch')
+     and pg_get_functiondef(p.oid) not like '%current_setting(''role''%')
+   then 'CRITICAL: the service-role guard is missing or reads current_user (inert under SECURITY DEFINER)'
+ -- A destructive function must not carry a default target.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'purge_better_reports_overlap'
+     and p.pronargdefaults > 0)
+   then 'CRITICAL: purge_better_reports_overlap has a default company again'
+ else 'ok' end as status;
+
+-- No RPC may resolve an ambiguous tenant by naming one. `active_company_id()`
+-- returns NULL rather than guessing, which is correct; the bug was callers
+-- coalescing that NULL to Baseballism's uuid and carrying on. Membership is a
+-- grant of access to a tenant's data, so "we don't know which company" has to
+-- stop the call.
+select 'No silent Baseballism fallback in RPCs' as check_name,
+ case when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and p.proname in ('admin_update_profile','approve_access_request')
+     and pg_get_functiondef(p.oid) like '%3bd934c9-4cdd-429b-9076-f8f6b45d4eb7%')
+   then 'CRITICAL: a membership-granting RPC still defaults its company to Baseballism'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

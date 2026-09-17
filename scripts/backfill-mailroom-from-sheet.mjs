@@ -21,7 +21,7 @@
 // Optional:
 //   MAILROOM_SHEET_ID   (defaults to the sheet /mailroom.html already reads)
 //   MAILROOM_GID        (defaults to 0)
-//   MAILROOM_COMPANY_ENTITY_ID  (defaults to Baseballism)
+//   MAILROOM_COMPANY_ENTITY_ID  (REQUIRED -- no default)
 //   MAILROOM_BACKFILL_DRY_RUN=true
 
 import { createClient } from "@supabase/supabase-js";
@@ -30,7 +30,14 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SHEET_ID = process.env.MAILROOM_SHEET_ID || "12cuw5LrkFvwjcR33m8zwiWIPEov6P6t72rMSIrKq-Ck";
 const GID = Number(process.env.MAILROOM_GID || 0);
-const COMPANY_ENTITY_ID = process.env.MAILROOM_COMPANY_ENTITY_ID || "3bd934c9-4cdd-429b-9076-f8f6b45d4eb7";
+// A backfill writes tenant-stamped rows. Defaulting the company meant a run
+// that forgot the variable silently filed another tenant's data under
+// Baseballism -- the failure is invisible, because every row lands
+// successfully, just in the wrong company. Required, no default.
+const COMPANY_ENTITY_ID = process.env.MAILROOM_COMPANY_ENTITY_ID;
+if (!COMPANY_ENTITY_ID) {
+  throw new Error("Missing MAILROOM_COMPANY_ENTITY_ID -- name the company explicitly; there is no default");
+}
 const DRY_RUN = process.env.MAILROOM_BACKFILL_DRY_RUN === "true";
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {

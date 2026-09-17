@@ -19,9 +19,12 @@ on:
         default: ""
         type: string
       company_entity_id:
-        description: "Company UUID (blank = Baseballism)"
-        required: false
-        default: ""
+        # No default. A blank used to mean Baseballism, so running this for a
+        # second tenant and forgetting the field filed their mail under
+        # Baseballism with every row inserting successfully. The script now
+        # refuses a blank rather than guessing.
+        description: "Company UUID (required — the company whose mail this is)"
+        required: true
         type: string
 
 jobs:
