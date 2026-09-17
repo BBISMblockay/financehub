@@ -3721,6 +3721,75 @@ select 'Ask SILO ad destination coverage claim' as check_name,
    then 'STALE: the catalog does not name template_data as a destination source; a later migration replaced the description instead of appending'
  else 'ok' end as status;
 
+-- Demand Planner candidate ledger. Placed ABOVE the Plaid marker on purpose --
+-- see the note at the end of this file: everything after that marker is
+-- executed by the Plaid fixture, which does not build this schema.
+select 'Forecast candidate ledger' as check_name,
+ case when to_regclass('public.forecast_candidate_ledger') is null then 'MISSING: forecast candidate ledger migration'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.forecast_candidate_ledger'))
+   then 'CRITICAL: forecast_candidate_ledger RLS disabled'
+ -- The ledger's whole value is that a frozen forecast cannot be restated. The
+ -- runner writes with the service role, which bypasses RLS, so immutability
+ -- lives in the trigger or nowhere.
+ when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.forecast_candidate_ledger')
+   and tgname='forecast_candidate_ledger_append_only' and tgenabled<>'D')
+   then 'CRITICAL: the append-only trigger is missing or disabled; a frozen forecast can be rewritten'
+ -- Idempotency: without this a re-run writes a second, differently-computed
+ -- number for the same decision.
+ when not exists(select 1 from pg_class where relname='forecast_candidate_ledger_identity_uq' and relkind='i')
+   then 'CRITICAL: the candidate/category/horizon/cutoff unique index is missing'
+ when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.forecast_candidate_ledger')
+   and conname='forecast_ledger_no_lookahead')
+   then 'CRITICAL: the no-look-ahead constraint is missing'
+ -- Supabase's default privileges grant ALL on a new public table. With RLS and
+ -- no policy an UPDATE then succeeds with ZERO ROWS, which reads exactly like a
+ -- write that worked, so the revoke has to be explicit.
+ when has_table_privilege('authenticated','public.forecast_candidate_ledger','UPDATE')
+   or has_table_privilege('authenticated','public.forecast_candidate_ledger','INSERT')
+   or has_table_privilege('authenticated','public.forecast_candidate_ledger','DELETE')
+   then 'CRITICAL: authenticated can write to forecast_candidate_ledger directly'
+ when has_table_privilege('anon','public.forecast_candidate_ledger','SELECT')
+   then 'CRITICAL: anon can read forecast_candidate_ledger'
+ else 'ok' end as status;
+
+select 'Forecast candidate authorization' as check_name,
+ case when to_regprocedure('public.forecast_yoy_shift_v1(uuid,date,text,integer,numeric,numeric)') is null
+   then 'MISSING: forecast candidate migration'
+ -- The engine takes an explicit company id. It shipped first as a SECURITY
+ -- DEFINER function that asked pg_has_role(current_user,'service_role') -- and
+ -- inside a definer function current_user is the OWNER, so that answered yes
+ -- for every signed-in user. Authorization is the GRANT now; this asserts it.
+ when has_function_privilege('authenticated','public.forecast_yoy_shift_v1(uuid,date,text,integer,numeric,numeric)','EXECUTE')
+   or has_function_privilege('anon','public.forecast_yoy_shift_v1(uuid,date,text,integer,numeric,numeric)','EXECUTE')
+   then 'CRITICAL: forecast_yoy_shift_v1 is callable by a browser role; it takes an arbitrary company id'
+ when has_function_privilege('authenticated','public.record_forecast_candidate_run(uuid,date,text,text,integer,numeric,numeric)','EXECUTE')
+   or has_function_privilege('anon','public.record_forecast_candidate_run(uuid,date,text,text,integer,numeric,numeric)','EXECUTE')
+   then 'CRITICAL: record_forecast_candidate_run is callable by a browser role'
+ when has_function_privilege('authenticated','public.forecast_actuals_matured_through(uuid)','EXECUTE')
+   then 'CRITICAL: forecast_actuals_matured_through(uuid) is callable by a browser role; use the parameterless variant'
+ -- ...and the in-function gate must NOT go back to inferring the caller's role.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='forecast_candidate_may_act') like '%pg_has_role%'
+   then 'CRITICAL: the tenant gate is inferring the caller role again; inside SECURITY DEFINER that is always the owner'
+ when not has_function_privilege('authenticated','public.evaluate_forecast_candidate(uuid,text,text,integer,integer,numeric)','EXECUTE')
+   then 'CRITICAL: a planner cannot read the promotion recommendation'
+ else 'ok' end as status;
+
+select 'Forecast candidate baselines' as check_name,
+ case when to_regclass('public.forecast_model_baselines') is null then 'MISSING: forecast baseline table'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.forecast_model_baselines'))
+   then 'CRITICAL: forecast_model_baselines RLS disabled'
+ -- An absent baseline must read as "not recorded" and never as "beaten".
+ -- Baseballism's two measured rows come from report f98754f7; if they are gone
+ -- the promotion gate cannot compare against anything.
+ when not exists(select 1 from public.forecast_model_baselines
+   where baseline_key='portfolio' and horizon_days=30)
+   then 'STALE: no 30-day portfolio baseline recorded; the promotion gate has nothing to compare against'
+ when not exists(select 1 from public.forecast_model_baselines
+   where baseline_key='category' and sku_category='Youth' and horizon_days=30)
+   then 'STALE: no 30-day Youth baseline recorded'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

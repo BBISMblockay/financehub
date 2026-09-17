@@ -1,0 +1,75 @@
+name: Demand candidate forecast run
+
+# Freezes one prospective forecast per eligible cutoff into
+# forecast_candidate_ledger. Source spec: saved report
+# f98754f7-47a6-4eeb-8a8b-eece9a069432, candidate Candidate_YoY_Shift_v1.
+#
+# This writes NOTHING a purchase order reads. The ledger is a parallel record
+# kept so the candidate can be scored later against matured actuals; the
+# production 90/180-day logic and every live PO path are untouched.
+#
+# Monthly, on the 3rd at 13:00 UTC (06:00 Pacific). Deliberately NOT the 1st:
+# a cutoff may only be frozen once the source has complete data through the day
+# before it, and the nightly Shopify sync for the last day of the month lands
+# on the 1st at 08:30 UTC. Running on the 1st would spend every attempt on a
+# `deferred`, and a job whose normal outcome is "too early" is a job nobody
+# reads. Two days of slack also absorbs a dropped scheduled run -- GitHub drops
+# them silently, which is why sales-freshness-check.yml exists.
+#
+# If it is early anyway, nothing bad happens: the writer refuses the cutoff and
+# says so, rather than freezing a forecast computed from a half-synced month.
+# Re-running is always safe -- an already-frozen cutoff is returned untouched
+# and is never recomputed.
+
+on:
+  schedule:
+    - cron: '0 13 3 * *'
+  workflow_dispatch:
+    inputs:
+      company_id:
+        description: 'Single company entity id (blank = every company with members)'
+        required: false
+        type: string
+      start_cutoff:
+        description: 'First cutoff to attempt, YYYY-MM-01 (blank = 2026-09-01, the first frozen run)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Plan the cutoffs and write nothing'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two runs writing the same cutoff is already safe (the unique index refuses
+  # the second, and the RPC returns the frozen row without recomputing), so
+  # this is about log legibility, not correctness. cancel-in-progress is FALSE:
+  # cancelling a run mid-company would leave later companies unattempted for the
+  # month, and the schedule is monthly, so there is no next run to catch them.
+  group: forecast-candidate-run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: Freeze eligible cutoffs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # `npm install`, not `npm ci`: there is no root package-lock.json, so ci
+      # fails outright. Same as shopify-sync.yml and the other data workflows.
+      - name: Install dependencies
+        run: npm install
+      - name: Run candidate
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FC_COMPANY_ID: ${{ inputs.company_id }}
+          FC_START_CUTOFF: ${{ inputs.start_cutoff }}
+          FC_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: node scripts/forecast-candidate-run.mjs

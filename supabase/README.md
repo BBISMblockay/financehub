@@ -988,3 +988,61 @@ real Postgres rather than trusting to documentation.
 Idempotent: `drop constraint if exists` then re-add. Verified against
 production before commit that no stored `job_type` falls outside the new list,
 so the `ADD CONSTRAINT` cannot fail on existing rows.
+
+## Demand Planner candidate ledger (`20260917140000`)
+
+Prospective forecasts for a candidate demand model, written at a cutoff and
+scored only once actuals mature. Source specification: saved report
+`f98754f7-47a6-4eeb-8a8b-eece9a069432` ("SILO - Demand Model Workbench"),
+frozen candidate `Candidate_YoY_Shift_v1` — Youth, 30-day horizon.
+
+It changes **nothing** in the production purchasing path. The workbench report,
+its locked per-category models, `v_po_*`, `po_headers`/`po_lines` and the
+existing 90/180-day logic are untouched; this is a parallel record kept so a
+candidate can earn promotion instead of being adopted because a backtest
+flattered it.
+
+**Why a table rather than another saved report.** A saved report re-runs its SQL
+every time it is opened, so a "forecast" held in one is a restatement: change
+the rule, or let another month land, and the number a planner acted on is gone
+with no trace it existed. Prospective evaluation needs the opposite — a number
+written before the outcome and provably untouched after. Hence an append-only
+ledger (`forecast_candidate_ledger`), a calculation that cannot read past its own
+cutoff, and a scorer that refuses to grade a partial month.
+
+Three things worth knowing before changing any of it:
+
+- **The grain is a calendar month.** "30-day horizon" is the label kept in
+  `horizon_days`; the measured window is the calendar month beginning at the
+  cutoff, and `t-N` means N calendar months back. That is not a convenience — it
+  is the only reading that reproduces the frozen run's three inputs exactly
+  (115,699 / 59,124 / 4,297 → 7,735). A literal 30-day window does not: Jun–Aug
+  2026 is 92 days.
+- **Absent is not zero.** The monthly rollup emits a row only where the sync
+  recorded something, so a missing month is "no data". A missing month makes a
+  cutoff ineligible and writes nothing; a *recorded* 0 is data and stays 0. The
+  Youth series has both, plus twelve genuinely negative months (returns
+  exceeding sales), which are refused as a ratio denominator or forecast base.
+- **Authorization is by GRANT, not by an in-function role check.** The engine
+  functions take an explicit company id and are granted to `service_role` alone;
+  the planner-facing ones are gated on `active_company_id()` and granted to
+  `authenticated`. An earlier version asked
+  `pg_has_role(current_user, 'service_role', 'member')` inside a SECURITY DEFINER
+  function, where `current_user` is the function's **owner** — so it answered yes
+  for every signed-in user. `session_user` is no better: in Supabase that is
+  `authenticator`, which holds every role. `verify_v2_schema.sql` fails CRITICAL
+  if that check returns.
+
+Runner: `scripts/forecast-candidate-run.mjs` via
+`.github/workflows/forecast-candidate-run.yml` (monthly, the 3rd — not the 1st,
+because a cutoff may only be frozen once the source has synced through the day
+before it). Re-running is a no-op on any frozen cutoff: the writer returns the
+existing row **without recomputing**.
+
+Retrospective score: `scripts/forecast-candidate-backtest.mjs` /
+`scripts/sql/forecast_candidate_backtest.sql`. It writes nothing, and its number
+is not prospective performance — see `docs/ops/demand-candidate-yoy-shift.md`.
+
+Tests: `scripts/tests/forecast-candidate.test.mjs` (unit) and
+`scripts/tests/forecast-candidate-database.test.mjs` (real PostgreSQL via
+PGlite, with ten mutations).
