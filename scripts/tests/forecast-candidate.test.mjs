@@ -14,6 +14,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  resolveCategories,
   addMonths,
   previousDay,
   monthStart,
@@ -245,6 +246,37 @@ await atest('a failure reading the maturity clock stops the run rather than gues
   await assert.rejects(
     () => runForecastCandidate({ client, companyEntityId: 'co-1', skuCategory: 'Widgets', logger: quiet }),
     /forecast_actuals_matured_through failed: boom/);
+});
+
+await atest('with no override the driver resolves categories from the database', async () => {
+  const calls = [];
+  const client = { rpc: async (fn, args) => { calls.push({ fn, args }); return { data: [
+    { product_type: 'Tees',    is_forecastable: true },
+    { product_type: 'Fees',    is_forecastable: false },
+    { product_type: 'Hats',    is_forecastable: true },
+  ], error: null }; } };
+  const got = await resolveCategories(client, 'co-1', '');
+  assert.deepEqual(got, ['Tees', 'Hats'], 'non-forecastable types must be dropped, not defaulted in');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].fn, 'forecastable_product_types');
+  assert.equal(calls[0].args.p_company_entity_id, 'co-1');
+});
+
+await atest('an explicit category overrides the database and asks it nothing', async () => {
+  let asked = false;
+  const client = { rpc: async () => { asked = true; return { data: [], error: null }; } };
+  assert.deepEqual(await resolveCategories(client, 'co-1', 'Widgets'), ['Widgets']);
+  assert.equal(asked, false, 'an explicit category must not cost a round trip');
+});
+
+await atest('a company with no forecastable category resolves to an empty list, not a guess', async () => {
+  const client = { rpc: async () => ({ data: [{ product_type: 'Fees', is_forecastable: false }], error: null }) };
+  assert.deepEqual(await resolveCategories(client, 'co-1', ''), []);
+});
+
+await atest('a failure resolving categories stops the run rather than forecasting nothing quietly', async () => {
+  const client = { rpc: async () => ({ data: null, error: { message: 'boom' } }) };
+  await assert.rejects(() => resolveCategories(client, 'co-1', ''), /could not resolve categories: boom/);
 });
 
 await atest('a missing category is refused rather than defaulted to one tenant', async () => {

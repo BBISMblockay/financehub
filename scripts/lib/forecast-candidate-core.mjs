@@ -143,6 +143,33 @@ export function blankSummary() {
  * every subsequent month. The failures are counted and returned, and the
  * caller decides the exit code.
  */
+/**
+ * The categories a company actually plans for.
+ *
+ * `override` (FC_SKU_CATEGORY) wins, so a manual single-category run is
+ * unchanged. Otherwise they are resolved from the database, never guessed:
+ * forecastable_product_types() applies the human override where somebody set
+ * one and the evidence -- inventory-tracked, or purchased -- otherwise.
+ *
+ * Lives here rather than in the runner script so it is reachable from a test.
+ * It exists because removing the tenant-specific default left the driver
+ * handing an empty category to a core that requires one: every company would
+ * have thrown before recording a single forecast, and the scheduled workflow
+ * would have exited 1 without writing anything.
+ */
+export async function resolveCategories(client, companyEntityId, override = '') {
+  if (override && String(override).trim()) return [String(override).trim()];
+  if (!companyEntityId) throw new Error('resolveCategories: companyEntityId is required');
+  const { data, error } = await client.rpc('forecastable_product_types', {
+    p_company_entity_id: companyEntityId,
+  });
+  if (error) throw new Error(`could not resolve categories: ${error.message}`);
+  const rows = data || [];
+  // A row that is not forecastable is DROPPED, not defaulted in: a service or
+  // fee line has no purchasable unit, so a forecast for it is meaningless.
+  return rows.filter((r) => r && r.is_forecastable).map((r) => r.product_type).filter(Boolean);
+}
+
 export async function runForecastCandidate({
   client,
   companyEntityId,

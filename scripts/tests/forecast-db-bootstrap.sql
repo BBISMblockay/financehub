@@ -89,3 +89,42 @@ select month_start, product_type, units
 from public.sales_monthly_product_type_rollup_mv
 where company_entity_id = public.active_company_id();
 grant select on public.sales_monthly_product_type_rollup_v to authenticated;
+
+-- ── Stand-ins for 20260917180000_product_type_profile.sql ────────────────────
+-- Only the shapes the classification reads. Deliberately added so the DB suite
+-- can load BOTH migrations: the evaluator's positional call to a reordered
+-- forecast_candidate_cycles was undetectable while the suite stopped at the
+-- first migration, and that bug silently returned INSUFFICIENT_DATA for
+-- forecasts that existed.
+create function public.silo_business_today() returns date language sql stable as $$
+  select (timezone('America/Los_Angeles', now()))::date;
+$$;
+
+create function public.is_admin_user() returns boolean language sql stable security definer as $$
+  select exists (select 1 from public.profiles p
+                  where p.id = auth.uid() and p.role::text in ('owner','admin'));
+$$;
+
+-- A row per (type, location). PRESENCE is what says "inventory-tracked";
+-- total_available_quantity may be zero (sold out) or negative (oversold).
+create table public.inventory_on_hand_current_mv (
+  company_entity_id uuid,
+  product_type text,
+  location_tag text,
+  total_available_quantity numeric
+);
+
+create table public.po_lines (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid,
+  product_type_snapshot text,
+  qty integer
+);
+
+create table public.sales_by_product_title_daily_mv (
+  company_entity_id uuid,
+  product_type text,
+  product_title text,
+  day_date date,
+  units_sold numeric
+);

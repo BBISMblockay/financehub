@@ -69,6 +69,17 @@
 --     granted to `service_role` ALONE -- the grant IS the authorization.
 -- A user-facing definer function may still call a service-role-only one,
 -- because it executes as the owner; that is the point of the layering.
+-- RE-RUNNABILITY. 20260917180000 REORDERS three of the functions below (the
+-- product category moves ahead of the candidate id and loses its default).
+-- Re-running this file afterwards -- which apply_all_post_merge.sql does, in
+-- order -- would then CREATE OR REPLACE over the newer signature, and Postgres
+-- refuses: "cannot remove parameter defaults from existing function". Dropping
+-- any existing form first keeps a re-apply safe in either direction; the later
+-- migration re-establishes the corrected signatures immediately afterwards.
+drop function if exists public.record_forecast_candidate_run(uuid, date, text, text, integer, numeric, numeric, integer);
+drop function if exists public.forecast_candidate_cycles(uuid, text, text, integer);
+drop function if exists public.evaluate_forecast_candidate(uuid, text, text, integer, integer, numeric);
+
 create or replace function public.forecast_candidate_may_act(p_company_entity_id uuid)
 returns boolean
 language sql

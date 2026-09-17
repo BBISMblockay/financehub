@@ -92,7 +92,13 @@ grant select, insert, update, delete on public.product_type_profile to authentic
 -- classifications for the same product type, which makes the answer a property
 -- of the reader rather than of the company. The same reasoning applies to the
 -- two matviews, which carry no RLS at all and so must be filtered by hand.
-create or replace view public.product_type_forecastable_v
+-- DROP first, not CREATE OR REPLACE: the column list changed (inventory_rows,
+-- needs_review) and Postgres refuses to insert a column into an existing view
+-- ("cannot change name of view column"). Nothing depends on it but the two
+-- saved reports, which select by name.
+drop view if exists public.product_type_forecastable_v;
+
+create view public.product_type_forecastable_v
 with (security_invoker = false) as
 with co as (select public.active_company_id() as cid),
 sales as (
@@ -106,7 +112,16 @@ sales as (
   group by s.product_type
 ),
 stock as (
-  select i.product_type, sum(i.total_available_quantity)::numeric as on_hand
+  -- COUNT of rows, not SUM of quantity. A type that is inventory-TRACKED has a
+  -- row whatever the quantity says; a service line has no row at all. Summing
+  -- quantity instead misreads two real cases as "never stocked": a sold-out
+  -- category (Speaker, 1 row, net 0; Event, 34 rows, net 0) and one whose
+  -- positive and negative locations cancel. Both are merchandise, and both
+  -- would have vanished from every forecastable-only consumer exactly when
+  -- replenishment mattered most. `on_hand` is kept for display only.
+  select i.product_type,
+         count(*)::integer as inventory_rows,
+         sum(i.total_available_quantity)::numeric as on_hand
   from public.inventory_on_hand_current_mv i, co
   where i.company_entity_id = co.cid and i.product_type is not null
   group by i.product_type
@@ -131,22 +146,22 @@ select
   -- type IS stocked. Found by reading real output -- Canvas Totes sits at -253 and
   -- was being classified a service line. Only never-stocked AND never-purchased
   -- is a service line.
-  (coalesce(st.on_hand, 0) <> 0 or coalesce(p.po_lines, 0) > 0) as evidence_says_forecastable,
+  (coalesce(st.inventory_rows, 0) > 0 or coalesce(p.po_lines, 0) > 0) as evidence_says_forecastable,
   pr.is_forecastable                        as human_override,
   pr.classification_note,
   -- The effective answer: the override where a person made one, the evidence
   -- otherwise.
   coalesce(pr.is_forecastable,
-           (coalesce(st.on_hand, 0) <> 0 or coalesce(p.po_lines, 0) > 0)) as is_forecastable,
+           (coalesce(st.inventory_rows, 0) > 0 or coalesce(p.po_lines, 0) > 0)) as is_forecastable,
   case
     when pr.is_forecastable is not null then 'set by a person'
-    when coalesce(st.on_hand, 0) <> 0 or coalesce(p.po_lines, 0) > 0
-      then 'has stock or purchase history'
+    when coalesce(st.inventory_rows, 0) > 0 or coalesce(p.po_lines, 0) > 0
+      then 'inventory-tracked or purchased'
     else 'sells but never stocked and never purchased'
   end                                       as reason,
   -- Surfaced so a disagreement is visible rather than silently overridden.
   (pr.is_forecastable is not null
-   and pr.is_forecastable <> (coalesce(st.on_hand, 0) <> 0 or coalesce(p.po_lines, 0) > 0))
+   and pr.is_forecastable <> (coalesce(st.inventory_rows, 0) > 0 or coalesce(p.po_lines, 0) > 0))
                                             as override_contradicts_evidence
 from sales s
 left join stock st on st.product_type = s.product_type
@@ -531,8 +546,18 @@ begin
 
   return query
   with cy as (
+    -- NAMED arguments, not positional. This call is inside the same migration
+    -- that REORDERS forecast_candidate_cycles (the category moves ahead of the
+    -- candidate id, because a parameter without a default may not follow one
+    -- that has a default). Both are text, so a positional call keeps compiling
+    -- and silently searches for category 'Candidate_YoY_Shift_v1' and model
+    -- 'Youth' -- returning INSUFFICIENT_DATA for forecasts that exist. Naming
+    -- them makes this call immune to any future reorder as well.
     select * from public.forecast_candidate_cycles(
-      p_company_entity_id, p_candidate_id, p_sku_category, p_horizon_days)
+      p_company_entity_id => p_company_entity_id,
+      p_sku_category      => p_sku_category,
+      p_candidate_id      => p_candidate_id,
+      p_horizon_days      => p_horizon_days)
   ),
   counts as (
     select count(*)::integer as written,
@@ -697,7 +722,9 @@ begin
     group by s.product_type
   ),
   stock as (
-    select i.product_type, sum(i.total_available_quantity)::numeric as oh
+    -- COUNT, not SUM -- see the note on the view. A sold-out type is tracked.
+    select i.product_type, count(*)::integer as rows_n,
+           sum(i.total_available_quantity)::numeric as oh
     from public.inventory_on_hand_current_mv i
     where i.company_entity_id = p_company_entity_id and i.product_type is not null
     group by i.product_type
@@ -709,10 +736,11 @@ begin
     group by l.product_type_snapshot
   )
   select s.product_type, round(s.u), coalesce(round(st.oh),0), coalesce(p.n,0),
-    coalesce(pr.is_forecastable, (coalesce(st.oh,0) <> 0 or coalesce(p.n,0) > 0)),
+    coalesce(pr.is_forecastable, (coalesce(st.rows_n,0) > 0 or coalesce(p.n,0) > 0)),
     case when pr.is_forecastable is not null then 'set by a person'
-         when coalesce(st.oh,0) <> 0 or coalesce(p.n,0) > 0 then 'has stock or purchase history'
-         else 'sells but never stocked and never purchased' end
+         when coalesce(st.rows_n,0) > 0 then 'inventory-tracked'
+         when coalesce(p.n,0) > 0 then 'has purchase history'
+         else 'sells but is not inventory-tracked and was never purchased' end
   from sales s
   left join stock st on st.product_type = s.product_type
   left join po p on p.product_type = s.product_type
