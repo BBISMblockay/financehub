@@ -119,6 +119,33 @@ test('no statement in the real file was cut inside a literal (balanced quotes)',
   eq(unbalanced.length, 0, `unbalanced quotes at lines ${unbalanced.map((s) => s.line).join(', ')}`);
 });
 
+// A statement that swallowed the one after it has BALANCED quotes and
+// BALANCED parens -- both checks above pass it happily. That is not
+// hypothetical: 20260916's backfill check was inserted on top of the previous
+// check's `else 'ok' end as status;`, so two selects became one unterminated
+// CASE. The whole file still split, still read as SELECT-only, still balanced;
+// Postgres rejected it with a bare "syntax error at or near select" and the
+// daily drift run exited 1 having silently skipped both checks.
+//
+// The file's convention gives a precise signal: exactly one `as check_name`
+// per statement. Two means one statement ate another.
+test('no statement in the real file declares check_name twice (a swallowed statement)', () => {
+  const doubled = real
+    .map((s) => ({ s, n: (s.text.match(/\bas\s+check_name\b/gi) || []).length }))
+    .filter((x) => x.n > 1);
+  eq(doubled.length, 0,
+    `statements declaring check_name more than once: ${doubled.map((x) => `line ${x.s.line} (${x.n}x)`).join(', ')}`);
+});
+
+// The same break seen from the other side: every CASE opened must be closed.
+test('every case opened in the real file is closed', () => {
+  const unclosed = real.filter((s) => {
+    const t = s.text.replace(/'(?:[^']|'')*'/g, "''");
+    return (t.match(/\bcase\b/gi) || []).length !== (t.match(/\bend\b/gi) || []).length;
+  });
+  eq(unclosed.length, 0, `unclosed case at lines ${unclosed.map((s) => s.line).join(', ')}`);
+});
+
 test('no statement in the real file was cut inside parentheses', () => {
   const unbalanced = real.filter((s) => {
     const t = s.text.replace(/'(?:[^']|'')*'/g, '');

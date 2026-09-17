@@ -3663,6 +3663,8 @@ select 'Ask SILO evidence scope' as check_name,
    where relname = 'marketing_daily_totals_v'
      and description like '%ALREADY COMBINED ACROSS PLATFORMS%')
    then 'STALE: marketing_daily_totals_v no longer warns that its figures pool every platform'
+ else 'ok' end as status;
+
 -- Can the Meta creative backfill even record a run?
 --
 -- scripts/meta-creative-backfill.mjs opens a sync_jobs row with job_type
