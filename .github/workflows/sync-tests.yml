@@ -84,6 +84,11 @@ on:
       - 'v2/silo-chrome.js'
       - 'v2/plaid-bank-feed.js'
       - 'v2/je-composer.js'
+      - 'scripts/lib/forecast-candidate-core.mjs'
+      - 'scripts/forecast-candidate-run.mjs'
+      - 'scripts/forecast-candidate-backtest.mjs'
+      - 'scripts/sql/forecast_candidate_backtest.sql'
+      - 'supabase/migrations/*forecast_candidate_ledger.sql'
       # The splitter is tested against the real verify file, so a change to
       # the file must re-run that test.
       - 'supabase/verify_v2_schema.sql'
@@ -248,6 +253,13 @@ jobs:
       # cut inside a literal runs as two broken ones (red for nothing); two
       # glued together return only the second's rows (green without looking).
       # Pinned against the real file, not only toy inputs.
+      # The Demand Planner candidate runner. Only orchestration is tested here
+      # -- which cutoffs to attempt, and that one refused cutoff does not
+      # abandon the month's remaining ones. The forecast arithmetic is defined
+      # once in SQL and is driven against a real PostgreSQL in the database job.
+      - name: Demand candidate runner planning and parameter binding
+        run: node scripts/tests/forecast-candidate.test.mjs
+
       - name: Remote schema verify splits the real file correctly
         run: node scripts/tests/verify-schema-remote.test.mjs
 
@@ -329,3 +341,17 @@ jobs:
       # manual service-role script that no workflow ran.
       - name: Execute SEO workflow approval, publication and measurement regressions
         run: node scripts/tests/seo-workflow-database.test.mjs
+
+      # The prospective forecast ledger. Two assertions earn the job on their
+      # own: the frozen run reproduced from Baseballism's REAL Youth series
+      # (115,699 / 59,124 / 4,297 -> 7,735), and the retrospective 20.2% WAPE /
+      # -13.9% bias reproduced by executing the shipped backtest SQL over that
+      # same series -- next to the 49.6% the identical rule scores over the long
+      # window, which is why the candidate is being evaluated prospectively
+      # rather than adopted. The rest are properties no diff shows: a frozen
+      # row cannot be edited even by the service role, a re-run does not
+      # recompute, a month landing after a cutoff cannot change the forecast
+      # made at it, and three cycles out of order are not three consecutive
+      # cycles.
+      - name: Execute demand candidate ledger, tenancy and promotion-gate regressions
+        run: node scripts/tests/forecast-candidate-database.test.mjs

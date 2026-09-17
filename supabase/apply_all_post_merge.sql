@@ -18809,3 +18809,15 @@ $c$select (select count(*) from v_po_header_summary
 -- removes effective_object_url, which this account refuses and never supplies.
 -- Comments only.
 \i migrations/20260917120000_meta_catalog_destination_sources.sql
+
+-- Demand Planner: governed ledger for prospective forecast candidates, plus
+-- the frozen Candidate_YoY_Shift_v1 (Youth, 30-day horizon) from saved report
+-- f98754f7-47a6-4eeb-8a8b-eece9a069432. Adds forecast_candidate_ledger
+-- (append-only, one row per candidate/category/horizon/cutoff per tenant),
+-- forecast_model_baselines (the MEASURED 34.5% portfolio and 42.9% Youth
+-- holdout figures, stored with their window rather than hardcoded in a gate),
+-- the calculation, the idempotent writer, the maturity clock and the read-only
+-- promotion gate. Touches no production forecast path and no PO table.
+-- Idempotent: create-if-not-exists, create-or-replace, and the baseline seed is
+-- ON CONFLICT DO NOTHING so re-applying never overwrites a re-measured value.
+\i migrations/20260917140000_forecast_candidate_ledger.sql

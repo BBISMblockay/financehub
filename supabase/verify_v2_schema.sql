@@ -3721,6 +3721,133 @@ select 'Ask SILO ad destination coverage claim' as check_name,
    then 'STALE: the catalog does not name template_data as a destination source; a later migration replaced the description instead of appending'
  else 'ok' end as status;
 
+-- Demand Planner candidate ledger. Placed ABOVE the Plaid marker on purpose --
+-- see the note at the end of this file: everything after that marker is
+-- executed by the Plaid fixture, which does not build this schema.
+select 'Forecast candidate ledger' as check_name,
+ case when to_regclass('public.forecast_candidate_ledger') is null then 'MISSING: forecast candidate ledger migration'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.forecast_candidate_ledger'))
+   then 'CRITICAL: forecast_candidate_ledger RLS disabled'
+ -- The ledger's whole value is that a frozen forecast cannot be restated. The
+ -- runner writes with the service role, which bypasses RLS, so immutability
+ -- lives in the trigger or nowhere.
+ when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.forecast_candidate_ledger')
+   and tgname='forecast_candidate_ledger_append_only' and tgenabled<>'D')
+   then 'CRITICAL: the append-only trigger is missing or disabled; a frozen forecast can be rewritten'
+ -- Idempotency: without this a re-run writes a second, differently-computed
+ -- number for the same decision.
+ when not exists(select 1 from pg_class where relname='forecast_candidate_ledger_identity_uq' and relkind='i')
+   then 'CRITICAL: the candidate/category/horizon/cutoff unique index is missing'
+ when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.forecast_candidate_ledger')
+   and conname='forecast_ledger_no_lookahead')
+   then 'CRITICAL: the no-look-ahead constraint is missing'
+ -- Without this a dropped monthly run is not a gap but a licence: the next
+ -- run's catch-up would freeze a cutoff whose outcome is already complete, and
+ -- the scorer would count it as prospective evidence toward promotion.
+ when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.forecast_candidate_ledger')
+   and conname='forecast_ledger_frozen_before_outcome' and convalidated)
+   then 'CRITICAL: the frozen-before-outcome constraint is missing or NOT VALID; a forecast can be written after its own outcome'
+ -- Any row that slipped in before the constraint existed is retrospective
+ -- evidence wearing a prospective label.
+ when exists(select 1 from public.forecast_candidate_ledger
+   where executed_at >= timezone('America/Los_Angeles', horizon_end_date::timestamp))
+   then 'CRITICAL: a ledger row was frozen at or after its own horizon closed'
+ -- Recording the issuance lag protects nothing unless the scorer reads it: a
+ -- forecast issued on day 16 is otherwise scored against the whole month,
+ -- including the half that had already elapsed before it existed.
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='forecast_candidate_ledger' and column_name='max_issuance_lag_days')
+   then 'MISSING: the issuance-lag bound column'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='forecast_candidate_cycles') not like '%frozen_days_into_horizon > r.max_issuance_lag_days%'
+   then 'CRITICAL: the scorer does not gate on the issuance lag; a forecast issued mid-month still counts toward promotion'
+ -- Supabase's default privileges grant ALL on a new public table. With RLS and
+ -- no policy an UPDATE then succeeds with ZERO ROWS, which reads exactly like a
+ -- write that worked, so the revoke has to be explicit.
+ when has_table_privilege('authenticated','public.forecast_candidate_ledger','UPDATE')
+   or has_table_privilege('authenticated','public.forecast_candidate_ledger','INSERT')
+   or has_table_privilege('authenticated','public.forecast_candidate_ledger','DELETE')
+   then 'CRITICAL: authenticated can write to forecast_candidate_ledger directly'
+ when has_table_privilege('anon','public.forecast_candidate_ledger','SELECT')
+   then 'CRITICAL: anon can read forecast_candidate_ledger'
+ else 'ok' end as status;
+
+select 'Forecast candidate authorization' as check_name,
+ case when to_regprocedure('public.forecast_yoy_shift_v1(uuid,date,text,integer,numeric,numeric)') is null
+   then 'MISSING: forecast candidate migration'
+ -- The engine functions take an explicit company id. They shipped first as
+ -- SECURITY DEFINER functions asking pg_has_role(current_user,'service_role')
+ -- -- and inside a definer function current_user is the OWNER, so that
+ -- answered yes for every signed-in user. Authorization is the GRANT now; this
+ -- asserts it.
+ --
+ -- Matched by NAME over pg_proc rather than by a written-out signature. Two
+ -- reasons, one of which already bit: a hardcoded signature ERRORS rather than
+ -- failing when the function's arguments change (adding the issuance-lag
+ -- parameter left this check naming a 7-argument form the migration had
+ -- dropped, so verify would have thrown after apply instead of reporting.
+ -- (Note this comment deliberately does not end in a semicolon: the splitter
+ -- that sends this file to production counts end-of-line terminators, and a
+ -- comment shaped like one breaks that invariant.)
+ -- and a signature names ONE overload, so a leftover or newly added one would
+ -- keep its grants with nothing noticing. Every overload of these names must
+ -- be unreachable from a browser role, whatever its arguments.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('forecast_yoy_shift_v1', 'record_forecast_candidate_run',
+                       'forecast_actuals_matured_through')
+     and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       or has_function_privilege('anon', p.oid, 'EXECUTE')))
+   then 'CRITICAL: an engine function (forecast_yoy_shift_v1 / record_forecast_candidate_run / forecast_actuals_matured_through) is callable by a browser role; they take an arbitrary company id'
+ -- ...and the in-function gate must NOT go back to inferring the caller's role.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='forecast_candidate_may_act') like '%pg_has_role%'
+   then 'CRITICAL: the tenant gate is inferring the caller role again; inside SECURITY DEFINER that is always the owner'
+ -- The planner-facing side, also by name: at least one overload must be
+ -- reachable, and none of them may be reachable by anon.
+ when not exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'evaluate_forecast_candidate'
+     and has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+   then 'CRITICAL: a planner cannot read the promotion recommendation'
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('evaluate_forecast_candidate', 'forecast_candidate_cycles',
+                       'void_forecast_candidate_run')
+     and has_function_privilege('anon', p.oid, 'EXECUTE'))
+   then 'CRITICAL: a planner-facing forecast function is callable by anon'
+ -- Voiding removes a result from scoring, and a void can turn a HOLD into a
+ -- pass by deleting the cycle that broke the streak. Same-company is not a
+ -- permission: this must require exec/owner, and deliberately NOT
+ -- is_admin_user(), which nearly the whole company passes.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='void_forecast_candidate_run') not like '%is_exec_or_owner%'
+   then 'CRITICAL: voiding a frozen forecast is not gated on exec/owner; any member can exclude an unfavourable cycle'
+ -- The writer must decide expiry by the CALENDAR too, not only by data
+ -- maturity: when the sync lags, the two disagree and the insert hits the
+ -- table constraint instead, turning a late sync into a failed job.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='record_forecast_candidate_run') not like '%now())::date >= v_horizon_end%'
+   then 'CRITICAL: the writer has no wall-clock expiry test; a lagging sync will raise a constraint violation instead of reporting expired'
+ else 'ok' end as status;
+
+select 'Forecast candidate baselines' as check_name,
+ case when to_regclass('public.forecast_model_baselines') is null then 'MISSING: forecast baseline table'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.forecast_model_baselines'))
+   then 'CRITICAL: forecast_model_baselines RLS disabled'
+ -- An absent baseline must read as "not recorded" and never as "beaten".
+ -- Baseballism's two measured rows come from report f98754f7; if they are gone
+ -- the promotion gate cannot compare against anything.
+ when not exists(select 1 from public.forecast_model_baselines
+   where baseline_key='portfolio' and horizon_days=30)
+   then 'STALE: no 30-day portfolio baseline recorded; the promotion gate has nothing to compare against'
+ when not exists(select 1 from public.forecast_model_baselines
+   where baseline_key='category' and sku_category='Youth' and horizon_days=30)
+   then 'STALE: no 30-day Youth baseline recorded'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
