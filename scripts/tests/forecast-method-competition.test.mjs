@@ -181,6 +181,53 @@ for (const path of MIGRATIONS) {
   await db.exec(sql);
 }
 
+await test('competition migration preserves populated and voided legacy ledgers on apply and retry', async () => {
+  const legacy = new PGlite({ extensions: { pgcrypto } });
+  try {
+    await legacy.exec('create extension if not exists pgcrypto');
+    await legacy.exec(await readFile(new URL('scripts/tests/forecast-db-bootstrap.sql', root), 'utf8'));
+    const company = randomUUID();
+    await legacy.query('insert into public.entities (id, title) values ($1, $2)', [company, 'Migration fixture']);
+    for (const path of MIGRATIONS.slice(0, 2)) {
+      await legacy.exec(await readFile(new URL(path, root), 'utf8'));
+    }
+    await legacy.query(`insert into public.forecast_candidate_ledger (
+      company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days,
+      forecast_qty, executed_at, horizon_start_date, horizon_end_date,
+      recent_window_start, recent_window_end, recent_demand,
+      prior_window_start, prior_window_end, prior_demand,
+      prior_year_target_month, prior_year_target_demand, raw_ratio, clamped_ratio,
+      ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+      method_version, candidate_spec, source_relation, voided_at, void_reason)
+      select $1, 'Candidate_YoY_Shift_v1', '2026-09-01', category, 30,
+        100, '2026-09-03T12:00:00Z', '2026-09-01', '2026-10-01',
+        '2026-06-01', '2026-09-01', 300, '2025-06-01', '2025-09-01', 300,
+        '2025-09-01', 100, 1, 1, 0.6, 1.8, false,
+        'legacy-v1', '{"fixture":true}'::jsonb, 'fixture',
+        case when category = 'Voided' then '2026-09-04T12:00:00Z'::timestamptz end,
+        case when category = 'Voided' then 'fixture void' end
+      from (values ('Active'), ('Voided')) categories(category)`, [company]);
+    const snapshots = () => legacy.query(`select to_jsonb(l) - 'inputs_through_date' - 'method_inputs' as row
+      from public.forecast_candidate_ledger l order by sku_category`);
+    const before = (await snapshots()).rows;
+    const sql = await readFile(new URL(COMPETITION, root), 'utf8');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await legacy.exec(sql);
+      assert.deepEqual((await snapshots()).rows, before, 'all original fields must survive');
+      const backfill = (await legacy.query(`select count(*)::int as n from public.forecast_candidate_ledger
+        where inputs_through_date = cutoff_date - 1 and method_inputs = '{}'::jsonb`)).rows[0];
+      assert.equal(backfill.n, 2);
+      assert.equal((await legacy.query(`select tgenabled from pg_trigger
+        where tgrelid = 'public.forecast_candidate_ledger'::regclass
+        and tgname = 'forecast_candidate_ledger_append_only'`)).rows[0].tgenabled, 'O');
+      await refused(() => legacy.query('update public.forecast_candidate_ledger set forecast_qty = 101'),
+        /append-only|already voided/, 'forecast stays immutable');
+      await refused(() => legacy.query('delete from public.forecast_candidate_ledger'),
+        /append-only/, 'deletion stays forbidden');
+    }
+  } finally { await legacy.close(); }
+});
+
 // ── Fixtures ────────────────────────────────────────────────────────────────
 async function makeUser(company, role = 'admin') {
   const id = randomUUID();
