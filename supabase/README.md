@@ -1301,3 +1301,68 @@ Tests: `scripts/tests/forecast-common-set-scoring.test.mjs` — 14 assertions,
 `run_rate_v1` at horizon 6 returns 39.3% WAPE / −29.8% bias over 18 windows,
 identical to what production returned before the change, which is the invariant
 the fix should have — it changes numbers only where coverage differs.
+
+## Reorder planning (`20260918140000`)
+
+SILO could forecast but could not **plan**. `products_master.lead_time_days`,
+`reorder_point_units` and `reorder_qty_units` all exist and are populated on
+**0 of 20,548 SKUs**; `reorderable` is true on all 20,548, which makes it say
+nothing (same shape as `is_active`). With no lead time there is no reorder
+point, and with no reorder point the only computable question is "how accurate
+is the forecast" — which is why the effort went into method bake-offs.
+
+The lead time was recoverable the whole time: **177 of 190 purchase orders**
+carry both an order date and an expected arrival. Median **74 days**, quartiles
+69–92.
+
+**`product_lead_time_v`** — lead time per product title, one observation per PO
+(not per line; a fifty-line PO of one style is one observation, otherwise the
+median is weighted by how many sizes a style carries). Falls back to the company
+median below 2 POs and always reports which via `lead_time_source`.
+
+**`reorder_plan_v`** — the plan, per product title:
+
+```
+reorder point = daily velocity x (lead time + review period + safety)
+suggested buy = reorder point - on hand - on order
+```
+
+Velocity is trailing 90 days. **Not a selected forecast method** — the safety
+period absorbs forecast error, and over a ~74-day lead time the gap between a
+24% and a 32% WAPE method is mostly swallowed by it. When the challenger work in
+`forecast_method_selections` earns a forward record, the velocity term is the
+one expression to swap; nothing else changes.
+
+The three constants (90-day velocity window, 30-day review period, 28-day
+safety) are **policy, not fitted values**. They were not searched against this
+tenant's history. Change them because the business changed.
+
+What it refuses to guess:
+
+- No sales in the window → NULL velocity, NULL cover, no suggested quantity.
+  "Nothing sold" and "no record" are different facts and only one means stop
+  buying.
+- Absent from inventory → NULL `on_hand`, not 0, flagged by `has_inventory_row`.
+  Absent-as-zero manufactures a stockout.
+- A PO past its expected arrival and not received is still counted in `on_order`
+  (it is still owed) but surfaced separately in `on_order_past_due`.
+- Product types a person marked `is_forecastable = false` in
+  `product_type_profile` are labelled `not planned: type excluded by hand`
+  rather than dropped — 300 titles, covering Package Protection (the Redo
+  checkout fee) and Bundles & Multi-Packs (assembled from SKUs already planned
+  here, so buying it double-counts). Reusing that human-owned list rather than
+  hardcoding one here is deliberate.
+
+**Known gap: there is no concept of a one-off drop.** Pin of the Month appears
+as a restock candidate and is not one — `CLAUDE.md` records that explicitly as a
+taught Ask SILO note. That needs a per-title flag, which does not exist yet.
+
+**Visibility caveat:** `po_headers_active_select` is narrower than company
+(`is_admin_user() OR created_by = auth.uid()`), so a non-admin sees only the POs
+they raised — their `on_order`, and therefore their suggested buy, is computed
+from less than the whole book. Inherited RLS, not something these views should
+widen.
+
+First run against production (as an owner): 872 titles **ORDER NOW** totalling
+227,041 suggested units, 99 to order within 30 days, 743 ok, 3,517 with no sales
+in the window, 300 excluded by hand.

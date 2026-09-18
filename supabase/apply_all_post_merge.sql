@@ -18907,3 +18907,14 @@ $c$select (select count(*) from v_po_header_summary
 -- Drops and recreates score_forecast_methods because its return type gains
 -- columns. Re-running 20260918000000 restores the previous scorer exactly.
 \i migrations/20260918120000_forecast_common_set_scoring.sql
+
+-- Reorder planning (20260918140000_reorder_plan.sql).
+-- product_lead_time_v derives lead time from purchase orders carrying both an
+-- order date and an expected arrival (177 of 190; median 74 days). reorder_plan_v
+-- turns that into an ordinary reorder point per product title:
+--   reorder point = daily velocity x (lead time + review period + safety)
+--   suggested buy = reorder point - on hand - on order
+-- Velocity is trailing 90 days, NOT a selected forecast method -- the safety
+-- period is what absorbs forecast error. Drops and recreates reorder_plan_v
+-- because a CREATE OR REPLACE cannot insert a column mid-list.
+\i migrations/20260918140000_reorder_plan.sql
