@@ -496,9 +496,15 @@
           .eq('entity.entity_type', 'company');
 
         if (error || !data || data.length === 0) {
-          // No company membership found — clear any stale value and continue
+          // No company membership found — clear any stale value and continue.
+          // 'no-company' and 'could not tell' are returned as DIFFERENT values:
+          // resolveCompany used to collapse a failed query and an empty result
+          // into one null, which was harmless while every route ignored it, but
+          // the caller now shows a dead-end message on "no company" and must
+          // not show it to an existing user whose membership query merely
+          // errored.
           (window.__SILO_CONFIG__?.setActiveCompany || (() => {}))(null);
-          return null;
+          return error ? 'unknown' : null;
         }
 
         if (data.length === 1) {
@@ -559,7 +565,31 @@
         const profile = await getUserProfile(userId);
         const result = await resolveCompany(userId);
         if (result === 'redirect') return; // picker handles the rest
-        const route = safeNextPath() || getRouteFromProfile(profile);
+
+        // A signed-in account that belongs to NO company is a real state since
+        // 2026-09-18: creating an account no longer founds one (see
+        // 20260918120000). Routing such a user into the app gives them a
+        // rendered sidebar over pages that are all empty, with nothing saying
+        // why -- every query is scoped by active_company_id(), which is NULL
+        // for them. A ?next= still wins, because that is how the company
+        // creation invite carries someone to /v2/company-onboarding.html.
+        //
+        // Only for a DEFINITE no-company answer: `unknown` means the membership
+        // query failed, and an existing user should not be told they have no
+        // organization because of a transient error.
+        const next = safeNextPath();
+        if (!next && result === null) {
+          REDIRECT_STARTED = false;
+          showStatus(
+            "You're signed in, but this account isn't part of an organization yet. " +
+            "If a teammate invited you, open their invite link. If you were sent a link to " +
+            "create a company, open that link instead.",
+            "info"
+          );
+          return;
+        }
+
+        const route = next || getRouteFromProfile(profile);
         window.location.href = route;
       }
 
