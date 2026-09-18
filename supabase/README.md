@@ -1157,6 +1157,31 @@ what the numbers on the row mean. Until cycles mature the `fwd_` columns are
 **NULL, never 0**, and the record line names the method so "no record" is never
 read as "no record of anything".
 
+**The report's own arithmetic must equal the method it names.** Two errors found
+on 2026-09-18, both by tracing the report's formulas against the shipped
+functions rather than reading either alone:
+
+- The live blend's seasonal term read `cum(nl-11+h) - cum(nl-11)` — one month
+  late at both ends. With August complete and a six-month window that sums
+  October–March where `forecast_blend_v1` sums September–February, so the figure
+  displayed was a different calculation from the method whose forward record sat
+  beside it. Correct endpoints: `cum(nl-12+h) - cum(nl-12)`. Note the BACKTEST's
+  seasonal term was always right — the two disagreed with each other, which is
+  the tell.
+- The backtest's recent-velocity term read `cum(n) - cum(n-4)`, four months over
+  three, **including month `n` — the first month of its own outcome**. Every
+  error column the report publishes was computed by a forecast that had seen
+  part of what it was scored against. On a flat 100-a-month history it inflated
+  a 600-unit forecast to 700 and published 16.7% WAPE where the specified method
+  scores 0%. Correct: `cum(n-1) - cum(n-4)`.
+
+Both halves are now floored at zero and rounded the way the governed functions
+round, and `forecast-method-competition.test.mjs` holds the report to an
+EQUALITY against `forecast_blend_v1` / `forecast_run_rate_v1` on a seasonal
+fixture, plus a flat-history zero-error check and a spike that a forecast issued
+before it must under-call. Anything added to this report's formulas belongs in
+that equality test.
+
 `select_forecast_method` reads any already-frozen selection for its exact key
 **before** scoring anything, and returns it. A selection is append-only, so
 nothing computed afterwards can change it — and reaching for the scorer first
@@ -1166,5 +1191,5 @@ while the durable selection sat in the table. Reading first also makes a re-run
 free.
 
 Tests: `scripts/tests/forecast-method-competition.test.mjs` (real PostgreSQL via
-PGlite, eleven mutations, including the whole buy report run as a signed-in
-user).
+PGlite, thirteen mutations, including the whole buy report run as a signed-in
+user and held to an equality against the governed formulas).

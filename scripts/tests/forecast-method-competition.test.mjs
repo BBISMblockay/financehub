@@ -39,6 +39,8 @@
 //   FMC_MUTATION=rerun-reports-recomputed-winner  a re-run returns today's winner
 //   FMC_MUTATION=forward-record-pooled-by-category  fwd_ metrics pooled across methods
 //   FMC_MUTATION=stored-selection-lost-when-nothing-scores  the pre-score read removed
+//   FMC_MUTATION=seasonal-window-one-month-late  the live blend's seasonal window slips
+//   FMC_MUTATION=backtest-velocity-reads-its-own-outcome  m3 includes the outcome's first month
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -104,6 +106,15 @@ const MUTATIONS = {
     "  if false then\n    return query select\n      v_stored_method, v_stored_from, v_stored_to,"],
     [COMPETITION, "  v_basis jsonb;\n  v_best_method text;",
      "  v_basis jsonb;\n  v_best_method text; -- mutated: the early return is disabled"]],
+  // The Blake-requested follow-up review's two findings.
+  'seasonal-window-one-month-late': [['scripts/sql/category_buy_forecast.sql',
+    "    max(cum) filter (where z.n = ix.nl-12+hp.h)  as cNh,",
+    "    max(cum) filter (where z.n = ix.nl-11+hp.h)  as cNh,"],
+    ['scripts/sql/category_buy_forecast.sql',
+     "round(greatest(r.cNh-r.cN12, 0))", "round(greatest(r.cNh-r.cN3+r.cN3-r.cN12, 0))"]],
+  'backtest-velocity-reads-its-own-outcome': [['scripts/sql/category_buy_forecast.sql',
+    "(ly.cum-k.c13) as s_seas, ((k.c1-k.c4)/3.0) as m3,",
+    "(ly.cum-k.c13) as s_seas, ((k.cum-k.c4)/3.0) as m3,"]],
   'scorer-open-to-authenticated': [[COMPETITION,
     'revoke all on function public.score_forecast_methods(uuid, text, integer, date, date) from public, anon, authenticated;\ngrant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to service_role;',
     'grant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to authenticated, service_role;']],
@@ -887,6 +898,36 @@ for (const cutoff of SEASONAL_GOOD) {
     [BASEBALLISM, cutoff, endIso, total]));
 }
 
+// Three fixtures for the report's own arithmetic, all with enough history that
+// the backtest windows exist and enough volume to clear the report's 5,000-unit
+// floor. Each is inventory-tracked so the forecastable classification keeps it.
+async function seedReportCategory(name, unitsFor) {
+  for (let i = 0; i < 60; i += 1) {
+    const m = new Date(Date.UTC(2021, 8 + i, 5));
+    if (m > new Date(Date.UTC(2026, 7, 5))) break;
+    const iso = m.toISOString().slice(0, 10);
+    const units = unitsFor(m.getUTCMonth() + 1, iso);
+    await sale(BASEBALLISM, iso, name, units);
+    await q(`insert into public.sales_by_product_title_daily_mv
+               (company_entity_id, product_type, product_title, day_date, units_sold)
+             values ($1, $2, $2 || ' Tee', $3, $4)`, [BASEBALLISM, name, iso, units]);
+  }
+  await q(`insert into public.inventory_on_hand_current_mv
+             (company_entity_id, product_type, location_tag, total_available_quantity)
+           values ($1, $2, 'online', 100)`, [BASEBALLISM, name]);
+}
+// Flat: every method should forecast exactly the actual, so ANY look-ahead or
+// window error shows up as a non-zero WAPE.
+await seedReportCategory('Flat', () => 1000);
+// Seasonal: repeating, non-flat, and year-on-year growth of exactly 1 so the
+// report's rule picks the blend -- which is the branch whose seasonal window
+// was wrong. A flat series cannot show that error at all.
+await seedReportCategory('Seasonal', (month) => (month === 3 ? 10000 : 1000));
+// Flat except one spike INSIDE a recent outcome window. A forecast issued
+// before that month cannot know about it.
+await seedReportCategory('Spiked', (month, iso) => (iso.startsWith('2026-05') ? 40000 : 1000));
+await db.exec('refresh materialized view public.sales_monthly_product_type_rollup_mv');
+
 async function runReport(horizonMonths, user = plannerId) {
   const bound = REPORT_SQL.replaceAll('{{horizon_months}}', String(Number(horizonMonths)));
   return asUser(user, () => q(bound));
@@ -1000,6 +1041,51 @@ await test('a former method accurate cycles never become the displayed method ev
   assert.doesNotMatch(after.status, /Proven/);
   // With the selection agreeing, the record line drops the next-cutoff note.
   assert.doesNotMatch(after.forward_record, /the next cutoff is set to/);
+});
+
+await test('the displayed figure is the arithmetic of the method it names', async () => {
+  // The equality the report had never been held to. Its blend read last year's
+  // window one month late (October-March where forecast_blend_v1 reads
+  // September-February), so the number shown was a different calculation from
+  // the method whose forward record sits beside it.
+  const rows = await runReport(6);
+  for (const name of ['Flat', 'Seasonal', 'Spiked']) {
+    const row = rows.find((r) => r.category === name);
+    assert.ok(row, `${name} should be in the report: ${JSON.stringify(rows.map((r) => r.category))}`);
+    const fn = row.method_used === 'run rate' ? 'forecast_run_rate_v1' : 'forecast_blend_v1';
+    const governed = await asService(() => first(
+      `select eligible, ineligible_reason, forecast_qty from public.${fn}($1, $2, $3, 6)`,
+      [BASEBALLISM, CUTOFF, name]));
+    assert.equal(governed.eligible, true, `${name}: ${governed.ineligible_reason}`);
+    assert.equal(Number(row.forecast_units), Number(governed.forecast_qty),
+      `${name} (${row.method_used}): report says ${row.forecast_units}, ${fn} says ${governed.forecast_qty}`);
+  }
+  // Seasonal must actually exercise the blend, or this proves nothing about the
+  // branch that was wrong.
+  assert.equal(rows.find((r) => r.category === 'Seasonal').method_used, 'blend');
+});
+
+await test('a flat history backtests to zero error, and a spike is never foreseen', async () => {
+  const rows = await runReport(6);
+
+  // ZERO. Any look-ahead, and any window off by a month, shows up here: the
+  // recent-velocity term read four months and divided by three, which inflated
+  // a 600-unit forecast to 700 and published 16.7% WAPE against a series every
+  // method forecasts exactly.
+  const flat = rows.find((r) => r.category === 'Flat');
+  assert.equal(Number(flat.err_recent_pct), 0, `recent WAPE ${flat.err_recent_pct}%`);
+  assert.equal(Number(flat.err_earlier_pct), 0, `earlier WAPE ${flat.err_earlier_pct}%`);
+  assert.equal(Number(flat.bias_recent_pct), 0);
+  assert.equal(Number(flat.worst_short_pct), 0);
+
+  // The spike sits inside the outcome of several recent windows and is 40x the
+  // baseline. A forecast issued before it cannot have seen it, so every one of
+  // those windows must come in UNDER -- a negative bias. The old term read the
+  // outcome's own first month, which pulled the forecast up toward the spike.
+  const spiked = rows.find((r) => r.category === 'Spiked');
+  assert.ok(Number(spiked.bias_recent_pct) < 0,
+    `a forecast that cannot see the spike must under-forecast it, got bias ${spiked.bias_recent_pct}%`);
+  assert.ok(Number(spiked.err_recent_pct) > 0);
 });
 
 await test('the report is bounded by the reader own company', async () => {

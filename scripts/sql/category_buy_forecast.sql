@@ -48,30 +48,53 @@ cs as (select cat, n, sum(u) over (partition by cat order by n) as cum from g),
 lk as (select cat, n, cum, lag(cum,1) over w as c1, lag(cum,4) over w as c4,
          lag(cum,13) over w as c13, lag(cum,25) over w as c25
        from cs window w as (partition by cat order by n)),
+-- `nl` is the last COMPLETE month, so the window being bought is [nl+1, nl+1+h)
+-- and last year's matching window is [nl+1-12, nl+1-12+h) -- months nl-11
+-- through nl-12+h, which as cumulative endpoints is cum(nl-12+h) - cum(nl-12).
+--
+-- It read cum(nl-11+h) - cum(nl-11) until 2026-09-18: one month late at both
+-- ends. With August complete and a six-month window that summed October through
+-- March where forecast_blend_v1 sums September through February, so the figure
+-- shown was a different calculation from the method whose forward record sits
+-- beside it. Note the BACKTEST's seasonal term below was always right, which is
+-- exactly the kind of disagreement that should have been caught by the two
+-- being written to agree.
 pick as (select c.cat,
     max(cum) filter (where z.n = ix.nl)          as cN,
     max(cum) filter (where z.n = ix.nl-3)        as cN3,
-    max(cum) filter (where z.n = ix.nl-11)       as cN11,
-    max(cum) filter (where z.n = ix.nl-11+hp.h)  as cNh,
+    max(cum) filter (where z.n = ix.nl-12+hp.h)  as cNh,
     max(cum) filter (where z.n = ix.nl-12)       as cN12,
     max(cum) filter (where z.n = ix.nl-24)       as cN24
   from c cross join ix cross join hp join cs z on z.cat=c.cat
   group by c.cat),
-rule as (select cat, cN, cN3, cN11, cNh, (cN-cN12)/nullif(cN12-cN24,0) as growth,
+rule as (select cat, cN, cN3, cNh, cN12, (cN-cN12)/nullif(cN12-cN24,0) as growth,
     case when (cN-cN12)/nullif(cN12-cN24,0) > 1.5 or (cN-cN12)/nullif(cN12-cN24,0) < 0.67
          then 'run rate' else 'blend' end as method
   from pick where cN12 is not null and cN24 is not null),
+-- m3 is the three months STRICTLY BEFORE the origin: cum(n-1) - cum(n-4).
+-- It read cum(n) - cum(n-4) until 2026-09-18 -- four months divided by three,
+-- and month n is the FIRST MONTH OF THE OUTCOME. Every error column this report
+-- publishes was therefore computed by a forecast that had seen part of what it
+-- was being scored against, which is the one thing these columns exist to rule
+-- out. On a flat 100-a-month history it inflated a six-month forecast from 600
+-- to 700 and published 16.7% WAPE where the specified method scores 0%.
 o as (select k.cat, k.n, (fw.cum-k.c1) as actual,
-        (ly.cum-k.c13) as s_seas, ((k.cum-k.c4)/3.0) as m3,
+        (ly.cum-k.c13) as s_seas, ((k.c1-k.c4)/3.0) as m3,
         case when k.n > ix.nl - hp.h + 1 - 18 then 'recent' else 'earlier' end as blk
       from lk k cross join ix cross join hp
       join cs fw on fw.cat=k.cat and fw.n = k.n + hp.h - 1
       join cs ly on ly.cat=k.cat and ly.n = k.n - 12 + hp.h - 1
       where k.c25 is not null and k.n + hp.h - 1 <= ix.nl
         and k.n > ix.nl - hp.h + 1 - 36),
+-- Each HALF floored at zero and rounded, then the blend rounded -- the shape
+-- forecast_seasonal_naive_v1 / _run_rate_v1 / _blend_v1 use. Flooring the
+-- combined figure instead let a negative half be cancelled by a positive one,
+-- which is not what any of those functions do.
 sc as (select o.cat, o.blk, o.actual,
-        greatest(case when r.method='run rate' then (select h from hp)*o.m3
-                      else 0.5*o.s_seas + 0.5*(select h from hp)*o.m3 end, 0) as fc
+        case when r.method='run rate'
+             then round(greatest((select h from hp)*o.m3, 0))
+             else round(0.5*round(greatest(o.s_seas, 0))
+                      + 0.5*round(greatest((select h from hp)*o.m3, 0))) end as fc
        from o join rule r on r.cat=o.cat where o.actual > 0),
 agg as (select cat,
     sum(abs(fc-actual)) filter (where blk='earlier')/nullif(sum(actual) filter (where blk='earlier'),0) as we,
@@ -155,8 +178,13 @@ fx as (select r.cat, r.method, r.method_id, r.growth, a.we, a.wr, a.br, a.ws, a.
     sel.selected_method,
     coalesce(f.cycles_frozen,0) as cycles_frozen, coalesce(f.cycles_scored,0) as cycles_scored,
     f.fw, f.fb,
-    case when r.method='run rate' then (r.cN-r.cN3)/3.0*(select h from hp)
-         else 0.5*(r.cNh-r.cN11) + 0.5*((r.cN-r.cN3)/3.0*(select h from hp)) end as fc_units
+    -- Character for character the arithmetic of the governed functions, so the
+    -- figure shown IS the figure the ledger would freeze. Pinned by an equality
+    -- regression against forecast_blend_v1 on a seasonal fixture.
+    case when r.method='run rate'
+         then round(greatest((r.cN-r.cN3)/3.0*(select h from hp), 0))
+         else round(0.5*round(greatest(r.cNh-r.cN12, 0))
+                  + 0.5*round(greatest((r.cN-r.cN3)/3.0*(select h from hp), 0))) end as fc_units
   from ruled r join agg a on a.cat=r.cat
   left join sel on sel.cat = r.cat
   -- THE join that makes the forward columns belong to the figure beside them.
