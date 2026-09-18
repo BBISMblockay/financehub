@@ -12,7 +12,25 @@
    * @returns {'grandfathered' | 'standard'}
    */
   function resolveNavProfile(company) {
-    if (!company) return 'grandfathered';
+    // No company resolved yet => 'standard', NOT 'grandfathered'. This used to
+    // return 'grandfathered', and it was the one place SILO fell back to
+    // Baseballism's configuration on missing tenant context. It matters because
+    // getActiveCompany() reads sessionStorage, which is per-TAB, while the auth
+    // session lives in localStorage -- so any user landing on a v2 page from a
+    // bookmark or deep link is fully authenticated with NO cached company. A
+    // second tenant's user in that state was served Baseballism's sidebar,
+    // BBISM Receivables and all. No data leaked (RLS still scopes every query,
+    // and the links render empty pages), but "another company's menu" is not
+    // something a prospect should ever see, and the fallback is exactly the
+    // silent-default-to-Baseballism pattern this codebase tries not to have.
+    //
+    // Failing to 'standard' is the same stance the grant-based nav unlocks
+    // already take: the first paint shows the SMALLER menu, and silo-chrome.js
+    // re-renders once it has resolved the real company (mount() calls
+    // ensureActiveCompany). A grandfathered user on a deep link therefore sees
+    // the standard menu for one frame instead of permanently seeing a menu that
+    // belongs to someone else's company.
+    if (!company) return 'standard';
     const metaProfile = company.meta && company.meta.nav_profile;
     if (metaProfile === 'grandfathered' || metaProfile === 'standard') return metaProfile;
     if (company.entity_key === BASEBALLISM_KEY) return 'grandfathered';

@@ -1061,3 +1061,43 @@ is not prospective performance — see `docs/ops/demand-candidate-yoy-shift.md`.
 Tests: `scripts/tests/forecast-candidate.test.mjs` (unit) and
 `scripts/tests/forecast-candidate-database.test.mjs` (real PostgreSQL via
 PGlite, with ten mutations).
+
+## Tenant boundary hardening (2026-09-17)
+
+`20260917210000_tenant_boundary_hardening.sql`. RLS was already complete on the
+base tables; the holes were beside it. A SECURITY DEFINER function runs as its
+owner and bypasses RLS, so its EXECUTE grant is the entire tenant boundary —
+and Supabase's default privileges grant EXECUTE to `public` on every new
+function unless revoked, so the insecure state is the default. Four functions
+were reachable from a browser session, two of them cross-tenant destructive and
+both confirmed callable as `anon` against a company the caller had no
+relationship to. Also removes the last `coalesce(active_company_id(),
+'<Baseballism>')` fallbacks from the two RPCs that grant membership.
+
+Guard trap worth remembering: `current_user` is the OWNER inside a definer
+function, so the obvious guard is inert. Use `current_setting('role', true)`.
+
+Audit: `docs/ops/multi-tenant-audit-2026-09.md`.
+Onboarding: `docs/ops/new-client-onboarding.md`.
+Tests: `scripts/tests/tenant-boundary.test.mjs` (real PostgreSQL via PGlite,
+five mutations) and `scripts/tests/nav-profile.test.mjs`.
+
+## Membership self-enrollment (2026-09-18)
+
+`20260917220000_membership_self_enrollment.sql`. `memberships_insert_self` let
+any authenticated user insert `(entity_id = <any company>, user_id = self, role
+= 'owner_admin')` — the WITH CHECK constrained only *who the row was about*.
+
+Read this one together with `20260917210000`: it is not a smaller sibling of the
+profiles hole, it **defeats** it. Nothing is forged. The attacker creates a real
+membership row, then calls `set_active_company()` — SECURITY DEFINER, which
+validates membership before writing — and it validates against the row just
+created. Narrowing the profiles column privileges does not touch that path.
+
+Nothing legitimate used the policy: every membership INSERT runs through a
+SECURITY DEFINER function or the service-role client. SELECT is untouched — the
+company picker and login resolve memberships from it.
+
+Audit: `docs/ops/multi-tenant-audit-2026-09.md` (P0-5).
+Tests: `scripts/tests/tenant-boundary.test.mjs`, which pins the vulnerability
+*before* applying the migration so the fix assertion cannot pass vacuously.

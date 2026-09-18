@@ -3,6 +3,12 @@ name: Redo Returns Backfill
 on:
   workflow_dispatch:
     inputs:
+      # Required, no default. The script refuses a blank rather than guessing a
+      # tenant; without this input a dispatch throws at module load.
+      company_entity_id:
+        description: "Company UUID (required -- whose Redo returns these are)"
+        required: true
+        type: string
       updated_at_min:
         description: "Only pull returns updated on/after this ISO date (blank = full history)"
         required: false
@@ -39,6 +45,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REDO_COMPANY_ENTITY_ID: ${{ inputs.company_entity_id }}
           REDO_UPDATED_AT_MIN: ${{ inputs.updated_at_min }}
           REDO_UPDATED_AT_MAX: ${{ inputs.updated_at_max }}
           REDO_STATUS: ${{ inputs.status }}

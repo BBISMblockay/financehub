@@ -3894,6 +3894,188 @@ select 'Forecast functions carry no tenant-specific default' as check_name,
    then 'CRITICAL: a forecast function still defaults its product category to one tenant''s value'
  else 'ok' end as status;
 
+-- ── Tenant boundary: SECURITY DEFINER reachability ──────────────────────────
+-- A SECURITY DEFINER function runs as its owner and therefore bypasses RLS
+-- completely. Its ONLY boundary is the EXECUTE grant -- and Supabase's default
+-- privileges on the `public` schema grant EXECUTE to `public` (so: anon and
+-- authenticated) on every newly created function unless it is revoked
+-- explicitly. That default is how `chat_run_readonly_query` ended up callable
+-- by anon (20260904330000), and on 2026-09-17 an audit found three more:
+-- `purge_better_reports_overlap` (deletes another tenant's sales_by_day),
+-- `backfill_company_entity_batch` (stamps unclaimed rows with any company id)
+-- and `attach_stamp_company_entity_id_triggers` (DDL), all confirmed callable
+-- as `anon` against a company the caller had no relationship to.
+--
+-- The point of an ALLOWLIST rather than a list of the known-bad four: the bug
+-- is a DEFAULT, so the next instance arrives by someone adding a perfectly
+-- ordinary function and not thinking about grants. A denylist cannot see that
+-- one; an allowlist goes red the day it lands. Adding a name here is a
+-- deliberate act -- do it only once the function is safe for an
+-- UNAUTHENTICATED caller, which in practice means it is a trigger function, or
+-- it keys entirely off auth.uid()/active_company_id() (both NULL for anon, so
+-- it returns false or no rows), or it gates itself internally.
+select 'Definer functions reachable by anon' as check_name,
+ case when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f' and p.prosecdef
+     and has_function_privilege('anon', p.oid, 'EXECUTE')
+     and p.proname not in (
+       'ad_platforms_expected','audit_revenue_projections','can_access_entity',
+       'can_approve_seo_tasks','can_manage_journal_entries',
+       'check_publication_after_baselines','check_seo_measurement_window',
+       'check_seo_publication_admissible','create_entity_with_owner',
+       'current_user_can_manage_payment_requests','employees_autolink_profile',
+       'ensure_entity_state','ensure_profile','forecast_candidate_may_act',
+       'handle_new_user','handle_user_email_update','is_active_user',
+       'is_admin_user','is_authenticated_user','is_entity_admin',
+       'is_entity_member','is_owner_admin','is_owner_or_admin','next_location_id',
+       'notify_slack_launch_comment','notify_slack_launch_created',
+       'notify_slack_payment_request','notify_slack_sample_created',
+       'notify_slack_task_created','record_product_concept_revision',
+       'record_seo_task_revision','resync_tasks_on_initiative_move',
+       'saved_report_usage','stamp_changed_by','stamp_company_entity_id',
+       'stamp_created_by','void_card_posting'))
+   then 'CRITICAL: a SECURITY DEFINER function is executable by anon and is not on the reviewed allowlist'
+ else 'ok' end as status;
+
+-- The four closed by 20260917210000, asserted individually. The allowlist check
+-- above would catch an anon re-grant; this one also catches an `authenticated`
+-- re-grant, which is the likelier accident (a `create or replace` restores the
+-- schema default) and is still cross-tenant: none of these four takes the
+-- caller's company from active_company_id(), they all take it as an argument.
+select 'Service-role-only tenant primitives' as check_name,
+ case
+ when to_regprocedure('public.purge_better_reports_overlap(uuid)') is null
+   then 'MISSING: purge_better_reports_overlap; apply 20260917210000'
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('purge_better_reports_overlap','backfill_company_entity_batch',
+                       'attach_stamp_company_entity_id_triggers','refresh_demand_coverage_base_mv')
+     and (has_function_privilege('anon', p.oid, 'EXECUTE')
+       or has_function_privilege('authenticated', p.oid, 'EXECUTE')))
+   then 'CRITICAL: a cross-tenant service-role primitive is callable from a browser session'
+ -- The in-body belt. It must read the `role` GUC, NOT current_user: inside a
+ -- SECURITY DEFINER function current_user is the OWNER, so a current_user guard
+ -- is inert and merely looks like a control. Measured, and caught by a mutation
+ -- test that re-grants EXECUTE and calls as anon/authenticated.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('purge_better_reports_overlap','backfill_company_entity_batch')
+     and pg_get_functiondef(p.oid) not like '%current_setting(''role''%')
+   then 'CRITICAL: the service-role guard is missing or reads current_user (inert under SECURITY DEFINER)'
+ -- A destructive function must not carry a default target.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'purge_better_reports_overlap'
+     and p.pronargdefaults > 0)
+   then 'CRITICAL: purge_better_reports_overlap has a default company again'
+ else 'ok' end as status;
+
+-- No RPC may resolve an ambiguous tenant by naming one. `active_company_id()`
+-- returns NULL rather than guessing, which is correct; the bug was callers
+-- coalescing that NULL to Baseballism's uuid and carrying on. Membership is a
+-- grant of access to a tenant's data, so "we don't know which company" has to
+-- stop the call.
+select 'No silent Baseballism fallback in RPCs' as check_name,
+ case when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and p.proname in ('admin_update_profile','approve_access_request')
+     and pg_get_functiondef(p.oid) like '%3bd934c9-4cdd-429b-9076-f8f6b45d4eb7%')
+   then 'CRITICAL: a membership-granting RPC still defaults its company to Baseballism'
+ else 'ok' end as status;
+
+-- ── The tenant boundary must not be self-writable ──────────────────────────
+-- active_company_id() is `select active_company_id from profiles where id =
+-- auth.uid()`, and EVERY company-scoped policy in SILO is `company_entity_id =
+-- active_company_id()`. So profiles.active_company_id is not an ordinary
+-- column: it is the input the whole tenant model resolves through. Same for
+-- profiles.role, which is_admin()/is_exec_or_owner() fall back to whenever
+-- there is no membership row for the active company -- exactly the state a
+-- forged active_company_id produces.
+--
+-- RLS cannot protect either one. `profiles_update_self` is `using (id =
+-- auth.uid())`, which constrains WHICH ROW may be written and says nothing
+-- about WHICH COLUMNS; column privileges are the only mechanism, and until
+-- 20260917210000 they had never been narrowed from the schema default.
+-- Measured on production 2026-09-17: one self-UPDATE took a Test Company user
+-- to 1,164,910 of Baseballism's sales rows with is_admin() true.
+--
+-- This check is worth more than the RLS checks above it. A policy that scopes
+-- rows by a column its subject can rewrite is not a boundary, and that is not
+-- visible in pg_policy -- which is why the first audit of this schema passed it.
+select 'Profiles privilege columns are not self-writable' as check_name,
+ case
+ when has_column_privilege('authenticated','public.profiles','active_company_id','UPDATE')
+   then 'CRITICAL: any signed-in user can repoint their own active_company_id at another tenant'
+ when has_column_privilege('authenticated','public.profiles','role','UPDATE')
+   then 'CRITICAL: any signed-in user can make themselves owner'
+ when has_column_privilege('authenticated','public.profiles','is_active','UPDATE')
+   then 'CRITICAL: is_active is self-writable'
+ when has_column_privilege('authenticated','public.profiles','department','UPDATE')
+   then 'CRITICAL: department is self-writable, and finance gates read it'
+ when has_column_privilege('authenticated','public.profiles','active_company_id','INSERT')
+   or has_column_privilege('authenticated','public.profiles','role','INSERT')
+   then 'CRITICAL: the same escalation is open on the INSERT path'
+ when has_column_privilege('anon','public.profiles','name','UPDATE')
+   or has_column_privilege('anon','public.profiles','name','INSERT')
+   then 'CRITICAL: anon can write profiles'
+ -- The other half: an over-lock silently breaks the profile page's save, and
+ -- the likely response to that is `grant update on profiles`, which reopens
+ -- everything above.
+ when not has_column_privilege('authenticated','public.profiles','name','UPDATE')
+   or not has_column_privilege('authenticated','public.profiles','default_page','UPDATE')
+   or not has_column_privilege('authenticated','public.profiles','avatar_url','UPDATE')
+   then 'CRITICAL: a user can no longer edit their own name/landing page/avatar; v2/profile.html save is broken'
+ else 'ok' end as status;
+
+-- ── Membership is not self-grantable ───────────────────────────────────────
+-- entity_memberships is THE authorization primitive: is_admin(),
+-- is_exec_or_owner(), is_entity_admin(), can_manage_journal_entries() and
+-- set_active_company() all read it. `memberships_insert_self` was a PERMISSIVE
+-- insert policy whose entire WITH CHECK was `(user_id = auth.uid())` -- it
+-- constrained WHO the row was about and said nothing about WHICH COMPANY or
+-- WHICH ROLE, and permissive policies OR, so it granted precisely what the
+-- memberships_insert_admin policies beside it existed to withhold.
+--
+-- It is the one that DEFEATS the profiles fix rather than sitting beside it:
+-- nothing is forged, the attacker inserts a real membership row and then calls
+-- set_active_company(), which validates membership and duly validates against
+-- the row just created. Measured on production 2026-09-18 with 20260917210000
+-- applied first -- one INSERT plus one RPC gave a Test Company user 1,165,018
+-- Baseballism sales rows, is_admin(), is_exec_or_owner() AND
+-- can_manage_journal_entries(), the last being write access to the general
+-- ledger.
+--
+-- Checked as a policy absence AND a grant absence: the policy drop is what
+-- closes it today, the revoke is what stops a future permissive policy from
+-- reopening it on its own.
+select 'Membership is not self-grantable' as check_name,
+ case
+ when exists (select 1 from pg_policy
+   where polrelid = 'public.entity_memberships'::regclass
+     and polname = 'memberships_insert_self')
+   then 'CRITICAL: any user can enrol themselves into any company as owner_admin'
+ when exists (select 1 from pg_policy p
+   where p.polrelid = 'public.entity_memberships'::regclass
+     and p.polcmd = 'a' and p.polpermissive
+     and coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '') not like '%is_entity_admin%')
+   then 'CRITICAL: a permissive INSERT policy on entity_memberships does not require entity admin'
+ when has_table_privilege('authenticated', 'public.entity_memberships', 'INSERT')
+   or has_table_privilege('authenticated', 'public.entity_memberships', 'UPDATE')
+   or has_table_privilege('authenticated', 'public.entity_memberships', 'DELETE')
+   then 'CRITICAL: a browser session can write entity_memberships'
+ when has_table_privilege('anon', 'public.entity_memberships', 'INSERT')
+   then 'CRITICAL: anon can write entity_memberships'
+ -- The other direction: the company picker, login and profile pages all READ
+ -- this table to resolve which companies a user belongs to. An over-revoke
+ -- breaks sign-in, and the likely response is to restore the whole grant.
+ when not has_table_privilege('authenticated', 'public.entity_memberships', 'SELECT')
+   then 'CRITICAL: memberships are unreadable; the company picker and login cannot resolve a company'
+ else 'ok' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

@@ -18834,3 +18834,38 @@ $c$select (select count(*) from v_po_header_summary
 -- NOTE the three functions are DROP + CREATE, not CREATE OR REPLACE: Postgres
 -- refuses to remove a parameter default from an existing function.
 \i migrations/20260917180000_product_type_profile.sql
+
+-- Tenant boundary hardening (20260917210000_tenant_boundary_hardening.sql).
+-- Closes the paths that bypass RLS entirely: a SECURITY DEFINER function runs
+-- as its owner, so its EXECUTE grant is the whole tenant boundary -- and
+-- Supabase grants EXECUTE to `public` (anon + authenticated) on every new
+-- function by default, which is how purge_better_reports_overlap (deletes any
+-- tenant's sales_by_day) and backfill_company_entity_batch (stamps unclaimed
+-- rows with ANY company id) ended up callable by anon. Both confirmed reachable
+-- on production before this. Also removes the last two silent
+-- coalesce-to-Baseballism fallbacks, in the two RPCs that GRANT MEMBERSHIP.
+-- NOTE purge_better_reports_overlap is DROP + CREATE, not CREATE OR REPLACE:
+-- Postgres refuses to remove a parameter default, and removing its default
+-- company (Baseballism) is half the point.
+-- The in-body guard reads current_setting('role'), NOT current_user -- inside a
+-- definer function current_user is the OWNER, so a current_user guard is inert.
+\i migrations/20260917210000_tenant_boundary_hardening.sql
+
+-- entity_memberships: remove self-enrollment
+-- (20260917220000_membership_self_enrollment.sql). `memberships_insert_self`
+-- was a permissive INSERT policy whose whole WITH CHECK was `(user_id =
+-- auth.uid())` -- it constrained WHO the row was about and said nothing about
+-- WHICH COMPANY or WHICH ROLE, so any user could insert themselves into any
+-- company as owner_admin. It is the one that DEFEATS the profiles fix in
+-- 20260917210000 rather than sitting beside it: nothing is forged, the attacker
+-- inserts a real membership row and then calls set_active_company(), which
+-- validates membership against the row just created and performs the write
+-- itself. Measured on production with 20260917210000 applied first: one INSERT
+-- plus one RPC gave 1,165,018 cross-tenant sales rows plus
+-- can_manage_journal_entries() -- write access to the general ledger.
+-- Nothing legitimate used it: every membership insert is SECURITY DEFINER
+-- (handle_new_user, accept_org_invite, approve_access_request,
+-- admin_update_profile, create_entity_with_owner) or service-role
+-- (org-invite-redeem). SELECT is deliberately left alone -- the company picker
+-- and login read this table.
+\i migrations/20260917220000_membership_self_enrollment.sql

@@ -9,9 +9,13 @@ on:
         default: true
         type: boolean
       sheet_id:
-        description: "Google Sheet ID (blank = legacy Mailroom sheet)"
-        required: false
-        default: ""
+        # Required for the same reason company_entity_id is. Once the company
+        # became mandatory and the SHEET stayed defaulted, the two could
+        # disagree: an operator could name Tenant B and leave the sheet blank,
+        # and every Baseballism legacy mail row would be stamped Tenant B. The
+        # company and the data have to be named together or not at all.
+        description: "Google Sheet ID (required -- the sheet this company's mail is in)"
+        required: true
         type: string
       gid:
         description: "Sheet tab gid (blank = 0)"
@@ -19,9 +23,12 @@ on:
         default: ""
         type: string
       company_entity_id:
-        description: "Company UUID (blank = Baseballism)"
-        required: false
-        default: ""
+        # No default. A blank used to mean Baseballism, so running this for a
+        # second tenant and forgetting the field filed their mail under
+        # Baseballism with every row inserting successfully. The script now
+        # refuses a blank rather than guessing.
+        description: "Company UUID (required — the company whose mail this is)"
+        required: true
         type: string
 
 jobs:

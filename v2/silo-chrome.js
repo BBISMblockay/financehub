@@ -472,6 +472,26 @@
       });
     }
 
+    // Same deal for the COMPANY itself. getActiveCompany() is a sessionStorage
+    // read and sessionStorage is per-tab, so a bookmark or deep link lands here
+    // fully authenticated with no cached company. resolveNavProfile(null) now
+    // answers 'standard' (it used to answer 'grandfathered', i.e. Baseballism's
+    // menu for whoever happened to be looking) -- so without this re-render a
+    // grandfathered user on a deep link would be stuck on the standard menu for
+    // the whole page. ensureActiveCompany() self-heals the tab from the
+    // server-side profiles.active_company_id, and we repaint the nav with the
+    // company it resolves. Fails quiet: if it cannot resolve one, the smaller
+    // menu is the right thing to leave on screen.
+    if (!getActiveCompany() && opts.supabaseClient) {
+      Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
+        .then((company) => {
+          if (!company) return;
+          const navEl = sidebar.querySelector('#siloSbNav');
+          if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), opts.user && opts.user.role, getCachedGrantIds());
+        })
+        .catch(() => {});
+    }
+
     // Same deal for grant-based unlocks (e.g. Ask SILO access granted via
     // backend.html without an exec/owner role) — first paint can't know
     // about a grant yet, so re-render once resolveGrantIds confirms one.

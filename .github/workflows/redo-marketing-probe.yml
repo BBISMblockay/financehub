@@ -4,6 +4,12 @@ name: Redo Marketing Probe
 # Manual trigger only.
 on:
   workflow_dispatch:
+    inputs:
+      # Required, no default: the probe reads one company's Redo credentials.
+      company_entity_id:
+        description: "Company UUID (required -- whose Redo connection to probe)"
+        required: true
+        type: string
 
 jobs:
   probe-redo-marketing:
@@ -25,4 +31,5 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REDO_COMPANY_ENTITY_ID: ${{ inputs.company_entity_id }}
         run: node scripts/redo-marketing-probe.mjs
