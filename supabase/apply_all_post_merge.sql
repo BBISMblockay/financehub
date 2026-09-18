@@ -18889,3 +18889,21 @@ $c$select (select count(*) from v_po_header_summary
 -- and the ledger view is dropped before each create (a create-or-replace cannot
 -- widen or narrow a view's column list).
 \i migrations/20260918000000_forecast_method_competition.sql
+
+-- Comparable forecast scores (20260918120000_forecast_common_set_scoring.sql).
+-- score_forecast_methods filtered each method to the origins IT could compute
+-- and then pooled, so two methods in one result could be scored over different
+-- cutoff dates and printed as a ranking. Measured on production: blend_v1 "beat"
+-- run_rate_v1 on Shorts over 6 windows against 15. Scoring now happens on the
+-- common set -- the origins where every applicable method is eligible -- and
+-- coverage is reported per method instead of being silently absorbed.
+--
+-- Also ports the four growth models from the September 2026 formula search
+-- (current_model, growth_model, seasonal_growth_model, adaptive_model) out of
+-- an archived saved report and into functions, so they can be scored by the
+-- same harness as the shipped methods. Porting them does NOT select them:
+-- nothing changes for a buyer until select_forecast_method runs.
+--
+-- Drops and recreates score_forecast_methods because its return type gains
+-- columns. Re-running 20260918000000 restores the previous scorer exactly.
+\i migrations/20260918120000_forecast_common_set_scoring.sql

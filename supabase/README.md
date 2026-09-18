@@ -1233,3 +1233,71 @@ free.
 Tests: `scripts/tests/forecast-method-competition.test.mjs` (real PostgreSQL via
 PGlite, thirteen mutations, including the whole buy report run as a signed-in
 user and held to an equality against the governed formulas).
+
+## Comparable forecast scores (`20260918120000`)
+
+`score_forecast_methods` was not comparing methods. It built one row set per
+method, filtered with `where ... f.eligible` **before** grouping by method, and
+pooled whatever survived — so each method kept the origins it happened to be
+able to compute and the results were printed side by side as a ranking.
+
+Measured on production, 2026-09-18, Baseballism, horizon 6, cutoffs
+`2024-09-01..2026-08-01`:
+
+| Category | `blend_v1` | `run_rate_v1` |
+|---|---|---|
+| Shorts | 6 windows, WAPE 29.6 | 15 windows, WAPE 34.4 |
+| Youth Shorts | 6 windows, WAPE 38.0 | 15 windows, WAPE 42.4 |
+| Youth Sweatshirt | 9 windows | 18 windows |
+
+`blend_v1` "won" the first two on nine fewer windows than the method it beat.
+**Equal window counts would not have ruled this out either** — two methods can
+each score six windows and not the same six — which is why the test compares
+origin *sets*, not their sizes.
+
+Now:
+
+- `wape` / `bias` are computed on the **common set**: the origins where every
+  *applicable* method is eligible. These are the only comparable numbers, and
+  the only ones `select_forecast_method` may pick on.
+- `wape_own` / `bias_own` keep each method's score on its own eligible windows,
+  under a different name, for diagnosis. They must not be compared across
+  methods.
+- `windows_offered` / `windows_eligible` / `coverage_pct` report what a method
+  could not compute. 45% of lead-6 category-months on this tenant are not
+  scorable at all (89 have no prior-year month, 69 no target month); none of
+  that was reported anywhere before.
+- **Applicable** matters: `Candidate_YoY_Shift_v1` is one-month by
+  specification and is eligible at *no* origin above horizon 1, so requiring it
+  would empty the intersection and score nothing. A method eligible nowhere is
+  reported at coverage 0 and excluded from the intersection.
+- **Fail closed**: an empty common set means every `wape` is null, and
+  `select_forecast_method` records *no* selection rather than picking whichever
+  method had the easiest windows.
+
+Also ports the four growth models from the September 2026 formula search —
+`current_model`, `growth_model`, `seasonal_growth_model`, `adaptive_model` —
+out of an archived saved report and into `forecast_growth_family_v1`, so they
+can be scored by the same harness as the shipped methods. Their parameters are
+transcribed **unchanged and deliberately not re-searched**: re-tuning against
+the same history is how the earlier round produced 20.2% that became 49.6% on a
+longer window. A cumulative horizon is the sum of the per-month model, each
+month at the trend confidence of its own distance from the cutoff.
+
+Porting them does **not** select them. Nothing changes for a buyer until
+`select_forecast_method` is run.
+
+Found while writing this: at a horizon past 13, month *k* of a window has its
+prior-year month at `cutoff + k - 13`, which is **after the cutoff** — the
+forecast would read its own outcome. `forecast_growth_family_v1` refuses a
+horizon above 12 rather than clamping it. `forecast_seasonal_naive_v1` has the
+same arithmetic and the same limit; no caller exceeds 12 today.
+
+Drops and recreates `score_forecast_methods` (the return type gains columns).
+Reversible: re-running `20260918000000` restores the previous scorer exactly.
+
+Tests: `scripts/tests/forecast-common-set-scoring.test.mjs` — 14 assertions,
+7 mutations, all caught. Verified against the real 86-month Youth series:
+`run_rate_v1` at horizon 6 returns 39.3% WAPE / −29.8% bias over 18 windows,
+identical to what production returned before the change, which is the invariant
+the fix should have — it changes numbers only where coverage differs.
