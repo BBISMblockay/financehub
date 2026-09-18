@@ -438,7 +438,15 @@ async function main() {
   }
 
   const dryRun = args.dryRun;
-  const companyEntityId = args.company || DEFAULT_COMPANY_ENTITY_ID;
+  // Required at the CLI. buildRequestPayload() keeps its default so the unit
+  // tests can construct a payload without naming a tenant, but an actual
+  // import must say which company it is importing into.
+  const companyEntityId = args.company;
+  if (!companyEntityId) {
+    console.error('Missing --company <entity-uuid>: name the company explicitly; there is no default.');
+    process.exitCode = 1;
+    return;
+  }
 
   const filePath = args.file || path.join(ROOT, "data/legacy-payment-requests-pilot.csv");
   let rows = readExportRows(filePath);

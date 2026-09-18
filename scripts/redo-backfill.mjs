@@ -14,7 +14,7 @@
 //
 // Env vars:
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  -- required
-//   REDO_COMPANY_ENTITY_ID   -- defaults to Baseballism
+//   REDO_COMPANY_ENTITY_ID   -- REQUIRED (no default; see note by the const)
 //   REDO_UPDATED_AT_MIN      -- ISO date; blank = full history
 //   REDO_UPDATED_AT_MAX      -- ISO date; blank = now
 //   REDO_STATUS              -- optional status filter (open/complete/rejected)
@@ -30,7 +30,14 @@ import { backfillRedoReturns } from './lib/redo-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const COMPANY_ENTITY_ID = process.env.REDO_COMPANY_ENTITY_ID || '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'; // Baseballism
+// A backfill writes tenant-stamped rows. Defaulting the company meant a run
+// that forgot the variable silently filed another tenant's data under
+// Baseballism -- the failure is invisible, because every row lands
+// successfully, just in the wrong company. Required, no default.
+const COMPANY_ENTITY_ID = process.env.REDO_COMPANY_ENTITY_ID;
+if (!COMPANY_ENTITY_ID) {
+  throw new Error('Missing REDO_COMPANY_ENTITY_ID -- name the company explicitly; there is no default');
+}
 const UPDATED_AT_MIN = process.env.REDO_UPDATED_AT_MIN || '';
 const UPDATED_AT_MAX = process.env.REDO_UPDATED_AT_MAX || '';
 const STATUS = process.env.REDO_STATUS || '';

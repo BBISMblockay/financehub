@@ -6,10 +6,25 @@ Visibility-only nav polish for multi-company SILO. **Does not** change page logi
 
 | Profile | Who | Behavior |
 |---------|-----|----------|
-| `grandfathered` | `entity_key = baseballism` (or missing company in session) | Full sidebar + finance hub |
-| `standard` | All other companies | Company ops menu; BBISM-only links hidden |
+| `grandfathered` | `entity_key = baseballism` | Full sidebar + finance hub |
+| `standard` | All other companies, **and any session with no resolved company** | Company ops menu; BBISM-only links hidden |
 
 Override via `entities.meta.nav_profile` when needed.
+
+**Missing company resolves to `standard`, not `grandfathered`** (changed
+2026-09-17). `getActiveCompany()` reads sessionStorage, which is per-tab, so a
+user arriving on a v2 page from a bookmark or deep link is fully authenticated
+with no cached company — and under the old fallback a *second tenant's* user was
+served Baseballism's sidebar in that state. Nothing leaked (RLS scopes the data
+either way, and the extra links render empty pages), but it was the last place
+SILO silently defaulted to Baseballism's configuration, and it is the first
+thing a prospect would notice.
+
+Failing to the smaller menu matches how grant-based unlocks already behave:
+first paint shows less, then `silo-chrome.js` re-renders. `mount()` calls
+`ensureActiveCompany()` when no company is cached and repaints the nav with
+whatever it resolves, so a grandfathered user on a deep link sees the standard
+menu for one frame rather than permanently seeing the wrong company's menu.
 
 ## Standard menu (all new companies)
 
