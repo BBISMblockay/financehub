@@ -1282,9 +1282,26 @@ which the CHECK has forbidden since the multi-tenant work, so every call failed
 before removal; its `verify_v2_schema.sql` anon-allowlist entry went with it.
 
 Tests: `scripts/tests/company-onboarding-database.test.mjs` (real PostgreSQL via
-PGlite, 34 assertions, four mutations), which also executes the four new
+PGlite, 46 assertions, twelve mutations), which also executes the four new
 `verify_v2_schema.sql` checks and then breaks each guard to confirm they can go
 red.
+
+Plus `scripts/tests/onboarding-concurrency.test.mjs`, which is a separate file
+for a structural reason rather than a tidiness one: **PGlite is a single
+connection.** It can prove a guard refuses a bad state, and it can never prove
+that two sessions racing cannot assemble that state between them — which is the
+shape of all three concurrency guarantees here (the invite row lock, the
+profiles `FOR UPDATE`, the per-company currency lock). That suite drives two
+real `psql` sessions and a control session reading `pg_stat_activity`, so the
+block is observed in the server's own wait state rather than inferred from
+timing. Measured 2026-09-18, each lock removed in turn: without the currency
+lock a company commits with its books in USD under a CAD declaration; without
+the profiles lock an administrator's deactivation is undone by the redeem it
+raced; without the invite lock one invite founds **two** companies. CI runs it
+against a `postgres:16` service and requires all three mutations to go red.
+
+Do not add a concurrency assertion to the PGlite file. It would exercise the
+sequential case and be credited as coverage of the concurrent one.
 
 
 ### Cycle-1 review corrections (PR #724)
