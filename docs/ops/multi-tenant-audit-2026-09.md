@@ -136,6 +136,67 @@ belongs to no org yet, **granted that person membership in Baseballism**. A
 membership is a grant of access to a tenant's data, so an ambiguous tenant has
 to stop the call. Both now raise. **Fixed** in the same migration.
 
+### P0-3 — `approve_access_request` granted membership in another tenant
+
+Found by the **cycle-1 independent review on PR #722**, against the first
+version of this migration — which closed the coalesce-to-Baseballism rung and
+left this one open. Worth recording as a P0 rather than folding into P1-3,
+because it is a different and worse bug than the one it was hiding behind.
+
+The cross-tenant guard read:
+
+```sql
+if v_req.company_entity_id is not null
+   and v_req.company_entity_id <> public.active_company_id() then
+  raise exception 'not authorized';
+end if;
+```
+
+`x <> null` in SQL is **NULL, not TRUE**. So for an approver whose active
+company is unresolved the whole condition is NULL, the `IF` does not fire, and
+the guard **passes**. That state is reachable by a real caller: `is_admin()`
+falls back to the global `profiles.role` (`owner`/`admin`/`executive`) whenever
+there is no membership row for the active company — which includes
+`active_company_id()` being null. Handed a request id belonging to Tenant B,
+such a caller passed the guard, `coalesce` then selected Tenant B, and this
+SECURITY DEFINER RPC **granted the applicant a Tenant B membership** that
+Tenant B never approved.
+
+The fail-closed check added by P1-3 does **not** catch it: that check tests the
+resolved company, and here the resolved company is non-null — it is Tenant B's.
+
+**Fixed**: the approver's company is resolved once, *before* the request is
+read, and a null stops the call; the comparison is `IS DISTINCT FROM`, so it
+stays a real boolean. Regression in `scripts/tests/tenant-boundary.test.mjs`
+runs the real function text out of the migration against a three-tenant fixture
+and asserts all three cases — refused for a null-company admin, refused
+cross-tenant, and still **granted** for Tenant B's own admin, because a guard
+that refuses everything would pass the first two and be useless.
+
+Note the mutation asymmetry, which is why the operator is also pinned
+statically: with the null check present, `<>` and `IS DISTINCT FROM` behave
+identically, so reverting only the operator does not fail the behavioural test.
+That is correct, not a gap — but it means the belt would decay silently.
+
+### P1-6 — Requiring a variable broke the workflows that call the script
+
+Also from the cycle-1 review. Making `REDO_COMPANY_ENTITY_ID` mandatory (P1-5)
+broke `redo-backfill.yml` and `redo-marketing-probe.yml`, which invoked the
+scripts without it — a dispatch would throw at module load with every secret
+correctly set. And requiring `company_entity_id` on `mailroom-backfill.yml`
+while leaving `sheet_id` blank-defaulted to Baseballism's legacy sheet created
+a *new* cross-tenant path: name Tenant B, leave the sheet blank, and every
+Baseballism mail row is stamped Tenant B. Requiring one half of a pair was
+worse than requiring neither.
+
+**Fixed**: both workflows take a required company input and pass it; the
+mailroom sheet is required in both the workflow and the script.
+`scripts/tests/workflow-env-contract.test.mjs` is the generic guard — it derives
+each script's required env vars from its own throw sites and asserts every
+workflow that runs it supplies them, so this is caught for scripts that do not
+exist yet. A `workflow_dispatch`-only job otherwise proves itself only when a
+human dispatches it, which for a backfill may be months later, mid-onboarding.
+
 ### P1-4 — An unresolved company served Baseballism's sidebar
 
 `resolveNavProfile(null)` returned `'grandfathered'`. Because
@@ -215,6 +276,7 @@ to fail the suite.
 | SECURITY DEFINER surface | **was C, now A** | Yes | Default arg → Baseballism | — | **was High** | Applied + allowlisted |
 | Onboarding / signup | A | Yes | None | — | Low | None |
 | Invites | A | Yes | None | — | Low | Prefer over access requests |
+| Access approval RPC | **was C, now A** | Yes | Was coalesce → Baseballism | — | **was High** | Fixed; `<>` against a null company passed the guard |
 | Access requests | C | Partly | Legacy intake, anon insert | Company binding | Low | Don't use for new tenants |
 | Nav / routing | **was C, now A** | Yes | Was `grandfathered` fallback | — | Low | Done |
 | Shopify connector | A | Yes | None | — | Low | Use for the proof |

@@ -359,9 +359,38 @@ declare
   v_role app_role;
   v_membership_role text;
   v_company_id uuid;
+  v_actor_company uuid;
 begin
   if not public.is_admin() then
     raise exception 'not authorized';
+  end if;
+
+  -- Resolve the APPROVER's company once, before reading the request, and stop
+  -- here if it is unknown.
+  --
+  -- This is not belt-and-braces; without it the cross-tenant guard below does
+  -- not hold. The guard used to read
+  --     if v_req.company_entity_id is not null
+  --        and v_req.company_entity_id <> public.active_company_id()
+  -- and `x <> null` in SQL is NULL, not TRUE -- so `NULL and ...` is NULL, the
+  -- IF does not fire, and the guard PASSES for an approver with no active
+  -- company. That state is reachable by a real caller: is_admin() falls back to
+  -- the global profiles.role ('owner'/'admin'/'executive') whenever there is no
+  -- membership row for the active company, which includes the case where
+  -- active_company_id() is null. Such a caller, handed a request id belonging
+  -- to Tenant B, passed the guard, and coalesce() below then selected Tenant B
+  -- -- so this SECURITY DEFINER RPC granted a Tenant B membership to someone
+  -- Tenant B never approved.
+  --
+  -- Found by the cycle-1 independent review on this PR. The first version of
+  -- this migration closed the coalesce-to-Baseballism rung and left this one
+  -- open, which is worse than it sounds: the fail-closed check further down
+  -- tests v_company_id, and v_company_id is NON-null in this attack (it is
+  -- Tenant B's id), so nothing downstream catches it.
+  v_actor_company := public.active_company_id();
+  if v_actor_company is null then
+    raise exception 'no active company: cannot resolve which organization to grant access to'
+      using errcode = '22004';
   end if;
 
   select * into v_req
@@ -374,8 +403,9 @@ begin
 
   -- Cross-tenant guard: an admin can only approve requests aimed at their
   -- own active company (legacy rows with no company count as the caller's).
+  -- IS DISTINCT FROM, never <>, so the comparison stays a real boolean.
   if v_req.company_entity_id is not null
-     and v_req.company_entity_id <> public.active_company_id() then
+     and v_req.company_entity_id is distinct from v_actor_company then
     raise exception 'not authorized';
   end if;
 
@@ -393,15 +423,12 @@ begin
 
   -- WAS: coalesce(v_req.company_entity_id, active_company_id(), '3bd934c9-...').
   -- The request's own company still wins where it has one -- that is the
-  -- legitimate case, and the guard above has already proved it matches the
-  -- approver. What is gone is the third rung: a legacy request with no company,
-  -- approved by an admin with no active company, used to mint a Baseballism
-  -- membership for someone nobody said was a Baseballism employee.
-  v_company_id := coalesce(v_req.company_entity_id, public.active_company_id());
-  if v_company_id is null then
-    raise exception 'no active company: cannot resolve which organization to grant access to'
-      using errcode = '22004';
-  end if;
+  -- legitimate case, and the guard above has now genuinely proved it matches
+  -- the approver. What is gone is the third rung: a legacy request with no
+  -- company, approved by an admin with no active company, used to mint a
+  -- Baseballism membership for someone nobody said was a Baseballism employee.
+  -- v_actor_company is non-null by the check at the top, so this cannot be null.
+  v_company_id := coalesce(v_req.company_entity_id, v_actor_company);
 
   insert into public.profiles (id, email, name, role, department, is_active, created_at, updated_at)
   values (v_req.user_id, v_req.email, v_req.full_name, v_role, v_dept, true, now(), now())

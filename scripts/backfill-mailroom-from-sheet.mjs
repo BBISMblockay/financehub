@@ -19,7 +19,7 @@
 //   node scripts/backfill-mailroom-from-sheet.mjs
 //
 // Optional:
-//   MAILROOM_SHEET_ID   (defaults to the sheet /mailroom.html already reads)
+//   MAILROOM_SHEET_ID   (REQUIRED -- no default)
 //   MAILROOM_GID        (defaults to 0)
 //   MAILROOM_COMPANY_ENTITY_ID  (REQUIRED -- no default)
 //   MAILROOM_BACKFILL_DRY_RUN=true
@@ -28,7 +28,16 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SHEET_ID = process.env.MAILROOM_SHEET_ID || "12cuw5LrkFvwjcR33m8zwiWIPEov6P6t72rMSIrKq-Ck";
+// The SHEET is tenant data, exactly like the company id below, and the two
+// have to be named together. Defaulting it to Baseballism's legacy sheet while
+// the company was REQUIRED was strictly worse than defaulting both: an operator
+// could name Tenant B, leave the sheet blank, and stamp every Baseballism mail
+// row as Tenant B -- a cross-tenant misattribution that the company check
+// itself cannot see, because the company given is perfectly valid.
+const SHEET_ID = process.env.MAILROOM_SHEET_ID;
+if (!SHEET_ID) {
+  throw new Error("Missing MAILROOM_SHEET_ID -- name the sheet explicitly; there is no default");
+}
 const GID = Number(process.env.MAILROOM_GID || 0);
 // A backfill writes tenant-stamped rows. Defaulting the company meant a run
 // that forgot the variable silently filed another tenant's data under

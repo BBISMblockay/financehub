@@ -28,6 +28,9 @@ on:
       - 'supabase/functions/plaid-scheduled-sync/**'
       - 'scripts/plaid-sync.mjs'
       - '.github/workflows/plaid-sync.yml'
+      - '.github/workflows/redo-backfill.yml'
+      - '.github/workflows/redo-marketing-probe.yml'
+      - '.github/workflows/mailroom-backfill.yml'
       - 'supabase/functions/shopify-oauth-start/**'
       # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
       # function directory, so a change there must run these tests. Without
@@ -161,6 +164,13 @@ jobs:
       # Baseballism's menu.
       - name: Nav profile fails closed on an unresolved company
         run: node --test scripts/tests/nav-profile.test.mjs
+
+      # Making an env var mandatory in a script silently breaks every workflow
+      # that runs it without one, and a workflow_dispatch-only job proves itself
+      # only when a human dispatches it -- possibly months later, mid-onboarding.
+      # Generic contract, not a list of names, so new scripts are covered too.
+      - name: Workflows supply the env their scripts require
+        run: node --test scripts/tests/workflow-env-contract.test.mjs
 
       - name: Plaid scheduled sync failure handling
         run: node scripts/tests/plaid-sync.test.mjs
