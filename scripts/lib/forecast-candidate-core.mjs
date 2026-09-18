@@ -262,6 +262,174 @@ export async function runForecastCandidate({
   return { maturedThrough, cutoffs, summary, results };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The competition (migration 20260918000000)
+// ─────────────────────────────────────────────────────────────────────────────
+// Candidate_YoY_Shift_v1 above is ONE method on a fixed 30-day horizon, kept on
+// its own writer and its own track. This is the wider job: three calendar-month
+// methods frozen side by side for every forecastable category, at the horizons
+// a buyer actually orders against, with the CHOICE between them recorded before
+// the cutoff it governs.
+//
+// ORDER MATTERS AND IS NOT AN IMPLEMENTATION DETAIL. The selection is recorded
+// FIRST, then the forecasts are frozen. Reversed, the selection would be
+// written in a run that had already seen every method's number for the cutoff
+// it governs -- and the whole reason this table exists is that a pick made
+// after the fact is indistinguishable from no pick at all. The evidence CHECK
+// would still pass, because the evidence window is bounded either way; nothing
+// in the database can tell the two orderings apart. This is one of the few
+// guarantees that lives in the runner rather than in a constraint, which is
+// why it is stated here rather than assumed.
+export const COMPETITION_METHODS = Object.freeze(['seasonal_naive_v1', 'run_rate_v1', 'blend_v1']);
+// Three and six months: the windows a purchase order is actually written
+// against. Not searched -- a horizon chosen because it scored well is the
+// fitting this whole exercise exists to avoid.
+export const COMPETITION_HORIZON_MONTHS = Object.freeze([3, 6]);
+// The one knob in the selection, fixed here so a run cannot quietly try
+// several until a preferred method wins. It is recorded in selection_basis on
+// every row, so changing it later is visible rather than retroactive.
+export const COMPETITION_EVIDENCE_MONTHS = 18;
+
+export function blankCompetitionSummary() {
+  return {
+    cutoffs: 0, selections_recorded: 0, selections_unresolved: 0,
+    inserted: 0, existing: 0, existing_voided: 0,
+    deferred: 0, expired: 0, skipped: 0, failed: 0,
+  };
+}
+
+/**
+ * Freeze every method for one category, at every competition horizon, across
+ * the cutoffs this company is synced far enough to attempt.
+ *
+ * A method, a horizon or a cutoff failing does not abort the rest: each is an
+ * independent record, and a forecast omitted from a cutoff that has since
+ * closed can never be backfilled, so one transient error must not cost the
+ * others.
+ */
+export async function runMethodCompetition({
+  client,
+  companyEntityId,
+  skuCategory,
+  startCutoff = FIRST_FROZEN_CUTOFF,
+  methods = COMPETITION_METHODS,
+  horizonMonths = COMPETITION_HORIZON_MONTHS,
+  evidenceMonths = COMPETITION_EVIDENCE_MONTHS,
+  maxCutoffs = 60,
+  dryRun = false,
+  logger = console,
+} = {}) {
+  if (!companyEntityId) throw new Error('runMethodCompetition: companyEntityId is required');
+  if (!skuCategory || !String(skuCategory).trim()) {
+    throw new Error('runMethodCompetition: skuCategory is required (no tenant-specific default)');
+  }
+
+  const maturedResult = await client.rpc('forecast_actuals_matured_through', {
+    p_company_entity_id: companyEntityId,
+  });
+  if (maturedResult.error) {
+    throw new Error(`forecast_actuals_matured_through failed: ${maturedResult.error.message}`);
+  }
+  const maturedThrough = maturedResult.data ?? null;
+  const cutoffs = plannedCutoffs({ startCutoff, maturedThrough, maxCutoffs });
+
+  const summary = blankCompetitionSummary();
+  const results = [];
+  summary.cutoffs = cutoffs.length;
+
+  for (const cutoff of cutoffs) {
+    for (const horizon of horizonMonths) {
+      if (dryRun) {
+        results.push({ cutoff, horizon, action: 'dry_run' });
+        logger.log(`    ${cutoff} / ${horizon}m  dry_run`);
+        continue;
+      }
+
+      // 1. The choice, before the forecasts. See the note above this function.
+      let selected = null;
+      const pick = await client.rpc('select_forecast_method', {
+        p_company_entity_id: companyEntityId,
+        p_sku_category: skuCategory,
+        p_horizon_months: horizon,
+        p_effective_from_cutoff: cutoff,
+        p_evidence_months: evidenceMonths,
+      });
+      if (pick.error) {
+        summary.failed += 1;
+        results.push({ cutoff, horizon, action: 'failed', stage: 'select', reason: pick.error.message });
+        logger.error(`    ${cutoff} / ${horizon}m  SELECT FAILED: ${pick.error.message}`);
+        // Deliberately continue to freeze the methods anyway. A cutoff with
+        // forecasts and no selection is recoverable evidence; a cutoff with
+        // neither is a hole nothing can fill once it closes.
+      } else {
+        const row = Array.isArray(pick.data) ? pick.data[0] : pick.data;
+        selected = row?.selected_method ?? null;
+        if (selected) {
+          summary.selections_recorded += 1;
+          logger.log(`    ${cutoff} / ${horizon}m  selected ${selected}`
+            + (row?.wape != null ? ` (WAPE ${(Number(row.wape) * 100).toFixed(1)}% over ${row.windows} window(s))` : ''));
+        } else {
+          // Not a failure. No method could be scored over the evidence window,
+          // and recording a pick anyway would be a guess wearing a selection's
+          // clothes. The forecasts are still frozen so the evidence accrues.
+          summary.selections_unresolved += 1;
+          logger.log(`    ${cutoff} / ${horizon}m  NO SELECTION — nothing scorable in the evidence window`);
+        }
+      }
+
+      // 2. Then every method, so the comparison is between the same question
+      //    asked at the same moment.
+      for (const method of methods) {
+        const { data, error } = await client.rpc('record_forecast_method_run', {
+          p_company_entity_id: companyEntityId,
+          p_cutoff_date: cutoff,
+          p_sku_category: skuCategory,
+          p_method: method,
+          p_horizon_months: horizon,
+        });
+        if (error) {
+          summary.failed += 1;
+          results.push({ cutoff, horizon, method, action: 'failed', reason: error.message });
+          logger.error(`      ${method}  FAILED: ${error.message}`);
+          continue;
+        }
+        const row = Array.isArray(data) ? data[0] : data;
+        const action = row?.action ?? 'failed';
+        if (action in summary) summary[action] += 1;
+        else summary.failed += 1;
+        results.push({
+          cutoff, horizon, method, action,
+          selected: selected === method,
+          forecastQty: row?.forecast_qty ?? null,
+          ledgerId: row?.ledger_id ?? null,
+          reason: row?.reason ?? null,
+        });
+        const qty = row?.forecast_qty != null ? ` forecast ${row.forecast_qty}` : '';
+        const why = row?.reason ? ` — ${row.reason}` : '';
+        const star = selected === method ? ' *selected*' : '';
+        logger.log(`      ${method}  ${action}${qty}${star}${why}`);
+      }
+    }
+  }
+
+  return { maturedThrough, cutoffs, summary, results };
+}
+
+/** One line a human can read for a competition run. */
+export function formatCompetitionSummary(summary) {
+  return [
+    `cutoffs ${summary.cutoffs}`,
+    `selections ${summary.selections_recorded}`,
+    `unresolved ${summary.selections_unresolved}`,
+    `inserted ${summary.inserted}`,
+    `already frozen ${summary.existing + summary.existing_voided}`,
+    `deferred ${summary.deferred}`,
+    `expired ${summary.expired}`,
+    `not computable ${summary.skipped}`,
+    `failed ${summary.failed}`,
+  ].join(', ');
+}
+
 /** One line a human can read in an Actions log without opening the database. */
 export function formatSummary(summary) {
   return [

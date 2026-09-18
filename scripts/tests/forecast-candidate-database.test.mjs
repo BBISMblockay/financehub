@@ -51,6 +51,10 @@ const MIGRATION = 'supabase/migrations/20260917140000_forecast_candidate_ledger.
 // two of them. Loading only the first left the evaluator's positional call to
 // forecast_candidate_cycles untested -- and it was wrong.
 const MIGRATION_2 = 'supabase/migrations/20260917180000_product_type_profile.sql';
+// The competition migration loosens this ledger's columns and adds the generic
+// no-look-ahead CHECK. Loaded here too so the verify checks below run against
+// the schema production will actually have, not an intermediate one.
+const MIGRATION_3 = 'supabase/migrations/20260918000000_forecast_method_competition.sql';
 const MUTATIONS = {
   'no-clamp': [['least(p_clamp_high, greatest(p_clamp_low, v_raw))', 'v_raw']],
   // BOTH bounds, because the guard is deliberately two-layered: the base CTE
@@ -117,13 +121,29 @@ const asService = (fn) => asRole('service_role', '', fn);
 await db.exec('create extension if not exists pgcrypto;');
 await db.exec(await readFile(new URL('scripts/tests/forecast-db-bootstrap.sql', root), 'utf8'));
 
-let migrationSql = await readFile(new URL(MIGRATION, root), 'utf8');
-for (const [from, to] of MUTATIONS[mutation] || []) {
-  assert.ok(migrationSql.includes(from), `mutation ${mutation}: anchor not found: ${from.slice(0, 60)}`);
-  migrationSql = migrationSql.replace(from, to);
+// A mutation is applied to EVERY migration that contains its anchor, not only
+// the first. Four of these mutations went silently dead the day MIGRATION_2 was
+// added: it drops and recreates three of the functions they patch, so a
+// mutation applied to MIGRATION alone was overwritten before a single assertion
+// ran, and the suite reported "passed" for a bug it no longer contained. A
+// mutation that cannot fail is worse than no mutation, because it is counted as
+// coverage -- which is the exact claim this whole file exists to refuse.
+const migrationSources = [];
+for (const path of [MIGRATION, MIGRATION_2, MIGRATION_3]) {
+  migrationSources.push([path, await readFile(new URL(path, root), 'utf8')]);
 }
-await db.exec(migrationSql);
-await db.exec(await readFile(new URL(MIGRATION_2, root), 'utf8'));
+for (const [from, to] of MUTATIONS[mutation] || []) {
+  let applied = 0;
+  for (const entry of migrationSources) {
+    if (!entry[1].includes(from)) continue;
+    entry[1] = entry[1].split(from).join(to);
+    applied += 1;
+  }
+  assert.ok(applied > 0, `mutation ${mutation}: anchor not found in any migration: ${from.slice(0, 60)}`);
+}
+// Kept for the re-apply test below, which re-runs the first migration by hand.
+const migrationSql = migrationSources[0][1];
+for (const [, sql] of migrationSources) await db.exec(sql);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 const BASEBALLISM = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
@@ -262,11 +282,11 @@ await test('the ledger refuses a row whose windows reach past its cutoff', async
       (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
        method_version, candidate_spec, source_relation)
      values ($1,'Leaky','2026-09-01','Youth',30,10,'2026-09-01','2026-10-01',
              '2026-06-01','2026-10-01',1,'2025-06-01','2025-09-01',1,'2025-09-01',1,
-             1,1,0.6,1.8,false,'v','{}'::jsonb,'x')`, [SYNTH_CO])),
+             1,1,0.6,1.8,false,'2026-08-31','v','{}'::jsonb,'x')`, [SYNTH_CO])),
     /forecast_ledger_no_lookahead/, 'look-ahead window accepted by the table');
 });
 
@@ -443,10 +463,10 @@ await test('a duplicate identity is refused by the unique index, even for the se
       (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
        method_version, candidate_spec, source_relation)
      values ($1,$2,$3,$4,$5,999,$3,'2026-10-01','2026-06-01','2026-09-01',1,
-             '2025-06-01','2025-09-01',1,'2025-09-01',1,1,1,0.6,1.8,false,'v','{}'::jsonb,'x')`,
+             '2025-06-01','2025-09-01',1,'2025-09-01',1,1,1,0.6,1.8,false,($3::date - 1),'v','{}'::jsonb,'x')`,
     [row.company_entity_id, row.candidate_id, row.cutoff_date, row.sku_category, row.horizon_days])),
     /forecast_candidate_ledger_identity_uq|duplicate key/, 'duplicate cutoff accepted');
 });
@@ -535,11 +555,11 @@ await test('the TABLE refuses a post-hoc freeze, so no job can write one', async
       (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
        method_version, candidate_spec, source_relation, executed_at)
      values ($1,'PostHoc','2026-06-01','Youth',30,10,'2026-06-01','2026-07-01',
              '2026-03-01','2026-06-01',1,'2025-03-01','2025-06-01',1,'2025-06-01',1,
-             1,1,0.6,1.8,false,'v','{}'::jsonb,'x', '2026-09-17'::timestamptz)`, [BASEBALLISM])),
+             1,1,0.6,1.8,false,'2026-05-31','v','{}'::jsonb,'x', '2026-09-17'::timestamptz)`, [BASEBALLISM])),
     /forecast_ledger_frozen_before_outcome/, 'the table accepted a retrodiction');
 });
 
@@ -558,11 +578,11 @@ await test('a row frozen after its horizon is never scored, even if one exists',
       (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
        method_version, candidate_spec, source_relation, executed_at, max_issuance_lag_days)
      values ($1,'Candidate_YoY_Shift_v1','2026-06-01','Youth',30,100,'2026-06-01','2026-07-01',
              '2026-03-01','2026-06-01',1,'2025-03-01','2025-06-01',1,'2025-06-01',1,
-             1,1,0.6,1.8,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-09-17'::timestamptz,
+             1,1,0.6,1.8,false,'2026-05-31','yoy_shift_v1','{}'::jsonb,'x', '2026-09-17'::timestamptz,
              -- A deliberately huge issuance bound, so the LATE-issue gate does
              -- not fire and only the written-after-the-horizon rule can
              -- exclude this row. For a 30-day horizon the two overlap
@@ -705,10 +725,10 @@ await test('ledger RLS hides another company\'s rows and grants no client writes
        sku_category, horizon_days, forecast_qty, horizon_start_date, horizon_end_date,
        recent_window_start, recent_window_end, recent_demand, prior_window_start, prior_window_end,
        prior_demand, prior_year_target_month, prior_year_target_demand, raw_ratio, clamped_ratio,
-       ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, method_version, candidate_spec, source_relation)
+       ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date, method_version, candidate_spec, source_relation)
      values ('${BASEBALLISM}','Hand','2026-09-01','Youth',30,1,'2026-09-01','2026-10-01',
              '2026-06-01','2026-09-01',1,'2025-06-01','2025-09-01',1,'2025-09-01',1,1,1,0.6,1.8,
-             false,'v','{}'::jsonb,'x')`,
+             false,'2026-08-31','v','{}'::jsonb,'x')`,
   ]) {
     await refused(() => asRole('authenticated', planner, () => q(write)),
       /permission denied/, `a client could write to the ledger: ${write.slice(0, 40)}`);
@@ -765,14 +785,14 @@ await test('a MATURED late issue is excluded from the promotion gate, not just l
       (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
        method_version, candidate_spec, source_relation, executed_at)
       values ($1,'Candidate_YoY_Shift_v1',$2,'Youth',30,100,
               $2,($2::date + interval '1 month')::date,
               ($2::date - interval '3 months')::date, $2, 1,
               ($2::date - interval '15 months')::date, ($2::date - interval '12 months')::date, 1,
               ($2::date - interval '12 months')::date, 1,
-              1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'x',
+              1,1,0.60,1.80,false,($2::date - 1),'yoy_shift_v1','{}'::jsonb,'x',
               ($2::date + $3::integer)::timestamptz + interval '13 hours')`, [co, cut, lagDays]);
   }
   await sale(co, '2026-08-31', 'Youth', 0);
@@ -811,7 +831,7 @@ await test('an on-time, unmatured cycle is labelled PROSPECTIVE — NOT SCORED',
     (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
      horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
      prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-     raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+     raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
      method_version, candidate_spec, source_relation, executed_at)
     values ($1,'Candidate_YoY_Shift_v1','2026-09-01','Youth',30,100,'2026-09-01','2026-10-01',
             '2026-06-01','2026-09-01',1,'2025-06-01','2025-09-01',1,'2025-09-01',1,
@@ -820,7 +840,7 @@ await test('an on-time, unmatured cycle is labelled PROSPECTIVE — NOT SCORED',
             -- business-day lag is 2. A bare '2026-09-03' would be midnight
             -- UTC -- still the 2nd in Pacific -- and would quietly test a
             -- different day than the one the job actually runs on.
-            1,1,0.6,1.8,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-09-03 13:00:00+00'::timestamptz)`, [co]);
+            1,1,0.6,1.8,false,'2026-08-31','yoy_shift_v1','{}'::jsonb,'x', '2026-09-03 13:00:00+00'::timestamptz)`, [co]);
   const cycle = await asRole('authenticated', reader, () => first(
     `select status_label, actual_qty, cycle_wape, matured, scorable, issued_late, frozen_days_into_horizon
        from public.forecast_candidate_cycles($1, 'Youth')`, [co]));
@@ -867,14 +887,14 @@ async function gateScenario(name, cycles, { baselineWape = 0.50, portfolioWape =
       (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
        horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
        prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
        method_version, candidate_spec, source_relation, executed_at)
       values ($1,'Candidate_YoY_Shift_v1',$2,'Youth',30,$3,
               $2,($2::date + interval '1 month')::date,
               ($2::date - interval '3 months')::date, $2, 1,
               ($2::date - interval '15 months')::date, ($2::date - interval '12 months')::date, 1,
               ($2::date - interval '12 months')::date, 1,
-              1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'sales_monthly_product_type_rollup_mv',
+              1,1,0.60,1.80,false,($2::date - 1),'yoy_shift_v1','{}'::jsonb,'sales_monthly_product_type_rollup_mv',
               -- Frozen two days into its own horizon, like a real run. The
               -- default now() would be months after these cutoffs and the
               -- prospective CHECK would refuse it -- correctly.
@@ -1093,11 +1113,11 @@ await test('a cycle whose month has not finished syncing is not scored', async (
     (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
      horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
      prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
-     raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped,
+     raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
      method_version, candidate_spec, source_relation, executed_at)
     values ($1,'Candidate_YoY_Shift_v1','2026-03-01','Youth',30,100,'2026-03-01','2026-04-01',
             '2025-12-01','2026-03-01',1,'2024-12-01','2025-03-01',1,'2025-03-01',1,
-            1,1,0.60,1.80,false,'yoy_shift_v1','{}'::jsonb,'x', '2026-03-03'::timestamptz)`, [co]);
+            1,1,0.60,1.80,false,'2026-02-28','yoy_shift_v1','{}'::jsonb,'x', '2026-03-03'::timestamptz)`, [co]);
   // Coverage stops mid-March: the month is not complete.
   await sale(co, '2026-03-15', 'Youth', 0);
   await refresh();
@@ -1311,7 +1331,14 @@ await test('the migration re-applies over a populated database without damage', 
   // ON CONFLICT DO NOTHING, never DO UPDATE.
   await q("update public.forecast_model_baselines set wape = 0.9999 where company_entity_id = $1 and baseline_key = 'category'", [BASEBALLISM]);
 
+  // All three, in the order apply_all_post_merge.sql runs them. Re-applying
+  // only the first is not the operation anybody performs, and it leaves the
+  // schema in a state the repo never produces -- the writer restored to a
+  // version that predates a NOT NULL column, and the ledger view narrowed back
+  // under a report that reads its newer ones.
   await db.exec(migrationSql);
+  await db.exec(await readFile(new URL(MIGRATION_2, root), 'utf8'));
+  await db.exec(await readFile(new URL(MIGRATION_3, root), 'utf8'));
 
   const after = await first(`select
     (select count(*)::int from public.forecast_candidate_ledger) as ledger,
@@ -1352,17 +1379,18 @@ await test('the real verify_v2_schema.sql forecast checks all pass on a migrated
     await fresh.query('insert into public.entities (id, title) values ($1, $2)', [BASEBALLISM, 'Baseballism']);
     await fresh.exec(await readFile(new URL(MIGRATION, root), 'utf8'));
     await fresh.exec(await readFile(new URL(MIGRATION_2, root), 'utf8'));
+    await fresh.exec(await readFile(new URL(MIGRATION_3, root), 'utf8'));
 
     const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
     // splitSqlStatements returns { text, section, line } and strips comments;
     // the same splitter deployment-drift-check.yml uses to send this file to
     // production, so the statements executed here are the ones that run there.
     const checks = splitSqlStatements(verify)
-      .filter((stmt) => /'Forecast candidate[^']*' as check_name/.test(stmt.text));
-    assert.ok(checks.length >= 3, `expected the forecast checks to be found, got ${checks.length}`);
+      .filter((stmt) => /'Forecast[a-z]*[ ][^']*' as check_name/.test(stmt.text));
+    assert.ok(checks.length >= 6, `expected the forecast checks to be found, got ${checks.length}`);
 
     for (const stmt of checks) {
-      const name = (stmt.text.match(/'(Forecast candidate[^']*)' as check_name/) || [])[1];
+      const name = (stmt.text.match(/'(Forecast[a-z]*[ ][^']*)' as check_name/) || [])[1];
       let rows;
       try {
         rows = (await fresh.query(stmt.text)).rows;

@@ -35,6 +35,22 @@ create function public.is_exec_or_owner() returns boolean language sql stable se
   select exists (select 1 from public.profiles where id = auth.uid() and is_active
     and role::text in ('owner', 'executive'));
 $$;
+-- Production revokes anon EXECUTE on these two and leaves it on is_admin_user
+-- and stamp_company_entity_id (verified against pg_proc on 2026-09-18). Mirror
+-- it exactly. The default-privileges line above hands anon EXECUTE on every new
+-- function, which is the real Supabase behaviour and is why 20260917210000's
+-- "Definer functions reachable by anon" check exists -- but a fixture that is
+-- LOOSER than production makes that check report a violation this database does
+-- not have, which is the same way the one-row-per-month rollup hid a real one.
+-- `from public, anon` -- BOTH. Postgres grants EXECUTE to PUBLIC on every new
+-- function, so has_function_privilege('anon', ...) stays true after revoking
+-- from anon alone. Revoking only the role is the mistake that makes this look
+-- fixed while nothing changed.
+revoke execute on function public.active_company_id() from public, anon;
+revoke execute on function public.is_exec_or_owner() from public, anon;
+grant execute on function public.active_company_id() to authenticated, service_role;
+grant execute on function public.is_exec_or_owner() to authenticated, service_role;
+
 create function public.stamp_company_entity_id() returns trigger
   language plpgsql security definer set search_path = public as $$
 begin
@@ -64,16 +80,29 @@ create policy sales_by_day_select on public.sales_by_day
   for select to authenticated using (company_entity_id = public.active_company_id());
 create index sales_by_day_company_day_idx on public.sales_by_day (company_entity_id, day_date);
 
+-- GRAINED BY LOCATION, exactly as production is (verified against
+-- pg_get_viewdef on 2026-09-18). This fixture used to group by
+-- (company, month, product_type) alone -- one row per month -- and that single
+-- difference hid a defect that would have stopped the competition working at
+-- all: production's Youth carries 12 to 14 location rows in EVERY month, so any
+-- code counting raw rows as months sees 72 in a six-month window and discards
+-- it as incomplete. Every test passed over the one-row fixture.
+--
+-- The real matview also carries month_key, channel, rows, unique_skus and the
+-- money columns. Only the GRAIN is reproduced here, because the grain is what
+-- the forecast code reads and what it got wrong; adding the rest would be
+-- decoration. Do not collapse this back to one row per month.
 create materialized view public.sales_monthly_product_type_rollup_mv as
 select company_entity_id,
        date_trunc('month', day_date)::date as month_start,
+       location_tag as location,
        coalesce(nullif(product_type, ''), 'Uncategorized') as product_type,
        sum(coalesce(total_quantity_sold, 0))::numeric as units
 from public.sales_by_day
 where company_entity_id is not null
-group by 1, 2, 3;
+group by 1, 2, 3, 4;
 create unique index sales_monthly_rollup_mv_uq
-  on public.sales_monthly_product_type_rollup_mv (company_entity_id, month_start, product_type);
+  on public.sales_monthly_product_type_rollup_mv (company_entity_id, month_start, location, product_type);
 -- Mirror production's grants on the matview EXACTLY, verified against the live
 -- database on 2026-09-17: anon and authenticated cannot select it (a matview
 -- carries no RLS, so a grant there would hand every company's rows to every
@@ -83,12 +112,20 @@ create unique index sales_monthly_rollup_mv_uq
 revoke all on public.sales_monthly_product_type_rollup_mv from anon, authenticated;
 grant select on public.sales_monthly_product_type_rollup_mv to service_role;
 
+-- security_invoker = FALSE, mirroring production (verified 2026-09-17). This is
+-- not a detail: a matview carries no RLS and is granted to nobody, so an
+-- INVOKER view over one RAISES `42501: permission denied for materialized view`
+-- for every authenticated caller rather than returning fewer rows -- the
+-- failure is total, not partial. That is the demand_coverage_by_type_v bug, and
+-- a fixture that got this backwards would fail a report that works in
+-- production. The tenant filter in the body is what does the scoping.
 create view public.sales_monthly_product_type_rollup_v
-with (security_invoker = true) as
-select month_start, product_type, units
+with (security_invoker = false) as
+select month_start, location, product_type, units
 from public.sales_monthly_product_type_rollup_mv
 where company_entity_id = public.active_company_id();
-grant select on public.sales_monthly_product_type_rollup_v to authenticated;
+revoke all on public.sales_monthly_product_type_rollup_v from anon;
+grant select on public.sales_monthly_product_type_rollup_v to authenticated, service_role;
 
 -- ── Stand-ins for 20260917180000_product_type_profile.sql ────────────────────
 -- Only the shapes the classification reads. Deliberately added so the DB suite
@@ -128,3 +165,15 @@ create table public.sales_by_product_title_daily_mv (
   day_date date,
   units_sold numeric
 );
+-- The wrapper, mirroring production exactly (verified 2026-09-17): the tenant
+-- filter lives HERE and the view is security_invoker = FALSE, because the thing
+-- underneath is a matview and a matview carries no RLS. Getting this backwards
+-- in the fixture would make the Category Buy Forecast test pass over data the
+-- real report cannot see.
+create view public.sales_by_product_title_daily_v
+with (security_invoker = false) as
+select company_entity_id, product_type, product_title, day_date, units_sold
+from public.sales_by_product_title_daily_mv
+where company_entity_id = public.active_company_id();
+revoke all on public.sales_by_product_title_daily_v from anon;
+grant select on public.sales_by_product_title_daily_v to authenticated, service_role;

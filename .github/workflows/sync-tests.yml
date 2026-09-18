@@ -383,3 +383,15 @@ jobs:
       # cycles.
       - name: Execute demand candidate ledger, tenancy and promotion-gate regressions
         run: node scripts/tests/forecast-candidate-database.test.mjs
+
+      # The competition: several methods frozen side by side, and the SELECTION
+      # between them recorded before the cutoff it governs. The assertion that
+      # earns the job is that the table refuses a selection whose evidence
+      # reaches its own cutoff -- a pick that could have been made after seeing
+      # the result it justifies is indistinguishable from no pick at all, and
+      # the job writes with the service role, so only a CHECK can stop it. Also
+      # runs the whole Category Buy Forecast report as a signed-in user, which
+      # is what proves its forward columns read NULL rather than 0 before
+      # anything has matured.
+      - name: Execute forecast competition, selection and buy-report regressions
+        run: node scripts/tests/forecast-method-competition.test.mjs

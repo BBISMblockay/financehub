@@ -21,8 +21,14 @@ import {
   isMonthStart,
   plannedCutoffs,
   runForecastCandidate,
+  runMethodCompetition,
   formatSummary,
+  formatCompetitionSummary,
   blankSummary,
+  blankCompetitionSummary,
+  COMPETITION_METHODS,
+  COMPETITION_HORIZON_MONTHS,
+  COMPETITION_EVIDENCE_MONTHS,
   bindBacktestSql,
   FIRST_FROZEN_CUTOFF,
 } from '../lib/forecast-candidate-core.mjs';
@@ -359,6 +365,165 @@ test('binding refuses anything it cannot prove is a uuid or a month start', () =
   assert.throws(() => bindBacktestSql(TEMPLATE, { ...ok, from: '2026-08-01', to: '2026-03-01' }), /is before/);
   assert.throws(() => bindBacktestSql('', ok), /template is required/);
   assert.throws(() => bindBacktestSql(TEMPLATE, {}), /not a uuid/);
+});
+
+// ── The competition runner ──────────────────────────────────────────────────
+// The property worth a test here is the ORDER: the selection is recorded
+// before any method's forecast is frozen. Nothing in the database can tell the
+// two orderings apart -- the evidence CHECK passes either way -- so this is one
+// of the few guarantees that lives in the runner, and a test is the only thing
+// holding it.
+function fakeCompetitionClient({ maturedThrough = '2026-09-29', selected = 'run_rate_v1',
+                                 methodResponses = {} } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async rpc(fn, args) {
+      calls.push({ fn, args });
+      if (fn === 'forecast_actuals_matured_through') return { data: maturedThrough, error: null };
+      if (fn === 'select_forecast_method') {
+        if (selected instanceof Error) return { data: null, error: { message: selected.message } };
+        return { data: [{ selected_method: selected, evidence_from: '2025-03-01',
+                          evidence_to: '2026-08-31', windows: 13, wape: '0.389' }], error: null };
+      }
+      if (fn === 'record_forecast_method_run') {
+        const canned = methodResponses[args.p_method];
+        if (canned instanceof Error) return { data: null, error: { message: canned.message } };
+        return { data: [canned || { action: 'inserted', forecast_qty: '100',
+                                    ledger_id: `${args.p_method}-${args.p_cutoff_date}-${args.p_horizon_months}`,
+                                    reason: null }], error: null };
+      }
+      throw new Error(`unstubbed rpc ${fn}`);
+    },
+  };
+}
+
+await atest('the competition records the selection BEFORE freezing any method at that cutoff', async () => {
+  const client = fakeCompetitionClient();
+  await runMethodCompetition({
+    client, companyEntityId: 'co-1', skuCategory: 'Youth',
+    startCutoff: '2026-09-01', logger: quiet });
+
+  const ordered = client.calls
+    .filter((c) => c.fn === 'select_forecast_method' || c.fn === 'record_forecast_method_run')
+    .map((c) => `${c.fn}:${c.args.p_cutoff_date || c.args.p_effective_from_cutoff}:${c.args.p_horizon_months}`);
+  // One cutoff, two horizons: select 3m, three methods at 3m, select 6m, three
+  // methods at 6m. A selection appearing after its own horizon's forecasts
+  // would mean the pick was made in a run that had already seen them.
+  assert.deepEqual(ordered, [
+    'select_forecast_method:2026-09-01:3',
+    'record_forecast_method_run:2026-09-01:3',
+    'record_forecast_method_run:2026-09-01:3',
+    'record_forecast_method_run:2026-09-01:3',
+    'select_forecast_method:2026-09-01:6',
+    'record_forecast_method_run:2026-09-01:6',
+    'record_forecast_method_run:2026-09-01:6',
+    'record_forecast_method_run:2026-09-01:6',
+  ]);
+});
+
+await atest('the competition covers every method at every horizon, and marks the selected one', async () => {
+  const client = fakeCompetitionClient();
+  const { summary, results } = await runMethodCompetition({
+    client, companyEntityId: 'co-1', skuCategory: 'Youth',
+    startCutoff: '2026-09-01', logger: quiet });
+
+  assert.equal(summary.cutoffs, 1);
+  assert.equal(summary.selections_recorded, COMPETITION_HORIZON_MONTHS.length);
+  assert.equal(summary.inserted, COMPETITION_METHODS.length * COMPETITION_HORIZON_MONTHS.length);
+  assert.equal(summary.failed, 0);
+
+  for (const horizon of COMPETITION_HORIZON_MONTHS) {
+    const atHorizon = results.filter((r) => r.horizon === horizon && r.method);
+    assert.deepEqual(atHorizon.map((r) => r.method).sort(), [...COMPETITION_METHODS].sort());
+    assert.deepEqual(atHorizon.filter((r) => r.selected).map((r) => r.method), ['run_rate_v1']);
+  }
+  // The evidence window is fixed by the module, not by the caller, so a run
+  // cannot try several until a preferred method wins.
+  for (const call of client.calls.filter((c) => c.fn === 'select_forecast_method')) {
+    assert.equal(call.args.p_evidence_months, COMPETITION_EVIDENCE_MONTHS);
+  }
+});
+
+await atest('an unresolved selection still freezes every method', async () => {
+  // No method could be scored over the evidence window. Recording a pick anyway
+  // would be a guess; NOT freezing the forecasts would mean the evidence that
+  // would eventually allow a pick never accrues.
+  const client = fakeCompetitionClient({ selected: null });
+  const { summary } = await runMethodCompetition({
+    client, companyEntityId: 'co-1', skuCategory: 'New Line',
+    startCutoff: '2026-09-01', logger: quiet });
+  assert.equal(summary.selections_recorded, 0);
+  assert.equal(summary.selections_unresolved, COMPETITION_HORIZON_MONTHS.length);
+  assert.equal(summary.inserted, COMPETITION_METHODS.length * COMPETITION_HORIZON_MONTHS.length);
+  assert.equal(summary.failed, 0);
+});
+
+await atest('a failed selection does not cost the cutoff its forecasts', async () => {
+  const client = fakeCompetitionClient({ selected: new Error('scorer exploded') });
+  const { summary } = await runMethodCompetition({
+    client, companyEntityId: 'co-1', skuCategory: 'Youth',
+    startCutoff: '2026-09-01', logger: quiet });
+  assert.equal(summary.failed, COMPETITION_HORIZON_MONTHS.length, 'the selection failures are counted');
+  // A cutoff with forecasts and no selection is recoverable evidence; a cutoff
+  // with neither is a hole nothing can fill once it closes.
+  assert.equal(summary.inserted, COMPETITION_METHODS.length * COMPETITION_HORIZON_MONTHS.length);
+});
+
+await atest('one method failing does not cost the others', async () => {
+  const client = fakeCompetitionClient({
+    methodResponses: { seasonal_naive_v1: new Error('timeout') } });
+  const { summary, results } = await runMethodCompetition({
+    client, companyEntityId: 'co-1', skuCategory: 'Youth',
+    startCutoff: '2026-09-01', logger: quiet });
+  assert.equal(summary.failed, COMPETITION_HORIZON_MONTHS.length);
+  assert.equal(summary.inserted, 2 * COMPETITION_HORIZON_MONTHS.length);
+  assert.ok(results.some((r) => r.method === 'run_rate_v1' && r.action === 'inserted'));
+});
+
+await atest('an ineligible method is reported as not computable, never as a number', async () => {
+  const client = fakeCompetitionClient({
+    methodResponses: { blend_v1: { action: 'skipped', forecast_qty: null, ledger_id: null,
+                                   reason: 'blend needs both halves' } } });
+  const { summary, results } = await runMethodCompetition({
+    client, companyEntityId: 'co-1', skuCategory: 'Youth',
+    startCutoff: '2026-09-01', logger: quiet });
+  assert.equal(summary.skipped, COMPETITION_HORIZON_MONTHS.length);
+  assert.equal(summary.failed, 0);
+  for (const r of results.filter((x) => x.method === 'blend_v1')) {
+    assert.equal(r.action, 'skipped');
+    assert.equal(r.forecastQty, null);
+    assert.equal(r.ledgerId, null);
+  }
+});
+
+await atest('a dry run issues no writes at all', async () => {
+  const client = fakeCompetitionClient();
+  const { summary } = await runMethodCompetition({
+    client, companyEntityId: 'co-1', skuCategory: 'Youth',
+    startCutoff: '2026-09-01', dryRun: true, logger: quiet });
+  assert.deepEqual(client.calls.map((c) => c.fn), ['forecast_actuals_matured_through']);
+  assert.equal(summary.inserted, 0);
+  assert.equal(summary.selections_recorded, 0);
+});
+
+test('the competition refuses a run with no category, rather than defaulting to one', () => {
+  assert.rejects(() => runMethodCompetition({ client: fakeCompetitionClient(), companyEntityId: 'co-1', logger: quiet }),
+    /skuCategory is required/);
+  assert.rejects(() => runMethodCompetition({ client: fakeCompetitionClient(), skuCategory: 'Youth', logger: quiet }),
+    /companyEntityId is required/);
+});
+
+test('the competition summary names every outcome it counts', () => {
+  const blank = blankCompetitionSummary();
+  const line = formatCompetitionSummary(blank);
+  for (const key of ['cutoffs', 'selections', 'unresolved', 'inserted', 'deferred', 'expired', 'failed']) {
+    assert.ok(line.includes(key), `summary line should mention ${key}: ${line}`);
+  }
+  // "already frozen" pools existing and existing_voided; both must be visible
+  // in the count, because a voided row is still a row nothing will recompute.
+  assert.match(formatCompetitionSummary({ ...blank, existing: 2, existing_voided: 1 }),
+    /already frozen 3/);
 });
 
 // ── The shipped SQL file must survive chat_run_readonly_query's guard ───────

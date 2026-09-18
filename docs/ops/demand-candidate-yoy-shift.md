@@ -269,3 +269,61 @@ independently unreviewed.
   which the Shopify sync writes in business-day terms. It does not go through
   `silo_business_today()`. At the monthly grain this cannot change an answer,
   but a daily-grain candidate would need it.
+
+---
+
+## The competition (`20260918000000`, 2026-09-18)
+
+The ledger above proves ONE method. Three more now freeze beside it, and the
+choice between them is itself recorded before the cutoff it governs.
+
+**Measured on Baseballism's real 86-month Youth series**, 19 six-month windows
+from 2024-09 to 2026-08, scored by the shipped functions in a real Postgres:
+
+| Method | Windows | WAPE | Bias |
+|--------|---------|------|------|
+| `run_rate_v1` | 19 | 38.9% | −30.3% |
+| `blend_v1` | 19 | 52.3% | −52.3% |
+| `seasonal_naive_v1` | 19 | 74.2% | −74.2% |
+
+Every one of them under-forecasts, on every window — seasonal naive's bias
+equals its WAPE exactly, which is what a category growing this fast does to a
+method that assumes last year repeats. `Candidate_YoY_Shift_v1` does not appear:
+it is specified for a single month and is scored only at that horizon, because
+stretching it to six would be inventing a method nobody froze.
+
+These figures are pinned in `scripts/tests/forecast-method-competition.test.mjs`.
+They are **not** a claim that the run rate works. 38.9% over six months is wide,
+and it is a backtest — the same kind of number that read 20.2% over six cutoffs
+and 49.6% over the long run for the candidate above.
+
+### What is enforced, and what is only convention
+
+Enforced by the database, and a service-role job cannot dodge either:
+
+- `fms_evidence_precedes_cutoff` — a selection's evidence window must END before
+  the first cutoff it governs.
+- `forecast_ledger_inputs_precede_cutoff` — every frozen forecast, of every
+  method, must record the newest day of source data it read, and that day must
+  be before its own cutoff. This replaces a guarantee that used to key on
+  `Candidate_YoY_Shift_v1`'s own provenance columns — which became nullable so a
+  second method could be stored, and a CHECK passes trivially on NULL.
+- Append-only on both tables. A selection is superseded by recording a new one
+  for a later cutoff, never by editing.
+
+Convention, held only by the runner and one unit test:
+
+- **The selection is written before the forecasts.** Nothing in the database can
+  tell the two orderings apart, because the evidence window is bounded either
+  way. Reversed, the pick would be recorded in a run that had already seen every
+  method's number for the cutoff it governs.
+
+### Where it still cannot answer
+
+- Six or more matured forward cycles is the bar for the word "proven" in the buy
+  report. Nothing has reached it. The first 6-month freezes written on 2026-09-01
+  mature on 2027-03-01.
+- Youth has zero months in a stable regime, so no additional backward evidence is
+  available for it at any window length. Forward recording is the only source
+  left.
+- Stockouts are not modelled anywhere. Recorded sales are recorded sales.

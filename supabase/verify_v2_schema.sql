@@ -3894,6 +3894,92 @@ select 'Forecast functions carry no tenant-specific default' as check_name,
    then 'CRITICAL: a forecast function still defaults its product category to one tenant''s value'
  else 'ok' end as status;
 
+select 'Forecast method selections are prospective' as check_name,
+ case when to_regclass('public.forecast_method_selections') is null
+   then 'MISSING: forecast_method_selections; run 20260918000000_forecast_method_competition.sql'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.forecast_method_selections'))
+   then 'CRITICAL: forecast_method_selections RLS disabled'
+ -- THE constraint. A selection whose evidence reaches the cutoff it governs
+ -- could have been made after seeing the result it is used to justify, which is
+ -- indistinguishable from no record at all. The job writes with the service
+ -- role and bypasses RLS, so this has to be a CHECK.
+ when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.forecast_method_selections')
+   and conname='fms_evidence_precedes_cutoff' and convalidated)
+   then 'CRITICAL: the evidence-precedes-cutoff constraint is missing or NOT VALID'
+ -- Any row that slipped in before it existed.
+ when exists(select 1 from public.forecast_method_selections where evidence_to >= effective_from_cutoff)
+   then 'CRITICAL: a recorded selection was made from evidence reaching its own cutoff'
+ when not exists(select 1 from pg_trigger where tgrelid=to_regclass('public.forecast_method_selections')
+   and tgname='forecast_method_selections_append_only' and tgenabled<>'D')
+   then 'CRITICAL: the append-only trigger is missing or disabled; a recorded selection can be rewritten'
+ when not exists(select 1 from pg_class where relname='forecast_method_selections_identity_uq' and relkind='i')
+   then 'CRITICAL: the company/category/horizon/cutoff unique index is missing'
+ when has_table_privilege('authenticated','public.forecast_method_selections','INSERT')
+   or has_table_privilege('authenticated','public.forecast_method_selections','UPDATE')
+   or has_table_privilege('authenticated','public.forecast_method_selections','DELETE')
+   then 'CRITICAL: authenticated can write forecast_method_selections directly'
+ when has_table_privilege('anon','public.forecast_method_selections','SELECT')
+   then 'CRITICAL: anon can read forecast_method_selections'
+ else 'ok' end as status;
+
+select 'Forecast competition methods' as check_name,
+ case when to_regclass('public.forecast_method_selections') is null
+   then 'MISSING: forecast competition migration'
+ -- Every method must report the newest day it read, and the ledger must bind
+ -- it. The ORIGINAL no-look-ahead CHECK keys on Candidate_YoY_Shift_v1's own
+ -- provenance columns, which became nullable when the ledger was generalised --
+ -- and a CHECK passes trivially on NULL, so without this column the guarantee
+ -- would silently apply to one method out of four.
+ when not exists(select 1 from pg_attribute where attrelid=to_regclass('public.forecast_candidate_ledger')
+   and attname='inputs_through_date' and attnotnull and not attisdropped)
+   then 'CRITICAL: forecast_candidate_ledger.inputs_through_date is missing or nullable'
+ when not exists(select 1 from pg_constraint where conrelid=to_regclass('public.forecast_candidate_ledger')
+   and conname='forecast_ledger_inputs_precede_cutoff' and convalidated)
+   then 'CRITICAL: the generic inputs-precede-cutoff constraint is missing or NOT VALID'
+ when exists(select 1 from public.forecast_candidate_ledger where inputs_through_date >= cutoff_date)
+   then 'CRITICAL: a ledger row read source data at or after its own cutoff'
+ -- The scorer and the selector take an explicit company id and read that
+ -- company's sales. Inside a SECURITY DEFINER function there is no way to tell
+ -- a service-role caller from a user, so an authenticated grant on either is a
+ -- tenant leak. Users read the RESULT through forecast_method_selections, whose
+ -- RLS scopes it.
+ when to_regprocedure('public.score_forecast_methods(uuid,text,integer,date,date)') is null
+   then 'MISSING: score_forecast_methods'
+ when has_function_privilege('authenticated','public.score_forecast_methods(uuid,text,integer,date,date)','EXECUTE')
+   then 'CRITICAL: score_forecast_methods is callable by authenticated with any company id'
+ when to_regprocedure('public.select_forecast_method(uuid,text,integer,date,integer,text)') is null
+   then 'MISSING: select_forecast_method'
+ when has_function_privilege('authenticated','public.select_forecast_method(uuid,text,integer,date,integer,text)','EXECUTE')
+   then 'CRITICAL: select_forecast_method is callable by authenticated'
+ when to_regprocedure('public.record_forecast_method_run(uuid,date,text,text,integer,integer)') is null
+   then 'MISSING: record_forecast_method_run'
+ when has_function_privilege('authenticated','public.record_forecast_method_run(uuid,date,text,text,integer,integer)','EXECUTE')
+   then 'CRITICAL: record_forecast_method_run is callable by authenticated'
+ -- Each competing method exists and is service-role only.
+ when to_regprocedure('public.forecast_run_rate_v1(uuid,date,text,integer)') is null
+   or to_regprocedure('public.forecast_seasonal_naive_v1(uuid,date,text,integer)') is null
+   or to_regprocedure('public.forecast_blend_v1(uuid,date,text,integer)') is null
+   then 'MISSING: one of the competing method functions'
+ when has_function_privilege('authenticated','public.forecast_run_rate_v1(uuid,date,text,integer)','EXECUTE')
+   or has_function_privilege('authenticated','public.forecast_seasonal_naive_v1(uuid,date,text,integer)','EXECUTE')
+   or has_function_privilege('authenticated','public.forecast_blend_v1(uuid,date,text,integer)','EXECUTE')
+   then 'CRITICAL: a competing method function is callable by authenticated with any company id'
+ -- The buy report filters ledger rows on horizon_months, which only exists on
+ -- the view. A create-or-replace that drops it does not error -- it just makes
+ -- every category read "no forward record yet", which is the exact wrong answer
+ -- this column was added to prevent.
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='forecast_candidate_ledger_v' and column_name='horizon_months')
+   then 'CRITICAL: forecast_candidate_ledger_v has lost horizon_months; the buy report would report no forward record'
+ -- A learned-nothing guard, matching the one on card split rules: the
+ -- competition must never store a WEIGHT per category. Fixed weights are the
+ -- specification; a fitted one is the search this whole exercise rejected.
+ when exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='forecast_method_selections'
+   and column_name in ('weight','weights','blend_weight','tuned_parameters'))
+   then 'CRITICAL: forecast_method_selections has grown a fitted weight column'
+ else 'ok' end as status;
+
 -- ── Tenant boundary: SECURITY DEFINER reachability ──────────────────────────
 -- A SECURITY DEFINER function runs as its owner and therefore bypasses RLS
 -- completely. Its ONLY boundary is the EXECUTE grant -- and Supabase's default

@@ -1101,3 +1101,135 @@ company picker and login resolve memberships from it.
 Audit: `docs/ops/multi-tenant-audit-2026-09.md` (P0-5).
 Tests: `scripts/tests/tenant-boundary.test.mjs`, which pins the vulnerability
 *before* applying the migration so the fix assertion cannot pass vacuously.
+
+## Forecast method competition (`20260918000000`)
+
+*(Originally numbered `20260917200000`; renamed to avoid colliding with the
+same prefix in PR #722.)*
+
+`20260917140000` proves ONE method prospectively. This runs several against each
+other and — the part that matters — records **which one was chosen, before the
+cutoff it governs**.
+
+`forecast_method_selections` is that record: one row per
+(company, category, horizon, first cutoff it governs), carrying the evidence
+window the choice was made from and every method's score over it, not just the
+winner's. It is append-only, and
+
+```sql
+constraint fms_evidence_precedes_cutoff check (evidence_to < effective_from_cutoff)
+```
+
+is the whole point of the table. A competition where all four forecasts are
+frozen but the pick is not is unfalsifiable: any winner can be named afterwards
+and the ledger cannot contradict it. That is the exact failure mode a week of
+retrospective testing kept producing.
+
+The methods — `forecast_seasonal_naive_v1`, `forecast_run_rate_v1`,
+`forecast_blend_v1`, plus the existing `Candidate_YoY_Shift_v1` — share one
+signature and one return shape, so `forecast_for_method` dispatches on a name
+and a method added later is one branch. Their parameters (3-month recent window,
+12-month seasonal lookback, an even blend) are **conventional defaults fixed in
+advance, not values searched against this tenant's history**. Searching them is
+what produced a week of results that did not survive their own holdout.
+
+Four things worth knowing before changing any of it:
+
+- **The ledger's guarantee was generalised, not weakened.** Its provenance
+  columns (`recent_demand`, `raw_ratio`, …) are specific to
+  `Candidate_YoY_Shift_v1` and were `NOT NULL`, so no other method could be
+  stored. They are nullable now — and the old no-look-ahead CHECK keyed on them
+  would have passed **trivially on NULL**. So every method must record
+  `inputs_through_date`, `NOT NULL`, bound by
+  `forecast_ledger_inputs_precede_cutoff` to be strictly before its own cutoff.
+  Method-agnostic, and inherited by anything added later without anyone
+  remembering to.
+- **The selection is written BEFORE the forecasts, and only the runner enforces
+  that.** Nothing in the database can tell the two orderings apart — the
+  evidence CHECK passes either way. `runMethodCompetition` in
+  `scripts/lib/forecast-candidate-core.mjs` does it in that order and a unit
+  test pins the call sequence. That is one of the very few guarantees here that
+  is not a constraint.
+- **The scorer and selector are service-role only.** They take an explicit
+  company id and read that company's sales, and inside a SECURITY DEFINER
+  function there is no way to tell a service-role caller from a user — so an
+  `authenticated` grant would be a tenant leak dressed as a research tool. Users
+  read the *result* through `forecast_method_selections`, whose RLS scopes it.
+  `verify_v2_schema.sql` fails CRITICAL on either grant.
+- **The monthly rollup is grained by LOCATION, and counting its rows as months
+  is the mistake to make.** `sales_monthly_product_type_rollup_mv` is grouped by
+  `(company, month, location_tag, channel, product_type)` — measured on
+  production 2026-09-18, Youth carries 12 to 14 location rows in *every* month.
+  So anything asking "are all six months of this window present" must collapse
+  to one row per month first, or `count(distinct month_start)`. The shipped
+  `forecast_yoy_shift_v1` does this with its `visible` CTE, which is why it was
+  never affected; `score_forecast_methods` and the buy report did not, and would
+  have scored and selected **nothing at all** in production while every test
+  passed. The test fixture was one row per month and hid it. It now carries the
+  real grain, and `forecast-method-competition.test.mjs` has a three-location
+  regression category.
+- **`record_forecast_candidate_run` is re-copied here from `20260917180000`.**
+  `inputs_through_date` is `NOT NULL` and that function did not know about it, so
+  without the copy the existing monthly job would have started failing on its
+  next run, in production, silently until somebody read the Actions log. Copied
+  from the *second* migration, not the first: the second dropped and recreated it
+  to remove a tenant-specific default, and a create-or-replace cannot remove a
+  default but can add one back. Both were caught by the test suite, not by
+  reading.
+
+The buy report (`scripts/sql/category_buy_forecast.sql`, saved report
+`1143dcd9-f2f1-4165-a299-ec21952aa465`) reads the ledger for its `fwd_*` columns.
+**Every one of them belongs to the method of the figure beside it**, joined on
+that method — never pooled across a category. Two earlier versions of that block
+were wrong in the same direction and are worth not repeating:
+
+1. Pooling every frozen forecast the *selection* had named, discarding which
+   method made each one. That measures how the selection procedure has
+   performed — a real question, but not this one.
+2. Comparing the displayed method to the *current* selection before allowing a
+   proven status. That does not close it: six accurate `seasonal_naive_v1`
+   cycles, then a switch to the run rate, and the displayed method and the
+   current selection agree while the evidence belongs to neither.
+
+A forward record can only belong to the method it measured. `governing_method`
+is surfaced separately, because it says what the next cutoff will freeze, not
+what the numbers on the row mean. Until cycles mature the `fwd_` columns are
+**NULL, never 0**, and the record line names the method so "no record" is never
+read as "no record of anything".
+
+**The report's own arithmetic must equal the method it names.** Two errors found
+on 2026-09-18, both by tracing the report's formulas against the shipped
+functions rather than reading either alone:
+
+- The live blend's seasonal term read `cum(nl-11+h) - cum(nl-11)` — one month
+  late at both ends. With August complete and a six-month window that sums
+  October–March where `forecast_blend_v1` sums September–February, so the figure
+  displayed was a different calculation from the method whose forward record sat
+  beside it. Correct endpoints: `cum(nl-12+h) - cum(nl-12)`. Note the BACKTEST's
+  seasonal term was always right — the two disagreed with each other, which is
+  the tell.
+- The backtest's recent-velocity term read `cum(n) - cum(n-4)`, four months over
+  three, **including month `n` — the first month of its own outcome**. Every
+  error column the report publishes was computed by a forecast that had seen
+  part of what it was scored against. On a flat 100-a-month history it inflated
+  a 600-unit forecast to 700 and published 16.7% WAPE where the specified method
+  scores 0%. Correct: `cum(n-1) - cum(n-4)`.
+
+Both halves are now floored at zero and rounded the way the governed functions
+round, and `forecast-method-competition.test.mjs` holds the report to an
+EQUALITY against `forecast_blend_v1` / `forecast_run_rate_v1` on a seasonal
+fixture, plus a flat-history zero-error check and a spike that a forecast issued
+before it must under-call. Anything added to this report's formulas belongs in
+that equality test.
+
+`select_forecast_method` reads any already-frozen selection for its exact key
+**before** scoring anything, and returns it. A selection is append-only, so
+nothing computed afterwards can change it — and reaching for the scorer first
+was a defect in its own right: a late deletion or source gap leaves today's
+scores empty, and the empty-score path returned NULL and logged "NO SELECTION"
+while the durable selection sat in the table. Reading first also makes a re-run
+free.
+
+Tests: `scripts/tests/forecast-method-competition.test.mjs` (real PostgreSQL via
+PGlite, thirteen mutations, including the whole buy report run as a signed-in
+user and held to an equality against the governed formulas).
