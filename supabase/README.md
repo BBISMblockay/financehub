@@ -1272,7 +1272,9 @@ plus a test.
 
 Also: `company_settings.default_currency` (declared) is reconciled against
 `accounting_settings.base_currency` (measured from QuickBooks' trial balance) by
-a trigger that raises on divergence — the row cannot merge into
+a trigger on **each** table that raises on divergence — one side alone is not an
+invariant, since a trigger on `accounting_settings` never fires when only
+`company_settings` is edited — the row cannot merge into
 `accounting_settings`, whose `qbo_connection_id` is NOT NULL. And
 `create_entity_with_owner` is dropped: it inserted membership role `'owner'`,
 which the CHECK has forbidden since the multi-tenant work, so every call failed
@@ -1283,3 +1285,34 @@ Tests: `scripts/tests/company-onboarding-database.test.mjs` (real PostgreSQL via
 PGlite, 34 assertions, four mutations), which also executes the four new
 `verify_v2_schema.sql` checks and then breaks each guard to confirm they can go
 red.
+
+
+### Cycle-1 review corrections (PR #724)
+
+Five findings, all valid, all fixed in one batch. Three are worth carrying
+forward as rules rather than as changelog:
+
+- **Founding must not write the global profile fields for a user who already
+  belongs to another org.** `profiles.role`/`department` are the legacy GLOBAL
+  fields, and `can_manage_journal_entries()` admits
+  `p.department in ('finance','exec')` on its own — no membership check. So
+  `department = 'exec'` written while founding company B is journal-entry
+  authority inside company A. `accept_org_invite` already had the guard
+  (`v_has_other_org`); this now matches it. Per-company authority comes from
+  the membership row.
+- **`create or replace` RETAINS existing grants.** Production grants `anon`
+  EXECUTE on `silo_business_today()`/`_yesterday()`. Marking them SECURITY
+  DEFINER would therefore have created two anon-reachable definer functions —
+  and this migration's own new "Definer functions reachable by anon" check
+  would have gone CRITICAL the moment it was applied. They stay INVOKER (only
+  `silo_business_timezone()` needs definer rights) and lose the anon grant.
+- **A fixture looser than production reports violations the database does not
+  have.** `onboarding-db-bootstrap.sql` now mirrors production's real anon
+  grants: kept on `can_manage_journal_entries` / `handle_new_user` /
+  `is_entity_member` (all allowlisted), revoked on `active_company_id` /
+  `is_exec_or_owner` / `set_active_company`. Same correction `20260918000000`'s
+  fixture needed.
+
+The two browser-side findings — `supabase-js` resolving `{ data: null, error }`
+rather than throwing, and the emailed auth callbacks dropping `next` — are
+covered by `v2/tests/unit/onboarding-callbacks.test.js`.

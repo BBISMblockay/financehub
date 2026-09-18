@@ -111,22 +111,35 @@
 
   // A failed probe is reported as UNKNOWN, never as "not done". A permission
   // error and an absent integration are different facts, and a checklist that
-  // renders one as the other sends someone to reconnect something that is fine.
+  // renders one as the other sends someone to reconnect something that works.
+  //
+  // `must()` is what makes that true rather than merely intended. supabase-js
+  // does NOT throw on a failed request: it RESOLVES with `{ data: null, error }`.
+  // So `(await db.from(...)).data || []` swallowed every error into an empty
+  // array, and a permission failure on shopify_connections rendered as "no store
+  // connected" -- a confident claim, and a false one, in the exact place this
+  // page promises not to make one. try/catch alone never saw it, because nothing
+  // was ever thrown. Unwrap through must() and the UNKNOWN path is reachable.
+  const must = (res) => {
+    if (res?.error) throw res.error;
+    return res?.data;
+  };
+
   async function probe(fn) {
     try { return { ok: true, value: await fn() }; }
     catch (e) { return { ok: false, error: e?.message || String(e) }; }
   }
 
   const [members, invites, shopify, qbo, syncs, settings] = await Promise.all([
-    probe(async () => (await db.from('entity_memberships').select('user_id').eq('entity_id', co.id)).data || []),
-    probe(async () => (await db.rpc('list_org_invites')).data || []),
-    probe(async () => (await q('shopify_connections', 'id, shop_domain, is_active')).data || []),
-    probe(async () => (await q('quickbooks_connections', 'id, company_name, is_active')).data || []),
-    probe(async () => (await db.from('sync_jobs').select('job_type, status, finished_at')
+    probe(async () => must(await db.from('entity_memberships').select('user_id').eq('entity_id', co.id)) || []),
+    probe(async () => must(await db.rpc('list_org_invites')) || []),
+    probe(async () => must(await q('shopify_connections', 'id, shop_domain, is_active')) || []),
+    probe(async () => must(await q('quickbooks_connections', 'id, company_name, is_active')) || []),
+    probe(async () => must(await db.from('sync_jobs').select('job_type, status, finished_at')
                               .eq('company_entity_id', co.id).order('created_at', { ascending: false })
-                              .limit(50)).data || []),
-    probe(async () => (await db.from('company_settings').select('business_timezone, default_currency')
-                              .eq('company_entity_id', co.id).maybeSingle()).data || null),
+                              .limit(50)) || []),
+    probe(async () => must(await db.from('company_settings').select('business_timezone, default_currency')
+                              .eq('company_entity_id', co.id).maybeSingle()) || null),
   ]);
 
   const teamCount = members.ok ? members.value.length : null;
@@ -235,8 +248,11 @@
   // ── The empty state, said once and plainly ───────────────────────────────
   // A brand-new company has real pages full of nothing, and "0" is the most
   // misleading thing SILO could print there. Name which pages, and why.
-  const noShopify = !shopifyRows || !shopifyRows.filter(r => r.is_active !== false).length;
-  const noSync = !okSyncs || !okSyncs.length;
+  // Only speak about absence when the probe actually SUCCEEDED. `shopifyRows`
+  // is null when the read failed, and "we could not check" must not print as
+  // "you have no store" here any more than it does in the step rows above.
+  const noShopify = shopify.ok && !shopifyRows.filter(r => r.is_active !== false).length;
+  const noSync = syncs.ok && !okSyncs.length;
   if (noShopify || noSync) {
     const parts = [];
     if (noShopify) {

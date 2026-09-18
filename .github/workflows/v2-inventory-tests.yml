@@ -4,6 +4,9 @@ name: v2 page tests
 #   inventory-signals.js     what the inventory page claims about stock
 #   daily-trend-kpis.js      what the daily trend page's headline cards claim
 #   transaction-filters.js   which transactions a filter position selects
+#   onboarding-callbacks     that setup-checklist distinguishes "could not
+#                            check" from "not done", and that login's emailed
+#                            callbacks carry the destination through
 #
 # Plus two browser suites over the Accounting Suite: transactions-filters
 # drives the real register (merchant blanks, split-account matching, chips and
@@ -32,6 +35,11 @@ on:
       - 'v2/*.js'
       - 'v2/*.css'
       - 'v2/tests/**'
+      # onboarding-callbacks.test.js reads pages/login.html: it guards that the
+      # emailed auth callbacks keep carrying `next` (a company-creation invite
+      # lives inside it). Without this path a login-only change runs nothing,
+      # and the suite guarding it would be silent exactly when it mattered.
+      - 'pages/login.html'
       - '.github/workflows/v2-inventory-tests.yml'
   pull_request:
     paths:
@@ -39,6 +47,11 @@ on:
       - 'v2/*.js'
       - 'v2/*.css'
       - 'v2/tests/**'
+      # onboarding-callbacks.test.js reads pages/login.html: it guards that the
+      # emailed auth callbacks keep carrying `next` (a company-creation invite
+      # lives inside it). Without this path a login-only change runs nothing,
+      # and the suite guarding it would be silent exactly when it mattered.
+      - 'pages/login.html'
       - '.github/workflows/v2-inventory-tests.yml'
   workflow_dispatch:
 

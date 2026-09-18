@@ -127,6 +127,31 @@ set search_path to 'public' as $$
           end);
 $$;
 
+-- Production's body verbatim (supabase/migrations/20260831180000_card_coding.sql).
+-- It is in the fixture because finding 1 of the cycle-1 review turns on its
+-- LAST clause: `or p.department in ('finance','exec')` admits on the GLOBAL
+-- profile department alone, with no reference to the active company's
+-- membership. That is what made writing department='exec' during company
+-- founding an escalation inside every OTHER company the user belongs to.
+create function public.can_manage_journal_entries() returns boolean
+language sql stable security definer set search_path to 'public' as $$
+  select exists (
+    select 1
+    from public.profiles p
+    left join public.entity_memberships em
+      on em.user_id = p.id and em.entity_id = p.active_company_id
+    where p.id = auth.uid()
+      and p.is_active = true
+      and (
+        case when em.role is not null
+             then em.role = 'owner_admin'
+             else p.role::text = 'owner'
+        end
+        or p.department in ('finance','exec')
+      )
+  );
+$$;
+
 -- The dead function this migration drops, reproduced exactly as production
 -- holds it (role 'owner', which the CHECK above forbids) so the test can prove
 -- both that it was broken and that it is gone.
@@ -181,6 +206,18 @@ $$;
 alter table auth.users add column raw_user_meta_data jsonb default '{}'::jsonb;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Mirror production's anon grants EXACTLY (measured 2026-09-18 via
+-- has_function_privilege). The fixture's `alter default privileges` above
+-- reproduces Supabase's habit of granting EXECUTE to anon on every new
+-- function, which is the hazard under test -- but production has since revoked
+-- three of these, and a fixture LOOSER than production reports violations the
+-- database does not have. Production keeps anon on can_manage_journal_entries,
+-- handle_new_user and is_entity_member (all three are on the reviewed allowlist
+-- in verify_v2_schema.sql) and revokes it on the three below.
+revoke execute on function public.active_company_id() from public, anon;
+revoke execute on function public.is_exec_or_owner() from public, anon;
+revoke execute on function public.set_active_company(uuid) from public, anon;
 
 -- Pacific-anchored helpers as 20260904280000 left them, so the test can show
 -- the company-aware versions replacing them without changing Pacific's answer.

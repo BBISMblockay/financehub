@@ -408,6 +408,7 @@ declare
   v_key      text;
   v_entity   uuid;
   v_supported boolean;
+  v_has_other_org boolean;
 begin
   if auth.uid() is null then
     raise exception 'not authenticated';
@@ -504,11 +505,35 @@ begin
     returning id into v_entity;
   end;
 
+  -- Does this user already belong to some OTHER company? Asked before the new
+  -- membership is inserted, so any row here is another org.
+  select exists (
+    select 1 from public.entity_memberships em where em.user_id = auth.uid()
+  ) into v_has_other_org;
+
+  -- `profiles.role` and `profiles.department` are the LEGACY GLOBAL fields --
+  -- they are not per-company, and several gates still read them directly.
+  -- `can_manage_journal_entries()` admits `p.department in ('finance','exec')`
+  -- on its own, independently of membership role, and the comp-request gate
+  -- carries the same branch. So writing `department = 'exec'` here for a user
+  -- who is a member or viewer of company A would hand them journal-entry
+  -- authority in A -- granted by founding B, which A never agreed to. The
+  -- unconditional `role = 'owner'` is the same hazard pointing the other way:
+  -- it would DEMOTE an existing `executive`.
+  --
+  -- The convention already exists and is documented in CLAUDE.md: invites and
+  -- backend role grants "only touch the global profile role/department when the
+  -- user belongs to no other org", which is exactly what `accept_org_invite`
+  -- does with this same flag. Founding a company is no different, and this
+  -- missed it. Authority over the NEW company comes from the `owner_admin`
+  -- membership below, which is per-company and sufficient.
   insert into public.profiles (id, email, name, role, department, is_active, active_company_id)
   values (auth.uid(), v_email, v_name, 'owner'::app_role, 'exec', true, v_entity)
   on conflict (id) do update
-    set role = excluded.role,
-        department = coalesce(profiles.department, excluded.department),
+    set role = case when v_has_other_org then profiles.role
+                    else excluded.role end,
+        department = case when v_has_other_org then profiles.department
+                          else coalesce(profiles.department, excluded.department) end,
         is_active = true,
         active_company_id = excluded.active_company_id,
         updated_at = now();
@@ -639,15 +664,35 @@ comment on function public.silo_business_timezone() is
 revoke execute on function public.silo_business_timezone() from public, anon;
 grant execute on function public.silo_business_timezone() to authenticated, service_role;
 
+-- These two stay SECURITY INVOKER, exactly as 20260904280000 left them. Only
+-- `silo_business_timezone()` above needs definer rights (it reads
+-- company_settings); a plain invoker function calling it is fine.
+--
+-- Getting this wrong is not theoretical: `create or replace` RETAINS existing
+-- grants, and production grants anon EXECUTE on both (measured 2026-09-18,
+-- `prosecdef = false`, anon `can_exec = true`). An earlier version of this
+-- migration marked them `security definer`, which would have produced two
+-- SECURITY DEFINER functions reachable by anon -- and this migration's OWN new
+-- "Definer functions reachable by anon" check would then have reported CRITICAL
+-- the moment it was applied.
+--
+-- The anon grant is revoked as well. Nothing anonymous calls a business-day
+-- helper: every caller is an authenticated report, a service-role sync, or a
+-- seeded `system` report running through chat_run_readonly_query as the caller.
+-- Leaving it would also break them for anon anyway, since silo_business_timezone()
+-- is revoked from anon.
 create or replace function public.silo_business_today()
-returns date language sql stable security definer set search_path = public, pg_temp as $$
+returns date language sql stable set search_path = public, pg_temp as $$
   select (now() at time zone public.silo_business_timezone())::date
 $$;
 
 create or replace function public.silo_business_yesterday()
-returns date language sql stable security definer set search_path = public, pg_temp as $$
+returns date language sql stable set search_path = public, pg_temp as $$
   select (now() at time zone public.silo_business_timezone())::date - 1
 $$;
+
+revoke execute on function public.silo_business_today() from public, anon;
+revoke execute on function public.silo_business_yesterday() from public, anon;
 
 comment on function public.silo_business_today() is
   'Today in the ACTIVE COMPANY''S business timezone, not UTC. current_date is UTC and runs a day ahead from 17:00 Pacific, which would make a dashboard call a partial day "yesterday" every evening. Reads company_settings since 20260918120000; falls back to Pacific with no active company.';
@@ -663,8 +708,24 @@ grant execute on function public.silo_business_yesterday() to authenticated, ser
 -- refuses a base_currency that contradicts what the company declared. This
 -- catches every writer of that column, present and future, instead of one.
 
+-- Both currency guards are SECURITY DEFINER, and that is load-bearing rather
+-- than incidental: each one reads the OTHER table to decide whether to raise,
+-- so as INVOKER each would depend on the writer's RLS admitting them there.
+-- `accounting_settings` is readable only by `can_manage_journal_entries() OR
+-- is_exec_or_owner()`. An `owner_admin` passes that today, so the guard works
+-- today -- but a guard that silently stops guarding if an unrelated policy
+-- narrows is not a guard. Same reasoning as `is_employee_manager()` and
+-- `employee_has_open_comp_request()`: bypass RLS to ANSWER A QUESTION, grant
+-- nothing. Neither function runs dynamic SQL; each reads one column and either
+-- raises or returns.
+--
+-- EXECUTE is revoked from public/anon on both. PostgreSQL checks EXECUTE on a
+-- trigger function when the TRIGGER IS CREATED, not each time it fires, so the
+-- revoke does not stop them firing -- asserted in the regression suite rather
+-- than assumed, because "the trigger silently stopped running" is the failure
+-- that would make every currency test pass while protecting nothing.
 create or replace function public.check_accounting_currency_matches_declared()
-returns trigger language plpgsql set search_path = public, pg_temp as $$
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_declared text;
 begin
   select default_currency into v_declared
@@ -684,6 +745,38 @@ drop trigger if exists trg_accounting_currency_matches_declared on public.accoun
 create trigger trg_accounting_currency_matches_declared
   before insert or update of base_currency on public.accounting_settings
   for each row execute function public.check_accounting_currency_matches_declared();
+
+-- ...and the same guard from the OTHER side. The trigger above only fires when
+-- `accounting_settings` is written, so once books are seeded in USD an owner
+-- could edit `company_settings.default_currency` to CAD and nothing would run:
+-- the settings page and the checklist would then say CAD while the ledger said
+-- USD, which is precisely the two-definitions-of-one-number state the pair
+-- exists to prevent. A one-sided invariant is not an invariant.
+create or replace function public.check_declared_currency_matches_books()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_booked text;
+begin
+  if new.default_currency is distinct from old.default_currency then
+    select base_currency into v_booked
+      from public.accounting_settings where company_entity_id = new.company_entity_id;
+
+    if v_booked is not null and upper(v_booked) <> upper(new.default_currency) then
+      raise exception
+        'This company''s books are already seeded in % from QuickBooks, so its reporting currency cannot be changed to %. Connect the QuickBooks realm that reports in %, or re-seed the books -- SILO will not carry two currencies for one company.',
+        upper(v_booked), upper(new.default_currency), upper(new.default_currency);
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_declared_currency_matches_books on public.company_settings;
+create trigger trg_declared_currency_matches_books
+  before update of default_currency on public.company_settings
+  for each row execute function public.check_declared_currency_matches_books();
+
+revoke execute on function public.check_accounting_currency_matches_declared() from public, anon;
+revoke execute on function public.check_declared_currency_matches_books() from public, anon;
 
 -- ── Ask SILO usage, attributed per company from day one ─────────────────────
 -- silo_chat_audit_log already carries company_entity_id, and the edge function

@@ -465,6 +465,29 @@
       // user's own `default_page` preference — both are just strings by the
       // time they reach here, so neither gets to become an open redirect or
       // a login loop.
+      // Every emailed auth callback comes back to THIS page, so whatever the
+      // user was heading for has to survive the round trip. The org-invite
+      // token did; `next` did not -- and a company-creation invite lives
+      // INSIDE `next` (/v2/company-onboarding.html?invite=TOKEN), so a founder
+      // who confirmed their email landed on a bare login page, with no
+      // membership and no destination, and hit the "isn't part of an
+      // organization" stop instead of the company creation they were invited
+      // to. Reopening the original link recovered it, but the signup path the
+      // invite advertises was broken.
+      //
+      // safeNextPath() has already rejected anything that is not a same-origin
+      // path, so this cannot become an open redirect.
+      function authCallbackUrl() {
+        const base = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams();
+        const invite = getInviteToken();
+        if (invite) params.set("invite", invite);
+        const next = safeNextPath();
+        if (next) params.set("next", next);
+        const qs = params.toString();
+        return qs ? base + "?" + qs : base;
+      }
+
       function isSafeInternalPath(raw) {
         if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return false;
         if (raw.startsWith("/pages/login")) return false;
@@ -771,7 +794,7 @@
 
         setLoading(btnMagic, true, "Email me a sign-in link");
         try {
-          const redirectTo = window.location.origin + window.location.pathname;
+          const redirectTo = authCallbackUrl();
 
           const { error } = await supabaseClient.auth.signInWithOtp({
             email,
@@ -803,10 +826,9 @@
 
         setLoading(btnSignup, true, "Create account");
         try {
-          // Carry the invite through the email-confirmation hop so the
-          // token is still there when the user lands back on this page.
-          const redirectTo = window.location.origin + window.location.pathname +
-            (invited ? "?invite=" + encodeURIComponent(getInviteToken()) : "");
+          // Carry the invite AND the destination through the email-confirmation
+          // hop, so both are still there when the user lands back on this page.
+          const redirectTo = authCallbackUrl();
 
           const { data, error } = await supabaseClient.auth.signUp({
             email,
@@ -870,7 +892,7 @@
         if (!email) return showStatus("Enter your email in the Email field first.", "error");
 
         try {
-          const redirectTo = window.location.origin + window.location.pathname;
+          const redirectTo = authCallbackUrl();
           const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
           if (error) throw error;
           showStatus("Password reset email sent.", "success");

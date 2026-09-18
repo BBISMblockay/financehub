@@ -26,6 +26,10 @@
 //   ONBOARDING_MUTATION=retry-creates-new   (redeem ignores an accepted invite)
 //   ONBOARDING_MUTATION=tz-anything-goes    (the timezone allowlist is skipped)
 //   ONBOARDING_MUTATION=invite-any-admin    (is_admin() mints platform invites)
+// Added after the cycle-1 review:
+//   ONBOARDING_MUTATION=founding-rewrites-global-role (the has-other-org guard removed)
+//   ONBOARDING_MUTATION=currency-one-sided  (the company_settings side of the guard removed)
+//   ONBOARDING_MUTATION=helpers-definer     (the date helpers made SECURITY DEFINER again)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -35,7 +39,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.ONBOARDING_MUTATION || '';
-assert.ok(['', 'signup-founds-org', 'retry-creates-new', 'tz-anything-goes', 'invite-any-admin'].includes(mutation),
+assert.ok(['', 'signup-founds-org', 'retry-creates-new', 'tz-anything-goes', 'invite-any-admin',
+  'founding-rewrites-global-role', 'currency-one-sided', 'helpers-definer'].includes(mutation),
   `Unknown onboarding mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -63,19 +68,25 @@ const blake = randomUUID();          // platform admin, owner of the incumbent
 const bbismAdmin = randomUUID();     // ordinary admin of the incumbent
 const founder = randomUUID();        // the prospect being onboarded
 const stranger = randomUUID();       // signs up with no invite at all
+const dualUser = randomUUID();       // a MEMBER of the incumbent who later founds their own company
 const bbism = randomUUID();          // the incumbent company
 
 await db.exec(await readFile(new URL('./onboarding-db-bootstrap.sql', import.meta.url), 'utf8'));
 
 // The incumbent tenant, as it stands before any of this runs.
-await q(`insert into auth.users(id,email) values ($1,'blake@baseballism.com'),($2,'admin@baseballism.com')`,
-  [blake, bbismAdmin]);
+await q(`insert into auth.users(id,email) values ($1,'blake@baseballism.com'),($2,'admin@baseballism.com'),($3,'dual@baseballism.com')`,
+  [blake, bbismAdmin, dualUser]);
 await q(`insert into public.entities(id,module,entity_type,entity_key,source,title)
          values ($1,'finance_hub','company','baseballism','seed','Baseballism')`, [bbism]);
 await q(`update public.profiles set role='owner', department='exec', active_company_id=$2 where id=$1`, [blake, bbism]);
 await q(`update public.profiles set role='admin', department='finance', active_company_id=$2 where id=$1`, [bbismAdmin, bbism]);
 await q(`insert into public.entity_memberships(entity_id,user_id,role)
-         values ($1,$2,'owner_admin'),($1,$3,'admin')`, [bbism, blake, bbismAdmin]);
+         values ($1,$2,'owner_admin'),($1,$3,'admin'),($1,$4,'member')`,
+  [bbism, blake, bbismAdmin, dualUser]);
+// A plain member of the incumbent, department NULL and role 'user' -- the exact
+// profile shape the review's finding 1 turns on.
+await q(`update public.profiles set role='user', department=null, active_company_id=$2 where id=$1`,
+  [dualUser, bbism]);
 await q(`insert into public.silo_chat_audit_log(company_entity_id,created_by,question,status,tool_rounds)
          values ($1,$2,'How did we do yesterday?','ok',3),
                 ($1,$2,'And the week?','error',1)`, [bbism, blake]);
@@ -126,6 +137,32 @@ if (mutation === 'tz-anything-goes') {
   // and let the FK accept it, so the mutation reaches the assertion
   sql = sql.replace('business_timezone text not null references public.supported_business_timezones(tz_name),',
                     'business_timezone text not null,');
+}
+if (mutation === 'founding-rewrites-global-role') {
+  // Restore the unconditional global overwrite the review found.
+  sql = sql.replace(/set role = case when v_has_other_org then profiles\.role\s*\n\s*else excluded\.role end,/,
+                    () => 'set role = excluded.role,');
+  sql = sql.replace(/department = case when v_has_other_org then profiles\.department\s*\n\s*else coalesce\(profiles\.department, excluded\.department\) end,/,
+                    () => 'department = coalesce(profiles.department, excluded.department),');
+}
+if (mutation === 'currency-one-sided') {
+  // Neutralise the company_settings side of the guard, leaving the
+  // accounting_settings side intact -- i.e. restore the one-sided invariant.
+  // WHEN belongs after FOR EACH ROW; putting it after the ON clause only breaks
+  // the SQL, which would "fail" the suite while proving nothing.
+  sql = sql.replace(
+    'for each row execute function public.check_declared_currency_matches_books();',
+    'for each row when (false) execute function public.check_declared_currency_matches_books();');
+}
+if (mutation === 'helpers-definer') {
+  // Mark the date helpers SECURITY DEFINER again and drop the anon revokes --
+  // the exact state the review found. Replacer FUNCTIONS, not strings: `$$` in
+  // a replacement string is an escape for a literal `$`, which silently
+  // corrupts dollar-quoted bodies.
+  sql = sql.replace(/returns date language sql stable set search_path/g,
+                    () => 'returns date language sql stable security definer set search_path');
+  sql = sql.replace('revoke execute on function public.silo_business_today() from public, anon;\nrevoke execute on function public.silo_business_yesterday() from public, anon;',
+                    () => '');
 }
 if (mutation === 'retry-creates-new') {
   sql = sql.replace("if v_invite.status = 'accepted' then", 'if false then');
@@ -306,6 +343,56 @@ await test('a retry naming a DIFFERENT company still returns the original', asyn
     'a consumed invite cannot be re-aimed at a new company');
 });
 
+// ── Finding 1 (cycle-1 review): founding must not change authority elsewhere ─
+await test('founding a company grants NOTHING in the companies you already belong to', async () => {
+  // Before: a plain member of the incumbent, no department, no journal rights.
+  const before = await as(dualUser, async () => ({
+    je: await rpc('can_manage_journal_entries', []),
+    exec: await rpc('is_exec_or_owner', []),
+    admin: await rpc('is_admin', []),
+  }));
+  assert.deepEqual(before, { je: false, exec: false, admin: false },
+    'a member of the incumbent starts with none of these');
+
+  // They are legitimately invited to found their OWN company, and do.
+  const inv = await as(blake, () => rpc('create_platform_invite', ['dual@baseballism.com', 'Dual Co']));
+  const own = await as(dualUser, () => rpc('redeem_platform_invite',
+    [inv.token, 'Dual Co', 'America/Los_Angeles', 'USD']));
+  assert.equal(own.ok, true);
+
+  // In their OWN company they are the owner, by membership.
+  await as(dualUser, async () => {
+    assert.equal(await rpc('is_owner_admin_of_active_company', []), true);
+  });
+
+  // The global fields must be untouched: they belong to another org, so this
+  // founding may not rewrite authority that org granted -- or failed to grant.
+  const prof = await one(`select role::text as role, department from public.profiles where id=$1`, [dualUser]);
+  assert.equal(prof.role, 'user', 'the global role must not be promoted to owner');
+  assert.equal(prof.department, null, "the global department must not become 'exec'");
+
+  // And switching back to the incumbent must find exactly what they had.
+  await as(dualUser, () => rpc('set_active_company', [bbism]));
+  const after = await as(dualUser, async () => ({
+    je: await rpc('can_manage_journal_entries', []),
+    exec: await rpc('is_exec_or_owner', []),
+    admin: await rpc('is_admin', []),
+  }));
+  assert.deepEqual(after, before,
+    'founding elsewhere must not hand anyone journal-entry authority here');
+
+  // Leave them pointed back at their own company.
+  await as(dualUser, () => rpc('set_active_company', [own.entity_id]));
+});
+
+await test('a founder with NO other company still gets the global owner profile', async () => {
+  // The guard is "has another org", not "never set these" -- a genuinely new
+  // user must still come out as owner/exec, or the first tenant is crippled.
+  const prof = await one(`select role::text as role, department from public.profiles where id=$1`, [founder]);
+  assert.equal(prof.role, 'owner');
+  assert.equal(prof.department, 'exec');
+});
+
 // ── 4. Isolation, both directions ───────────────────────────────────────────
 await test('the new owner sees only their own company', async () => {
   await as(founder, async () => {
@@ -369,20 +456,6 @@ await test('the timezone the company stores is the one the day boundary reads', 
   await db.exec(`delete from public.supported_business_timezones where tz_name='Pacific/Kiritimati'`);
 });
 
-// ── 5b. Currency reconciliation ─────────────────────────────────────────────
-await test('QuickBooks reporting a different currency raises and names both', async () => {
-  const conn = randomUUID();
-  await assert.rejects(
-    () => q(`insert into public.accounting_settings(company_entity_id,qbo_connection_id,base_currency)
-             values ($1,$2,'CAD')`, [founded.entity_id, conn]),
-    /books in CAD but the company is set up to report in USD/,
-    'two currencies for one company must fail loudly, not sit in two tables');
-  await q(`insert into public.accounting_settings(company_entity_id,qbo_connection_id,base_currency)
-           values ($1,$2,'USD')`, [founded.entity_id, conn]);
-  passed += 1; console.log(`ok ${passed} - a matching currency seeds normally`);
-});
-
-// ── Settings writes ─────────────────────────────────────────────────────────
 await test('only the company\'s own owner_admin may change its settings', async () => {
   await as(founder, async () => {
     const r = await q(`update public.company_settings set default_currency='CAD'
@@ -399,6 +472,54 @@ await test('only the company\'s own owner_admin may change its settings', async 
   });
 });
 
+// ── 5b. Currency reconciliation ─────────────────────────────────────────────
+await test('QuickBooks reporting a different currency raises and names both', async () => {
+  const conn = randomUUID();
+  await assert.rejects(
+    () => q(`insert into public.accounting_settings(company_entity_id,qbo_connection_id,base_currency)
+             values ($1,$2,'CAD')`, [founded.entity_id, conn]),
+    /books in CAD but the company is set up to report in USD/,
+    'two currencies for one company must fail loudly, not sit in two tables');
+  await q(`insert into public.accounting_settings(company_entity_id,qbo_connection_id,base_currency)
+           values ($1,$2,'USD')`, [founded.entity_id, conn]);
+  passed += 1; console.log(`ok ${passed} - a matching currency seeds normally`);
+});
+
+await test('once books are seeded, the DECLARED currency cannot drift away from them', async () => {
+  // The other half of the same invariant. The accounting_settings trigger only
+  // fires when accounting_settings is written, so before this the owner could
+  // edit company_settings to CAD after seeding in USD and nothing would run --
+  // leaving the settings page and the ledger each confidently saying a
+  // different thing. A one-sided invariant is not an invariant.
+  await as(founder, async () => {
+    await assert.rejects(
+      () => q(`update public.company_settings set default_currency='CAD' where company_entity_id=$1`,
+              [founded.entity_id]),
+      /books are already seeded in USD/,
+      'changing the declared currency away from the booked one must be refused');
+  });
+  const still = await one(`select default_currency from public.company_settings where company_entity_id=$1`,
+    [founded.entity_id]);
+  assert.equal(still.default_currency, 'USD', 'and the stored value is unchanged');
+});
+
+await test('a company with no books may still change its declared currency', async () => {
+  // The guard keys on books EXISTING, not on the column being immutable: a
+  // tenant that has not connected QuickBooks yet must still be able to correct
+  // a currency they picked wrongly at onboarding.
+  const other = await as(blake, () => rpc('create_platform_invite', ['nobooks@prospect.com', null]));
+  const uid = randomUUID();
+  await q(`insert into auth.users(id,email) values ($1,'nobooks@prospect.com')`, [uid]);
+  const co2 = await as(uid, () => rpc('redeem_platform_invite',
+    [other.token, 'No Books Co', 'America/Los_Angeles', 'USD']));
+  await as(uid, async () => {
+    const r = await q(`update public.company_settings set default_currency='CAD'
+                        where company_entity_id=$1 returning 1`, [co2.entity_id]);
+    assert.equal(r.length, 1, 'no books, so nothing to contradict');
+  });
+});
+
+// ── Settings writes ─────────────────────────────────────────────────────────
 await test('a client cannot insert or delete a company_settings row', async () => {
   await as(founder, async () => {
     await assert.rejects(
@@ -441,9 +562,74 @@ await test('no SECURITY DEFINER function added here is executable by anon', asyn
                           and p.proname in ('create_platform_invite','redeem_platform_invite',
                                             'peek_platform_invite','list_platform_invites',
                                             'revoke_platform_invite','is_platform_admin',
-                                            'is_owner_admin_of_active_company','silo_business_timezone')`);
+                                            'is_owner_admin_of_active_company','silo_business_timezone',
+                                            'silo_business_today','silo_business_yesterday')`);
   assert.deepEqual(bad.map(r => r.proname), [],
     'Supabase re-grants EXECUTE to public on every new function; each of these must revoke it');
+});
+
+await test('the currency guards are definer, anon-revoked, and still fire', async () => {
+  // Revoking EXECUTE on a trigger function is safe only because PostgreSQL
+  // checks it at CREATE TRIGGER time, not at fire time. If that were wrong,
+  // every currency test above would pass while protecting nothing -- so assert
+  // the posture AND that the trigger still raises.
+  const rows = await q(`select p.proname, p.prosecdef,
+                               has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec
+                          from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                         where n.nspname='public'
+                           and p.proname in ('check_accounting_currency_matches_declared',
+                                             'check_declared_currency_matches_books')
+                         order by p.proname`);
+  assert.equal(rows.length, 2);
+  for (const r of rows) {
+    assert.equal(r.prosecdef, true, `${r.proname} must be SECURITY DEFINER`);
+    assert.equal(r.anon_exec, false, `${r.proname} must not be anon-executable`);
+  }
+
+  // Still firing, from both sides, after the revoke.
+  await as(founder, async () => {
+    await assert.rejects(
+      () => q(`update public.company_settings set default_currency='GBP' where company_entity_id=$1`,
+              [founded.entity_id]),
+      /books are already seeded in USD/,
+      'the company_settings guard still fires with EXECUTE revoked');
+  });
+  await assert.rejects(
+    () => q(`update public.accounting_settings set base_currency='GBP' where company_entity_id=$1`,
+            [founded.entity_id]),
+    /books in GBP but the company is set up to report in USD/,
+    'the accounting_settings guard still fires with EXECUTE revoked');
+});
+
+await test('the date helpers stay SECURITY INVOKER, and lose their anon grant', async () => {
+  // `create or replace` RETAINS existing grants, and production grants anon
+  // EXECUTE on both of these (measured: prosecdef=false, anon can_exec=true).
+  // Marking them definer would therefore have produced two SECURITY DEFINER
+  // functions reachable by anon -- which this migration's OWN new verify check
+  // reports CRITICAL. The fixture mirrors Supabase's default grants, so this
+  // reproduces that exactly.
+  const rows = await q(`select p.proname, p.prosecdef,
+                               has_function_privilege('anon', p.oid, 'EXECUTE') as anon_exec,
+                               has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_exec
+                          from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                         where n.nspname='public'
+                           and p.proname in ('silo_business_today','silo_business_yesterday')
+                         order by p.proname`);
+  assert.equal(rows.length, 2);
+  for (const r of rows) {
+    assert.equal(r.prosecdef, false, `${r.proname} must stay SECURITY INVOKER`);
+    assert.equal(r.anon_exec, false, `${r.proname} must not be callable by anon`);
+    assert.equal(r.auth_exec, true, `${r.proname} must stay callable by authenticated`);
+  }
+
+  // And the migration's own verify check agrees -- this is the check that would
+  // have gone CRITICAL on apply.
+  const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+  const start = verify.indexOf("select 'Definer functions reachable by anon' as check_name");
+  assert.ok(start > 0, 'the anon/definer check must still exist in verify_v2_schema.sql');
+  const stmt = verify.slice(start).split(/;\s*\n/)[0] + ';';
+  const row = await one(stmt);
+  assert.equal(row.status, 'ok', `anon/definer check: ${row.status}`);
 });
 
 await test('a same-named second company gets a distinct key, not a 23505', async () => {
