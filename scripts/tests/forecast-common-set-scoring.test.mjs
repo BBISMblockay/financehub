@@ -19,6 +19,7 @@
 //   FCS_MUTATION=growth-open-to-authenticated the growth family granted to authenticated
 //   FCS_MUTATION=horizon-wide-confidence     every month of a window shares one confidence
 //   FCS_MUTATION=coverage-counts-eligible-as-offered  coverage always reads 100%
+//   FCS_MUTATION=selector-sees-only-the-original-four  growth methods never reach the selector
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -54,6 +55,12 @@ const MUTATIONS = {
   'horizon-wide-confidence': [[COMMON,
     '    v_tc     := case when v_k <= 3 then 1.0 when v_k <= 6 then 0.75 else 0.50 end;',
     '    v_tc     := case when p_horizon_months <= 3 then 1.0 when p_horizon_months <= 6 then 0.75 else 0.50 end;']],
+  // The selector builds its basis from score_forecast_methods, so restoring the
+  // hardcoded four-method list makes the growth models unselectable no matter
+  // how they score.
+  'selector-sees-only-the-original-four': [[COMMON,
+    '  with methods as (select k.method as meth from public.forecast_known_methods() k),',
+    "  with methods as (select * from (values ('Candidate_YoY_Shift_v1'),('seasonal_naive_v1'),('run_rate_v1'),('blend_v1')) z(meth)),"]],
   'coverage-counts-eligible-as-offered': [[COMMON,
     '    round(100.0 * pm.n_elig / nullif((select count(*) from offered), 0), 1),',
     '    round(100.0 * pm.n_elig / nullif(pm.n_elig, 0), 1),']],
@@ -241,6 +248,26 @@ await test('select_forecast_method still picks the lowest comparable WAPE', asyn
   assert.ok(rows.some((r) => r.method === picked[0].selected_method && num(r.wape) !== null)
             || picked[0].selected_method === best.method,
     `selected ${picked[0].selected_method}, which has no comparable score`);
+});
+
+await test('the SELECTOR considers the growth methods, not just the original four', async () => {
+  // Adding a forecast function does not make the selection process consider it.
+  // score_forecast_methods carried a hardcoded four-method VALUES list; the
+  // selector builds its basis from that call, so a method absent there can
+  // never be chosen however well it scores. Assert the basis, which is what is
+  // durably recorded and what a later reader would audit.
+  const picked = await asService(() => q(
+    `select * from public.select_forecast_method($1,$2,$3,$4,$5)`,
+    [BASEBALLISM, 'Growing', 3, '2026-06-01', 18]));
+  const scored = (picked[0].basis.scores || []).map((s) => s.method);
+  for (const m of ['current_model', 'growth_model', 'seasonal_growth_model', 'adaptive_model']) {
+    assert.ok(scored.includes(m), `selector never scored ${m}; it scored ${scored.join(', ')}`);
+  }
+  // ...and one of them can actually win, so inclusion is not cosmetic.
+  const rows = await score('Growing', 3, '2025-01-01', '2026-05-01');
+  const winner = rows.filter((r) => num(r.wape) !== null)
+    .sort((a, b) => num(a.wape) - num(b.wape))[0];
+  assert.ok(winner, 'nothing was scorable on the growing fixture');
 });
 
 // ── The growth family ───────────────────────────────────────────────────────
