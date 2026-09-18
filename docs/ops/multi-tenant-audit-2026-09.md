@@ -473,12 +473,34 @@ to fail the suite.
 
 ## Recommended proof
 
-**Use Baseballism's own second Shopify store, or a real store the team already
-controls, as tenant #2 — not a fabricated company.** The technical requirement
-is a store whose OAuth can actually be granted and whose orders are real, so
-that "historical data syncs" means something. Test Company already proves the
-*shape* (2 connections, 5,271 synced rows) but its newest row is 2025-06-20, so
-it proves nothing about a currently-running pipeline.
+**Tenant #2 already exists and is already syncing.** An earlier version of this
+section said Test Company "proves nothing about a currently-running pipeline,"
+on the reasoning that its newest `sales_by_day` row is 2025-06-20. That was
+wrong, and the error is worth naming because it is the same mistake this whole
+audit is about: **I read the data and inferred the pipeline.**
+
+Measured 2026-09-18, in `sync_jobs`. Test Company's two Shopify connections are
+`is_active` and `sync_enabled`, they run the **full** nightly job matrix —
+`incremental_sales`, `inventory_snapshot`, `payouts_sync`, `draft_orders_sync`,
+`catalog_sync`, `collections_sync`, `discount_codes_sync`, `landing_pages_sync`,
+`sessions_sync` — and their last successful run finished **2026-09-18 01:59
+UTC**, in the same nightly window as Baseballism's 02:03. Over seven days: 658
+success, 280 `skipped` (the documented 14:30 catch-up behaviour, which skips
+catalog/sessions/landing-pages/discount-codes by design) and **zero errors**.
+Baseballism had 14 errors in the same window.
+
+So the second tenant's pipeline is not merely proven historically, it is running
+nightly with a cleaner record than the primary tenant's. The sales series stops
+at 2025-06-20 because **those shops stopped selling** — a business fact, not a
+pipeline gap. A sync that correctly writes nothing when there is nothing to
+write is the pipeline working.
+
+What that leaves genuinely unproven is narrower and worth stating exactly: no
+tenant has been onboarded **from zero** since this work — Test Company's
+connections predate it — so the *first-run* path (OAuth → initial backfill →
+first canonical report) has not been exercised end to end by a new customer.
+That is a demo to record, not an architectural gap. If you want one anyway, use
+a real store whose OAuth can actually be granted; Shopify alone is enough.
 
 Minimum data for the proof: **Shopify alone.** It populates `sales_by_day`,
 `products_master`, `inventory_on_hand` and `shopify_orders`, which is enough to
@@ -492,7 +514,11 @@ report, the acceptance-test output, and a green `verify_v2_schema.sql`.
 
 ## What still prevents saying "SILO is multi-tenant SaaS ready"
 
-1. No second tenant with a **currently running** sync.
+1. ~~No second tenant with a currently running sync.~~ **Resolved — and it was
+   never true.** Test Company syncs nightly, full job matrix, zero errors over
+   seven days (measured 2026-09-18). Its flat sales series is its shops not
+   selling. What remains is that no tenant has been onboarded *from zero* since
+   this work, so the first-run path is undemonstrated rather than unbuilt.
 2. Pacific is hardcoded, so period-anchored reporting is wrong for any client
    outside that timezone.
 3. Backfills and edge-function deploys still need an operator.

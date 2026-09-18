@@ -7,8 +7,9 @@ step is **not** automatic today it says so, and says who has to do it.
 
 The headline: **creating a tenant, inviting its users, connecting its Shopify
 store and running SILO's canonical reports against its data all work today with
-no per-client code.** What is not yet proven end to end is a *currently syncing*
-second tenant — see [What is not proven yet](#what-is-not-proven-yet).
+no per-client code** — and a second tenant is already syncing nightly against
+it. What has not been exercised is onboarding a tenant *from zero* since this
+work; see [What is not proven yet](#what-is-not-proven-yet).
 
 ---
 
@@ -250,11 +251,25 @@ rollback;
 Being precise, because the gap between these and "multi-tenant SaaS ready" is
 the whole question:
 
-- **No currently-syncing second tenant.** Test Company has 2 Shopify connections
-  and 5,271 real synced sales rows, so the connector path *has* run end to end —
-  but its newest row is **2025-06-20**, 15 months stale. Nothing has synced for
-  it in over a year. A live proof needs a tenant whose nightly is actually
-  running.
+- **No tenant onboarded from zero since this work.** Note what this is *not*:
+  Test Company is a live, currently-syncing second tenant. Both its Shopify
+  connections are active with sync enabled, they run the full nightly job matrix
+  (sales, inventory, payouts, draft orders, catalog, collections, discount
+  codes, landing pages, sessions), and the last successful run finished
+  **2026-09-18 01:59 UTC** — the same window as Baseballism. Seven-day record:
+  658 success, 280 `skipped` (by design, the 14:30 catch-up), **zero errors**;
+  Baseballism had 14 in the same window.
+
+  Its `sales_by_day` series stops at 2025-06-20 because **those shops stopped
+  selling**, not because anything is broken. An earlier version of this file
+  called that "15 months stale" and inferred a dead pipeline from flat data —
+  wrong, and the same error the audit is about: reading the data instead of
+  measuring the mechanism.
+
+  What is genuinely undemonstrated is the *first-run* path — a brand-new
+  customer going OAuth → initial backfill → first canonical report — because
+  Test Company's connections predate this work. That is a demo to record, not a
+  gap to close.
 - **Business timezone is hardcoded Pacific.** `silo_business_today()` /
   `silo_business_yesterday()` pin `America/Los_Angeles` (31 occurrences across
   migrations and edge functions). A client outside Pacific gets "yesterday"
