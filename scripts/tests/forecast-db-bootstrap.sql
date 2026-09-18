@@ -35,6 +35,22 @@ create function public.is_exec_or_owner() returns boolean language sql stable se
   select exists (select 1 from public.profiles where id = auth.uid() and is_active
     and role::text in ('owner', 'executive'));
 $$;
+-- Production revokes anon EXECUTE on these two and leaves it on is_admin_user
+-- and stamp_company_entity_id (verified against pg_proc on 2026-09-18). Mirror
+-- it exactly. The default-privileges line above hands anon EXECUTE on every new
+-- function, which is the real Supabase behaviour and is why 20260917210000's
+-- "Definer functions reachable by anon" check exists -- but a fixture that is
+-- LOOSER than production makes that check report a violation this database does
+-- not have, which is the same way the one-row-per-month rollup hid a real one.
+-- `from public, anon` -- BOTH. Postgres grants EXECUTE to PUBLIC on every new
+-- function, so has_function_privilege('anon', ...) stays true after revoking
+-- from anon alone. Revoking only the role is the mistake that makes this look
+-- fixed while nothing changed.
+revoke execute on function public.active_company_id() from public, anon;
+revoke execute on function public.is_exec_or_owner() from public, anon;
+grant execute on function public.active_company_id() to authenticated, service_role;
+grant execute on function public.is_exec_or_owner() to authenticated, service_role;
+
 create function public.stamp_company_entity_id() returns trigger
   language plpgsql security definer set search_path = public as $$
 begin

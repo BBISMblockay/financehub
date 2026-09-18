@@ -41,6 +41,7 @@
 //   FMC_MUTATION=stored-selection-lost-when-nothing-scores  the pre-score read removed
 //   FMC_MUTATION=seasonal-window-one-month-late  the live blend's seasonal window slips
 //   FMC_MUTATION=backtest-velocity-reads-its-own-outcome  m3 includes the outcome's first month
+//   FMC_MUTATION=forecast-function-open-to-anon  a method function ships without its revoke
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -49,6 +50,7 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 import { YOUTH_MONTHLY_DEMAND, SYNCED_THROUGH } from './fixtures/youth-monthly-demand.mjs';
 import { runMethodCompetition, COMPETITION_METHODS, COMPETITION_HORIZON_MONTHS }
   from '../lib/forecast-candidate-core.mjs';
+import { splitSqlStatements } from '../lib/sql-statements.mjs';
 
 const root = new URL('../../', import.meta.url);
 const MIGRATIONS = [
@@ -115,6 +117,15 @@ const MUTATIONS = {
   'backtest-velocity-reads-its-own-outcome': [['scripts/sql/category_buy_forecast.sql',
     "(ly.cum-k.c13) as s_seas, ((k.c1-k.c4)/3.0) as m3,",
     "(ly.cum-k.c13) as s_seas, ((k.cum-k.c4)/3.0) as m3,"]],
+  // A forecast function shipped without its revoke -- the defect 20260917210000
+  // found four live instances of.
+  // Grants anon back AFTER the revoke, leaving the authenticated revoke intact,
+  // so the pre-existing "not callable by a signed-in user" test cannot catch it
+  // and only the anon check can. A mutation caught by the wrong test proves
+  // nothing about the test it was written for.
+  'forecast-function-open-to-anon': [[COMPETITION,
+    "    execute format('grant execute on function public.%I(uuid, date, text, integer) to service_role', f);",
+    "    execute format('grant execute on function public.%I(uuid, date, text, integer) to service_role, anon', f);"]],
   'scorer-open-to-authenticated': [[COMPETITION,
     'revoke all on function public.score_forecast_methods(uuid, text, integer, date, date) from public, anon, authenticated;\ngrant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to service_role;',
     'grant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to authenticated, service_role;']],
@@ -1113,6 +1124,42 @@ await test('the report SQL survives chat_run_readonly_query guard', () => {
   // report; an undeclared one is an error there, not a passthrough.
   const tokens = [...REPORT_SQL.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(tokens)], ['horizon_months']);
+});
+
+// ── 7. No forecast function is reachable without signing in ─────────────────
+await test('no forecast SECURITY DEFINER function is executable by anon', async () => {
+  // Supabase's default privileges grant EXECUTE on every new public function to
+  // PUBLIC, which includes anon -- so a definer function is open unless its
+  // migration revokes it explicitly. 20260917210000 found four functions that
+  // had shipped that way, one of which deletes another tenant's sales_by_day.
+  //
+  // Every function this branch adds takes an explicit company id, so an anon
+  // grant on any of them is a cross-tenant read with no login at all. Asserted
+  // over pg_proc rather than by listing names, so a function added later is
+  // covered without anyone remembering to add it here.
+  const open = await q(
+    `select p.proname
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.prokind = 'f' and p.prosecdef
+        and has_function_privilege('anon', p.oid, 'EXECUTE')
+        and (p.proname like 'forecast%' or p.proname like '%forecast%'
+             or p.proname like 'score_forecast%' or p.proname like 'select_forecast%')
+        and p.proname <> 'forecast_candidate_may_act'`);
+  // forecast_candidate_may_act is the one exception and is on 20260917210000's
+  // reviewed allowlist: it answers `p_company = active_company_id()`, and
+  // active_company_id() is NULL for anon, so it returns false rather than data.
+  assert.deepEqual(open.map((r) => r.proname), [],
+    `these are callable by anon with any company id: ${open.map((r) => r.proname).join(', ')}`);
+
+  // And the repo-wide check that 20260917210000 added, executed against a
+  // schema carrying THIS branch's migrations -- the combination neither PR's
+  // own suite covers. It is an allowlist, so it goes red the day an ordinary
+  // new function ships without a revoke.
+  const stmt = splitSqlStatements(await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8'))
+    .find((x) => /'Definer functions reachable by anon' as check_name/.test(x.text));
+  assert.ok(stmt, 'the anon-definer check must still exist in verify_v2_schema.sql');
+  const row = (await q(stmt.text))[0];
+  assert.equal(row.status, 'ok', JSON.stringify(row));
 });
 
 console.log(`\n# ${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);
