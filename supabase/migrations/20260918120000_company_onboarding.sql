@@ -66,9 +66,12 @@
 -- `select ... for update` on the invite row: the second waits, and under READ
 -- COMMITTED re-evaluates its qualification against the row the first COMMITTED
 -- -- which now reads `accepted` -- so it takes the idempotent branch and
--- returns the company the first one made. Not covered by the regression suite,
--- which is single-connection (PGlite); it is a property of the lock and the
--- isolation level, recorded here rather than claimed as tested.
+-- returns the company the first one made. MEASURED 2026-09-18 by
+-- `scripts/tests/onboarding-concurrency.test.mjs`, which drives two real
+-- connections: one company, and the second call returns the first's entity_id.
+-- Removing this FOR UPDATE (ONBOARDING_RACE_MUTATION=invite-unlocked) founds
+-- TWO companies from one invite -- and the extra is not a duplicate someone can
+-- see and delete, it is a tenant they own and never asked for.
 --
 -- ── 4. WHY TIMEZONE IS REFUSED RATHER THAN STORED AND IGNORED ───────────────
 --
@@ -445,7 +448,10 @@ begin
   -- admin may edit, and exactly the branch that takes that arm. Locking the
   -- caller's own row makes the check authoritative for the rest of the
   -- transaction; a concurrent disable waits and then applies last, which is
-  -- the right order.
+  -- the right order. MEASURED 2026-09-18 in onboarding-concurrency.test.mjs:
+  -- without the lock (ONBOARDING_RACE_MUTATION=redeem-unlocked) the redeem
+  -- reads the pre-disable snapshot, founds the company, and writes is_active
+  -- back to true -- the administrator's deactivation silently undone.
   select is_active into v_is_active
     from public.profiles where id = auth.uid()
     for update;
@@ -803,11 +809,14 @@ grant execute on function public.silo_business_yesterday() to authenticated, ser
 -- the blocked side re-reads after the winner commits rather than reusing the
 -- snapshot it entered with.
 --
--- NOT DEMONSTRATED BY THE SUITE: PGlite is single-connection, so the
--- interleaving cannot be forced here. The suite asserts both functions still
--- take the lock -- which stops it being dropped silently -- and this note is
--- the honest statement of what is argued rather than measured, the same stance
--- taken for concurrent invite redemption above.
+-- MEASURED 2026-09-18. The PGlite suite is single-connection and can only
+-- assert that both functions still take the lock; the interleaving itself is
+-- forced by `scripts/tests/onboarding-concurrency.test.mjs` against a real
+-- server. With the locks removed (ONBOARDING_RACE_MUTATION=currency-unlocked)
+-- the two sessions commit a company whose books are seeded in USD while its
+-- declaration reads CAD -- the paragraph above, observed rather than reasoned.
+-- The CI job requires that mutation to go red, so a lock cannot be dropped
+-- later and leave a green suite behind.
 create or replace function public.check_accounting_currency_matches_declared()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_declared text;

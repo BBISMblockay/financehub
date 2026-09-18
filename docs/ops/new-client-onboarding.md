@@ -332,9 +332,23 @@ the whole question:
   customer going OAuth → initial backfill → first canonical report — because
   Test Company's connections predate this work. That is a demo to record, not a
   gap to close. As of 2026-09-18 the *creation* half of it is covered by
-  `scripts/tests/company-onboarding-database.test.mjs` (34 assertions against
-  real PostgreSQL, four mutations); the OAuth-to-first-report half still needs
-  a real store.
+  `scripts/tests/company-onboarding-database.test.mjs` (46 assertions against
+  PGlite, twelve mutations) plus
+  `scripts/tests/onboarding-concurrency.test.mjs`, which interleaves two REAL
+  PostgreSQL connections; the OAuth-to-first-report half still needs a real
+  store.
+
+  The split between those two files is not arbitrary. PGlite is a single
+  connection, so it can prove a guard refuses a bad state but never that two
+  sessions racing cannot assemble that state between them — and three of this
+  migration's guarantees are exactly that shape. Measured 2026-09-18, each by
+  removing the lock and watching the damage appear: without the per-company
+  advisory lock a company commits with its books seeded in USD under a CAD
+  declaration; without the profiles `FOR UPDATE` an administrator's
+  deactivation is undone by the redeem it raced; without the invite row lock
+  one invite founds **two** companies. CI requires each of those three
+  mutations to go red, so a lock cannot be quietly dropped later and leave a
+  green suite behind.
 - **Business timezone: half done, and the half that is missing is refused
   rather than faked.** `silo_business_today()` / `silo_business_yesterday()` now
   read `company_settings.business_timezone` (20260918120000). Measured on

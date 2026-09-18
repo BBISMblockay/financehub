@@ -21,6 +21,13 @@
 //      every existing caller, including one with no active company at all.
 //   7. create_entity_with_owner is gone, and was broken before it went.
 //
+// What this file CANNOT cover: PGlite is one connection, so nothing here can
+// force two sessions to interleave. The three concurrency claims -- the invite
+// row lock, the profiles FOR UPDATE, and the per-company currency lock -- are
+// driven against a real PostgreSQL by scripts/tests/onboarding-concurrency.test.mjs.
+// Do not add a "concurrency" assertion here; it would test the sequential case
+// and read as coverage.
+//
 // Mutations (each must make a specific assertion fail):
 //   ONBOARDING_MUTATION=signup-founds-org   (handle_new_user keeps org_name)
 //   ONBOARDING_MUTATION=retry-creates-new   (redeem ignores an accepted invite)

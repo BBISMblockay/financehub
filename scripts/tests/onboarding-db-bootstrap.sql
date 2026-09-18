@@ -11,9 +11,20 @@
 create schema auth;
 create schema extensions;
 create extension if not exists pgcrypto with schema extensions;
-create role anon nologin;
-create role authenticated nologin;
-create role service_role nologin bypassrls;
+-- Roles are CLUSTER-wide, not per-database. PGlite starts empty every run, but
+-- a real server keeps them between runs, so creating them is guarded rather
+-- than assumed. Nothing under test turns on which run created them.
+do $silo_roles$ begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    create role authenticated nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin bypassrls;
+  end if;
+end $silo_roles$;
 grant usage on schema public, auth, extensions to anon, authenticated, service_role;
 -- Mirror Supabase's broad default grants so a missing explicit revoke fails.
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
