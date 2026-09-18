@@ -42,6 +42,7 @@
 //   FMC_MUTATION=seasonal-window-one-month-late  the live blend's seasonal window slips
 //   FMC_MUTATION=backtest-velocity-reads-its-own-outcome  m3 includes the outcome's first month
 //   FMC_MUTATION=forecast-function-open-to-anon  a method function ships without its revoke
+//   FMC_MUTATION=blend-floors-the-combined-figure  a negative half cancels a positive one
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -126,6 +127,11 @@ const MUTATIONS = {
   'forecast-function-open-to-anon': [[COMPETITION,
     "    execute format('grant execute on function public.%I(uuid, date, text, integer) to service_role', f);",
     "    execute format('grant execute on function public.%I(uuid, date, text, integer) to service_role, anon', f);"]],
+  // The blend floors their SUM instead of each half -- which the review found
+  // the suite could not tell apart, because every fixture was non-negative.
+  'blend-floors-the-combined-figure': [['scripts/sql/category_buy_forecast.sql',
+    "         else round(0.5*round(greatest(r.cNh-r.cN12, 0))\n                  + 0.5*round(greatest((r.cN-r.cN3)/3.0*(select h from hp), 0))) end as fc_units",
+    "         else round(greatest(0.5*(r.cNh-r.cN12)\n                  + 0.5*((r.cN-r.cN3)/3.0*(select h from hp)), 0)) end as fc_units"]],
   'scorer-open-to-authenticated': [[COMPETITION,
     'revoke all on function public.score_forecast_methods(uuid, text, integer, date, date) from public, anon, authenticated;\ngrant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to service_role;',
     'grant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to authenticated, service_role;']],
@@ -984,6 +990,19 @@ await seedReportCategory('Seasonal', (month) => (month === 3 ? 10000 : 1000));
 // Flat except one spike INSIDE a recent outcome window. A forecast issued
 // before that month cannot know about it.
 await seedReportCategory('Spiked', (month, iso) => (iso.startsWith('2026-05') ? 40000 : 1000));
+// A NEGATIVE seasonal half. Returns exceeding sales make a month negative, and
+// a whole window can follow: measured on production 2026-09-18, 226 negative
+// months across 36 categories, and NINE six-month windows across six categories
+// summing below zero. The year-ago window here (Sep 2025 - Feb 2026) is
+// negative while the recent run rate is positive, which is the only shape in
+// which flooring each half and flooring their sum give different answers.
+// Growth is tuned to 1.0 so the report picks the BLEND -- the branch where the
+// two floors can diverge at all.
+await seedReportCategory('Returned', (month, iso) => {
+  if (iso >= '2026-03') return 1000;
+  if (iso >= '2025-09') return -400;
+  return 300;
+});
 await db.exec('refresh materialized view public.sales_monthly_product_type_rollup_mv');
 
 async function runReport(horizonMonths, user = plannerId) {
@@ -1107,7 +1126,7 @@ await test('the displayed figure is the arithmetic of the method it names', asyn
   // September-February), so the number shown was a different calculation from
   // the method whose forward record sits beside it.
   const rows = await runReport(6);
-  for (const name of ['Flat', 'Seasonal', 'Spiked']) {
+  for (const name of ['Flat', 'Seasonal', 'Spiked', 'Returned']) {
     const row = rows.find((r) => r.category === name);
     assert.ok(row, `${name} should be in the report: ${JSON.stringify(rows.map((r) => r.category))}`);
     const fn = row.method_used === 'run rate' ? 'forecast_run_rate_v1' : 'forecast_blend_v1';
@@ -1121,6 +1140,26 @@ await test('the displayed figure is the arithmetic of the method it names', asyn
   // Seasonal must actually exercise the blend, or this proves nothing about the
   // branch that was wrong.
   assert.equal(rows.find((r) => r.category === 'Seasonal').method_used, 'blend');
+
+  // And the NEGATIVE-half case, stated outright because the equality above
+  // passes for the wrong reason on every non-negative fixture. Each half is
+  // floored at zero SEPARATELY, exactly as forecast_blend_v1 does. Flooring
+  // their sum instead lets a negative half cancel a positive one: here the
+  // year-ago window is -2,400 and the run rate 6,000, so per-half gives 3,000
+  // and combined gives 1,800 -- a 40% understatement of the buy, on a shape
+  // production actually contains.
+  const returned = rows.find((r) => r.category === 'Returned');
+  assert.equal(returned.method_used, 'blend', 'the negative-half case must exercise the blend');
+  assert.equal(Number(returned.forecast_units), 3000);
+  const halves = await asService(() => first(
+    `select (select method_inputs->>'last_year_units' from public.forecast_seasonal_naive_v1($1, $2, 'Returned', 6)) seas,
+            (select forecast_qty from public.forecast_run_rate_v1($1, $2, 'Returned', 6)) rr`,
+    [BASEBALLISM, CUTOFF]));
+  assert.ok(Number(halves.seas) < 0, `the seasonal half must be negative, got ${halves.seas}`);
+  assert.ok(Number(halves.rr) > 0);
+  // The number a combined floor would produce, spelled out so the difference is
+  // visible in the test rather than only in a comment.
+  assert.equal(Math.round(Math.max(0.5 * Number(halves.seas) + 0.5 * Number(halves.rr), 0)), 1800);
 });
 
 await test('a flat history backtests to zero error, and a spike is never foreseen', async () => {
