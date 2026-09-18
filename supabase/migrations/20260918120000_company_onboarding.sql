@@ -431,6 +431,28 @@ begin
     raise exception 'this invite was issued for a different email address';
   end if;
 
+  -- A disabled account gets ONE answer from this RPC, so the check sits here --
+  -- above the idempotent-retry branch, not below it. Placed lower it was
+  -- bypassed by a retry, which returned a company and switched the caller's
+  -- active_company_id; no escalation, since every helper gates on is_active,
+  -- but "disabled, and yet this succeeded" is the kind of inconsistency
+  -- somebody later reasons from.
+  --
+  -- FOR UPDATE because the read and the write below are otherwise a
+  -- time-of-check/time-of-use pair: `admin_update_profile(..., is_active =>
+  -- false)` committing in between would be undone by the upsert's `else true`
+  -- arm. Unclaimed profiles -- no membership anywhere -- are exactly what any
+  -- admin may edit, and exactly the branch that takes that arm. Locking the
+  -- caller's own row makes the check authoritative for the rest of the
+  -- transaction; a concurrent disable waits and then applies last, which is
+  -- the right order.
+  select is_active into v_is_active
+    from public.profiles where id = auth.uid()
+    for update;
+  if v_is_active is not null and not v_is_active then
+    raise exception 'This account is disabled. An administrator has to reactivate it before it can create a company.';
+  end if;
+
   -- The retry path. A lost response, a reloaded tab, a double-clicked button:
   -- the invite is already accepted and already names the company it made, so
   -- hand that back rather than founding a second one. Still refused for anyone
@@ -452,7 +474,12 @@ begin
     raise exception 'this invite has been revoked';
   end if;
   if v_invite.expires_at < now() then
-    update public.platform_invites set status = 'expired' where id = v_invite.id;
+    -- No `update ... set status = 'expired'` here: the raise on the next line
+    -- aborts the transaction and takes the write with it, so it never
+    -- persisted. It read like bookkeeping and did nothing. Expiry is derived
+    -- from expires_at wherever it is shown -- list_platform_invites computes it
+    -- at read time, and peek_platform_invite refuses on it -- so the stored
+    -- value was redundant as well as unreachable.
     raise exception 'this invite has expired -- ask for a new one';
   end if;
 
@@ -527,10 +554,6 @@ begin
   -- disabled should not be quietly acquiring new tenants either, and a silent
   -- half-success is the harder state to reason about later. Reactivation is a
   -- deliberate act by an admin of the org that disabled them.
-  select is_active into v_is_active from public.profiles where id = auth.uid();
-  if v_is_active is not null and not v_is_active then
-    raise exception 'This account is disabled. An administrator has to reactivate it before it can create a company.';
-  end if;
 
   -- `profiles.role` and `profiles.department` are the LEGACY GLOBAL fields --
   -- they are not per-company, and several gates still read them directly.
@@ -775,7 +798,13 @@ create or replace function public.check_accounting_currency_matches_declared()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_declared text;
 begin
-  perform pg_advisory_xact_lock(hashtext('silo_company_currency:' || new.company_entity_id::text));
+  -- hashtextextended(..., 0) -> bigint, matching 20260912052930's Plaid locks.
+  -- `hashtext` returns int4, which widens into the same one advisory-lock space
+  -- the Plaid keys already occupy while spanning a quarter of its width -- a
+  -- needless collision risk (spurious blocking, not corruption) and a gratuitous
+  -- second convention.
+  perform pg_advisory_xact_lock(
+    hashtextextended('silo-company-currency|' || new.company_entity_id::text, 0));
 
   select default_currency into v_declared
     from public.company_settings where company_entity_id = new.company_entity_id;
@@ -805,8 +834,16 @@ create or replace function public.check_declared_currency_matches_books()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_booked text;
 begin
-  if new.default_currency is distinct from old.default_currency then
-    perform pg_advisory_xact_lock(hashtext('silo_company_currency:' || new.company_entity_id::text));
+  -- TG_OP, not just a change test: fired only on UPDATE, this guard missed the
+  -- INSERT entirely -- and an INSERT contradicting existing books is not
+  -- hypothetical. EVERY company that predates this migration is in exactly
+  -- that state: accounting_settings already carries a currency, company_settings
+  -- has no row, and this migration deliberately backfills none. The first write
+  -- of a declaration for such a company is an INSERT, which is the one path the
+  -- invariant was not watching.
+  if TG_OP = 'INSERT' or new.default_currency is distinct from old.default_currency then
+    perform pg_advisory_xact_lock(
+      hashtextextended('silo-company-currency|' || new.company_entity_id::text, 0));
 
     select base_currency into v_booked
       from public.accounting_settings where company_entity_id = new.company_entity_id;
@@ -823,7 +860,7 @@ $$;
 
 drop trigger if exists trg_declared_currency_matches_books on public.company_settings;
 create trigger trg_declared_currency_matches_books
-  before update of default_currency on public.company_settings
+  before insert or update of default_currency on public.company_settings
   for each row execute function public.check_declared_currency_matches_books();
 
 revoke execute on function public.check_accounting_currency_matches_declared() from public, anon;

@@ -1341,3 +1341,40 @@ Two findings, both valid, both fixed.
   single-connection — so the suite asserts both functions still take the lock,
   on the same key, and the migration header says plainly that the race is
   argued rather than measured.
+
+
+### Third-cycle corrections (PR #724, self-directed)
+
+The cycle-2 fixes were themselves unreviewed — the automated budget was spent
+producing them — so they got an explicit adversarial pass. Five more findings,
+three of which no earlier cycle had raised:
+
+- **A guard on UPDATE only is not a guard.** `check_declared_currency_matches_books`
+  fired `before update of default_currency`, so an INSERT contradicting existing
+  books was accepted — and that is the state EVERY pre-migration company is in:
+  `accounting_settings` already carries a currency, `company_settings` has no row,
+  and this migration backfills none. The first declaration written for such a
+  company is an INSERT, the one path the invariant was not watching. Now
+  `before insert or update`, keyed off `TG_OP`.
+- **A two-layer guard can hide its inner layer from the tests.** With the
+  disabled-account refusal in place, no disabled account reaches the profile
+  upsert, so the assertion about what that upsert preserves could not fail —
+  coverage in name only. The inner layer is now exercised under
+  `ONBOARDING_MUTATION=refusal-only-removed`, and the test runs BEFORE the
+  refusal test so a mutation stripping the outer layer reaches it. Each layer
+  now has a mutation that fails its own assertion.
+- **Time-of-check/time-of-use on `is_active`.** The read took no lock while the
+  upsert's fallback arm wrote a literal `true`, so a concurrent
+  `admin_update_profile(..., is_active => false)` was undone. That is the
+  unclaimed-profile branch — precisely what any admin may edit. The read is now
+  `for update`.
+- The refusal moved above the idempotent-retry branch, which bypassed it (no
+  escalation — every helper gates on `is_active` — but the RPC should give a
+  disabled account one answer).
+- Advisory keys use `hashtextextended(..., 0)` like `20260912052930`'s Plaid
+  locks, not `hashtext` (int4) crowding the same shared space at a quarter of
+  its width.
+
+Also removed: the expired-invite `status = 'expired'` UPDATE, which the `raise`
+on the next line rolled back. It read like bookkeeping and never persisted;
+expiry is derived from `expires_at` everywhere it is shown.

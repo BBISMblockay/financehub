@@ -33,6 +33,8 @@
 // Added after the cycle-2 review:
 //   ONBOARDING_MUTATION=founding-reactivates (the disabled-account refusal removed)
 //   ONBOARDING_MUTATION=currency-unlocked    (the per-company currency lock removed)
+//   ONBOARDING_MUTATION=refusal-only-removed (layer 1 gone, so layer 2 is tested alone)
+//   ONBOARDING_MUTATION=declared-insert-unguarded (the guard back to UPDATE-only)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -44,7 +46,8 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 const mutation = process.env.ONBOARDING_MUTATION || '';
 assert.ok(['', 'signup-founds-org', 'retry-creates-new', 'tz-anything-goes', 'invite-any-admin',
   'founding-rewrites-global-role', 'currency-one-sided', 'helpers-definer',
-  'founding-reactivates', 'currency-unlocked'].includes(mutation),
+  'founding-reactivates', 'currency-unlocked', 'refusal-only-removed',
+  'declared-insert-unguarded'].includes(mutation),
   `Unknown onboarding mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -148,6 +151,17 @@ if (mutation === 'founding-rewrites-global-role') {
                     () => 'set role = excluded.role,');
   sql = sql.replace(/department = case when v_has_other_org then profiles\.department\s*\n\s*else coalesce\(profiles\.department, excluded\.department\) end,/,
                     () => 'department = coalesce(profiles.department, excluded.department),');
+}
+if (mutation === 'refusal-only-removed') {
+  // Remove ONLY the disabled-account refusal, keeping the is_active
+  // preservation. Without this the preservation arm is unreachable -- the
+  // refusal stops every case that would exercise it -- so the test asserting
+  // it could not fail, which the independent review caught.
+  sql = sql.replace(/  select is_active into v_is_active\n    from public\.profiles where id = auth\.uid\(\)\n    for update;\n  if v_is_active is not null and not v_is_active then\n[^\n]*\n  end if;\n/, () => '');
+}
+if (mutation === 'declared-insert-unguarded') {
+  sql = sql.replace('before insert or update of default_currency on public.company_settings',
+                    () => 'before update of default_currency on public.company_settings');
 }
 if (mutation === 'founding-reactivates') {
   // Drop the refusal AND the preservation, i.e. restore the state cycle 2 found.
@@ -398,6 +412,40 @@ await test('founding a company grants NOTHING in the companies you already belon
   await as(dualUser, () => rpc('set_active_company', [own.entity_id]));
 });
 
+await test('is_active preservation holds even with the refusal removed', async () => {
+  // Two layers guard this, and the outer one hid the inner: with the refusal in
+  // place, no disabled account ever reaches the upsert, so an assertion about
+  // what the upsert preserves could not fail. That is coverage in name only --
+  // exactly what the independent review flagged.
+  //
+  // So the inner layer is tested under ONBOARDING_MUTATION=refusal-only-removed,
+  // which strips the refusal and leaves the preservation. Under the clean build
+  // the refusal fires first and the redeem is rejected; under the mutation the
+  // redeem proceeds and is_active must STILL be false afterwards. Either way
+  // the account must not come out reactivated -- that is the invariant, and it
+  // now has a path that can break.
+  const u = randomUUID();
+  await q(`insert into auth.users(id,email) values ($1,'twolayer@baseballism.com')`, [u]);
+  await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'member')`,
+    [bbism, u]);
+  await q(`update public.profiles set is_active=false, active_company_id=$2 where id=$1`, [u, bbism]);
+
+  const inv = await as(blake, () => rpc('create_platform_invite', ['twolayer@baseballism.com', null]));
+  try {
+    await as(u, () => rpc('redeem_platform_invite',
+      [inv.token, 'Two Layer Co', 'America/Los_Angeles', 'USD']));
+    // Reached only when the refusal is gone (the mutation). The preservation
+    // arm must then be what keeps the account disabled.
+  } catch (e) {
+    assert.match(e.message || String(e), /account is disabled/,
+      'the only acceptable rejection here is the refusal itself');
+  }
+
+  const prof = await one(`select is_active from public.profiles where id=$1`, [u]);
+  assert.equal(prof.is_active, false,
+    'a disabled multi-org account must never come out of redemption reactivated');
+});
+
 await test('a DISABLED account cannot found a company, and A\'s deactivation stands', async () => {
   // profiles.is_active is GLOBAL, like role and department. Company A disables
   // this person; their membership in A is untouched, because deactivation does
@@ -425,13 +473,6 @@ await test('a DISABLED account cannot found a company, and A\'s deactivation sta
   assert.equal(prof.is_active, false, "A's deactivation must still stand");
   assert.equal((await q(`select 1 from public.entities where title='Reactivation Co'`)).length, 0,
     'and nothing was created on the way');
-});
-
-await test('an ACTIVE multi-org founder keeps their own is_active untouched', async () => {
-  // The preservation branch, checked independently of the refusal: dualUser
-  // founded a company earlier while belonging to the incumbent.
-  const prof = await one(`select is_active from public.profiles where id=$1`, [dualUser]);
-  assert.equal(prof.is_active, true);
 });
 
 await test('a founder with NO other company still gets the global owner profile', async () => {
@@ -552,6 +593,29 @@ await test('once books are seeded, the DECLARED currency cannot drift away from 
   assert.equal(still.default_currency, 'USD', 'and the stored value is unchanged');
 });
 
+await test('a declaration INSERTED against existing books is refused', async () => {
+  // The UPDATE-only guard missed this, and it is the state every pre-migration
+  // company is in: books already carry a currency, company_settings has no row,
+  // and this migration backfills none -- so the FIRST write of a declaration for
+  // such a company is an INSERT. Service-role only (clients have no insert
+  // grant), which is precisely who would run a backfill.
+  const legacy = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,source,title)
+           values ($1,'finance_hub','company','legacy-co','seed','Legacy Co')`, [legacy]);
+  await q(`insert into public.accounting_settings(company_entity_id,qbo_connection_id,base_currency)
+           values ($1,$2,'USD')`, [legacy, randomUUID()]);
+
+  await assert.rejects(
+    () => q(`insert into public.company_settings(company_entity_id,business_timezone,default_currency)
+             values ($1,'America/Los_Angeles','CAD')`, [legacy]),
+    /books in USD but the company is set up to report in CAD|books are already seeded in USD/,
+    'an INSERT contradicting existing books must be refused, not just an UPDATE');
+
+  const ok = await q(`insert into public.company_settings(company_entity_id,business_timezone,default_currency)
+                      values ($1,'America/Los_Angeles','USD') returning 1`, [legacy]);
+  assert.equal(ok.length, 1, 'a matching declaration inserts normally');
+});
+
 await test('a company with no books may still change its declared currency', async () => {
   // The guard keys on books EXISTING, not on the column being immutable: a
   // tenant that has not connected QuickBooks yet must still be able to correct
@@ -632,11 +696,14 @@ await test('both currency guards take the per-company lock before reading', asyn
                                              'check_declared_currency_matches_books')`);
   assert.equal(rows.length, 2);
   for (const r of rows) {
-    assert.match(r.prosrc, /pg_advisory_xact_lock\(hashtext\('silo_company_currency:/,
+    assert.match(r.prosrc, /hashtextextended\('silo-company-currency\|/,
       `${r.proname} must serialise on the shared per-company key`);
+    assert.doesNotMatch(r.prosrc, /pg_advisory_xact_lock\(\s*hashtext\(/,
+      `${r.proname} must use hashtextextended (bigint), not hashtext (int4), ` +
+      'so its keys do not crowd the Plaid locks in the one shared advisory space');
   }
   // One key for both sides, or they do not serialise against each other.
-  const keys = new Set(rows.map(r => (r.prosrc.match(/'silo_company_currency:[^']*'/) || [])[0]));
+  const keys = new Set(rows.map(r => (r.prosrc.match(/'silo-company-currency\|[^']*'/) || [])[0]));
   assert.equal(keys.size, 1, 'both guards must use the SAME lock key');
 });
 
