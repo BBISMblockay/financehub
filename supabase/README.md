@@ -1316,3 +1316,28 @@ forward as rules rather than as changelog:
 The two browser-side findings — `supabase-js` resolving `{ data: null, error }`
 rather than throwing, and the emailed auth callbacks dropping `next` — are
 covered by `v2/tests/unit/onboarding-callbacks.test.js`.
+
+
+### Cycle-2 review corrections (PR #724)
+
+Two findings, both valid, both fixed.
+
+- **`profiles.is_active` is global too, and the cycle-1 fix stopped one column
+  short.** Preserving `role`/`department` for a multi-org founder while still
+  writing `is_active = true` left the same escalation in its most direct form:
+  deactivation does not remove memberships, so an account disabled by company A
+  could redeem a legitimate company-B founding invite and have A's
+  deactivation undone — every authorization helper gates on that one column.
+  A disabled account is now refused outright, and `is_active` is preserved for
+  a multi-org founder as well. Refusing beats founding-without-reactivating: an
+  account somebody disabled should not be acquiring tenants either, and a
+  silent half-success is the harder state to reason about later.
+- **Two guards are not an invariant unless they serialise.** Starting from
+  declared USD with no books, one transaction can move the declaration to CAD
+  and read "no books", while another inserts USD books and reads the
+  still-committed USD declaration; both BEFORE triggers pass and both commit.
+  Both now take `pg_advisory_xact_lock` on one shared per-company key before
+  reading. The interleaving is NOT demonstrated by the suite — PGlite is
+  single-connection — so the suite asserts both functions still take the lock,
+  on the same key, and the migration header says plainly that the race is
+  argued rather than measured.

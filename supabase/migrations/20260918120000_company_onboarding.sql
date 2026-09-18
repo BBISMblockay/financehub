@@ -409,6 +409,7 @@ declare
   v_entity   uuid;
   v_supported boolean;
   v_has_other_org boolean;
+  v_is_active boolean;
 begin
   if auth.uid() is null then
     raise exception 'not authenticated';
@@ -511,6 +512,26 @@ begin
     select 1 from public.entity_memberships em where em.user_id = auth.uid()
   ) into v_has_other_org;
 
+  -- `profiles.is_active` is GLOBAL, exactly like role and department -- one
+  -- column for the whole platform, not one per company. The first correction
+  -- preserved role and department for a multi-org user and went on writing
+  -- `is_active = true` unconditionally, which left the same escalation intact
+  -- in its most direct form: an account DISABLED by company A could hold a
+  -- still-valid session, redeem a legitimate company-B founding invite, and
+  -- have A's deactivation silently undone. The membership in A is untouched by
+  -- deactivation, so switching back needs nothing else, and every authorization
+  -- helper gates on `p.is_active` -- which is now true again.
+  --
+  -- So a disabled account cannot found a company at all. Refusing is the right
+  -- answer rather than founding-but-not-reactivating: an account somebody
+  -- disabled should not be quietly acquiring new tenants either, and a silent
+  -- half-success is the harder state to reason about later. Reactivation is a
+  -- deliberate act by an admin of the org that disabled them.
+  select is_active into v_is_active from public.profiles where id = auth.uid();
+  if v_is_active is not null and not v_is_active then
+    raise exception 'This account is disabled. An administrator has to reactivate it before it can create a company.';
+  end if;
+
   -- `profiles.role` and `profiles.department` are the LEGACY GLOBAL fields --
   -- they are not per-company, and several gates still read them directly.
   -- `can_manage_journal_entries()` admits `p.department in ('finance','exec')`
@@ -534,7 +555,13 @@ begin
                     else excluded.role end,
         department = case when v_has_other_org then profiles.department
                           else coalesce(profiles.department, excluded.department) end,
-        is_active = true,
+        -- Preserved for a multi-org user for the same reason as role and
+        -- department: it is a GLOBAL flag, and founding here must not write
+        -- authority there. The refusal above already means this branch can only
+        -- be reached by an active profile, so this is defence in depth -- but
+        -- if the refusal were ever removed, an unconditional `true` here would
+        -- silently restore the escalation.
+        is_active = case when v_has_other_org then profiles.is_active else true end,
         active_company_id = excluded.active_company_id,
         updated_at = now();
 
@@ -724,10 +751,32 @@ grant execute on function public.silo_business_yesterday() to authenticated, ser
 -- revoke does not stop them firing -- asserted in the regression suite rather
 -- than assumed, because "the trigger silently stopped running" is the failure
 -- that would make every currency test pass while protecting nothing.
+-- Both guards take a per-company transaction lock BEFORE reading the other
+-- table. Without it the pair is not an invariant at all, only two independent
+-- checks: starting from declared USD and no books, one transaction can move the
+-- declaration to CAD and see "no books yet" while another concurrently inserts
+-- USD books and sees the still-committed USD declaration. Both BEFORE triggers
+-- pass, both commit, and the result is declared CAD over USD books -- which is
+-- precisely the state these triggers exist to make impossible, reached by the
+-- connect-and-edit overlap onboarding actually produces.
+--
+-- One lock, taken by both sides on the same key, serialises them. The read that
+-- follows sees the other transaction's committed row because a volatile
+-- PL/pgSQL function takes a fresh snapshot per statement in READ COMMITTED, so
+-- the blocked side re-reads after the winner commits rather than reusing the
+-- snapshot it entered with.
+--
+-- NOT DEMONSTRATED BY THE SUITE: PGlite is single-connection, so the
+-- interleaving cannot be forced here. The suite asserts both functions still
+-- take the lock -- which stops it being dropped silently -- and this note is
+-- the honest statement of what is argued rather than measured, the same stance
+-- taken for concurrent invite redemption above.
 create or replace function public.check_accounting_currency_matches_declared()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_declared text;
 begin
+  perform pg_advisory_xact_lock(hashtext('silo_company_currency:' || new.company_entity_id::text));
+
   select default_currency into v_declared
     from public.company_settings where company_entity_id = new.company_entity_id;
 
@@ -757,6 +806,8 @@ returns trigger language plpgsql security definer set search_path = public, pg_t
 declare v_booked text;
 begin
   if new.default_currency is distinct from old.default_currency then
+    perform pg_advisory_xact_lock(hashtext('silo_company_currency:' || new.company_entity_id::text));
+
     select base_currency into v_booked
       from public.accounting_settings where company_entity_id = new.company_entity_id;
 

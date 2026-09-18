@@ -30,6 +30,9 @@
 //   ONBOARDING_MUTATION=founding-rewrites-global-role (the has-other-org guard removed)
 //   ONBOARDING_MUTATION=currency-one-sided  (the company_settings side of the guard removed)
 //   ONBOARDING_MUTATION=helpers-definer     (the date helpers made SECURITY DEFINER again)
+// Added after the cycle-2 review:
+//   ONBOARDING_MUTATION=founding-reactivates (the disabled-account refusal removed)
+//   ONBOARDING_MUTATION=currency-unlocked    (the per-company currency lock removed)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -40,7 +43,8 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 
 const mutation = process.env.ONBOARDING_MUTATION || '';
 assert.ok(['', 'signup-founds-org', 'retry-creates-new', 'tz-anything-goes', 'invite-any-admin',
-  'founding-rewrites-global-role', 'currency-one-sided', 'helpers-definer'].includes(mutation),
+  'founding-rewrites-global-role', 'currency-one-sided', 'helpers-definer',
+  'founding-reactivates', 'currency-unlocked'].includes(mutation),
   `Unknown onboarding mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -144,6 +148,15 @@ if (mutation === 'founding-rewrites-global-role') {
                     () => 'set role = excluded.role,');
   sql = sql.replace(/department = case when v_has_other_org then profiles\.department\s*\n\s*else coalesce\(profiles\.department, excluded\.department\) end,/,
                     () => 'department = coalesce(profiles.department, excluded.department),');
+}
+if (mutation === 'founding-reactivates') {
+  // Drop the refusal AND the preservation, i.e. restore the state cycle 2 found.
+  sql = sql.replace(/  select is_active into v_is_active[\s\S]*?  end if;\n/, () => '');
+  sql = sql.replace('is_active = case when v_has_other_org then profiles.is_active else true end,',
+                    () => 'is_active = true,');
+}
+if (mutation === 'currency-unlocked') {
+  sql = sql.replace(/\n\s*perform pg_advisory_xact_lock\([^;]*\);\n/g, () => '\n');
 }
 if (mutation === 'currency-one-sided') {
   // Neutralise the company_settings side of the guard, leaving the
@@ -385,6 +398,42 @@ await test('founding a company grants NOTHING in the companies you already belon
   await as(dualUser, () => rpc('set_active_company', [own.entity_id]));
 });
 
+await test('a DISABLED account cannot found a company, and A\'s deactivation stands', async () => {
+  // profiles.is_active is GLOBAL, like role and department. Company A disables
+  // this person; their membership in A is untouched, because deactivation does
+  // not remove it. If founding B flipped the one global flag back to true,
+  // switching to A would restore everything A took away -- and every
+  // authorization helper gates on exactly that flag.
+  const disabled = randomUUID();
+  await q(`insert into auth.users(id,email) values ($1,'disabled@baseballism.com')`, [disabled]);
+  await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'member')`,
+    [bbism, disabled]);
+  await q(`update public.profiles set is_active=false, active_company_id=$2 where id=$1`, [disabled, bbism]);
+
+  await as(disabled, async () => {
+    assert.equal(await rpc('is_admin', []), false, 'disabled means disabled, before we start');
+  });
+
+  const inv = await as(blake, () => rpc('create_platform_invite', ['disabled@baseballism.com', null]));
+  await assert.rejects(
+    () => as(disabled, () => rpc('redeem_platform_invite',
+      [inv.token, 'Reactivation Co', 'America/Los_Angeles', 'USD'])),
+    /account is disabled/,
+    'a disabled account must not be able to found a company');
+
+  const prof = await one(`select is_active from public.profiles where id=$1`, [disabled]);
+  assert.equal(prof.is_active, false, "A's deactivation must still stand");
+  assert.equal((await q(`select 1 from public.entities where title='Reactivation Co'`)).length, 0,
+    'and nothing was created on the way');
+});
+
+await test('an ACTIVE multi-org founder keeps their own is_active untouched', async () => {
+  // The preservation branch, checked independently of the refusal: dualUser
+  // founded a company earlier while belonging to the incumbent.
+  const prof = await one(`select is_active from public.profiles where id=$1`, [dualUser]);
+  assert.equal(prof.is_active, true);
+});
+
 await test('a founder with NO other company still gets the global owner profile', async () => {
   // The guard is "has another org", not "never set these" -- a genuinely new
   // user must still come out as owner/exec, or the first tenant is crippled.
@@ -566,6 +615,29 @@ await test('no SECURITY DEFINER function added here is executable by anon', asyn
                                             'silo_business_today','silo_business_yesterday')`);
   assert.deepEqual(bad.map(r => r.proname), [],
     'Supabase re-grants EXECUTE to public on every new function; each of these must revoke it');
+});
+
+await test('both currency guards take the per-company lock before reading', async () => {
+  // Without it the pair is two independent checks, not an invariant: one
+  // transaction moves the declaration while another seeds the books, each reads
+  // a state the other is about to change, and both pass. The interleaving
+  // itself CANNOT be forced here -- PGlite is single-connection -- so this
+  // asserts the lock is present and the migration header states plainly that
+  // the race is argued rather than demonstrated. That stops the lock being
+  // dropped silently, which is the failure this can actually catch.
+  const rows = await q(`select p.proname, p.prosrc from pg_proc p
+                          join pg_namespace n on n.oid=p.pronamespace
+                         where n.nspname='public'
+                           and p.proname in ('check_accounting_currency_matches_declared',
+                                             'check_declared_currency_matches_books')`);
+  assert.equal(rows.length, 2);
+  for (const r of rows) {
+    assert.match(r.prosrc, /pg_advisory_xact_lock\(hashtext\('silo_company_currency:/,
+      `${r.proname} must serialise on the shared per-company key`);
+  }
+  // One key for both sides, or they do not serialise against each other.
+  const keys = new Set(rows.map(r => (r.prosrc.match(/'silo_company_currency:[^']*'/) || [])[0]));
+  assert.equal(keys.size, 1, 'both guards must use the SAME lock key');
 });
 
 await test('the currency guards are definer, anon-revoked, and still fire', async () => {
