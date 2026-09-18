@@ -1289,7 +1289,7 @@ grant execute on function public.evaluate_forecast_candidate(uuid, text, text, i
 -- status label is DERIVED on read rather than stored: a stored label would go
 -- stale the moment the month it describes finished syncing, and the one thing
 -- this ledger must never do is call a number scored when it is not.
--- Dropped first, not replaced. A LATER migration (20260917200000) appends
+-- Dropped first, not replaced. A LATER migration (20260918000000) appends
 -- columns to this view, and `create or replace view` cannot drop a column --
 -- so on a re-run of apply_all_post_merge.sql this statement would hit the
 -- widened view and fail with "cannot drop columns from view", taking the whole

@@ -64,16 +64,29 @@ create policy sales_by_day_select on public.sales_by_day
   for select to authenticated using (company_entity_id = public.active_company_id());
 create index sales_by_day_company_day_idx on public.sales_by_day (company_entity_id, day_date);
 
+-- GRAINED BY LOCATION, exactly as production is (verified against
+-- pg_get_viewdef on 2026-09-18). This fixture used to group by
+-- (company, month, product_type) alone -- one row per month -- and that single
+-- difference hid a defect that would have stopped the competition working at
+-- all: production's Youth carries 12 to 14 location rows in EVERY month, so any
+-- code counting raw rows as months sees 72 in a six-month window and discards
+-- it as incomplete. Every test passed over the one-row fixture.
+--
+-- The real matview also carries month_key, channel, rows, unique_skus and the
+-- money columns. Only the GRAIN is reproduced here, because the grain is what
+-- the forecast code reads and what it got wrong; adding the rest would be
+-- decoration. Do not collapse this back to one row per month.
 create materialized view public.sales_monthly_product_type_rollup_mv as
 select company_entity_id,
        date_trunc('month', day_date)::date as month_start,
+       location_tag as location,
        coalesce(nullif(product_type, ''), 'Uncategorized') as product_type,
        sum(coalesce(total_quantity_sold, 0))::numeric as units
 from public.sales_by_day
 where company_entity_id is not null
-group by 1, 2, 3;
+group by 1, 2, 3, 4;
 create unique index sales_monthly_rollup_mv_uq
-  on public.sales_monthly_product_type_rollup_mv (company_entity_id, month_start, product_type);
+  on public.sales_monthly_product_type_rollup_mv (company_entity_id, month_start, location, product_type);
 -- Mirror production's grants on the matview EXACTLY, verified against the live
 -- database on 2026-09-17: anon and authenticated cannot select it (a matview
 -- carries no RLS, so a grant there would hand every company's rows to every
@@ -92,7 +105,7 @@ grant select on public.sales_monthly_product_type_rollup_mv to service_role;
 -- production. The tenant filter in the body is what does the scoping.
 create view public.sales_monthly_product_type_rollup_v
 with (security_invoker = false) as
-select month_start, product_type, units
+select month_start, location, product_type, units
 from public.sales_monthly_product_type_rollup_mv
 where company_entity_id = public.active_company_id();
 revoke all on public.sales_monthly_product_type_rollup_v from anon;

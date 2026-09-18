@@ -3896,7 +3896,7 @@ select 'Forecast functions carry no tenant-specific default' as check_name,
 
 select 'Forecast method selections are prospective' as check_name,
  case when to_regclass('public.forecast_method_selections') is null
-   then 'MISSING: forecast_method_selections; run 20260917200000_forecast_method_competition.sql'
+   then 'MISSING: forecast_method_selections; run 20260918000000_forecast_method_competition.sql'
  when not (select relrowsecurity from pg_class where oid=to_regclass('public.forecast_method_selections'))
    then 'CRITICAL: forecast_method_selections RLS disabled'
  -- THE constraint. A selection whose evidence reaches the cutoff it governs

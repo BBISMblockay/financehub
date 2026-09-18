@@ -4,7 +4,7 @@ name: Demand candidate forecast run
 # forecast_candidate_ledger. Source spec: saved report
 # f98754f7-47a6-4eeb-8a8b-eece9a069432, candidate Candidate_YoY_Shift_v1.
 #
-# Since 20260917200000 it also runs the COMPETITION for every forecastable
+# Since 20260918000000 it also runs the COMPETITION for every forecastable
 # category: three calendar-month methods (seasonal naive, run rate, an even
 # blend) frozen side by side at 3 and 6 months, with the SELECTION between them
 # recorded before the cutoff it governs. The selection is written FIRST and the

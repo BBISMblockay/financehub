@@ -3,7 +3,7 @@
 // cutoff it governs.
 //
 // 20260917140000 proved one method prospectively. This suite covers what
-// 20260917200000 adds, and the properties it covers are the ones a diff cannot
+// 20260918000000 adds, and the properties it covers are the ones a diff cannot
 // show:
 //
 //   * a SELECTION whose evidence reaches its own cutoff is refused by the
@@ -35,6 +35,8 @@
 //   FMC_MUTATION=blend-invents-halves        blend falls back to one half
 //   FMC_MUTATION=candidate-writable-here     the two-writers refusal dropped
 //   FMC_MUTATION=scorer-open-to-authenticated  the scorer granted to authenticated
+//   FMC_MUTATION=rows-counted-as-months      the scorer counts rollup ROWS as months
+//   FMC_MUTATION=rerun-reports-recomputed-winner  a re-run returns today's winner
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -48,7 +50,7 @@ const root = new URL('../../', import.meta.url);
 const MIGRATIONS = [
   'supabase/migrations/20260917140000_forecast_candidate_ledger.sql',
   'supabase/migrations/20260917180000_product_type_profile.sql',
-  'supabase/migrations/20260917200000_forecast_method_competition.sql',
+  'supabase/migrations/20260918000000_forecast_method_competition.sql',
 ];
 const COMPETITION = MIGRATIONS[2];
 
@@ -68,6 +70,18 @@ const MUTATIONS = {
   'candidate-writable-here': [[COMPETITION,
     "  if p_method = 'Candidate_YoY_Shift_v1' then\n    raise exception 'record_forecast_method_run: Candidate_YoY_Shift_v1",
     "  if false then\n    raise exception 'record_forecast_method_run: Candidate_YoY_Shift_v1"]],
+  // Both of these are the review's P1s. Each must fail an assertion, or the
+  // fix is not actually being tested.
+  'rows-counted-as-months': [[COMPETITION,
+    "  monthly as (\n    select r.month_start, sum(r.units)::numeric as units",
+    "  monthly as (\n    select r.month_start, r.location, sum(r.units)::numeric as units"],
+    [COMPETITION, "    group by r.month_start\n  ),\n  actuals as (",
+     "    group by r.month_start, r.location\n  ),\n  actuals as ("]],
+  'rerun-reports-recomputed-winner': [[COMPETITION,
+    "  if v_stored_method is null then\n    select s.selected_method",
+    "  if false then\n    select s.selected_method"],
+    [COMPETITION, "  return query select\n    v_stored_method, v_stored_from, v_stored_to,",
+     "  return query select\n    coalesce(v_stored_method, v_best_method), v_stored_from, v_stored_to,"]],
   'scorer-open-to-authenticated': [[COMPETITION,
     'revoke all on function public.score_forecast_methods(uuid, text, integer, date, date) from public, anon, authenticated;\ngrant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to service_role;',
     'grant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to authenticated, service_role;']],
@@ -149,6 +163,21 @@ await sale(BASEBALLISM, SYNCED_THROUGH, 'Youth', 0);
 // months, absent for others. Absent is the case every method must refuse.
 for (const monthStart of ['2026-04-01', '2026-06-01', '2026-08-01']) {
   await sale(BASEBALLISM, `${monthStart.slice(0, 8)}05`, 'Sporadic', 500);
+}
+// A category sold across THREE locations every month, which is what production
+// looks like -- Youth carries 12 to 14 location rows a month there. The rollup
+// is grained by location, so any code counting raw rows as months sees 3x the
+// truth. Until 2026-09-18 the fixture was one row per month and this whole class
+// of failure was invisible.
+for (let i = 0; i < 40; i += 1) {
+  const m = new Date(Date.UTC(2023, 4 + i, 5));
+  if (m > new Date(Date.UTC(2026, 8, 5))) break;
+  const iso = m.toISOString().slice(0, 10);
+  for (const [loc, units] of [['online', 300], ['retail-sf', 120], ['wholesale-a', 80]]) {
+    await q(`insert into public.sales_by_day
+               (company_entity_id, day_date, location_tag, product_type, total_quantity_sold)
+             values ($1,$2,$3,'Multisite',$4)`, [BASEBALLISM, iso, loc, units]);
+  }
 }
 // A category that only started selling three months ago: its recent window is
 // complete, its year-ago window does not exist. Exactly one half of the blend
@@ -515,6 +544,88 @@ await test('a user sees only their own company selections, and cannot write one'
     /permission denied/i, 'user delete');
 });
 
+await test('a category sold in several locations is scored, not discarded as incomplete', async () => {
+  // THE production-grain regression. The rollup has one row per
+  // (month, location, channel, product_type), so a six-month window over three
+  // locations is 18 rows. Counting rows as months made months_present 18, the
+  // window failed the `= p_horizon_months` test, and NOTHING was ever scored or
+  // selected -- in production, with every test passing.
+  const perMonth = await asService(() => first(
+    `select count(*)::int rows, count(distinct month_start)::int months
+       from public.sales_monthly_product_type_rollup_mv
+      where company_entity_id = $1 and product_type = 'Multisite'
+        and month_start = '2026-06-01'`, [BASEBALLISM]));
+  assert.equal(perMonth.rows, 3, 'the fixture must carry production\'s location grain');
+  assert.equal(perMonth.months, 1);
+
+  const scores = await asService(() => q(
+    `select method, windows, round(wape, 4) wape
+       from public.score_forecast_methods($1, 'Multisite', 6, '2024-09-01', '2026-08-31')`,
+    [BASEBALLISM]));
+  assert.ok(scores.length > 0, 'a multi-location category must be scorable at all');
+  for (const r of scores) assert.equal(r.windows, 19, `${r.method}: every window must be complete`);
+  // Flat demand across all three locations, so the run rate is exact. A leak of
+  // the location grain into the ACTUAL would show as a non-zero error here.
+  const run = scores.find((r) => r.method === 'run_rate_v1');
+  assert.equal(Number(run.wape), 0, `run rate should be exact on flat demand, got ${run.wape}`);
+
+  // ...and a selection follows from it. WHICH method wins is deliberately not
+  // asserted: on perfectly flat demand all three are exact, and the rule is
+  // lowest WAPE with no tie-break, so a tie is resolved arbitrarily by design.
+  // Pinning the winner here would be pinning that arbitrariness.
+  const pick = await asService(() => first(
+    `select * from public.select_forecast_method($1, 'Multisite', 6, '2026-09-01', 18)`,
+    [BASEBALLISM]));
+  assert.ok(pick.selected_method, 'a scorable category must produce a selection');
+  // 13, not the 19 above: the selector's own evidence window is the 18 months
+  // before the cutoff (2025-03-01..2026-08-31), and the last origin whose
+  // six-month window closes inside it is 2026-03-01.
+  assert.equal(pick.windows, 13);
+});
+
+await test('a re-run reports the SELECTION THAT IS STORED, not a freshly recomputed winner', async () => {
+  // A late sales correction can move the apparent winner. The append-only
+  // insert correctly does nothing on conflict -- but returning the recomputed
+  // winner would have the monthly job report a method the durable record does
+  // not name, which is the one thing this table exists to make impossible.
+  const stored = await asService(() => first(
+    `select selected_method from public.forecast_method_selections
+      where company_entity_id = $1 and sku_category = 'Multisite' and horizon_months = 6`,
+    [BASEBALLISM]));
+  assert.ok(stored.selected_method, 'the previous test must have frozen a selection');
+
+  // A step change landing after the selection was frozen. Forty times the
+  // volume from January on leaves the seasonal methods reading a year that no
+  // longer resembles this one, so the apparent winner moves -- which is the
+  // whole premise of the test.
+  await q(`update public.sales_by_day set total_quantity_sold = total_quantity_sold * 40
+            where company_entity_id = $1 and product_type = 'Multisite'
+              and day_date >= '2026-01-01'`, [BASEBALLISM]);
+  await db.exec('refresh materialized view public.sales_monthly_product_type_rollup_mv');
+
+  const fresh = await asService(() => q(
+    `select method, round(wape, 4) wape from public.score_forecast_methods(
+       $1, 'Multisite', 6, '2025-03-01', '2026-08-31')`, [BASEBALLISM]));
+  assert.notEqual(fresh[0].method, stored.selected_method,
+    'the correction must actually change the apparent winner, or this proves nothing');
+
+  const again = await asService(() => first(
+    `select * from public.select_forecast_method($1, 'Multisite', 6, '2026-09-01', 18)`,
+    [BASEBALLISM]));
+  assert.equal(again.selected_method, stored.selected_method,
+    'the re-run must report the frozen selection, not today\'s winner');
+  // The evidence window and basis returned belong to the stored row too, so a
+  // caller logging them cannot print a window the record does not carry.
+  assert.equal(day(again.evidence_from), '2025-03-01');
+  assert.equal(day(again.evidence_to), '2026-08-31');
+  assert.equal(again.basis.scores[0].method, stored.selected_method);
+
+  const count = await asService(() => first(
+    `select count(*)::int c from public.forecast_method_selections
+      where company_entity_id = $1 and sku_category = 'Multisite'`, [BASEBALLISM]));
+  assert.equal(count.c, 1);
+});
+
 // ── 5b. The REAL runner against the REAL database ───────────────────────────
 // The core passing against a stub and the SQL passing against a fixture is
 // exactly the state in which an orchestrator bug shipped here before -- a
@@ -746,12 +857,35 @@ await test('a horizon with no frozen forecasts reads as no record, never as zero
   assert.doesNotMatch(youth.status, /Proven forward/);
 });
 
-await test('the status prefers forward evidence only once there is enough of it', async () => {
-  const six = await runReport(6);
-  const youth = six.find((r) => r.category === 'Youth');
+await test('forward evidence never speaks for a figure produced by a different method', async () => {
+  // The state the fixture is already in: the current selection is blend_v1
+  // (recorded at 2026-11-01), while the report's own growth rule puts Youth on
+  // the run rate. The scored cycles measured run_rate_v1. Attaching their WAPE
+  // to a blend figure and calling it proven is the defect -- six good cycles of
+  // one method would stamp "Proven forward" on a number nobody tested.
+  const before = (await runReport(6)).find((r) => r.category === 'Youth');
+  assert.equal(before.method_used, 'run rate');
+  assert.equal(before.governing_method, 'blend_v1');
+  assert.match(before.status, /Forward record is for blend_v1, not the figure shown/);
+  assert.doesNotMatch(before.status, /Proven/);
+  // And the record line says whose record it is, rather than reading as though
+  // it belonged to the row it sits on.
+  assert.match(before.forward_record, /NOT for the run rate figure shown/);
+
+  // Now let the current selection agree with the figure shown.
+  await asService(() => q(
+    `insert into public.forecast_method_selections
+       (company_entity_id, sku_category, horizon_months, selected_method,
+        effective_from_cutoff, evidence_from, evidence_to, selection_basis)
+     values ($1, 'Youth', 6, 'run_rate_v1', '2026-12-01', '2025-06-01', '2026-11-30', '{}'::jsonb)`,
+    [BASEBALLISM]));
+
+  const after = (await runReport(6)).find((r) => r.category === 'Youth');
+  assert.equal(after.governing_method, 'run_rate_v1');
   // Three scored cycles is a started record, not a verdict.
-  assert.equal(youth.status, 'Forward record started - too few cycles to judge');
-  assert.doesNotMatch(youth.status, /Proven/);
+  assert.equal(after.status, 'Forward record started - too few cycles to judge');
+  assert.doesNotMatch(after.status, /Proven/);
+  assert.equal(Number(after.fwd_cycles_scored), 3, 'the scored cycles are unchanged by a later selection');
 });
 
 await test('the report is bounded by the reader own company', async () => {

@@ -18835,7 +18835,7 @@ $c$select (select count(*) from v_po_header_summary
 -- refuses to remove a parameter default from an existing function.
 \i migrations/20260917180000_product_type_profile.sql
 
--- The forecast COMPETITION (20260917200000_forecast_method_competition.sql).
+-- The forecast COMPETITION (20260918000000_forecast_method_competition.sql).
 -- 20260917140000 freezes ONE method per cutoff; this adds the other three and,
 -- more importantly, forecast_method_selections -- a record of WHICH method was
 -- chosen, written before the cutoff it governs. A competition where every
@@ -18853,4 +18853,4 @@ $c$select (select count(*) from v_po_header_summary
 -- Idempotent: add-column-if-not-exists, create-if-not-exists, create-or-replace,
 -- and the ledger view is dropped before each create (a create-or-replace cannot
 -- widen or narrow a view's column list).
-\i migrations/20260917200000_forecast_method_competition.sql
+\i migrations/20260918000000_forecast_method_competition.sql

@@ -1062,7 +1062,10 @@ Tests: `scripts/tests/forecast-candidate.test.mjs` (unit) and
 `scripts/tests/forecast-candidate-database.test.mjs` (real PostgreSQL via
 PGlite, with ten mutations).
 
-## Forecast method competition (`20260917200000`)
+## Forecast method competition (`20260918000000`)
+
+*(Originally numbered `20260917200000`; renamed to avoid colliding with the
+same prefix in PR #722.)*
 
 `20260917140000` proves ONE method prospectively. This runs several against each
 other and — the part that matters — records **which one was chosen, before the
@@ -1113,6 +1116,18 @@ Four things worth knowing before changing any of it:
   `authenticated` grant would be a tenant leak dressed as a research tool. Users
   read the *result* through `forecast_method_selections`, whose RLS scopes it.
   `verify_v2_schema.sql` fails CRITICAL on either grant.
+- **The monthly rollup is grained by LOCATION, and counting its rows as months
+  is the mistake to make.** `sales_monthly_product_type_rollup_mv` is grouped by
+  `(company, month, location_tag, channel, product_type)` — measured on
+  production 2026-09-18, Youth carries 12 to 14 location rows in *every* month.
+  So anything asking "are all six months of this window present" must collapse
+  to one row per month first, or `count(distinct month_start)`. The shipped
+  `forecast_yoy_shift_v1` does this with its `visible` CTE, which is why it was
+  never affected; `score_forecast_methods` and the buy report did not, and would
+  have scored and selected **nothing at all** in production while every test
+  passed. The test fixture was one row per month and hid it. It now carries the
+  real grain, and `forecast-method-competition.test.mjs` has a three-location
+  regression category.
 - **`record_forecast_candidate_run` is re-copied here from `20260917180000`.**
   `inputs_through_date` is `NOT NULL` and that function did not know about it, so
   without the copy the existing monthly job would have started failing on its

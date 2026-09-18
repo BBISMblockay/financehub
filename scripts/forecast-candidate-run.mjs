@@ -60,7 +60,7 @@ const SKU_CATEGORY = process.env.FC_SKU_CATEGORY || '';
 const HORIZON_DAYS = Number(process.env.FC_HORIZON_DAYS || DEFAULT_HORIZON_DAYS);
 const DRY_RUN = process.env.FC_DRY_RUN === '1';
 // The competition runs by default. FC_SKIP_COMPETITION=1 falls back to the
-// single-candidate behaviour this script had before 20260917200000 -- kept as
+// single-candidate behaviour this script had before 20260918000000 -- kept as
 // an escape hatch for a manual re-run, not as a supported operating mode: a
 // cutoff that closes without its methods frozen cannot be backfilled.
 const SKIP_COMPETITION = process.env.FC_SKIP_COMPETITION === '1';

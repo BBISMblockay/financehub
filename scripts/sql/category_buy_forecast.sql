@@ -119,11 +119,17 @@ led as (select l.sku_category as cat, l.forecast_qty, l.status_label,
                                    and s.effective_from_cutoff <= l.cutoff_date
                                  order by s.effective_from_cutoff desc
                                  limit 1)),
+-- count(DISTINCT month_start), not count(*). This rollup is grained by
+-- (month, location, channel, product_type) -- measured on production
+-- 2026-09-18, Youth carries 12 to 14 location rows in every month -- so a raw
+-- row count made a complete six-month window look like 72 months and marked
+-- every matured cycle unscorable. The sum is unaffected: summing across
+-- locations is what the actual IS.
 act as (select d.cat, d.forecast_qty, d.status_label, d.months_expected,
           (select sum(r.units) from public.sales_monthly_product_type_rollup_v r
             where r.product_type = d.cat and r.month_start >= d.horizon_start_date
               and r.month_start < d.horizon_end_date) as actual,
-          (select count(*) from public.sales_monthly_product_type_rollup_v r
+          (select count(distinct r.month_start) from public.sales_monthly_product_type_rollup_v r
             where r.product_type = d.cat and r.month_start >= d.horizon_start_date
               and r.month_start < d.horizon_end_date) as months_present
         from led d),
@@ -149,7 +155,18 @@ fx as (select r.cat, r.method, r.growth, a.we, a.wr, a.br, a.ws, a.nw, a.vol,
   from rule r join agg a on a.cat=r.cat
   left join sel on sel.cat = r.cat
   left join fwd f on f.cat = r.cat
-  where a.vol >= 5000)
+  where a.vol >= 5000),
+-- Whether the forecast ABOVE was produced by the method the forward record
+-- BELOW describes. The report picks its method from its own growth rule and the
+-- ledger froze whatever the recorded selection named, and those can differ --
+-- so without this, six good seasonal-naive cycles could stamp "Proven forward"
+-- on a run-rate quantity that has never been tested. The mapping is spelled out
+-- rather than compared as strings because the two vocabularies are different:
+-- this report says 'run rate', the ledger says 'run_rate_v1'.
+ev as (select fx.*,
+    case when fx.method = 'run rate' then 'run_rate_v1'
+         when fx.method = 'blend'    then 'blend_v1' end as method_used_id
+  from fx)
 select cat as category, method as method_used, round(growth::numeric,2) as yoy_growth_x,
   round(fc_units) as forecast_units,
   round(fc_units * (1 + greatest(ws,0))) as buy_to_cover_worst,
@@ -167,8 +184,18 @@ select cat as category, method as method_used, round(growth::numeric,2) as yoy_g
   round(fb*100,0) as fwd_bias_pct,
   case when cycles_scored = 0 and cycles_frozen = 0 then 'no forward record yet'
        when cycles_scored = 0 then cycles_frozen || ' frozen, none matured yet'
+       when method_used_id is distinct from selected_method
+         then cycles_scored || ' of ' || cycles_frozen || ' matured and scored for '
+              || coalesce(selected_method, 'a method') || ', NOT for the '
+              || method || ' figure shown'
        else cycles_scored || ' of ' || cycles_frozen || ' matured and scored' end as forward_record,
   case
+    -- Forward evidence can only speak for the method it measured. When the
+    -- figure above came from a different one, the fwd_ columns describe a
+    -- number that is not on this row, so no amount of it earns "proven".
+    when cycles_scored > 0 and method_used_id is distinct from selected_method
+      then 'Forward record is for ' || coalesce(selected_method, 'another method')
+           || ', not the figure shown'
     -- Forward evidence leads once there is enough of it to mean anything. Six
     -- cycles is a bar, not a proof, and the word "proven" is reserved for it
     -- precisely so the backtest below can never claim it.
@@ -180,4 +207,4 @@ select cat as category, method as method_used, round(growth::numeric,2) as yoy_g
     when greatest(we,wr) <= 0.30 and abs(br) <= 0.10 then 'Backtest only - use with buffer'
     when greatest(we,wr) <= 0.45 then 'Backtest only - directional'
     else 'Unproven - judgment call' end as status
-from fx order by fc_units desc
+from ev order by fc_units desc

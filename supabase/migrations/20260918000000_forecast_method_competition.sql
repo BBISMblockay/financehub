@@ -622,16 +622,30 @@ begin
     -- is never credited for a window whose tail had not happened yet
     where (g::date + make_interval(months => p_horizon_months))::date <= (p_to + 1)
   ),
+  -- Collapsed to one row per MONTH before anything counts them. The rollup is
+  -- grained by (company, month, location_tag, channel, product_type) -- measured
+  -- on production 2026-09-18, Youth carries 12 to 14 location rows in every
+  -- month -- so counting raw rows as months made `months_present` 72 for a
+  -- six-month window and dropped every window as incomplete. Nothing would ever
+  -- have been scored or selected, in production, with every test passing: the
+  -- fixture was one row per month and hid the real grain. This mirrors
+  -- forecast_yoy_shift_v1's `visible` CTE, which is the established idiom here
+  -- and is why the shipped candidate was never affected.
+  monthly as (
+    select r.month_start, sum(r.units)::numeric as units
+    from public.sales_monthly_product_type_rollup_mv r
+    where r.company_entity_id = p_company_entity_id
+      and r.product_type = p_sku_category
+    group by r.month_start
+  ),
   actuals as (
     select o.o,
-           sum(r.units)::numeric as actual,
+           sum(m.units)::numeric as actual,
            count(*)::integer as months_present
     from origins o
-    join public.sales_monthly_product_type_rollup_mv r
-      on r.company_entity_id = p_company_entity_id
-     and r.product_type = p_sku_category
-     and r.month_start >= o.o
-     and r.month_start < (o.o + make_interval(months => p_horizon_months))::date
+    join monthly m
+      on m.month_start >= o.o
+     and m.month_start < (o.o + make_interval(months => p_horizon_months))::date
     group by o.o
   ),
   scored as (
@@ -679,7 +693,8 @@ declare
   v_to   date := (p_effective_from_cutoff - 1);
   v_from date := (p_effective_from_cutoff - make_interval(months => p_evidence_months))::date;
   v_basis jsonb;
-  v_best_method text; v_best_windows integer; v_best_wape numeric;
+  v_best_method text;
+  v_stored_method text; v_stored_from date; v_stored_to date; v_stored_basis jsonb;
 begin
   if not public.forecast_candidate_company_required(p_company_entity_id) then
     raise exception 'select_forecast_method: a company is required' using errcode = 'invalid_parameter_value';
@@ -711,8 +726,6 @@ begin
   -- unscorable methods are filtered out rather than sorted to the end.
   if jsonb_array_length(coalesce(v_basis->'scores', '[]'::jsonb)) > 0 then
     v_best_method := v_basis->'scores'->0->>'method';
-    v_best_windows := (v_basis->'scores'->0->>'windows')::integer;
-    v_best_wape := (v_basis->'scores'->0->>'wape')::numeric;
   end if;
 
   if v_best_method is null then
@@ -730,10 +743,39 @@ begin
     (p_company_entity_id, p_sku_category, p_horizon_months, v_best_method,
      p_effective_from_cutoff, v_from, v_to, coalesce(v_basis, '{}'::jsonb), auth.uid(), p_note)
   on conflict (company_entity_id, sku_category, horizon_months, effective_from_cutoff)
-  do nothing;
+  do nothing
+  -- Table-qualified: this function's RETURNS TABLE declares columns with the
+  -- same names, and an unqualified reference here is ambiguous.
+  returning forecast_method_selections.selected_method,
+            forecast_method_selections.evidence_from,
+            forecast_method_selections.evidence_to,
+            forecast_method_selections.selection_basis
+       into v_stored_method, v_stored_from, v_stored_to, v_stored_basis;
 
-  return query select v_best_method, v_from, v_to, v_best_windows, v_best_wape,
-    coalesce(v_basis, '{}'::jsonb);
+  -- ON CONFLICT DO NOTHING returns no row, and the recomputed winner is NOT
+  -- what governs the cutoff -- the frozen one is. A late sales correction can
+  -- move the apparent winner, and returning it would have the monthly job
+  -- report a method the durable record does not name. Read the stored row back
+  -- and return that instead, so what this function says and what the table
+  -- holds cannot diverge.
+  if v_stored_method is null then
+    select s.selected_method, s.evidence_from, s.evidence_to, s.selection_basis
+      into v_stored_method, v_stored_from, v_stored_to, v_stored_basis
+    from public.forecast_method_selections s
+    where s.company_entity_id = p_company_entity_id
+      and s.sku_category = p_sku_category
+      and s.horizon_months = p_horizon_months
+      and s.effective_from_cutoff = p_effective_from_cutoff;
+  end if;
+
+  -- The windows and WAPE reported alongside belong to the STORED basis, for the
+  -- same reason. A basis written before this column existed, or by a future
+  -- writer, may not carry them -- absent reads NULL, never 0.
+  return query select
+    v_stored_method, v_stored_from, v_stored_to,
+    (v_stored_basis->'scores'->0->>'windows')::integer,
+    (v_stored_basis->'scores'->0->>'wape')::numeric,
+    coalesce(v_stored_basis, '{}'::jsonb);
 end;
 $fn$;
 

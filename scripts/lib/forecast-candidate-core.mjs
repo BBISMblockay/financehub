@@ -263,7 +263,7 @@ export async function runForecastCandidate({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The competition (migration 20260917200000)
+// The competition (migration 20260918000000)
 // ─────────────────────────────────────────────────────────────────────────────
 // Candidate_YoY_Shift_v1 above is ONE method on a fixed 30-day horizon, kept on
 // its own writer and its own track. This is the wider job: three calendar-month

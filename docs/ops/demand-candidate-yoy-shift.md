@@ -272,7 +272,7 @@ independently unreviewed.
 
 ---
 
-## The competition (`20260917200000`, 2026-09-18)
+## The competition (`20260918000000`, 2026-09-18)
 
 The ledger above proves ONE method. Three more now freeze beside it, and the
 choice between them is itself recorded before the cutoff it governs.

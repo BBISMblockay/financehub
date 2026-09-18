@@ -54,7 +54,7 @@ const MIGRATION_2 = 'supabase/migrations/20260917180000_product_type_profile.sql
 // The competition migration loosens this ledger's columns and adds the generic
 // no-look-ahead CHECK. Loaded here too so the verify checks below run against
 // the schema production will actually have, not an intermediate one.
-const MIGRATION_3 = 'supabase/migrations/20260917200000_forecast_method_competition.sql';
+const MIGRATION_3 = 'supabase/migrations/20260918000000_forecast_method_competition.sql';
 const MUTATIONS = {
   'no-clamp': [['least(p_clamp_high, greatest(p_clamp_low, v_raw))', 'v_raw']],
   // BOTH bounds, because the guard is deliberately two-layered: the base CTE
