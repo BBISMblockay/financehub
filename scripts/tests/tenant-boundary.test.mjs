@@ -419,5 +419,167 @@ await test('anon cannot write profiles at all', async () => {
 });
 
 
+
+// ── entity_memberships: self-enrollment ────────────────────────────────────
+// Found by Blake 2026-09-18, AFTER 20260917210000 was reviewed and green.
+//
+// `memberships_insert_self` was a permissive INSERT policy whose whole WITH
+// CHECK was `(user_id = auth.uid())` -- it constrains WHO the row is about and
+// says nothing about WHICH COMPANY or WHICH ROLE. Permissive policies OR, so it
+// granted exactly what the `memberships_insert_admin*` policies beside it exist
+// to withhold.
+//
+// The part worth encoding is that this DEFEATS the profiles fix rather than
+// sitting beside it. Nothing is forged: the attacker inserts a REAL membership
+// row, then calls `set_active_company()` -- SECURITY DEFINER, which validates
+// membership before writing `active_company_id` -- and it validates against the
+// row just created and performs the write itself. So the attack runs entirely
+// through legitimate, validated machinery, and narrowing profiles column
+// privileges does not touch it.
+//
+// Measured on production with 20260917210000 applied first: one INSERT plus one
+// RPC call took a Test Company user to 1,165,018 Baseballism sales rows with
+// is_admin(), is_exec_or_owner() AND can_manage_journal_entries() all true --
+// the last being write access to the QuickBooks general ledger.
+//
+// This runs the real attack chain against a fixture, so the test fails if the
+// policy or the grant comes back.
+const MEMBERSHIP_MIGRATION = 'supabase/migrations/20260917220000_membership_self_enrollment.sql';
+const memSql = await readFile(new URL(MEMBERSHIP_MIGRATION, root), 'utf8');
+
+const mb = new PGlite();
+await mb.exec('create role anon; create role authenticated; create role service_role;');
+await mb.exec(`
+  create schema if not exists auth;
+  create function auth.uid() returns uuid language sql stable as $f$
+    select nullif(current_setting('test.uid', true), '')::uuid $f$;
+  create table public.profiles (id uuid primary key, active_company_id uuid);
+  create table public.entity_memberships (
+    entity_id uuid, user_id uuid, role text, primary key (entity_id, user_id));
+  alter table public.entity_memberships enable row level security;
+  grant select, insert, update, delete on public.entity_memberships to authenticated;
+  grant select, update on public.profiles to authenticated;
+`);
+// The pre-fix policy set, reproduced.
+await mb.exec(`
+  create function public.is_entity_admin(p_entity_id uuid) returns boolean
+    language sql stable security definer as $f$
+    select exists (select 1 from public.entity_memberships m
+      where m.entity_id = p_entity_id and m.user_id = auth.uid()
+        and m.role in ('owner_admin','admin')) $f$;
+  create policy memberships_select_own on public.entity_memberships
+    for select using (user_id = auth.uid());
+  create policy memberships_insert_admin on public.entity_memberships
+    for insert with check (is_entity_admin(entity_id));
+  create policy memberships_insert_self on public.entity_memberships
+    for insert with check (user_id = auth.uid());
+`);
+// set_active_company as it really is: validates membership, then writes.
+await mb.exec(`
+  create function public.set_active_company(p_entity_id uuid) returns void
+  language plpgsql security definer as $f$
+  begin
+    if not exists (select 1 from public.entity_memberships
+                   where entity_id = p_entity_id and user_id = auth.uid()) then
+      raise exception 'Not a member of this company';
+    end if;
+    update public.profiles set active_company_id = p_entity_id where id = auth.uid();
+  end;$f$;
+  grant execute on function public.set_active_company(uuid) to authenticated;
+`);
+
+const T_A = '11111111-1111-4111-a111-111111111111';
+const T_B = '22222222-2222-4222-a222-222222222222';
+const ATTACKER = '99999999-9999-4999-a999-999999999999';
+await mb.exec(`
+  insert into public.profiles values ('${ATTACKER}', '${T_A}');
+  insert into public.entity_memberships values ('${T_A}','${ATTACKER}','member');
+`);
+
+/** Run the two-step attack chain as the attacker; return what it achieved. */
+async function attemptTakeover() {
+  await mb.exec('begin');
+  try {
+    await mb.exec('set local role authenticated');
+    await mb.query(`select set_config('test.uid', '${ATTACKER}', true)`);
+    await mb.query(`insert into public.entity_memberships (entity_id, user_id, role)
+                    values ('${T_B}','${ATTACKER}','owner_admin')`);
+    await mb.query(`select public.set_active_company('${T_B}')`);
+    const r = await mb.query(
+      `select active_company_id::text as c from public.profiles where id = '${ATTACKER}'`);
+    return r.rows[0].c === T_B ? 'TOOK OVER TENANT B' : 'no takeover';
+  } catch (err) {
+    return 'REFUSED';
+  } finally {
+    await mb.exec('rollback');
+  }
+}
+
+await test('the self-enrollment chain works BEFORE the fix (the test is real)', async () => {
+  // Pinning the vulnerability first. Without this, a fix-only assertion could
+  // pass against a fixture that never reproduced the bug -- which is the way a
+  // security regression test is usually worthless.
+  assert.equal(await attemptTakeover(), 'TOOK OVER TENANT B',
+    'the fixture does not reproduce the original hole, so the assertion below proves nothing');
+});
+
+// Apply the shipped migration.
+await mb.exec(memSql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n'));
+
+await test('self-enrollment into another tenant is refused after the fix', async () => {
+  assert.equal(await attemptTakeover(), 'REFUSED',
+    'a user can still enrol themselves into another company and switch into it');
+});
+
+await test('a definer enrolment path (invite redemption, approval) still works', async () => {
+  // accept_org_invite / approve_access_request / handle_new_user all insert
+  // memberships as SECURITY DEFINER, and org-invite-redeem uses service-role.
+  // If the revoke broke those, onboarding stops and this migration gets
+  // reverted -- taking the fix with it.
+  await mb.exec(`
+    create function public.definer_enroll(p_entity uuid, p_user uuid) returns text
+    language plpgsql security definer as $f$
+    begin
+      insert into public.entity_memberships (entity_id, user_id, role)
+      values (p_entity, p_user, 'member')
+      on conflict (entity_id, user_id) do update set role = excluded.role;
+      return 'ok';
+    end;$f$;
+    grant execute on function public.definer_enroll(uuid, uuid) to authenticated;
+  `);
+  await mb.exec('begin');
+  try {
+    await mb.exec('set local role authenticated');
+    await mb.query(`select set_config('test.uid', '${ATTACKER}', true)`);
+    const r = await mb.query(`select public.definer_enroll('${T_B}','${ATTACKER}') as v`);
+    assert.equal(r.rows[0].v, 'ok', 'the invite/approval enrolment path is broken');
+  } finally {
+    await mb.exec('rollback');
+  }
+});
+
+await test('a member can still read their own memberships', async () => {
+  // company-picker.html, login.html, profile.html and reviews.html all read
+  // this table to resolve which companies a user belongs to.
+  await mb.exec('begin');
+  try {
+    await mb.exec('set local role authenticated');
+    await mb.query(`select set_config('test.uid', '${ATTACKER}', true)`);
+    const r = await mb.query('select count(*)::int as n from public.entity_memberships');
+    assert.equal(r.rows[0].n, 1, 'the company picker can no longer resolve memberships');
+  } finally {
+    await mb.exec('rollback');
+  }
+});
+
+await test('the migration drops the policy AND revokes the write grants', async () => {
+  // Either alone is weaker: the policy could be recreated in good faith, and a
+  // grant with no policy is inert only while no permissive policy exists.
+  assert.match(memSql, /drop policy if exists memberships_insert_self on public\.entity_memberships;/);
+  assert.match(memSql, /revoke insert, update, delete on public\.entity_memberships from authenticated;/);
+  assert.match(memSql, /revoke insert, update, delete on public\.entity_memberships from anon;/);
+});
+
+
 console.log(`\n${run - failures}/${run} passed`);
 if (failures) process.exit(1);

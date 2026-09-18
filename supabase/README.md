@@ -1081,3 +1081,23 @@ Audit: `docs/ops/multi-tenant-audit-2026-09.md`.
 Onboarding: `docs/ops/new-client-onboarding.md`.
 Tests: `scripts/tests/tenant-boundary.test.mjs` (real PostgreSQL via PGlite,
 five mutations) and `scripts/tests/nav-profile.test.mjs`.
+
+## Membership self-enrollment (2026-09-18)
+
+`20260917220000_membership_self_enrollment.sql`. `memberships_insert_self` let
+any authenticated user insert `(entity_id = <any company>, user_id = self, role
+= 'owner_admin')` — the WITH CHECK constrained only *who the row was about*.
+
+Read this one together with `20260917210000`: it is not a smaller sibling of the
+profiles hole, it **defeats** it. Nothing is forged. The attacker creates a real
+membership row, then calls `set_active_company()` — SECURITY DEFINER, which
+validates membership before writing — and it validates against the row just
+created. Narrowing the profiles column privileges does not touch that path.
+
+Nothing legitimate used the policy: every membership INSERT runs through a
+SECURITY DEFINER function or the service-role client. SELECT is untouched — the
+company picker and login resolve memberships from it.
+
+Audit: `docs/ops/multi-tenant-audit-2026-09.md` (P0-5).
+Tests: `scripts/tests/tenant-boundary.test.mjs`, which pins the vulnerability
+*before* applying the migration so the fix assertion cannot pass vacuously.

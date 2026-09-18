@@ -59,6 +59,23 @@ holds.** The question that was never asked is "who can write the inputs these
 policies read". `verify_v2_schema.sql` now asks it on every run.
 See P0-4 below.
 
+**And the lesson had to be learned twice.** After P0-4 was fixed, reviewed and
+green, Blake found P0-5: `memberships_insert_self`, a permissive policy letting
+any user enrol themselves into any company as `owner_admin`. Same family, one
+layer down, and it **defeats** the P0-4 fix rather than sitting beside it —
+because it forges nothing. It creates a real membership row and then walks
+through `set_active_company()`, which validates membership and duly validates
+against the row just created.
+
+So the corrected question above is still not general enough. "Who can write the
+inputs these policies read" found P0-4 and would not have found P0-5, because
+`entity_memberships` is not read by a policy — it is read by the *functions* the
+policies call. The general form is: **enumerate every input to every
+authorization decision, and for each one ask who can write it.** In SILO those
+inputs are `profiles.active_company_id`, `profiles.role`, `profiles.department`
+and `entity_memberships`. Three of the four were self-writable when this audit
+began and called the tenant model sound.
+
 ## What was already sound
 
 With the above as the correction, these still hold and are the larger part of
@@ -254,6 +271,56 @@ so the profile save would break. The over-lock direction matters because the
 likely response to a broken profile page is `grant update on profiles`, which
 reopens everything.
 
+### P0-5 — `memberships_insert_self`: any user could enrol themselves as owner_admin
+
+Found by Blake on 2026-09-18, against an isolated database carrying the live
+permission definitions **with `20260917210000` already applied**. That detail is
+the finding: this hole survives the profiles fix.
+
+`memberships_insert_self` was a PERMISSIVE INSERT policy whose entire WITH CHECK
+was `(user_id = auth.uid())`. It constrains **who the row is about** and says
+nothing about **which company** or **which role**. Permissive policies are
+OR-ed, so it granted exactly what the two `memberships_insert_admin*` policies
+beside it exist to withhold.
+
+**Why it is not a smaller sibling of P0-4.** P0-4 forged
+`profiles.active_company_id` directly, and the fix was to take the column away.
+P0-5 forges nothing. It inserts a *real* membership row, then calls
+`set_active_company()` — SECURITY DEFINER, which validates membership before
+writing `active_company_id` — and that function duly validates against the row
+the attacker just created and performs the write itself. The whole attack runs
+through legitimate, validated machinery, which is why narrowing profiles column
+privileges does not touch it.
+
+Measured on production, 2026-09-18, in a rolled-back transaction with
+`20260917210000`'s grants applied first. One INSERT plus one RPC call:
+
+| | before | after |
+|---|---|---|
+| `active_company_id()` | Test Company | **Baseballism** |
+| `sales_by_day` visible | 5,271 | **1,165,018** |
+| `is_admin()` | false | **true** |
+| `is_exec_or_owner()` | false | **true** |
+| `can_manage_journal_entries()` | false | **true** |
+
+That last row is the new ceiling and is worse than P0-4's: it gates every
+card-coding table and the QuickBooks post, so this is write access to another
+tenant's general ledger, not only a read of their books.
+
+**Fixed** in `20260917220000`: the policy is dropped, and INSERT/UPDATE/DELETE
+are revoked from `authenticated` and `anon`. Nothing legitimate used it — every
+membership INSERT runs through a SECURITY DEFINER function (`handle_new_user`,
+`accept_org_invite`, `approve_access_request`, `admin_update_profile`,
+`create_entity_with_owner`) or the service-role client (`org-invite-redeem`),
+and no client-side code writes the table at all. SELECT is untouched: the
+company picker and login resolve memberships from it.
+
+The policy drop is what closes the hole today (the remaining INSERT policy
+requires `is_entity_admin`); the revoke is the belt that stops a future
+permissive policy reopening it alone. The regression pins the vulnerability
+**before** applying the migration, so the fix assertion cannot pass against a
+fixture that never reproduced the bug.
+
 ### P1-6 — Requiring a variable broke the workflows that call the script
 
 Also from the cycle-1 review. Making `REDO_COMPANY_ENTITY_ID` mandatory (P1-5)
@@ -350,6 +417,7 @@ to fail the suite.
 | Tenant model (`entities`, memberships, `active_company_id`) | A | Yes | None | — | Low | None |
 | RLS on operational tables | A | Yes | None | — | Low | Keep the verify checks green |
 | **Privileges under RLS** (`profiles` columns) | **was F, now A** | Yes | None | — | **was Critical** | Fixed; RLS was complete and the column it reads was self-writable |
+| **Membership grant path** (`entity_memberships`) | **was F, now A** | Yes | None | — | **was Critical** | Fixed; self-enrollment defeated the profiles fix via the legitimate RPC |
 | SECURITY DEFINER surface | **was C, now A** | Yes | Default arg → Baseballism | — | **was High** | Applied + allowlisted |
 | Onboarding / signup | A | Yes | None | — | Low | None |
 | Invites | A | Yes | None | — | Low | Prefer over access requests |

@@ -214,13 +214,24 @@ rollback;
 6. **Service-role primitives are out of reach.**
    `select purge_better_reports_overlap('<other tenant>')` must fail with
    `42501` as both `anon` and `authenticated`.
-7. **The tenant boundary is not self-writable.** As the new tenant's user:
-   `update profiles set active_company_id = '<Baseballism>' where id = auth.uid()`
-   must be **refused** (`42501`), and so must `set role = 'owner'`. Then confirm
-   the same user can still save their own name and landing page. This is the
-   check that matters most — until 2026-09-17 that UPDATE succeeded and handed
-   the caller every row of the other tenant, with RLS fully in place and
-   correctly shaped. See P0-4 in `docs/ops/multi-tenant-audit-2026-09.md`.
+7. **The tenant boundary is not self-writable.** As the new tenant's user, each
+   of these must be **refused**:
+   - `update profiles set active_company_id = '<Baseballism>' where id = auth.uid()`
+   - `update profiles set role = 'owner' where id = auth.uid()`
+   - `insert into entity_memberships (entity_id, user_id, role) values ('<Baseballism>', auth.uid(), 'owner_admin')`
+
+   Then confirm the same user can still save their own name and landing page,
+   and that the company picker still lists their own companies. **These are the
+   checks that matter most.** Until 2026-09-17 the first two succeeded; until
+   2026-09-18 the third did, and the third *defeated the fix for the first two*
+   — it forges nothing, it creates a real membership and then asks
+   `set_active_company()` to honour it. See P0-4 and P0-5 in
+   `docs/ops/multi-tenant-audit-2026-09.md`.
+
+   The general form of this check, worth applying to anything added later:
+   **enumerate every input to every authorization decision, and for each one ask
+   who can write it.** In SILO those inputs are `profiles.active_company_id`,
+   `profiles.role`, `profiles.department` and `entity_memberships`.
 8. **Storage.** A private-bucket object under another tenant's parent row is not
    readable. See `docs/ops/storage-isolation.md`.
 9. **Disconnect / reconnect.** Toggle the Shopify connection off, confirm the
@@ -229,8 +240,8 @@ rollback;
    the platform's own ids).
 10. **Schema drift.** `supabase/verify_v2_schema.sql` — every row `ok`, including
    *Definer functions reachable by anon*, *Service-role-only tenant primitives*,
-   *No silent Baseballism fallback in RPCs* and *Profiles privilege columns are
-   not self-writable*.
+   *No silent Baseballism fallback in RPCs*, *Profiles privilege columns are
+   not self-writable* and *Membership is not self-grantable*.
 
 ---
 

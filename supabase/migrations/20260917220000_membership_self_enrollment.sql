@@ -1,0 +1,87 @@
+-- =============================================================================
+-- entity_memberships: remove self-enrollment.
+--
+-- Found by Blake, 2026-09-18, against an isolated database carrying the LIVE
+-- permission definitions with 20260917210000 already applied. Separate file
+-- rather than an edit to that migration, which has been independently reviewed
+-- and should stay byte-identical.
+--
+-- `memberships_insert_self` is a PERMISSIVE INSERT policy whose whole WITH
+-- CHECK is:
+--
+--     (user_id = auth.uid())
+--
+-- It constrains WHO the row is about and says nothing about WHICH COMPANY or
+-- WHICH ROLE. Permissive policies are OR-ed, so it grants exactly what the two
+-- `memberships_insert_admin*` policies beside it exist to withhold: any
+-- authenticated user could insert
+--
+--     (entity_id = <any company>, user_id = self, role = 'owner_admin')
+--
+-- and become an owner-admin of a company they have no relationship to.
+--
+-- WHY THIS IS WORSE THAN THE profiles HOLE 20260917210000 CLOSED, rather than a
+-- smaller sibling of it: that one forged `profiles.active_company_id` directly,
+-- and the fix was to take the column away. This one does not forge anything.
+-- It creates a REAL membership row and then walks through the front door —
+-- `set_active_company()` is SECURITY DEFINER and validates membership before
+-- writing `active_company_id`, so it duly validates against the row the
+-- attacker just inserted and performs the write itself. Narrowing the profiles
+-- column privileges therefore does not touch this path at all, which is why it
+-- survived that migration.
+--
+-- MEASURED ON PRODUCTION, 2026-09-18, in a rolled-back transaction with
+-- 20260917210000's profiles grants applied first. A Test Company user ran one
+-- INSERT and one ordinary RPC call and came back with:
+--
+--     active_company_id()            = Baseballism
+--     sales_by_day visible           = 1,165,018 rows (their own company: 5,271)
+--     is_admin()                     = true
+--     is_exec_or_owner()             = true
+--     can_manage_journal_entries()   = true
+--
+-- That last one is the new ceiling: `can_manage_journal_entries()` gates every
+-- card-coding table and the QuickBooks post. So this is not only a read of
+-- another tenant's books, it is write access to their general ledger.
+--
+-- NOTHING LEGITIMATE USES THE POLICY. Every membership INSERT in the system
+-- runs through a SECURITY DEFINER function — `handle_new_user` (founding an
+-- org), `accept_org_invite`, `approve_access_request`, `admin_update_profile`,
+-- `create_entity_with_owner` — and the one edge function that enrolls a user,
+-- `org-invite-redeem`, uses the service-role client. Definer functions execute
+-- as the function owner and service-role bypasses RLS, so neither is affected
+-- by a policy or a grant on `authenticated`. Verified on production that a
+-- definer insert still succeeds under exactly the revoke below, because the
+-- invite-redemption path breaking is the failure that would get this reverted.
+-- No client-side code writes this table at all; `v2/profile.html`,
+-- `v2/reviews.html`, `v2/company-picker.html` and `pages/login.html` only read
+-- it.
+--
+-- THE GRANT REVOKE, not just the policy drop, for the same reason the profiles
+-- fix narrowed column privileges: membership is THE authorization primitive in
+-- SILO — `is_admin()`, `is_exec_or_owner()`, `is_entity_admin()`,
+-- `can_manage_journal_entries()` and `set_active_company()` all read it — and a
+-- browser session has no business writing it under any policy. With the grant
+-- gone, a future permissive policy added in good faith cannot reopen this on
+-- its own. The admin policies are left in place: they cost nothing, they
+-- document the intent, and they are the second layer if the grant is ever
+-- restored.
+--
+-- Reversible: `create policy memberships_insert_self ... with check (user_id =
+-- auth.uid())` plus `grant insert, update, delete on public.entity_memberships
+-- to authenticated` restores the previous state exactly. Do not.
+-- =============================================================================
+
+drop policy if exists memberships_insert_self on public.entity_memberships;
+
+revoke insert, update, delete on public.entity_memberships from authenticated;
+revoke insert, update, delete on public.entity_memberships from anon;
+
+-- SELECT stays as it is. The three read policies OR to "your own rows, plus the
+-- rows of a company you belong to" (`memberships_select_own`,
+-- `memberships_select_member`, `memberships_select_own_or_admin`), all scoped
+-- through `is_entity_member` / `is_entity_admin`, and the pages above depend on
+-- reading them. There are duplicate policy pairs here
+-- (`memberships_insert_admin` / `_admin_only`, and the same for update and
+-- delete) which are identical and harmless; deduplicating them is tidying, not
+-- a fix, and is deliberately not bundled into a security migration.
