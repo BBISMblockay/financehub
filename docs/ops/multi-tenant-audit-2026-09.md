@@ -113,6 +113,36 @@ the story.
 - **Storage was fixed in September** (`20260904120000`): private-bucket policies
   key off the parent row rather than `bucket_id`.
 
+## The authorization-input sweep (applying the generalized rule)
+
+Having missed this class twice, the rule was actually run rather than only
+written down. Every function that makes an authorization decision was
+enumerated, then every table those functions read, then who may write each one.
+This is the list to re-check whenever an authz helper is added.
+
+| Authorization input | Read by | Write gate | Verdict |
+|---|---|---|---|
+| `profiles.active_company_id` | `active_company_id()` — and therefore **every** company-scoped policy | was: any user, own row | **P0-4, fixed** (`20260917210000`) |
+| `profiles.role` / `.department` | `is_admin`, `is_admin_user`, `is_exec_or_owner`, `can_manage_journal_entries`, `current_user_can_manage_payment_requests`, `current_user_can_manage_comp_requests`, `po_builder_can_write`, `po_costing_can_write`, `reviews_can_manage`, `is_active_user` | was: any user, own row | **P0-4, fixed** |
+| `entity_memberships` | `is_admin`, `is_admin_user`, `is_entity_admin`, `is_entity_member`, `is_exec_or_owner`, `is_owner_admin`, `is_owner_or_admin`, `can_manage_journal_entries`, `current_user_can_manage_*`, `po_*_can_write`, `shares_active_company` | was: **self-insert, any company, any role** | **P0-5, fixed** (`20260917220000`) |
+| `silo_chat_managers` | `can_manage_silo_notes` | `company_entity_id = active_company_id() AND is_exec_or_owner()` | Clean |
+| `seo_approvers` | `can_approve_seo_tasks` | `company_entity_id = active_company_id() AND is_exec_or_owner()` | Clean |
+| `employee_managers` | `is_employee_manager` | `company_entity_id = active_company_id() AND (is_exec_or_owner() OR (manager_user_id = auth.uid() AND is_employee_creator(employee_id)) OR is_employee_manager(employee_id))` | Clean — **verified empirically**, not only read |
+| `employees`, `comp_adjustment_requests` | not read by any authz helper | — | Not an authz input |
+
+`employee_managers` was the one worth testing rather than reading, because it is
+the only remaining gate with a self-referential branch (`manager_user_id =
+auth.uid()`), which is the exact shape of the P0-5 bug. It differs in the part
+that matters: every branch additionally requires exec/owner, **or** being the
+creator of that employee row, **or** already managing them. Confirmed on
+production in a rolled-back transaction — a Baseballism admin who is none of
+those three was refused when self-granting management of an employee.
+
+The two co-manager branches are the documented self-service rostering decision
+(see `employees` / `comp_adjustment_requests` in CLAUDE.md, and the note that
+self-requests are deliberately allowed). They are within-tenant by construction
+and are **not** to be "fixed" without asking.
+
 ## Two things flagged from reading, then disproved by testing
 
 Recorded because each would have been a confident, wrong finding.
