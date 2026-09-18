@@ -3938,7 +3938,7 @@ select 'Definer functions reachable by anon' as check_name,
    then 'CRITICAL: a SECURITY DEFINER function is executable by anon and is not on the reviewed allowlist'
  else 'ok' end as status;
 
--- The four closed by 20260917200000, asserted individually. The allowlist check
+-- The four closed by 20260917210000, asserted individually. The allowlist check
 -- above would catch an anon re-grant; this one also catches an `authenticated`
 -- re-grant, which is the likelier accident (a `create or replace` restores the
 -- schema default) and is still cross-tenant: none of these four takes the
@@ -3946,7 +3946,7 @@ select 'Definer functions reachable by anon' as check_name,
 select 'Service-role-only tenant primitives' as check_name,
  case
  when to_regprocedure('public.purge_better_reports_overlap(uuid)') is null
-   then 'MISSING: purge_better_reports_overlap; apply 20260917200000'
+   then 'MISSING: purge_better_reports_overlap; apply 20260917210000'
  when exists (
    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
@@ -3985,6 +3985,50 @@ select 'No silent Baseballism fallback in RPCs' as check_name,
      and p.proname in ('admin_update_profile','approve_access_request')
      and pg_get_functiondef(p.oid) like '%3bd934c9-4cdd-429b-9076-f8f6b45d4eb7%')
    then 'CRITICAL: a membership-granting RPC still defaults its company to Baseballism'
+ else 'ok' end as status;
+
+-- ── The tenant boundary must not be self-writable ──────────────────────────
+-- active_company_id() is `select active_company_id from profiles where id =
+-- auth.uid()`, and EVERY company-scoped policy in SILO is `company_entity_id =
+-- active_company_id()`. So profiles.active_company_id is not an ordinary
+-- column: it is the input the whole tenant model resolves through. Same for
+-- profiles.role, which is_admin()/is_exec_or_owner() fall back to whenever
+-- there is no membership row for the active company -- exactly the state a
+-- forged active_company_id produces.
+--
+-- RLS cannot protect either one. `profiles_update_self` is `using (id =
+-- auth.uid())`, which constrains WHICH ROW may be written and says nothing
+-- about WHICH COLUMNS; column privileges are the only mechanism, and until
+-- 20260917210000 they had never been narrowed from the schema default.
+-- Measured on production 2026-09-17: one self-UPDATE took a Test Company user
+-- to 1,164,910 of Baseballism's sales rows with is_admin() true.
+--
+-- This check is worth more than the RLS checks above it. A policy that scopes
+-- rows by a column its subject can rewrite is not a boundary, and that is not
+-- visible in pg_policy -- which is why the first audit of this schema passed it.
+select 'Profiles privilege columns are not self-writable' as check_name,
+ case
+ when has_column_privilege('authenticated','public.profiles','active_company_id','UPDATE')
+   then 'CRITICAL: any signed-in user can repoint their own active_company_id at another tenant'
+ when has_column_privilege('authenticated','public.profiles','role','UPDATE')
+   then 'CRITICAL: any signed-in user can make themselves owner'
+ when has_column_privilege('authenticated','public.profiles','is_active','UPDATE')
+   then 'CRITICAL: is_active is self-writable'
+ when has_column_privilege('authenticated','public.profiles','department','UPDATE')
+   then 'CRITICAL: department is self-writable, and finance gates read it'
+ when has_column_privilege('authenticated','public.profiles','active_company_id','INSERT')
+   or has_column_privilege('authenticated','public.profiles','role','INSERT')
+   then 'CRITICAL: the same escalation is open on the INSERT path'
+ when has_column_privilege('anon','public.profiles','name','UPDATE')
+   or has_column_privilege('anon','public.profiles','name','INSERT')
+   then 'CRITICAL: anon can write profiles'
+ -- The other half: an over-lock silently breaks the profile page's save, and
+ -- the likely response to that is `grant update on profiles`, which reopens
+ -- everything above.
+ when not has_column_privilege('authenticated','public.profiles','name','UPDATE')
+   or not has_column_privilege('authenticated','public.profiles','default_page','UPDATE')
+   or not has_column_privilege('authenticated','public.profiles','avatar_url','UPDATE')
+   then 'CRITICAL: a user can no longer edit their own name/landing page/avatar; v2/profile.html save is broken'
  else 'ok' end as status;
 
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.

@@ -1064,7 +1064,7 @@ PGlite, with ten mutations).
 
 ## Tenant boundary hardening (2026-09-17)
 
-`20260917200000_tenant_boundary_hardening.sql`. RLS was already complete on the
+`20260917210000_tenant_boundary_hardening.sql`. RLS was already complete on the
 base tables; the holes were beside it. A SECURITY DEFINER function runs as its
 owner and bypasses RLS, so its EXECUTE grant is the entire tenant boundary —
 and Supabase's default privileges grant EXECUTE to `public` on every new

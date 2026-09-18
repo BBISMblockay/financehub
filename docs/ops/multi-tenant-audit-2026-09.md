@@ -27,12 +27,44 @@ rollback;
 
 ---
 
+## What this audit got wrong
+
+Read this before the rest of the file, because the first version of it led with
+"RLS coverage is complete, the tenant model is sound" and that conclusion was
+**wrong** — not in its facts, in what it checked.
+
+RLS coverage *is* complete, and every company-scoped policy *is* correctly
+AND-ed. Both statements below are true and both were verified. But every one of
+those policies resolves through `active_company_id()`, which reads
+`profiles.active_company_id` — **and `authenticated` held UPDATE on that
+column**. A policy that scopes rows by a column its own subject can rewrite is
+not a boundary, and no amount of reading `pg_policy` shows it: the policies are
+fine, the privileges under them were not.
+
+Measured on production, 2026-09-17, in a rolled-back transaction: a Test
+Company user ran one ordinary self-`UPDATE` and came back with
+`active_company_id` = Baseballism, **1,164,910** `sales_by_day` rows visible
+against their own 5,271, `is_admin()` true and `is_exec_or_owner()` true. No
+membership, no RPC, no admin. That is a complete cross-tenant compromise
+reachable from the browser by any signed-in user of any tenant, and it defeats
+every other control in this document.
+
+It was found by the **cycle-2 independent review on PR #722**, reported there as
+an escalation into `approve_access_request`. It is much larger than that framing
+— the approval RPC is one of the things it defeats, not the point of it.
+
+The methodological lesson, recorded because it is the reusable part: **checking
+that policies exist and are correctly shaped is not checking that the boundary
+holds.** The question that was never asked is "who can write the inputs these
+policies read". `verify_v2_schema.sql` now asks it on every run.
+See P0-4 below.
+
 ## What was already sound
 
-This is the larger part of the story and it should not be lost in the finding
-list.
+With the above as the correction, these still hold and are the larger part of
+the story.
 
-- **RLS coverage is complete.** All ~160 public base tables have
+- **RLS coverage is complete** (necessary, and — see above — not sufficient)**.** All ~160 public base tables have
   `relrowsecurity = true`. Tables holding credentials or tokens
   (`org_invites`, `*_oauth_states`, `plaid_connection_secrets`,
   `review_access_tokens`, `qbo_history_staging_*`, `sync_state`, `upc_pool`)
@@ -97,7 +129,7 @@ Reproduced: called successfully as `set local role anon`, and as a Test Company
 user naming Baseballism's entity id. Both returned a row count rather than an
 authorization error.
 
-**Fixed** in `20260917200000`: revoked from anon/authenticated, default argument
+**Fixed** in `20260917210000`: revoked from anon/authenticated, default argument
 removed (a destructive function should never have a default target), service-role
 guard added.
 
@@ -177,6 +209,50 @@ Note the mutation asymmetry, which is why the operator is also pinned
 statically: with the null check present, `<>` and `IS DISTINCT FROM` behave
 identically, so reverting only the operator does not fail the behavioural test.
 That is correct, not a gap — but it means the belt would decay silently.
+
+### P0-4 — `profiles.active_company_id` and `role` were self-writable
+
+The most serious finding in this document, and the one the first audit missed.
+See **What this audit got wrong** above for the measurement.
+
+`authenticated` held `UPDATE` on all eleven columns of `public.profiles`. The
+policy `profiles_update_self` is `using (id = auth.uid()) with check (id =
+auth.uid())` — which constrains **which row** may be written and says nothing
+about **which columns**. RLS has no column dimension; column privileges are the
+only mechanism, and they had never been narrowed from the schema default. There
+is no guard trigger either (`profiles` carries only `set_updated_at`).
+
+The two columns that matter compose into full access:
+
+- `active_company_id` is what `active_company_id()` returns, and every
+  company-scoped policy in SILO is `company_entity_id = active_company_id()`.
+  Forging it repoints all of them at another tenant in one statement.
+- `role` is what `is_admin()` / `is_exec_or_owner()` fall back to whenever there
+  is no membership row for the active company — **exactly** the state a forged
+  `active_company_id` produces, since the fallback triggers on `em.role is
+  null`.
+
+**Fixed** in `20260917210000`: `authenticated` keeps `UPDATE` on exactly
+`(name, default_page, avatar_url, updated_at)` — verified against the only
+client-side writer, `v2/profile.html`, which writes `{name, default_page,
+updated_at}` on save and `{avatar_url, updated_at}` on avatar upload, and
+nothing else in the codebase writes this table from a browser. `INSERT` is
+narrowed the same way, and `anon` loses both.
+
+Everything else already had a validating path and is unaffected, because those
+are SECURITY DEFINER and run as the owner: `set_active_company()` checks
+`entity_memberships` before writing, `admin_update_profile()` checks
+`is_admin()` plus same-company membership, `approve_access_request()` as
+corrected in P0-3. Confirmed on production that a member's
+`set_active_company()` switch still succeeds and a non-member's is still refused
+with `Not a member of this company`.
+
+Regression: `scripts/tests/tenant-boundary.test.mjs` asserts both directions —
+the privilege columns are unwritable **and** the four the profile page edits
+still are. Both mutations caught: restoring the blanket grant, and over-locking
+so the profile save would break. The over-lock direction matters because the
+likely response to a broken profile page is `grant update on profiles`, which
+reopens everything.
 
 ### P1-6 — Requiring a variable broke the workflows that call the script
 
@@ -273,6 +349,7 @@ to fail the suite.
 |---|---|---|---|---|---|---|
 | Tenant model (`entities`, memberships, `active_company_id`) | A | Yes | None | — | Low | None |
 | RLS on operational tables | A | Yes | None | — | Low | Keep the verify checks green |
+| **Privileges under RLS** (`profiles` columns) | **was F, now A** | Yes | None | — | **was Critical** | Fixed; RLS was complete and the column it reads was self-writable |
 | SECURITY DEFINER surface | **was C, now A** | Yes | Default arg → Baseballism | — | **was High** | Applied + allowlisted |
 | Onboarding / signup | A | Yes | None | — | Low | None |
 | Invites | A | Yes | None | — | Low | Prefer over access requests |
@@ -325,6 +402,14 @@ report, the acceptance-test output, and a green `verify_v2_schema.sql`.
    their data is complete — the freshness alarm covers ongoing lag, not initial
    backfill correctness.
 
-None of these is architectural. The architecture holds: after this change,
-tenancy is enforced by RLS on every table, by membership on every grant path,
-and by explicit revocation on every path that bypasses RLS.
+None of these is architectural. The architecture holds — but note what that
+sentence is worth, given P0-4: it held on paper before this change too, and the
+boundary was still open, because the privileges underneath the policies had
+never been audited. After this change tenancy is enforced by RLS on every table,
+by membership on every grant path, by explicit revocation on every path that
+bypasses RLS, **and** by column privileges on the two `profiles` columns the
+policies themselves resolve through.
+
+The standing lesson: when reviewing tenancy here, do not stop at "is there a
+policy and is it shaped correctly". Ask who can write the inputs that policy
+reads. That question is now a verify check rather than a habit.

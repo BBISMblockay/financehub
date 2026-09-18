@@ -18835,7 +18835,7 @@ $c$select (select count(*) from v_po_header_summary
 -- refuses to remove a parameter default from an existing function.
 \i migrations/20260917180000_product_type_profile.sql
 
--- Tenant boundary hardening (20260917200000_tenant_boundary_hardening.sql).
+-- Tenant boundary hardening (20260917210000_tenant_boundary_hardening.sql).
 -- Closes the paths that bypass RLS entirely: a SECURITY DEFINER function runs
 -- as its owner, so its EXECUTE grant is the whole tenant boundary -- and
 -- Supabase grants EXECUTE to `public` (anon + authenticated) on every new
@@ -18849,4 +18849,4 @@ $c$select (select count(*) from v_po_header_summary
 -- company (Baseballism) is half the point.
 -- The in-body guard reads current_setting('role'), NOT current_user -- inside a
 -- definer function current_user is the OWNER, so a current_user guard is inert.
-\i migrations/20260917200000_tenant_boundary_hardening.sql
+\i migrations/20260917210000_tenant_boundary_hardening.sql

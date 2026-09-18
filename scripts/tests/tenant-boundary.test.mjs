@@ -16,7 +16,7 @@
 //   * purge_better_reports_overlap  -- DELETEs another tenant's sales_by_day
 //   * backfill_company_entity_batch -- stamps unclaimed rows with ANY company id
 //   * attach_stamp_company_entity_id_triggers -- DDL across every tenant table
-// 20260917200000_tenant_boundary_hardening.sql revokes all three (plus an
+// 20260917210000_tenant_boundary_hardening.sql revokes all three (plus an
 // unauthenticated 300s matview refresh) and adds an in-body guard.
 //
 // ASSERTION 2 IS THE ONE THAT MATTERS MOST and is the reason this file is a
@@ -41,7 +41,7 @@ import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 
 const root = new URL('../../', import.meta.url);
-const MIGRATION = 'supabase/migrations/20260917200000_tenant_boundary_hardening.sql';
+const MIGRATION = 'supabase/migrations/20260917210000_tenant_boundary_hardening.sql';
 const BASEBALLISM = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
 
 // The four primitives the migration puts out of reach of browser sessions.
@@ -340,6 +340,82 @@ await test('the legitimate path still works: Tenant B admin approves a Tenant B 
   // would pass the two assertions above and be useless.
   const outcome = await approveAs(ADMIN_B);
   assert.equal(outcome, 'GRANTED', `Tenant B's own admin was refused: ${outcome}`);
+});
+
+
+
+// ── profiles: the tenant boundary must not be self-writable ────────────────
+// Raised by the cycle-2 independent review on PR #722, and larger than the
+// escalation it was reported as. `authenticated` held UPDATE on all eleven
+// columns of profiles, and RLS cannot restrict COLUMNS -- `using (id =
+// auth.uid())` says which ROW may be written, nothing more. So any signed-in
+// user could set their own `active_company_id` to any company and their own
+// `role` to 'owner'.
+//
+// That is not one escalation, it is the whole model: active_company_id() is
+// `select active_company_id from profiles where id = auth.uid()`, and every
+// company-scoped policy in SILO reads it. Measured on production in a
+// rolled-back transaction: one UPDATE took a Test Company user from 5,271
+// visible sales rows to 1,164,910 of Baseballism's, with is_admin() true.
+//
+// Column privileges are the only mechanism that expresses this, so that is what
+// is asserted -- against a fixture built the same way the migration grants.
+const pf = new PGlite();
+await pf.exec('create role anon; create role authenticated;');
+await pf.exec(`
+  create table public.profiles (
+    id uuid primary key, name text, email text, role text, department text,
+    is_active boolean, created_at timestamptz, updated_at timestamptz,
+    default_page text, active_company_id uuid, avatar_url text);
+`);
+// Start from the pre-fix state, then apply exactly what the migration applies.
+await pf.exec('grant select, insert, update on public.profiles to authenticated;');
+
+const GRANTS = sql.slice(sql.indexOf('revoke update on public.profiles from authenticated;'));
+await pf.exec(GRANTS.slice(0, GRANTS.indexOf('revoke insert, update on public.profiles from anon;')
+  + 'revoke insert, update on public.profiles from anon;'.length));
+
+async function can(role, column, priv) {
+  const r = await pf.query(
+    `select has_column_privilege('${role}','public.profiles','${column}','${priv}') as v`);
+  return r.rows[0].v;
+}
+
+await test('a user cannot write the columns the authorization model reads', async () => {
+  // active_company_id is the one every RLS policy in SILO resolves through.
+  assert.equal(await can('authenticated', 'active_company_id', 'UPDATE'), false,
+    'active_company_id is self-writable: one UPDATE repoints every RLS policy at another tenant');
+  // role is what is_admin()/is_exec_or_owner() fall back to when there is no
+  // membership for the active company -- exactly the state a forged company
+  // produces, so these two compose into full admin in another tenant.
+  assert.equal(await can('authenticated', 'role', 'UPDATE'), false, 'role is self-writable');
+  assert.equal(await can('authenticated', 'is_active', 'UPDATE'), false, 'is_active is self-writable');
+  assert.equal(await can('authenticated', 'department', 'UPDATE'), false,
+    'department is self-writable, and several policies gate on department = finance');
+});
+
+await test('a user can still edit the things the profile page actually edits', async () => {
+  // v2/profile.html writes {name, default_page, updated_at} on save and
+  // {avatar_url, updated_at} on avatar upload. A lockdown that broke these
+  // would be reverted wholesale, taking the fix with it.
+  for (const column of ['name', 'default_page', 'avatar_url', 'updated_at']) {
+    assert.equal(await can('authenticated', column, 'UPDATE'), true,
+      `${column} is no longer self-editable; v2/profile.html save would fail`);
+  }
+});
+
+await test('the same escalation is closed on the INSERT path', async () => {
+  // profiles_insert_own permits a self-insert. The row normally already exists,
+  // but an insert naming its own role and company is the same bug by another
+  // door.
+  assert.equal(await can('authenticated', 'role', 'INSERT'), false);
+  assert.equal(await can('authenticated', 'active_company_id', 'INSERT'), false);
+  assert.equal(await can('authenticated', 'id', 'INSERT'), true, 'a self-insert must still name itself');
+});
+
+await test('anon cannot write profiles at all', async () => {
+  assert.equal(await can('anon', 'name', 'UPDATE'), false);
+  assert.equal(await can('anon', 'name', 'INSERT'), false);
 });
 
 

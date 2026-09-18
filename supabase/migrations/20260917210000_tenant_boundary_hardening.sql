@@ -477,3 +477,78 @@ revoke all on function public.approve_access_request(uuid, text, text) from publ
 revoke all on function public.approve_access_request(uuid, text, text) from anon;
 grant execute on function public.approve_access_request(uuid, text, text) to authenticated;
 grant execute on function public.approve_access_request(uuid, text, text) to service_role;
+
+-- ── 7. profiles: the tenant boundary was self-writable ──────────────────────
+--
+-- THE FINDING THIS MIGRATION EXISTS FOR, and it was not in the original audit.
+-- Raised by the cycle-2 independent review on PR #722 as an escalation into
+-- approve_access_request; it is considerably larger than that.
+--
+-- `authenticated` held UPDATE on ALL ELEVEN columns of public.profiles, and the
+-- RLS policy `profiles_update_self` is `using (id = auth.uid()) with check (id
+-- = auth.uid())` -- which constrains WHICH ROW may be written and says nothing
+-- about WHICH COLUMNS. RLS cannot express a column restriction; column
+-- privileges are the only mechanism for that, and they had never been narrowed
+-- from the schema default. There is no guard trigger either (profiles carries
+-- only set_updated_at).
+--
+-- So any authenticated user could PATCH their own profile row and set
+-- `active_company_id` to any company at all -- no membership, no RPC, no admin
+-- -- and `profiles.role` to 'owner'. Both are the inputs the entire
+-- authorization model reads:
+--
+--   * active_company_id() is literally `select active_company_id from profiles
+--     where id = auth.uid()`, and EVERY company-scoped RLS policy in SILO is
+--     `company_entity_id = active_company_id()`. Forging that column
+--     repoints all of them at another tenant in one statement.
+--   * is_admin() / is_exec_or_owner() fall back to the global profiles.role
+--     whenever there is no membership row for the active company -- which is
+--     exactly the state a forged active_company_id produces.
+--
+-- MEASURED ON PRODUCTION, 2026-09-17, in a rolled-back transaction: a Test
+-- Company user (5,271 sales rows, no Baseballism membership) ran one ordinary
+-- UPDATE on their own profile and came back with active_company_id =
+-- Baseballism, 1,164,910 sales_by_day rows visible, is_admin() true and
+-- is_exec_or_owner() true. That is a complete cross-tenant compromise reachable
+-- from the browser by any signed-in user of any tenant, and it defeats every
+-- other control in this file.
+--
+-- The audit written alongside the first draft of this migration said the tenant
+-- model was sound because RLS coverage was complete. RLS coverage WAS complete.
+-- It was the wrong thing to have checked on its own: a policy that scopes rows
+-- by a column the subject can rewrite is not a boundary. docs/ops/
+-- multi-tenant-audit-2026-09.md now records that as the audit's own miss.
+--
+-- THE FIX is column privileges, because that is the mechanism that expresses
+-- it. `authenticated` keeps UPDATE on exactly the four columns the app lets a
+-- person edit about themselves -- verified against the only client-side writer,
+-- v2/profile.html, which updates {name, default_page, updated_at} on save and
+-- {avatar_url, updated_at} on avatar upload, and nothing else in the codebase
+-- writes this table from a browser.
+--
+-- Everything else moves through the SECURITY DEFINER RPCs that already exist
+-- and already validate: set_active_company() checks entity_memberships before
+-- writing active_company_id, admin_update_profile() checks is_admin() plus
+-- same-company membership, approve_access_request() as corrected above. Those
+-- run as the function owner, so revoking the caller's column privileges does
+-- not touch them -- confirmed on production, both that a member's
+-- set_active_company() switch still succeeds and that a non-member's is still
+-- refused with 'Not a member of this company'.
+--
+-- Reversible: `grant update on public.profiles to authenticated` restores the
+-- previous state exactly.
+revoke update on public.profiles from authenticated;
+grant update (name, default_page, avatar_url, updated_at)
+  on public.profiles to authenticated;
+
+-- Same reasoning for INSERT. `profiles_insert_own` permits a self-insert, and
+-- while the row normally already exists (handle_new_user creates it during
+-- signup), a self-insert that could name its own role and company would be the
+-- same escalation by another door. No client code inserts this table at all, so
+-- narrowing the columns costs nothing; the definer RPCs are unaffected.
+revoke insert on public.profiles from authenticated;
+grant insert (id, name, email, default_page, avatar_url, updated_at)
+  on public.profiles to authenticated;
+
+-- anon has no business writing profiles under any circumstances.
+revoke insert, update on public.profiles from anon;
