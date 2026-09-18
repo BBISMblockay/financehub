@@ -36,9 +36,28 @@ alter table public.forecast_candidate_ledger
 
 -- Backfill before the NOT NULL. Candidate_YoY_Shift_v1 reads whole months
 -- strictly before its cutoff, so the newest day it saw is the day before.
-update public.forecast_candidate_ledger
-   set inputs_through_date = cutoff_date - 1
- where inputs_through_date is null;
+-- Existing forecasts (including voided ones) are protected by the append-only
+-- trigger. Perform only this additive backfill under an exclusive table lock,
+-- restoring the trigger in the SAME atomic statement. No concurrent writer can
+-- use the temporary suspension, and any error rolls the whole DO statement back.
+do $backfill$
+begin
+  lock table public.forecast_candidate_ledger in access exclusive mode;
+  if exists (select 1 from public.forecast_candidate_ledger where inputs_through_date is null) then
+    if not exists (select 1 from pg_trigger
+                   where tgrelid = 'public.forecast_candidate_ledger'::regclass
+                     and tgname = 'forecast_candidate_ledger_append_only'
+                     and tgenabled = 'O') then
+      raise exception 'forecast ledger backfill requires the enabled append-only trigger';
+    end if;
+    alter table public.forecast_candidate_ledger disable trigger forecast_candidate_ledger_append_only;
+    update public.forecast_candidate_ledger
+       set inputs_through_date = cutoff_date - 1
+     where inputs_through_date is null;
+    alter table public.forecast_candidate_ledger enable trigger forecast_candidate_ledger_append_only;
+  end if;
+end;
+$backfill$;
 
 alter table public.forecast_candidate_ledger
   alter column inputs_through_date set not null;
