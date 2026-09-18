@@ -35,6 +35,7 @@
 //   ONBOARDING_MUTATION=currency-unlocked    (the per-company currency lock removed)
 //   ONBOARDING_MUTATION=refusal-only-removed (layer 1 gone, so layer 2 is tested alone)
 //   ONBOARDING_MUTATION=declared-insert-unguarded (the guard back to UPDATE-only)
+//   ONBOARDING_MUTATION=retry-shape-drift   (the retry path drops entity_key again)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -47,7 +48,7 @@ const mutation = process.env.ONBOARDING_MUTATION || '';
 assert.ok(['', 'signup-founds-org', 'retry-creates-new', 'tz-anything-goes', 'invite-any-admin',
   'founding-rewrites-global-role', 'currency-one-sided', 'helpers-definer',
   'founding-reactivates', 'currency-unlocked', 'refusal-only-removed',
-  'declared-insert-unguarded'].includes(mutation),
+  'declared-insert-unguarded', 'retry-shape-drift'].includes(mutation),
   `Unknown onboarding mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -158,6 +159,10 @@ if (mutation === 'refusal-only-removed') {
   // refusal stops every case that would exercise it -- so the test asserting
   // it could not fail, which the independent review caught.
   sql = sql.replace(/  select is_active into v_is_active\n    from public\.profiles where id = auth\.uid\(\)\n    for update;\n  if v_is_active is not null and not v_is_active then\n[^\n]*\n  end if;\n/, () => '');
+}
+if (mutation === 'retry-shape-drift') {
+  sql = sql.replace(/\n\s*'entity_key', \(select entity_key from public\.entities where id = v_invite\.created_company_id\),/,
+                    () => '');
 }
 if (mutation === 'declared-insert-unguarded') {
   sql = sql.replace('before insert or update of default_currency on public.company_settings',
@@ -359,6 +364,19 @@ await test('a repeated redeem returns the SAME company, not a second one', async
   const again = await as(founder, () => rpc('redeem_platform_invite', [token, 'Prospect Co', 'America/Los_Angeles', 'USD']));
   assert.equal(again.repeated, true, 'the retry is reported as a retry, not silently re-run');
   assert.equal(again.entity_id, founded.entity_id);
+
+  // Both success paths must return the SAME KEYS. The caller caches the company
+  // from this response and `entity_key` decides which nav profile the first
+  // page paints with -- so a retry that omits it caches a half-built company,
+  // on the very path this branch exists to serve. `repeated` is the one key
+  // that differs in VALUE; the key set does not differ at all.
+  const freshKeys = Object.keys(founded).sort();
+  const retryKeys = Object.keys(again).sort();
+  assert.deepEqual(retryKeys, freshKeys,
+    `retry returned a different shape: fresh=${freshKeys} retry=${retryKeys}`);
+  assert.equal(again.entity_key, founded.entity_key);
+  assert.equal(again.business_timezone, founded.business_timezone);
+  assert.equal(again.default_currency, founded.default_currency);
   const n = (await q(`select 1 from public.entities where entity_type='company' and title='Prospect Co'`)).length;
   assert.equal(n, 1, 'exactly one company for one invite, however many times it is redeemed');
 });

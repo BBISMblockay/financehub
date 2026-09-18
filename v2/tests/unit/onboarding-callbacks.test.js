@@ -151,6 +151,43 @@ if (cbSrc) {
     !unsafe.includes('next='), unsafe);
 }
 
+/* ── 3. The onboarding page never offers what the RPC will reject ─────────── */
+
+const ONBOARD = fs.readFileSync(path.join(REPO, 'v2', 'company-onboarding.html'), 'utf8');
+
+// Zero supported timezones is a real state: marking the last row unsupported is
+// the lever `supported_business_timezones` exists to provide. Without an
+// explicit branch the page rendered an empty select, let the founder fill in
+// everything else, and failed at submit with "business timezone is required" --
+// naming the field and not the reason.
+r.ok('the onboarding page refuses when NO timezone is supported',
+  /if \(!supported\.length\)/.test(ONBOARD),
+  'an empty select plus a submit that cannot succeed is the opposite of the page\'s claim');
+
+// The refusal has to come before the form is revealed, or it is just a message
+// above a form that still cannot work.
+{
+  const refusal = ONBOARD.indexOf('if (!supported.length)');
+  const reveal = ONBOARD.indexOf('form.hidden = false');
+  r.ok('that refusal happens BEFORE the form is shown',
+    refusal > 0 && reveal > 0 && refusal < reveal,
+    `refusal at ${refusal}, form revealed at ${reveal}`);
+}
+
+// This page puts DB values in the DOM (the invited email, the suggested company
+// name, the timezone label). It is the one page in this PR that could, so it
+// uses textContent throughout. The earlier version hand-escaped `<` in a
+// timezone label and assigned innerHTML -- partial escaping is the shape of the
+// bug even where the source table is migration-writable only.
+{
+  const assigns = (ONBOARD.match(/\.innerHTML\s*=/g) || []);
+  r.ok('the onboarding page assigns no innerHTML at all', assigns.length === 0,
+    `found ${assigns.length}`);
+  r.ok('it does not hand-roll HTML escaping either',
+    !/replace\(\/<\/g/.test(ONBOARD),
+    'partial escaping into innerHTML is what this replaced');
+}
+
 // All three emailed callbacks must use it -- magic link, signup confirmation
 // and password reset. The signup one was the only one carrying anything, and
 // it carried only the org invite.

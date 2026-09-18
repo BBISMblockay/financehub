@@ -462,11 +462,25 @@ begin
       raise exception 'invite was already redeemed but no company was recorded -- contact support';
     end if;
     perform public.set_active_company(v_invite.created_company_id);
+    -- Same KEYS as the fresh path below, deliberately. The caller caches the
+    -- company from this response, and `entity_key` decides which nav profile
+    -- the first page paints with (v2/nav-config.js resolveNavProfile). Omitting
+    -- it here left the RETRY path -- the one this branch exists to serve, and
+    -- so the one a flaky demo connection actually hits -- caching a company
+    -- with `entity_key: undefined`. It resolves to the standard menu either
+    -- way today, which is right for a new tenant by luck rather than by
+    -- construction; two success paths of one function should not return two
+    -- shapes.
     return json_build_object(
       'ok', true,
       'repeated', true,
       'entity_id', v_invite.created_company_id,
-      'company', (select title from public.entities where id = v_invite.created_company_id)
+      'entity_key', (select entity_key from public.entities where id = v_invite.created_company_id),
+      'company', (select title from public.entities where id = v_invite.created_company_id),
+      'business_timezone', (select business_timezone from public.company_settings
+                             where company_entity_id = v_invite.created_company_id),
+      'default_currency', (select default_currency from public.company_settings
+                            where company_entity_id = v_invite.created_company_id)
     );
   end if;
 

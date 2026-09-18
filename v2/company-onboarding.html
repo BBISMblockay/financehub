@@ -159,18 +159,47 @@
       tzSel.appendChild(o);
     });
 
+    // Zero supported timezones is a REAL state, not a defensive branch: marking
+    // the last row unsupported is exactly the lever that table exists to
+    // provide. Without this the page rendered an empty select, let the founder
+    // fill in everything else, and failed at submit with "business timezone is
+    // required" -- which names the field and not the reason. The page's whole
+    // claim is that it never offers what the RPC will reject; offering nothing
+    // and still accepting a submit breaks that claim in the other direction.
+    if (!supported.length) {
+      $('obTitle').textContent = 'Company creation is paused';
+      $('obSub').textContent = '';
+      setStatus(
+        'No business timezone is currently supported end to end, so a company created now would have no ' +
+        'reliable day boundary — every daily report would be anchored to something nobody had chosen. ' +
+        'This is a configuration state, not a fault with your invitation: the link still works once a ' +
+        'timezone is marked supported again.',
+        'neg');
+      return;
+    }
+
     // The refusal, said BEFORE the form is submitted rather than as an error
     // afterwards. If Pacific is the only supported zone there is no choice to
     // make, so explain why the control is not a choice.
+    //
+    // Built with textContent rather than innerHTML: the label is a DB value,
+    // and the old version escaped `<` by hand and nothing else. That table is
+    // migration-writable only, so this was never reachable -- but hand-rolled
+    // partial escaping is the shape of the bug, and the page escapes every
+    // other DB value properly.
     if (supported.length === 1) {
       tzSel.disabled = true;
-      $('tzWarn').innerHTML =
-        'SILO anchors daily reporting to ' + supported[0].label.replace(/</g, '&lt;') + ' only, for now. ' +
-        'Ten database functions and seven sync scripts still compute the day boundary in Pacific time, ' +
-        'so a different timezone would be stored and then ignored &mdash; every daily figure would stay ' +
-        'anchored to Pacific while this setting claimed otherwise. If your business runs on another ' +
-        'timezone, say so before you go further: this needs finishing first.';
-      $('tzWarn').hidden = false;
+      const warn = $('tzWarn');
+      warn.textContent = '';
+      const zone = document.createElement('strong');
+      zone.textContent = supported[0].label;
+      warn.append(
+        'SILO anchors daily reporting to ', zone, ' only, for now. Ten database functions and seven ' +
+        'sync scripts still compute the day boundary in Pacific time, so a different timezone would be ' +
+        'stored and then ignored \u2014 every daily figure would stay anchored to Pacific while this ' +
+        'setting claimed otherwise. If your business runs on another timezone, say so before you go ' +
+        'further: this needs finishing first.');
+      warn.hidden = false;
     }
 
     if (peek.suggested_company) $('companyName').value = peek.suggested_company;
