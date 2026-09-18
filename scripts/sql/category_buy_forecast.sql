@@ -89,43 +89,41 @@ sel as (select distinct on (s.sku_category) s.sku_category as cat, s.selected_me
         from public.forecast_method_selections s cross join hp
         where s.horizon_months = hp.h
         order by s.sku_category, s.effective_from_cutoff desc),
--- Each frozen forecast is kept only if it is the one the selection IN FORCE AT
--- ITS OWN CUTOFF named. Three methods are frozen every month, and pooling all
--- of them would score forecasts nobody was going to buy on.
+-- Every frozen forecast, WITH THE METHOD THAT MADE IT. The method is carried
+-- all the way through to the metrics below, and the row's forward record is
+-- joined to the method its own figure came from.
 --
--- Per ROW, not against the current selection, and the difference matters: the
--- newest selection alone would empty the whole forward record the moment a
--- category switched methods -- the record would read "nothing yet" exactly when
--- the previous method's track record is the reason for the switch. What this
--- measures is how the system's own choices have performed, which survives a
--- change of mind.
+-- This is the second attempt at this block and the first one was subtly wrong.
+-- It kept only the forecasts the selection in force at their own cutoff had
+-- named, then pooled them by category, discarding which method each came from.
+-- That measures how the SELECTION PROCEDURE has performed -- a real question,
+-- but not this one. Its failure mode is precise: six accurate seasonal-naive
+-- cycles, then a switch to the run rate, and a run-rate figure inherits six
+-- cycles of somebody else's accuracy and reads "Proven forward". Comparing the
+-- displayed method to the CURRENT selection did not help, because in that
+-- story they agree.
 --
--- This is public.forecast_method_for_cutoff() written out. That function is
--- service-role only (it takes a company id, and inside a SECURITY DEFINER
--- function there is no way to tell a service-role caller from a user), so a
--- report running as the reader cannot call it. The table's own RLS is what
--- scopes this.
-led as (select l.sku_category as cat, l.forecast_qty, l.status_label,
+-- A forward record can only belong to the method it measured. Every frozen row
+-- is prospective evidence for ITS OWN method whether or not that method was the
+-- one selected, so there is no selection filter here at all: a larger honest
+-- sample beats a smaller one, and the selection is surfaced separately as
+-- governing_method. For the procedure-level record, query
+-- forecast_candidate_ledger against forecast_method_selections directly.
+led as (select l.sku_category as cat, l.candidate_id as method_id,
+          l.forecast_qty, l.status_label,
           l.horizon_start_date, l.horizon_end_date,
           ((extract(year from l.horizon_end_date)*12 + extract(month from l.horizon_end_date))
            - (extract(year from l.horizon_start_date)*12 + extract(month from l.horizon_start_date)))::int as months_expected
         from public.forecast_candidate_ledger_v l
         cross join hp
-        where l.horizon_months = hp.h and l.voided_at is null
-          and l.candidate_id = (select s.selected_method
-                                  from public.forecast_method_selections s
-                                 where s.sku_category = l.sku_category
-                                   and s.horizon_months = hp.h
-                                   and s.effective_from_cutoff <= l.cutoff_date
-                                 order by s.effective_from_cutoff desc
-                                 limit 1)),
+        where l.horizon_months = hp.h and l.voided_at is null),
 -- count(DISTINCT month_start), not count(*). This rollup is grained by
 -- (month, location, channel, product_type) -- measured on production
 -- 2026-09-18, Youth carries 12 to 14 location rows in every month -- so a raw
 -- row count made a complete six-month window look like 72 months and marked
 -- every matured cycle unscorable. The sum is unaffected: summing across
 -- locations is what the actual IS.
-act as (select d.cat, d.forecast_qty, d.status_label, d.months_expected,
+act as (select d.cat, d.method_id, d.forecast_qty, d.status_label, d.months_expected,
           (select sum(r.units) from public.sales_monthly_product_type_rollup_v r
             where r.product_type = d.cat and r.month_start >= d.horizon_start_date
               and r.month_start < d.horizon_end_date) as actual,
@@ -136,66 +134,58 @@ act as (select d.cat, d.forecast_qty, d.status_label, d.months_expected,
 -- A cycle is scored only when its whole window is present. A month absent from
 -- the rollup means "not recorded", not "sold none", and summing around the hole
 -- reports a data gap as an over-forecast.
-scored as (select cat, forecast_qty, actual,
+scored as (select cat, method_id, forecast_qty, actual,
              (status_label = 'SCORABLE' and actual > 0 and months_present = months_expected) as ok
            from act),
-fwd as (select cat,
+fwd as (select cat, method_id,
     count(*) as cycles_frozen,
     count(*) filter (where ok) as cycles_scored,
     sum(abs(forecast_qty-actual)) filter (where ok)/nullif(sum(actual) filter (where ok),0) as fw,
     sum(forecast_qty-actual)      filter (where ok)/nullif(sum(actual) filter (where ok),0) as fb
-  from scored group by 1),
+  from scored group by 1, 2),
 
-fx as (select r.cat, r.method, r.growth, a.we, a.wr, a.br, a.ws, a.nw, a.vol,
+-- The report's own method rule, expressed in the ledger's vocabulary so the two
+-- can be joined. Spelled out once, here, rather than repeated at each use.
+ruled as (select r.*,
+    case when r.method = 'run rate' then 'run_rate_v1'
+         when r.method = 'blend'    then 'blend_v1' end as method_id
+  from rule r),
+
+fx as (select r.cat, r.method, r.method_id, r.growth, a.we, a.wr, a.br, a.ws, a.nw, a.vol,
     sel.selected_method,
     coalesce(f.cycles_frozen,0) as cycles_frozen, coalesce(f.cycles_scored,0) as cycles_scored,
     f.fw, f.fb,
     case when r.method='run rate' then (r.cN-r.cN3)/3.0*(select h from hp)
          else 0.5*(r.cNh-r.cN11) + 0.5*((r.cN-r.cN3)/3.0*(select h from hp)) end as fc_units
-  from rule r join agg a on a.cat=r.cat
+  from ruled r join agg a on a.cat=r.cat
   left join sel on sel.cat = r.cat
-  left join fwd f on f.cat = r.cat
-  where a.vol >= 5000),
--- Whether the forecast ABOVE was produced by the method the forward record
--- BELOW describes. The report picks its method from its own growth rule and the
--- ledger froze whatever the recorded selection named, and those can differ --
--- so without this, six good seasonal-naive cycles could stamp "Proven forward"
--- on a run-rate quantity that has never been tested. The mapping is spelled out
--- rather than compared as strings because the two vocabularies are different:
--- this report says 'run rate', the ledger says 'run_rate_v1'.
-ev as (select fx.*,
-    case when fx.method = 'run rate' then 'run_rate_v1'
-         when fx.method = 'blend'    then 'blend_v1' end as method_used_id
-  from fx)
+  -- THE join that makes the forward columns belong to the figure beside them.
+  left join fwd f on f.cat = r.cat and f.method_id = r.method_id
+  where a.vol >= 5000)
 select cat as category, method as method_used, round(growth::numeric,2) as yoy_growth_x,
   round(fc_units) as forecast_units,
   round(fc_units * (1 + greatest(ws,0))) as buy_to_cover_worst,
   round(we*100,0) as err_earlier_pct, round(wr*100,0) as err_recent_pct,
   round(br*100,0) as bias_recent_pct, round(greatest(ws,0)*100,0) as worst_short_pct,
-  -- The recorded selection, beside the rule this report applies. Where they
-  -- disagree, the ledger is what was actually frozen and this column is how
-  -- anyone finds out -- a silent override would make the forward numbers below
-  -- describe a method the forecast above did not use.
+  -- Which method the recorded selection says will govern the NEXT cutoff. It is
+  -- not what the fwd_ columns measure -- those belong to the method of the
+  -- figure on this row, whatever the selection currently says -- so when the
+  -- two differ the record line says so, because next month's frozen forecast
+  -- will not be the shape of the one shown here.
   coalesce(selected_method, 'none recorded') as governing_method,
+  -- Every fwd_ column below is the record of THIS ROW'S method, joined on it.
   cycles_frozen as fwd_cycles_frozen,
   cycles_scored as fwd_cycles_scored,
   -- NULL, never 0, until something has actually matured.
   round(fw*100,0) as fwd_err_pct,
   round(fb*100,0) as fwd_bias_pct,
-  case when cycles_scored = 0 and cycles_frozen = 0 then 'no forward record yet'
-       when cycles_scored = 0 then cycles_frozen || ' frozen, none matured yet'
-       when method_used_id is distinct from selected_method
-         then cycles_scored || ' of ' || cycles_frozen || ' matured and scored for '
-              || coalesce(selected_method, 'a method') || ', NOT for the '
-              || method || ' figure shown'
-       else cycles_scored || ' of ' || cycles_frozen || ' matured and scored' end as forward_record,
+  (case when cycles_scored = 0 and cycles_frozen = 0 then 'no forward record for ' || method
+        when cycles_scored = 0 then cycles_frozen || ' ' || method || ' forecast(s) frozen, none matured yet'
+        else cycles_scored || ' of ' || cycles_frozen || ' ' || method || ' forecast(s) matured and scored' end
+   || case when selected_method is not null and selected_method is distinct from method_id
+           then ' -- the next cutoff is set to ' || selected_method
+           else '' end) as forward_record,
   case
-    -- Forward evidence can only speak for the method it measured. When the
-    -- figure above came from a different one, the fwd_ columns describe a
-    -- number that is not on this row, so no amount of it earns "proven".
-    when cycles_scored > 0 and method_used_id is distinct from selected_method
-      then 'Forward record is for ' || coalesce(selected_method, 'another method')
-           || ', not the figure shown'
     -- Forward evidence leads once there is enough of it to mean anything. Six
     -- cycles is a bar, not a proof, and the word "proven" is reserved for it
     -- precisely so the backtest below can never claim it.
@@ -207,4 +197,4 @@ select cat as category, method as method_used, round(growth::numeric,2) as yoy_g
     when greatest(we,wr) <= 0.30 and abs(br) <= 0.10 then 'Backtest only - use with buffer'
     when greatest(we,wr) <= 0.45 then 'Backtest only - directional'
     else 'Unproven - judgment call' end as status
-from ev order by fc_units desc
+from fx order by fc_units desc

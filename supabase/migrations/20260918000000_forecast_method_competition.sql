@@ -704,6 +704,31 @@ begin
       p_effective_from_cutoff using errcode = 'invalid_parameter_value';
   end if;
 
+  -- BEFORE scoring anything. A selection for this exact key is already frozen
+  -- and append-only, so nothing computed below can change it -- and reaching
+  -- for the scorer first was a real defect: a late deletion or a source gap can
+  -- leave today's scores empty, and the empty-score path returned NULL and
+  -- logged "NO SELECTION" while the durable selection was sitting right there.
+  -- Reading first also makes a re-run free, which matters when the monthly job
+  -- scores four methods over eighteen origins for every category at every
+  -- horizon.
+  select s.selected_method, s.evidence_from, s.evidence_to, s.selection_basis
+    into v_stored_method, v_stored_from, v_stored_to, v_stored_basis
+  from public.forecast_method_selections s
+  where s.company_entity_id = p_company_entity_id
+    and s.sku_category = p_sku_category
+    and s.horizon_months = p_horizon_months
+    and s.effective_from_cutoff = p_effective_from_cutoff;
+
+  if v_stored_method is not null then
+    return query select
+      v_stored_method, v_stored_from, v_stored_to,
+      (v_stored_basis->'scores'->0->>'windows')::integer,
+      (v_stored_basis->'scores'->0->>'wape')::numeric,
+      coalesce(v_stored_basis, '{}'::jsonb);
+    return;
+  end if;
+
   -- Scored ONCE. The first version called the scorer twice -- once to build the
   -- basis and once to take the winner -- which is the same work done twice and
   -- would double a monthly run that already scores four methods over eighteen
@@ -752,12 +777,11 @@ begin
             forecast_method_selections.selection_basis
        into v_stored_method, v_stored_from, v_stored_to, v_stored_basis;
 
-  -- ON CONFLICT DO NOTHING returns no row, and the recomputed winner is NOT
-  -- what governs the cutoff -- the frozen one is. A late sales correction can
-  -- move the apparent winner, and returning it would have the monthly job
-  -- report a method the durable record does not name. Read the stored row back
-  -- and return that instead, so what this function says and what the table
-  -- holds cannot diverge.
+  -- ON CONFLICT DO NOTHING returns no row. The read at the top of this function
+  -- already covers a selection frozen by an earlier run, so reaching here with
+  -- a conflict means a CONCURRENT run inserted one in between. The recomputed
+  -- winner is still not what governs the cutoff -- the frozen one is -- so read
+  -- it back rather than returning what this call happened to compute.
   if v_stored_method is null then
     select s.selected_method, s.evidence_from, s.evidence_to, s.selection_basis
       into v_stored_method, v_stored_from, v_stored_to, v_stored_basis

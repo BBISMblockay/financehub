@@ -1139,13 +1139,32 @@ Four things worth knowing before changing any of it:
 
 The buy report (`scripts/sql/category_buy_forecast.sql`, saved report
 `1143dcd9-f2f1-4165-a299-ec21952aa465`) reads the ledger for its `fwd_*` columns.
-It scores each frozen forecast against the selection **in force at that
-forecast's own cutoff**, not against the current one — the newest selection alone
-would empty the whole forward record the moment a category switched methods,
-which is exactly when the previous method's track record is the reason for the
-switch. Until cycles mature the `fwd_` columns are **NULL, never 0**, and the
-status column says "no forward record yet" in words rather than quietly falling
-back to the backtest and calling it proven.
+**Every one of them belongs to the method of the figure beside it**, joined on
+that method — never pooled across a category. Two earlier versions of that block
+were wrong in the same direction and are worth not repeating:
+
+1. Pooling every frozen forecast the *selection* had named, discarding which
+   method made each one. That measures how the selection procedure has
+   performed — a real question, but not this one.
+2. Comparing the displayed method to the *current* selection before allowing a
+   proven status. That does not close it: six accurate `seasonal_naive_v1`
+   cycles, then a switch to the run rate, and the displayed method and the
+   current selection agree while the evidence belongs to neither.
+
+A forward record can only belong to the method it measured. `governing_method`
+is surfaced separately, because it says what the next cutoff will freeze, not
+what the numbers on the row mean. Until cycles mature the `fwd_` columns are
+**NULL, never 0**, and the record line names the method so "no record" is never
+read as "no record of anything".
+
+`select_forecast_method` reads any already-frozen selection for its exact key
+**before** scoring anything, and returns it. A selection is append-only, so
+nothing computed afterwards can change it — and reaching for the scorer first
+was a defect in its own right: a late deletion or source gap leaves today's
+scores empty, and the empty-score path returned NULL and logged "NO SELECTION"
+while the durable selection sat in the table. Reading first also makes a re-run
+free.
 
 Tests: `scripts/tests/forecast-method-competition.test.mjs` (real PostgreSQL via
-PGlite, seven mutations, including the whole buy report run as a signed-in user).
+PGlite, eleven mutations, including the whole buy report run as a signed-in
+user).

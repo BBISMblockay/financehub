@@ -37,6 +37,8 @@
 //   FMC_MUTATION=scorer-open-to-authenticated  the scorer granted to authenticated
 //   FMC_MUTATION=rows-counted-as-months      the scorer counts rollup ROWS as months
 //   FMC_MUTATION=rerun-reports-recomputed-winner  a re-run returns today's winner
+//   FMC_MUTATION=forward-record-pooled-by-category  fwd_ metrics pooled across methods
+//   FMC_MUTATION=stored-selection-lost-when-nothing-scores  the pre-score read removed
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -77,11 +79,31 @@ const MUTATIONS = {
     "  monthly as (\n    select r.month_start, r.location, sum(r.units)::numeric as units"],
     [COMPETITION, "    group by r.month_start\n  ),\n  actuals as (",
      "    group by r.month_start, r.location\n  ),\n  actuals as ("]],
+  // Both read-backs removed, not just one: since the pre-score read landed, the
+  // conflict path alone is unreachable on an ordinary re-run, and a mutation
+  // that patches only it can no longer fail. A mutation that cannot fail is
+  // counted as coverage while testing nothing -- the same way four ledger
+  // mutations went quietly dead in #721.
   'rerun-reports-recomputed-winner': [[COMPETITION,
-    "  if v_stored_method is null then\n    select s.selected_method",
-    "  if false then\n    select s.selected_method"],
+    "  if v_stored_method is not null then\n    return query select\n      v_stored_method, v_stored_from, v_stored_to,",
+    "  if false then\n    return query select\n      v_stored_method, v_stored_from, v_stored_to,"],
+    [COMPETITION, "  if v_stored_method is null then\n    select s.selected_method",
+     "  if false then\n    select s.selected_method"],
     [COMPETITION, "  return query select\n    v_stored_method, v_stored_from, v_stored_to,",
      "  return query select\n    coalesce(v_stored_method, v_best_method), v_stored_from, v_stored_to,"]],
+  // The two cycle-2 P-findings.
+  'forward-record-pooled-by-category': [['scripts/sql/category_buy_forecast.sql',
+    "  left join fwd f on f.cat = r.cat and f.method_id = r.method_id",
+    "  left join fwd f on f.cat = r.cat"],
+    ['scripts/sql/category_buy_forecast.sql',
+     "fwd as (select cat, method_id,", "fwd as (select cat, min(method_id) as method_id,"],
+    ['scripts/sql/category_buy_forecast.sql',
+     "  from scored group by 1, 2),", "  from scored group by 1),"]],
+  'stored-selection-lost-when-nothing-scores': [[COMPETITION,
+    "  if v_stored_method is not null then\n    return query select\n      v_stored_method, v_stored_from, v_stored_to,",
+    "  if false then\n    return query select\n      v_stored_method, v_stored_from, v_stored_to,"],
+    [COMPETITION, "  v_basis jsonb;\n  v_best_method text;",
+     "  v_basis jsonb;\n  v_best_method text; -- mutated: the early return is disabled"]],
   'scorer-open-to-authenticated': [[COMPETITION,
     'revoke all on function public.score_forecast_methods(uuid, text, integer, date, date) from public, anon, authenticated;\ngrant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to service_role;',
     'grant execute on function public.score_forecast_methods(uuid, text, integer, date, date) to authenticated, service_role;']],
@@ -626,6 +648,38 @@ await test('a re-run reports the SELECTION THAT IS STORED, not a freshly recompu
   assert.equal(count.c, 1);
 });
 
+await test('a frozen selection survives an evidence window that no longer scores', async () => {
+  // The other half of the same defect. The first fix read the stored row only
+  // on the INSERT's conflict path -- which is never reached when today's scores
+  // come back empty, because the no-winner branch returns first. A late
+  // deletion or a source gap then made a re-run log "NO SELECTION" and count
+  // the cutoff unresolved while the durable selection sat in the table.
+  const stored = await asService(() => first(
+    `select selected_method, evidence_from, evidence_to from public.forecast_method_selections
+      where company_entity_id = $1 and sku_category = 'Multisite' and horizon_months = 6`,
+    [BASEBALLISM]));
+  assert.ok(stored.selected_method);
+
+  // Remove the category's history entirely: nothing can be scored now.
+  await q(`delete from public.sales_by_day where company_entity_id = $1 and product_type = 'Multisite'`,
+    [BASEBALLISM]);
+  await db.exec('refresh materialized view public.sales_monthly_product_type_rollup_mv');
+  const empty = await asService(() => q(
+    `select * from public.score_forecast_methods($1, 'Multisite', 6, '2025-03-01', '2026-08-31')`,
+    [BASEBALLISM]));
+  assert.equal(empty.length, 0, 'the fixture must actually leave nothing scorable');
+
+  const again = await asService(() => first(
+    `select * from public.select_forecast_method($1, 'Multisite', 6, '2026-09-01', 18)`,
+    [BASEBALLISM]));
+  assert.equal(again.selected_method, stored.selected_method,
+    'a re-run must report the frozen selection even when nothing scores today');
+  assert.equal(day(again.evidence_from), day(stored.evidence_from));
+  assert.equal(day(again.evidence_to), day(stored.evidence_to));
+  assert.ok(again.basis.scores.length > 0,
+    'the stored basis must come back, not an empty one recomputed from no data');
+});
+
 // ── 5b. The REAL runner against the REAL database ───────────────────────────
 // The core passing against a stub and the SQL passing against a fixture is
 // exactly the state in which an orchestrator bug shipped here before -- a
@@ -751,7 +805,12 @@ await test('the competition runner, executed for real, selects then freezes ever
 // is under that user's own scoping. Testing only the CTE I added would have
 // missed the join that decides which frozen forecast counts, which is the only
 // part of this with a decision in it.
-const REPORT_SQL = await readFile(new URL('scripts/sql/category_buy_forecast.sql', root), 'utf8');
+let REPORT_SQL = await readFile(new URL('scripts/sql/category_buy_forecast.sql', root), 'utf8');
+for (const [file, from, to] of MUTATIONS[mutation] || []) {
+  if (file !== 'scripts/sql/category_buy_forecast.sql') continue;
+  assert.ok(REPORT_SQL.includes(from), `mutation ${mutation}: report anchor not found: ${from.slice(0, 70)}`);
+  REPORT_SQL = REPORT_SQL.split(from).join(to);
+}
 
 // The report reads product titles, not the day-level sales table, so the
 // fixture has to carry the same series through that surface too.
@@ -797,24 +856,61 @@ for (const [cutoff, end, qty] of MATURED) {
   }
 }
 
+// SIX accurate seasonal_naive_v1 cycles for the same category and horizon. This
+// is the cycle-2 review's scenario made real: if the forward record were pooled
+// per category rather than per method, these six would hand their accuracy to
+// whatever method the report happens to display.
+const SEASONAL_GOOD = ['2025-04-01', '2025-05-01', '2025-06-01', '2025-07-01', '2025-08-01', '2025-09-01'];
+const youthByMonth = new Map(YOUTH_MONTHLY_DEMAND);
+function sixMonthActual(cutoff) {
+  const end = new Date(`${cutoff}T00:00:00Z`);
+  end.setUTCMonth(end.getUTCMonth() + 6);
+  const endIso = end.toISOString().slice(0, 10);
+  let total = 0;
+  for (const [month, units] of youthByMonth) {
+    if (month >= cutoff && month < endIso) total += units;
+  }
+  return { endIso, total };
+}
+for (const cutoff of SEASONAL_GOOD) {
+  const { endIso, total } = sixMonthActual(cutoff);
+  await asService(() => q(
+    `insert into public.forecast_candidate_ledger
+       (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days,
+        forecast_qty, executed_at, horizon_start_date, horizon_end_date,
+        inputs_through_date, method_version, candidate_spec, source_relation)
+     values ($1::uuid, 'seasonal_naive_v1', $2::date, 'Youth', ($3::date - $2::date), $4::numeric,
+             ($2::date + 1)::timestamptz, $2::date, $3::date, ($2::date - 1), 'seasonal_naive_v1',
+             jsonb_build_object('method', 'seasonal_naive_v1', 'horizon_months', 6),
+             'sales_monthly_product_type_rollup_mv')
+     on conflict do nothing`,
+    [BASEBALLISM, cutoff, endIso, total]));
+}
+
 async function runReport(horizonMonths, user = plannerId) {
   const bound = REPORT_SQL.replaceAll('{{horizon_months}}', String(Number(horizonMonths)));
   return asUser(user, () => q(bound));
 }
 
-await test('the buy report runs, and scores only the method that governed each cutoff', async () => {
+await test('the buy report runs, and counts only the displayed method own cycles', async () => {
   const rows = await runReport(6);
   const youth = rows.find((r) => r.category === 'Youth');
   assert.ok(youth, `Youth should be in the report: ${JSON.stringify(rows.map((r) => r.category))}`);
+  assert.equal(youth.method_used, 'run rate');
 
-  // Four ledger rows exist for Youth at this horizon under run_rate_v1 (three
-  // matured plus the live 2026-09-01 one); the three seasonal_naive_v1 rows at
-  // the same cutoffs are NOT the governing method and must not be scored.
+  // The ledger holds far more Youth rows at this horizon than these: three
+  // seasonal_naive_v1 rows at the matured cutoffs plus six accurate ones. Only
+  // run_rate_v1's own four (three matured plus the live 2026-09-01 one) count.
+  const all = await asUser(plannerId, () => first(
+    `select count(*)::int c from public.forecast_candidate_ledger_v
+      where sku_category = 'Youth' and horizon_months = 6`));
+  assert.ok(all.c > 4, `the fixture must hold other methods' rows too, got ${all.c}`);
   assert.equal(Number(youth.fwd_cycles_frozen), 4);
   assert.equal(Number(youth.fwd_cycles_scored), 3);
-  assert.match(youth.forward_record, /3 of 4 matured and scored/);
+  assert.match(youth.forward_record, /3 of 4 run rate forecast\(s\) matured and scored/);
   assert.equal(youth.governing_method, 'blend_v1',
-    'the CURRENT selection governs the next buy, whatever governed the scored cycles');
+    'the CURRENT selection is what governs the next cutoff, and is reported as such');
+  assert.match(youth.forward_record, /the next cutoff is set to blend_v1/);
 });
 
 await test('the forward error is pooled over actuals, and never averaged', async () => {
@@ -850,29 +946,47 @@ await test('a horizon with no frozen forecasts reads as no record, never as zero
   // 0 here would read as a perfect forecast.
   assert.equal(youth.fwd_err_pct, null);
   assert.equal(youth.fwd_bias_pct, null);
-  assert.equal(youth.forward_record, 'no forward record yet');
+  // The empty case names the method too, so "no record" is never mistaken for
+  // "no record of anything".
+  assert.equal(youth.forward_record, 'no forward record for run rate');
   assert.equal(youth.governing_method, 'none recorded');
   // With no forward evidence the status must SAY it is a backtest, not inherit
   // the word "proven" from one.
   assert.doesNotMatch(youth.status, /Proven forward/);
 });
 
-await test('forward evidence never speaks for a figure produced by a different method', async () => {
-  // The state the fixture is already in: the current selection is blend_v1
-  // (recorded at 2026-11-01), while the report's own growth rule puts Youth on
-  // the run rate. The scored cycles measured run_rate_v1. Attaching their WAPE
-  // to a blend figure and calling it proven is the defect -- six good cycles of
-  // one method would stamp "Proven forward" on a number nobody tested.
+await test('a former method accurate cycles never become the displayed method evidence', async () => {
+  // The cycle-2 finding, staged exactly: SIX accurate seasonal_naive_v1 cycles
+  // sit in the ledger for this category and horizon. Pooling the forward record
+  // by category -- which the first version of this block did -- would hand all
+  // six to whichever method the report happens to display, and six good cycles
+  // is precisely the bar for "Proven forward". The run rate has three of its
+  // own, and three is what it gets.
+  // Read as a USER: status_label is derived from
+  // forecast_actuals_matured_through_active(), which reads active_company_id()
+  // and is null for the service role -- every row would read PROSPECTIVE there.
+  const seasonal = await asUser(plannerId, () => q(
+    `select cutoff_date, forecast_qty, status_label from public.forecast_candidate_ledger_v
+      where sku_category = 'Youth' and horizon_months = 6
+        and candidate_id = 'seasonal_naive_v1' and status_label = 'SCORABLE'`));
+  assert.ok(seasonal.length >= 6,
+    `the fixture must hold at least six matured seasonal cycles, got ${seasonal.length}`);
+
   const before = (await runReport(6)).find((r) => r.category === 'Youth');
   assert.equal(before.method_used, 'run rate');
-  assert.equal(before.governing_method, 'blend_v1');
-  assert.match(before.status, /Forward record is for blend_v1, not the figure shown/);
+  assert.equal(Number(before.fwd_cycles_scored), 3,
+    'the six seasonal cycles must not be counted toward the run rate figure');
   assert.doesNotMatch(before.status, /Proven/);
-  // And the record line says whose record it is, rather than reading as though
-  // it belonged to the row it sits on.
-  assert.match(before.forward_record, /NOT for the run rate figure shown/);
+  assert.equal(before.status, 'Forward record started - too few cycles to judge');
 
-  // Now let the current selection agree with the figure shown.
+  // And the record line names whose cycles they are, so a reader is not left to
+  // infer it from a bare count.
+  assert.match(before.forward_record, /run rate forecast\(s\)/);
+
+  // Switching the current selection to the displayed method changes nothing
+  // about the evidence -- which is the whole point. Comparing the displayed
+  // method to the CURRENT selection was the first fix, and it does not close
+  // this hole: here the two agree and the six cycles still do not transfer.
   await asService(() => q(
     `insert into public.forecast_method_selections
        (company_entity_id, sku_category, horizon_months, selected_method,
@@ -882,10 +996,10 @@ await test('forward evidence never speaks for a figure produced by a different m
 
   const after = (await runReport(6)).find((r) => r.category === 'Youth');
   assert.equal(after.governing_method, 'run_rate_v1');
-  // Three scored cycles is a started record, not a verdict.
-  assert.equal(after.status, 'Forward record started - too few cycles to judge');
+  assert.equal(Number(after.fwd_cycles_scored), 3, 'still three, and still the run rate own');
   assert.doesNotMatch(after.status, /Proven/);
-  assert.equal(Number(after.fwd_cycles_scored), 3, 'the scored cycles are unchanged by a later selection');
+  // With the selection agreeing, the record line drops the next-cutoff note.
+  assert.doesNotMatch(after.forward_record, /the next cutoff is set to/);
 });
 
 await test('the report is bounded by the reader own company', async () => {
