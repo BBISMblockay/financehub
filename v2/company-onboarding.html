@@ -81,6 +81,16 @@
           <span class="ob-hint" id="busyHint" hidden>Setting things up&hellip;</span>
         </div>
       </form>
+
+      <!-- Recovery, NOT creation. It sits outside #obForm on purpose: the form
+           is the create-a-company path and is gated on a supported timezone,
+           while continuing to a company that already exists is gated on
+           nothing but the invite. Same reason the handler runs before the
+           timezone load. -->
+      <div class="ob-actions" id="obResume" hidden>
+        <button class="bcn-btn bcn-btn--primary" id="btnResume" type="button">Continue to your company</button>
+        <span class="ob-hint" id="resumeHint" hidden>Taking you there&hellip;</span>
+      </div>
     </div>
   </div>
 
@@ -142,6 +152,64 @@
 
     $('invitedAs').textContent = 'Invitation for ' + peek.email;
     $('invitedAs').hidden = false;
+
+    // Cache it the way login.html does, so the first page paints with the right
+    // company instead of falling back to the standard menu. Shared by both
+    // success paths, because redeem_platform_invite deliberately returns the
+    // SAME KEYS on its retry branch and two callers reading one shape should
+    // not be two copies of this.
+    function enterCompany(data) {
+      const co = { id: data.entity_id, title: data.company, entity_key: data.entity_key, meta: {} };
+      if (cfg.setActiveCompany) cfg.setActiveCompany(co);
+      else sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(co));
+      window.location.href = '/v2/setup-checklist.html?welcome=1';
+    }
+
+    // ── An already-created company is RECOVERED, never re-created ────────────
+    // This runs before the timezone load, and that ordering is the whole fix.
+    // Zero supported timezones pauses CREATION -- a new company would have no
+    // reliable day boundary -- but a company that already exists already has
+    // one, chosen when it was founded. Handling the accepted invite after that
+    // gate meant the exact sequence the retry path exists for (company commits,
+    // response is lost, founder reopens the link) hit "Company creation is
+    // paused" for a company that was already sitting there, with no way through.
+    //
+    // The peek is NOT the authorization. It decides which screen to show; the
+    // server decides whether to hand the company over, and re-runs the account,
+    // email and membership checks when it does. p_company / p_timezone /
+    // p_currency are null because the retry branch returns before it validates
+    // any of them -- it is handing back a company that already has its own
+    // settings, so values from this page would be describing a creation that is
+    // not happening. That ordering is pinned by a regression in
+    // scripts/tests/company-onboarding-database.test.mjs, since this page now
+    // depends on it.
+    if (peek.already_redeemed) {
+      $('obTitle').textContent = 'Your company is already set up';
+      $('obSub').textContent = '';
+      setStatus('This invitation has already been used. Continue to the company it created.', 'info');
+      $('obResume').hidden = false;
+      let resuming = false;
+      $('btnResume').addEventListener('click', async () => {
+        if (resuming) return;
+        resuming = true;
+        $('btnResume').disabled = true;
+        $('resumeHint').hidden = false;
+        try {
+          const { data, error } = await db.rpc('redeem_platform_invite', {
+            p_token: token, p_company: null, p_timezone: null, p_currency: null
+          });
+          if (error) throw error;
+          if (!data || data.ok !== true) throw new Error('Could not open that company.');
+          enterCompany(data);
+        } catch (err) {
+          setStatus(err?.message || 'Could not open that company.', 'neg');
+          resuming = false;
+          $('btnResume').disabled = false;
+          $('resumeHint').hidden = true;
+        }
+      });
+      return;
+    }
 
     // Timezones come from the DB, so the list offered can never drift from the
     // list redeem_platform_invite will accept.
@@ -205,9 +273,6 @@
     if (peek.suggested_company) $('companyName').value = peek.suggested_company;
     form.hidden = false;
 
-    if (peek.already_redeemed) {
-      setStatus('This invitation has already been used. Continuing will take you to the company it created.', 'info');
-    }
 
     let submitting = false;
     form.addEventListener('submit', async (e) => {
@@ -228,13 +293,7 @@
         if (error) throw error;
         if (!data || data.ok !== true) throw new Error('Company was not created.');
 
-        // Cache it the way login.html does, so the first page paints with the
-        // right company instead of falling back to the standard menu.
-        const co = { id: data.entity_id, title: data.company, entity_key: data.entity_key, meta: {} };
-        if (cfg.setActiveCompany) cfg.setActiveCompany(co);
-        else sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(co));
-
-        window.location.href = '/v2/setup-checklist.html?welcome=1';
+        enterCompany(data);
       } catch (err) {
         setStatus(err?.message || 'Could not create the company.', 'neg');
         submitting = false;

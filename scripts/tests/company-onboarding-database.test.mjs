@@ -43,6 +43,9 @@
 //   ONBOARDING_MUTATION=refusal-only-removed (layer 1 gone, so layer 2 is tested alone)
 //   ONBOARDING_MUTATION=declared-insert-unguarded (the guard back to UPDATE-only)
 //   ONBOARDING_MUTATION=retry-shape-drift   (the retry path drops entity_key again)
+// Added after the cycle-3 review:
+//   ONBOARDING_MUTATION=retry-validates-first (validation moved above the retry branch,
+//                                              which is what the page's recovery relies on)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -55,7 +58,7 @@ const mutation = process.env.ONBOARDING_MUTATION || '';
 assert.ok(['', 'signup-founds-org', 'retry-creates-new', 'tz-anything-goes', 'invite-any-admin',
   'founding-rewrites-global-role', 'currency-one-sided', 'helpers-definer',
   'founding-reactivates', 'currency-unlocked', 'refusal-only-removed',
-  'declared-insert-unguarded', 'retry-shape-drift'].includes(mutation),
+  'declared-insert-unguarded', 'retry-shape-drift', 'retry-validates-first'].includes(mutation),
   `Unknown onboarding mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -166,6 +169,16 @@ if (mutation === 'refusal-only-removed') {
   // refusal stops every case that would exercise it -- so the test asserting
   // it could not fail, which the independent review caught.
   sql = sql.replace(/  select is_active into v_is_active\n    from public\.profiles where id = auth\.uid\(\)\n    for update;\n  if v_is_active is not null and not v_is_active then\n[^\n]*\n  end if;\n/, () => '');
+}
+if (mutation === 'retry-validates-first') {
+  // Validation above the retry branch: the shape the recovery page would break on.
+  const marker = "  if v_invite.status = 'accepted' then";
+  const before = sql;
+  sql = sql.replace(marker, () =>
+    "  if nullif(trim(coalesce(p_company, '')), '') is null then\n"
+    + "    raise exception 'company name is required';\n"
+    + "  end if;\n" + marker);
+  assert.notEqual(sql, before, 'retry-validates-first must find the retry branch');
 }
 if (mutation === 'retry-shape-drift') {
   sql = sql.replace(/\n\s*'entity_key', \(select entity_key from public\.entities where id = v_invite\.created_company_id\),/,
@@ -386,6 +399,31 @@ await test('a repeated redeem returns the SAME company, not a second one', async
   assert.equal(again.default_currency, founded.default_currency);
   const n = (await q(`select 1 from public.entities where entity_type='company' and title='Prospect Co'`)).length;
   assert.equal(n, 1, 'exactly one company for one invite, however many times it is redeemed');
+});
+
+// The recovery path in v2/company-onboarding.html sends NULL for all three
+// creation inputs, because it is not creating anything -- it is asking for a
+// company that already exists and already has its own settings. That is only
+// safe because the retry branch returns BEFORE any of the validations, and
+// nothing said so out loud. It does now: if the ordering is ever changed, this
+// fails here rather than as a founder stuck on a page that cannot recover.
+await test('a retry succeeds on inputs a fresh creation would reject outright', async () => {
+  const again = await as(founder, () => rpc('redeem_platform_invite', [token, null, null, null]));
+  assert.equal(again.repeated, true);
+  assert.equal(again.entity_id, founded.entity_id);
+  assert.equal(again.business_timezone, founded.business_timezone,
+    'the company keeps the timezone it was founded with, not the null it was asked about');
+  assert.equal(again.default_currency, founded.default_currency);
+
+  // ...and the same inputs on a FRESH invite are still refused, so this is the
+  // retry branch short-circuiting rather than validation having gone soft.
+  const fresh = await as(blake, () => rpc('create_platform_invite', ['nullprobe@prospect.com', null]));
+  const u = randomUUID();
+  await q(`insert into auth.users(id,email) values ($1,'nullprobe@prospect.com')`, [u]);
+  await assert.rejects(
+    () => as(u, () => rpc('redeem_platform_invite', [fresh.token, null, null, null])),
+    /company name is required/,
+    'a first-time redeem must still validate what it is being asked to create');
 });
 
 await test('a retry naming a DIFFERENT company still returns the original', async () => {

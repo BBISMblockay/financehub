@@ -197,4 +197,137 @@ r.ok('all three emailed callbacks build their URL through authCallbackUrl()',
 r.ok('no emailed callback still builds a bare page URL by hand',
   !/const redirectTo = window\.location\.origin \+ window\.location\.pathname/.test(LOGIN));
 
-process.exit(r.summary().fail ? 1 : 0);
+/* ── 4. Recovering a company that already exists ───────────────────────────
+ *
+ * Cycle-3 finding (P2). Zero supported timezones pauses CREATION, which is
+ * right: a new company would have no reliable day boundary. But that gate was
+ * an unconditional `return`, and it sat ABOVE the accepted-invite handling --
+ * so the exact sequence the whole retry path exists for (the company commits,
+ * the response is lost, the founder reopens the same link) hit "Company
+ * creation is paused" for a company that was already sitting there, with no
+ * way through. A company that already exists already HAS a timezone; it was
+ * chosen when it was founded.
+ *
+ * Driven, not grepped. The broken and the fixed pages differ by the ORDER of
+ * two blocks, and a regex over the source is satisfied by both -- it was a
+ * source-pattern assertion that let the first version of the timezone gate
+ * ship on top of this. So the page's own IIFE is executed against a synthetic
+ * DOM and stub RPCs, and what is asserted is what the founder ends up with. */
+
+const ONBOARD_SRC = ONBOARD.slice(ONBOARD.indexOf('(async function ()'),
+  ONBOARD.lastIndexOf('})();') + 5);
+r.ok('the onboarding IIFE was extracted from the page', ONBOARD_SRC.length > 500);
+
+function fakeEl(id) {
+  return {
+    id, textContent: '', className: '', value: '', hidden: true, disabled: false,
+    children: [], listeners: {},
+    appendChild(c) { this.children.push(c); return c; },
+    append(...parts) { this.children.push(...parts); },
+    addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
+  };
+}
+
+/** Run the page against one synthetic world and report what it did. */
+async function runOnboarding({ peek, zones, redeem }) {
+  const els = {};
+  const calls = [];
+  const out = { redirectedTo: null, cached: null };
+  const $ = (id) => (els[id] = els[id] || fakeEl(id));
+  ['obTitle', 'obSub', 'status', 'invitedAs', 'obForm', 'companyName', 'timezone',
+    'currency', 'tzWarn', 'btnCreate', 'busyHint', 'obResume', 'btnResume', 'resumeHint']
+    .forEach($);
+
+  const db = {
+    auth: { getSession: async () => ({ data: { session: { user: { email: 'founder@prospect.com' } } } }) },
+    rpc: async (name, args) => {
+      calls.push(name);
+      if (name === 'peek_platform_invite') return { data: peek, error: null };
+      if (name === 'redeem_platform_invite') return redeem(args);
+      throw new Error('unexpected rpc ' + name);
+    },
+    from: () => ({ select: () => ({ order: async () => ({ data: zones, error: null }) }) }),
+  };
+
+  const sandbox = {
+    console,
+    setTimeout,
+    URLSearchParams,
+    document: {
+      getElementById: $,
+      createElement: (tag) => fakeEl(tag),
+    },
+    sessionStorage: { setItem: (k, v) => { out.cached = JSON.parse(v); } },
+    window: {
+      __SILO_CONFIG__: { SUPABASE_URL: 'u', SUPABASE_ANON_KEY: 'k' },
+      supabase: { createClient: () => db },
+      get location() { return out.loc; },
+    },
+  };
+  // A redirect is the page's terminal action, so it is recorded rather than
+  // performed -- and reading it back is how "did the founder get in" is asked.
+  out.loc = { search: '?invite=TOK', set href(v) { out.redirectedTo = v; }, get href() { return out.redirectedTo; } };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  await vm.runInContext(ONBOARD_SRC, sandbox);
+  return { els, calls, out };
+}
+
+const PACIFIC = [{ tz_name: 'America/Los_Angeles', label: 'Pacific', is_supported: true }];
+const NONE = [{ tz_name: 'America/Los_Angeles', label: 'Pacific', is_supported: false }];
+const ACCEPTED = { ok: true, email: 'founder@prospect.com', already_redeemed: true };
+const PENDING = { ok: true, email: 'founder@prospect.com', already_redeemed: false };
+const REDEEMED = {
+  data: { ok: true, repeated: true, entity_id: 'e1', entity_key: 'acme', company: 'Acme' },
+  error: null,
+};
+
+(async () => {
+  /* The regression itself: an accepted invite with NOTHING supported. */
+  const paused = await runOnboarding({
+    peek: ACCEPTED, zones: NONE, redeem: () => REDEEMED,
+  });
+  r.ok('an already-redeemed invite offers a way through even with zero supported timezones',
+    !paused.els.obResume.hidden);
+  r.ok('the page must not say creation is paused for a company that exists',
+    !/paused/i.test(paused.els.obTitle.textContent),
+    `said: "${paused.els.obTitle.textContent}"`);
+  r.ok('and it does not redeem on load -- the founder chooses to continue',
+    !paused.calls.includes('redeem_platform_invite'));
+
+  // Guarded: with the bug restored the button is never wired, and an
+  // unguarded [0] would CRASH here -- taking the failure report with it and
+  // leaving a mutation that "fails" without naming what broke.
+  const click = (paused.els.btnResume.listeners.click || [])[0];
+  r.ok('the continue button is wired to an action', typeof click === 'function');
+  if (click) await click();
+  r.ok('continuing calls the SERVER, so the peek is never the authorization',
+    paused.calls.includes('redeem_platform_invite'));
+  r.ok('and lands the founder in the company that already exists',
+    paused.out.redirectedTo === '/v2/setup-checklist.html?welcome=1',
+    `redirected to: ${paused.out.redirectedTo}`);
+  r.ok('caching entity_key, so the first page paints with the right nav profile',
+    paused.out.cached && paused.out.cached.entity_key === 'acme',
+    `cached: ${JSON.stringify(paused.out.cached)}`);
+
+  /* The gate it must NOT have loosened. */
+  const blocked = await runOnboarding({
+    peek: PENDING, zones: NONE, redeem: () => { throw new Error('must not redeem'); },
+  });
+  r.ok('a PENDING invite with zero supported timezones is still refused',
+    /paused/i.test(blocked.els.obTitle.textContent));
+  r.ok('and is offered no way around the refusal', blocked.els.obResume.hidden);
+  r.ok('and no creation form', blocked.els.obForm.hidden);
+
+  /* The ordinary accepted case, which must be unchanged. */
+  const normal = await runOnboarding({
+    peek: ACCEPTED, zones: PACIFIC, redeem: () => REDEEMED,
+  });
+  r.ok('an accepted invite resumes with Pacific supported too', !normal.els.obResume.hidden);
+  await normal.els.btnResume.listeners.click[0]();
+  r.ok('and lands in the same place',
+    normal.out.redirectedTo === '/v2/setup-checklist.html?welcome=1',
+    `redirected to: ${normal.out.redirectedTo}`);
+
+  process.exit(r.summary().fail ? 1 : 0);
+})();

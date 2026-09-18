@@ -332,8 +332,8 @@ the whole question:
   customer going OAuth → initial backfill → first canonical report — because
   Test Company's connections predate this work. That is a demo to record, not a
   gap to close. As of 2026-09-18 the *creation* half of it is covered by
-  `scripts/tests/company-onboarding-database.test.mjs` (46 assertions against
-  PGlite, twelve mutations) plus
+  `scripts/tests/company-onboarding-database.test.mjs` (47 assertions against
+  PGlite, thirteen mutations) plus
   `scripts/tests/onboarding-concurrency.test.mjs`, which interleaves two REAL
   PostgreSQL connections; the OAuth-to-first-report half still needs a real
   store.

@@ -1282,7 +1282,7 @@ which the CHECK has forbidden since the multi-tenant work, so every call failed
 before removal; its `verify_v2_schema.sql` anon-allowlist entry went with it.
 
 Tests: `scripts/tests/company-onboarding-database.test.mjs` (real PostgreSQL via
-PGlite, 46 assertions, twelve mutations), which also executes the four new
+PGlite, 47 assertions, thirteen mutations), which also executes the four new
 `verify_v2_schema.sql` checks and then breaks each guard to confirm they can go
 red.
 
