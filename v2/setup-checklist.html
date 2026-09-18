@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo — Setup</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .sc-grid { display: grid; gap: 14px; }
+    .sc-step { display: grid; grid-template-columns: 34px 1fr auto; gap: 14px; align-items: start; }
+    .sc-mark { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center;
+               justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+               font-weight: 600; margin-top: 2px; border: 1px solid var(--bcn-border, #e2e5ea);
+               color: var(--bcn-ink-3, #6b7280); background: var(--bcn-canvas, #f4f5f7); }
+    .sc-mark--done { background: var(--bcn-pos, #16a34a); border-color: var(--bcn-pos, #16a34a); color: #fff; }
+    .sc-name { font-weight: 600; color: var(--bcn-ink, #111827); margin-bottom: 3px; }
+    .sc-why { font-size: 13px; color: var(--bcn-ink-3, #6b7280); line-height: 1.5; }
+    .sc-state { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-top: 6px;
+                color: var(--bcn-ink-2, #374151); }
+    .sc-empty { border: 1px dashed var(--bcn-border, #e2e5ea); border-radius: 10px; padding: 18px 20px;
+                color: var(--bcn-ink-3, #6b7280); font-size: 13px; line-height: 1.55; }
+    .sc-empty strong { color: var(--bcn-ink, #111827); }
+    [hidden] { display: none !important; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div>
+          <div class="bcn-header-title" id="hdrTitle">Setup</div>
+          <div class="sc-why" id="hdrSub">What SILO still needs before the numbers on these pages mean anything.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <span class="bcn-pill bcn-pill--dark" id="progressPill">&mdash;</span>
+        </div>
+      </header>
+
+      <div class="bcn-status" id="status" hidden></div>
+
+      <section class="bcn-card">
+        <div class="bcn-card-header"><span>Getting started</span></div>
+        <div class="bcn-card-body">
+          <div class="sc-grid" id="steps"></div>
+        </div>
+      </section>
+
+      <section class="bcn-card" id="emptyCard" hidden>
+        <div class="bcn-card-header"><span>Why your pages look empty</span></div>
+        <div class="bcn-card-body">
+          <div class="sc-empty" id="emptyBody"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+<script>
+(async function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const el = document.getElementById('status');
+    el.className = `bcn-status bcn-status--${type}`;
+    el.textContent = msg;
+    el.hidden = false;
+    if (ms) setTimeout(() => { el.hidden = true; }, ms);
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { location.href = '/pages/login.html?next=/v2/setup-checklist.html'; return; }
+  const currentEmail = session.user.email || '';
+
+  // ensureActiveCompany, not getActiveCompany: this page is reached from an
+  // emailed link as often as from the sidebar, and sessionStorage is per-tab.
+  const co = await cfg.ensureActiveCompany?.(db) || null;
+  if (!co?.id) {
+    setStatus('No active company for this session. Sign in again, or pick a company first.', 'neg');
+    return;
+  }
+
+  let currentRole = 'user';
+  try {
+    const { data } = await db.from('profiles').select('role').eq('id', session.user.id).single();
+    currentRole = data?.role || 'user';
+  } catch (_) {}
+
+  document.getElementById('hdrTitle').textContent = 'Setup — ' + (co.title || co.entity_key || 'your company');
+
+  if (new URLSearchParams(location.search).get('welcome') === '1') {
+    setStatus(`${co.title || 'Your company'} is live. You are its owner, and nobody outside it can see anything in here.`, 'pos');
+  }
+
+  // ── Detection ────────────────────────────────────────────────────────────
+  // Read-only. Every count is scoped by RLS to this company already; the
+  // explicit company filter is belt-and-braces and matches the house pattern.
+  const q = (t, sel) => db.from(t).select(sel, { count: 'exact', head: false }).eq('company_entity_id', co.id);
+
+  // A failed probe is reported as UNKNOWN, never as "not done". A permission
+  // error and an absent integration are different facts, and a checklist that
+  // renders one as the other sends someone to reconnect something that is fine.
+  async function probe(fn) {
+    try { return { ok: true, value: await fn() }; }
+    catch (e) { return { ok: false, error: e?.message || String(e) }; }
+  }
+
+  const [members, invites, shopify, qbo, syncs, settings] = await Promise.all([
+    probe(async () => (await db.from('entity_memberships').select('user_id').eq('entity_id', co.id)).data || []),
+    probe(async () => (await db.rpc('list_org_invites')).data || []),
+    probe(async () => (await q('shopify_connections', 'id, shop_domain, is_active')).data || []),
+    probe(async () => (await q('quickbooks_connections', 'id, company_name, is_active')).data || []),
+    probe(async () => (await db.from('sync_jobs').select('job_type, status, finished_at')
+                              .eq('company_entity_id', co.id).order('created_at', { ascending: false })
+                              .limit(50)).data || []),
+    probe(async () => (await db.from('company_settings').select('business_timezone, default_currency')
+                              .eq('company_entity_id', co.id).maybeSingle()).data || null),
+  ]);
+
+  const teamCount = members.ok ? members.value.length : null;
+  const pendingInvites = invites.ok ? (invites.value || []).filter(i => i.status === 'pending').length : null;
+  const shopifyRows = shopify.ok ? shopify.value : null;
+  const qboRows = qbo.ok ? qbo.value : null;
+  const okSyncs = syncs.ok ? syncs.value.filter(j => j.status === 'success' || j.status === 'completed') : null;
+
+  const STEPS = [
+    {
+      name: 'Confirm your company settings',
+      why: 'Your business timezone decides what every daily report calls "yesterday". Your reporting currency is checked against QuickBooks when you connect your books.',
+      href: '/v2/profile.html',
+      cta: 'Review',
+      probe: settings,
+      state: () => {
+        if (!settings.value) return { done: false, text: 'no settings row found' };
+        return { done: true, text: `${settings.value.business_timezone} · ${settings.value.default_currency}` };
+      }
+    },
+    {
+      name: 'Invite your teammates',
+      why: 'An invite creates their account in your company only. They never see, and are never seen by, any other company in SILO.',
+      href: '/v2/backend.html',
+      cta: 'Invite',
+      probe: members,
+      state: () => {
+        if (teamCount === null) return { done: false, text: 'could not check' };
+        if (teamCount > 1) return { done: true, text: `${teamCount} people in this company` };
+        if (pendingInvites) return { done: false, text: `${pendingInvites} invite${pendingInvites === 1 ? '' : 's'} sent, none accepted yet` };
+        return { done: false, text: 'just you so far' };
+      }
+    },
+    {
+      name: 'Connect Shopify',
+      why: 'Sales, inventory, orders and payouts all come from here. Until it is connected, every sales and inventory page in SILO is empty — not zero, empty.',
+      href: '/v2/integrations.html',
+      cta: 'Connect',
+      probe: shopify,
+      state: () => {
+        if (shopifyRows === null) return { done: false, text: 'could not check' };
+        const live = shopifyRows.filter(r => r.is_active !== false);
+        if (!live.length) return { done: false, text: 'no store connected' };
+        return { done: true, text: live.map(r => r.shop_domain).join(', ') };
+      }
+    },
+    {
+      name: 'Connect QuickBooks',
+      why: 'The books stay in QuickBooks; SILO reads reports from it and writes journal entries back only when someone approves one.',
+      href: '/v2/integrations.html',
+      cta: 'Connect',
+      probe: qbo,
+      state: () => {
+        if (qboRows === null) return { done: false, text: 'could not check' };
+        const live = qboRows.filter(r => r.is_active !== false);
+        if (!live.length) return { done: false, text: 'not connected' };
+        return { done: true, text: live.map(r => r.company_name || 'connected realm').join(', ') };
+      }
+    },
+    {
+      name: 'Confirm the first sync',
+      why: 'A connection is not data. This turns green once a sync has actually finished and written rows for your company.',
+      href: '/v2/integrations.html',
+      cta: 'Run a sync',
+      probe: syncs,
+      state: () => {
+        if (okSyncs === null) return { done: false, text: 'could not check' };
+        if (!okSyncs.length) return { done: false, text: 'no successful sync yet' };
+        const newest = okSyncs[0];
+        const when = newest.finished_at ? new Date(newest.finished_at).toLocaleString() : 'recently';
+        return { done: true, text: `${newest.job_type} finished ${when}` };
+      }
+    },
+  ];
+
+  const stepsEl = document.getElementById('steps');
+  let done = 0;
+  STEPS.forEach((s, i) => {
+    const probeFailed = s.probe && s.probe.ok === false;
+    const st = probeFailed ? { done: false, text: 'could not check — ' + s.probe.error } : s.state();
+    if (st.done) done += 1;
+
+    const row = document.createElement('div');
+    row.className = 'sc-step';
+    const mark = document.createElement('div');
+    mark.className = 'sc-mark' + (st.done ? ' sc-mark--done' : '');
+    mark.textContent = st.done ? '✓' : String(i + 1);
+
+    const body = document.createElement('div');
+    const nm = document.createElement('div'); nm.className = 'sc-name'; nm.textContent = s.name;
+    const why = document.createElement('div'); why.className = 'sc-why'; why.textContent = s.why;
+    const state = document.createElement('div'); state.className = 'sc-state'; state.textContent = st.text;
+    body.append(nm, why, state);
+
+    const act = document.createElement('a');
+    act.className = 'bcn-btn' + (st.done ? ' bcn-btn--ghost' : ' bcn-btn--primary');
+    act.href = s.href;
+    act.textContent = st.done ? 'Open' : s.cta;
+
+    row.append(mark, body, act);
+    stepsEl.appendChild(row);
+  });
+
+  document.getElementById('progressPill').textContent = `${done} / ${STEPS.length} done`;
+
+  // ── The empty state, said once and plainly ───────────────────────────────
+  // A brand-new company has real pages full of nothing, and "0" is the most
+  // misleading thing SILO could print there. Name which pages, and why.
+  const noShopify = !shopifyRows || !shopifyRows.filter(r => r.is_active !== false).length;
+  const noSync = !okSyncs || !okSyncs.length;
+  if (noShopify || noSync) {
+    const parts = [];
+    if (noShopify) {
+      parts.push('<strong>Sales, Inventory, Products and the Marketing pages have no data yet</strong> because no Shopify store is connected. What they show is <em>absence of data</em>, not a zero — SILO will not invent a number for a period it never measured.');
+    } else if (noSync) {
+      parts.push('<strong>Your store is connected but has not synced yet.</strong> The nightly sync runs at 08:30 UTC; you can also trigger one from Integrations rather than waiting.');
+    }
+    parts.push('Pages that work from the first day, with nothing connected: <strong>Payment Request</strong>, <strong>Request Manager</strong>, <strong>Task Manager</strong>, <strong>Org Calendar</strong>, <strong>Performance Reviews</strong> and <strong>Mail Intake</strong>. They hold data you enter, not data SILO pulls.');
+    document.getElementById('emptyBody').innerHTML = parts.join('</p><p style="margin:10px 0 0">');
+    document.getElementById('emptyCard').hidden = false;
+  }
+
+  if (window.SiloChrome) {
+    window.SiloChrome.mount({
+      appEl: '#silo-app',
+      active: 'start/setup',
+      user: { email: currentEmail, role: currentRole },
+      crumbs: ['Start', 'Setup'],
+      supabaseClient: db,
+    });
+  }
+})();
+</script>
+</body>
+</html>

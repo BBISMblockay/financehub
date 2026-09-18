@@ -18889,3 +18889,15 @@ $c$select (select count(*) from v_po_header_summary
 -- and the ledger view is dropped before each create (a create-or-replace cannot
 -- widen or narrow a view's column list).
 \i migrations/20260918000000_forecast_method_competition.sql
+
+-- ── Guided company onboarding (2026-09-18) ─────────────────────────────────
+-- Closes open self-signup at the trigger (handle_new_user drops its org_name
+-- founding branch -- signUp is a public endpoint, so the login form was never
+-- the gate), adds invite-gated company creation with an idempotent redeem,
+-- per-company business timezone and declared currency, and drops the dead
+-- create_entity_with_owner.
+--
+-- Idempotent: create-if-not-exists, create-or-replace, drop-policy-if-exists
+-- before each create, and an on-conflict-do-nothing seed. Safe to re-run; the
+-- regression suite applies it twice on every run for exactly that reason.
+\i migrations/20260918120000_company_onboarding.sql

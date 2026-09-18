@@ -288,28 +288,20 @@
               <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
                 <div>
                   <div class="text-base font-bold tracking-tight">Create your account</div>
-                  <div id="signupSub" class="text-sm text-slate-500 mt-0.5">This sets up a new organization in SILO with you as its owner</div>
+                  <div id="signupSub" class="text-sm text-slate-500 mt-0.5">Accounts are created here; an admin then invites you into their organization</div>
                 </div>
                 <button id="btnCloseSignup" class="rounded-lg h-8 w-8 flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label="Close">✕</button>
               </div>
 
               <form id="formSignup" class="p-6 space-y-4">
-                <div id="orgField">
-                  <label class="block text-sm font-semibold text-slate-700 mb-1.5">Organization name</label>
-                  <div class="relative">
-                    <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15a.75.75 0 0 1 .75.75V21h-16.5V3.75A.75.75 0 0 1 4.5 3ZM9 7.5h1.5M9 11.25h1.5M9 15h1.5m4.5-7.5H15m-.75 3.75H15M14.25 15H15"/></svg>
-                    <input id="org3" type="text" autocomplete="organization"
-                           class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
-                           placeholder="your company" required />
-                  </div>
-                  <div class="text-xs text-slate-400 mt-1.5">Joining an existing organization? Don’t create an account — ask an admin there to invite you.</div>
-                </div>
-                <div id="foundingConfirm" class="text-xs text-slate-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-                  <label class="flex items-start gap-2 cursor-pointer">
-                    <input id="confirmNewOrg" type="checkbox" class="mt-0.5" />
-                    <span>I'm intentionally starting a <b>brand-new organization</b> in SILO, separate from any existing company. <b>If you work somewhere that already uses SILO, stop here</b> — ask an admin there to send you an invite link instead.</span>
-                  </label>
-                </div>
+                <!-- The organization-name field and its "I am founding a new org"
+                     confirmation were removed on 2026-09-18. Creating an account no
+                     longer founds a company: `signUp` is a public endpoint and the
+                     anon key is published by design, so an org_name posted here was
+                     caller-controlled input rather than a decision SILO made.
+                     handle_new_user ignores it now, and founding runs through an
+                     invitation (redeem_platform_invite) instead. See
+                     supabase/migrations/20260918120000_company_onboarding.sql. -->
                 <div>
                   <label class="block text-sm font-semibold text-slate-700 mb-1.5">Name</label>
                   <div class="relative">
@@ -623,12 +615,6 @@
       // - Existing account → normal sign-in with the email prefilled; the
       //   invite is redeemed after auth in resolveAndRedirect.
       if (getInviteToken()) {
-        const orgField = document.getElementById("orgField");
-        const org3 = document.getElementById("org3");
-        if (orgField) orgField.style.display = "none";
-        if (org3) org3.required = false;
-        const foundingConfirm = document.getElementById("foundingConfirm");
-        if (foundingConfirm) foundingConfirm.style.display = "none";
         const sub = document.getElementById("signupSub");
         if (sub) sub.textContent = "You're joining an existing organization by invite";
 
@@ -778,13 +764,10 @@
         clearStatus();
 
         const invited = !!getInviteToken();
-        const orgName = document.getElementById("org3").value.trim();
         const name = document.getElementById("name3").value.trim();
         const email = document.getElementById("email3").value.trim();
         const password = document.getElementById("password3").value;
 
-        if (!invited && !orgName) return showStatus("Organization name is required — creating an account starts a new organization. To join an existing one, ask an admin to invite you.", "error");
-        if (!invited && !document.getElementById("confirmNewOrg")?.checked) return showStatus("Tick the confirmation box first — or, if you're joining an existing organization, close this and ask an admin for an invite link instead.", "error");
         if (!email || !password) return showStatus("Email and password are required.", "error");
         if (password.length < 6) return showStatus("Password must be at least 6 characters.", "error");
 
@@ -800,7 +783,10 @@
             password,
             options: {
               emailRedirectTo: redirectTo,
-              data: invited ? { name } : { name, org_name: orgName }
+              // No org_name: an account never founds a company. The trigger
+              // ignores the key either way, so an old cached copy of this page
+              // still signs people up rather than failing at them.
+              data: { name }
             }
           });
 

@@ -10,7 +10,12 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
-const FROM = 'SILO <noreply@silo-baseballism.com>';
+// The sender address is configuration, not a constant. A second tenant's
+// invite, review or payment email arriving from a Baseballism address reads
+// as either a mistake or a leak of who else uses SILO. SILO_MAIL_FROM is an
+// edge-function secret; the literal stays as the fallback so nothing changes
+// for Baseballism until that secret is set.
+const FROM = Deno.env.get('SILO_MAIL_FROM') || 'SILO <noreply@silo-baseballism.com>';
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 

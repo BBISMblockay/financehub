@@ -1233,3 +1233,53 @@ free.
 Tests: `scripts/tests/forecast-method-competition.test.mjs` (real PostgreSQL via
 PGlite, thirteen mutations, including the whole buy report run as a signed-in
 user and held to an equality against the governed formulas).
+
+## Guided company onboarding (`20260918120000`)
+
+Founding a new tenant, invite-gated. Read the migration header first — it
+records why each piece is shaped the way it is. The four decisions worth
+knowing before touching this:
+
+**The gate is `handle_new_user`, not the login form.** Company creation used to
+run off an `org_name` key in the signup metadata. `signUp` is a public Supabase
+Auth endpoint and the anon key ships in `pages/config.js` by design, so that key
+was caller-controlled input — anyone could found a tenant. The branch is gone;
+`pages/login.html` lost its organization field in the same change, but that is
+cosmetic and the migration is the fix.
+
+**`platform_admins`, not `owner_admin`.** Founding spends this project's
+Supabase and Anthropic quota, so it is a platform act rather than a company one.
+28 of 29 Baseballism profiles are membership `admin`; gating on `is_admin()`
+would have handed company creation to nearly everyone, the same blast radius
+that made `current_user_can_manage_comp_requests()` diverge from the AP gate. No
+RPC adds a platform admin — it takes a migration or a service-role write.
+
+**The redeem is idempotent, not merely atomic.** One `SECURITY DEFINER`
+function makes it atomic for free. What atomicity does not cover is a committed
+row with a lost response, and a user who presses the button again. The invite
+stores `created_company_id`, and a repeat redeem by the same user returns that
+company with `repeated = true`. The token is the idempotency key. A repeat
+naming a different company still returns the original.
+
+**A refused timezone beats a stored one nothing honours.**
+`silo_business_today()` / `_yesterday()` now read
+`company_settings.business_timezone` — the change 20260904280000 said was
+needed. Ten further public functions and seven files under `scripts/` and `v2/`
+still hardcode `America/Los_Angeles` (measured 2026-09-18), so
+`supported_business_timezones` holds one row and onboarding refuses anything
+else, naming what does not honour it. Finishing the sweep is an INSERT there
+plus a test.
+
+Also: `company_settings.default_currency` (declared) is reconciled against
+`accounting_settings.base_currency` (measured from QuickBooks' trial balance) by
+a trigger that raises on divergence — the row cannot merge into
+`accounting_settings`, whose `qbo_connection_id` is NOT NULL. And
+`create_entity_with_owner` is dropped: it inserted membership role `'owner'`,
+which the CHECK has forbidden since the multi-tenant work, so every call failed
+`23514` and rolled back its own entity insert. Measured failing on production
+before removal; its `verify_v2_schema.sql` anon-allowlist entry went with it.
+
+Tests: `scripts/tests/company-onboarding-database.test.mjs` (real PostgreSQL via
+PGlite, 34 assertions, four mutations), which also executes the four new
+`verify_v2_schema.sql` checks and then breaks each guard to confirm they can go
+red.

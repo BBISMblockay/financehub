@@ -90,6 +90,14 @@
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
     { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
+    // Standard-profile only, and admin-only within that. Baseballism is years
+    // past needing it, and a permanent "Setup" row on a fully configured
+    // company is the kind of clutter nobody removes later. A new tenant's
+    // owner lands here straight out of company creation; the row is how they
+    // find their way back. It stays visible after every step is green --
+    // hiding it on completion would mean the one page that explains WHY the
+    // sales pages are empty disappears exactly when someone goes looking.
+    { roles: ADMIN_ROLES, id: 'start/setup', section: 'Start', label: 'Setup', href: '/v2/setup-checklist.html', profiles: ['standard'] },
 
 
     { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
