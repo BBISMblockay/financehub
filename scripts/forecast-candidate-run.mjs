@@ -26,16 +26,22 @@
 //                      scripts/forecast-candidate-backtest.mjs, which scores
 //                      them without writing anything.
 //   FC_CANDIDATE_ID, FC_SKU_CATEGORY, FC_HORIZON_DAYS
+//   FC_SKIP_COMPETITION=1  freeze only the single candidate, skipping the
+//                      three-method competition at 3 and 6 months
 //   FC_DRY_RUN=1       plan the cutoffs and issue no writes
 
 import { createClient } from '@supabase/supabase-js';
 import {
   resolveCategories,
   runForecastCandidate,
+  runMethodCompetition,
   formatSummary,
+  formatCompetitionSummary,
   FIRST_FROZEN_CUTOFF,
   DEFAULT_CANDIDATE_ID,
   DEFAULT_HORIZON_DAYS,
+  COMPETITION_METHODS,
+  COMPETITION_HORIZON_MONTHS,
 } from './lib/forecast-candidate-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -53,6 +59,11 @@ const CANDIDATE_ID = process.env.FC_CANDIDATE_ID || DEFAULT_CANDIDATE_ID;
 const SKU_CATEGORY = process.env.FC_SKU_CATEGORY || '';
 const HORIZON_DAYS = Number(process.env.FC_HORIZON_DAYS || DEFAULT_HORIZON_DAYS);
 const DRY_RUN = process.env.FC_DRY_RUN === '1';
+// The competition runs by default. FC_SKIP_COMPETITION=1 falls back to the
+// single-candidate behaviour this script had before 20260917200000 -- kept as
+// an escape hatch for a manual re-run, not as a supported operating mode: a
+// cutoff that closes without its methods frozen cannot be backfilled.
+const SKIP_COMPETITION = process.env.FC_SKIP_COMPETITION === '1';
 
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -130,6 +141,28 @@ for (const companyEntityId of companies) {
         failures += 1;
         console.error(`  ${skuCategory} FAILED: ${error.message}`);
       }
+
+      // The wider competition: three methods at 3 and 6 months, with the pick
+      // between them recorded before the cutoff it governs. Counted separately
+      // from the candidate above, and failing independently -- the candidate's
+      // 30-day track and this one are different evidence and one going wrong
+      // must not silently take the other with it.
+      if (!SKIP_COMPETITION) {
+        try {
+          const { summary: comp } = await runMethodCompetition({
+            client: db,
+            companyEntityId,
+            skuCategory,
+            startCutoff: START_CUTOFF,
+            dryRun: DRY_RUN,
+          });
+          console.log(`  ${skuCategory} competition: ${formatCompetitionSummary(comp)}`);
+          failures += comp.failed;
+        } catch (error) {
+          failures += 1;
+          console.error(`  ${skuCategory} competition FAILED: ${error.message}`);
+        }
+      }
     }
   } catch (error) {
     // One company failing must not stop the others: each tenant's ledger is
@@ -144,4 +177,7 @@ if (failures > 0) {
   console.error(`\n${failures} failure(s). A failed Actions run emails the repo owner.`);
   process.exit(1);
 }
-console.log('\nDone. Every forecast written is PROSPECTIVE — NOT SCORED until its 30-day cycle matures.');
+console.log('\nDone. Every forecast written is PROSPECTIVE — NOT SCORED until its cycle matures:'
+  + ` ${HORIZON_DAYS} days for ${CANDIDATE_ID}`
+  + (SKIP_COMPETITION ? ''
+    : `, and ${COMPETITION_HORIZON_MONTHS.join('/')} months for ${COMPETITION_METHODS.join(', ')}.`));

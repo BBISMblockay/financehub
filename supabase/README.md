@@ -1061,3 +1061,76 @@ is not prospective performance — see `docs/ops/demand-candidate-yoy-shift.md`.
 Tests: `scripts/tests/forecast-candidate.test.mjs` (unit) and
 `scripts/tests/forecast-candidate-database.test.mjs` (real PostgreSQL via
 PGlite, with ten mutations).
+
+## Forecast method competition (`20260917200000`)
+
+`20260917140000` proves ONE method prospectively. This runs several against each
+other and — the part that matters — records **which one was chosen, before the
+cutoff it governs**.
+
+`forecast_method_selections` is that record: one row per
+(company, category, horizon, first cutoff it governs), carrying the evidence
+window the choice was made from and every method's score over it, not just the
+winner's. It is append-only, and
+
+```sql
+constraint fms_evidence_precedes_cutoff check (evidence_to < effective_from_cutoff)
+```
+
+is the whole point of the table. A competition where all four forecasts are
+frozen but the pick is not is unfalsifiable: any winner can be named afterwards
+and the ledger cannot contradict it. That is the exact failure mode a week of
+retrospective testing kept producing.
+
+The methods — `forecast_seasonal_naive_v1`, `forecast_run_rate_v1`,
+`forecast_blend_v1`, plus the existing `Candidate_YoY_Shift_v1` — share one
+signature and one return shape, so `forecast_for_method` dispatches on a name
+and a method added later is one branch. Their parameters (3-month recent window,
+12-month seasonal lookback, an even blend) are **conventional defaults fixed in
+advance, not values searched against this tenant's history**. Searching them is
+what produced a week of results that did not survive their own holdout.
+
+Four things worth knowing before changing any of it:
+
+- **The ledger's guarantee was generalised, not weakened.** Its provenance
+  columns (`recent_demand`, `raw_ratio`, …) are specific to
+  `Candidate_YoY_Shift_v1` and were `NOT NULL`, so no other method could be
+  stored. They are nullable now — and the old no-look-ahead CHECK keyed on them
+  would have passed **trivially on NULL**. So every method must record
+  `inputs_through_date`, `NOT NULL`, bound by
+  `forecast_ledger_inputs_precede_cutoff` to be strictly before its own cutoff.
+  Method-agnostic, and inherited by anything added later without anyone
+  remembering to.
+- **The selection is written BEFORE the forecasts, and only the runner enforces
+  that.** Nothing in the database can tell the two orderings apart — the
+  evidence CHECK passes either way. `runMethodCompetition` in
+  `scripts/lib/forecast-candidate-core.mjs` does it in that order and a unit
+  test pins the call sequence. That is one of the very few guarantees here that
+  is not a constraint.
+- **The scorer and selector are service-role only.** They take an explicit
+  company id and read that company's sales, and inside a SECURITY DEFINER
+  function there is no way to tell a service-role caller from a user — so an
+  `authenticated` grant would be a tenant leak dressed as a research tool. Users
+  read the *result* through `forecast_method_selections`, whose RLS scopes it.
+  `verify_v2_schema.sql` fails CRITICAL on either grant.
+- **`record_forecast_candidate_run` is re-copied here from `20260917180000`.**
+  `inputs_through_date` is `NOT NULL` and that function did not know about it, so
+  without the copy the existing monthly job would have started failing on its
+  next run, in production, silently until somebody read the Actions log. Copied
+  from the *second* migration, not the first: the second dropped and recreated it
+  to remove a tenant-specific default, and a create-or-replace cannot remove a
+  default but can add one back. Both were caught by the test suite, not by
+  reading.
+
+The buy report (`scripts/sql/category_buy_forecast.sql`, saved report
+`1143dcd9-f2f1-4165-a299-ec21952aa465`) reads the ledger for its `fwd_*` columns.
+It scores each frozen forecast against the selection **in force at that
+forecast's own cutoff**, not against the current one — the newest selection alone
+would empty the whole forward record the moment a category switched methods,
+which is exactly when the previous method's track record is the reason for the
+switch. Until cycles mature the `fwd_` columns are **NULL, never 0**, and the
+status column says "no forward record yet" in words rather than quietly falling
+back to the backtest and calling it proven.
+
+Tests: `scripts/tests/forecast-method-competition.test.mjs` (real PostgreSQL via
+PGlite, seven mutations, including the whole buy report run as a signed-in user).

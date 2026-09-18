@@ -4,6 +4,14 @@ name: Demand candidate forecast run
 # forecast_candidate_ledger. Source spec: saved report
 # f98754f7-47a6-4eeb-8a8b-eece9a069432, candidate Candidate_YoY_Shift_v1.
 #
+# Since 20260917200000 it also runs the COMPETITION for every forecastable
+# category: three calendar-month methods (seasonal naive, run rate, an even
+# blend) frozen side by side at 3 and 6 months, with the SELECTION between them
+# recorded before the cutoff it governs. The selection is written FIRST and the
+# forecasts second -- reversed, the pick would be written in a run that had
+# already seen every method's number for the cutoff it governs, and nothing in
+# the database can tell the two orderings apart.
+#
 # This writes NOTHING a purchase order reads. The ledger is a parallel record
 # kept so the candidate can be scored later against matured actuals; the
 # production 90/180-day logic and every live PO path are untouched.
@@ -36,6 +44,11 @@ on:
         type: string
       dry_run:
         description: 'Plan the cutoffs and write nothing'
+        required: false
+        type: boolean
+        default: false
+      skip_competition:
+        description: 'Freeze only the single candidate, skipping the three-method competition'
         required: false
         type: boolean
         default: false
@@ -72,4 +85,7 @@ jobs:
           FC_COMPANY_ID: ${{ inputs.company_id }}
           FC_START_CUTOFF: ${{ inputs.start_cutoff }}
           FC_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          # An escape hatch for a manual re-run, not a supported operating mode:
+          # a cutoff that closes without its methods frozen cannot be backfilled.
+          FC_SKIP_COMPETITION: ${{ inputs.skip_competition && '1' || '' }}
         run: node scripts/forecast-candidate-run.mjs

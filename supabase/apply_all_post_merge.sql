@@ -18834,3 +18834,23 @@ $c$select (select count(*) from v_po_header_summary
 -- NOTE the three functions are DROP + CREATE, not CREATE OR REPLACE: Postgres
 -- refuses to remove a parameter default from an existing function.
 \i migrations/20260917180000_product_type_profile.sql
+
+-- The forecast COMPETITION (20260917200000_forecast_method_competition.sql).
+-- 20260917140000 freezes ONE method per cutoff; this adds the other three and,
+-- more importantly, forecast_method_selections -- a record of WHICH method was
+-- chosen, written before the cutoff it governs. A competition where every
+-- forecast is frozen but the pick is not is unfalsifiable: any winner can be
+-- named afterwards and the ledger cannot contradict it.
+--
+-- Loosens the ledger's Candidate_YoY_Shift_v1-specific provenance columns to
+-- nullable so a second method can be stored, and REPLACES the guarantee they
+-- carried with a method-agnostic one: every row must record
+-- inputs_through_date, bound by a CHECK to be strictly before its own cutoff.
+-- A nullable column in the old CHECK would have passed trivially on NULL.
+--
+-- Also re-copies record_forecast_candidate_run from 20260917180000 with the new
+-- column added -- without that, the existing monthly job fails on its next run.
+-- Idempotent: add-column-if-not-exists, create-if-not-exists, create-or-replace,
+-- and the ledger view is dropped before each create (a create-or-replace cannot
+-- widen or narrow a view's column list).
+\i migrations/20260917200000_forecast_method_competition.sql

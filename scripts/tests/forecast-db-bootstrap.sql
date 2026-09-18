@@ -83,12 +83,20 @@ create unique index sales_monthly_rollup_mv_uq
 revoke all on public.sales_monthly_product_type_rollup_mv from anon, authenticated;
 grant select on public.sales_monthly_product_type_rollup_mv to service_role;
 
+-- security_invoker = FALSE, mirroring production (verified 2026-09-17). This is
+-- not a detail: a matview carries no RLS and is granted to nobody, so an
+-- INVOKER view over one RAISES `42501: permission denied for materialized view`
+-- for every authenticated caller rather than returning fewer rows -- the
+-- failure is total, not partial. That is the demand_coverage_by_type_v bug, and
+-- a fixture that got this backwards would fail a report that works in
+-- production. The tenant filter in the body is what does the scoping.
 create view public.sales_monthly_product_type_rollup_v
-with (security_invoker = true) as
+with (security_invoker = false) as
 select month_start, product_type, units
 from public.sales_monthly_product_type_rollup_mv
 where company_entity_id = public.active_company_id();
-grant select on public.sales_monthly_product_type_rollup_v to authenticated;
+revoke all on public.sales_monthly_product_type_rollup_v from anon;
+grant select on public.sales_monthly_product_type_rollup_v to authenticated, service_role;
 
 -- ── Stand-ins for 20260917180000_product_type_profile.sql ────────────────────
 -- Only the shapes the classification reads. Deliberately added so the DB suite
@@ -128,3 +136,15 @@ create table public.sales_by_product_title_daily_mv (
   day_date date,
   units_sold numeric
 );
+-- The wrapper, mirroring production exactly (verified 2026-09-17): the tenant
+-- filter lives HERE and the view is security_invoker = FALSE, because the thing
+-- underneath is a matview and a matview carries no RLS. Getting this backwards
+-- in the fixture would make the Category Buy Forecast test pass over data the
+-- real report cannot see.
+create view public.sales_by_product_title_daily_v
+with (security_invoker = false) as
+select company_entity_id, product_type, product_title, day_date, units_sold
+from public.sales_by_product_title_daily_mv
+where company_entity_id = public.active_company_id();
+revoke all on public.sales_by_product_title_daily_v from anon;
+grant select on public.sales_by_product_title_daily_v to authenticated, service_role;
