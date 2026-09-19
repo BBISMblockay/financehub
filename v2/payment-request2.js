@@ -1,14 +1,17 @@
-import { REQUEST_TYPES, ACTIVE_PO_STATUSES, FIELD_NAMES, normalizeName, money, validateFields, applySuggestions, clearSourceSuggestions, duplicateMatches, documentMime } from './payment-request2-core.js';
+import { REQUEST_TYPES, ACTIVE_PO_STATUSES, FIELD_NAMES, normalizeName, validateFields, applySuggestions, clearSourceSuggestions, documentMime } from './payment-request2-core.js';
 import { saveDraft, listDrafts } from './payment-request2-drafts.js';
 import { readDocumentOnDevice } from './payment-request2-reader-browser.js';
+import { mountPdfPreview } from './payment-request2-preview.js';
 import { interpretMissing } from './payment-request2-reader.js';
 import { submitRequest } from './payment-request2-submit.js';
+import { createDuplicateChecker, duplicateAcknowledgement } from './payment-request2-duplicates.js';
 
 const $ = id => document.getElementById(id);
 const cfg = window.__SILO_CONFIG__ || {};
 let db, user, company, scope, draft, busy = false, invalidSession = false;
 let vendors = [], pos = [], locations = [], selectedPos = new Set(), duplicateState = null;
-let previewUrl = null, readGeneration = 0, checkingGeneration = 0, dirty = false, readingController;
+let disposePreview, previewUrl = null, readGeneration = 0, dirty = false, readingController;
+const duplicateChecker = createDuplicateChecker({ lookup: lookupDuplicates, publish: renderDuplicateStatus });
 const feedback = (message, tone = 'info') => {
   $('status').className = `bcn-status bcn-status--${tone}`;
   $('status').textContent = message; $('status').hidden = !message;
@@ -26,16 +29,14 @@ function capture() {
 function changed() {
   if (draft.payload) return;
   capture(); dirty = true; draft.reviewed = false; $('reviewed').checked = false;
-  duplicateState = null; checkingGeneration++;
-  $('duplicateAck').checked = false; $('duplicateAckWrap').hidden = true; $('duplicateList').replaceChildren();
-  $('duplicateText').textContent = 'Details changed. Check for an existing request before submitting.';
+  queueDuplicateCheck();
   $('saveState').textContent = 'Unsaved changes · Drafts stay on this device.';
   updateHints();
 }
 function lockUI() {
   const frozen = !!draft?.payload;
   $('editFields').disabled = busy || frozen || invalidSession;
-  for (const id of ['sourceSelect', 'readDocument', 'addDocuments', 'fileInput', 'saveDraft', 'startPo', 'startManual', 'applySuggestions', 'assistMissing', 'aiConsent', 'checkDuplicates', 'reviewed']) {
+  for (const id of ['sourceSelect', 'readDocument', 'addDocuments', 'fileInput', 'saveDraft', 'startPo', 'startManual', 'applySuggestions', 'assistMissing', 'aiConsent', 'reviewed']) {
     $(id).disabled = busy || frozen || invalidSession;
   }
   $('submitBtn').disabled = busy || invalidSession;
@@ -78,8 +79,8 @@ function renderDraft() {
   selectedPos = new Set(draft.poNames.filter(n => pos.some(p => p.po_name === n)));
   $('manualPo').value = draft.poNames.filter(n => !selectedPos.has(n)).join(', ');
   draft.reviewed = false; $('reviewed').checked = false;
-  duplicateState = null; $('duplicateAck').checked = false; $('duplicateAckWrap').hidden = true;
-  $('duplicateList').replaceChildren(); $('duplicateText').textContent = 'Check for an existing request before submitting.';
+  duplicateChecker.reset(); queueDuplicateCheck();
+  if (draft.payload) $('duplicateText').textContent = 'Duplicate check completed before submission started. Retry to finish this request.';
   renderPOs(); renderFiles(); renderSuggestions(); updateHints(); lockUI(); dirty = false;
 }
 function updateHints() {
@@ -140,6 +141,7 @@ function changeSource(id) {
   renderFiles(); renderSuggestions();
 }
 function renderFiles() {
+  disposePreview?.(); disposePreview = null;
   if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null;
   $('sourceSelect').replaceChildren(); $('attachmentList').replaceChildren(); $('preview').replaceChildren();
   for (const file of draft.files) {
@@ -159,10 +161,12 @@ function renderFiles() {
     const mime = documentMime(file);
     if (mime) {
       previewUrl = URL.createObjectURL(new Blob([file.blob], { type: mime }));
-      const preview = element(mime === 'application/pdf' ? 'iframe' : 'img');
-      if (mime === 'application/pdf') { preview.title = 'Source document'; preview.setAttribute('sandbox', 'allow-same-origin'); }
-      else preview.alt = 'Source document for review';
-      preview.src = previewUrl; $('preview').append(preview); $('openDocument').href = previewUrl;
+      $('openDocument').href = previewUrl;
+      if (mime === 'application/pdf') disposePreview = mountPdfPreview($('preview'), file.blob);
+      else {
+        const preview = element('img'); preview.alt = 'Source document for review';
+        preview.src = previewUrl; $('preview').append(preview);
+      }
     } else {
       $('openDocument').hidden = true;
       $('preview').append(element('p', 'This supporting file will be attached. Automatic reading is available for PDFs and images; enter its details manually.'));
@@ -236,28 +240,33 @@ function useSuggestions() {
   }
   changed(); renderPOs(); feedback('Suggestions filled. Confirm the request type, payee, amount, currency and PO links before submitting.');
 }
-async function checkDuplicates() {
-  capture(); const f = { ...draft.fields }, generation = ++checkingGeneration;
-  if (!normalizeName(f.vendor_name) || money(f.amount_due) === null) throw Error('Enter a payee and amount before checking for duplicates.');
-  $('duplicateText').textContent = 'Checking requests you can access…';
-  try {
-    await assertContext();
-    // Filter by the stable vendor normalization already written by the standard form.
-    const { data, error } = await db.from('payment_requests').select('id,vendor_name,invoice_number,amount_due,workflow_status').eq('company_entity_id', company.id).eq('vendor_name_norm', normalizeName(f.vendor_name)).order('created_at', { ascending: false }).limit(1000);
-    if (error) throw error;
-    if (generation !== checkingGeneration) throw Error('The request changed during the check. Check again.');
-    const matches = duplicateMatches(data || [], f, draft.id);
-    duplicateState = { matches, fields: JSON.stringify(f), limited: data.length === 1000 };
-    $('duplicateList').replaceChildren();
-    for (const match of matches.slice(0, 8)) $('duplicateList').append(element('li', `${match.invoice_number || 'No invoice reference'} · $${Number(match.amount_due).toFixed(2)} · ${match.workflow_status} · ${match.id}`));
-    $('duplicateText').textContent = matches.length ? `${matches.length} possible matching request(s). Review before continuing.` : `${data.length === 1000 ? 'No match in the latest 1,000 accessible requests for this payee.' : 'No match found among accessible requests for this payee.'} ${f.invoice_number ? 'Compared invoice reference; amounts may differ for a partial payment.' : 'Compared amount. Add an invoice reference when available.'}`;
-    $('duplicateAckWrap').hidden = !matches.length;
-    return duplicateState;
-  } catch (error) {
-    duplicateState = null;
-    $('duplicateText').textContent = 'Duplicate check unavailable. Nothing has been cleared; retry before submitting.';
-    throw Error(error.message || 'Could not check for duplicates.');
+function duplicateSnapshot() { return { companyId: company.id, draftId: draft.id, fields: draft.fields }; }
+function queueDuplicateCheck() {
+  if (invalidSession || !draft || draft.payload) return;
+  duplicateChecker.update(duplicateSnapshot());
+}
+async function lookupDuplicates(snapshot) {
+  await assertContext();
+  // Same access/company scope and matching rules as the standard manual lookup.
+  const { data, error } = await db.from('payment_requests').select('id,vendor_name,invoice_number,amount_due,workflow_status').eq('company_entity_id', snapshot.companyId).eq('vendor_name_norm', normalizeName(snapshot.fields.vendor_name)).order('created_at', { ascending: false }).limit(1000);
+  if (error) throw Error('Could not check for existing requests. Try submitting again once your connection returns.');
+  return data || [];
+}
+function renderDuplicateStatus({ phase, result }) {
+  if (phase === 'checking') { $('duplicateText').textContent = 'Checking for existing requests…'; return; }
+  if (duplicateAcknowledgement(result) !== duplicateAcknowledgement(duplicateState)) $('duplicateAck').checked = false;
+  duplicateState = result;
+  $('duplicateList').replaceChildren(); $('duplicateAckWrap').hidden = !result?.matches.length;
+  if (phase !== 'complete') {
+    $('duplicateText').textContent = phase === 'idle' ? 'Enter a payee and amount. We’ll check for existing requests automatically.' : phase === 'waiting' ? 'Checking automatically when you finish editing…' : 'Could not check for existing requests. We’ll try again when you edit the details or submit. Nothing has been cleared.';
+    return;
   }
+  for (const match of result.matches.slice(0, 8)) $('duplicateList').append(element('li', `${match.invoice_number || 'No invoice reference'} · $${Number(match.amount_due).toFixed(2)} · ${match.workflow_status} · ${match.id}`));
+  $('duplicateText').textContent = result.matches.length ? `${result.matches.length} possible matching request(s). Review before continuing.` : `${result.limited ? 'No match in the latest 1,000 accessible requests for this payee.' : 'No match found among accessible requests for this payee.'} ${result.fields.invoice_number ? 'Compared invoice reference; amounts may differ for a partial payment.' : 'Compared amount. Add an invoice reference when available.'}`;
+}
+async function checkDuplicates() {
+  capture();
+  return duplicateChecker.checkNow(duplicateSnapshot());
 }
 async function submit(event) {
   event.preventDefault(); if (busy || invalidSession) return;
@@ -271,9 +280,9 @@ async function submit(event) {
     busy = true; lockUI();
     if (!draft.payload) {
       const priorAck = $('duplicateAck').checked;
-      const acknowledgedIds = duplicateState?.matches.map(m => m.id).sort().join(',');
+      const acknowledgement = duplicateAcknowledgement(duplicateState);
       const checked = await checkDuplicates();
-      if (checked.matches.length && (!priorAck || acknowledgedIds !== checked.matches.map(m => m.id).sort().join(','))) { $('duplicateAck').checked = false; throw Error('Review and acknowledge the possible duplicate requests before continuing.'); }
+      if (checked.matches.length && (!priorAck || acknowledgement !== duplicateAcknowledgement(checked))) { $('duplicateAck').checked = false; throw Error('Review and acknowledge the possible duplicate requests before continuing.'); }
     }
     await navigator.locks.request(`silo-pr2:${scope}:${draft.id}`, { ifAvailable: true }, async lock => {
       if (!lock) throw Error('This request is being submitted in another tab. Wait, then reload its saved draft.');
@@ -325,14 +334,14 @@ function bind() {
   $('dropzone').addEventListener('drop', e => { e.preventDefault(); $('dropzone').classList.remove('is-over'); void addFiles(e.dataTransfer.files); });
   $('sourceSelect').addEventListener('change', e => changeSource(e.target.value));
   $('readDocument').addEventListener('click', readDocument); $('assistMissing').addEventListener('click', assistMissing); $('applySuggestions').addEventListener('click', useSuggestions);
-  $('checkDuplicates').addEventListener('click', async () => { try { await checkDuplicates(); } catch (error) { feedback(error.message, 'neg'); } });
   $('startManual').addEventListener('click', () => $('vendor_name').focus());
   $('startPo').addEventListener('click', () => { $('poDetails').open = true; $('poSearch').focus(); });
   window.addEventListener('beforeunload', e => { if (dirty || busy) { e.preventDefault(); e.returnValue = ''; } });
   db.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_OUT' || session?.user?.id && session.user.id !== user.id) {
-      invalidSession = true; readingController?.abort(); readGeneration++; checkingGeneration++; lockUI();
+      invalidSession = true; readingController?.abort(); readGeneration++; duplicateChecker.dispose(); lockUI();
       $('app').hidden = true; $('success').hidden = true; $('signedOut').hidden = false;
+      disposePreview?.(); disposePreview = null;
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       feedback('Your sign-in changed. Reload before continuing. Saved drafts remain associated with their original user and company.');
     }
