@@ -25,6 +25,7 @@
 //   STRIPE_HANDLER_MUTATION=billing-resume-ignores-plan (an open session is resumed for any plan)
 //   STRIPE_HANDLER_MUTATION=billing-note-unchecked      (a failed session record is ignored)
 //   STRIPE_HANDLER_MUTATION=billing-replay-unread       (a replayed session is handed back as new)
+//   STRIPE_HANDLER_MUTATION=billing-lookup-fails-open   (a failed session lookup reads as "gone")
 //   STRIPE_HANDLER_MUTATION=invoice-trusts-stripe-id (a Stripe id from the body is acted on)
 //   STRIPE_HANDLER_MUTATION=billing-body-price      (the price comes from the request)
 // Added after the cycle-3 review:
@@ -97,6 +98,9 @@ const MUTATIONS = {
     '  if (noteErr || noted === false) {', '  if (false) {'),
   'billing-replay-unread': (s) => s.replace(
     "  if (session.status && session.status !== 'open') {", '  if (false) {'),
+  'billing-lookup-fails-open': (s) => s.replace(
+    /    const status = Number\(\(e as any\)\?\.statusCode[\s\S]*?Try again in a moment\.'\);\n/,
+    '    return null;\n'),
   'billing-body-price': (s) => s.replace(
     '    line_items: [{ price: plan.stripe_price_id, quantity }],',
     '    line_items: [{ price: body?.price_id ?? plan.stripe_price_id, quantity }],'),
@@ -883,6 +887,53 @@ await test('billing: if the old session cannot be cancelled, the new one is refu
   assert.equal(out.status, 502);
   assert.match(out.body.error, /could not be cancelled/);
   assert.equal(b.stripe.pathsCalled().includes('checkout.sessions.create'), false);
+});
+
+await test('billing: a failed session lookup refuses -- it never reads as "gone"', async () => {
+  // The fail-open this replaced: every error returned null, the caller read
+  // null as expired, released the claim and created a second session. A blip,
+  // a 429 or a Stripe 5xx would therefore hand out a second payable URL beside
+  // one that is still open and still payable.
+  for (const err of [
+    Object.assign(new Error('gateway'), { statusCode: 503 }),
+    Object.assign(new Error('rate limited'), { statusCode: 429 }),
+    Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+  ]) {
+    const claims = checkoutClaims();
+    const a = await billingFixture({ claims });
+    await a.request({ body: { action: 'checkout', plan_key: 'growth' } });
+
+    const b = await billingFixture({
+      claims, stripe: { 'checkout.sessions.retrieve': err },
+    });
+    const out = await b.request({ body: { action: 'checkout', plan_key: 'growth' } });
+    assert.equal(out.status, 502, `${err.statusCode ?? err.code} must refuse`);
+    assert.match(out.body.error, /could not check the checkout/);
+    assert.equal(b.stripe.pathsCalled().includes('checkout.sessions.create'), false,
+      'a lookup that failed is not evidence the old session is dead');
+    assert.equal(b.db.calls.some((c) => c.rpc === 'stripe_release_checkout'), false,
+      'and the claim must survive, or the next caller races the same way');
+  }
+});
+
+await test('billing: a session Stripe definitively does not have IS gone', async () => {
+  // The other half. A 404 is an answer, not a failure -- refusing on it would
+  // block the company behind a session that cannot exist.
+  const claims = checkoutClaims();
+  const a = await billingFixture({ claims });
+  await a.request({ body: { action: 'checkout', plan_key: 'growth' } });
+
+  const b = await billingFixture({
+    claims,
+    stripe: {
+      'checkout.sessions.retrieve': Object.assign(new Error('No such checkout.session'),
+        { statusCode: 404, code: 'resource_missing' }),
+      'checkout.sessions.create': { id: 'cs_2', url: 'https://fresh' },
+    },
+  });
+  const out = await b.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.url, 'https://fresh');
 });
 
 await test('billing: a completed attempt is refused, not repeated', async () => {

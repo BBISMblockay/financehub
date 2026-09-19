@@ -314,7 +314,8 @@ jobs:
                    invoice-trusts-stripe-id billing-body-price billing-trusts-mirror \
                    invoice-failure-always-clean billing-seats-count-every-member \
                    billing-checkout-unserialized invoice-customer-always-clean \
-                   billing-resume-ignores-plan billing-note-unchecked billing-replay-unread; do
+                   billing-resume-ignores-plan billing-note-unchecked billing-replay-unread \
+                   billing-lookup-fails-open; do
             echo "--- $m ---"
             if STRIPE_HANDLER_MUTATION="$m" node scripts/tests/stripe-handlers.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

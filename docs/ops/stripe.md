@@ -46,7 +46,7 @@ backend does not exist opens something that cannot work and cannot say why.
 | # | Step | Who |
 |---|---|---|
 | 1 | Handler tests for all four Edge Functions | done — `scripts/tests/stripe-handlers.test.mjs` |
-| 2 | A third independent review on the updated head | Blake requests |
+| 2 | Independent review on the updated head | done ×4 — the last two found races in the guards added by the round before |
 | 3 | Billing and Invoicing kept out of the nav | done — commented in `v2/nav-config.js` |
 | 4 | Merge #728 (restores the shared navigation) | Blake |
 | 5 | Apply the migration, deploy the four functions, configure Stripe in **test mode** | Blake |
@@ -311,6 +311,11 @@ Everything below needs live Stripe credentials and has not been exercised:
   period as a fallback, so a mismatch should degrade rather than write NULL —
   but that fallback has only been tested against a synthetic payload.
 * Checkout → `checkout.session.completed` → subscription mirror, end to end.
+* Which Stripe SDK errors carry a `statusCode` / `resource_missing` code. The
+  session lookup treats ONLY a definitive 404 as "this session is gone" and
+  refuses on anything else, so a wrong guess is fail-closed (a refused
+  checkout, never a duplicate) — but it has been driven only by synthetic
+  errors.
 * The checkout claim against real sessions: that a resumed `open` session's URL
   still works when handed back, and that Stripe reports `expired` on the
   timetable assumed here. Both are exercised by opening Checkout, abandoning

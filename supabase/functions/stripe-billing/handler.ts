@@ -348,13 +348,24 @@ function releaseCheckout(company: string, session: string) {
   return db.rpc('stripe_release_checkout', { p_company: company, p_session: session });
 }
 
+// Null means Stripe DEFINITIVELY does not have this session. It never means
+// "the lookup failed".
+//
+// Swallowing every error here was a fail-open in the one path added to close a
+// double-charge: the caller reads null as "expired or gone", releases the
+// claim and creates a second session -- so a network blip, a 429 or a Stripe
+// 5xx would hand out a second payable URL beside one that is still open. The
+// only safe reading of "I could not ask" is to refuse, exactly as an ambiguous
+// create keeps its key rather than starting over.
 async function retrieveSession(id: string) {
-  // A session Stripe no longer knows about is indistinguishable, for our
-  // purposes, from an expired one: either way this attempt is over.
   try {
     return await stripe.checkout.sessions.retrieve(id);
-  } catch (_) {
-    return null;
+  } catch (e) {
+    const status = Number((e as any)?.statusCode ?? (e as any)?.status ?? NaN);
+    if (status === 404 || (e as any)?.code === 'resource_missing') return null;
+    throw new Error(
+      'SILO could not check the checkout already open for this company, so it will not start a '
+      + 'second one — that could subscribe you twice. Try again in a moment.');
   }
 }
 
