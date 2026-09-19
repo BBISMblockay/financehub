@@ -4162,6 +4162,89 @@ select 'Membership is not self-grantable' as check_name,
    then 'CRITICAL: memberships are unreadable; the company picker and login cannot resolve a company'
  else 'ok' end as status;
 
+-- ── A SECOND claimed region, and it is not obvious ────────────────────────
+-- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
+-- between the onboarding marker below and the "Plaid ingestion" marker further
+-- down, and asserts there are exactly FOUR of them. So that span belongs to
+-- onboarding: a check appended anywhere inside it fails that test with a bare
+-- count mismatch (`7 !== 4`) that names nothing. This is the same trap the note
+-- at the END of this file describes for the Plaid marker, in the other
+-- direction -- the tail is claimed by the Plaid fixture, this middle is claimed
+-- by the onboarding fixture, and a new check must go ABOVE this line. The
+-- Stripe checks below were written between the two markers and moved here.
+
+-- ── Stripe: billing (SILO's revenue) and Connect (the client's) ────────────
+-- Three properties, each of which has a way of quietly going missing.
+select 'Stripe mirror tables exist and are locked down' as check_name,
+ case
+ when to_regclass('public.stripe_invoices') is null
+   then 'MISSING: run 20260919120000_stripe_billing_and_connect.sql'
+ when exists(select 1 from (values ('billing_subscriptions'),('billing_invoices'),
+     ('stripe_connect_accounts'),('stripe_invoice_customers'),('stripe_invoices'),
+     ('stripe_invoice_lines'),('stripe_webhook_events')) as t(name)
+   where not (select relrowsecurity from pg_class where oid = to_regclass('public.'||t.name)))
+   then 'CRITICAL: a Stripe table has RLS disabled'
+ -- The mirror is read-only to clients BY CONSTRUCTION. A write policy here
+ -- means SILO can show an invoice Stripe never issued.
+ when exists(select 1 from pg_policies
+   where schemaname='public'
+     and tablename in ('billing_subscriptions','billing_invoices','stripe_connect_accounts',
+                       'stripe_invoice_customers','stripe_invoices','stripe_invoice_lines',
+                       'stripe_invoice_requests','billing_plans')
+     and cmd <> 'SELECT')
+   then 'CRITICAL: a client-writable policy exists on a Stripe mirror table'
+ when exists(select 1 from information_schema.role_table_grants
+   where table_schema='public'
+     and (table_name like 'stripe\_%' or table_name like 'billing\_%')
+     and grantee in ('anon','authenticated')
+     and privilege_type in ('INSERT','UPDATE','DELETE'))
+   then 'CRITICAL: anon or authenticated holds a write grant on a Stripe table'
+ else 'ok' end as status;
+
+-- Supabase re-grants EXECUTE to anon on every newly created public function,
+-- and every one of these is SECURITY DEFINER. 20260904330000 is the precedent:
+-- anon could call chat_run_readonly_query for exactly this reason.
+select 'Stripe sync functions are service-role only' as check_name,
+ case
+ when to_regclass('public.stripe_invoices') is null then 'MISSING: Stripe migration'
+ when exists(
+   select 1 from unnest(array[
+     'stripe_sync_invoice(uuid,text,jsonb,timestamptz)',
+     'stripe_sync_subscription(uuid,jsonb,timestamptz)',
+     'stripe_sync_connect_account(uuid,jsonb,timestamptz)',
+     'stripe_sync_invoice_customer(uuid,text,jsonb,timestamptz)',
+     'stripe_record_webhook_event(text,text,text,text,uuid,timestamptz)',
+     'stripe_begin_checkout(uuid,text)',
+     'stripe_begin_invoice_request(uuid,uuid,text,text,uuid,text)',
+     'stripe_complete_invoice_request(uuid,text,text,text)']) as f(sig)
+   where has_function_privilege('anon', 'public.'||f.sig, 'execute')
+      or has_function_privilege('authenticated', 'public.'||f.sig, 'execute'))
+   then 'CRITICAL: a Stripe sync function is callable by anon or authenticated'
+ else 'ok' end as status;
+
+-- An invoice that names one company and another company's Stripe account is
+-- the single cross-tenant mistake an edge-function bug could make silently.
+-- The composite FK is what makes it unrepresentable, and the staleness trigger
+-- is what stops a late webhook retry reverting a paid invoice to open.
+select 'Stripe tenant pairing and ordering guards' as check_name,
+ case
+ when to_regclass('public.stripe_invoices') is null then 'MISSING: Stripe migration'
+ when not exists(select 1 from pg_constraint
+   where conname='stripe_invoices_account_fk' and contype='f')
+   then 'CRITICAL: an invoice can name another company''s Stripe account'
+ when not exists(select 1 from pg_constraint
+   where conname='stripe_invoice_customers_account_fk' and contype='f')
+   then 'CRITICAL: a customer can name another company''s Stripe account'
+ when (select count(*) from pg_trigger t
+        where t.tgname='stripe_drop_stale_sync' and not t.tgisinternal) < 5
+   then 'CRITICAL: the out-of-order webhook guard is missing from a Stripe table'
+ when exists(select 1 from public.stripe_invoices i
+   where not exists (select 1 from public.stripe_connect_accounts a
+     where a.company_entity_id = i.company_entity_id
+       and a.stripe_account_id = i.stripe_account_id))
+   then 'CRITICAL: an invoice row is not paired with its company''s connected account'
+ else 'ok' end as status;
+
 -- ── Company onboarding (20260918120000) ─────────────────────────────────────
 -- The gate is the trigger, not the login form: signUp is a public endpoint and
 -- the anon key is published, so an org_name in the signup metadata is

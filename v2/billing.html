@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Billing</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
+    .bil-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+    .bil-card { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+    .bil-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .bil-title { font-weight: 650; font-size: 14px; }
+    .bil-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+    .bil-body { padding: 16px; }
+
+    .bil-current { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+    .bil-fact { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
+    .bil-fact-label { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .bil-fact-value { font-family: var(--bcn-mono); font-size: 18px; font-variant-numeric: tabular-nums; }
+    .bil-fact-note { font-size: 11px; color: var(--bcn-ink-3); }
+
+    .bil-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+    .bil-plan { border: 1px solid var(--bcn-border); border-radius: 10px; padding: 14px;
+      display: flex; flex-direction: column; gap: 8px; }
+    .bil-plan--current { border-color: var(--bcn-accent); }
+    .bil-plan-name { font-weight: 650; font-size: 14px; }
+    .bil-plan-price { font-family: var(--bcn-mono); font-size: 20px; font-variant-numeric: tabular-nums; }
+    .bil-plan-desc { font-size: 12px; color: var(--bcn-ink-2); line-height: 1.5; flex: 1; }
+
+    .bil-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .bil-table th { text-align: left; background: var(--bcn-sunken); font-family: var(--bcn-mono);
+      font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); }
+    .bil-table td { padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); }
+    .bil-num { text-align: right; font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
+    .bil-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    .bil-note { font-size: 12px; color: var(--bcn-ink-3); line-height: 1.55; max-width: 76ch; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Billing</div>
+          <div class="bcn-header-sub">What this company pays for SILO. Cards and receipts are handled by Stripe.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--ghost" id="btnSync">Refresh from Stripe</button>
+          <button class="bcn-btn bcn-btn--primary" id="btnPortal" hidden>Manage billing</button>
+        </div>
+      </header>
+
+      <div class="bil-page">
+        <div class="bcn-status" id="status" hidden></div>
+
+        <div class="bil-card">
+          <div class="bil-card-head">
+            <div class="bil-title">Current subscription</div>
+            <div class="bil-sub" id="subSynced"></div>
+          </div>
+          <div class="bil-body" id="current"><div class="bil-empty">Loading…</div></div>
+        </div>
+
+        <div class="bil-card" id="planCard">
+          <div class="bil-card-head">
+            <div>
+              <div class="bil-title">Plans</div>
+              <div class="bil-sub">Checkout and cancellation happen on Stripe's own pages.</div>
+            </div>
+          </div>
+          <div class="bil-body"><div class="bil-plans" id="plans"></div></div>
+        </div>
+
+        <div class="bil-card">
+          <div class="bil-card-head">
+            <div class="bil-title">Invoice history</div>
+            <div class="bil-sub" id="invCount"></div>
+          </div>
+          <table class="bil-table" id="tblInvoices">
+            <tbody><tr><td class="bil-empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="bil-note">
+          SILO does not see or store card details — Stripe's hosted Checkout and Billing Portal handle
+          them, so the card never touches this site. Nothing in SILO is switched off automatically when a
+          subscription lapses; a past-due subscription shows here and is followed up as a conversation.
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let _co = null;
+  let _sub = null;
+  let _plans = [];
+
+  const el = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // Minor units with the currency's own exponent -- see the note in
+  // v2/invoicing.html; dividing by 100 is wrong for JPY and friends.
+  function money(cents, currency) {
+    if (cents == null) return '—';
+    const code = (currency || 'usd').toUpperCase();
+    let fmt;
+    try { fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: code }); }
+    catch { return `${cents} ${code}`; }
+    const digits = fmt.resolvedOptions().maximumFractionDigits ?? 2;
+    return fmt.format((Number(cents) || 0) / Math.pow(10, digits));
+  }
+  const dateText = (v) => (v ? new Date(v).toLocaleDateString(undefined,
+    { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  async function callFn(payload) {
+    const { data: sess } = await sb.auth.getSession();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/stripe-billing`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${sess?.session?.access_token || ''}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
+    return body;
+  }
+
+  const STATUS_PILL = {
+    active: 'bcn-pill bcn-pill--pos',
+    trialing: 'bcn-pill bcn-pill--accent',
+    past_due: 'bcn-pill bcn-pill--neg',
+    unpaid: 'bcn-pill bcn-pill--neg',
+    canceled: 'bcn-pill',
+    incomplete: 'bcn-pill bcn-pill--neg',
+    incomplete_expired: 'bcn-pill',
+  };
+
+  function renderCurrent() {
+    const host = el('current');
+    el('btnPortal').hidden = !_sub?.stripe_customer_id;
+
+    if (!_sub || !_sub.stripe_subscription_id) {
+      host.innerHTML = `<div class="bil-note">
+        <strong>No active SILO subscription for this company.</strong><br/>
+        Pick a plan below. Checkout opens on Stripe; nothing is charged until it completes.
+      </div>`;
+      el('subSynced').textContent = '';
+      return;
+    }
+
+    const s = _sub;
+    // "Renews" and "ends" are different facts and are labelled differently: a
+    // subscription set to cancel at period end has a date that is the LAST day
+    // of service, and calling that "renews on" is the kind of wrong that gets
+    // noticed the morning after access was expected to continue.
+    const endLabel = s.cancel_at_period_end ? 'Ends' : 'Renews';
+
+    host.innerHTML = `
+      <div class="bil-current">
+        <div class="bil-fact">
+          <span class="bil-fact-label">Plan</span>
+          <span class="bil-fact-value">${esc(s.plan_title || s.plan_key || '—')}</span>
+          ${s.billing_interval ? `<span class="bil-fact-note">billed ${esc(s.billing_interval)}ly</span>` : ''}
+        </div>
+        <div class="bil-fact">
+          <span class="bil-fact-label">Status</span>
+          <span><span class="${STATUS_PILL[s.status] || 'bcn-pill'}">${esc(s.status || 'unknown')}</span></span>
+          ${s.collection_issue
+            ? `<span class="bil-fact-note">Payment is not going through — open Manage billing.</span>` : ''}
+        </div>
+        <div class="bil-fact">
+          <span class="bil-fact-label">${endLabel}</span>
+          <span class="bil-fact-value">${dateText(s.current_period_end)}</span>
+        </div>
+        <div class="bil-fact">
+          <span class="bil-fact-label">Amount</span>
+          <span class="bil-fact-value">${money(
+            s.unit_amount_cents == null ? null : s.unit_amount_cents * (s.quantity || 1), s.currency)}</span>
+          ${s.seat_based ? `<span class="bil-fact-note">${s.quantity || 1} seats</span>` : ''}
+        </div>
+      </div>`;
+
+    el('subSynced').textContent = s.stripe_synced_at
+      ? `as of ${new Date(s.stripe_synced_at).toLocaleString()}` : '';
+  }
+
+  function renderPlans() {
+    const host = el('plans');
+    if (!_plans.length) {
+      el('planCard').hidden = true;
+      return;
+    }
+    el('planCard').hidden = false;
+    host.innerHTML = _plans.map((p) => {
+      const current = _sub?.plan_key === p.plan_key
+        && ['active', 'trialing'].includes(_sub?.status);
+      return `<div class="bil-plan ${current ? 'bil-plan--current' : ''}">
+        <div class="bil-plan-name">${esc(p.title)}</div>
+        <div class="bil-plan-price">${p.unit_amount_cents == null
+            ? 'Contact us' : money(p.unit_amount_cents, p.currency)}
+          <span class="bil-sub">/${esc(p.billing_interval)}${p.seat_based ? ' · seat' : ''}</span></div>
+        <div class="bil-plan-desc">${esc(p.description || '')}</div>
+        ${current
+          ? '<span class="bcn-pill bcn-pill--accent">Current plan</span>'
+          : `<button class="bcn-btn bcn-btn--primary" data-plan="${esc(p.plan_key)}">
+               ${_sub?.stripe_subscription_id ? 'Switch to this plan' : 'Subscribe'}</button>`}
+      </div>`;
+    }).join('');
+  }
+
+  async function renderInvoices() {
+    let q = sb.from('billing_invoices')
+      .select('id, number, status, currency, amount_due_cents, amount_paid_cents, period_start, paid_at, hosted_invoice_url, invoice_pdf_url')
+      .order('period_start', { ascending: false })
+      .limit(24);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    const t = el('tblInvoices');
+    if (error) { t.innerHTML = `<tbody><tr><td class="bil-empty">${esc(error.message)}</td></tr></tbody>`; return; }
+    const rows = data || [];
+    el('invCount').textContent = rows.length ? `${rows.length} most recent` : '';
+    if (!rows.length) {
+      t.innerHTML = '<tbody><tr><td class="bil-empty">No invoices yet.</td></tr></tbody>';
+      return;
+    }
+    t.innerHTML = `
+      <thead><tr><th>Invoice</th><th>Period</th><th>Status</th>
+        <th class="bil-num">Amount</th><th class="bil-num">Paid</th><th></th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td class="bcn-mono">${esc(r.number || '—')}</td>
+        <td>${dateText(r.period_start)}</td>
+        <td><span class="${r.status === 'paid' ? 'bcn-pill bcn-pill--pos' : 'bcn-pill'}">${esc(r.status || '—')}</span></td>
+        <td class="bil-num">${money(r.amount_due_cents, r.currency)}</td>
+        <td class="bil-num">${money(r.amount_paid_cents, r.currency)}</td>
+        <td class="bil-num">${r.invoice_pdf_url
+          ? `<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener" href="${esc(r.invoice_pdf_url)}">PDF</a>`
+          : (r.hosted_invoice_url
+            ? `<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener" href="${esc(r.hosted_invoice_url)}">Open</a>`
+            : '')}</td>
+      </tr>`).join('')}</tbody>`;
+  }
+
+  async function load() {
+    let sq = sb.from('billing_subscriptions_v').select('*');
+    if (_co?.id) sq = sq.eq('company_entity_id', _co.id);
+    const { data: sub } = await sq.maybeSingle();
+    _sub = sub || null;
+
+    const { data: plans } = await sb.from('billing_plans')
+      .select('plan_key, title, description, unit_amount_cents, currency, billing_interval, seat_based')
+      .eq('is_active', true)
+      .order('sort_order');
+    _plans = plans || [];
+
+    renderCurrent();
+    renderPlans();
+    await renderInvoices();
+  }
+
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app', active: 'finance/billing',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Finance', 'Billing'], supabaseClient: sb,
+      });
+    }
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('checkout') === 'done') {
+      // Stripe's success_url is reached as soon as Checkout completes, which
+      // can be BEFORE the webhook lands. Sync once so the page does not
+      // greet a paying customer with "no subscription".
+      try { await callFn({ action: 'sync' }); } catch (_) { /* the page still renders */ }
+      setStatus('Subscription active — thank you.', 'pos', 8000);
+      history.replaceState({}, '', location.pathname);
+    } else if (params.get('checkout') === 'cancelled') {
+      setStatus('Checkout was cancelled. Nothing was charged.', 'info', 8000);
+      history.replaceState({}, '', location.pathname);
+    }
+
+    await load();
+
+    el('plans').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-plan]');
+      if (!b) return;
+      try {
+        b.disabled = true;
+        setStatus('Opening Stripe Checkout…', 'info');
+        const { url } = await callFn({ action: 'checkout', plan_key: b.dataset.plan });
+        window.location.href = url;
+      } catch (err) {
+        b.disabled = false;
+        setStatus(err.message, 'neg', 12000);
+      }
+    });
+
+    el('btnPortal').addEventListener('click', async () => {
+      try {
+        setStatus('Opening the Stripe billing portal…', 'info');
+        const { url } = await callFn({ action: 'portal' });
+        window.location.href = url;
+      } catch (e) { setStatus(e.message, 'neg', 12000); }
+    });
+
+    el('btnSync').addEventListener('click', async () => {
+      try {
+        setStatus('Asking Stripe…', 'info');
+        await callFn({ action: 'sync' });
+        await load();
+        setStatus('Up to date.', 'pos', 5000);
+      } catch (e) { setStatus(e.message, 'neg', 12000); }
+    });
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

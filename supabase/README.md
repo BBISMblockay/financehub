@@ -1395,3 +1395,77 @@ three of which no earlier cycle had raised:
 Also removed: the expired-invite `status = 'expired'` UPDATE, which the `raise`
 on the next line rolled back. It read like bookkeeping and never persisted;
 expiry is derived from `expires_at` everywhere it is shown.
+
+## Stripe: subscription billing and Connect invoicing (`20260919120000`)
+
+`migrations/20260919120000_stripe_billing_and_connect.sql` adds two Stripe
+surfaces that share a vendor and nothing else.
+
+| | Who is the merchant | Who pays | Tables |
+|---|---|---|---|
+| **Billing** | SILO | the tenant company | `billing_plans`, `billing_subscriptions`, `billing_invoices` |
+| **Connect** | the tenant | the tenant's own customer | `stripe_connect_accounts`, `stripe_invoice_customers`, `stripe_invoices`, `stripe_invoice_lines` |
+
+Money on the Connect side never touches SILO's balance, and SILO stores no key
+for a tenant: Connect **Standard** means the client owns the account, keeps
+their own Stripe dashboard and carries their own dispute liability, and every
+call is the platform secret key plus a `Stripe-Account` header.
+
+### The five properties worth knowing before changing any of it
+
+1. **Every table is a read-only mirror.** There is no INSERT/UPDATE/DELETE
+   policy on any of them and no write grant to `authenticated`. Rows arrive
+   only through the SECURITY DEFINER `stripe_sync_*` functions, called by an
+   edge function from an object Stripe returned. A client-writable row would be
+   an invoice SILO claims to have sent and Stripe has never heard of — the same
+   stance Card Coding takes toward QuickBooks.
+2. **The two surfaces cannot be crossed.** `stripe_resolve_event_company()` is
+   the single definition of who owns a webhook: connect events resolve by
+   account id, platform events by customer id, and a *platform* event carrying
+   an account id **raises** rather than being attributed (that is what crossed
+   endpoint secrets look like, and attributing it would file a tenant's own
+   sales as SILO revenue). A composite FK to
+   `(company_entity_id, stripe_account_id)` makes an invoice that names one
+   company and another's Stripe account unrepresentable.
+3. **An older fetch never overwrites a newer one.** Stripe does not order
+   webhooks. Each sync stamps `stripe_synced_at` with the time of the *fetch*
+   and returns early on anything older; the `stripe_drop_stale_sync` BEFORE
+   UPDATE trigger repeats the test for a writer going round the functions (the
+   service role bypasses RLS, so a policy could not be that backstop).
+4. **A retried create does not invoice a customer twice.**
+   `stripe_invoice_requests` records a caller-minted `request_id` *before*
+   Stripe is called; a repeat returns the first attempt's object. Stripe's own
+   `Idempotency-Key` is sent too, but it only covers a retry that reuses the
+   key — not the reload that mints a fresh uuid, which is the retry that
+   actually happens. Same mechanism as `platform_invites.created_company_id`.
+5. **`can_manage_client_invoices()` is deliberately narrower than
+   `is_admin_user()`** — owner_admin, profile owner, or department
+   finance/exec. 28 of 29 Baseballism profiles are membership `admin`; reusing
+   the common gate would let nearly the whole company bill real customers.
+   Committing the company to a SILO plan is narrower still: the billing edge
+   function requires `is_owner_admin_of_active_company()`.
+
+### Vocabularies
+
+Stripe-owned status columns (`stripe_invoices.status`,
+`billing_subscriptions.status`) carry **no CHECK constraint**. Stripe can add a
+value at any time and a CHECK would then refuse the sync, freezing the mirror
+on the previous state while Stripe moved on. SILO-owned vocabularies
+(`billing_plans.billing_interval`, `stripe_webhook_events.status`,
+`stripe_invoice_requests.action`) keep theirs.
+
+Amounts are **integer minor units** with the currency beside them, as Stripe
+sends them — `numeric(14,2)` would add a rounding step at every boundary and is
+simply wrong for zero-decimal currencies (JPY `500` is ¥500, not ¥5.00). Both
+pages format via `Intl`, which knows each currency's exponent.
+
+### Deploying
+
+The migration alone does nothing: four edge functions (`stripe-webhook`,
+`stripe-billing`, `stripe-connect`, `stripe-invoice`) and four secrets are
+required, and two Stripe webhook endpoints have to be registered. See
+[docs/ops/stripe.md](../docs/ops/stripe.md).
+
+Regressions: `scripts/tests/stripe-billing-database.test.mjs` (42 assertions,
+eight mutations) and `scripts/tests/stripe-edge-logic.test.mjs`, both in
+`sync-tests.yml`.
