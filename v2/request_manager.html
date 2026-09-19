@@ -37,23 +37,11 @@
   <div class="shell pr-page pr-page--wide pr-page--workbench">
     <div class="pr-stack">
 
-      <section class="bcn-card pr-intro">
-        <header class="bcn-card-header bcn-card-header--dark">
-          <span class="bcn-pill">QUEUE</span>
-          <h2>Payment requests</h2>
-          <span class="bcn-card-meta">Assign · complete · report</span>
-        </header>
-        <div class="bcn-card-body">
-          <p class="pr-intro-lead">
-            AP queue for review, assignment, documents, and payment completion.
-          </p>
-          <div class="pr-btn-row">
-            <a class="btn btn-soft" href="./purchase_request.html">New request</a>
-            <a class="btn btn-soft" href="/pages/request-manager.html">Classic</a>
-            <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
-          </div>
-        </div>
-      </section>
+      <div class="pr-btn-row" style="margin-bottom:10px">
+        <a class="btn btn-soft" href="./purchase_request.html">New request</a>
+        <a class="btn btn-soft" href="/pages/request-manager.html">Classic</a>
+        <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
+      </div>
 
       <div class="card rm-filter-card">
         <div class="rm-filter-grid">
@@ -165,7 +153,6 @@
         <div class="rm-tabs-wrap rm-tabs-wrap--inline">
           <div>
             <div class="rm-section-h">Views</div>
-            <div class="rm-section-sub">Queue · reporting · activity</div>
           </div>
           <div class="rm-tabs">
             <button id="tabRequestsBtn" type="button" class="active">Requests</button>
@@ -182,7 +169,6 @@
               <div class="rm-card-head">
                 <div>
                   <div class="section-title">Requests</div>
-                  <div class="section-sub">Review, edit, and mark paid</div>
                 </div>
                 <div class="rm-row-count"><span id="rowCount">0</span> rows</div>
               </div>
@@ -237,13 +223,11 @@
           <div class="rm-side-stack">
             <div class="card">
               <div class="section-title">Working queues</div>
-              <div class="section-sub">Click to filter the table</div>
               <div class="mini-grid rm-mt-sm" id="summaryCards"></div>
             </div>
 
             <div class="card">
               <div class="section-title">Recent</div>
-              <div class="section-sub">Newest in current filter</div>
               <div id="recentRequests" class="rm-mt-sm"></div>
             </div>
           </div>
@@ -255,7 +239,6 @@
           <div class="rm-side-stack">
             <div class="card">
               <div class="section-title">Due buckets</div>
-              <div class="section-sub">Open requests by due timing</div>
               <div class="rm-mt-sm" id="dueBucketReport"></div>
             </div>
 
@@ -318,7 +301,6 @@
               <div class="rm-card-head">
                 <div>
                   <div class="section-title">Recent activity</div>
-                  <div class="section-sub">Submissions and workflow updates</div>
                 </div>
                 <div class="rm-row-count"><span id="activityRowCount">0</span> rows</div>
               </div>

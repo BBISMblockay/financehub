@@ -253,3 +253,8 @@ html.silo-brand body {
     min-height: min(70dvh, 680px);
   }
 }
+
+/* UI copy trim: opt-in only — never hide source-of-truth / write-effect subtitles globally. */
+.bcn-header-sub.bcn-header-sub--trimmed {
+  display: none;
+}

@@ -23,22 +23,10 @@
   <div class="shell pr-page pr-page--wide pr-page--workbench">
     <div class="pr-stack">
 
-      <section class="bcn-card pr-intro">
-        <header class="bcn-card-header bcn-card-header--dark">
-          <span class="bcn-pill">QUEUE</span>
-          <h2>Mailroom</h2>
-          <span class="bcn-card-meta">Intake · route · process</span>
-        </header>
-        <div class="bcn-card-body">
-          <p class="pr-intro-lead">
-            Shared incoming mail queue — every piece logged, routed, and tracked through to done.
-          </p>
-          <div class="pr-btn-row">
-            <a class="btn btn-soft" href="./mail-intake.html">Log incoming mail</a>
-            <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
-          </div>
-        </div>
-      </section>
+      <div class="pr-btn-row" style="margin-bottom:10px">
+        <a class="btn btn-soft" href="./mail-intake.html">Log incoming mail</a>
+        <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
+      </div>
 
       <div class="card rm-filter-card">
         <div class="rm-filter-grid">
@@ -101,7 +89,6 @@
         <div class="rm-card-head">
           <div>
             <div class="section-title">Mail items</div>
-            <div class="section-sub">Click a row to review, route, or mark done</div>
           </div>
           <div class="rm-row-count"><span id="rowCount">0</span> rows</div>
         </div>
