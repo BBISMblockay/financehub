@@ -1883,33 +1883,38 @@ select public.attach_stamp_company_entity_id_triggers();
 -- regenerates the column lists), so they carry the caveats a model would
 -- otherwise have to guess -- above all that these are TWO businesses and
 -- billing_invoices is not stripe_invoices.
-insert into public.silo_chat_schema_catalog (relname, description, keywords)
+-- `relkind` is NOT NULL with no default, so it has to be supplied -- this
+-- insert omitted it and FAILED on a real apply (found applying to production,
+-- 2026-09-19). Every other catalog insert in this repo passes Postgres's own
+-- letter ('r'), which is also what refresh_chat_schema_catalog() writes back
+-- from pg_catalog, so anything else is overwritten within the same migration.
+insert into public.silo_chat_schema_catalog (relname, relkind, description, keywords)
 values
-  ('billing_plans',
+  ('billing_plans', 'r',
    'SILO''s own subscription plan catalogue (what a tenant pays SILO). Global rows, no company column. Not the tenant''s products.',
    array['billing','subscription','plan','pricing','stripe']),
-  ('billing_subscriptions',
+  ('billing_subscriptions', 'r',
    'What each tenant company pays SILO, mirrored from SILO''s platform Stripe account. One row per company. status is Stripe''s vocabulary (active/trialing/past_due/canceled...). This is SILO''s revenue, NOT the company''s sales.',
    array['billing','subscription','saas','stripe','revenue']),
-  ('billing_invoices',
+  ('billing_invoices', 'r',
    'Invoices SILO issued TO a tenant company. Amounts are integer cents with a currency column. Not the invoices the tenant issued to its own customers -- those are stripe_invoices.',
    array['billing','invoice','stripe','saas']),
-  ('stripe_connect_accounts',
+  ('stripe_connect_accounts', 'r',
    'The tenant''s OWN Stripe account (Connect Standard), used to invoice their customers. charges_enabled/payouts_enabled say whether invoicing works at all; a false there means onboarding is unfinished or the account is restricted, never that the company has no customers.',
    array['stripe','connect','payments','onboarding']),
-  ('stripe_invoice_customers',
+  ('stripe_invoice_customers', 'r',
    'Customers of the TENANT, mirrored from the tenant''s own Stripe account. Not SILO''s customers and not Shopify customers.',
    array['stripe','customer','invoice','accounts receivable']),
-  ('stripe_invoices',
+  ('stripe_invoices', 'r',
    'Invoices a tenant issued to its own customers through Stripe Connect. Amounts are integer MINOR UNITS (cents) -- divide by 100 for USD, and never for a zero-decimal currency. amount_remaining_cents > 0 with status open is money still owed to the tenant. A row appears only after Stripe confirmed it, so the absence of an invoice never means it was not sent, only that Stripe never created it.',
    array['stripe','invoice','receivable','customer billing']),
-  ('stripe_invoice_lines',
+  ('stripe_invoice_lines', 'r',
    'Line detail per stripe_invoices row, replaced wholesale on every sync. amount_cents is the line total in minor units.',
    array['stripe','invoice','line items']),
-  ('stripe_invoice_requests',
+  ('stripe_invoice_requests', 'r',
    'Idempotency ledger for creating customers/invoices in a tenant''s Stripe account. Operational plumbing; a row here is an ATTEMPT, not an invoice.',
    array['stripe','idempotency','internal']),
-  ('stripe_webhook_events',
+  ('stripe_webhook_events', 'r',
    'Raw Stripe webhook delivery log. Plumbing -- status=unresolved means the event named an account SILO does not know.',
    array['stripe','webhook','internal'])
 on conflict (relname) do update
@@ -1919,8 +1924,23 @@ on conflict (relname) do update
 -- Plumbing is hidden from the model's index: noise reduction, not security --
 -- RLS remains the boundary, and these two carry nothing a tenant could read
 -- anyway.
+-- The two CLAIM tables are pure plumbing and carry no curated row above, so
+-- refresh_chat_schema_catalog() would add them to the model's index unexplained.
+insert into public.silo_chat_schema_catalog (relname, relkind, description, keywords)
+values
+  ('billing_checkout_claims', 'r',
+   'Internal: one in-flight subscription Checkout per company. Plumbing, not a billing record.',
+   array['stripe','internal','plumbing']),
+  ('stripe_connect_setup_claims', 'r',
+   'Internal: one in-flight Connect account creation per company. Plumbing, not an account record.',
+   array['stripe','internal','plumbing'])
+on conflict (relname) do update
+  set description = excluded.description,
+      keywords    = excluded.keywords;
+
 update public.silo_chat_schema_catalog
    set is_hidden = true
- where relname in ('stripe_webhook_events','stripe_invoice_requests');
+ where relname in ('stripe_webhook_events','stripe_invoice_requests',
+                   'billing_checkout_claims','stripe_connect_setup_claims');
 
 select public.refresh_chat_schema_catalog();

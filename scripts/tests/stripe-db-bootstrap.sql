@@ -174,14 +174,31 @@ begin
 end;
 $$;
 
+-- Mirrors 20260821210000's real shape, NOT a convenient subset. `relkind` is
+-- NOT NULL there with no default, and this stub omitted it -- so a catalog
+-- insert that forgets it passed here and FAILED on the real database (found
+-- applying to production, 2026-09-19). A fixture more permissive than
+-- production is a fixture that certifies migrations it has not tested.
 create table public.silo_chat_schema_catalog (
-  relname text primary key, is_hidden boolean, keywords text[], description text
+  relname text primary key,
+  relkind text not null,
+  columns jsonb not null default '[]'::jsonb,
+  description text,
+  keywords text[],
+  is_hidden boolean not null default false,
+  auto_refreshed_at timestamptz,
+  updated_at timestamptz not null default now()
 );
 create function public.refresh_chat_schema_catalog() returns void language plpgsql as $$
 begin
-  insert into public.silo_chat_schema_catalog (relname)
-  select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  insert into public.silo_chat_schema_catalog (relname, relkind, auto_refreshed_at)
+  select c.relname, c.relkind::text, now()
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'public' and c.relkind in ('r','v','m')
-  on conflict (relname) do nothing;
+  on conflict (relname) do update
+    -- The real function writes relkind back from pg_catalog, which is what
+    -- silently corrected a hand-supplied value in production.
+    set relkind = excluded.relkind,
+        auto_refreshed_at = excluded.auto_refreshed_at;
 end;
 $$;

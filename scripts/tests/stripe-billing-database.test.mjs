@@ -1090,6 +1090,40 @@ await refused(
   /permission denied/,
   'a client reading the checkout claim table');
 
+await test('every catalog row this migration writes carries a relkind', async () => {
+  // `relkind` is NOT NULL with no default. The insert omitted it, the test
+  // fixture's stub did not have the column at all, so the suite passed and the
+  // migration failed on the real database. The fixture now mirrors the real
+  // table; this asserts the DATA, so dropping the column from the insert fails
+  // here rather than during an apply.
+  const curated = ['billing_plans', 'billing_subscriptions', 'billing_invoices',
+    'stripe_connect_accounts', 'stripe_invoice_customers', 'stripe_invoices',
+    'stripe_invoice_lines', 'stripe_invoice_requests', 'stripe_webhook_events',
+    'billing_checkout_claims', 'stripe_connect_setup_claims'];
+  const rows = await q(
+    'select relname, relkind from public.silo_chat_schema_catalog where relname = any($1)',
+    [curated]);
+  assert.equal(rows.length, curated.length, 'every curated row must exist');
+  for (const r of rows) {
+    assert.equal(r.relkind, 'r', `${r.relname} is a table and must say so`);
+  }
+  // A view picked up by the refresh keeps ITS own letter -- the assertion
+  // above is about the curated inserts, not a claim that everything is 'r'.
+  const view = await one(
+    "select relkind from public.silo_chat_schema_catalog where relname = 'stripe_invoices_v'");
+  assert.equal(view?.relkind, 'v');
+  // And the plumbing is hidden, including the two claim tables that carry no
+  // curated description -- refresh_chat_schema_catalog() adds every public
+  // table, so one without a row lands in the model's index unexplained.
+  const hidden = await q(`select relname from public.silo_chat_schema_catalog
+                           where is_hidden order by relname`);
+  const names = hidden.map((r) => r.relname);
+  for (const t of ['billing_checkout_claims', 'stripe_connect_setup_claims',
+                   'stripe_invoice_requests', 'stripe_webhook_events']) {
+    assert.ok(names.includes(t), `${t} should be hidden plumbing`);
+  }
+});
+
 // ── verify_v2_schema.sql's own Stripe checks, executed ──────────────────────
 // A check nobody runs is a check that cannot go red. These are extracted by
 // their markers and run against this database, so a typo -- or a check that
