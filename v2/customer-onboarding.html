@@ -472,6 +472,14 @@
         body: file,
       });
       if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      // The certificate is only RECORDED once the object is confirmed to
+      // exist. Until this call, finance sees no certificate rather than a
+      // broken link to one — which is the honest state if the PUT above
+      // failed, or if this call never happens because the tab was closed.
+      const done = await call('certificate_done', {
+        content_type: file.type, purpose: 'card_setup',
+      });
+      if (!done.ok) throw new Error('The upload did not complete');
     } catch (e) {
       // The application itself is already saved. Losing the certificate is
       // recoverable by email; losing the application would not be, so this

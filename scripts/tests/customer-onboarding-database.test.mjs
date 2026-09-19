@@ -38,6 +38,9 @@
 //   CUSTOMER_DB_MUTATION=rebind-allowed     (an account may be re-pointed at a second customer)
 //   CUSTOMER_DB_MUTATION=storage-bucket-only (the object policy gates on bucket_id alone)
 //   CUSTOMER_DB_MUTATION=public-rpc-granted (the public-path RPCs keep their default grants)
+// Added after the cycle-1 independent review:
+//   CUSTOMER_DB_MUTATION=table-writable   (blanket client UPDATE on customer_accounts restored)
+//   CUSTOMER_DB_MUTATION=owner-any-company (the session-owner lookup ignores the company)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -53,6 +56,7 @@ assert.ok([
   'token-not-consumed', 'claim-unguarded', 'claim-steals-session', 'release-no-bump',
   'webhook-any-company',
   'webhook-any-customer', 'rebind-allowed', 'storage-bucket-only', 'public-rpc-granted',
+  'table-writable', 'owner-any-company',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -199,6 +203,17 @@ if (mutation === 'public-rpc-granted') {
   sql = sql.replace(
     /do \$\$\ndeclare r text;\nbegin\n  for r in select unnest\(array\[\n    'customer_onboarding_resolve_token\(text,text\)',[\s\S]*?\nend;\n\$\$;/,
     '-- mutated: the public-path revokes are gone, so Supabase defaults stand');
+}
+
+if (mutation === 'table-writable') {
+  // The shape this started as: one `for all` policy, and Supabase's default
+  // table grants left in place behind it.
+  sql = sql.replace(
+    /revoke insert, update, delete on public\.customer_accounts from authenticated;[\s\S]*?on public\.customer_accounts to authenticated;/,
+    'grant insert, update, delete on public.customer_accounts to authenticated;');
+}
+if (mutation === 'owner-any-company') {
+  sql = sql.replace("     and ca.company_entity_id = p_company;", "     ;");
 }
 
 await db.exec(sql);
@@ -855,6 +870,120 @@ await test('nothing client-side can write the activity log', async () => {
     `select cmd from pg_policies where tablename = 'customer_account_activity'`);
   assert.deepEqual(policies.map((p) => p.cmd).sort(), ['SELECT'],
     'the log is written by the functions and by nothing else');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 9b. State columns are not client-writable
+// ════════════════════════════════════════════════════════════════════════════
+// Supabase's default privileges grant `authenticated` full DML on every new
+// public table, so RLS is the only thing between a browser session and an
+// UPDATE -- and RLS cannot scope a policy to COLUMNS. The privilege does.
+
+await test('a finance user may correct the descriptive fields', async () => {
+  await as(finance, () => q(
+    `update public.customer_accounts set legal_name = 'Dugout Sports, LLC', internal_notes = 'called'
+      where id = $1`, [main.customer_account_id]));
+  const row = await one(`select legal_name, internal_notes from public.customer_accounts where id=$1`,
+    [main.customer_account_id]);
+  assert.equal(row.legal_name, 'Dugout Sports, LLC');
+  assert.equal(row.internal_notes, 'called');
+});
+
+await test('but cannot approve itself, set terms, or write a credit limit directly', async () => {
+  const pending = await invite('direct@dugout.test');
+  await q(`select public.submit_customer_account($1,$2::jsonb)`,
+    [pending.token, JSON.stringify(FORM)]);
+  for (const [col, val] of [
+    ['status', `'approved'`], ['approved_payment_terms', `'Net 90'`],
+    ['credit_limit', '9999999'], ['price_tier', `'platinum'`],
+  ]) {
+    await refused(() => as(finance, () => q(
+      `update public.customer_accounts set ${col} = ${val} where id = $1`,
+      [pending.customer_account_id])),
+      /permission denied|column/i, `a direct PATCH of ${col}`);
+  }
+  const row = await one(`select status, approved_payment_terms, credit_limit, price_tier
+                           from public.customer_accounts where id=$1`,
+    [pending.customer_account_id]);
+  assert.equal(row.status, 'submitted');
+  assert.equal(row.approved_payment_terms, null);
+  assert.equal(row.credit_limit, null);
+});
+
+await test('nor write the card mirror or the Stripe binding', async () => {
+  // These columns are a MIRROR of Stripe, exactly like stripe_invoices. A
+  // client-writable card is a card SILO claims to hold and Stripe has never
+  // heard of; a client-writable stripe_customer_id walks around the
+  // write-once binding function.
+  for (const [col, val] of [
+    ['card_setup_status', `'succeeded'`], ['card_last4', `'4242'`],
+    ['card_brand', `'visa'`], ['card_payment_method_id', `'pm_forged'`],
+    ['default_payment_method_set_at', 'now()'], ['stripe_customer_id', `'cus_forged'`],
+    ['card_setup_attempt', '99'],
+  ]) {
+    await refused(() => as(finance, () => q(
+      `update public.customer_accounts set ${col} = ${val} where id = $1`,
+      [main.customer_account_id])),
+      /permission denied|column/i, `a direct PATCH of ${col}`);
+  }
+});
+
+await test('and cannot insert or delete an account at all', async () => {
+  await refused(() => as(finance, () => q(
+    `insert into public.customer_accounts (company_entity_id, contact_email, status)
+     values ($1,'forged@dugout.test','approved')`, [companyA])),
+    /permission denied/i, 'a client-inserted account');
+  await refused(() => as(finance, () => q(
+    `delete from public.customer_accounts where id = $1`, [main.customer_account_id])),
+    /permission denied/i, 'a client-deleted account');
+});
+
+await test('the approval RPC still works, and records the actor', async () => {
+  // The same user, through the function that validates the transition.
+  const inv = await invite('viarpc@dugout.test');
+  await q(`select public.submit_customer_account($1,$2::jsonb)`, [inv.token, JSON.stringify(FORM)]);
+  await as(finance, () => q(`select public.approve_customer_account($1,'Net 30',5000,'tier-1')`,
+    [inv.customer_account_id]));
+  const row = await one(`select status, approved_payment_terms, credit_limit, approved_by
+                           from public.customer_accounts where id=$1`, [inv.customer_account_id]);
+  assert.equal(row.status, 'approved');
+  assert.equal(row.approved_payment_terms, 'Net 30');
+  assert.equal(row.approved_by, finance);
+  const act = await one(`select event, actor from public.customer_account_activity
+                          where customer_account_id=$1 and event='approved'`,
+    [inv.customer_account_id]);
+  assert.equal(act.actor, finance, 'the append-only record names who approved it');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 9c. The webhook's ownership lookup
+// ════════════════════════════════════════════════════════════════════════════
+
+await test('the session-owner lookup answers only for the owning company', async () => {
+  const mine = await one(
+    `select * from public.customer_card_setup_session_owner($1,'cs_second')`, [companyA]);
+  assert.equal(mine.customer_account_id, cardAccount);
+  assert.equal(mine.stripe_customer_id, 'cus_real');
+
+  const theirs = await q(
+    `select * from public.customer_card_setup_session_owner($1,'cs_second')`, [companyB]);
+  assert.equal(theirs.length, 0,
+    'another company must not learn that this session is ours, let alone act on it');
+
+  const foreign = await q(
+    `select * from public.customer_card_setup_session_owner($1,'cs_never_ours')`, [companyA]);
+  assert.equal(foreign.length, 0,
+    'a setup session the tenant created in their own Stripe dashboard is not ours');
+});
+
+await test('the default stamp is scoped and only applies to a recorded card', async () => {
+  const before = await one(`select default_payment_method_set_at d from public.customer_accounts
+                             where id=$1`, [cardAccount]);
+  assert.ok(before.d, 'already set by the earlier recording');
+
+  const other = await one(`select public.mark_customer_card_default($1,'cs_second') as ok`,
+    [companyB]);
+  assert.equal(other.ok, false, 'another company cannot stamp it');
 });
 
 // ════════════════════════════════════════════════════════════════════════════

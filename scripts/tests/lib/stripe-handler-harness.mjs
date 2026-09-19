@@ -95,6 +95,18 @@ export function fakeSupabase({
     }),
     storage: {
       from: (bucket) => ({
+        // `storage[bucket + ':objects']` is the list of object names the
+        // bucket is pretending to hold, so a test can stage "the PUT stored
+        // nothing" as well as the happy path.
+        async list(prefix, opts) {
+          calls.push({ storage: bucket, op: 'list', prefix, opts });
+          const objects = storage[`${bucket}:objects`] ?? [];
+          const search = opts?.search;
+          const rows = objects
+            .filter((n) => !search || n === search)
+            .map((n) => ({ name: n }));
+          return { data: rows, error: null };
+        },
         async createSignedUploadUrl(path, opts) {
           calls.push({ storage: bucket, op: 'createSignedUploadUrl', path, opts });
           const scripted = storage[`${bucket}:${path}`] ?? storage[bucket];

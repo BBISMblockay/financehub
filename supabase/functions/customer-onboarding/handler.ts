@@ -134,6 +134,7 @@ export async function handleCustomerOnboarding(req: Request): Promise<Response> 
       case 'peek':             return reply(await peek(body));
       case 'submit':           return reply(await submit(body));
       case 'certificate_url':  return reply(await certificateUrl(body));
+      case 'certificate_done': return reply(await certificateDone(body));
       case 'consent':          return reply(await consent(body));
       case 'start_card_setup': return reply(await startCardSetup(body));
       case 'status':           return reply(await status(body));
@@ -214,17 +215,24 @@ async function certificateUrl(body: any) {
     throw new OnboardingError('Upload a PDF, JPG, PNG or HEIC', 415);
   }
 
-  // The tax profile must exist before the object does: the storage policy's
-  // EXISTS reads THIS table, so an object uploaded without it is unreadable by
-  // everyone, including the finance user who asked for it.
+  // The tax profile row must exist before the object does: the storage
+  // policy's EXISTS reads THIS table, so an object uploaded without it is
+  // unreadable by everyone, including the finance user who asked for it.
+  //
+  // But the row is created WITHOUT the path or the timestamp. Writing those
+  // here would record a certificate before one exists, and the upload is a
+  // direct browser PUT that can fail after this point -- storage rejects it,
+  // the connection drops, the applicant closes the tab. The page treats that
+  // failure as non-fatal (the application itself is already saved), so finance
+  // would be left with "certificate on file" and a signed link to an object
+  // that was never written. `certificate_done` stamps them, and only after
+  // confirming the object is really there.
   const { error: tpErr } = await db
     .from('customer_account_tax_profiles')
     .upsert(
       {
         company_entity_id: tok.company,
         customer_account_id: tok.accountId,
-        resale_certificate_path: path,
-        resale_certificate_uploaded_at: new Date().toISOString(),
       },
       { onConflict: 'customer_account_id' },
     );
@@ -236,6 +244,43 @@ async function certificateUrl(body: any) {
   if (error) throw new Error(`createSignedUploadUrl: ${error.message}`);
 
   return { ok: true, path, signed_url: data.signedUrl, token: data.token };
+}
+
+// ── certificate_done: record the certificate only once it exists ───────────
+// Called by the page after its PUT returns ok. It does NOT take the page's
+// word for that: it lists the object and matches the name, so a PUT that
+// reported success but stored nothing, or a call made without any upload at
+// all, records no certificate.
+async function certificateDone(body: any) {
+  const purpose = body?.purpose === 'card_setup' ? 'card_setup' : 'onboarding';
+  const tok = await resolve(body?.token, purpose);
+
+  const path = certificatePath(tok.accountId, body?.content_type);
+  if (!path) throw new OnboardingError('Upload a PDF, JPG, PNG or HEIC', 415);
+  const name = path.slice(tok.accountId.length + 1);
+
+  const { data: listed, error: listErr } = await db.storage
+    .from('customer-account-files')
+    .list(tok.accountId, { search: name });
+  if (listErr) throw new Error(`storage.list: ${listErr.message}`);
+  const found = (listed ?? []).some((o: any) => o?.name === name);
+  if (!found) {
+    // Not an error the applicant caused, and not one to paper over: the
+    // certificate is simply not there, so nothing is recorded and the
+    // application stands without it.
+    return { ok: false, reason: 'not_found' };
+  }
+
+  const { error: tpErr } = await db
+    .from('customer_account_tax_profiles')
+    .update({
+      resale_certificate_path: path,
+      resale_certificate_uploaded_at: new Date().toISOString(),
+    })
+    .eq('customer_account_id', tok.accountId);
+  if (tpErr) throw new Error(`customer_account_tax_profiles: ${tpErr.message}`);
+
+  return { ok: true, path };
 }
 
 // ── consent: recorded BEFORE a session can be created ──────────────────────
@@ -321,7 +366,7 @@ async function startCardSetup(body: any) {
       // reusing the one read before it would replay the expired session's
       // idempotency key and hand out its dead URL.
       const { data: bumped, error: relErr } = await db.rpc('release_customer_card_setup', {
-        p_company: tok.company, p_session: claim.existing_session_id,
+        p_company: tok.company, p_session_id: claim.existing_session_id,
       });
       if (relErr) throw new Error(`release_customer_card_setup: ${relErr.message}`);
       if (bumped == null) {

@@ -22,9 +22,16 @@
 //   CUSTOMER_ONBOARDING_MUTATION=webhook-any-mode    (a non-setup Checkout is acted on)
 //   CUSTOMER_ONBOARDING_MUTATION=webhook-default-fatal (a failed default-PM update throws)
 //   CUSTOMER_ONBOARDING_MUTATION=webhook-trusts-session (the SetupIntent is read from the payload)
+// Added after the cycle-1 independent review:
+//   CUSTOMER_ONBOARDING_MUTATION=webhook-no-owner-check (a foreign setup session is acted on)
+//   CUSTOMER_ONBOARDING_MUTATION=webhook-owner-any-customer (a mismatched Stripe customer is acted on)
+//   CUSTOMER_ONBOARDING_MUTATION=webhook-transient-swallowed (a 5xx on the default update is made terminal)
+//   CUSTOMER_ONBOARDING_MUTATION=cert-recorded-early (the certificate is recorded before it exists)
+//   CUSTOMER_ONBOARDING_MUTATION=cert-trusts-caller (certificate_done does not verify the object)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { fakeSupabase, fakeStripe, loadHandler } from './lib/stripe-handler-harness.mjs';
 import * as rules from '../../supabase/functions/customer-onboarding/onboarding-rules.mjs';
 import * as routing from '../../supabase/functions/stripe-webhook/event-routing.mjs';
@@ -34,7 +41,8 @@ const mutation = process.env.CUSTOMER_ONBOARDING_MUTATION || '';
 assert.ok([
   '', 'body-account', 'note-ignored', 'unknown-status-restarts', 'attempt-not-bumped', 'no-reclaim',
   'consent-from-page', 'consent-not-checked', 'webhook-any-mode', 'webhook-default-fatal',
-  'webhook-trusts-session',
+  'webhook-trusts-session', 'webhook-no-owner-check', 'webhook-owner-any-customer',
+  'webhook-transient-swallowed', 'cert-recorded-early', 'cert-trusts-caller',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const HANDLER_MUTATIONS = {
@@ -56,6 +64,18 @@ const HANDLER_MUTATIONS = {
     '      attempt = bumped as number;'),
   'consent-from-page': (s) => s.replace(
     '    p_text: CONSENT_TEXT,', '    p_text: body?.text ?? CONSENT_TEXT,'),
+  'cert-recorded-early': (s) => s.replace(
+    `        customer_account_id: tok.accountId,
+      },
+      { onConflict: 'customer_account_id' },`,
+    `        customer_account_id: tok.accountId,
+        resale_certificate_path: path,
+        resale_certificate_uploaded_at: new Date().toISOString(),
+      },
+      { onConflict: 'customer_account_id' },`),
+  'cert-trusts-caller': (s) => s.replace(
+    '  const found = (listed ?? []).some((o: any) => o?.name === name);',
+    '  const found = true;'),
   'consent-not-checked': (s) => s.replace(
     `  if (!consentIsCurrent(account)) {
     throw new OnboardingError('Authorization is required before a card can be saved', 428);
@@ -70,6 +90,17 @@ const WEBHOOK_MUTATIONS = {
     `        console.error('default_payment_method update failed', customerId,
           (e as Error)?.message);`,
     '        throw e;'),
+  'webhook-no-owner-check': (s) => s.replace(
+    `      if (!owner?.customer_account_id) {
+        // Not a session this feature created. Recorded as handled: a retry
+        // would reach the same conclusion eight times over.
+        console.error('connect setup session is not SILO-owned', session.id);
+        return;
+      }`, '      // mutated: any setup session is treated as ours'),
+  'webhook-owner-any-customer': (s) => s.replace(
+    `      if (owner.stripe_customer_id !== customerId) {`, '      if (false) {'),
+  'webhook-transient-swallowed': (s) => s.replace(
+    '        if (!isTerminalStripeError(e)) throw e;', '        // mutated: everything is terminal'),
   'webhook-trusts-session': (s) => s.replace(
     '      const intent = await stripe.setupIntents.retrieve(setupIntentId, opts);',
     '      const intent = (event.data.object as any).setup_intent_object;'),
@@ -554,6 +585,55 @@ await test('the tax profile row is written BEFORE the object can be uploaded', a
     'the storage policy EXISTS reads the tax profile -- an object uploaded without it is unreadable by everyone');
 });
 
+await test('minting an upload URL records NO certificate', async () => {
+  // The upload is a direct browser PUT that can still fail: storage rejects
+  // it, the connection drops, the tab closes. Recording the path and a
+  // timestamp here would leave finance with "certificate on file" and a signed
+  // link to an object nobody ever wrote.
+  const db = baseDb({});
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  await call({ body: { action: 'certificate_url', token: TOKEN, content_type: 'application/pdf' } });
+
+  const write = db.calls.find((c) => c.query === 'customer_account_tax_profiles');
+  const row = write.payload[0];
+  assert.ok(!row.resale_certificate_path,
+    'no path until the object is confirmed to exist');
+  assert.ok(!row.resale_certificate_uploaded_at,
+    'and no timestamp claiming it was uploaded');
+});
+
+await test('the certificate is recorded only once the object really exists', async () => {
+  const db = baseDb({
+    storage: { 'customer-account-files:objects': ['resale-certificate.pdf'] },
+  });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({
+    body: { action: 'certificate_done', token: TOKEN, content_type: 'application/pdf' },
+  });
+  assert.equal(res.body.ok, true);
+  const update = db.calls.filter((c) => c.query === 'customer_account_tax_profiles').pop();
+  assert.equal(update.payload.resale_certificate_path, `${ACCOUNT}/resale-certificate.pdf`);
+  assert.ok(update.payload.resale_certificate_uploaded_at);
+});
+
+await test('a PUT that stored nothing records no certificate, whatever the caller says', async () => {
+  // The page calls this after its PUT returns ok. That is not taken on trust:
+  // a success the storage layer did not honour, or a call made with no upload
+  // at all, must leave the application standing WITHOUT a certificate rather
+  // than with a broken link to one.
+  const db = baseDb({ storage: { 'customer-account-files:objects': [] } });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({
+    body: { action: 'certificate_done', token: TOKEN, content_type: 'application/pdf' },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.reason, 'not_found');
+  const updates = db.calls.filter(
+    (c) => c.query === 'customer_account_tax_profiles' && c.op === 'update');
+  assert.equal(updates.length, 0, 'nothing may be stamped when the object is absent');
+});
+
 await test('an executable or unknown upload type is refused', async () => {
   const db = baseDb({});
   const call = await onboarding({ db, stripe: fakeStripe() });
@@ -589,7 +669,11 @@ async function webhook({ stripe, rpcs = {} }) {
       stripe_resolve_event_company: () => COMPANY,
       stripe_record_webhook_event: () => 'claimed',
       stripe_finish_webhook_event: () => null,
+      customer_card_setup_session_owner: () => [
+        { customer_account_id: ACCOUNT, stripe_customer_id: 'cus_new' },
+      ],
       record_customer_card_setup: () => ({ ok: true, customer_account_id: ACCOUNT }),
+      mark_customer_card_default: () => true,
       release_customer_card_setup: () => 1,
       ...rpcs,
     },
@@ -691,6 +775,123 @@ await test('a non-setup Checkout on a connected account is left alone', async ()
     'and must not rewrite that customer\'s invoice default');
 });
 
+await test('a setup session this feature did not create is never acted on', async () => {
+  // The tenant owns their Connect account and can run a setup-mode Checkout
+  // from their own Stripe dashboard. That lands on this same endpoint and
+  // resolves to this same company -- so "setup mode, company we know" is not
+  // evidence the session is ours.
+  const stripe = webhookStripe();
+  let recorded = false;
+  const { call } = await webhook({
+    stripe,
+    rpcs: {
+      customer_card_setup_session_owner: () => [],
+      record_customer_card_setup: () => { recorded = true; return { ok: true }; },
+    },
+  });
+  const res = await call({
+    body: setupEvent(), headers: { 'stripe-signature': 'sig' }, jwt: null,
+  });
+
+  assert.equal(res.status, 200, 'a foreign session is not a transient failure');
+  assert.ok(!stripe.pathsCalled().includes('customers.update'),
+    'SILO must not re-point the invoice default on a customer it was never asked about');
+  assert.equal(recorded, false);
+  assert.ok(!stripe.pathsCalled().includes('setupIntents.retrieve'),
+    'and should stop before spending further Stripe calls on it');
+});
+
+await test('a session whose SetupIntent names another customer is never acted on', async () => {
+  const stripe = webhookStripe({
+    'setupIntents.retrieve': { id: 'seti_1', customer: 'cus_someone_else', payment_method: 'pm_1' },
+  });
+  let recorded = false;
+  const { call } = await webhook({
+    stripe,
+    rpcs: { record_customer_card_setup: () => { recorded = true; return { ok: true }; } },
+  });
+  const res = await call({
+    body: setupEvent(), headers: { 'stripe-signature': 'sig' }, jwt: null,
+  });
+
+  assert.equal(res.status, 200);
+  assert.ok(!stripe.pathsCalled().includes('customers.update'),
+    'attaching a card to the wrong account is the failure this check exists for');
+  assert.equal(recorded, false);
+});
+
+await test('ownership is established BEFORE anything is changed at Stripe', async () => {
+  const stripe = webhookStripe();
+  const { call, db } = await webhook({ stripe });
+  await call({ body: setupEvent(), headers: { 'stripe-signature': 'sig' }, jwt: null });
+
+  const ownerAt = db.calls.findIndex((c) => c.rpc === 'customer_card_setup_session_owner');
+  const mutateAt = stripe.calls.findIndex((c) => c.path === 'customers.update');
+  assert.ok(ownerAt >= 0, 'the ownership lookup must happen');
+  assert.ok(mutateAt >= 0);
+  // Both orderings end up "correct" if the mutation is harmless; it is not.
+  const readsBefore = db.calls.slice(0, ownerAt).filter((c) => c.rpc);
+  assert.ok(!readsBefore.some((c) => c.rpc === 'record_customer_card_setup'),
+    'nothing is written before ownership is known either');
+});
+
+await test('a TRANSIENT failure setting the default is retried, not swallowed', async () => {
+  // The card is attached at Stripe by now. Recording it and answering 200
+  // would leave card_setup_status = succeeded with no default -- and
+  // start_card_setup then says already_captured, so nothing ever retries and
+  // later invoices have no payment method to charge.
+  for (const status of [500, 503, 429, undefined]) {
+    const stripe = webhookStripe({
+      'customers.update': Object.assign(new Error('stripe wobbled'),
+        status === undefined ? {} : { statusCode: status }),
+    });
+    const { call } = await webhook({ stripe });
+    const res = await call({
+      body: setupEvent(), headers: { 'stripe-signature': 'sig' }, jwt: null,
+    });
+    assert.equal(res.status, 500,
+      `a ${status ?? 'network'} failure must ask Stripe to redeliver`);
+  }
+});
+
+await test('a TERMINAL refusal is recorded once and not retried', async () => {
+  let recorded = null;
+  const stripe = webhookStripe({
+    'customers.update': Object.assign(new Error('no such payment method'),
+      { statusCode: 400 }),
+  });
+  const { call } = await webhook({
+    stripe,
+    rpcs: { record_customer_card_setup: (args) => { recorded = args; return { ok: true }; } },
+  });
+  const res = await call({
+    body: setupEvent(), headers: { 'stripe-signature': 'sig' }, jwt: null,
+  });
+
+  assert.equal(res.status, 200, 'a refusal is identical on the eighth delivery');
+  assert.equal(recorded.p_payment_method_id, 'pm_1',
+    'the card IS saved at Stripe, so SILO must know about it');
+  assert.equal(recorded.p_is_default, false,
+    '"saved but not yet default" must stay a visible state');
+});
+
+await test('the card is recorded before the default is attempted', async () => {
+  const order = [];
+  const stripe = webhookStripe({
+    'customers.update': () => { order.push('stripe-default'); return { id: 'cus_new' }; },
+  });
+  const { call } = await webhook({
+    stripe,
+    rpcs: {
+      record_customer_card_setup: () => { order.push('record'); return { ok: true }; },
+      mark_customer_card_default: () => { order.push('mark'); return true; },
+    },
+  });
+  await call({ body: setupEvent(), headers: { 'stripe-signature': 'sig' }, jwt: null });
+  assert.deepEqual(order, ['record', 'stripe-default', 'mark'],
+    'a card attached at Stripe must never be absent from SILO because a later call failed');
+});
+
 await test('a mismatched customer is recorded as refused, and not retried forever', async () => {
   const stripe = webhookStripe();
   const { call, db } = await webhook({
@@ -735,8 +936,73 @@ await test('an abandoned card step releases the claim so a fresh session can sta
     headers: { 'stripe-signature': 'sig' }, jwt: null,
   });
   assert.equal(res.status, 200);
-  assert.equal(released.p_session, 'cs_new');
+  assert.equal(released.p_session_id, 'cs_new');
   assert.equal(released.p_company, COMPANY);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Every RPC call site names parameters the function actually declares
+// ════════════════════════════════════════════════════════════════════════════
+// PostgREST matches RPC arguments BY NAME. A call passing `p_session` to a
+// function declaring `p_session_id` fails at runtime with "function not
+// found" -- and nothing in this repo's test machinery would notice, because a
+// fake Supabase resolves an rpc by name and hands back the stub whatever the
+// arguments are. Found exactly that way in the cycle-1 adversarial re-read:
+// four call sites across two handlers, one of them shipped in the first
+// commit, silently breaking the abandoned-session and restart paths.
+//
+// So this walks the real handler sources against the real migrations. It is a
+// text check, deliberately: the alternative is executing every path against a
+// real PostgREST, which this suite cannot do.
+await test('every RPC call site passes parameters the migration declares', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const migDir = new URL('../../supabase/migrations/', import.meta.url);
+  const declared = new Map();
+  for (const f of (await readdir(migDir)).filter((n) => n.endsWith('.sql'))) {
+    const sql = await readFile(new URL(f, migDir), 'utf8');
+    const re = /create\s+or\s+replace\s+function\s+public\.(\w+)\s*\(([^)]*)\)/gis;
+    let m;
+    while ((m = re.exec(sql))) {
+      const params = [...m[2].matchAll(/(?:^|,)\s*(p_\w+)/g)].map((x) => x[1]);
+      // A later migration may redefine a function with a new signature; the
+      // last definition wins, which is what production runs.
+      declared.set(m[1], new Set(params));
+    }
+  }
+  assert.ok(declared.has('record_customer_card_setup'), 'migrations were not parsed');
+
+  const handlers = [
+    '../../supabase/functions/customer-onboarding/handler.ts',
+    '../../supabase/functions/stripe-webhook/handler.ts',
+    '../../supabase/functions/stripe-invoice/handler.ts',
+    '../../supabase/functions/stripe-connect/handler.ts',
+    '../../supabase/functions/stripe-billing/handler.ts',
+  ];
+  let checked = 0;
+  for (const h of handlers) {
+    const src = await readFile(new URL(h, import.meta.url), 'utf8');
+    const re = /\brpc\(\s*'(\w+)'\s*,\s*\{/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const name = m[1];
+      if (!declared.has(name)) continue;   // defined outside these migrations
+      // Walk to the matching brace so a nested object cannot truncate the read.
+      let i = re.lastIndex - 1, depth = 0, end = i;
+      for (; i < src.length; i++) {
+        if (src[i] === '{') depth++;
+        else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      const body = src.slice(re.lastIndex, end);
+      const keys = [...body.matchAll(/(?:^|[,{\s])(p_\w+)\s*:/g)].map((x) => x[1]);
+      for (const k of keys) {
+        assert.ok(declared.get(name).has(k),
+          `${h.split('/').pop()} calls ${name}({ ${k}: … }) but it declares ` +
+          `(${[...declared.get(name)].join(', ')})`);
+      }
+      checked += keys.length;
+    }
+  }
+  assert.ok(checked > 20, `expected to check many arguments, checked ${checked}`);
 });
 
 // ════════════════════════════════════════════════════════════════════════════

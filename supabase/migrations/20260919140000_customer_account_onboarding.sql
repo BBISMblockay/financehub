@@ -424,11 +424,38 @@ create policy customer_accounts_select on public.customer_accounts
   for select to authenticated
   using (company_entity_id = public.active_company_id());
 
+-- ── Client writes are DIRECTORY-ONLY, and RLS is not what enforces that ────
+-- Supabase's default privileges grant `authenticated` full DML on every new
+-- public table, so RLS is the only thing standing between a browser session
+-- and an UPDATE -- and RLS cannot scope a policy to particular COLUMNS. A
+-- `for all` policy here therefore let anyone who may approve an application
+-- also PATCH the columns the approval RPC exists to control: `status` straight
+-- to 'approved' without the submitted-state check and without the append-only
+-- activity row, `credit_limit` and the approved terms, and -- worst -- the
+-- card block and `stripe_customer_id`.
+--
+-- That last part is the sharp end. `card_brand`, `card_last4`,
+-- `card_setup_status` and `default_payment_method_set_at` are a MIRROR of
+-- Stripe, exactly like stripe_invoices, and this repo's stance on a mirror is
+-- that no client writes it at all: a locally-authored row is a card SILO
+-- claims to hold and Stripe has never heard of. `stripe_customer_id` has a
+-- write-once binding function guarding it, which a direct PATCH walks around.
+--
+-- So the privilege, not the policy, draws the line: UPDATE is granted on the
+-- four descriptive columns a person legitimately corrects, and nothing else.
+-- INSERT and DELETE go entirely -- an account is created by
+-- create_customer_account_invite() and is never deleted. The SECURITY DEFINER
+-- RPCs run as the owner and are unaffected.
 drop policy if exists customer_accounts_write on public.customer_accounts;
 create policy customer_accounts_write on public.customer_accounts
-  for all to authenticated
+  for update to authenticated
   using (company_entity_id = public.active_company_id() and public.can_manage_client_invoices())
   with check (company_entity_id = public.active_company_id() and public.can_manage_client_invoices());
+
+revoke insert, update, delete on public.customer_accounts from authenticated;
+revoke insert, update, delete on public.customer_accounts from anon;
+grant update (legal_name, dba_name, website, internal_notes)
+  on public.customer_accounts to authenticated;
 
 do $$
 declare r record;
@@ -1051,6 +1078,58 @@ begin
 end;
 $$;
 
+-- Does this Checkout session belong to a customer account of this company?
+--
+-- Read-only, and it exists so the webhook can answer that question BEFORE it
+-- changes anything at Stripe. A tenant owns their Connect account outright
+-- (Standard) and can run a setup-mode Checkout from their own dashboard or
+-- another integration; those events arrive on the SAME connect endpoint and
+-- resolve to the same company. Acting on one -- in particular re-pointing that
+-- customer's invoice default -- would be SILO reaching into a flow that is
+-- none of its business. A session this feature did not create returns NO ROWS,
+-- and the caller stops without touching Stripe.
+create or replace function public.customer_card_setup_session_owner(
+  p_company    uuid,
+  p_session_id text
+)
+returns table (customer_account_id uuid, stripe_customer_id text)
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  select ca.id, ca.stripe_customer_id
+    from public.customer_accounts ca
+   where ca.card_setup_session_id = p_session_id
+     and ca.company_entity_id = p_company;
+$$;
+
+-- Stamp the moment the PaymentMethod became the customer's invoice default.
+-- Separate from record_customer_card_setup() because the two facts are
+-- established by two different Stripe calls and can fail independently: the
+-- card is attached by Checkout, the default is set by customers.update, and
+-- "saved but not yet default" is a real state a person has to be able to see.
+create or replace function public.mark_customer_card_default(
+  p_company    uuid,
+  p_session_id text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare v_rows integer;
+begin
+  update public.customer_accounts
+     set default_payment_method_set_at = coalesce(default_payment_method_set_at, now())
+   where card_setup_session_id = p_session_id
+     and company_entity_id = p_company
+     and card_payment_method_id is not null;
+  get diagnostics v_rows = row_count;
+  return v_rows > 0;
+end;
+$$;
+
 -- The webhook's writer. Takes the SESSION id, not the account id: the
 -- delivery names a session, and looking the account up FROM the session is
 -- what makes a mismatched customer detectable rather than assumed.
@@ -1199,7 +1278,9 @@ begin
     'note_customer_card_setup_session(uuid,text)',
     'record_customer_card_setup(uuid,text,text,text,text,text,text,integer,integer,boolean)',
     'release_customer_card_setup(uuid,text)',
-    'bind_customer_account_stripe_customer(uuid,text)'
+    'bind_customer_account_stripe_customer(uuid,text)',
+    'customer_card_setup_session_owner(uuid,text)',
+    'mark_customer_card_default(uuid,text)'
   ])
   loop
     execute format('revoke all on function public.%s from public, anon, authenticated', r);

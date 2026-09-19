@@ -4197,6 +4197,22 @@ select 'Customer account onboarding' as check_name,
      and (has_function_privilege('anon', f, 'execute')
        or has_function_privilege('authenticated', f, 'execute')))
    then 'CRITICAL: a service-role-only onboarding RPC is callable with the anon key'
+ -- RLS cannot scope a policy to COLUMNS, and Supabase grants `authenticated`
+ -- full DML on every new public table -- so the COLUMN privilege is what keeps
+ -- a browser session out of the state machine. Without it a finance user can
+ -- PATCH status straight to approved, or write the card mirror, which is a
+ -- card SILO claims to hold and Stripe has never heard of.
+ when exists(select 1 from unnest(array['status','approved_payment_terms','credit_limit',
+     'price_tier','stripe_customer_id','card_setup_status','card_last4',
+     'card_payment_method_id','default_payment_method_set_at']) c
+   where has_column_privilege('authenticated', 'public.customer_accounts', c, 'update'))
+   then 'CRITICAL: a customer_accounts state or card-mirror column is directly writable by authenticated'
+ when has_table_privilege('authenticated', 'public.customer_accounts', 'insert')
+   or has_table_privilege('authenticated', 'public.customer_accounts', 'delete')
+   then 'CRITICAL: customer_accounts is client-insertable or deletable; accounts come from the invite RPC only'
+ -- The other direction: revoking too much silently breaks the customer page.
+ when not has_column_privilege('authenticated', 'public.customer_accounts', 'legal_name', 'update')
+   then 'CRITICAL: finance cannot correct a customer name; the column grant was revoked too far'
  else 'ok' end as status;
 
 -- The certificate is the most sensitive object SILO stores for a customer, and
