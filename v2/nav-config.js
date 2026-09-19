@@ -42,6 +42,7 @@
   // UX only; the data itself is gated by department-aware RLS.
   const ACCOUNTING_PAGES = [
     ['finance/card-coding','Transactions','transactions.html'],
+    ['finance/invoicing','Invoicing','invoicing.html'],
     ['finance/accounting-export','Sales & journals','accounting-export.html'],
     ['finance/qbo-reports','Reports','qbo-reports.html'],
     ['finance/schedules','Schedules','schedules.html'],
@@ -102,17 +103,9 @@
 
     { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
-    // ── Stripe Invoicing: HIDDEN UNTIL ACTIVATION (2026-09-19, Blake) ────────
-    // The page and its backend merge together, but Stripe is not usable until
-    // the migration is applied, four Edge Functions are deployed, three
-    // secrets and two webhook endpoints are configured and billing_plans is
-    // seeded -- so a live link here would open a page that cannot do anything
-    // and cannot say why. Activation is its own small PR that uncomments this
-    // line and the Billing one below, after the test-mode walkthrough in
-    // docs/ops/stripe.md. The page stays reachable by URL for that
-    // walkthrough. Gate when restored: FINANCE_DEPTS, mirroring
-    // can_manage_client_invoices().
-    // { departments: FINANCE_DEPTS, id: 'finance/invoicing', section: 'Accounting', sectionStandard: 'Operations', label: 'Invoicing', href: '/v2/invoicing.html', profiles: ['grandfathered', 'standard'] },
+    // Invoicing lives inside ACCOUNTING_PAGES rather than duplicating a
+    // sidebar destination. The page/Stripe function retain their finance
+    // authorization; workspace navigation is never the security boundary.
 
     // Requests (AP intake/approval + mail handling) was split out of
     // Accounting once that section reached nine items and stopped reading as
@@ -250,7 +243,8 @@
     { roles: ADMIN_ROLES, id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
 
     // ── SILO Billing: HIDDEN UNTIL ACTIVATION (2026-09-19, Blake) ───────────
-    // Same activation PR as Invoicing above. Gate when restored: ADMIN_ROLES,
+    // Subscription Billing stays in Settings, not the Accounting workspace.
+    // Gate when restored: ADMIN_ROLES,
     // approximating billing_subscriptions' is_admin_user() select gate;
     // changing the plan needs owner_admin, which stripe-billing enforces
     // server-side. Settings rather than Accounting: account administration,

@@ -59,42 +59,48 @@
     .inv-x:hover { color: var(--bcn-neg); }
     .inv-note { font-size: 11px; color: var(--bcn-ink-3); line-height: 1.5; }
   </style>
+  <link rel="stylesheet" href="accounting-suite.css?v=payments-design" />
+  <link rel="stylesheet" href="payments-ui.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
+  <script src="accounting-suite.js"></script>
+  <script src="payments-ui.js"></script>
   <script src="invoice-request.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main accounting-workspace payments-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Invoicing</div>
-          <div class="bcn-header-sub">Bill your customers through your own Stripe account. Money settles to you — SILO never holds it.</div>
+          <div class="bcn-header-sub">Your customers. Your Stripe account.</div>
         </div>
         <div class="bcn-header-actions">
-          <button class="bcn-btn bcn-btn--ghost" id="btnNewCustomer">New customer</button>
-          <button class="bcn-btn bcn-btn--primary" id="btnNewInvoice">New invoice</button>
+          <button class="bcn-btn bcn-btn--ghost" id="btnNewCustomer"><span data-pay-icon="customer"></span> New customer</button>
+          <button class="bcn-btn bcn-btn--primary" id="btnNewInvoice"><span data-pay-icon="plus"></span> New invoice</button>
         </div>
       </header>
 
       <div class="inv-page">
-        <div class="bcn-status" id="status" hidden></div>
+        <div class="bcn-status" id="status" role="status" hidden></div>
         <div id="setup"></div>
+        <p class="inv-scope" id="invoiceScope">Latest invoices · loading</p>
+        <section class="inv-overview" id="invoiceOverview" aria-label="Filter latest invoices" hidden></section>
 
-        <div class="inv-card">
+        <div class="bcn-card inv-card">
           <div class="inv-card-head">
             <div>
-              <div class="inv-title">Invoices</div>
-              <div class="inv-sub">Stripe is the record. What you see here is what Stripe confirmed.</div>
+              <div class="inv-title"><span data-pay-icon="invoice"></span> Invoices</div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <select class="bcn-field" id="statusFilter" style="width:160px">
+            <div class="inv-tools">
+              <label class="inv-search"><span data-pay-icon="search"></span><span class="pay-sr-only">Search latest invoices</span><input type="search" class="bcn-field" id="invoiceSearch" placeholder="Find an invoice or customer" /></label>
+              <select class="bcn-field" id="statusFilter" style="width:140px" aria-label="Invoice status">
                 <option value="">All statuses</option>
                 <option value="draft">Draft</option>
                 <option value="open">Open</option>
@@ -105,30 +111,38 @@
               <div class="inv-sub" id="invoiceCount"></div>
             </div>
           </div>
-          <div class="inv-scroll">
+          <div class="inv-scroll" tabindex="0" role="region" aria-label="Invoices">
             <table class="inv-table" id="tblInvoices">
               <tbody><tr><td class="inv-empty">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
 
-        <div class="inv-card">
+        <div class="bcn-card inv-card">
           <div class="inv-card-head">
             <div>
-              <div class="inv-title">Customers</div>
+              <div class="inv-title"><span data-pay-icon="customer"></span> Customers</div>
               <div class="inv-sub">Mirrored from your Stripe account.</div>
             </div>
             <div class="inv-sub" id="customerCount"></div>
           </div>
-          <div class="inv-scroll" style="max-height:30vh">
+          <div class="inv-scroll" style="max-height:30vh" tabindex="0" role="region" aria-label="Customers">
             <table class="inv-table" id="tblCustomers">
               <tbody><tr><td class="inv-empty">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
+        <div class="pay-footnote"><span data-pay-icon="lock"></span> Payments settle to your Stripe account.</div>
       </div>
     </main>
   </div>
+
+  <dialog id="dlgInvoiceDetail" class="payments-detail" aria-labelledby="invoiceDetailTitle">
+    <div class="inv-dlg-head"><span id="invoiceDetailTitle">Invoice details</span>
+      <form method="dialog"><button class="bcn-btn bcn-btn--ghost" aria-label="Close invoice details" title="Close"><span data-pay-icon="close"></span></button></form>
+    </div>
+    <div class="inv-detail-body" id="invoiceDetail"></div>
+  </dialog>
 
   <dialog id="dlgCustomer">
     <form method="dialog">
@@ -224,6 +238,8 @@
   let _connect = null;        // what Stripe says about the connected account
   let _customers = [];
   let _invoices = [];
+  let _invoiceLoadError = null;
+  let _selectedInvoiceId = null;
   // The idempotency key is NOT held here. It lives in sessionStorage via
   // SiloInvoiceRequest, because the retry that actually happens is a RELOAD --
   // the invoice commits at Stripe, the response is lost, the person reloads
@@ -234,6 +250,8 @@
   const reqKey = (kind) => `silo:stripe:${kind}-request:${_co?.id || 'nocompany'}`;
 
   const el = (id) => document.getElementById(id);
+  const { icon, decorate, filterInvoices } = window.SiloPaymentsUI;
+  decorate();
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -288,7 +306,7 @@
   function renderSetup() {
     const host = el('setup');
     if (_connect?.charges_enabled) {
-      host.innerHTML = '';
+      host.innerHTML = `<div class="pay-inline inv-connection"><span class="bcn-pill bcn-pill--pos">${icon('check')} Stripe connected</span></div>`;
       return;
     }
     if (!_connect) {
@@ -369,6 +387,7 @@
       .limit(500);
     if (_co?.id) q = q.eq('company_entity_id', _co.id);
     const { data, error } = await q;
+    _invoiceLoadError = error?.message || null;
     if (error) { setStatus('Invoice load failed: ' + error.message, 'neg', 8000); return; }
     _invoices = data || [];
   }
@@ -382,14 +401,35 @@
   };
 
   function renderInvoices() {
+    if (_invoiceLoadError) {
+      el('invoiceOverview').hidden = true;
+      el('invoiceScope').textContent = 'Invoices unavailable';
+      el('invoiceCount').textContent = '';
+      el('tblInvoices').innerHTML = `<tbody><tr><td class="inv-empty">Unable to load invoices. ${esc(_invoiceLoadError)}</td></tr></tbody>`;
+      if (el('dlgInvoiceDetail').open) el('dlgInvoiceDetail').close();
+      _selectedInvoiceId = null;
+      return;
+    }
     const filter = el('statusFilter').value;
-    const rows = filter ? _invoices.filter((r) => r.status === filter) : _invoices;
+    const rows = filterInvoices(_invoices, filter, el('invoiceSearch').value);
     const t = el('tblInvoices');
     el('invoiceCount').textContent = `${rows.length} of ${_invoices.length}`;
+    el('invoiceScope').textContent = _invoices.length >= 500
+      ? 'Latest 500 invoices · older invoices are not included'
+      : 'Latest invoices · up to 500';
+    el('invoiceOverview').hidden = false;
+    el('invoiceOverview').innerHTML = [
+      ['', 'All invoices', 'invoice'], ['draft', 'Drafts', 'invoice'],
+      ['open', 'Awaiting payment', 'clock'], ['paid', 'Paid', 'check'],
+    ].map(([status, label, glyph]) => `<button type="button" data-invoice-filter="${status}" aria-pressed="${filter === status}">
+      <span class="inv-overview-label">${icon(glyph)} ${label}</span>
+      <span class="inv-overview-value">${status ? _invoices.filter((r) => r.status === status).length : _invoices.length}</span>
+    </button>`).join('');
+    renderInvoiceDetail();
 
     if (!rows.length) {
       t.innerHTML = `<tbody><tr><td class="inv-empty">${
-        _invoices.length ? 'Nothing at that status.' : 'No invoices yet.'}</td></tr></tbody>`;
+        _invoices.length ? 'No invoices match these filters.' : 'No invoices yet. Create a draft to get started.'}</td></tr></tbody>`;
       return;
     }
 
@@ -397,7 +437,7 @@
       <thead><tr>
         <th>Invoice</th><th>Customer</th><th>Status</th>
         <th class="inv-num">Total</th><th class="inv-num">Outstanding</th>
-        <th>Due</th><th></th>
+        <th>Due</th><th><span class="pay-sr-only">Actions</span></th>
       </tr></thead>
       <tbody>${rows.map((r) => {
         const name = r.customer_display_name || r.customer_name
@@ -408,16 +448,43 @@
         const overdue = r.is_overdue
           ? ' <span class="bcn-pill bcn-pill--neg">overdue</span>' : '';
         return `<tr>
-          <td><span class="bcn-mono">${esc(r.number || 'draft')}</span>
+          <td><button class="inv-row-title" data-detail="${esc(r.id)}" aria-label="View invoice ${esc(r.number || 'draft')}">${icon('invoice')}${esc(r.number || 'draft')}</button>
               <div class="inv-sub">${r.line_count} line${r.line_count === 1 ? '' : 's'}</div></td>
           <td>${esc(name)}</td>
           <td><span class="${STATUS_PILL[r.status] || 'bcn-pill'}">${esc(r.status)}</span>${overdue}</td>
           <td class="inv-num">${money(r.total_cents, r.currency)}</td>
           <td class="inv-num">${r.status === 'draft' ? '—' : money(r.amount_remaining_cents, r.currency)}</td>
           <td>${r.status === 'draft' ? '—' : dateText(r.due_date)}</td>
-          <td><div class="inv-actions">${actionsFor(r)}</div></td>
+          <td><div class="inv-actions"><button class="bcn-btn bcn-btn--ghost" data-detail="${esc(r.id)}">Details ${icon('arrow')}</button></div></td>
         </tr>`;
       }).join('')}</tbody>`;
+  }
+
+  function renderInvoiceDetail() {
+    if (!_selectedInvoiceId) return;
+    const r = _invoices.find((row) => row.id === _selectedInvoiceId);
+    if (!r) { el('dlgInvoiceDetail').close(); _selectedInvoiceId = null; return; }
+    el('invoiceDetailTitle').textContent = r.number || 'Draft invoice';
+    el('invoiceDetail').innerHTML = `
+      <span class="${STATUS_PILL[r.status] || 'bcn-pill'}">${esc(r.status)}</span>
+      ${r.is_overdue ? '<span class="bcn-pill bcn-pill--neg">overdue</span>' : ''}
+      <div class="inv-detail-amount">${money(r.total_cents, r.currency)}</div>
+      <div>${esc(r.customer_display_name || r.customer_name || 'Customer')}</div>
+      <div class="pay-muted inv-detail-email">${esc(r.customer_display_email || r.customer_email || '')}</div>
+      <dl class="inv-detail-facts">
+        <div><dt>Outstanding</dt><dd class="bcn-mono">${r.status === 'draft' ? '—' : money(r.amount_remaining_cents, r.currency)}</dd></div>
+        <div><dt>Due</dt><dd>${r.status === 'draft' ? '—' : dateText(r.due_date)}</dd></div>
+        <div><dt>Created</dt><dd>${dateText(r.created_at)}</dd></div>
+        <div><dt>Line items</dt><dd class="bcn-mono">${esc(r.line_count ?? '—')}</dd></div>
+      </dl>
+      <div class="inv-detail-actions">${actionsFor(r)}</div>
+      <p class="pay-muted">${r.status === 'draft' ? 'Draft only. Nothing is emailed until you send it.' : 'Amounts and status last confirmed by Stripe.'}</p>`;
+  }
+
+  function openInvoiceDetail(id) {
+    _selectedInvoiceId = id;
+    renderInvoiceDetail();
+    if (_selectedInvoiceId) el('dlgInvoiceDetail').showModal();
   }
 
   function actionsFor(r) {
@@ -433,9 +500,9 @@
     }
     if (r.hosted_invoice_url) {
       out.push(`<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener"
-                   href="${esc(r.hosted_invoice_url)}">Open</a>`);
+                   href="${esc(r.hosted_invoice_url)}">Open in Stripe ${icon('arrow')}</a>`);
     }
-    out.push(`<button class="bcn-btn bcn-btn--ghost" data-act="sync" data-id="${r.id}">Sync</button>`);
+    out.push(`<button class="bcn-btn bcn-btn--ghost" data-act="sync" data-id="${r.id}" aria-label="Sync invoice from Stripe" title="Sync invoice from Stripe">${icon('refresh')} Sync</button>`);
     return out.join('');
   }
 
@@ -757,6 +824,13 @@
     }
 
     el('statusFilter').addEventListener('change', renderInvoices);
+    el('invoiceSearch').addEventListener('input', renderInvoices);
+    el('invoiceOverview').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-invoice-filter]');
+      if (!b) return;
+      el('statusFilter').value = b.dataset.invoiceFilter;
+      renderInvoices();
+    });
     el('btnAddLine').addEventListener('click', () => { el('invLines').appendChild(lineRow()); });
     el('invCurrency').addEventListener('input', updateTotal);
     el('btnNewInvoice').addEventListener('click', () => openInvoiceDialog(null));
@@ -771,8 +845,17 @@
       if (el('dlgCustomer').returnValue === 'save') submitCustomer();
     });
     el('tblInvoices').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-detail]');
+      if (b) openInvoiceDetail(b.dataset.detail);
+    });
+    el('invoiceDetail').addEventListener('click', (e) => {
       const b = e.target.closest('[data-act]');
-      if (b) invoiceAction(b.dataset.act, b.dataset.id);
+      if (b) {
+        // Keep feedback visible in the page's existing status region and use
+        // the same confirmations, payloads and refresh path as the old row.
+        el('dlgInvoiceDetail').close();
+        invoiceAction(b.dataset.act, b.dataset.id);
+      }
     });
     el('tblCustomers').addEventListener('click', (e) => {
       const b = e.target.closest('[data-invoice-for]');

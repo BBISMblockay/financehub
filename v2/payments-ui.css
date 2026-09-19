@@ -1,0 +1,88 @@
+/* Billing/Invoicing only: the existing Beacon palette, type and components. */
+.payments-workspace [hidden], .payments-detail [hidden] { display: none !important; }
+.payments-workspace > .bcn-header { padding: 18px 24px; gap: 16px; justify-content: space-between; }
+.payments-workspace .bcn-header-title { display: block; font: 650 23px/1.3 var(--bcn-font); letter-spacing: -.035em; }
+.payments-workspace .bcn-header-sub { margin-top: 4px; font: 400 12px/1.5 var(--bcn-font); letter-spacing: 0; color: var(--bcn-ink-2); }
+.payments-workspace .bcn-header-actions { flex-wrap: wrap; gap: 8px; }
+.payments-workspace .bcn-btn, .payments-detail .bcn-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; border-radius: 6px; font: 500 12px var(--bcn-font); }
+.payments-workspace .bcn-field { border-radius: 6px; min-height: 34px; }
+.payments-workspace :is(button,a,input,select,summary):focus-visible, .payments-detail :is(button,a):focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 3px; }
+.pay-icon { width: 17px; height: 17px; flex: none; vertical-align: middle; }
+[data-pay-icon] { display: inline-flex; }
+.pay-symbol { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; background: var(--bcn-accent-soft); color: var(--bcn-accent); flex: none; }
+.pay-symbol .pay-icon { width: 23px; height: 23px; }
+.payments-workspace :is(.bil-page,.inv-page) { padding: 24px 24px 48px; }
+.payments-workspace :is(.bil-card,.inv-card) { border-radius: 10px; box-shadow: var(--bcn-shadow); margin-bottom: 20px; }
+.payments-workspace :is(.bil-card-head,.inv-card-head) { padding: 16px 20px; }
+.payments-workspace :is(.bil-title,.inv-title) { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.payments-workspace :is(.bil-sub,.inv-sub) { font-family: var(--bcn-font); line-height: 1.5; }
+.payments-workspace :is(.bil-table,.inv-table) td { padding: 15px 16px; vertical-align: middle; }
+.payments-workspace :is(.bil-table,.inv-table) th { padding: 10px 16px; }
+.payments-workspace :is(.bil-table,.inv-table) th:is(.bil-num,.inv-num) { text-align: right; }
+.payments-workspace :is(.bil-table,.inv-table) tr:last-child td { border-bottom: 0; }
+.payments-workspace :is(.bil-table,.inv-table) tbody tr:hover { background: var(--bcn-sunken); }
+.payments-workspace .bcn-pill { border-radius: 5px; padding: 3px 7px; font-family: var(--bcn-mono); }
+.pay-scroll { overflow: auto; }
+.pay-muted { color: var(--bcn-ink-3); font-size: 12px; }
+.pay-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.inv-connection { margin-bottom: 20px; }
+.payments-workspace .bcn-btn--ghost, .payments-detail .bcn-btn--ghost { border-color: transparent; background: transparent; box-shadow: none; color: var(--bcn-ink-2); }
+.payments-workspace .bcn-btn--ghost:hover, .payments-detail .bcn-btn--ghost:hover { color: var(--bcn-accent); background: var(--bcn-accent-soft); }
+.pay-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pay-footnote { display: flex; gap: 8px; align-items: center; color: var(--bcn-ink-2); font-size: 12px; }
+.pay-disclosure { margin-top: 12px; max-width: 80ch; color: var(--bcn-ink-2); font-size: 12px; line-height: 1.6; }
+.pay-disclosure summary { cursor: pointer; }
+.pay-disclosure p { margin: 8px 0; }
+.bil-hero .bil-body { padding: 28px; }
+.bil-hero-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.bil-hero-plan { display: flex; align-items: center; gap: 14px; }
+.bil-hero-name { font: 650 24px/1.35 var(--bcn-font); letter-spacing: -.035em; }
+.bil-hero-price { font: 500 34px/1.3 var(--bcn-mono); letter-spacing: -.05em; margin-top: 22px; }
+.bil-hero-price small { font: 400 13px var(--bcn-font); letter-spacing: 0; color: var(--bcn-ink-2); }
+.bil-current { border-top: 1px solid var(--bcn-border); margin-top: 24px; padding-top: 20px; gap: 20px 48px; }
+.bil-current .bil-fact-value { font-size: 15px; }
+.bil-hero .bil-fact-label { margin-bottom: 4px; }
+.bil-hero-message { margin: 16px 0 0; font-size: 13px; color: var(--bcn-ink-2); }
+.bil-hero-message--warn { color: var(--bcn-neg); }
+.payments-workspace .bil-plan { padding: 20px; gap: 12px; background: var(--bcn-surface); }
+.payments-workspace .bil-plan-price { font-size: 26px; }
+.payments-workspace .bil-plan .bcn-btn { align-self: flex-start; margin-top: 6px; }
+.payments-workspace .bil-table { min-width: 650px; }
+.inv-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inv-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--bcn-border); padding: 0 10px; border-radius: 6px; color: var(--bcn-ink-3); }
+.inv-search input.bcn-field { border: 0; background: transparent; width: 210px; }
+.inv-search:focus-within { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
+.inv-search input:focus-visible { outline: 0; }
+.inv-overview { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 0 0 20px; }
+.inv-overview button { text-align: left; padding: 16px; background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 8px; color: var(--bcn-ink); }
+.inv-overview button[aria-pressed="true"] { border-color: var(--bcn-accent); background: var(--bcn-accent-soft); }
+.inv-overview-label { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--bcn-ink-2); }
+.inv-overview-value { display: block; font: 500 25px var(--bcn-mono); margin-top: 12px; }
+.inv-scope { margin: 0 0 10px; font: 400 11px var(--bcn-mono); color: var(--bcn-ink-3); }
+.inv-row-title { display: inline-flex; align-items: center; gap: 8px; border: 0; padding: 4px 0; color: var(--bcn-accent); background: transparent; font: 500 12px var(--bcn-mono); text-align: left; }
+.inv-row-title:hover { text-decoration: underline; }
+.payments-workspace .inv-actions .bcn-btn { min-width: 34px; padding: 6px 8px; }
+.payments-workspace .inv-scroll { max-height: 58vh; }
+.payments-detail { position: fixed; margin: 0 0 0 auto; inset: 0; width: min(480px,100vw); height: 100dvh; max-width: 100vw; max-height: 100dvh; border: 0; border-left: 1px solid var(--bcn-border); border-radius: 0; padding: 0; background: var(--bcn-surface); color: var(--bcn-ink); overflow: auto; }
+.payments-detail::backdrop { background: rgba(15,23,42,.35); }
+.payments-detail .inv-dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; }
+.inv-detail-body { padding: 28px 24px; }
+.inv-detail-amount { font: 500 32px var(--bcn-mono); margin: 12px 0; letter-spacing: -.04em; }
+.inv-detail-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; padding: 24px 0; margin: 24px 0; border-block: 1px solid var(--bcn-border); }
+.inv-detail-facts dt { color: var(--bcn-ink-3); font: 400 10px var(--bcn-mono); text-transform: uppercase; margin-bottom: 7px; }
+.inv-detail-facts dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.inv-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inv-detail-email { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .payments-workspace > .bcn-header { padding: 14px 12px; flex-wrap: wrap; }
+  .payments-workspace .bcn-header-title { font-size: 20px; }
+  .payments-workspace :is(.bil-page,.inv-page) { padding: 16px 12px 32px; }
+  .payments-workspace :is(.bil-card-head,.inv-card-head) { padding: 14px; }
+  .bil-hero .bil-body { padding: 20px; }
+  .bil-hero-price { font-size: 28px; }
+  .inv-overview { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .inv-tools { width: 100%; }
+  .inv-search { flex: 1; min-width: 140px; }
+  .inv-search input.bcn-field { width: 100%; min-width: 0; }
+  .payments-workspace .bcn-btn { min-height: 38px; }
+}
