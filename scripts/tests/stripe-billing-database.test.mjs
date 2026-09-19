@@ -33,6 +33,7 @@
 //   STRIPE_MUTATION=platform-takes-account (a platform event with an account id is attributed)
 //   STRIPE_MUTATION=lines-upserted    (invoice lines merged instead of replaced)
 //   STRIPE_MUTATION=sync-open-to-anon (the revoke on the sync layer removed)
+//   STRIPE_MUTATION=placeholder-claims-now (the checkout placeholder stamps now())
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -45,6 +46,7 @@ const mutation = process.env.STRIPE_MUTATION || '';
 assert.ok([
   '', 'mirror-writable', 'gate-is-admin', 'stale-wins', 'account-rebind',
   'ledger-amnesia', 'platform-takes-account', 'lines-upserted', 'sync-open-to-anon',
+  'placeholder-claims-now',
 ].includes(mutation), `Unknown stripe mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -134,6 +136,10 @@ if (mutation === 'lines-upserted') {
                     `  from jsonb_array_elements(coalesce(p_payload->'lines'->'data', '[]'::jsonb)) as l
   where l->>'id' is not null
   on conflict (invoice_id, stripe_line_id) do nothing;`);
+}
+if (mutation === 'placeholder-claims-now') {
+  sql = sql.replace("values (p_company, p_customer, 'incomplete', '-infinity'::timestamptz)",
+                    () => "values (p_company, p_customer, 'incomplete', now())");
 }
 if (mutation === 'sync-open-to-anon') {
   sql = sql.replace(
@@ -652,6 +658,38 @@ await test('a subscription is mirrored with its plan resolved from the price id'
   assert.equal(Number(row.quantity), 3);
   assert.equal(row.collection_issue, null);
   assert.ok(row.current_period_end, 'the renewal date must be readable');
+});
+
+await test('the checkout placeholder never outranks the first real sync', async () => {
+  // stripe_begin_checkout records WHICH Stripe customer to attribute the
+  // coming webhook to. It knows nothing about Stripe's state, so it must not
+  // claim a sync time -- if it stamped now(), the staleness guard would drop
+  // the first real sync whenever that fetch began earlier (a replayed webhook,
+  // a backfill, a sync racing the redirect), and the subscription would sit at
+  // `incomplete` with a null plan forever. This is how that was found: the
+  // suite stamps its sync with a FIXED PAST timestamp, so a placeholder
+  // stamped now() fails here every run after 10:05 UTC.
+  const late = randomUUID();
+  await q(`insert into auth.users(id,email) values ($1,'late@x.test')`, [late]);
+  const lateCo = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','late','Late Co')`, [lateCo]);
+
+  await q(`select public.stripe_begin_checkout($1,'cus_late')`, [lateCo]);
+  const placeholder = await one(
+    'select stripe_synced_at, status from public.billing_subscriptions where company_entity_id=$1', [lateCo]);
+  assert.equal(placeholder.status, 'incomplete');
+
+  await q('select public.stripe_sync_subscription($1,$2,$3)', [lateCo, JSON.stringify({
+    id: 'sub_late', customer: 'cus_late', status: 'active',
+    items: { data: [{ quantity: 1, price: { id: 'price_growth', currency: 'usd', unit_amount: 49900 } }] },
+  }), t1]);
+
+  const synced = await one(
+    'select status, plan_key from public.billing_subscriptions where company_entity_id=$1', [lateCo]);
+  assert.equal(synced.status, 'active',
+    'a real sync must land whatever time its fetch began -- the placeholder claims no sync time');
+  assert.equal(synced.plan_key, 'growth');
 });
 
 await test('a past_due subscription records WHY money is not arriving', async () => {

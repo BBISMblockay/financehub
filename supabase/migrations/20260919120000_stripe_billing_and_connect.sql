@@ -729,8 +729,24 @@ begin
     raise exception 'stripe_begin_checkout: customer % already belongs to another company', p_customer;
   end if;
 
-  insert into public.billing_subscriptions (company_entity_id, stripe_customer_id, status)
-  values (p_company, p_customer, 'incomplete')
+  -- stripe_synced_at is '-infinity', NOT now(), and that is the whole
+  -- correctness of this function. This row is a PLACEHOLDER: it records which
+  -- Stripe customer to attribute the coming webhook to, and knows nothing
+  -- about Stripe's state -- `incomplete` is SILO's guess, not Stripe's answer.
+  -- Stamping now() would claim "this row reflects Stripe as of this moment",
+  -- and the staleness guard would then DROP the first real sync whenever its
+  -- fetch began before the checkout insert (a replayed webhook, a backfill, a
+  -- `sync` action racing the redirect). The company's subscription would sit
+  -- at `incomplete` with a null plan forever, which is the exact failure the
+  -- guard exists to prevent, pointed the wrong way. Caught by the regression
+  -- suite, which is why the test stamps its sync with a fixed past timestamp.
+  --
+  -- On conflict the sync time is deliberately LEFT ALONE: a second checkout
+  -- attempt against an already-synced subscription must not re-open it to a
+  -- stale payload.
+  insert into public.billing_subscriptions
+    (company_entity_id, stripe_customer_id, status, stripe_synced_at)
+  values (p_company, p_customer, 'incomplete', '-infinity'::timestamptz)
   on conflict (company_entity_id) do update
     set stripe_customer_id = excluded.stripe_customer_id,
         updated_at = now();
