@@ -296,21 +296,51 @@ from the Stripe dashboard**; the reclaim path above then processes it normally.
 The alternative, 500-ing every foreign event, would retry eight times for every
 event belonging to an account that was disconnected or never ours.
 
+## What walkthrough A proved (2026-09-19, test mode, BLOCKAYOPS on get-silo.com)
+
+Subscribe -> Stripe Checkout -> `4242` -> back to `?checkout=done` ran clean,
+and the mirror filled itself. That retires several guesses at once:
+
+* **The PLATFORM signing secret verifies a real `stripe-signature` header.**
+  `checkout.session.completed` was received, routed to the platform surface and
+  handled -- the subscription row exists and nobody pressed Refresh to make it.
+* `stripe_sync_subscription()` resolved plan, status and period from a live
+  object: `active`, Growth, renewing 19 Oct. Whatever the account's API version
+  returns for `current_period_*`, it produced a DATE and not a NULL, so the
+  item-level fallback is either unnecessary or working.
+* `invoice.paid` / `invoice.finalized` mirrored into `billing_invoices` --
+  `paid`, $500.00 of $500.00, hosted PDF link intact.
+* Amounts survive the minor-units round trip (50000 -> `$500.00`).
+* `planAction()` flipped the card to *Current plan*, so the page no longer
+  offers a Checkout the function would refuse.
+* `SILO_SITE_URL` and the serving domain agree: the return redirect landed on
+  get-silo.com rather than bouncing to a domain that does not serve the app.
+
+**What it did NOT prove, and this is the important half.** A clean first
+subscription walks the happy path exclusively. Every guard the review rounds
+went into lives in an error or retry branch, and none of them executed: the
+concurrency claim, the resume-an-open-session path, the ten-minute takeover,
+the fail-closed lookup, the ambiguous-create ledger. "It worked" is evidence
+about the happy path and says nothing about those.
+
+Two cheap tests exercise the first two: open Billing in two tabs and press
+Subscribe in both (one must be refused), and abandon a Checkout then press
+Subscribe again (the same URL must come back, not a second session).
+
 ## What is still unverified
 
-Everything below needs live Stripe credentials and has not been exercised:
+Everything below needs live Stripe credentials and has not been exercised.
+**The whole Connect half is untouched** -- walkthrough A proved the platform
+endpoint only, and the Connect endpoint is a different destination with a
+different signing secret that has never delivered an event.
 
-* The signature-verification path against a real `stripe-signature` header,
-  including the two-secret fallback that decides which endpoint delivered.
 * The exact shape of a live `account.updated` payload against
   `stripe_sync_connect_account()` — in particular `requirements.disabled_reason`
   on a genuinely restricted account.
-* Whether the pinned SDK (`npm:stripe@17.7.0`) still returns
-  `invoice.subscription` and top-level `current_period_*` on the API version
-  the account is actually on. `stripe_sync_subscription()` reads the item-level
-  period as a fallback, so a mismatch should degrade rather than write NULL —
-  but that fallback has only been tested against a synthetic payload.
-* Checkout → `checkout.session.completed` → subscription mirror, end to end.
+* Whether the CONNECT signing secret verifies, and whether the two-secret
+  fallback picks the right surface when both endpoints are live. Only the
+  platform secret has been exercised, so the discrimination this whole design
+  rests on is still untested in the one direction that matters.
 * Which Stripe SDK errors carry a `statusCode` / `resource_missing` code. The
   session lookup treats ONLY a definitive 404 as "this session is gone" and
   refuses on anything else, so a wrong guess is fail-closed (a refused
