@@ -70,3 +70,6 @@
 .pr2-page :focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 3px; }
 @media (max-width: 1100px) { .pr2-layout { grid-template-columns: minmax(0, 1.3fr) minmax(260px, 1fr); gap: 14px; } .pr2-page { padding: 18px; } .pr2-fields { grid-template-columns: 1fr; gap: 14px; } }
 @media (max-width: 780px) { .pr2-layout { grid-template-columns: 1fr; } .pr2-source { position: static; } .pr2-preview { height: 250px; } .pr2-steps { gap: 12px; font-size: 12px; } .pr2-page { padding: 14px; } .pr2-review { padding: 16px; } .pr2-heading { flex-wrap: wrap; } .pr2-page h1 { font-size: 26px; } .pr2-page .bcn-field { font-size: 16px; } .pr2-actions { padding: 15px; } .pr2-buttons { width: 100%; } .pr2-buttons .bcn-btn { flex: 1; } }
+
+.pr2-read-text { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 var(--bcn-mono); padding: 12px; background: var(--bcn-bg); }
+.silo-app.pr2-standalone { display: block; }

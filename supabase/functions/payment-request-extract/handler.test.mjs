@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { createHandler, sanitizeExtraction, MAX_FILE_BYTES } from './handler.mjs';
+import { createHandler, sanitizeExtraction, MAX_TEXT } from './handler.mjs';
 
 let passed = 0;
 async function test(name, fn) { await fn(); passed++; console.log('PASS', name); }
 const facts = { document_count: 1, vendor_name: 'Northline', invoice_number: '1048', amount_due: 2580, invoice_total: 2580, due_date: '2026-10-18', currency: 'USD', request_type: 'inventory_freight', location_name: null, po_references: ['PO-329', 'PO-330'], warnings: [] };
-const body = () => ({ company_id: 'company-a', media_type: 'application/pdf', data: btoa('%PDF-test') });
+const body = () => ({ company_id: 'company-a', consent: true, text: 'Vendor: Northline\nInvoice #: 1048\nAmount due: USD 2580.00' });
 function fixture(options = {}) {
   let calls = 0, lastRequest;
   const handler = createHandler({
@@ -12,7 +12,6 @@ function fixture(options = {}) {
     makeClient: () => ({ auth: { getUser: async () => ({ data: { user: options.noUser ? null : { id: 'user-a' } } }) },
       from(table) { return { select() { return this; }, eq() { return this; }, async single() { return { data: { is_active: !options.inactive, active_company_id: 'company-a' } }; }, async maybeSingle() { return { data: options.noMembership ? null : { entity_id: 'company-a' } }; } }; },
     }),
-    inspectPdf: async () => { if (options.badPdf) throw Error('encrypted'); return options.pages ?? 2; },
     fetchImpl: async (url, init) => {
       calls++; lastRequest = JSON.parse(init.body);
       if (options.providerError) return new Response('error', { status: 503 });
@@ -32,21 +31,18 @@ await test('requires authenticated active company membership before provider cal
 await test('a caller cannot request extraction in another active company', async () => {
   const f = fixture(); assert.equal((await f.call({ ...body(), company_id: 'company-b' })).status, 409); assert.equal(f.calls, 0);
 });
-await test('rejects oversized, disguised and invalid documents before provider call', async () => {
-  for (const doc of [{ ...body(), data: btoa('<html>not a PDF</html>') }, { ...body(), data: '?' }, { ...body(), data: 'A'.repeat(Math.ceil(MAX_FILE_BYTES / 3) * 4 + 4) }, { ...body(), media_type: 'text/html' }]) {
-    const f = fixture(); assert.ok((await f.call(doc)).status >= 400); assert.equal(f.calls, 0);
+await test('refuses raw documents, missing consent and invalid text before the provider', async () => {
+  for (const extra of [{ data: 'base64' }, { media_type: 'application/pdf' }, { url: 'https://example.com' }, { consent: false }, { consent: undefined }, { text: '' }, { text: 123 }, { text: 'A'.repeat(MAX_TEXT + 1) }]) {
+    const f = fixture(); assert.ok((await f.call({ ...body(), ...extra })).status >= 400); assert.equal(f.calls, 0);
   }
-});
-await test('encrypted, invalid, empty and overlong PDFs are refused', async () => {
-  for (const options of [{ badPdf: true }, { pages: 0 }, { pages: 11 }]) { const f = fixture(options); assert.equal((await f.call()).status, 422); assert.equal(f.calls, 0); }
 });
 await test('unavailable model and incomplete responses never look successful', async () => {
   for (const options of [{ noKey: true }, { providerError: true }, { truncated: true }, { invalidJson: true }]) { const f = fixture(options); assert.ok((await f.call()).status >= 400); }
 });
-await test('real handler supplies document blocks and forces extraction-only output', async () => {
+await test('real handler sends bounded text only and forces suggestion-only output', async () => {
   const f = fixture(); const r = await f.call(); assert.equal(r.status, 200);
   const data = await r.json(); assert.equal(data.company_id, 'company-a'); assert.equal(data.suggestion.amount_due, 2580);
-  assert.equal(f.lastRequest.messages[0].content[0].type, 'document'); assert.equal(f.lastRequest.tool_choice.name, 'extract_payment_request'); assert.equal(f.lastRequest.tools.length, 1);
+  assert.equal(f.lastRequest.messages[0].content.length, 1); assert.equal(f.lastRequest.messages[0].content[0].type, 'text'); assert.ok(f.lastRequest.messages[0].content[0].text.includes(body().text)); assert.equal(f.lastRequest.messages[0].content[0].source, undefined); assert.equal(f.lastRequest.tool_choice.name, 'extract_payment_request'); assert.equal(f.lastRequest.tools.length, 1);
 });
 await test('negative/string money, impossible dates and injected fields cannot pass', () => {
   const data = sanitizeExtraction({ ...facts, amount_due: -10, invoice_total: '2,580', due_date: '2026-02-30', workflow_status: 'approved', bank_account: 'secret', request_type: 'payroll_payment' });

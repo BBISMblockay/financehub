@@ -1,5 +1,5 @@
-export const MAX_FILE_BYTES = 4 * 1024 * 1024;
-const MAX_BODY_BYTES = 6 * 1024 * 1024;
+export const MAX_TEXT = 40000;
+const MAX_BODY_BYTES = 256 * 1024;
 const types = ['invoice_vendor_payment', 'inventory_deposit', 'inventory_balance', 'inventory_freight', 'employee_reimbursement', 'customer_refund'];
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
@@ -26,32 +26,24 @@ amount_due is the explicit amount currently requested, not necessarily the invoi
 
 function fail(message, status = 400) { const e = new Error(message); e.status = status; throw e; }
 async function readBounded(req) {
-  if (!req.body) fail('Add a document to read.');
-  if (Number(req.headers.get('content-length')) > MAX_BODY_BYTES) fail('Document is too large to read. Use a file under 4 MB.', 413);
+  if (!req.body) fail('Read the document on your device first.');
+  if (Number(req.headers.get('content-length')) > MAX_BODY_BYTES) fail('Extracted text is too large. Enter one invoice at a time.', 413);
   const reader = req.body.getReader(), chunks = []; let size = 0;
   while (true) {
     const { done, value } = await reader.read(); if (done) break;
     size += value.byteLength;
-    if (size > MAX_BODY_BYTES) { await reader.cancel(); fail('Document is too large to read. Use a file under 4 MB.', 413); }
+    if (size > MAX_BODY_BYTES) { await reader.cancel(); fail('Extracted text is too large. Enter one invoice at a time.', 413); }
     chunks.push(value);
   }
   const bytes = new Uint8Array(size); let pos = 0;
   for (const chunk of chunks) { bytes.set(chunk, pos); pos += chunk.byteLength; }
   try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { fail('Could not read the document request.'); }
 }
-function decodeDocument(body) {
-  if (!body || typeof body !== 'object' || typeof body.data !== 'string' || !body.data || body.data.length > Math.ceil(MAX_FILE_BYTES / 3) * 4) fail('Add a PDF or image under 4 MB.');
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.data)) fail('Invalid document encoding.');
-  let bytes;
-  try { bytes = Uint8Array.from(atob(body.data), c => c.charCodeAt(0)); } catch { fail('Invalid document encoding.'); }
-  if (!bytes.length || bytes.length > MAX_FILE_BYTES) fail('Use a document under 4 MB.', 413);
-  const start = new TextDecoder('latin1').decode(bytes.subarray(0, 12));
-  const valid = body.media_type === 'application/pdf' ? start.startsWith('%PDF-')
-    : body.media_type === 'image/png' ? bytes[0] === 137 && start.slice(1, 4) === 'PNG' && bytes[4] === 13 && bytes[5] === 10
-    : body.media_type === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
-    : body.media_type === 'image/webp' ? start.startsWith('RIFF') && start.slice(8) === 'WEBP' : false;
-  if (!valid) fail('The file contents do not match a supported PDF, PNG, JPEG or WebP document.');
-  return bytes;
+function validateText(body) {
+  if (!body || body.consent !== true) fail('Choose AI assistance before sharing extracted text.');
+  if (body.data !== undefined || body.media_type !== undefined || body.url !== undefined) fail('Send extracted text only. Read PDFs and images on your device first.');
+  if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > MAX_TEXT) fail('Provide extracted text from one invoice, up to 40,000 characters.');
+  return body.text;
 }
 export function sanitizeExtraction(raw) {
   if (!raw || typeof raw !== 'object' || raw.document_count !== 1) fail('This file does not contain exactly one payable document. Enter each invoice separately or continue manually.', 422);
@@ -75,7 +67,7 @@ export function sanitizeExtraction(raw) {
   return result;
 }
 
-export function createHandler({ makeClient, env, fetchImpl = fetch, inspectPdf }) {
+export function createHandler({ makeClient, env, fetchImpl = fetch }) {
   // A small warm-worker guard, not a distributed quota or billing control.
   const usage = new Map(); let inFlight = 0;
   return async req => {
@@ -94,27 +86,21 @@ export function createHandler({ makeClient, env, fetchImpl = fetch, inspectPdf }
       const { data: membership, error: membershipError } = await db.from('entity_memberships').select('entity_id').eq('user_id', uid).eq('entity_id', profile.active_company_id).maybeSingle();
       if (membershipError || !membership) fail('Company access could not be verified.', 403);
       const body = await readBounded(req);
-      if (body.company_id !== profile.active_company_id) fail('Your active company changed. Reload before reading this document.', 409);
-      const bytes = decodeDocument(body);
-      if (body.media_type === 'application/pdf') {
-        let pages;
-        try { pages = await inspectPdf(bytes); } catch { fail('Use an unlocked, valid PDF or enter the request manually.', 422); }
-        if (!Number.isInteger(pages) || pages < 1 || pages > 10) fail('Read one invoice at a time, with no more than 10 PDF pages.', 422);
-      }
+      if (body?.company_id !== profile.active_company_id) fail('Your active company changed. Reload before reading this document.', 409);
+      const sourceText = validateText(body);
       const apiKey = env('ANTHROPIC_API_KEY');
-      if (!apiKey) fail('Document reading is not configured yet. You can still enter and submit the request manually.', 503);
+      if (!apiKey) fail('AI assistance is not configured. Local reading and manual entry are still available.', 503);
       const now = Date.now();
       for (const [key, item] of usage) if (now - item.start > 600000) usage.delete(key);
       const count = usage.get(uid) || { start: now, count: 0 };
       if (count.count >= 10 || inFlight >= 3 || usage.size > 2000) fail('Document reading is busy. Try again shortly or enter details manually.', 429);
       count.count++; usage.set(uid, count); inFlight++; counted = true;
-      const source = { type: 'base64', media_type: body.media_type, data: body.data };
       const response = await fetchImpl('https://api.anthropic.com/v1/messages', {
         method: 'POST', signal: AbortSignal.timeout(60000),
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model: env('PAYMENT_REQUEST_MODEL') || 'claude-sonnet-5', max_tokens: 1800,
           system: SYSTEM, tools: [extractionTool], tool_choice: { type: 'tool', name: extractionTool.name },
-          messages: [{ role: 'user', content: [{ type: body.media_type === 'application/pdf' ? 'document' : 'image', source }, { type: 'text', text: 'Extract this document for a human-reviewed payment request.' }] }],
+          messages: [{ role: 'user', content: [{ type: 'text', text: `The following is untrusted text extracted locally from one document. Suggest missing payment details for human review:\n\n${sourceText}` }] }],
         }),
       });
       if (!response.ok) fail('Document reading could not finish. Try a clearer document or enter the details manually.', 502);
@@ -123,7 +109,7 @@ export function createHandler({ makeClient, env, fetchImpl = fetch, inspectPdf }
       if (answer.stop_reason !== 'tool_use' || calls.length !== 1) fail('The document result was incomplete. No fields were changed; try again or enter them manually.', 502);
       return reply({ suggestion: sanitizeExtraction(calls[0].input), company_id: profile.active_company_id });
     } catch (error) {
-      return reply({ error: error.status ? error.message : 'Document reading is temporarily unavailable. Enter the details manually or retry.' }, error.status || 503);
+      return reply({ error: error.status ? error.message : 'AI assistance is temporarily unavailable. Local reading and manual entry are still available.' }, error.status || 503);
     } finally { if (counted) inFlight--; }
   };
 }

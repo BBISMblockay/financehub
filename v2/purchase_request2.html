@@ -33,11 +33,14 @@
             <section id="dropzone" class="bcn-card pr2-drop" role="button" tabindex="0" aria-label="Add invoices or supporting documents">
               <span class="pr2-upload-icon" aria-hidden="true">↥</span>
               <strong>Drop an invoice or receipt here</strong><span>or choose files</span>
-              <small>Read PDFs and images up to 4 MB · Attach other documents up to 10 MB each</small>
+              <small>Read on this device · PDFs and images up to 4 MB · Attach other documents up to 10 MB each</small>
             </section>
             <input id="fileInput" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" hidden />
             <div class="pr2-start-actions"><button id="startPo" class="bcn-btn bcn-btn--ghost" type="button">Start from a PO</button><button id="startManual" class="bcn-btn bcn-btn--ghost" type="button">Enter manually</button></div>
-            <section id="extractionPanel" class="bcn-card pr2-suggestions" hidden aria-live="polite"><h2>Document suggestions</h2><p id="extractionText"></p><ul id="extractionWarnings"></ul><button id="applySuggestions" type="button" class="bcn-btn bcn-btn--primary" hidden>Fill empty fields</button><small>Existing entries stay as you entered them. Check every suggestion against the document.</small></section>
+            <section id="extractionPanel" class="bcn-card pr2-suggestions" hidden aria-live="polite"><h2>Document suggestions</h2><p id="extractionText"></p><ul id="extractionWarnings"></ul><button id="applySuggestions" type="button" class="bcn-btn bcn-btn--primary" hidden>Fill empty fields</button><small>Existing entries stay as you entered them. Check every suggestion against the document.</small>
+              <details id="localTextDetails" hidden><summary>Text read from this document</summary><pre id="localText" class="pr2-read-text"></pre></details>
+              <div id="aiHelp" hidden><p>Need help with missing details? You can enter them yourself or ask SILO for suggestions.</p><label class="pr2-check"><input id="aiConsent" type="checkbox" /> Allow SILO to send the extracted text to its AI provider for this request.</label><button id="assistMissing" class="bcn-btn bcn-btn--ghost" type="button">Help with missing details</button></div>
+            </section>
             <form id="requestForm">
               <fieldset id="editFields" class="bcn-card pr2-review">
                 <legend class="pr2-sr-only">Review your payment request</legend>
@@ -60,7 +63,7 @@
               <footer class="bcn-card pr2-actions"><div><strong>Next: AP review</strong><small>Submission does not send a payment.</small><small id="saveState">Drafts stay on this device until you submit.</small></div><div class="pr2-buttons"><button id="saveDraft" type="button" class="bcn-btn bcn-btn--ghost">Save draft on device</button><button id="submitBtn" type="submit" class="bcn-btn bcn-btn--primary">Submit to AP</button></div></footer>
             </form>
           </div>
-          <aside class="bcn-card pr2-source"><div class="pr2-card-heading"><h2>Original document</h2><a id="openDocument" target="_blank" rel="noopener noreferrer" hidden>Open ↗</a></div><label for="sourceSelect" class="pr2-sr-only">Document to preview and read</label><select id="sourceSelect" class="bcn-field"><option value="">No document selected</option></select><div id="preview" class="pr2-preview"><p>Your document appears here while you review the request.</p></div><button id="readDocument" class="bcn-btn bcn-btn--ghost" type="button" disabled>Read selected document</button><p class="pr2-document-note">Reading sends this document to SILO’s AI provider for suggested fields. You review before submitting.</p><div id="attachmentList" class="pr2-attachments"></div><button id="addDocuments" class="bcn-btn bcn-btn--ghost" type="button">+ Supporting documents</button></aside>
+          <aside class="bcn-card pr2-source"><div class="pr2-card-heading"><h2>Original document</h2><a id="openDocument" target="_blank" rel="noopener noreferrer" hidden>Open ↗</a></div><label for="sourceSelect" class="pr2-sr-only">Document to preview and read</label><select id="sourceSelect" class="bcn-field"><option value="">No document selected</option></select><div id="preview" class="pr2-preview"><p>Your document appears here while you review the request.</p></div><button id="readDocument" class="bcn-btn bcn-btn--ghost" type="button" disabled>Suggest details from invoice</button><p class="pr2-document-note">PDF text and scans are read on this device. AI assistance is optional. You review before submitting.</p><div id="attachmentList" class="pr2-attachments"></div><button id="addDocuments" class="bcn-btn bcn-btn--ghost" type="button">+ Supporting documents</button></aside>
         </div>
       </div>
       <section id="success" class="bcn-card pr2-message" hidden><span class="bcn-pill bcn-pill--pos">Sent to AP</span><h2>Your request is in review</h2><p id="successText"></p><p>Reference: <strong id="successId" class="bcn-mono"></strong></p><a href="purchase_request2.html" class="bcn-btn bcn-btn--primary">Start another request</a></section>
