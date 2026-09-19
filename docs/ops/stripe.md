@@ -327,20 +327,47 @@ Two cheap tests exercise the first two: open Billing in two tabs and press
 Subscribe in both (one must be refused), and abandon a Checkout then press
 Subscribe again (the same URL must come back, not a second session).
 
+## What walkthrough B proved (2026-09-19, test mode, TestDug connected account)
+
+Connect an account -> create a customer -> create a draft -> finalize -> pay on
+Stripe's hosted page. The mirror flipped to `paid` on its own, WITHOUT pressing
+Sync, and that detail is the whole point of the test:
+
+* **The CONNECT signing secret verifies, so the two-secret discrimination is
+  now exercised in BOTH directions.** Everything this design rests on is that
+  the endpoint is decided by which secret verified the signature; until now
+  only the platform side had ever delivered.
+* Payment happened entirely on Stripe's page with no SILO function running, so
+  nothing but a webhook could have moved that row. `routeEvent()` picked the
+  connect surface, `stripe_resolve_event_company()` resolved the company from
+  the account id, and `stripe_sync_invoice()` wrote the result.
+* The create path works and mirrors: customer, draft invoice, and the
+  draft-then-attach-items flow produced one line rather than orphans.
+* **The money settled to the TENANT.** The hosted page showed the connected
+  account's own business name and its own invoice number series -- a different
+  merchant from the platform's, which is the visible proof that Standard is
+  doing what Express would not.
+* `amount_remaining_cents` reached 0 and the row's actions collapsed to
+  Open/Sync: a paid invoice is no longer offered Send or Finalize.
+
+NOT proved by it: the invoice's due date was in the FUTURE, so the `is_overdue`
+derivation (open AND past due AND still owed) never evaluated true and remains
+untested.
+
 ## What is still unverified
 
 Everything below needs live Stripe credentials and has not been exercised.
-**The whole Connect half is untouched** -- walkthrough A proved the platform
-endpoint only, and the Connect endpoint is a different destination with a
-different signing secret that has never delivered an event.
+Both surfaces now have a proven happy path; **what is left is almost entirely
+the error and recovery branches**, which is where the four review rounds were
+actually spent. A clean create and a clean payment touch none of them.
 
 * The exact shape of a live `account.updated` payload against
   `stripe_sync_connect_account()` — in particular `requirements.disabled_reason`
   on a genuinely restricted account.
-* Whether the CONNECT signing secret verifies, and whether the two-secret
-  fallback picks the right surface when both endpoints are live. Only the
-  platform secret has been exercised, so the discrimination this whole design
-  rests on is still untested in the one direction that matters.
+* The Billing Portal: cancel, and whether the mirror follows the cancellation.
+* Voiding a connected-account invoice, and whether the mirror follows.
+* `is_overdue`: an open invoice past its due date with money still owed. The
+  paid walkthrough could not reach it -- its due date had not passed.
 * Which Stripe SDK errors carry a `statusCode` / `resource_missing` code. The
   session lookup treats ONLY a definitive 404 as "this session is gone" and
   refuses on anything else, so a wrong guess is fail-closed (a refused
