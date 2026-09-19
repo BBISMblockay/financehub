@@ -18901,3 +18901,19 @@ $c$select (select count(*) from v_po_header_summary
 -- before each create, and an on-conflict-do-nothing seed. Safe to re-run; the
 -- regression suite applies it twice on every run for exactly that reason.
 \i migrations/20260918120000_company_onboarding.sql
+
+-- ── Stripe: subscription billing + Connect invoicing (2026-09-19) ──────────
+-- Two Stripe surfaces that must never be confused: billing_* is what a TENANT
+-- pays SILO (SILO's platform account), stripe_* is what a tenant's OWN
+-- customers pay THEM (Connect Standard, no per-tenant key stored anywhere).
+--
+-- Every table is a read-only MIRROR: no client write policy exists on any of
+-- them, and the SECURITY DEFINER sync functions are revoked from anon AND
+-- authenticated, since Supabase's default privileges grant EXECUTE on new
+-- public functions to both.
+--
+-- Idempotent: create-if-not-exists, create-or-replace, drop-policy/view-if-
+-- exists before each create, an on-conflict-do-update catalog seed, and a
+-- trigger loop that drops before creating. The regression suite applies it
+-- twice on every run for exactly that reason.
+\i migrations/20260919120000_stripe_billing_and_connect.sql
