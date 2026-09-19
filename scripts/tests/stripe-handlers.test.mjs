@@ -20,6 +20,11 @@
 //   STRIPE_HANDLER_MUTATION=invoice-lines-after-create (lines validated after the draft exists)
 //   STRIPE_HANDLER_MUTATION=invoice-trusts-stripe-id (a Stripe id from the body is acted on)
 //   STRIPE_HANDLER_MUTATION=billing-body-price      (the price comes from the request)
+// Added after the cycle-3 review:
+//   STRIPE_HANDLER_MUTATION=webhook-lease-is-200    (a leased delivery is acknowledged)
+//   STRIPE_HANDLER_MUTATION=webhook-ignores-finish  (a failed status write is not noticed)
+//   STRIPE_HANDLER_MUTATION=connect-no-idempotency  (the create carries no key)
+//   STRIPE_HANDLER_MUTATION=billing-trusts-mirror   (Stripe is not consulted)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -58,6 +63,18 @@ const MUTATIONS = {
   'invoice-trusts-stripe-id': (s) => s.replace(
     "  const rowId = String(body?.invoice_id ?? '').trim();",
     "  if (body?.stripe_invoice_id) return String(body.stripe_invoice_id);\n  const rowId = String(body?.invoice_id ?? '').trim();"),
+  'webhook-lease-is-200': (s) => s.replace(
+    "    return reply({ received: false, leased: true }, 409);",
+    "    return reply({ received: true, duplicate: true }, 200);"),
+  'webhook-ignores-finish': (s) => s.replace(
+    /    if \(finishErr\) \{\n      console\.error\('finish failed'[\s\S]*?\n    \}\n/,
+    ''),
+  'connect-no-idempotency': (s) => s.replace(
+    /\}, \{\n          \/\/ The claim covers a crash AFTER Stripe answered[\s\S]*?idempotencyKey: `silo-connect-account-\$\{company\}`,\n        \}\);/,
+    '});'),
+  'billing-trusts-mirror': (s) => s.replace(
+    /  if \(current\?\.stripe_customer_id\) \{\n    const remote = await stripe\.subscriptions\.list\([\s\S]*?\n  \}\n\n  const customer = await customerFor/,
+    '  const customer = await customerFor'),
   'billing-body-price': (s) => s.replace(
     '    line_items: [{ price: plan.stripe_price_id, quantity }],',
     '    line_items: [{ price: body?.price_id ?? plan.stripe_price_id, quantity }],'),
@@ -88,7 +105,7 @@ async function webhookFixture(over = {}) {
       // `in`, not `??`: the case under test IS null, which `??` would replace
       // with the company and quietly assert nothing.
       stripe_resolve_event_company: 'resolve' in over ? over.resolve : COMPANY,
-      stripe_record_webhook_event: 'record' in over ? over.record : true,
+      stripe_record_webhook_event: 'record' in over ? over.record : 'claimed',
       stripe_finish_webhook_event: null,
       stripe_sync_invoice: 'row-1',
       stripe_sync_subscription: null,
@@ -169,7 +186,7 @@ await test('the connected account is passed to Stripe, so the fetch is scoped to
 });
 
 await test('a duplicate delivery is answered 200 and syncs nothing', async () => {
-  const f = await webhookFixture({ record: false });
+  const f = await webhookFixture({ record: 'terminal' });
   const out = await f.request({ headers: { 'stripe-signature': 't=1,v1=x' }, jwt: null });
   assert.equal(out.status, 200);
   assert.equal(out.body.duplicate, true);
@@ -183,6 +200,28 @@ await test('a handler failure answers 500, so Stripe delivers it again', async (
   assert.equal(out.status, 500, 'a 200 here is the bug that loses an invoice.paid for good');
   const finish = f.db.calls.find((c) => c.rpc === 'stripe_finish_webhook_event');
   assert.equal(finish.args.p_status, 'error', 'and the row is left reclaimable');
+});
+
+await test('a LEASED delivery gets a non-2xx, so Stripe comes back', async () => {
+  // The case that loses an event: a handler failed AND its status write failed
+  // in the same outage, leaving the row `received`. Stripe's prompt retry
+  // arrives inside the ten-minute lease. Answering 200 ends the retries on an
+  // event nothing has processed.
+  const f = await webhookFixture({ record: 'leased' });
+  const out = await f.request({ headers: { 'stripe-signature': 't=1,v1=x' }, jwt: null });
+  assert.ok(out.status >= 400, `a lease must not be acknowledged (got ${out.status})`);
+  assert.equal(f.db.calls.some((c) => c.rpc === 'stripe_sync_invoice'), false);
+});
+
+await test('a failed STATUS WRITE answers 500 even when the handler succeeded', async () => {
+  // Without this the row stays `received` with no recorded outcome, Stripe is
+  // told 200, and nothing can reclaim it for ten minutes.
+  const f = await webhookFixture({
+    rpcs: { stripe_finish_webhook_event: { data: null, error: { message: 'db unreachable' } } },
+  });
+  const out = await f.request({ headers: { 'stripe-signature': 't=1,v1=x' }, jwt: null });
+  assert.equal(out.status, 500);
+  assert.match(out.body.error, /status write failed/);
 });
 
 await test('an event nobody owns is recorded unresolved, not guessed at', async () => {
@@ -273,6 +312,18 @@ await test('connect: the account id is recorded BEFORE the mirror write', async 
   assert.ok(note >= 0 && sync >= 0, 'both must happen');
   assert.ok(note < sync, 'recording the account id after the mirror write closes nothing');
   assert.ok(order.indexOf('stripe_release_connect_setup') > sync, 'released only once mirrored');
+});
+
+await test('connect: the create carries a company-scoped idempotency key', async () => {
+  // The claim covers a crash after Stripe answered. This covers the answer
+  // never arriving: without the key, the stale claim is legitimately retaken
+  // ten minutes later and opens a SECOND merchant identity in the client's
+  // Stripe. Keyed on the company, not the attempt, so every attempt collapses
+  // onto one account.
+  const f = await connectFixture();
+  await f.request({ body: { action: 'start' } });
+  const create = f.stripe.calls.find((c) => c.path === 'accounts.create');
+  assert.equal(create.args[1]?.idempotencyKey, `silo-connect-account-${COMPANY}`);
 });
 
 await test('connect: a second tab is refused, and creates nothing', async () => {
@@ -497,8 +548,38 @@ await test('billing: a live subscriber cannot open a second Checkout', async () 
   }
 });
 
+await test('billing: a stale mirror does not permit a second subscription', async () => {
+  // The first Checkout completed at Stripe, its webhook has not landed, the
+  // redirect was lost, and the local row is still the `incomplete` placeholder.
+  // Trusting the mirror here offers Subscribe again and bills twice.
+  const f = await billingFixture({
+    subscription: { status: 'incomplete', stripe_customer_id: 'cus_1' },
+    stripe: { 'subscriptions.list': { data: [{ id: 'sub_live', status: 'active' }] } },
+  });
+  const out = await f.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(out.status, 502);
+  assert.match(out.body.error, /already has a live subscription at Stripe/);
+  assert.equal(f.stripe.pathsCalled().includes('checkout.sessions.create'), false,
+    'Stripe is the record; the mirror is a cache, and this is the read where believing it costs money');
+  assert.ok(f.db.calls.some((c) => c.rpc === 'stripe_sync_subscription'),
+    'and the mirror is reconciled while we are here, so the page stops offering it too');
+});
+
+await test('billing: with the customer known and Stripe clear, Checkout proceeds', async () => {
+  const f = await billingFixture({
+    subscription: { status: 'canceled', stripe_customer_id: 'cus_1' },
+    stripe: { 'subscriptions.list': { data: [{ id: 'sub_old', status: 'canceled' }] } },
+  });
+  const out = await f.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(out.status, 200);
+  assert.ok(f.stripe.pathsCalled().includes('subscriptions.list'), 'Stripe was asked');
+});
+
 await test('billing: a cancelled subscriber may subscribe again', async () => {
-  const f = await billingFixture({ subscription: { status: 'canceled', plan_key: 'growth', stripe_customer_id: 'cus_1' } });
+  const f = await billingFixture({
+    subscription: { status: 'canceled', plan_key: 'growth', stripe_customer_id: 'cus_1' },
+    stripe: { 'subscriptions.list': { data: [] } },
+  });
   const out = await f.request({ body: { action: 'checkout', plan_key: 'growth' } });
   assert.equal(out.status, 200);
   assert.ok(out.body.url.startsWith('https://checkout.stripe.test/'));

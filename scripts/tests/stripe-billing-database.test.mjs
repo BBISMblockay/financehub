@@ -38,6 +38,9 @@
 //   STRIPE_MUTATION=webhook-no-reclaim   (the event claim goes back to insert-or-nothing)
 //   STRIPE_MUTATION=connect-rebind-allowed (a company may be moved to a second Stripe account)
 //   STRIPE_MUTATION=connect-unclaimed    (concurrent first-time setup is unguarded)
+// Added after the cycle-3 review:
+//   STRIPE_MUTATION=lease-reads-terminal (a leased delivery reports as finished)
+//   STRIPE_MUTATION=failed-always-fresh  (a failure that created a draft is re-claimable)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -51,6 +54,7 @@ assert.ok([
   '', 'mirror-writable', 'gate-is-admin', 'stale-wins', 'account-rebind',
   'ledger-amnesia', 'platform-takes-account', 'lines-upserted', 'sync-open-to-anon',
   'placeholder-claims-now', 'webhook-no-reclaim', 'connect-rebind-allowed', 'connect-unclaimed',
+  'lease-reads-terminal', 'failed-always-fresh',
 ].includes(mutation), `Unknown stripe mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -183,6 +187,15 @@ if (mutation === 'connect-unclaimed') {
       "language sql security definer set search_path to 'public'",
       'as $$ select \'claimed\'::text, null::text $$;',
     ].join('\n'));
+}
+if (mutation === 'lease-reads-terminal') {
+  sql = sql.replace(
+    "  if v_status in ('processed', 'ignored') then return 'terminal'; end if;\n  return 'leased';",
+    () => "  return 'terminal';");
+}
+if (mutation === 'failed-always-fresh') {
+  sql = sql.replace("  if r.status = 'failed' and r.stripe_object_id is null then",
+                    () => "  if r.status = 'failed' then");
 }
 if (mutation === 'sync-open-to-anon') {
   sql = sql.replace(
@@ -563,8 +576,8 @@ await test('a webhook delivery is recorded once and only once', async () => {
   const second = await one(
     `select public.stripe_record_webhook_event('evt_1','connect','invoice.paid',$1,$2,now()) as v`,
     [acctA, companyA]);
-  assert.equal(first.v, true, 'the first delivery is handled');
-  assert.equal(second.v, false, "Stripe's retry of the same event is not handled twice");
+  assert.equal(first.v, 'claimed', 'the first delivery is handled');
+  assert.notEqual(second.v, 'claimed', "Stripe's retry of the same event is not handled twice");
 });
 
 await test('a failed delivery can be re-claimed; a handled one never is', async () => {
@@ -577,19 +590,21 @@ await test('a failed delivery can be re-claimed; a handled one never is', async 
     `select public.stripe_record_webhook_event('evt_retry','connect','invoice.paid',$1,$2,now()) as v`,
     [acctA, companyA]);
 
-  assert.equal((await claimEvent()).v, true, 'first delivery is handled');
-  assert.equal((await claimEvent()).v, false, 'a retry while it is in flight is NOT handled twice');
+  assert.equal((await claimEvent()).v, 'claimed', 'first delivery is handled');
+  assert.equal((await claimEvent()).v, 'leased',
+    'a retry while it is in flight is not handled twice -- and is NOT terminal, so the caller '
+    + 'must tell Stripe to come back rather than answering 200');
 
   await q(`select public.stripe_finish_webhook_event('evt_retry','error','boom')`);
-  assert.equal((await claimEvent()).v, true,
+  assert.equal((await claimEvent()).v, 'claimed',
     "after a transient failure, Stripe's retry must actually re-run the handler");
 
   await q(`select public.stripe_finish_webhook_event('evt_retry','processed')`);
-  assert.equal((await claimEvent()).v, false,
+  assert.equal((await claimEvent()).v, 'terminal',
     'a processed event is terminal -- re-running it is the double-processing the claim prevents');
 
   await q(`select public.stripe_finish_webhook_event('evt_retry','ignored')`);
-  assert.equal((await claimEvent()).v, false, 'so is an ignored one');
+  assert.equal((await claimEvent()).v, 'terminal', 'so is an ignored one');
 });
 
 await test('an unresolved event becomes re-claimable, because it can become resolvable', async () => {
@@ -598,7 +613,7 @@ await test('an unresolved event becomes re-claimable, because it can become reso
   const again = await one(
     `select public.stripe_record_webhook_event('evt_unres','connect','invoice.paid',$1,$2,now()) as v`,
     [acctA, companyA]);
-  assert.equal(again.v, true,
+  assert.equal(again.v, 'claimed',
     'a tenant finishing onboarding a minute later makes the same event resolvable');
   const row = await one(`select company_entity_id from public.stripe_webhook_events where stripe_event_id='evt_unres'`);
   assert.equal(row.company_entity_id, companyA, 'the retry may resolve a company the first attempt could not');
@@ -607,11 +622,11 @@ await test('an unresolved event becomes re-claimable, because it can become reso
 await test('a claim stuck in flight is re-claimable only once stale', async () => {
   await one(`select public.stripe_record_webhook_event('evt_stuck','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA]);
   assert.equal((await one(`select public.stripe_record_webhook_event('evt_stuck','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA])).v,
-    false, 'a fresh in-flight claim still blocks');
+    'leased', 'a fresh in-flight claim still blocks -- and says so, so the caller can 4xx/5xx');
   await q(`update public.stripe_webhook_events set received_at = now() - interval '11 minutes'
             where stripe_event_id='evt_stuck'`);
   assert.equal((await one(`select public.stripe_record_webhook_event('evt_stuck','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA])).v,
-    true, 'an edge function killed mid-handler must not claim the event forever');
+    'claimed', 'an edge function killed mid-handler must not claim the event forever');
 });
 
 // ── 7b. One company, one connected account ──────────────────────────────────
@@ -683,6 +698,22 @@ await test('the setup claim table is service-role only', async () => {
   });
 });
 
+await test('a lease is distinguishable from a finished delivery', async () => {
+  // These two were one boolean, and the caller therefore answered 200 to both.
+  // For a finished event that is right; for a lease it ends Stripe's retries
+  // on an event nothing has processed -- which is what happens when a handler
+  // fails AND its status write fails in the same database outage.
+  await one(`select public.stripe_record_webhook_event('evt_lease','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA]);
+  const leased = await one(
+    `select public.stripe_record_webhook_event('evt_lease','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA]);
+  assert.equal(leased.v, 'leased', 'no status was ever written, so nothing is finished');
+
+  await q(`select public.stripe_finish_webhook_event('evt_lease','processed')`);
+  const done = await one(
+    `select public.stripe_record_webhook_event('evt_lease','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA]);
+  assert.equal(done.v, 'terminal');
+});
+
 // ── 8. The idempotency ledger ───────────────────────────────────────────────
 const reqId = randomUUID();
 const claim = (id = reqId, company = companyA, action = 'create_invoice') => one(
@@ -733,6 +764,29 @@ if (mutation === 'ledger-amnesia') {
     /not issued for this company and action/,
     'a create_invoice id replayed as create_customer (it would return a customer id as an invoice)');
 }
+
+await test('a failed request that DID create something is not re-claimable', async () => {
+  // The handler records the Stripe id alongside the failure whenever Stripe had
+  // already made the draft before a later step failed. Re-claiming that hands
+  // the caller a fresh key, so Stripe will not collapse the retry either, and
+  // a second real invoice reaches somebody's customer.
+  const partial = randomUUID();
+  await claim(partial);
+  await q(`select public.stripe_complete_invoice_request($1,'failed','in_half_built','line 3 rejected')`, [partial]);
+
+  const retry = await claim(partial);
+  assert.equal(retry.already, true, 'the draft exists; this request is closed for creation');
+  assert.equal(retry.status, 'failed');
+  assert.equal(retry.stripe_object_id, 'in_half_built',
+    'the caller must be handed the draft to finish or void, never a licence to make another');
+
+  // A failure BEFORE anything was created stays re-claimable -- that is the
+  // case the re-claim exists for.
+  const clean = randomUUID();
+  await claim(clean);
+  await q(`select public.stripe_complete_invoice_request($1,'failed',null,'currency rejected')`, [clean]);
+  assert.equal((await claim(clean)).already, false, 'nothing was created, so retrying is correct');
+});
 
 await test('a pending claim older than ten minutes is re-claimable', async () => {
   // An edge function killed mid-call (the gateway stops a request at 150s)

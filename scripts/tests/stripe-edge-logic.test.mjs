@@ -309,7 +309,14 @@ test('what to do about an outstanding key, by what the server says', () => {
     { action: 'completed', request_id: 'r1', object_id: 'in_9' },
     'the first attempt DID reach Stripe -- show it, never resend');
   assert.deepEqual(api.decide(marker, 'sig-a', 'pending'), { action: 'reuse', request_id: 'r1' });
-  assert.deepEqual(api.decide(marker, 'sig-a', 'failed'), { action: 'fresh' });
+  assert.deepEqual(api.decide(marker, 'sig-a', 'failed'), { action: 'fresh' },
+    'a failure before anything was created leaves the key free');
+  // ...but a failure AFTER Stripe made the draft is not fresh. Treating the two
+  // alike is how a retry minted a new key -- and therefore a new Stripe
+  // idempotency key -- and created a second real invoice.
+  assert.deepEqual(api.decide(marker, 'sig-a', 'failed', 'in_half_built'),
+    { action: 'completed', request_id: 'r1', object_id: 'in_half_built', partial: true },
+    'the draft exists at Stripe; surface it rather than allowing another');
   assert.deepEqual(api.decide(marker, 'sig-a', 'unknown'), { action: 'fresh' },
     'no row means the create never reached the database, so nothing was made');
   assert.deepEqual(api.decide(marker, 'sig-DIFFERENT', 'pending'), { action: 'blocked', request_id: 'r1' },
@@ -333,25 +340,56 @@ test('blocked storage degrades instead of refusing to work', () => {
 
 // ── The mutations CI actually runs ──────────────────────────────────────────
 
+/**
+ * The mutation names a suite declares. The two suites declare them
+ * differently -- the database one as an array passed to assert.ok, the handler
+ * one as the keys of a MUTATIONS object -- so the slice is bounded explicitly
+ * and the keys matched at line starts. A slice that runs off the end of its
+ * block silently collects every quoted string in the file, which is how the
+ * first version of this pin "found" forty mutations including 'paid' and
+ * 'anon-key'.
+ */
+function mutationsDeclaredIn(file, start, end, pattern) {
+  const suite = readFileSync(new URL(file, import.meta.url), 'utf8');
+  const from = suite.indexOf(start);
+  assert.ok(from > 0, `${file}: could not find ${start}`);
+  const to = suite.indexOf(end, from);
+  assert.ok(to > from, `${file}: could not find the end of the mutation list`);
+  const block = suite.slice(from, to);
+  return new Set([...block.matchAll(pattern)].map((m) => m[1]));
+}
+
+function mutationsRunBy(workflow, firstName) {
+  const start = workflow.indexOf(`for m in ${firstName}`);
+  assert.ok(start > 0, `the ${firstName} mutation loop must exist in sync-tests.yml`);
+  const loop = workflow.slice(start, workflow.indexOf('; do', start));
+  return new Set(loop.replace('for m in', '').split(/[\s\\]+/).map((x) => x.trim()).filter(Boolean));
+}
+
+test('every declared HANDLER mutation is executed by the workflow', () => {
+  // Same pin as the database loop below, for the same reason and after the
+  // same mistake: four database mutations once sat in the allowlist and in no
+  // workflow, so the job was green while running eight of twelve. Two lists
+  // that must agree get an assertion, not a habit.
+  const declared = mutationsDeclaredIn(
+    './stripe-handlers.test.mjs', 'const MUTATIONS = {', '\n};', /^ {2}'([a-z][a-z0-9-]+)':/gm);
+  const workflow = readFileSync(new URL('../../.github/workflows/sync-tests.yml', import.meta.url), 'utf8');
+  const run = mutationsRunBy(workflow, 'webhook-trusts-payload');
+  assert.deepEqual([...declared].sort(), [...run].sort(),
+    "the handler suite's mutation list and its workflow loop must be the same set");
+  assert.ok(declared.size >= 12, `expected at least 12 handler mutations, found ${declared.size}`);
+});
+
 test('every declared mutation is executed by the workflow', () => {
   // A mutation that CI never runs is coverage that does not exist. Four of
   // these went three commits without being executed, while the PR body said
   // twelve mutations ran -- the job was green because it was running eight.
   // Asserting the two lists match is cheaper than remembering.
-  const suite = readFileSync(
-    new URL('./stripe-billing-database.test.mjs', import.meta.url), 'utf8');
-  const declaredBlock = suite.slice(
-    suite.indexOf('assert.ok(['), suite.indexOf('].includes(mutation)'));
-  const declared = new Set(
-    [...declaredBlock.matchAll(/'([a-z][a-z-]+)'/g)].map((m) => m[1]));
-
+  const declared = mutationsDeclaredIn(
+    './stripe-billing-database.test.mjs', 'assert.ok([', '].includes(mutation)', /'([a-z][a-z0-9-]+)'/g);
   const workflow = readFileSync(
     new URL('../../.github/workflows/sync-tests.yml', import.meta.url), 'utf8');
-  const start = workflow.indexOf('for m in mirror-writable');
-  assert.ok(start > 0, 'the Stripe mutation loop must exist in sync-tests.yml');
-  const loop = workflow.slice(start, workflow.indexOf('; do', start));
-  const run = new Set(
-    loop.replace('for m in', '').split(/[\s\\]+/).map((x) => x.trim()).filter(Boolean));
+  const run = mutationsRunBy(workflow, 'mirror-writable');
 
   assert.deepEqual([...declared].sort(), [...run].sort(),
     'the suite\'s STRIPE_MUTATION allowlist and the workflow loop must be the same set');

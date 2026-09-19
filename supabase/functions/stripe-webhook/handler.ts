@@ -111,8 +111,10 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
   }
 
   // Insert-first deduplication: the primary key is what makes Stripe's own
-  // retries harmless. A repeat returns 200 without re-handling.
-  const { data: isFirst, error: recordErr } = await db.rpc('stripe_record_webhook_event', {
+  // retries harmless. The claim answers with WHICH of three states it found,
+  // because a duplicate that is genuinely finished and one that is merely
+  // leased by an attempt that never reported back need opposite answers.
+  const { data: claim, error: recordErr } = await db.rpc('stripe_record_webhook_event', {
     p_event_id: event.id,
     p_endpoint: endpoint,
     p_event_type: event.type,
@@ -124,14 +126,31 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
     console.error('record failed', recordErr.message);
     return reply({ error: 'record failed' }, 500);
   }
-  if (!isFirst) return reply({ received: true, duplicate: true });
+  if (claim === 'terminal') return reply({ received: true, duplicate: true });
+  if (claim !== 'claimed') {
+    // `leased`: an attempt holds this event and has not reported back. Saying
+    // 200 here is what loses an event during a database outage -- the handler
+    // failed, its status write failed too, the row stayed `received`, and
+    // Stripe's prompt retry was told the work was done. Non-2xx keeps Stripe
+    // coming back until the lease goes stale and the retry can claim it.
+    return reply({ received: false, leased: true }, 409);
+  }
 
   const finish = async (outcome: string, message?: string) => {
-    await db.rpc('stripe_finish_webhook_event', {
+    const { error: finishErr } = await db.rpc('stripe_finish_webhook_event', {
       p_event_id: event.id,
       p_status: statusFor(outcome),
       p_error: message ?? null,
     });
+    // If the status write itself failed, the row is still `received` and this
+    // delivery's outcome was never recorded. Answering 200 would end Stripe's
+    // retries on a row that nothing can reclaim for ten minutes -- so the
+    // answer is 500 whatever the outcome was, and the retry finds either a
+    // recorded status or a lease that has since expired.
+    if (finishErr) {
+      console.error('finish failed', event.id, finishErr.message);
+      return reply({ error: `status write failed: ${finishErr.message}` }, 500);
+    }
     return reply(
       { received: true, outcome, message: message ?? null },
       shouldAskStripeToRetry(outcome) ? 500 : 200,
@@ -156,9 +175,13 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
     // Handler failures are treated as transient: the usual cause is Stripe or
     // the database being briefly unavailable mid-fetch, and a re-delivery of
     // the same event is safe because every path is an idempotent upsert.
-    await db.rpc('stripe_finish_webhook_event', {
+    // Already answering 500, so a failed status write cannot make the response
+    // wrong -- but it is logged, because it is the difference between a row
+    // the retry can reclaim and one it must wait out.
+    const { error: finishErr } = await db.rpc('stripe_finish_webhook_event', {
       p_event_id: event.id, p_status: 'error', p_error: message,
     });
+    if (finishErr) console.error('finish failed after handler failure', event.id, finishErr.message);
     return reply({ error: message }, 500);
   }
 }

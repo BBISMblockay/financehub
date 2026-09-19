@@ -90,12 +90,20 @@
    *     'unknown' means no row came back — the create never reached the
    *     database, so nothing was made and the key is free.
    *
+   * `objectId` is what makes 'failed' two different situations, and treating
+   * them alike is how a retry made a second real draft: the handler records
+   * the Stripe id alongside the failure whenever Stripe had ALREADY created
+   * the invoice before a later step failed. A fresh key then means a fresh
+   * Stripe idempotency key, so Stripe will not collapse the retry either.
+   *
    * Returns one of:
    *   { action: 'reuse',     request_id }  resume the same attempt
-   *   { action: 'fresh' }                  nothing outstanding; mint a new key
+   *   { action: 'fresh' }                  nothing was created; mint a new key
    *   { action: 'completed', request_id, object_id }
-   *                                        the first attempt DID succeed —
-   *                                        show what it made, do not resend
+   *                                        the attempt DID make something at
+   *                                        Stripe — succeeded, or failed after
+   *                                        the draft existed. Show it; never
+   *                                        resend.
    *   { action: 'blocked',   request_id }  an attempt with a DIFFERENT form is
    *                                        still in flight. Refusing is the
    *                                        point: we cannot tell whether that
@@ -107,7 +115,12 @@
     if (serverStatus === 'succeeded') {
       return { action: 'completed', request_id: marker.request_id, object_id: objectId || null };
     }
-    if (serverStatus === 'failed' || serverStatus === 'unknown') return { action: 'fresh' };
+    if (serverStatus === 'failed') {
+      return objectId
+        ? { action: 'completed', request_id: marker.request_id, object_id: objectId, partial: true }
+        : { action: 'fresh' };
+    }
+    if (serverStatus === 'unknown') return { action: 'fresh' };
     // still pending
     if (marker.signature === currentSignature) {
       return { action: 'reuse', request_id: marker.request_id };

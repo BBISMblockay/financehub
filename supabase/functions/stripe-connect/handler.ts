@@ -139,6 +139,21 @@ export async function handleStripeConnect(req: Request): Promise<Response> {
           // back to a tenant. NEVER read back as authorization -- the client
           // owns this account and can edit its metadata.
           metadata: { silo_company_entity_id: company, silo_created_by: user.id },
+        }, {
+          // The claim covers a crash AFTER Stripe answered. This covers the
+          // answer never arriving: Stripe commits the account, the connection
+          // drops, no id can be recorded, and ten minutes later the stale claim
+          // is legitimately retaken -- creating a SECOND merchant identity in
+          // the client's Stripe, which cannot be deleted from here.
+          //
+          // The key is the COMPANY, not the attempt, because every attempt for
+          // this company must collapse onto the same account. Stripe replays
+          // the original response for 24 hours, which covers the retry window
+          // the ten-minute lease creates. Beyond 24 hours a lost response
+          // could still duplicate, and nothing here can close that: the only
+          // complete fix is Stripe adding metadata search to account listing.
+          // Recorded rather than papered over.
+          idempotencyKey: `silo-connect-account-${company}`,
         });
         accountId = account.id;
 

@@ -665,8 +665,21 @@ begin
 end;
 $$;
 
--- Claim a delivery for handling. TRUE means "you own this one, process it";
--- FALSE means it is already handled or is being handled right now.
+-- Claim a delivery for handling. Returns WHICH of three things happened, not a
+-- boolean -- because the caller's answer to Stripe differs for each, and a
+-- boolean forced the two refusals to share one response:
+--
+--   claimed  -- you own this delivery, process it
+--   leased   -- a `received` row is in flight and not yet stale. NOT terminal:
+--               the caller must answer NON-2xx so Stripe delivers again later.
+--               This is the case the boolean got wrong. A handler that failed
+--               AND whose status write also failed leaves the row `received`;
+--               Stripe's prompt retry then arrived inside the ten-minute lease,
+--               was called a duplicate, and got a 200 -- so Stripe stopped
+--               retrying and the event was lost during exactly the database
+--               outage that asked for the retry.
+--   terminal -- processed or ignored. Answer 200; re-running it is the
+--               double-processing the claim exists to prevent.
 --
 -- Insert-first deduplication of Stripe's retries was the whole of this
 -- function, and it was WRONG IN THE ONE CASE THE RETRY EXISTS FOR. The
@@ -701,12 +714,14 @@ create or replace function public.stripe_record_webhook_event(
   p_company    uuid default null,
   p_created    timestamptz default null
 )
-returns boolean
+returns text
 language plpgsql
 security definer
 set search_path to 'public'
 as $$
-declare v_claimed boolean;
+declare
+  v_claimed boolean;
+  v_status  text;
 begin
   insert into public.stripe_webhook_events
     (stripe_event_id, endpoint, event_type, stripe_account_id, company_entity_id, event_created_at)
@@ -726,7 +741,16 @@ begin
        or (stripe_webhook_events.status = 'received'
            and stripe_webhook_events.received_at < now() - interval '10 minutes');
   get diagnostics v_claimed = row_count;
-  return v_claimed;
+  if v_claimed then return 'claimed'; end if;
+
+  select status into v_status
+    from public.stripe_webhook_events where stripe_event_id = p_event_id;
+
+  -- Only processed and ignored are terminal. Anything else means the row is
+  -- leased by an attempt that has not reported back, and the honest answer to
+  -- Stripe is "come back", not "thanks, done".
+  if v_status in ('processed', 'ignored') then return 'terminal'; end if;
+  return 'leased';
 end;
 $$;
 
@@ -1428,8 +1452,15 @@ begin
     raise exception 'stripe_begin_invoice_request: request % was not issued for this company and action', p_request_id;
   end if;
 
-  -- A failed attempt is re-claimed: nothing was created, so retrying is the
-  -- correct behaviour and blocking it would strand the request id forever.
+  -- A failed attempt is re-claimed ONLY when nothing was created. The handler
+  -- records the Stripe object id alongside the failure whenever Stripe had
+  -- already made something before the later step failed (a bad line, a mirror
+  -- write that did not land), and re-claiming THAT is how a retry creates a
+  -- second real draft for somebody's customer: a fresh claim means a fresh
+  -- Stripe idempotency key, so Stripe will not collapse it either.
+  --
+  -- With an object id recorded, the request is closed as far as creation goes:
+  -- the caller gets the id back and surfaces that draft for review or voiding.
   --
   -- So is a STALE pending one. The happy path and the error path both complete
   -- the row, but an edge function killed mid-call (Supabase's gateway stops a
@@ -1447,11 +1478,18 @@ begin
     return;
   end if;
 
-  if r.status = 'failed' then
+  if r.status = 'failed' and r.stripe_object_id is null then
     update public.stripe_invoice_requests
        set status = 'pending', error_message = null, completed_at = null
      where request_id = p_request_id;
     return query select false, 'pending'::text, null::text;
+    return;
+  end if;
+
+  if r.status = 'failed' then
+    -- Failed, but Stripe made something. Hand it back rather than letting a
+    -- retry make a second one.
+    return query select true, 'failed'::text, r.stripe_object_id;
     return;
   end if;
 

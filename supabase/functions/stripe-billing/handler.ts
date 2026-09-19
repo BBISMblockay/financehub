@@ -27,7 +27,7 @@
 // Secret: STRIPE_SECRET_KEY. Link base: SILO_SITE_URL.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17.7.0';
-import { checkoutDecision } from './subscription-state.mjs';
+import { checkoutDecision, LIVE_STATUSES } from './subscription-state.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -135,12 +135,40 @@ async function checkout(company: string, profile: any, userId: string, body: any
   // rather than only in the page that offers the button.
   const { data: current } = await db
     .from('billing_subscriptions')
-    .select('status, plan_key, stripe_subscription_id')
+    .select('status, plan_key, stripe_subscription_id, stripe_customer_id')
     .eq('company_entity_id', company)
     .maybeSingle();
 
   const decision = checkoutDecision(current);
   if (!decision.allowed) throw new Error(decision.reason);
+
+  // The mirror said no live subscription. That is the answer to trust ONLY if
+  // the mirror is current, and the case where it is not is precisely the
+  // dangerous one: the first Checkout completed at Stripe, its webhook has not
+  // landed, the redirect was lost, and the row is still the `incomplete`
+  // placeholder. Reopening Billing then offers Subscribe again.
+  //
+  // So when a customer already exists, Stripe is asked directly before a
+  // second Checkout is opened. Stripe is the record; the mirror is a cache,
+  // and this is the one read where believing the cache costs money.
+  if (current?.stripe_customer_id) {
+    const remote = await stripe.subscriptions.list({
+      customer: current.stripe_customer_id, status: 'all', limit: 10,
+    });
+    const live = remote.data.find((s) => LIVE_STATUSES.has(s.status));
+    if (live) {
+      // Reconcile while we are here, so the page stops offering it too.
+      await db.rpc('stripe_sync_subscription', {
+        p_company: company,
+        p_payload: JSON.parse(JSON.stringify(live)),
+        p_synced_at: new Date().toISOString(),
+      });
+      throw new Error(
+        'This company already has a live subscription at Stripe (' + live.status + ') that SILO '
+        + 'had not yet recorded — the webhook is still in flight. Nothing was charged twice; '
+        + 'reload Billing to see it, and change the plan through Manage billing.');
+    }
+  }
 
   const customer = await customerFor(company, profile);
 

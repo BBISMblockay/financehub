@@ -588,9 +588,13 @@
     if (prior.action === 'completed') {
       await loadInvoices();
       renderInvoices();
-      setStatus('That invoice was already created — the earlier attempt did reach Stripe, '
-        + 'even though the answer never came back. Showing it rather than making a second one.',
-        'pos', 12000);
+      setStatus(prior.partial
+        ? 'An earlier attempt already created this invoice at Stripe and then failed partway '
+          + 'through. It is in the list below — check it and either finish it there or void it. '
+          + 'Creating it again here would make a second real invoice.'
+        : 'That invoice was already created — the earlier attempt did reach Stripe, '
+          + 'even though the answer never came back. Showing it rather than making a second one.',
+        prior.partial ? 'neg' : 'pos', 16000);
       return;
     }
     if (prior.action === 'blocked') {
@@ -720,6 +724,14 @@
         REQ.clear(reqKey('invoice'));
         setStatus('An invoice you started earlier did reach Stripe, even though the page never '
           + 'got the answer. It is in the list below — do not create it again.', 'pos', 0);
+      } else if (status === 'failed' && object_id) {
+        // Failed, but Stripe had already made the draft. Clearing the marker
+        // silently here is what let the next click mint a new key and create a
+        // second one.
+        REQ.clear(reqKey('invoice'));
+        setStatus('An invoice you started earlier was created at Stripe and then failed partway '
+          + 'through. It is in the list below — finish or void it there rather than creating it '
+          + 'again.', 'neg', 0);
       } else if (status === 'unknown' || status === 'failed') {
         REQ.clear(reqKey('invoice'));
       } else {
