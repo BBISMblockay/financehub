@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo — Create your company</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <style>
+    /* Chrome-less on purpose, like company-picker.html: there is no company
+       yet, so there is no sidebar to render and nothing for SiloChrome to
+       mount against. */
+    .ob-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+               background: var(--bcn-canvas, #f4f5f7); padding: 24px; }
+    .ob-card { width: 100%; max-width: 520px; background: var(--bcn-surface, #fff);
+               border: 1px solid var(--bcn-border, #e2e5ea); border-radius: 14px;
+               padding: 32px 28px; box-shadow: 0 8px 28px rgba(2,6,23,.07); }
+    .ob-logo { width: 40px; height: 40px; background: var(--bcn-band, #0f1117); border-radius: 10px;
+               display: flex; align-items: center; justify-content: center; color: #fff;
+               font-weight: 700; font-size: 18px; margin-bottom: 20px; }
+    .ob-title { font-size: 19px; font-weight: 600; color: var(--bcn-ink, #111827); margin-bottom: 4px; }
+    .ob-sub { font-size: 13px; color: var(--bcn-ink-3, #6b7280); margin-bottom: 22px; line-height: 1.5; }
+    .ob-field { margin-bottom: 18px; }
+    .ob-field .bcn-label { display: block; margin-bottom: 6px; }
+    .ob-hint { font-size: 12px; color: var(--bcn-ink-3, #6b7280); margin-top: 6px; line-height: 1.45; }
+    .ob-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 520px) { .ob-row { grid-template-columns: 1fr; } }
+    .ob-actions { margin-top: 24px; display: flex; gap: 10px; align-items: center; }
+    .ob-invited { font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+                  background: var(--bcn-canvas, #f4f5f7); border: 1px solid var(--bcn-border, #e2e5ea);
+                  border-radius: 8px; padding: 8px 10px; margin-bottom: 20px; color: var(--bcn-ink-2, #374151); }
+    .ob-tz-warn { font-size: 12px; line-height: 1.5; margin-top: 8px; padding: 10px 12px;
+                  border-radius: 8px; border: 1px solid var(--bcn-warn, #d97706);
+                  color: var(--bcn-ink-2, #374151); background: rgba(217,119,6,.06); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="ob-wrap">
+    <div class="ob-card">
+      <div class="ob-logo">S</div>
+      <div class="ob-title" id="obTitle">Create your company</div>
+      <div class="ob-sub" id="obSub">Setting up a new SILO workspace takes about a minute.</div>
+
+      <div class="bcn-status" id="status" hidden></div>
+      <div class="ob-invited" id="invitedAs" hidden></div>
+
+      <form id="obForm" hidden>
+        <div class="ob-field">
+          <label class="bcn-label" for="companyName">Company name</label>
+          <input class="bcn-field" id="companyName" name="companyName" type="text"
+                 autocomplete="organization" maxlength="120" required />
+          <div class="ob-hint">This is what everyone on your team will see in the sidebar. You can rename it later.</div>
+        </div>
+
+        <div class="ob-row">
+          <div class="ob-field">
+            <label class="bcn-label" for="timezone">Business timezone</label>
+            <select class="bcn-field" id="timezone" name="timezone"></select>
+            <div class="ob-hint">Decides what SILO calls &ldquo;yesterday&rdquo; in every daily report.</div>
+          </div>
+          <div class="ob-field">
+            <label class="bcn-label" for="currency">Reporting currency</label>
+            <select class="bcn-field bcn-field--mono" id="currency" name="currency">
+              <option value="USD">USD — US Dollar</option>
+              <option value="CAD">CAD — Canadian Dollar</option>
+              <option value="GBP">GBP — Pound Sterling</option>
+              <option value="EUR">EUR — Euro</option>
+              <option value="AUD">AUD — Australian Dollar</option>
+            </select>
+            <div class="ob-hint">Checked against QuickBooks when you connect your books.</div>
+          </div>
+        </div>
+
+        <div class="ob-tz-warn" id="tzWarn" hidden></div>
+
+        <div class="ob-actions">
+          <button class="bcn-btn bcn-btn--primary" id="btnCreate" type="submit">Create company</button>
+          <span class="ob-hint" id="busyHint" hidden>Setting things up&hellip;</span>
+        </div>
+      </form>
+
+      <!-- Recovery, NOT creation. It sits outside #obForm on purpose: the form
+           is the create-a-company path and is gated on a supported timezone,
+           while continuing to a company that already exists is gated on
+           nothing but the invite. Same reason the handler runs before the
+           timezone load. -->
+      <div class="ob-actions" id="obResume" hidden>
+        <button class="bcn-btn bcn-btn--primary" id="btnResume" type="button">Continue to your company</button>
+        <span class="ob-hint" id="resumeHint" hidden>Taking you there&hellip;</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (async function () {
+    const cfg = window.__SILO_CONFIG__ || {};
+    const db = (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY)
+      ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY)
+      : null;
+
+    const $ = (id) => document.getElementById(id);
+    const form = $('obForm');
+
+    function setStatus(msg, type = 'info', ms = 0) {
+      const el = $('status');
+      el.className = `bcn-status bcn-status--${type}`;
+      el.textContent = msg;
+      el.hidden = false;
+      if (ms) setTimeout(() => { el.hidden = true; }, ms);
+    }
+
+    if (!db) { setStatus('Missing Supabase config.', 'neg'); return; }
+
+    const token = new URLSearchParams(window.location.search).get('invite') || '';
+    if (!token) {
+      $('obTitle').textContent = 'You need an invitation';
+      $('obSub').textContent = '';
+      setStatus('Creating a company in SILO is invitation-only right now. Ask for an invite link and open it here.', 'info');
+      return;
+    }
+
+    // Signed in? The invite survives the round trip through login, so the user
+    // lands back here with the token still on the URL.
+    const { data: sess } = await db.auth.getSession();
+    if (!sess?.session?.user) {
+      const back = '/v2/company-onboarding.html?invite=' + encodeURIComponent(token);
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(back);
+      return;
+    }
+
+    const { data: peek, error: peekErr } = await db.rpc('peek_platform_invite', { p_token: token });
+    if (peekErr) { setStatus('Could not check that invite: ' + peekErr.message, 'neg'); return; }
+    if (!peek || peek.ok !== true) {
+      $('obTitle').textContent = 'That invite is no longer valid';
+      $('obSub').textContent = '';
+      setStatus('This invitation has expired or been revoked. Ask for a new link.', 'neg');
+      return;
+    }
+
+    const myEmail = (sess.session.user.email || '').toLowerCase();
+    if (myEmail !== String(peek.email || '').toLowerCase()) {
+      // Say which address it IS for. "Wrong account" with no name sends people
+      // round the login page guessing.
+      $('obTitle').textContent = 'Signed in as the wrong account';
+      $('obSub').textContent = '';
+      setStatus(`This invitation is for ${peek.email}, but you are signed in as ${myEmail}. Sign out and sign back in as ${peek.email}.`, 'neg');
+      return;
+    }
+
+    $('invitedAs').textContent = 'Invitation for ' + peek.email;
+    $('invitedAs').hidden = false;
+
+    // Cache it the way login.html does, so the first page paints with the right
+    // company instead of falling back to the standard menu. Shared by both
+    // success paths, because redeem_platform_invite deliberately returns the
+    // SAME KEYS on its retry branch and two callers reading one shape should
+    // not be two copies of this.
+    function enterCompany(data) {
+      const co = { id: data.entity_id, title: data.company, entity_key: data.entity_key, meta: {} };
+      if (cfg.setActiveCompany) cfg.setActiveCompany(co);
+      else sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(co));
+      window.location.href = '/v2/setup-checklist.html?welcome=1';
+    }
+
+    // ── An already-created company is RECOVERED, never re-created ────────────
+    // This runs before the timezone load, and that ordering is the whole fix.
+    // Zero supported timezones pauses CREATION -- a new company would have no
+    // reliable day boundary -- but a company that already exists already has
+    // one, chosen when it was founded. Handling the accepted invite after that
+    // gate meant the exact sequence the retry path exists for (company commits,
+    // response is lost, founder reopens the link) hit "Company creation is
+    // paused" for a company that was already sitting there, with no way through.
+    //
+    // The peek is NOT the authorization. It decides which screen to show; the
+    // server decides whether to hand the company over, and re-runs the account,
+    // email and membership checks when it does. p_company / p_timezone /
+    // p_currency are null because the retry branch returns before it validates
+    // any of them -- it is handing back a company that already has its own
+    // settings, so values from this page would be describing a creation that is
+    // not happening. That ordering is pinned by a regression in
+    // scripts/tests/company-onboarding-database.test.mjs, since this page now
+    // depends on it.
+    if (peek.already_redeemed) {
+      $('obTitle').textContent = 'Your company is already set up';
+      $('obSub').textContent = '';
+      setStatus('This invitation has already been used. Continue to the company it created.', 'info');
+      $('obResume').hidden = false;
+      let resuming = false;
+      $('btnResume').addEventListener('click', async () => {
+        if (resuming) return;
+        resuming = true;
+        $('btnResume').disabled = true;
+        $('resumeHint').hidden = false;
+        try {
+          const { data, error } = await db.rpc('redeem_platform_invite', {
+            p_token: token, p_company: null, p_timezone: null, p_currency: null
+          });
+          if (error) throw error;
+          if (!data || data.ok !== true) throw new Error('Could not open that company.');
+          enterCompany(data);
+        } catch (err) {
+          setStatus(err?.message || 'Could not open that company.', 'neg');
+          resuming = false;
+          $('btnResume').disabled = false;
+          $('resumeHint').hidden = true;
+        }
+      });
+      return;
+    }
+
+    // Timezones come from the DB, so the list offered can never drift from the
+    // list redeem_platform_invite will accept.
+    const tzSel = $('timezone');
+    const { data: zones, error: tzErr } = await db
+      .from('supported_business_timezones')
+      .select('tz_name, label, is_supported, note')
+      .order('label');
+    if (tzErr) { setStatus('Could not load timezones: ' + tzErr.message, 'neg'); return; }
+
+    const supported = (zones || []).filter(z => z.is_supported);
+    supported.forEach(z => {
+      const o = document.createElement('option');
+      o.value = z.tz_name; o.textContent = z.label;
+      tzSel.appendChild(o);
+    });
+
+    // Zero supported timezones is a REAL state, not a defensive branch: marking
+    // the last row unsupported is exactly the lever that table exists to
+    // provide. Without this the page rendered an empty select, let the founder
+    // fill in everything else, and failed at submit with "business timezone is
+    // required" -- which names the field and not the reason. The page's whole
+    // claim is that it never offers what the RPC will reject; offering nothing
+    // and still accepting a submit breaks that claim in the other direction.
+    if (!supported.length) {
+      $('obTitle').textContent = 'Company creation is paused';
+      $('obSub').textContent = '';
+      setStatus(
+        'No business timezone is currently supported end to end, so a company created now would have no ' +
+        'reliable day boundary — every daily report would be anchored to something nobody had chosen. ' +
+        'This is a configuration state, not a fault with your invitation: the link still works once a ' +
+        'timezone is marked supported again.',
+        'neg');
+      return;
+    }
+
+    // The refusal, said BEFORE the form is submitted rather than as an error
+    // afterwards. If Pacific is the only supported zone there is no choice to
+    // make, so explain why the control is not a choice.
+    //
+    // Built with textContent rather than innerHTML: the label is a DB value,
+    // and the old version escaped `<` by hand and nothing else. That table is
+    // migration-writable only, so this was never reachable -- but hand-rolled
+    // partial escaping is the shape of the bug, and the page escapes every
+    // other DB value properly.
+    if (supported.length === 1) {
+      tzSel.disabled = true;
+      const warn = $('tzWarn');
+      warn.textContent = '';
+      const zone = document.createElement('strong');
+      zone.textContent = supported[0].label;
+      warn.append(
+        'SILO anchors daily reporting to ', zone, ' only, for now. Ten database functions and seven ' +
+        'sync scripts still compute the day boundary in Pacific time, so a different timezone would be ' +
+        'stored and then ignored \u2014 every daily figure would stay anchored to Pacific while this ' +
+        'setting claimed otherwise. If your business runs on another timezone, say so before you go ' +
+        'further: this needs finishing first.');
+      warn.hidden = false;
+    }
+
+    if (peek.suggested_company) $('companyName').value = peek.suggested_company;
+    form.hidden = false;
+
+
+    let submitting = false;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (submitting) return;                 // the client half of the retry story
+      submitting = true;
+      $('btnCreate').disabled = true;
+      $('busyHint').hidden = false;
+      $('status').hidden = true;
+
+      try {
+        const { data, error } = await db.rpc('redeem_platform_invite', {
+          p_token: token,
+          p_company: $('companyName').value.trim(),
+          p_timezone: tzSel.value,
+          p_currency: $('currency').value
+        });
+        if (error) throw error;
+        if (!data || data.ok !== true) throw new Error('Company was not created.');
+
+        enterCompany(data);
+      } catch (err) {
+        setStatus(err?.message || 'Could not create the company.', 'neg');
+        submitting = false;
+        $('btnCreate').disabled = false;
+        $('busyHint').hidden = true;
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

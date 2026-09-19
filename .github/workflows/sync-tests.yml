@@ -32,6 +32,8 @@ on:
       - '.github/workflows/redo-marketing-probe.yml'
       - '.github/workflows/mailroom-backfill.yml'
       - 'supabase/functions/shopify-oauth-start/**'
+      - 'supabase/migrations/*company_onboarding.sql'
+      - 'pages/login.html'
       # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
       # function directory, so a change there must run these tests. Without
       # this path the allowlist could be edited and nothing would run.
@@ -300,6 +302,57 @@ jobs:
           npx --yes deno@2.9.6 check --config supabase/functions/plaid-scheduled-sync/deno.json supabase/functions/plaid-scheduled-sync/index.ts
           npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
 
+  onboarding-concurrency:
+    name: Onboarding concurrency (real PostgreSQL)
+    runs-on: ubuntu-latest
+    # PGlite is a SINGLE connection, so the finance-database job above can prove
+    # a guard refuses a bad state but never that two sessions racing cannot
+    # assemble that state between them. Both of the onboarding migration's
+    # concurrency claims -- the per-company advisory lock across the two
+    # currency guards, and the FOR UPDATE that makes the disabled-account
+    # refusal authoritative -- are only testable with two real connections.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      SILO_PG_CONN: postgresql://postgres@127.0.0.1:5432/postgres
+      # No server, no psql, no silent green. See skip() in the suite.
+      SILO_PG_REQUIRED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Interleave two sessions against the committed migration
+        run: node scripts/tests/onboarding-concurrency.test.mjs
+
+      # A concurrency test that cannot fail is the most expensive kind of
+      # reassurance: the interleaving still happens, the guards are simply not
+      # what stops it. These remove one lock each and REQUIRE the suite to go
+      # red, so a future edit that neuters one cannot leave this job green.
+      # Measured 2026-09-18, each producing the damage its lock prevents:
+      # books seeded USD under a CAD declaration; an administrator's
+      # deactivation undone by the redeem it raced; two companies founded from
+      # one invite.
+      - name: Each lock, removed one at a time, must break it
+        run: |
+          set -u
+          for m in currency-unlocked redeem-unlocked invite-unlocked; do
+            echo "--- $m ---"
+            if ONBOARDING_RACE_MUTATION="$m" node scripts/tests/onboarding-concurrency.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
   finance-database:
     name: Finance database regressions
     runs-on: ubuntu-latest
@@ -330,6 +383,16 @@ jobs:
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs
+
+      # Founding a NEW tenant. The gate is handle_new_user, not login.html:
+      # signUp is a public endpoint and the anon key is published, so the test
+      # signs a user up WITH org_name in the metadata and asserts no company
+      # appears. Also pins the idempotent retry (a lost response must not found
+      # a second company), the non-Pacific refusal, and the isolation of the
+      # new owner in both directions. Mutations: ONBOARDING_MUTATION=
+      # signup-founds-org | retry-creates-new | tz-anything-goes | invite-any-admin
+      - name: Execute company-onboarding regressions
+        run: node scripts/tests/company-onboarding-database.test.mjs
 
       # SECURITY DEFINER functions bypass RLS entirely, so their EXECUTE grant
       # is the whole tenant boundary -- and Supabase grants EXECUTE to anon by

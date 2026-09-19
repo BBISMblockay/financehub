@@ -1233,3 +1233,165 @@ free.
 Tests: `scripts/tests/forecast-method-competition.test.mjs` (real PostgreSQL via
 PGlite, thirteen mutations, including the whole buy report run as a signed-in
 user and held to an equality against the governed formulas).
+
+## Guided company onboarding (`20260918120000`)
+
+Founding a new tenant, invite-gated. Read the migration header first — it
+records why each piece is shaped the way it is. The four decisions worth
+knowing before touching this:
+
+**The gate is `handle_new_user`, not the login form.** Company creation used to
+run off an `org_name` key in the signup metadata. `signUp` is a public Supabase
+Auth endpoint and the anon key ships in `pages/config.js` by design, so that key
+was caller-controlled input — anyone could found a tenant. The branch is gone;
+`pages/login.html` lost its organization field in the same change, but that is
+cosmetic and the migration is the fix.
+
+**`platform_admins`, not `owner_admin`.** Founding spends this project's
+Supabase and Anthropic quota, so it is a platform act rather than a company one.
+28 of 29 Baseballism profiles are membership `admin`; gating on `is_admin()`
+would have handed company creation to nearly everyone, the same blast radius
+that made `current_user_can_manage_comp_requests()` diverge from the AP gate. No
+RPC adds a platform admin — it takes a migration or a service-role write.
+
+**The redeem is idempotent, not merely atomic.** One `SECURITY DEFINER`
+function makes it atomic for free. What atomicity does not cover is a committed
+row with a lost response, and a user who presses the button again. The invite
+stores `created_company_id`, and a repeat redeem by the same user returns that
+company with `repeated = true`. The token is the idempotency key. A repeat
+naming a different company still returns the original.
+
+**A refused timezone beats a stored one nothing honours.**
+`silo_business_today()` / `_yesterday()` now read
+`company_settings.business_timezone` — the change 20260904280000 said was
+needed. Ten further public functions and seven files under `scripts/` and `v2/`
+still hardcode `America/Los_Angeles` (measured 2026-09-18), so
+`supported_business_timezones` holds one row and onboarding refuses anything
+else, naming what does not honour it. Finishing the sweep is an INSERT there
+plus a test.
+
+Also: `company_settings.default_currency` (declared) is reconciled against
+`accounting_settings.base_currency` (measured from QuickBooks' trial balance) by
+a trigger on **each** table that raises on divergence — one side alone is not an
+invariant, since a trigger on `accounting_settings` never fires when only
+`company_settings` is edited — the row cannot merge into
+`accounting_settings`, whose `qbo_connection_id` is NOT NULL. And
+`create_entity_with_owner` is dropped: it inserted membership role `'owner'`,
+which the CHECK has forbidden since the multi-tenant work, so every call failed
+`23514` and rolled back its own entity insert. Measured failing on production
+before removal; its `verify_v2_schema.sql` anon-allowlist entry went with it.
+
+Tests: `scripts/tests/company-onboarding-database.test.mjs` (real PostgreSQL via
+PGlite, 47 assertions, thirteen mutations), which also executes the four new
+`verify_v2_schema.sql` checks and then breaks each guard to confirm they can go
+red.
+
+Plus `scripts/tests/onboarding-concurrency.test.mjs`, which is a separate file
+for a structural reason rather than a tidiness one: **PGlite is a single
+connection.** It can prove a guard refuses a bad state, and it can never prove
+that two sessions racing cannot assemble that state between them — which is the
+shape of all three concurrency guarantees here (the invite row lock, the
+profiles `FOR UPDATE`, the per-company currency lock). That suite drives two
+real `psql` sessions and a control session reading `pg_stat_activity`, so the
+block is observed in the server's own wait state rather than inferred from
+timing. Measured 2026-09-18, each lock removed in turn: without the currency
+lock a company commits with its books in USD under a CAD declaration; without
+the profiles lock an administrator's deactivation is undone by the redeem it
+raced; without the invite lock one invite founds **two** companies. CI runs it
+against a `postgres:16` service and requires all three mutations to go red.
+
+Do not add a concurrency assertion to the PGlite file. It would exercise the
+sequential case and be credited as coverage of the concurrent one.
+
+
+### Cycle-1 review corrections (PR #724)
+
+Five findings, all valid, all fixed in one batch. Three are worth carrying
+forward as rules rather than as changelog:
+
+- **Founding must not write the global profile fields for a user who already
+  belongs to another org.** `profiles.role`/`department` are the legacy GLOBAL
+  fields, and `can_manage_journal_entries()` admits
+  `p.department in ('finance','exec')` on its own — no membership check. So
+  `department = 'exec'` written while founding company B is journal-entry
+  authority inside company A. `accept_org_invite` already had the guard
+  (`v_has_other_org`); this now matches it. Per-company authority comes from
+  the membership row.
+- **`create or replace` RETAINS existing grants.** Production grants `anon`
+  EXECUTE on `silo_business_today()`/`_yesterday()`. Marking them SECURITY
+  DEFINER would therefore have created two anon-reachable definer functions —
+  and this migration's own new "Definer functions reachable by anon" check
+  would have gone CRITICAL the moment it was applied. They stay INVOKER (only
+  `silo_business_timezone()` needs definer rights) and lose the anon grant.
+- **A fixture looser than production reports violations the database does not
+  have.** `onboarding-db-bootstrap.sql` now mirrors production's real anon
+  grants: kept on `can_manage_journal_entries` / `handle_new_user` /
+  `is_entity_member` (all allowlisted), revoked on `active_company_id` /
+  `is_exec_or_owner` / `set_active_company`. Same correction `20260918000000`'s
+  fixture needed.
+
+The two browser-side findings — `supabase-js` resolving `{ data: null, error }`
+rather than throwing, and the emailed auth callbacks dropping `next` — are
+covered by `v2/tests/unit/onboarding-callbacks.test.js`.
+
+
+### Cycle-2 review corrections (PR #724)
+
+Two findings, both valid, both fixed.
+
+- **`profiles.is_active` is global too, and the cycle-1 fix stopped one column
+  short.** Preserving `role`/`department` for a multi-org founder while still
+  writing `is_active = true` left the same escalation in its most direct form:
+  deactivation does not remove memberships, so an account disabled by company A
+  could redeem a legitimate company-B founding invite and have A's
+  deactivation undone — every authorization helper gates on that one column.
+  A disabled account is now refused outright, and `is_active` is preserved for
+  a multi-org founder as well. Refusing beats founding-without-reactivating: an
+  account somebody disabled should not be acquiring tenants either, and a
+  silent half-success is the harder state to reason about later.
+- **Two guards are not an invariant unless they serialise.** Starting from
+  declared USD with no books, one transaction can move the declaration to CAD
+  and read "no books", while another inserts USD books and reads the
+  still-committed USD declaration; both BEFORE triggers pass and both commit.
+  Both now take `pg_advisory_xact_lock` on one shared per-company key before
+  reading. The interleaving is NOT demonstrated by the suite — PGlite is
+  single-connection — so the suite asserts both functions still take the lock,
+  on the same key, and the migration header says plainly that the race is
+  argued rather than measured.
+
+
+### Third-cycle corrections (PR #724, self-directed)
+
+The cycle-2 fixes were themselves unreviewed — the automated budget was spent
+producing them — so they got an explicit adversarial pass. Five more findings,
+three of which no earlier cycle had raised:
+
+- **A guard on UPDATE only is not a guard.** `check_declared_currency_matches_books`
+  fired `before update of default_currency`, so an INSERT contradicting existing
+  books was accepted — and that is the state EVERY pre-migration company is in:
+  `accounting_settings` already carries a currency, `company_settings` has no row,
+  and this migration backfills none. The first declaration written for such a
+  company is an INSERT, the one path the invariant was not watching. Now
+  `before insert or update`, keyed off `TG_OP`.
+- **A two-layer guard can hide its inner layer from the tests.** With the
+  disabled-account refusal in place, no disabled account reaches the profile
+  upsert, so the assertion about what that upsert preserves could not fail —
+  coverage in name only. The inner layer is now exercised under
+  `ONBOARDING_MUTATION=refusal-only-removed`, and the test runs BEFORE the
+  refusal test so a mutation stripping the outer layer reaches it. Each layer
+  now has a mutation that fails its own assertion.
+- **Time-of-check/time-of-use on `is_active`.** The read took no lock while the
+  upsert's fallback arm wrote a literal `true`, so a concurrent
+  `admin_update_profile(..., is_active => false)` was undone. That is the
+  unclaimed-profile branch — precisely what any admin may edit. The read is now
+  `for update`.
+- The refusal moved above the idempotent-retry branch, which bypassed it (no
+  escalation — every helper gates on `is_active` — but the RPC should give a
+  disabled account one answer).
+- Advisory keys use `hashtextextended(..., 0)` like `20260912052930`'s Plaid
+  locks, not `hashtext` (int4) crowding the same shared space at a quarter of
+  its width.
+
+Also removed: the expired-invite `status = 'expired'` UPDATE, which the `raise`
+on the next line rolled back. It read like bookkeeping and never persisted;
+expiry is derived from `expires_at` everywhere it is shown.

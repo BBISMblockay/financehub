@@ -288,28 +288,20 @@
               <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
                 <div>
                   <div class="text-base font-bold tracking-tight">Create your account</div>
-                  <div id="signupSub" class="text-sm text-slate-500 mt-0.5">This sets up a new organization in SILO with you as its owner</div>
+                  <div id="signupSub" class="text-sm text-slate-500 mt-0.5">Accounts are created here; an admin then invites you into their organization</div>
                 </div>
                 <button id="btnCloseSignup" class="rounded-lg h-8 w-8 flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label="Close">✕</button>
               </div>
 
               <form id="formSignup" class="p-6 space-y-4">
-                <div id="orgField">
-                  <label class="block text-sm font-semibold text-slate-700 mb-1.5">Organization name</label>
-                  <div class="relative">
-                    <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15a.75.75 0 0 1 .75.75V21h-16.5V3.75A.75.75 0 0 1 4.5 3ZM9 7.5h1.5M9 11.25h1.5M9 15h1.5m4.5-7.5H15m-.75 3.75H15M14.25 15H15"/></svg>
-                    <input id="org3" type="text" autocomplete="organization"
-                           class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
-                           placeholder="your company" required />
-                  </div>
-                  <div class="text-xs text-slate-400 mt-1.5">Joining an existing organization? Don’t create an account — ask an admin there to invite you.</div>
-                </div>
-                <div id="foundingConfirm" class="text-xs text-slate-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-                  <label class="flex items-start gap-2 cursor-pointer">
-                    <input id="confirmNewOrg" type="checkbox" class="mt-0.5" />
-                    <span>I'm intentionally starting a <b>brand-new organization</b> in SILO, separate from any existing company. <b>If you work somewhere that already uses SILO, stop here</b> — ask an admin there to send you an invite link instead.</span>
-                  </label>
-                </div>
+                <!-- The organization-name field and its "I am founding a new org"
+                     confirmation were removed on 2026-09-18. Creating an account no
+                     longer founds a company: `signUp` is a public endpoint and the
+                     anon key is published by design, so an org_name posted here was
+                     caller-controlled input rather than a decision SILO made.
+                     handle_new_user ignores it now, and founding runs through an
+                     invitation (redeem_platform_invite) instead. See
+                     supabase/migrations/20260918120000_company_onboarding.sql. -->
                 <div>
                   <label class="block text-sm font-semibold text-slate-700 mb-1.5">Name</label>
                   <div class="relative">
@@ -473,6 +465,29 @@
       // user's own `default_page` preference — both are just strings by the
       // time they reach here, so neither gets to become an open redirect or
       // a login loop.
+      // Every emailed auth callback comes back to THIS page, so whatever the
+      // user was heading for has to survive the round trip. The org-invite
+      // token did; `next` did not -- and a company-creation invite lives
+      // INSIDE `next` (/v2/company-onboarding.html?invite=TOKEN), so a founder
+      // who confirmed their email landed on a bare login page, with no
+      // membership and no destination, and hit the "isn't part of an
+      // organization" stop instead of the company creation they were invited
+      // to. Reopening the original link recovered it, but the signup path the
+      // invite advertises was broken.
+      //
+      // safeNextPath() has already rejected anything that is not a same-origin
+      // path, so this cannot become an open redirect.
+      function authCallbackUrl() {
+        const base = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams();
+        const invite = getInviteToken();
+        if (invite) params.set("invite", invite);
+        const next = safeNextPath();
+        if (next) params.set("next", next);
+        const qs = params.toString();
+        return qs ? base + "?" + qs : base;
+      }
+
       function isSafeInternalPath(raw) {
         if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return false;
         if (raw.startsWith("/pages/login")) return false;
@@ -504,9 +519,15 @@
           .eq('entity.entity_type', 'company');
 
         if (error || !data || data.length === 0) {
-          // No company membership found — clear any stale value and continue
+          // No company membership found — clear any stale value and continue.
+          // 'no-company' and 'could not tell' are returned as DIFFERENT values:
+          // resolveCompany used to collapse a failed query and an empty result
+          // into one null, which was harmless while every route ignored it, but
+          // the caller now shows a dead-end message on "no company" and must
+          // not show it to an existing user whose membership query merely
+          // errored.
           (window.__SILO_CONFIG__?.setActiveCompany || (() => {}))(null);
-          return null;
+          return error ? 'unknown' : null;
         }
 
         if (data.length === 1) {
@@ -567,7 +588,31 @@
         const profile = await getUserProfile(userId);
         const result = await resolveCompany(userId);
         if (result === 'redirect') return; // picker handles the rest
-        const route = safeNextPath() || getRouteFromProfile(profile);
+
+        // A signed-in account that belongs to NO company is a real state since
+        // 2026-09-18: creating an account no longer founds one (see
+        // 20260918120000). Routing such a user into the app gives them a
+        // rendered sidebar over pages that are all empty, with nothing saying
+        // why -- every query is scoped by active_company_id(), which is NULL
+        // for them. A ?next= still wins, because that is how the company
+        // creation invite carries someone to /v2/company-onboarding.html.
+        //
+        // Only for a DEFINITE no-company answer: `unknown` means the membership
+        // query failed, and an existing user should not be told they have no
+        // organization because of a transient error.
+        const next = safeNextPath();
+        if (!next && result === null) {
+          REDIRECT_STARTED = false;
+          showStatus(
+            "You're signed in, but this account isn't part of an organization yet. " +
+            "If a teammate invited you, open their invite link. If you were sent a link to " +
+            "create a company, open that link instead.",
+            "info"
+          );
+          return;
+        }
+
+        const route = next || getRouteFromProfile(profile);
         window.location.href = route;
       }
 
@@ -623,12 +668,6 @@
       // - Existing account → normal sign-in with the email prefilled; the
       //   invite is redeemed after auth in resolveAndRedirect.
       if (getInviteToken()) {
-        const orgField = document.getElementById("orgField");
-        const org3 = document.getElementById("org3");
-        if (orgField) orgField.style.display = "none";
-        if (org3) org3.required = false;
-        const foundingConfirm = document.getElementById("foundingConfirm");
-        if (foundingConfirm) foundingConfirm.style.display = "none";
         const sub = document.getElementById("signupSub");
         if (sub) sub.textContent = "You're joining an existing organization by invite";
 
@@ -755,7 +794,7 @@
 
         setLoading(btnMagic, true, "Email me a sign-in link");
         try {
-          const redirectTo = window.location.origin + window.location.pathname;
+          const redirectTo = authCallbackUrl();
 
           const { error } = await supabaseClient.auth.signInWithOtp({
             email,
@@ -778,29 +817,28 @@
         clearStatus();
 
         const invited = !!getInviteToken();
-        const orgName = document.getElementById("org3").value.trim();
         const name = document.getElementById("name3").value.trim();
         const email = document.getElementById("email3").value.trim();
         const password = document.getElementById("password3").value;
 
-        if (!invited && !orgName) return showStatus("Organization name is required — creating an account starts a new organization. To join an existing one, ask an admin to invite you.", "error");
-        if (!invited && !document.getElementById("confirmNewOrg")?.checked) return showStatus("Tick the confirmation box first — or, if you're joining an existing organization, close this and ask an admin for an invite link instead.", "error");
         if (!email || !password) return showStatus("Email and password are required.", "error");
         if (password.length < 6) return showStatus("Password must be at least 6 characters.", "error");
 
         setLoading(btnSignup, true, "Create account");
         try {
-          // Carry the invite through the email-confirmation hop so the
-          // token is still there when the user lands back on this page.
-          const redirectTo = window.location.origin + window.location.pathname +
-            (invited ? "?invite=" + encodeURIComponent(getInviteToken()) : "");
+          // Carry the invite AND the destination through the email-confirmation
+          // hop, so both are still there when the user lands back on this page.
+          const redirectTo = authCallbackUrl();
 
           const { data, error } = await supabaseClient.auth.signUp({
             email,
             password,
             options: {
               emailRedirectTo: redirectTo,
-              data: invited ? { name } : { name, org_name: orgName }
+              // No org_name: an account never founds a company. The trigger
+              // ignores the key either way, so an old cached copy of this page
+              // still signs people up rather than failing at them.
+              data: { name }
             }
           });
 
@@ -854,7 +892,7 @@
         if (!email) return showStatus("Enter your email in the Email field first.", "error");
 
         try {
-          const redirectTo = window.location.origin + window.location.pathname;
+          const redirectTo = authCallbackUrl();
           const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
           if (error) throw error;
           showStatus("Password reset email sent.", "success");

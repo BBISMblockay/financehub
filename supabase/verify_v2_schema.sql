@@ -4009,7 +4009,7 @@ select 'Definer functions reachable by anon' as check_name,
        'ad_platforms_expected','audit_revenue_projections','can_access_entity',
        'can_approve_seo_tasks','can_manage_journal_entries',
        'check_publication_after_baselines','check_seo_measurement_window',
-       'check_seo_publication_admissible','create_entity_with_owner',
+       'check_seo_publication_admissible',
        'current_user_can_manage_payment_requests','employees_autolink_profile',
        'ensure_entity_state','ensure_profile','forecast_candidate_may_act',
        'handle_new_user','handle_user_email_update','is_active_user',
@@ -4160,6 +4160,78 @@ select 'Membership is not self-grantable' as check_name,
  -- breaks sign-in, and the likely response is to restore the whole grant.
  when not has_table_privilege('authenticated', 'public.entity_memberships', 'SELECT')
    then 'CRITICAL: memberships are unreadable; the company picker and login cannot resolve a company'
+ else 'ok' end as status;
+
+-- ── Company onboarding (20260918120000) ─────────────────────────────────────
+-- The gate is the trigger, not the login form: signUp is a public endpoint and
+-- the anon key is published, so an org_name in the signup metadata is
+-- caller-controlled input. If handle_new_user ever regains that branch,
+-- founding a tenant is self-service again and nothing else here would notice.
+select 'Company creation is invite-gated' as check_name,
+ case
+ when not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='redeem_platform_invite')
+   then 'MISSING: redeem_platform_invite'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='handle_new_user') like '%org_name%insert into public.entities%'
+   then 'CRITICAL: handle_new_user founds a company from signup metadata again'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='create_entity_with_owner')
+   then 'CRITICAL: create_entity_with_owner is back -- a second, broken company-creation path'
+ when exists(select 1 from information_schema.role_table_grants
+   where table_schema='public' and table_name='platform_invites'
+     and grantee in ('anon','authenticated'))
+   then 'CRITICAL: platform_invites is directly reachable from the browser'
+ else 'ok' end as status;
+
+-- Founding spends this project's quota, so it is a PLATFORM act. If the gate
+-- ever widens to is_admin(), 28 of 29 Baseballism profiles could mint one --
+-- the same membership-'admin' blast radius that made the comp-request gate
+-- diverge from the AP gate.
+select 'Platform invite gate is narrow' as check_name,
+ case
+ when not exists(select 1 from pg_class where relname='platform_admins')
+   then 'MISSING: platform_admins'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='create_platform_invite') not like '%is_platform_admin()%'
+   then 'CRITICAL: create_platform_invite no longer checks is_platform_admin()'
+ when (select count(*) from public.platform_admins) = 0
+   then 'STALE: nobody can create a company -- platform_admins is empty'
+ when exists(select 1 from information_schema.role_table_grants
+   where table_schema='public' and table_name='platform_admins'
+     and grantee in ('anon','authenticated') and privilege_type in ('INSERT','UPDATE','DELETE'))
+   then 'CRITICAL: platform_admins is client-writable -- the gate can grant itself'
+ else 'ok' end as status;
+
+-- A stored timezone that the code does not honour reads as configured. The
+-- allowlist is the one place that says which ones are real; a company settings
+-- row pointing outside it means the refusal was bypassed.
+select 'Business timezone is honoured, not just stored' as check_name,
+ case
+ when not exists(select 1 from pg_class where relname='supported_business_timezones')
+   then 'MISSING: supported_business_timezones'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='silo_business_today') like '%America/Los_Angeles%'
+   then 'CRITICAL: silo_business_today hardcodes Pacific again instead of reading the company'
+ when exists(select 1 from public.company_settings cs
+   where not exists(select 1 from public.supported_business_timezones t
+                     where t.tz_name=cs.business_timezone and t.is_supported))
+   then 'CRITICAL: a company is set to a timezone SILO does not honour end to end'
+ else 'ok' end as status;
+
+-- One company, one currency. accounting_settings.base_currency is MEASURED
+-- from QuickBooks' trial balance; company_settings.default_currency is
+-- DECLARED at onboarding. Two tables holding one fact is fine only while
+-- something refuses to let them disagree.
+select 'Declared and booked currency cannot diverge' as check_name,
+ case
+ when not exists(select 1 from pg_trigger
+   where tgname='trg_accounting_currency_matches_declared' and not tgisinternal)
+   then 'MISSING: the accounting_settings currency reconciliation trigger'
+ when exists(select 1 from public.accounting_settings a
+   join public.company_settings c on c.company_entity_id=a.company_entity_id
+   where upper(a.base_currency) <> upper(c.default_currency))
+   then 'CRITICAL: a company reports in one currency and books in another'
  else 'ok' end as status;
 
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
