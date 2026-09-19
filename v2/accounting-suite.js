@@ -15,6 +15,7 @@
      ACCOUNTING_PAGES without an icon gets a plain page mark rather than a
      ragged row of some-with-some-without. */
   const ICONS = {
+    'finance/invoicing': '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
     // Ledger lines: the register.
     'finance/card-coding': '<path d="M4 4h16v16H4z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
     // Receipt with a currency mark: sales and the journal built from them.
