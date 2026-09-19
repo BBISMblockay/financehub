@@ -1,6 +1,7 @@
 import { REQUEST_TYPES, ACTIVE_PO_STATUSES, FIELD_NAMES, normalizeName, money, validateFields, applySuggestions, clearSourceSuggestions, duplicateMatches, documentMime } from './payment-request2-core.js';
 import { saveDraft, listDrafts } from './payment-request2-drafts.js';
 import { readDocumentOnDevice } from './payment-request2-reader-browser.js';
+import { mountPdfPreview } from './payment-request2-preview.js';
 import { interpretMissing } from './payment-request2-reader.js';
 import { submitRequest } from './payment-request2-submit.js';
 
@@ -8,7 +9,7 @@ const $ = id => document.getElementById(id);
 const cfg = window.__SILO_CONFIG__ || {};
 let db, user, company, scope, draft, busy = false, invalidSession = false;
 let vendors = [], pos = [], locations = [], selectedPos = new Set(), duplicateState = null;
-let previewUrl = null, readGeneration = 0, checkingGeneration = 0, dirty = false, readingController;
+let disposePreview, previewUrl = null, readGeneration = 0, checkingGeneration = 0, dirty = false, readingController;
 const feedback = (message, tone = 'info') => {
   $('status').className = `bcn-status bcn-status--${tone}`;
   $('status').textContent = message; $('status').hidden = !message;
@@ -140,6 +141,7 @@ function changeSource(id) {
   renderFiles(); renderSuggestions();
 }
 function renderFiles() {
+  disposePreview?.(); disposePreview = null;
   if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null;
   $('sourceSelect').replaceChildren(); $('attachmentList').replaceChildren(); $('preview').replaceChildren();
   for (const file of draft.files) {
@@ -159,10 +161,12 @@ function renderFiles() {
     const mime = documentMime(file);
     if (mime) {
       previewUrl = URL.createObjectURL(new Blob([file.blob], { type: mime }));
-      const preview = element(mime === 'application/pdf' ? 'iframe' : 'img');
-      if (mime === 'application/pdf') { preview.title = 'Source document'; preview.setAttribute('sandbox', 'allow-same-origin'); }
-      else preview.alt = 'Source document for review';
-      preview.src = previewUrl; $('preview').append(preview); $('openDocument').href = previewUrl;
+      $('openDocument').href = previewUrl;
+      if (mime === 'application/pdf') disposePreview = mountPdfPreview($('preview'), file.blob);
+      else {
+        const preview = element('img'); preview.alt = 'Source document for review';
+        preview.src = previewUrl; $('preview').append(preview);
+      }
     } else {
       $('openDocument').hidden = true;
       $('preview').append(element('p', 'This supporting file will be attached. Automatic reading is available for PDFs and images; enter its details manually.'));
@@ -333,6 +337,7 @@ function bind() {
     if (event === 'SIGNED_OUT' || session?.user?.id && session.user.id !== user.id) {
       invalidSession = true; readingController?.abort(); readGeneration++; checkingGeneration++; lockUI();
       $('app').hidden = true; $('success').hidden = true; $('signedOut').hidden = false;
+      disposePreview?.(); disposePreview = null;
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       feedback('Your sign-in changed. Reload before continuing. Saved drafts remain associated with their original user and company.');
     }

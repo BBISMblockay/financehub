@@ -5,6 +5,11 @@ import { readLocally } from './payment-request2-reader.js';
 const PDF_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38';
 const OCR_BASE = 'https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1';
 const MAX_PIXELS = 8000000;
+export async function loadPdfLibrary() {
+  const pdfjs = await import(`${PDF_BASE}/build/pdf.mjs`);
+  pdfjs.GlobalWorkerOptions.workerSrc = `${PDF_BASE}/build/pdf.worker.mjs`;
+  return pdfjs;
+}
 export async function readDocumentOnDevice(file, { signal, progress } = {}) {
   const control = new AbortController();
   const abort = () => control.abort();
@@ -21,8 +26,7 @@ export async function readDocumentOnDevice(file, { signal, progress } = {}) {
   const task = async () => readLocally(file, {
     signal: control.signal, progress,
     async openPdf(blob) {
-      check(); const pdfjs = await import(`${PDF_BASE}/build/pdf.mjs`); check();
-      pdfjs.GlobalWorkerOptions.workerSrc = `${PDF_BASE}/build/pdf.worker.mjs`;
+      check(); const pdfjs = await loadPdfLibrary(); check();
       loading = pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), isEvalSupported: false, enableXfa: false, useSystemFonts: true });
       loading.onPassword = () => { void loading.destroy().catch(() => {}); };
       let doc;

@@ -83,3 +83,15 @@ Review comment 5740303808 contains three valid findings. Tests before implementa
 - Added a separate CI storage job with its own pinned package/lockfile; the existing unit gate remains dependency-free.
 - Browser gate attempted again: local Chromium executable remains absent. The independent cycle-1 review reports the same Browser CI failures on the base branch due to deleted shared chrome; these remain out of scope. Browser worker/CDN verification is still outstanding. Existing Edge imports passed CI on the reviewed head; Edge code is unchanged by this correction batch.
 - No Supabase migration, production write or deployment. The local IndexedDB upgrade happens when a user next opens the released page; old tabs may need closing to allow the upgrade.
+
+## Embedded PDF preview correction (preflight)
+
+The reported Edge screenshot shows successful local extraction and a blocked inline document, while Open succeeds. The page currently embeds a same-origin Blob PDF in an iframe with `sandbox="allow-same-origin"`. This is consistent with native PDF-viewer restrictions inside the sandbox; it is not an extraction/Edge Function failure. Replace the native viewer with PDF.js canvas rendering, preserve Open, and render no PDF scripts/HTML/interactive actions. Source changes and sign-out must dispose the old preview. Tests before implementation: multipage navigation/bounds, stale async renders, cleanup, missing renderer/corrupt/password-protected files, and bounded canvas size. No database, extraction, submission, or approval changes.
+
+### Preview correction verification
+
+- Replaced the sandboxed native PDF iframe with a local PDF.js canvas viewer, reusing the existing pinned reader library. Previous/Next controls render one page at a time. Canvas allocation is capped at 8 million pixels and 16,384 pixels per side.
+- Open retains the original Blob URL. Preview failure, locked PDFs, and 30-second timeouts leave the request editable and direct the user to Open. Source changes and sign-out cancel rendering, destroy the loading task, and release canvas memory. PDF JavaScript, XFA, links, and interactive actions are not rendered/executed.
+- `node v2/tests/run.js --unit`: all 13 suites pass, including 7 new preview lifecycle checks. Tests were written first and initially failed on the missing implementation. Mutations removing the page bound, stale-render guard, and pixel limit each fail the new tests; fixes restored.
+- Integrated self-review covered upload/source selection, draft restoration, image preservation, original-document links, sign-out disposal, and shared reader loading. `node --check v2/payment-request2.js` and `git diff --check` pass.
+- `node v2/tests/run.js --browser`: all 11 suites could not launch because the local Playwright Chromium executable is missing. Actual Edge/Chrome canvas rendering, authenticated UI and mobile layout remain unverified here. Before release, check digital and scanned multipage PDFs in Edge, next/previous navigation, switching/removing a source mid-load, Open, and blocked-CDN fallback. No migration, Edge Function deployment, or production writes are required.
