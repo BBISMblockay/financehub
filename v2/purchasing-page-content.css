@@ -1646,6 +1646,16 @@
   padding: 16px 18px;
 }
 
+.pr-page--intake .pr-page-h1 {
+  margin: 0 0 14px;
+  font-family: var(--bcn-font);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--bcn-ink);
+}
+
 .pr-page--intake .section-title {
   font-family: var(--bcn-font);
   font-size: 16px;
