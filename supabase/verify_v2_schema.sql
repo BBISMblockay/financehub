@@ -4162,6 +4162,87 @@ select 'Membership is not self-grantable' as check_name,
    then 'CRITICAL: memberships are unreadable; the company picker and login cannot resolve a company'
  else 'ok' end as status;
 
+-- ── Customer accounts: the onboarding form is on the open internet ─────────
+-- Four properties, each of which fails silently rather than loudly.
+select 'Customer account onboarding' as check_name,
+ case
+ when to_regclass('public.customer_accounts') is null
+   then 'MISSING: customer account onboarding migration 20260919140000'
+ when exists(select 1 from unnest(array['customer_accounts','customer_account_tax_profiles',
+     'customer_account_addresses','customer_account_contacts','customer_account_invites',
+     'customer_account_activity']) t
+   where not (select relrowsecurity from pg_class where oid = to_regclass('public.'||t)))
+   then 'CRITICAL: a customer account table has RLS disabled'
+ -- The token table is RPC-only. A select policy on it, however well scoped,
+ -- puts every live invite hash in front of every member of the company.
+ when exists(select 1 from pg_policy where polrelid = 'public.customer_account_invites'::regclass)
+   then 'CRITICAL: customer_account_invites has a policy; it is meant to be RPC-only'
+ -- The whole reason the tax profile is a separate table: it must be NARROWER
+ -- than the directory. If both gates admit the same people, the split is
+ -- decoration and an EIN is one join away from a ship-to lookup.
+ when not exists(select 1 from pg_policy
+   where polrelid = 'public.customer_account_tax_profiles'::regclass and polcmd = 'r'
+     and pg_get_expr(polqual, polrelid) like '%can_manage_client_invoices%')
+   then 'CRITICAL: the customer tax profile is readable by the whole company; the EIN split is decoration'
+ -- Supabase's default privileges grant EXECUTE on every new public function to
+ -- anon. For a SECURITY DEFINER submission writer that is the open internet,
+ -- reachable with the published anon key. 20260904330000 is the precedent.
+ when exists(select 1 from unnest(array[
+     'public.customer_onboarding_resolve_token(text,text)',
+     'public.submit_customer_account(text,jsonb)',
+     'public.claim_customer_card_setup(uuid)',
+     'public.record_customer_card_setup(uuid,text,text,text,text,text,text,integer,integer,boolean)',
+     'public.bind_customer_account_stripe_customer(uuid,text)']) f
+   where to_regprocedure(f) is not null
+     and (has_function_privilege('anon', f, 'execute')
+       or has_function_privilege('authenticated', f, 'execute')))
+   then 'CRITICAL: a service-role-only onboarding RPC is callable with the anon key'
+ else 'ok' end as status;
+
+-- The certificate is the most sensitive object SILO stores for a customer, and
+-- storage policies have gone out gating on bucket_id alone before -- three
+-- schedule-item-files policies shipped NAMED "by company" with no company
+-- clause in any of them (20260904120000). So this asserts the EXISTS is really
+-- there, and that it names the TAX PROFILE rather than the account: keyed on
+-- the account it would inherit the directory's audience, which is the one
+-- thing the separate table exists to prevent.
+select 'Customer certificate storage scope' as check_name,
+ case
+ when to_regclass('public.customer_account_tax_profiles') is null
+   then 'MISSING: customer account onboarding migration 20260919140000'
+ when not exists(select 1 from storage.buckets where id = 'customer-account-files')
+   then 'MISSING: the customer-account-files bucket'
+ when (select public from storage.buckets where id = 'customer-account-files')
+   then 'CRITICAL: customer-account-files is public; a seller''s permit is served with no RLS at all'
+ when (select count(*) from pg_policy
+   where polrelid = 'storage.objects'::regclass
+     -- BOTH sides coalesced: an INSERT policy has no USING clause at all, so
+     -- pg_get_expr(polqual, ...) is NULL there and an uncoalesced concatenation
+     -- makes the whole comparison NULL -- which reads as "this policy is not
+     -- scoped" for the one policy that governs writing the certificate.
+     and coalesce(pg_get_expr(polqual, polrelid), '')
+       || coalesce(pg_get_expr(polwithcheck, polrelid), '')
+         like '%customer_account_tax_profiles%') < 3
+   then 'CRITICAL: a customer-account-files policy does not scope through the tax profile'
+ else 'ok' end as status;
+
+-- "Same as" is a pointer, not a copy, and the chain is bounded by construction
+-- so the resolving view can be two joins instead of a recursive CTE. Drop a
+-- constraint and that view silently starts printing blanks or looping.
+select 'Customer address pointer constraints' as check_name,
+ case
+ when to_regclass('public.customer_account_addresses') is null
+   then 'MISSING: customer account onboarding migration 20260919140000'
+ when exists(select 1 from unnest(array[
+     'customer_account_addresses_business_is_root',
+     'customer_account_addresses_no_self_reference',
+     'customer_account_addresses_pointer_is_empty']) c
+   where not exists(select 1 from pg_constraint where conname = c))
+   then 'CRITICAL: an address pointer constraint is missing; a cycle or a half-filled pointer is representable'
+ when to_regclass('public.customer_account_addresses_resolved_v') is null
+   then 'MISSING: customer_account_addresses_resolved_v'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further

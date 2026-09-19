@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Customers</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
+    .cu-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+
+    .cu-card { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+    .cu-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .cu-title { font-weight: 650; font-size: 14px; }
+    .cu-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+
+    .cu-scroll { overflow: auto; max-height: 62vh; }
+    .cu-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 12px; }
+    .cu-table th { position: sticky; top: 0; z-index: 2; background: var(--bcn-sunken);
+      text-align: left; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
+    .cu-table td { padding: 7px 10px; border-bottom: 1px solid var(--bcn-border);
+      vertical-align: top; line-height: 1.45; }
+    .cu-table tbody tr:nth-child(even) td { background: rgba(15,23,42,.015); }
+    .cu-num { font-family: var(--bcn-mono); text-align: right; white-space: nowrap; }
+    .cu-link { background: none; border: 0; padding: 0; color: var(--bcn-accent);
+      font: inherit; cursor: pointer; text-decoration: underline; }
+
+    .cu-drawer { position: fixed; inset: 0; z-index: 60; display: none; }
+    .cu-drawer[data-open="1"] { display: block; }
+    .cu-scrim { position: absolute; inset: 0; background: rgba(2,6,23,.38); }
+    .cu-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(560px, 100%);
+      background: var(--bcn-surface); border-left: 1px solid var(--bcn-border);
+      overflow: auto; padding: 18px 20px 48px; }
+    .cu-panel h3 { font-size: 15px; font-weight: 650; margin: 0 0 2px; }
+    .cu-group { border-top: 1px solid var(--bcn-border); margin-top: 18px; padding-top: 14px; }
+    .cu-group-title { font-family: var(--bcn-mono); font-size: 10px; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--bcn-ink-3); margin-bottom: 8px; }
+    .cu-kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 12.5px; }
+    .cu-kv dt { color: var(--bcn-ink-3); }
+    .cu-kv dd { margin: 0; }
+    .cu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .cu-field-wrap { margin-bottom: 10px; }
+    .cu-field-wrap .bcn-label { display: block; margin-bottom: 4px; }
+    .cu-copy { width: 100%; font-family: var(--bcn-mono); font-size: 11px; }
+    [hidden] { display: none !important; }
+  </style>
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div class="bcn-header-title">Customers</div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--primary" id="btnInvite">Invite a customer</button>
+        </div>
+      </header>
+
+      <div class="cu-page">
+        <div class="bcn-status" id="status" hidden></div>
+
+        <section class="bcn-kpi-band">
+          <div class="bcn-kpi">
+            <div class="bcn-kpi-label">Awaiting review</div>
+            <div class="bcn-kpi-value" id="kpiSubmitted">—</div>
+          </div>
+          <div class="bcn-kpi">
+            <div class="bcn-kpi-label">Approved</div>
+            <div class="bcn-kpi-value" id="kpiApproved">—</div>
+          </div>
+          <div class="bcn-kpi">
+            <div class="bcn-kpi-label">Invited, not returned</div>
+            <div class="bcn-kpi-value" id="kpiInvited">—</div>
+          </div>
+          <div class="bcn-kpi">
+            <div class="bcn-kpi-label">Card on file</div>
+            <div class="bcn-kpi-value" id="kpiCards">—</div>
+          </div>
+        </section>
+
+        <section class="bcn-filter-bar">
+          <div class="bcn-filter">
+            <input class="bcn-field" id="search" placeholder="Search name or email" />
+          </div>
+          <div class="bcn-filter">
+            <select class="bcn-field" id="statusFilter">
+              <option value="">All statuses</option>
+              <option value="submitted">Awaiting review</option>
+              <option value="approved">Approved</option>
+              <option value="invited">Invited</option>
+              <option value="rejected">Rejected</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </section>
+
+        <div class="cu-card">
+          <div class="cu-card-head">
+            <div class="cu-title">Wholesale accounts</div>
+            <div class="cu-sub" id="rowCount"></div>
+          </div>
+          <div class="cu-scroll">
+            <table class="cu-table" id="table">
+              <thead>
+                <tr>
+                  <th>Business</th>
+                  <th>Contact</th>
+                  <th>Status</th>
+                  <th>Terms</th>
+                  <th class="cu-num">Credit limit</th>
+                  <th>Card</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody><tr><td colspan="7" class="cu-sub">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ── Detail / approval drawer ──────────────────────────────────────────── -->
+  <div class="cu-drawer" id="drawer">
+    <div class="cu-scrim" data-close="1"></div>
+    <div class="cu-panel">
+      <h3 id="dName">—</h3>
+      <div class="cu-sub" id="dMeta">—</div>
+
+      <div class="cu-group">
+        <div class="cu-group-title">Business</div>
+        <dl class="cu-kv" id="dBusiness"></dl>
+      </div>
+
+      <div class="cu-group">
+        <div class="cu-group-title">Contact</div>
+        <dl class="cu-kv" id="dContact"></dl>
+      </div>
+
+      <div class="cu-group">
+        <div class="cu-group-title">Addresses</div>
+        <div id="dAddresses" class="cu-sub">—</div>
+      </div>
+
+      <!-- Rendered only when the reader's own RLS returned a tax row. Someone
+           without the invoicing permission simply sees the note; the page does
+           not decide who may look, the database does. -->
+      <div class="cu-group" id="dTaxGroup">
+        <div class="cu-group-title">Tax</div>
+        <dl class="cu-kv" id="dTax"></dl>
+      </div>
+
+      <div class="cu-group" id="dDecisionGroup">
+        <div class="cu-group-title">Decision</div>
+        <div class="cu-row">
+          <div class="cu-field-wrap">
+            <label class="bcn-label" for="dTerms">Approved payment terms</label>
+            <input class="bcn-field" id="dTerms" placeholder="e.g. Net 30" />
+          </div>
+          <div class="cu-field-wrap">
+            <label class="bcn-label" for="dLimit">Credit limit</label>
+            <input class="bcn-field bcn-field--mono" id="dLimit" inputmode="decimal" />
+          </div>
+        </div>
+        <div class="cu-field-wrap">
+          <label class="bcn-label" for="dTier">Price tier</label>
+          <input class="bcn-field" id="dTier" />
+        </div>
+        <div class="bcn-header-actions" style="gap:8px;display:flex;flex-wrap:wrap">
+          <button class="bcn-btn bcn-btn--primary" id="dApprove">Approve</button>
+          <button class="bcn-btn bcn-btn--danger" id="dReject">Reject</button>
+          <button class="bcn-btn bcn-btn--ghost" data-close="1">Close</button>
+        </div>
+      </div>
+
+      <div class="cu-group">
+        <div class="cu-group-title">Activity</div>
+        <div id="dActivity" class="cu-sub">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Invite drawer ─────────────────────────────────────────────────────── -->
+  <div class="cu-drawer" id="inviteDrawer">
+    <div class="cu-scrim" data-close="1"></div>
+    <div class="cu-panel">
+      <h3>Invite a customer to apply</h3>
+      <div class="cu-sub">They fill in the application themselves — you review what comes back.</div>
+
+      <div class="cu-group">
+        <div class="cu-field-wrap">
+          <label class="bcn-label" for="iEmail">Their email</label>
+          <input class="bcn-field" id="iEmail" type="email" />
+        </div>
+        <div class="cu-field-wrap">
+          <label class="bcn-label" for="iName">Business name (optional)</label>
+          <input class="bcn-field" id="iName" />
+        </div>
+        <div class="cu-field-wrap">
+          <label class="bcn-label" for="iType">Account type</label>
+          <select class="bcn-field" id="iType">
+            <option value="wholesale">Wholesale</option>
+            <option value="distributor">Distributor</option>
+            <option value="licensee">Licensee</option>
+            <option value="retail">Retail</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <button class="bcn-btn bcn-btn--primary" id="iCreate">Create link</button>
+        <button class="bcn-btn bcn-btn--ghost" data-close="1">Cancel</button>
+      </div>
+
+      <div class="cu-group" id="iResult" hidden>
+        <div class="cu-group-title">Send them this link</div>
+        <!-- Shown exactly once. Only a hash is stored, so there is no way to
+             retrieve it later -- a second link means revoking this one. -->
+        <input class="bcn-field cu-copy" id="iLink" readonly />
+        <div class="cu-sub" style="margin-top:8px">
+          Shown once — only a hash is kept. Expires in 14 days.
+        </div>
+        <button class="bcn-btn bcn-btn--ghost" id="iCopy" style="margin-top:8px">Copy link</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  const el = (id) => document.getElementById(id);
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    setStatus('Missing Supabase config', 'neg');
+    return;
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = (v) => v == null ? '—'
+    : Number(v).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+  let _co = null;
+  let _rows = [];
+
+  const STATUS_PILL = {
+    submitted: 'bcn-pill--accent',
+    approved: 'bcn-pill--pos',
+    rejected: 'bcn-pill--neg',
+    invited: 'bcn-pill',
+    inactive: 'bcn-pill--dark',
+  };
+  const STATUS_LABEL = {
+    submitted: 'Awaiting review', approved: 'Approved', rejected: 'Rejected',
+    invited: 'Invited', inactive: 'Inactive',
+  };
+
+  async function load() {
+    let q = sb.from('customer_accounts_v')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    _rows = data || [];
+    renderKpis();
+    applyFilter();
+  }
+
+  function renderKpis() {
+    const n = (s) => _rows.filter((r) => r.status === s).length;
+    el('kpiSubmitted').textContent = n('submitted');
+    el('kpiApproved').textContent = n('approved');
+    el('kpiInvited').textContent = n('invited');
+    el('kpiCards').textContent = _rows.filter((r) => r.has_card_on_file).length;
+  }
+
+  function applyFilter() {
+    const term = el('search').value.trim().toLowerCase();
+    const status = el('statusFilter').value;
+    const rows = _rows.filter((r) => {
+      if (status && r.status !== status) return false;
+      if (!term) return true;
+      return [r.legal_name, r.dba_name, r.contact_email, r.primary_contact_email]
+        .some((v) => (v || '').toLowerCase().includes(term));
+    });
+    render(rows);
+  }
+
+  function cardCell(r) {
+    if (!r.has_card_on_file) return '<span class="cu-sub">—</span>';
+    const label = `${(r.card_brand || 'card').toUpperCase()} ****${r.card_last4 || ''}`;
+    // "Saved" and "saved AND the invoice default" are different facts: an
+    // invoice against a customer with no default payment method sits open.
+    return r.card_is_invoice_default
+      ? `<span class="bcn-pill bcn-pill--pos">${esc(label)}</span>`
+      : `<span class="bcn-pill bcn-pill--accent" title="Saved, but not yet the invoice default">${esc(label)} · not default</span>`;
+  }
+
+  function render(rows) {
+    el('rowCount').textContent = `${rows.length} of ${_rows.length}`;
+    const body = rows.length
+      ? rows.map((r) => `<tr>
+          <td>
+            <div>${esc(r.legal_name || '(not yet supplied)')}</div>
+            ${r.dba_name ? `<div class="cu-sub">${esc(r.dba_name)}</div>` : ''}
+          </td>
+          <td>
+            <div>${esc([r.primary_contact_first_name, r.primary_contact_last_name]
+              .filter(Boolean).join(' ') || '—')}</div>
+            <div class="cu-sub">${esc(r.primary_contact_email || r.contact_email || '')}</div>
+          </td>
+          <td><span class="bcn-pill ${STATUS_PILL[r.status] || ''}">${
+            esc(STATUS_LABEL[r.status] || r.status)}</span></td>
+          <td>${esc(r.approved_payment_terms
+            || (r.requested_payment_terms ? `${r.requested_payment_terms} (requested)` : '—'))}</td>
+          <td class="cu-num">${r.credit_limit == null ? '—' : money(r.credit_limit)}</td>
+          <td>${cardCell(r)}</td>
+          <td><button class="cu-link" data-open="${esc(r.id)}">open</button></td>
+        </tr>`).join('')
+      : '<tr><td colspan="7" class="cu-sub">Nothing matches that filter.</td></tr>';
+    el('table').querySelector('tbody').innerHTML = body;
+  }
+
+  // ── Detail drawer ─────────────────────────────────────────────────────────
+  let _open = null;
+
+  function kv(list) {
+    return list.filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')
+      || '<dd class="cu-sub">—</dd>';
+  }
+
+  async function openAccount(id) {
+    const row = _rows.find((r) => r.id === id);
+    if (!row) return;
+    _open = row;
+
+    el('dName').textContent = row.legal_name || '(not yet supplied)';
+    el('dMeta').textContent =
+      `${STATUS_LABEL[row.status] || row.status} · ${row.account_type} · ${row.contact_email}`;
+
+    el('dBusiness').innerHTML = kv([
+      ['Legal name', row.legal_name], ['DBA', row.dba_name], ['Website', row.website],
+      ['Requested terms', row.requested_payment_terms], ['Notes', row.applicant_notes],
+    ]);
+    el('dContact').innerHTML = kv([
+      ['Name', [row.primary_contact_first_name, row.primary_contact_last_name]
+        .filter(Boolean).join(' ')],
+      ['Title', row.primary_contact_title],
+      ['Email', row.primary_contact_email],
+      ['Phone', row.primary_contact_phone],
+    ]);
+
+    el('dTerms').value = row.approved_payment_terms || row.requested_payment_terms || '';
+    el('dLimit').value = row.credit_limit ?? '';
+    el('dTier').value = row.price_tier || '';
+    el('dDecisionGroup').hidden = row.status !== 'submitted';
+
+    el('drawer').dataset.open = '1';
+
+    // Addresses, resolved -- a "same as" row shows the address it inherits and
+    // says where it came from, rather than printing a blank.
+    const { data: addrs } = await sb.from('customer_account_addresses_resolved_v')
+      .select('*').eq('customer_account_id', id);
+    el('dAddresses').innerHTML = (addrs || []).length
+      ? (addrs || []).map((a) => `<div style="margin-bottom:8px">
+          <div style="font-weight:600;text-transform:capitalize">${esc(a.address_type)}${
+            a.same_as_address_type
+              ? ` <span class="cu-sub">(same as ${esc(a.same_as_address_type)})</span>` : ''}</div>
+          <div>${esc([a.recipient_name, a.attention_name].filter(Boolean).join(' · '))}</div>
+          <div>${esc([a.street1, a.street2].filter(Boolean).join(', '))}</div>
+          <div>${esc([a.city, a.region, a.postal_code, a.country].filter(Boolean).join(' '))}</div>
+          ${a.phone ? `<div class="cu-sub">${esc(a.phone)}</div>` : ''}
+        </div>`).join('')
+      : '<span class="cu-sub">None supplied.</span>';
+
+    // The tax row comes back only if the reader's own RLS allows it. An empty
+    // result here is "you may not see this", not "there is nothing".
+    const { data: tax } = await sb.from('customer_account_tax_profiles')
+      .select('federal_ein, resale_tax_id, resale_certificate_path, resale_certificate_uploaded_at')
+      .eq('customer_account_id', id).maybeSingle();
+    if (tax) {
+      let certLink = '';
+      if (tax.resale_certificate_path) {
+        const { data: signed } = await sb.storage.from('customer-account-files')
+          .createSignedUrl(tax.resale_certificate_path, 300);
+        certLink = signed?.signedUrl
+          ? `<a href="${esc(signed.signedUrl)}" target="_blank" rel="noopener">Open certificate</a>`
+          : 'On file (link unavailable)';
+      }
+      el('dTax').innerHTML = kv([
+        ['Federal EIN', tax.federal_ein],
+        ['Resale / sales tax ID', tax.resale_tax_id],
+      ]) + (certLink ? `<dt>Certificate</dt><dd>${certLink}</dd>` : '');
+    } else {
+      el('dTax').innerHTML = row.has_tax_profile
+        ? '<dd class="cu-sub">Restricted — tax details are limited to finance.</dd>'
+        : '<dd class="cu-sub">None supplied.</dd>';
+    }
+
+    const { data: acts } = await sb.from('customer_account_activity')
+      .select('event, detail, created_at')
+      .eq('customer_account_id', id).order('created_at', { ascending: false });
+    el('dActivity').innerHTML = (acts || []).length
+      ? (acts || []).map((a) => `<div>${esc(new Date(a.created_at).toLocaleString())} · ${
+        esc(a.event)}${a.detail ? ` — ${esc(a.detail)}` : ''}</div>`).join('')
+      : 'No activity yet.';
+  }
+
+  el('table').addEventListener('click', (ev) => {
+    const id = ev.target.closest('[data-open]')?.dataset.open;
+    if (id) openAccount(id);
+  });
+  el('search').addEventListener('input', applyFilter);
+  el('statusFilter').addEventListener('change', applyFilter);
+
+  document.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-close]')) {
+      el('drawer').dataset.open = '0';
+      el('inviteDrawer').dataset.open = '0';
+    }
+  });
+
+  el('dApprove').addEventListener('click', async () => {
+    if (!_open) return;
+    el('dApprove').disabled = true;
+    try {
+      const limit = el('dLimit').value.trim();
+      const { error } = await sb.rpc('approve_customer_account', {
+        p_account_id: _open.id,
+        p_payment_terms: el('dTerms').value.trim() || null,
+        p_credit_limit: limit === '' ? null : Number(limit),
+        p_price_tier: el('dTier').value.trim() || null,
+      });
+      if (error) throw new Error(error.message);
+      setStatus('Approved.', 'pos', 4000);
+      el('drawer').dataset.open = '0';
+      await load();
+    } catch (e) {
+      setStatus(e.message, 'neg');
+    } finally {
+      el('dApprove').disabled = false;
+    }
+  });
+
+  el('dReject').addEventListener('click', async () => {
+    if (!_open) return;
+    const reason = prompt('Why is this application being rejected?');
+    if (reason === null) return;
+    try {
+      const { error } = await sb.rpc('reject_customer_account', {
+        p_account_id: _open.id, p_reason: reason || null,
+      });
+      if (error) throw new Error(error.message);
+      setStatus('Rejected.', 'info', 4000);
+      el('drawer').dataset.open = '0';
+      await load();
+    } catch (e) {
+      setStatus(e.message, 'neg');
+    }
+  });
+
+  // ── Invite ────────────────────────────────────────────────────────────────
+  el('btnInvite').addEventListener('click', () => {
+    el('iResult').hidden = true;
+    el('iEmail').value = '';
+    el('iName').value = '';
+    el('inviteDrawer').dataset.open = '1';
+  });
+
+  el('iCreate').addEventListener('click', async () => {
+    el('iCreate').disabled = true;
+    try {
+      const { data, error } = await sb.rpc('create_customer_account_invite', {
+        p_email: el('iEmail').value.trim(),
+        p_legal_name: el('iName').value.trim() || null,
+        p_account_type: el('iType').value,
+      });
+      if (error) throw new Error(error.message);
+      const link = `${location.origin}/v2/customer-onboarding.html?token=${
+        encodeURIComponent(data.token)}`;
+      el('iLink').value = link;
+      el('iResult').hidden = false;
+      await load();
+    } catch (e) {
+      setStatus(e.message, 'neg');
+    } finally {
+      el('iCreate').disabled = false;
+    }
+  });
+
+  el('iCopy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(el('iLink').value);
+      setStatus('Link copied.', 'pos', 2500);
+    } catch {
+      el('iLink').select();
+      setStatus('Press Ctrl/Cmd+C to copy.', 'info', 4000);
+    }
+  });
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app', active: 'finance/customers',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Finance', 'Customers'], supabaseClient: sb,
+      });
+    }
+
+    try {
+      await load();
+    } catch (e) {
+      setStatus(e.message, 'neg');
+      el('table').querySelector('tbody').innerHTML =
+        `<tr><td colspan="7" class="cu-sub">${esc(e.message)}</td></tr>`;
+    }
+  })();
+})();
+</script>
+</body>
+</html>

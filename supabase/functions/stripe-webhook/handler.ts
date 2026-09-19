@@ -267,6 +267,105 @@ async function handle(route: any, event: any, company: string) {
       });
       return;
     }
+    case 'connect_setup': {
+      // A completed Checkout on a CONNECTED account. Re-fetched rather than
+      // read from the payload, like every other handler here.
+      const session = await stripe.checkout.sessions.retrieve(route.objectId, opts);
+      // A connected account can run Checkout for its own reasons -- a payment,
+      // a subscription of its own. Only `setup` is SILO's, and acting on
+      // anything else would attach a payment method to a customer_accounts row
+      // on the strength of an event that was never about it.
+      if (session.mode !== 'setup') return;
+
+      const setupIntentId = typeof session.setup_intent === 'string'
+        ? session.setup_intent
+        : session.setup_intent?.id;
+      if (!setupIntentId) return;
+
+      // The SetupIntent, not the session, carries the PaymentMethod. Fetched
+      // under the same connected account: a SetupIntent id from one account
+      // does not resolve under another, so this is also the check that the
+      // delivery and the object agree.
+      const intent = await stripe.setupIntents.retrieve(setupIntentId, opts);
+      const customerId = typeof intent.customer === 'string'
+        ? intent.customer : intent.customer?.id ?? null;
+      const paymentMethodId = typeof intent.payment_method === 'string'
+        ? intent.payment_method : intent.payment_method?.id ?? null;
+      if (!customerId || !paymentMethodId) return;
+
+      // ── Attached is not the same as default ──────────────────────────────
+      // Checkout in setup mode ATTACHES the method to the Customer. It does
+      // NOT make it the customer's invoice default, so an invoice created
+      // later would have no payment method to charge and would sit open while
+      // everyone believed a card was on file. Setting it is a separate,
+      // explicit call -- and its success is recorded separately, so "saved but
+      // not yet default" stays a state somebody can see rather than a silent
+      // half-configuration.
+      let isDefault = false;
+      try {
+        await stripe.customers.update(
+          customerId,
+          { invoice_settings: { default_payment_method: paymentMethodId } },
+          opts,
+        );
+        isDefault = true;
+      } catch (e) {
+        // Deliberately not fatal. The card IS saved, and throwing here would
+        // ask Stripe to redeliver an event whose only remaining work is a
+        // setting -- re-running the whole handler eight times over. The row
+        // records the method with default_payment_method_set_at null, which is
+        // what the page and the customer list read to say "not yet default".
+        console.error('default_payment_method update failed', customerId,
+          (e as Error)?.message);
+      }
+
+      // Display metadata only. Stripe's own card object, never anything typed.
+      let brand: string | null = null;
+      let last4: string | null = null;
+      let expMonth: number | null = null;
+      let expYear: number | null = null;
+      try {
+        const pm = await stripe.paymentMethods.retrieve(paymentMethodId, opts);
+        brand = pm.card?.brand ?? null;
+        last4 = pm.card?.last4 ?? null;
+        expMonth = pm.card?.exp_month ?? null;
+        expYear = pm.card?.exp_year ?? null;
+      } catch (e) {
+        // The card is saved either way; losing the last four costs a label.
+        console.error('payment method read failed', paymentMethodId, (e as Error)?.message);
+      }
+
+      const { data: recorded, error: recErr } = await db.rpc('record_customer_card_setup', {
+        p_company: company,
+        p_session_id: session.id,
+        p_setup_intent_id: setupIntentId,
+        p_customer_id: customerId,
+        p_payment_method_id: paymentMethodId,
+        p_brand: brand,
+        p_last4: last4,
+        p_exp_month: expMonth,
+        p_exp_year: expYear,
+        p_is_default: isDefault,
+      });
+      if (recErr) throw new Error(`record_customer_card_setup: ${recErr.message}`);
+      // The function REFUSES rather than guessing when the session names a
+      // company or a Stripe customer the account is not bound to. That is a
+      // real finding, not a transient failure -- a retry is just as mismatched
+      // -- so it is logged and the delivery is accepted.
+      if (recorded && (recorded as any).ok === false) {
+        console.error('card setup not recorded', session.id, (recorded as any).reason);
+      }
+      return;
+    }
+    case 'connect_setup_expired': {
+      const session = await stripe.checkout.sessions.retrieve(route.objectId, opts);
+      if (session.mode !== 'setup') return;
+      const { error } = await db.rpc('release_customer_card_setup', {
+        p_company: company, p_session: session.id,
+      });
+      if (error) throw new Error(`release_customer_card_setup: ${error.message}`);
+      return;
+    }
     case 'connect_invoice': {
       const invoice = await stripe.invoices.retrieve(route.objectId, opts);
       await rpc('stripe_sync_invoice', {
