@@ -587,9 +587,9 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title"><h1>Launch Workbench</h1></div>
-        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · initiatives · <span id="wbBuildTag" style="opacity:.65;font-family:var(--bcn-mono);font-size:10px;">WB-96</span></div>
       </div>
       <div class="bcn-header-actions">
+        <span id="wbBuildTag" class="bcn-pill" style="font-family:var(--bcn-mono);font-size:10px;opacity:.75">WB-96</span>
         <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/launch-calendar-guide.html">GUIDE</a>
         <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="refreshBtn">REFRESH</button>
         <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="newLaunchBtn">+ NEW LAUNCH</button>
@@ -750,7 +750,6 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
         <div class="dp-sec-head">
           <div><div class="dp-title">Products / Readiness</div><div class="dp-sub">Source of truth for every SKU on this launch.</div></div>
         </div>
-        <div class="prod-callout">Search open POs or the catalog and click <strong>Add</strong>, or use <strong>Manual entry</strong>. Launch-form product fields are optional summary only.</div>
         <div class="prod-quick-bar">
           <div class="dp-g2" style="margin:0;">
             <div class="bcn-field-group" style="margin:0;"><label class="bcn-label">ADD FROM</label><select class="bcn-field" id="prodSource"><option value="po_incoming">PO / Incoming</option><option value="existing_product">Silo catalog</option><option value="manual">Manual only</option></select></div>
@@ -800,7 +799,6 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
         <div class="dp-sec-head">
           <div><div class="dp-title">Initiatives</div><div class="dp-sub">Each touch gets its own date — shown on the month calendar.</div></div>
         </div>
-        <div class="prod-callout">Add email, SMS, social, and retail touches. Set a <strong>scheduled date</strong> to see them as dots on the calendar grid.</div>
         <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;">
           <button class="bcn-btn bcn-btn--mono" type="button" id="showChannelFormBtn">+ INITIATIVE</button>
           <span class="dp-sub" id="channelListMeta" style="margin:0;">—</span>
@@ -877,7 +875,6 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
         <div class="dp-sec-head">
           <div><div class="dp-title">Assets / Files</div><div class="dp-sub">Creative links, PDFs, and reference files for this launch.</div></div>
         </div>
-        <div class="prod-callout">Paste URLs to hero images, lookbooks, or shared drives. Use <strong>Edit</strong> to fix a link; <strong>Delete</strong> removes it from this launch only.</div>
         <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;">
           <button class="bcn-btn bcn-btn--mono" type="button" id="showAssetFormBtn">+ ASSET</button>
           <span class="dp-sub" id="assetListMeta" style="margin:0;">—</span>
@@ -1020,7 +1017,6 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
         <div class="dp-sec-head">
           <div><div class="dp-title">Performance Tracking</div><div class="dp-sub">Fill in after launch — the Document tab compares these against the forecast above.</div></div>
         </div>
-        <div class="prod-callout">Spend fields below are a <strong>manual estimate</strong>, not the synced ad-platform ledger (Google/Meta/TikTok/GA4 actuals live in Marketing Overview, day-by-day — this launch isn't linked to that yet). Use whatever number you'd actually report on.</div>
         <div class="dp-g3">
           <div class="bcn-field-group"><label class="bcn-label">ACTUAL PREVIEW SPEND (MANUAL)</label><input class="bcn-field bcn-field--mono" id="briefActualPreviewSpend" type="number" min="0" step="0.01" /></div>
           <div class="bcn-field-group"><label class="bcn-label">ACTUAL POST-LAUNCH SPEND (MANUAL)</label><input class="bcn-field bcn-field--mono" id="briefActualPostLaunchSpend" type="number" min="0" step="0.01" /></div>

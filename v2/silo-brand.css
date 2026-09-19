@@ -253,3 +253,12 @@ html.silo-brand body {
     min-height: min(70dvh, 680px);
   }
 }
+
+/* UI copy trim: hide static page subtitles; keep slots updated at runtime. */
+.silo-main .bcn-header-sub { display: none; }
+.silo-main #pageSub,
+.silo-main #headerSub,
+.silo-main #subTitle,
+.silo-main #subtitle,
+.silo-main #comparisonNote,
+.silo-main #incompleteNote { display: block; }

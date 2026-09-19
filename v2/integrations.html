@@ -545,7 +545,7 @@
             <span class="int-card-icon int-card-icon--shopify" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M15.337 23.979l7.216-1.561s-2.604-17.613-2.625-17.73c-.018-.116-.114-.192-.211-.192s-1.929-.136-1.929-.136-1.275-1.274-1.439-1.411c-.045-.037-.075-.057-.121-.074l-.914 21.104h.023zM11.71 11.305s-.81-.424-1.774-.424c-1.447 0-1.504.906-1.504 1.141 0 1.232 3.24 1.715 3.24 4.629 0 2.295-1.44 3.76-3.406 3.76-2.354 0-3.54-1.465-3.54-1.465l.646-2.086s1.245 1.066 2.28 1.066c.675 0 .975-.545.975-.932 0-1.619-2.654-1.694-2.654-4.359-.034-2.237 1.571-4.416 4.827-4.416 1.257 0 1.875.361 1.875.361l-.945 2.715-.02.01zM11.17.83c.136 0 .271.038.405.135-.984.465-2.064 1.639-2.508 3.992-.656.213-1.293.405-1.889.578C7.697 3.75 8.951.84 11.17.84V.83zm1.235 2.949v.135c-.754.232-1.583.484-2.394.736.466-1.777 1.333-2.645 2.085-2.971.193.501.309 1.176.309 2.1zm.539-2.234c.694.074 1.141.867 1.429 1.755-.349.114-.735.231-1.158.366v-.252c0-.752-.096-1.371-.271-1.871v.002zm2.992 1.289c-.02 0-.06.021-.078.021s-.289.075-.714.21c-.423-1.233-1.176-2.37-2.508-2.37h-.115C12.135.209 11.669 0 11.265 0 8.159 0 6.675 3.877 6.21 5.846c-1.194.365-2.063.636-2.16.674-.675.213-.694.232-.772.87-.075.462-1.83 14.063-1.83 14.063L15.009 24l.927-21.166z"/></svg></span>
             <div class="int-card-header-text">
               <h2>Shopify stores</h2>
-              <p>After connecting: map locations → enable nightly sync → import sales history (365d or 730d). <strong>Keep this tab open</strong> during import; if progress stops, click <strong>Resume</strong> until complete.</p>
+              <p>Connect → map locations → enable sync. Keep this tab open during history import; use Resume if progress stops.</p>
             </div>
             <button type="button" class="int-card-collapse-btn" data-card="shopify" aria-label="Collapse Shopify stores">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -606,7 +606,7 @@
             <span class="int-card-icon int-card-icon--ads" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11v3a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M17 8a5 5 0 0 1 0 8"/><path d="M20 5a9 9 0 0 1 0 14"/></svg></span>
             <div class="int-card-header-text">
               <h2>Ad platforms</h2>
-              <p>Direct API connections for marketing KPIs (Google Ads, Meta Ads, TikTok Ads, GA4) → nightly sync into the <a href="/v2/marketing-overview.html">Marketing overview</a>. After connecting, set the account/property ID, test, then enable sync.</p>
+              <p>Connect platform → set account/property ID → test → enable nightly sync.</p>
             </div>
             <button type="button" class="int-card-collapse-btn" data-card="ads" aria-label="Collapse ad platforms">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -667,7 +667,7 @@
             <span class="int-card-icon int-card-icon--redo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 1 2.64 6.36"/><path d="M3 21v-6h6"/></svg></span>
             <div class="int-card-header-text">
               <h2>Redo returns</h2>
-              <p>Webhook-driven ingestion of Redo return data (refund / exchange / store-credit amounts) for BI reconciliation — see <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/redo-integration.md">docs/ops/redo-integration.md</a>. Connect below, copy the webhook URL + secret into Redo's dashboard (Merchant Admin → Webhooks → Return event).</p>
+              <p>Connect, then copy webhook URL + secret into Redo (Return event).</p>
             </div>
             <button type="button" class="int-card-collapse-btn" data-card="redo" aria-label="Collapse Redo returns">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -707,7 +707,7 @@
             <span class="int-card-icon int-card-icon--qbo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm.642 4.1335c.9554 0 1.7296.776 1.7296 1.7332v9.0667h1.6c1.614 0 2.9275-1.3156 2.9275-2.933 0-1.6173-1.3136-2.9333-2.9276-2.9333h-.6654V7.3334h.6654c2.5722 0 4.6577 2.0897 4.6577 4.667 0 2.5774-2.0855 4.6666-4.6577 4.6666H12.642zM7.9837 7.333h3.3291v12.533c-.9555 0-1.73-.7759-1.73-1.7332V9.0662H7.9837c-1.6146 0-2.9277 1.316-2.9277 2.9334 0 1.6175 1.3131 2.9333 2.9277 2.9333h.6654v1.7332h-.6654c-2.5725 0-4.6577-2.0892-4.6577-4.6665 0-2.5771 2.0852-4.6666 4.6577-4.6666Z"/></svg></span>
             <div class="int-card-header-text">
               <h2>QuickBooks Online</h2>
-              <p>Connects the general ledger so Accounting Export can map to real QBO accounts instead of typed account names. Connecting pulls the chart of accounts; nothing is ever written to QuickBooks from here. Use a <strong>sandbox</strong> company until the mapping has been reviewed. Which environment you connect to is set by the Intuit keys configured for SILO, not chosen here — switching to production means swapping those keys and registering the redirect URI on Intuit's Production tab.</p>
+              <p>Read-only chart pull for Accounting Export mapping. Prefer a sandbox company until mapping is reviewed.</p>
             </div>
             <button type="button" class="int-card-collapse-btn" data-card="qbo" aria-label="Collapse QuickBooks Online">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>

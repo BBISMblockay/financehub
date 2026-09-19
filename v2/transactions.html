@@ -236,7 +236,6 @@
     <header class="bcn-header">
       <div>
         <div class="bcn-header-title">Transactions</div>
-        <div class="bcn-header-sub" id="ccSub">Review bank and card activity in Silo</div>
       </div>
       <nav aria-label="Transaction workspace" class="bcn-tabs cc-tabbar" id="ccTabs" role="tablist">
         <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="coding">Transactions</button>
@@ -325,8 +324,9 @@
           </div>
           <div id="bankAccounts"></div>
           <div class="cc-card cc-warn" id="bankExceptions" hidden></div>
-          <div class="cc-hint">Sync retrieves updates available from your bank through Plaid; it does not force a bank refresh.
-            Transfers and card payments use clearing accounts. Shopify and payroll settlements clear amounts already recorded elsewhere.</div>
+          <details class="cc-hint"><summary>Bank sync notes</summary>
+            Sync retrieves updates available from your bank through Plaid; it does not force a bank refresh.
+            Transfers and card payments use clearing accounts. Shopify and payroll settlements clear amounts already recorded elsewhere.</details>
         </section>
 
         <!-- ================= CODING ================= -->
@@ -434,7 +434,6 @@
                   <input class="bcn-field bcn-field--mono" id="fltAmountMax" inputmode="decimal" placeholder="0.00" />
                 </label>
               </div>
-              <p class="txn-filterpanel-hint">Amounts are magnitudes: use Direction to choose money in or money out. A transaction split across several accounts is matched on its split lines and listed once.</p>
             </div>
             <div class="txn-activefilters" id="codeActiveFilters" hidden>
               <span class="txn-activefilters-count" id="filterCount" role="status"></span>
@@ -568,7 +567,8 @@
                 <span class="cc-note" id="rulesPageLabel" role="status"></span>
                 <button class="bcn-btn" type="button" id="btnRulesNext">Next</button>
               </div>
-              <span class="cc-note">Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already categorized keep what they have. A saved split remembers its ACCOUNTS and never an amount — edit one from the split editor on a transaction.</span>
+              <details class="cc-note"><summary>How rules work</summary>
+                Click an account, entity or location on a rule to change it. Deleting a rule stops it applying to future imports; rows already categorized keep what they have. A saved split remembers its ACCOUNTS and never an amount — edit one from the split editor on a transaction.</details>
             </div>
           </div>
         </section>

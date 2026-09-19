@@ -306,11 +306,10 @@
       <div class="pj-more-body" style="border-top:1px solid var(--bcn-border);flex-direction:column;align-items:stretch">
         <div>
           <span class="bcn-label">VISIBLE LOCATION COLUMNS</span>
-          <p style="margin:2px 0 6px;font-size:10.5px;color:var(--bcn-ink-3);line-height:1.45">
-            Columns keep a readable width and the grid scrolls sideways — Date and Launch stay pinned.
-            Untick locations you are not planning to shorten the scroll. This changes which columns are
-            <em>shown</em>; it does not change the totals, which always cover the filtered rows.
-          </p>
+          <details style="margin:2px 0 6px;font-size:10.5px;color:var(--bcn-ink-3);line-height:1.45">
+            <summary>Column visibility</summary>
+            Hiding a location column only changes what you see; totals still use all filtered rows.
+          </details>
           <div class="pj-loc-grid" id="loc-picker"></div>
           <div class="pj-loc-actions">
             <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-loc-pick="all">SELECT ALL</button>
