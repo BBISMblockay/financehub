@@ -172,11 +172,54 @@ that goes round the functions. If you see this, that chain is broken — do not
 the guard worked and something else made the second invoice (the client's own
 Stripe dashboard, most likely).
 
+The invoicing page writes its request key to `sessionStorage` **before** the
+call, so a reload resumes the same attempt instead of starting a second one,
+and resolves any outstanding key against `stripe_invoice_requests` on load. In
+a browser blocking site storage it says so in the status line and falls back to
+per-attempt keys — the ledger still stops a double-click, but not a reload.
+
+**"Stripe setup is already in progress" when nobody else is setting it up.**
+A `stripe_connect_setup_claims` row is held for the company. A claim with no
+`stripe_account_id` is retaken automatically after ten minutes. A claim that
+*has* one means Stripe created an account and SILO never recorded it — the next
+attempt **adopts** that account rather than creating another, so the fix is to
+retry, not to clear the row. Clearing it by hand is how a tenant ends up with
+two merchant accounts.
+
+**"Can I point a company at a different Stripe account?"** Not from the app.
+`stripe_sync_connect_account()` refuses to rebind a company that already has
+one, in either direction (another company's account, or a second account of its
+own). It is a deliberate service-role act, because the first account keeps its
+invoices and customers and its webhooks would otherwise resolve to nobody.
+
+**"A tenant wants to change plan."** Send them to **Manage billing** — the
+Stripe billing portal, which applies Stripe's own proration. `stripe-billing`
+**refuses** a Checkout session for a company whose subscription is `active`,
+`trialing`, `past_due` or `unpaid`: Checkout in subscription mode always
+*creates* a subscription, so a "switch" would leave the old one running and
+bill for both while `billing_subscriptions` (one row per company) showed only
+whichever synced last.
+
 **Stripe retries.** SILO returns a non-2xx **only** for transient failures
 (database unreachable, Stripe unreachable mid-fetch), because every handler is
-an idempotent upsert and a retry is safe. A mis-routed or unresolvable event
-returns 200: it will be exactly as mis-routed on the eighth attempt, and the
-retries would bury the one delivery somebody needs to find.
+an idempotent upsert and a retry is safe. A mis-routed event returns 200: it
+will be exactly as mis-routed on the eighth attempt.
+
+A retried delivery **does** re-run the handler. The claim in
+`stripe_record_webhook_event` is reclaimable for a row left `error` (the
+failure that asked for the retry), left `unresolved`, or stuck `received` for
+more than ten minutes (an edge function killed mid-handler — the gateway stops
+a request at 150s). `processed` and `ignored` are terminal and are never
+re-run. Until 2026-09-19 the claim was insert-or-nothing, so the 500 asked
+Stripe to retry and the retry was then discarded as a duplicate: an
+`invoice.paid` could be lost for good.
+
+**An `unresolved` event does not self-heal.** It is recorded and returns 200,
+so Stripe will not send it again on its own. If the cause was timing — the
+tenant finished Connect onboarding a moment after the event fired — **resend it
+from the Stripe dashboard**; the reclaim path above then processes it normally.
+The alternative, 500-ing every foreign event, would retry eight times for every
+event belonging to an account that was disconnected or never ours.
 
 ## What is still unverified
 

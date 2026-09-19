@@ -16,6 +16,16 @@
 //     integer minor units Stripe charges. One definition, server-side, and it
 //     refuses what it cannot represent exactly instead of rounding a price
 //     nobody agreed to.
+//
+//   subscription-state.mjs -- whether a company may open a new subscription
+//     Checkout. Stripe Checkout in subscription mode CREATES a subscription;
+//     it never switches one. The page offered "Switch to this plan" and called
+//     it, which would have left the old plan running and billed for both.
+//
+//   v2/invoice-request.js -- the idempotency key held across a RELOAD. The
+//     page minted a fresh uuid every time the dialog opened, so the retry the
+//     ledger exists for (lost response, reload, fill it in again) carried a
+//     new key and made a second real invoice.
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -25,6 +35,10 @@ import {
 import {
   toMinorUnits, normalizeInvoiceLines, fingerprintInvoice, InvoiceInputError,
 } from '../../supabase/functions/stripe-invoice/invoice-lines.mjs';
+import {
+  LIVE_STATUSES, isLive, checkoutDecision, planAction,
+} from '../../supabase/functions/stripe-billing/subscription-state.mjs';
+import { readFileSync } from 'node:fs';
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed += 1; console.log(`ok ${passed} - ${name}`); };
@@ -184,6 +198,137 @@ test('the fingerprint distinguishes a lost response from an edited form', () => 
   assert.equal(fingerprintInvoice(base), fingerprintInvoice({ ...base }));
   assert.notEqual(fingerprintInvoice(base),
     fingerprintInvoice({ ...base, lines: [{ description: 'Tees', quantity: 2, unit_amount: 1999 }] }));
+});
+
+// ── Who may open a Checkout ─────────────────────────────────────────────────
+
+test('a live subscriber cannot open a second subscription Checkout', () => {
+  for (const status of ['active', 'trialing', 'past_due', 'unpaid']) {
+    const decision = checkoutDecision({ status, plan_key: 'growth' });
+    assert.equal(decision.allowed, false, `${status} must not open a second subscription`);
+    assert.match(decision.reason, /billing portal/i, 'the refusal names where to go instead');
+  }
+});
+
+test('past_due and unpaid are live -- the subscription still exists at Stripe', () => {
+  // The tempting reading is "they are not paying, so let them start again".
+  // They CAN recover when the card is fixed, and a second subscription then
+  // bills twice for good.
+  assert.equal(isLive({ status: 'past_due' }), true);
+  assert.equal(isLive({ status: 'unpaid' }), true);
+});
+
+test('an incomplete, expired or cancelled subscription may subscribe again', () => {
+  for (const status of ['incomplete', 'incomplete_expired', 'canceled']) {
+    assert.equal(checkoutDecision({ status }).allowed, true,
+      `${status} never became a live subscription, or is over`);
+  }
+  assert.equal(checkoutDecision(null).allowed, true, 'and so may a company with no row at all');
+});
+
+test('the plan buttons can never offer what the function will refuse', () => {
+  const live = { status: 'active', plan_key: 'growth' };
+  assert.equal(planAction(live, 'growth').kind, 'current');
+  assert.equal(planAction(live, 'scale').kind, 'portal', 'a plan CHANGE goes to the portal');
+  assert.equal(planAction({ status: 'canceled' }, 'scale').kind, 'checkout');
+  assert.equal(planAction(null, 'scale').kind, 'checkout');
+});
+
+test('the billing PAGE agrees with the function on every status', () => {
+  // The page cannot import the module (it is a plain script tag), so it
+  // carries a copy. A copy that drifts is how "Switch to this plan" came to
+  // call an endpoint that would refuse it -- so the copy is pinned here.
+  const page = readFileSync(new URL('../../v2/billing.html', import.meta.url), 'utf8');
+  const listed = page.match(/const LIVE_STATUSES = \[([^\]]*)\]/);
+  assert.ok(listed, 'the page must carry the status list');
+  const pageStatuses = listed[1].split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean);
+  assert.deepEqual(pageStatuses.sort(), [...LIVE_STATUSES].sort(),
+    'the page and the edge function must admit exactly the same statuses');
+});
+
+// ── The key that survives a reload ──────────────────────────────────────────
+
+function loadRequestModule() {
+  // The module is a browser script, so it is loaded the way the page loads it.
+  const store = new Map();
+  const sandbox = {
+    sessionStorage: {
+      setItem: (k, v) => store.set(k, String(v)),
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      removeItem: (k) => store.delete(k),
+    },
+    crypto: { randomUUID: () => `uuid-${store.size}-${Math.random().toString(16).slice(2)}` },
+  };
+  const src = readFileSync(new URL('../../v2/invoice-request.js', import.meta.url), 'utf8');
+  const load = new Function('window', `${src}; return window.SiloInvoiceRequest;`);
+  return { api: load(sandbox), store, sandbox };
+}
+
+test('the same form resumes the same key -- a reload does not mint a new one', () => {
+  const { api } = loadRequestModule();
+  const sig = api.formSignature({
+    customer: 'cus_1', currency: 'usd', dueDays: 30,
+    lines: [{ description: 'Tees', quantity: 10, unit_amount: '19.99' }],
+  });
+  const first = api.begin('k', sig);
+  assert.equal(first.resumed, false);
+  assert.equal(first.durable, true, 'it must actually be written down, or a reload loses it');
+
+  const second = api.begin('k', sig);
+  assert.equal(second.request_id, first.request_id,
+    'the retry after a lost response must carry the ORIGINAL key');
+  assert.equal(second.resumed, true);
+});
+
+test('an edited form takes a new key -- a different invoice is a different request', () => {
+  const { api } = loadRequestModule();
+  const a = api.begin('k', 'sig-a');
+  const b = api.begin('k', 'sig-b');
+  assert.notEqual(b.request_id, a.request_id);
+});
+
+test('the signature changes with anything that changes the invoice', () => {
+  const base = { customer: 'cus_1', currency: 'usd', dueDays: 30, memo: '',
+    lines: [{ description: 'Tees', quantity: 1, unit_amount: '10.00' }] };
+  const sig = (o) => loadRequestModule().api.formSignature(o);
+  assert.equal(sig(base), sig({ ...base }));
+  for (const [field, value] of [['customer', 'cus_2'], ['currency', 'eur'], ['dueDays', 14], ['memo', 'x']]) {
+    assert.notEqual(sig(base), sig({ ...base, [field]: value }), `${field} must change the signature`);
+  }
+  assert.notEqual(sig(base), sig({ ...base,
+    lines: [{ description: 'Tees', quantity: 2, unit_amount: '10.00' }] }), 'quantity');
+  assert.notEqual(sig(base), sig({ ...base,
+    lines: [{ description: 'Tees', quantity: 1, unit_amount: '10.01' }] }), 'price');
+});
+
+test('what to do about an outstanding key, by what the server says', () => {
+  const { api } = loadRequestModule();
+  const marker = { request_id: 'r1', signature: 'sig-a' };
+
+  assert.deepEqual(api.decide(marker, 'sig-a', 'succeeded', 'in_9'),
+    { action: 'completed', request_id: 'r1', object_id: 'in_9' },
+    'the first attempt DID reach Stripe -- show it, never resend');
+  assert.deepEqual(api.decide(marker, 'sig-a', 'pending'), { action: 'reuse', request_id: 'r1' });
+  assert.deepEqual(api.decide(marker, 'sig-a', 'failed'), { action: 'fresh' });
+  assert.deepEqual(api.decide(marker, 'sig-a', 'unknown'), { action: 'fresh' },
+    'no row means the create never reached the database, so nothing was made');
+  assert.deepEqual(api.decide(marker, 'sig-DIFFERENT', 'pending'), { action: 'blocked', request_id: 'r1' },
+    'an in-flight attempt for a DIFFERENT invoice must block, not mint a second key');
+  assert.deepEqual(api.decide(null, 'sig-a', 'unknown'), { action: 'fresh' });
+});
+
+test('blocked storage degrades instead of refusing to work', () => {
+  const src = readFileSync(new URL('../../v2/invoice-request.js', import.meta.url), 'utf8');
+  const hostile = {
+    get sessionStorage() { throw new Error('The operation is insecure.'); },
+    crypto: { randomUUID: () => 'uuid-x' },
+  };
+  const api = new Function('window', `${src}; return window.SiloInvoiceRequest;`)(hostile);
+  assert.equal(api.storageAvailable(), false);
+  const claim = api.begin('k', 'sig');
+  assert.equal(claim.request_id, 'uuid-x', 'an invoice can still be created');
+  assert.equal(claim.durable, false, 'and the page is told the key will not survive a reload');
+  assert.equal(api.pending('k'), null);
 });
 
 console.log(`\n${passed} assertions passed`);

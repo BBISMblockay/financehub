@@ -107,10 +107,19 @@ export function customerIdOf(object) {
  * Is this failure worth a Stripe retry?
  *
  * Stripe re-delivers on any non-2xx for up to three days. That is exactly what
- * should happen when SILO's database was briefly unreachable, and exactly what
- * should NOT happen when the event names an account no company here owns --
- * that will still be true on the eighth attempt, and the retries only bury the
- * one delivery somebody needs to find in the log.
+ * should happen when SILO's database was briefly unreachable.
+ *
+ * `unresolved` is the interesting one and it is deliberately NOT retried,
+ * which is a trade rather than an obvious call. An event naming an account no
+ * company here owns CAN become resolvable -- a tenant finishing onboarding a
+ * minute later -- and `stripe_record_webhook_event` will re-claim such a row
+ * if a delivery ever arrives again. But 500-ing every foreign event would also
+ * retry, eight times each, every event for an account that was disconnected or
+ * never belonged here, burying the one delivery somebody needs to find. So the
+ * row is recorded as `unresolved`, the log is the record, and the remedy for a
+ * genuine late resolution is a resend from the Stripe dashboard, which the
+ * reclaim path then handles. docs/ops/stripe.md says this in the
+ * troubleshooting table.
  */
 export function shouldAskStripeToRetry(outcome) {
   return outcome === 'transient';

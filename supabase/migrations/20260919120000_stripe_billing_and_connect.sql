@@ -665,8 +665,34 @@ begin
 end;
 $$;
 
--- Insert-first deduplication. Returns TRUE only for the first delivery of an
--- event id; a retry gets FALSE and the caller returns 200 without re-handling.
+-- Claim a delivery for handling. TRUE means "you own this one, process it";
+-- FALSE means it is already handled or is being handled right now.
+--
+-- Insert-first deduplication of Stripe's retries was the whole of this
+-- function, and it was WRONG IN THE ONE CASE THE RETRY EXISTS FOR. The
+-- caller records the event, dispatches, and on a transient failure marks the
+-- row `error` and returns 500 precisely so Stripe will send it again -- but a
+-- plain `on conflict do nothing` then reported that retry as a duplicate, so
+-- the handler never ran again and an `invoice.paid` could be lost forever.
+-- The endpoint asked for a retry it had already made useless.
+--
+-- So the claim is RECLAIMABLE, and atomically: `on conflict do update ...
+-- where` takes the row lock, and row_count is 1 only if this caller either
+-- inserted the row or won the update. Two concurrent deliveries of one event
+-- cannot both be told to process it.
+--
+-- What is reclaimable, and why:
+--   error       -- a failure that asked for the retry. The whole point.
+--   unresolved  -- the event named an account SILO did not know YET. A tenant
+--                  finishing Connect onboarding a minute later makes the same
+--                  event resolvable, and Stripe retries for three days.
+--   received    -- only once STALE (10 minutes). An edge function killed
+--                  mid-handler (the gateway stops a request at 150s) otherwise
+--                  leaves the row claimed forever. Ten minutes is far beyond
+--                  any real in-flight handler and far under Stripe's retry
+--                  window.
+-- NOT reclaimable: processed and ignored. Those are terminal successes, and
+-- re-running them is the double-processing this function exists to prevent.
 create or replace function public.stripe_record_webhook_event(
   p_event_id   text,
   p_endpoint   text,
@@ -680,14 +706,27 @@ language plpgsql
 security definer
 set search_path to 'public'
 as $$
-declare v_inserted boolean;
+declare v_claimed boolean;
 begin
   insert into public.stripe_webhook_events
     (stripe_event_id, endpoint, event_type, stripe_account_id, company_entity_id, event_created_at)
   values (p_event_id, p_endpoint, p_event_type, p_account, p_company, p_created)
-  on conflict (stripe_event_id) do nothing;
-  get diagnostics v_inserted = row_count;
-  return v_inserted;
+  on conflict (stripe_event_id) do update
+    set status = 'received',
+        error_message = null,
+        processed_at = null,
+        received_at = now(),
+        -- A retry may resolve to a company the first attempt could not. Never
+        -- overwrite a known company with null.
+        company_entity_id = coalesce(excluded.company_entity_id,
+                                     stripe_webhook_events.company_entity_id),
+        stripe_account_id = coalesce(excluded.stripe_account_id,
+                                     stripe_webhook_events.stripe_account_id)
+    where stripe_webhook_events.status in ('error', 'unresolved')
+       or (stripe_webhook_events.status = 'received'
+           and stripe_webhook_events.received_at < now() - interval '10 minutes');
+  get diagnostics v_claimed = row_count;
+  return v_claimed;
 end;
 $$;
 
@@ -920,6 +959,7 @@ as $$
 declare
   v_account text := p_payload->>'id';
   v_owner   uuid;
+  v_bound   text;
   v_existing timestamptz;
   v_reqs    jsonb := coalesce(p_payload->'requirements', '{}'::jsonb);
   v_done    boolean := coalesce((p_payload->>'charges_enabled')::boolean, false)
@@ -937,6 +977,23 @@ begin
     from public.stripe_connect_accounts where stripe_account_id = v_account;
   if v_owner is not null and v_owner <> p_company then
     raise exception 'stripe_sync_connect_account: account % already belongs to another company', v_account;
+  end if;
+
+  -- ...and a company already bound to an account is never re-pointed EITHER,
+  -- which the cross-company check above does not cover and which is the
+  -- likelier accident: two tabs both start onboarding, Stripe issues two
+  -- accounts, and the second sync would quietly move this company onto the
+  -- second one. The first account keeps its invoices and its customers, SILO
+  -- stops routing that account's webhooks to anybody (they resolve to no
+  -- company), and nothing anywhere says so. Refusing makes the duplicate
+  -- visible as an error instead of as silence. Re-pointing a company at a
+  -- different Stripe account is a deliberate act and takes a service-role
+  -- write, not a second click.
+  select stripe_account_id into v_bound
+    from public.stripe_connect_accounts where company_entity_id = p_company;
+  if v_bound is not null and v_bound <> v_account then
+    raise exception 'stripe_sync_connect_account: this company is already bound to %s, refusing to rebind it to %s',
+      v_bound, v_account;
   end if;
 
   select stripe_synced_at into v_existing
@@ -966,7 +1023,10 @@ begin
     p_payload,
     now())
   on conflict (company_entity_id) do update set
-    stripe_account_id = excluded.stripe_account_id,
+    -- stripe_account_id is deliberately NOT updated here. The guard above
+    -- already refuses a different one, so assigning it could only ever be a
+    -- no-op -- and leaving the assignment in place would quietly restore the
+    -- rebind the moment somebody relaxed that guard.
     account_type      = excluded.account_type,
     country           = excluded.country,
     default_currency  = excluded.default_currency,
@@ -985,6 +1045,116 @@ begin
     raw               = excluded.raw,
     updated_at        = now();
 end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 6b. Creating a connected account is claimed per company
+--
+-- `stripe-connect` reads the company's row, finds none, and calls Stripe. Two
+-- concurrent first clicks (two tabs, or a double-click on a slow link) both
+-- read no row and both create an account, and the tenant ends up with two
+-- merchant identities in their own Stripe. The guard added to
+-- stripe_sync_connect_account above stops the SECOND one taking over the
+-- company's row -- but by then the second account exists at Stripe, which is
+-- somebody's real business record and cannot be deleted from here.
+--
+-- So the creation is claimed first. The claim is durable (a row, not an
+-- advisory lock) because the thing it spans is an HTTP call to Stripe, which
+-- no transaction can hold.
+--
+-- `stripe_account_id` on the claim is what closes the window that matters:
+-- the edge function records the id the INSTANT Stripe returns it, before the
+-- mirror write. A retry that arrives after a create succeeded but before the
+-- sync landed therefore ADOPTS that account instead of creating another one.
+-- Without it, a crash in those few milliseconds means the next attempt after
+-- the claim goes stale opens a second account, and nothing would ever say so.
+create table if not exists public.stripe_connect_setup_claims (
+  company_entity_id uuid primary key references public.entities(id) on delete cascade,
+  claimed_by        uuid references auth.users(id) on delete set null,
+  stripe_account_id text,
+  claimed_at        timestamptz not null default now()
+);
+
+alter table public.stripe_connect_setup_claims enable row level security;
+revoke all on public.stripe_connect_setup_claims from anon, authenticated;
+-- No policy and no grant: service role only, like stripe_webhook_events.
+
+comment on table public.stripe_connect_setup_claims is
+  'One in-flight Connect account creation per company. Durable rather than an advisory lock because it spans an HTTP call to Stripe. stripe_account_id is written the instant Stripe returns it, so a retry between the create and the mirror write adopts that account instead of opening a second merchant identity in the client''s Stripe.';
+
+-- Returns one of:
+--   already_bound -- the company has a connected account; do not create
+--   adopt         -- an in-flight claim already has an account id: sync THAT
+--   claimed       -- you hold the claim; create
+--   in_flight     -- somebody else is mid-creation; refuse and tell the user
+create or replace function public.stripe_claim_connect_setup(
+  p_company uuid,
+  p_user    uuid default null
+)
+returns table (outcome text, stripe_account_id text)
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_claimed boolean;
+  v_existing public.stripe_connect_setup_claims;
+begin
+  if exists (select 1 from public.stripe_connect_accounts where company_entity_id = p_company) then
+    return query select 'already_bound'::text, null::text;
+    return;
+  end if;
+
+  insert into public.stripe_connect_setup_claims (company_entity_id, claimed_by)
+  values (p_company, p_user)
+  on conflict (company_entity_id) do update
+    set claimed_by = excluded.claimed_by,
+        claimed_at = now()
+    -- Only a STALE claim is taken over, and only when no account id was
+    -- recorded against it -- an id means Stripe made something, and that is
+    -- adopted below rather than duplicated.
+    where public.stripe_connect_setup_claims.claimed_at < now() - interval '10 minutes'
+      and public.stripe_connect_setup_claims.stripe_account_id is null;
+  get diagnostics v_claimed = row_count;
+
+  if v_claimed then
+    return query select 'claimed'::text, null::text;
+    return;
+  end if;
+
+  select * into v_existing
+    from public.stripe_connect_setup_claims where company_entity_id = p_company;
+
+  if v_existing.stripe_account_id is not null then
+    return query select 'adopt'::text, v_existing.stripe_account_id;
+  else
+    return query select 'in_flight'::text, null::text;
+  end if;
+end;
+$$;
+
+-- Called the moment Stripe returns an account id, BEFORE the mirror write.
+create or replace function public.stripe_note_connect_setup_account(
+  p_company uuid,
+  p_account text
+)
+returns void
+language sql
+security definer
+set search_path to 'public'
+as $$
+  update public.stripe_connect_setup_claims
+     set stripe_account_id = p_account
+   where company_entity_id = p_company;
+$$;
+
+create or replace function public.stripe_release_connect_setup(p_company uuid)
+returns void
+language sql
+security definer
+set search_path to 'public'
+as $$
+  delete from public.stripe_connect_setup_claims where company_entity_id = p_company;
 $$;
 
 -- The client disconnected SILO from their Stripe account. SILO can no longer
@@ -1335,6 +1505,9 @@ begin
     'stripe_sync_billing_invoice(uuid,jsonb,timestamptz)',
     'stripe_sync_connect_account(uuid,jsonb,timestamptz)',
     'stripe_mark_connect_disconnected(uuid,text,timestamptz)',
+    'stripe_claim_connect_setup(uuid,uuid)',
+    'stripe_note_connect_setup_account(uuid,text)',
+    'stripe_release_connect_setup(uuid)',
     'stripe_sync_invoice_customer(uuid,text,jsonb,timestamptz)',
     'stripe_sync_invoice(uuid,text,jsonb,timestamptz)',
     'stripe_begin_invoice_request(uuid,uuid,text,text,uuid,text)',

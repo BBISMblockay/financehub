@@ -65,6 +65,7 @@
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
+  <script src="invoice-request.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
 </head>
@@ -223,10 +224,14 @@
   let _connect = null;        // what Stripe says about the connected account
   let _customers = [];
   let _invoices = [];
-  // Minted once per dialog opening and REUSED across retries. A fresh uuid per
-  // attempt would defeat the idempotency ledger entirely, which is the whole
-  // protection against a lost response becoming a second real invoice.
-  let _requestId = null;
+  // The idempotency key is NOT held here. It lives in sessionStorage via
+  // SiloInvoiceRequest, because the retry that actually happens is a RELOAD --
+  // the invoice commits at Stripe, the response is lost, the person reloads
+  // and fills the form in again. A key held in a variable dies with the
+  // document and the second attempt creates a second real invoice for
+  // somebody's customer. See v2/invoice-request.js.
+  const REQ = window.SiloInvoiceRequest;
+  const reqKey = (kind) => `silo:stripe:${kind}-request:${_co?.id || 'nocompany'}`;
 
   const el = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
@@ -521,7 +526,6 @@
       setStatus('Add a customer first.', 'info', 6000);
       return;
     }
-    _requestId = crypto.randomUUID();
     el('invCustomer').innerHTML = _customers.map((c) =>
       `<option value="${esc(c.stripe_customer_id)}">${esc(c.name || c.email || c.stripe_customer_id)}</option>`).join('');
     if (customerId) el('invCustomer').value = customerId;
@@ -533,46 +537,135 @@
     el('dlgInvoice').showModal();
   }
 
+  function invoiceForm() {
+    return {
+      customer: el('invCustomer').value,
+      currency: (el('invCurrency').value || 'usd').toLowerCase(),
+      dueDays: Number(el('invDueDays').value || 30),
+      memo: el('invMemo').value,
+      lines: [...el('invLines').children].map((row) => ({
+        description: row.querySelector('[data-f="description"]').value,
+        quantity: Number(row.querySelector('[data-f="quantity"]').value || 1),
+        unit_amount: row.querySelector('[data-f="unit_amount"]').value,
+      })),
+    };
+  }
+
+  // What became of a request id we wrote down but never saw finish. The row is
+  // readable by anyone who may invoice (same RLS as the invoices themselves),
+  // so the page can ask rather than guess.
+  async function serverStatusOf(requestId) {
+    const { data, error } = await sb
+      .from('stripe_invoice_requests')
+      .select('status, stripe_object_id')
+      .eq('request_id', requestId)
+      .maybeSingle();
+    // A read failure is NOT 'unknown': unknown means "no such request, the key
+    // is free", and treating a network blip as that would mint a fresh key and
+    // create a second invoice -- the exact bug this resolves. Stay pending.
+    if (error) return { status: 'pending', object_id: null };
+    if (!data) return { status: 'unknown', object_id: null };
+    return { status: data.status, object_id: data.stripe_object_id };
+  }
+
+  async function resolvePending(kind, signature) {
+    const marker = REQ.pending(reqKey(kind));
+    if (!marker) return { action: 'fresh' };
+    const { status, object_id } = await serverStatusOf(marker.request_id);
+    const decision = REQ.decide(marker, signature, status, object_id);
+    if (decision.action === 'completed' || decision.action === 'fresh') {
+      REQ.clear(reqKey(kind));
+    }
+    return decision;
+  }
+
   async function submitInvoice() {
-    const lines = [...el('invLines').children].map((row) => ({
-      description: row.querySelector('[data-f="description"]').value,
-      quantity: Number(row.querySelector('[data-f="quantity"]').value || 1),
-      unit_amount: row.querySelector('[data-f="unit_amount"]').value,
-    }));
+    const form = invoiceForm();
+    const signature = REQ.formSignature(form);
+
+    // An outstanding attempt is resolved BEFORE another one starts.
+    const prior = await resolvePending('invoice', signature);
+    if (prior.action === 'completed') {
+      await loadInvoices();
+      renderInvoices();
+      setStatus('That invoice was already created — the earlier attempt did reach Stripe, '
+        + 'even though the answer never came back. Showing it rather than making a second one.',
+        'pos', 12000);
+      return;
+    }
+    if (prior.action === 'blocked') {
+      setStatus('An earlier invoice is still being created and this form no longer matches it. '
+        + 'Refresh before creating a different one — sending this now could bill your customer twice.',
+        'neg', 15000);
+      el('dlgInvoice').showModal();
+      return;
+    }
+
+    // Written down before the call, so a reload can resume it.
+    const { request_id, resumed, durable } = REQ.begin(reqKey('invoice'), signature);
+
     try {
-      setStatus('Creating the draft in Stripe…', 'info');
+      setStatus(resumed
+        ? 'Resuming the earlier attempt rather than starting a new one…'
+        : 'Creating the draft in Stripe…', 'info');
       const res = await callFn('stripe-invoice', {
         action: 'create_invoice',
-        request_id: _requestId,       // reused on every retry of THIS dialog
-        customer_id: el('invCustomer').value,
-        currency: (el('invCurrency').value || 'usd').toLowerCase(),
-        due_days: Number(el('invDueDays').value || 30),
-        memo: el('invMemo').value,
-        lines,
+        request_id,
+        customer_id: form.customer,
+        currency: form.currency,
+        due_days: form.dueDays,
+        memo: form.memo,
+        lines: form.lines,
       });
+      REQ.clear(reqKey('invoice'));
       await loadInvoices();
       renderInvoices();
       setStatus(res.repeated
         ? 'That invoice had already been created — showing the original rather than making a second one.'
-        : 'Draft created. Nothing has been emailed yet.', 'pos', 9000);
+        : 'Draft created. Nothing has been emailed yet.'
+          + (durable ? '' : ' (This browser is blocking site storage, so a reload cannot resume a'
+            + ' lost response — check the list before retrying.)'), 'pos', 9000);
     } catch (e) {
-      // The dialog's request id is deliberately NOT reset here: if the user
-      // fixes a typo and submits again, the same id resumes the same attempt.
+      // The key is deliberately LEFT in storage: the attempt may have reached
+      // Stripe, and the next try must carry the same id rather than create a
+      // second invoice.
       setStatus(e.message, 'neg', 14000);
       el('dlgInvoice').showModal();
     }
   }
 
   async function submitCustomer() {
+    // Same mechanism as the invoice. A duplicate customer costs nobody money,
+    // but two code paths doing idempotency differently is how the next one
+    // gets it wrong.
+    const signature = REQ.formSignature({
+      customer: el('custName').value, currency: '', dueDays: null,
+      memo: el('custEmail').value, lines: [],
+    });
+    const prior = await resolvePending('customer', signature);
+    if (prior.action === 'completed') {
+      await loadCustomers();
+      renderCustomers();
+      setStatus('That customer already exists — the earlier attempt reached Stripe.', 'pos', 9000);
+      return;
+    }
+    if (prior.action === 'blocked') {
+      setStatus('An earlier customer is still being created. Refresh before adding a different one.',
+        'neg', 12000);
+      return;
+    }
+
+    const { request_id } = REQ.begin(reqKey('customer'), signature);
     try {
       setStatus('Creating the customer in Stripe…', 'info');
       await callFn('stripe-invoice', {
         action: 'create_customer',
-        request_id: _requestId,
+        request_id,
         name: el('custName').value,
         email: el('custEmail').value,
         phone: el('custPhone').value,
       });
+      REQ.clear(reqKey('customer'));
       await loadCustomers();
       renderCustomers();
       setStatus('Customer created.', 'pos', 6000);
@@ -617,12 +710,29 @@
     renderCustomers();
     renderInvoices();
 
+    // A key written down by an attempt this page never saw finish. Resolving
+    // it HERE, on load, is what turns "the screen went blank and I don't know
+    // if it sent" into an answer -- before somebody retypes the invoice.
+    const outstanding = REQ.pending(reqKey('invoice'));
+    if (outstanding) {
+      const { status, object_id } = await serverStatusOf(outstanding.request_id);
+      if (status === 'succeeded') {
+        REQ.clear(reqKey('invoice'));
+        setStatus('An invoice you started earlier did reach Stripe, even though the page never '
+          + 'got the answer. It is in the list below — do not create it again.', 'pos', 0);
+      } else if (status === 'unknown' || status === 'failed') {
+        REQ.clear(reqKey('invoice'));
+      } else {
+        setStatus('An invoice you started earlier has not finished. Open New invoice with the same '
+          + 'details to resume it rather than creating a second one.', 'info', 0);
+      }
+    }
+
     el('statusFilter').addEventListener('change', renderInvoices);
     el('btnAddLine').addEventListener('click', () => { el('invLines').appendChild(lineRow()); });
     el('invCurrency').addEventListener('input', updateTotal);
     el('btnNewInvoice').addEventListener('click', () => openInvoiceDialog(null));
     el('btnNewCustomer').addEventListener('click', () => {
-      _requestId = crypto.randomUUID();
       el('custName').value = ''; el('custEmail').value = ''; el('custPhone').value = '';
       el('dlgCustomer').showModal();
     });

@@ -27,6 +27,7 @@
 // Secret: STRIPE_SECRET_KEY. Link base: SILO_SITE_URL.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17.7.0';
+import { checkoutDecision } from './subscription-state.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -126,6 +127,20 @@ async function checkout(company: string, profile: any, userId: string, body: any
     .eq('plan_key', planKey)
     .maybeSingle();
   if (!plan?.is_active) throw new Error(`Plan ${planKey} is not available`);
+
+  // Checkout in subscription mode CREATES a subscription -- it never switches
+  // one. Opening a second for a live subscriber leaves the first running and
+  // bills for both, while billing_subscriptions holds one row per company and
+  // would show only whichever synced last. Refused here, at the boundary,
+  // rather than only in the page that offers the button.
+  const { data: current } = await db
+    .from('billing_subscriptions')
+    .select('status, plan_key, stripe_subscription_id')
+    .eq('company_entity_id', company)
+    .maybeSingle();
+
+  const decision = checkoutDecision(current);
+  if (!decision.allowed) throw new Error(decision.reason);
 
   const customer = await customerFor(company, profile);
 

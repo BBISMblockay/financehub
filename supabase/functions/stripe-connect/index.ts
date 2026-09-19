@@ -97,30 +97,82 @@ Deno.serve(async (req: Request) => {
     let accountId = existing?.stripe_account_id ?? null;
 
     if (!accountId) {
-      const { data: entity } = await db
-        .from('entities').select('title').eq('id', company).maybeSingle();
-
-      // Standard: the client owns the account, keeps their own dashboard, and
-      // carries their own dispute liability. See the migration header for why
-      // SILO does not take that on.
-      const account = await stripe.accounts.create({
-        type: 'standard',
-        email: profile.email ?? undefined,
-        business_profile: { name: entity?.title ?? undefined },
-        // Stamped so an account found in SILO's Stripe dashboard can be traced
-        // back to a tenant. NEVER read back as authorization -- the client
-        // owns this account and can edit its metadata.
-        metadata: { silo_company_entity_id: company, silo_created_by: user.id },
+      // Creating a connected account is CLAIMED per company before Stripe is
+      // called. Two tabs (or a double-click on a slow link) otherwise both
+      // read no row and both create an account, and the tenant ends up with
+      // two merchant identities in their own Stripe -- which is their real
+      // business record and cannot be deleted from here. The claim is a row
+      // rather than a lock because it spans an HTTP call.
+      const { data: claimRows, error: claimErr } = await db.rpc('stripe_claim_connect_setup', {
+        p_company: company, p_user: user.id,
       });
-      accountId = account.id;
+      if (claimErr) throw new Error(`stripe_claim_connect_setup: ${claimErr.message}`);
+      const claim = Array.isArray(claimRows) ? claimRows[0] : claimRows;
 
-      // Persist BEFORE handing the browser to Stripe: if the redirect is lost,
-      // the next `start` must resume this account rather than create a second
-      // one. A second connected account is not a duplicate row somebody can
-      // delete -- it is a second merchant identity in the client's Stripe.
-      await rpc('stripe_sync_connect_account', {
-        p_company: company, p_payload: account, p_synced_at: new Date().toISOString(),
-      });
+      if (claim?.outcome === 'in_flight') {
+        return reply({
+          error: 'Stripe setup for this company is already in progress — finish it in the tab '
+            + 'that started it, or wait a moment and refresh. Starting again here would open a '
+            + 'second Stripe account in your name.',
+        }, 409);
+      }
+
+      if (claim?.outcome === 'adopt') {
+        // A previous attempt got an account out of Stripe and died before the
+        // mirror write. Adopt it; creating another would duplicate a real
+        // merchant account for the sake of a lost response.
+        accountId = claim.stripe_account_id;
+        await syncAccount(company, accountId!);
+        await db.rpc('stripe_release_connect_setup', { p_company: company });
+      } else if (claim?.outcome === 'claimed') {
+        const { data: entity } = await db
+          .from('entities').select('title').eq('id', company).maybeSingle();
+
+        // Standard: the client owns the account, keeps their own dashboard, and
+        // carries their own dispute liability. See the migration header for why
+        // SILO does not take that on.
+        const account = await stripe.accounts.create({
+          type: 'standard',
+          email: profile.email ?? undefined,
+          business_profile: { name: entity?.title ?? undefined },
+          // Stamped so an account found in SILO's Stripe dashboard can be traced
+          // back to a tenant. NEVER read back as authorization -- the client
+          // owns this account and can edit its metadata.
+          metadata: { silo_company_entity_id: company, silo_created_by: user.id },
+        });
+        accountId = account.id;
+
+        // Recorded against the claim FIRST, before the mirror write: this is
+        // the line that makes a crash in the next few milliseconds recoverable
+        // rather than a second Stripe account ten minutes later.
+        await db.rpc('stripe_note_connect_setup_account', {
+          p_company: company, p_account: account.id,
+        });
+
+        // Persist BEFORE handing the browser to Stripe: if the redirect is lost,
+        // the next `start` must resume this account rather than create a second
+        // one. A second connected account is not a duplicate row somebody can
+        // delete -- it is a second merchant identity in the client's Stripe.
+        await rpc('stripe_sync_connect_account', {
+          p_company: company, p_payload: account, p_synced_at: new Date().toISOString(),
+        });
+
+        // The mirror is now the record; the claim has done its job. Released
+        // only on success -- a failure above deliberately LEAVES the claim
+        // standing, so a retry hits `adopt` or `in_flight` rather than
+        // creating a second account.
+        await db.rpc('stripe_release_connect_setup', { p_company: company });
+      } else {
+        // already_bound: another attempt completed between this function's
+        // first read and its claim.
+        const { data: bound } = await db
+          .from('stripe_connect_accounts')
+          .select('stripe_account_id')
+          .eq('company_entity_id', company)
+          .maybeSingle();
+        accountId = bound?.stripe_account_id ?? null;
+        if (!accountId) throw new Error('Connect setup is already bound but no account is readable');
+      }
     }
 
     const base = `${SITE_URL}/v2/invoicing.html`;

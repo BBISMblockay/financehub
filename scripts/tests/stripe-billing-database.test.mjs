@@ -34,6 +34,10 @@
 //   STRIPE_MUTATION=lines-upserted    (invoice lines merged instead of replaced)
 //   STRIPE_MUTATION=sync-open-to-anon (the revoke on the sync layer removed)
 //   STRIPE_MUTATION=placeholder-claims-now (the checkout placeholder stamps now())
+// Added after the cycle-2 review:
+//   STRIPE_MUTATION=webhook-no-reclaim   (the event claim goes back to insert-or-nothing)
+//   STRIPE_MUTATION=connect-rebind-allowed (a company may be moved to a second Stripe account)
+//   STRIPE_MUTATION=connect-unclaimed    (concurrent first-time setup is unguarded)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -46,7 +50,7 @@ const mutation = process.env.STRIPE_MUTATION || '';
 assert.ok([
   '', 'mirror-writable', 'gate-is-admin', 'stale-wins', 'account-rebind',
   'ledger-amnesia', 'platform-takes-account', 'lines-upserted', 'sync-open-to-anon',
-  'placeholder-claims-now',
+  'placeholder-claims-now', 'webhook-no-reclaim', 'connect-rebind-allowed', 'connect-unclaimed',
 ].includes(mutation), `Unknown stripe mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -140,6 +144,45 @@ if (mutation === 'lines-upserted') {
 if (mutation === 'placeholder-claims-now') {
   sql = sql.replace("values (p_company, p_customer, 'incomplete', '-infinity'::timestamptz)",
                     () => "values (p_company, p_customer, 'incomplete', now())");
+}
+if (mutation === 'webhook-no-reclaim') {
+  // The original: dedupe Stripe's retries, and silently swallow the retry the
+  // endpoint asked for by returning 500.
+  sql = sql.replace(
+    /  on conflict \(stripe_event_id\) do update\n[\s\S]*?           and stripe_webhook_events\.received_at < now\(\) - interval '10 minutes'\);/,
+    () => '  on conflict (stripe_event_id) do nothing;');
+}
+if (mutation === 'connect-rebind-allowed') {
+  // The pre-fix state is BOTH halves: the guard gone AND the upsert assigning
+  // the account id again. Removing only the guard proves nothing, because the
+  // upsert no longer carries a new id forward -- which is itself deliberate,
+  // so that relaxing the guard alone cannot quietly restore the rebind.
+  const before = sql;
+  sql = sql.replace(
+    /  select stripe_account_id into v_bound\n[\s\S]*?      v_bound, v_account;\n  end if;\n/,
+    () => '');
+  assert.notEqual(sql, before, 'connect-rebind-allowed: the guard was not found to remove');
+  sql = sql.replace(
+    `  on conflict (company_entity_id) do update set
+    -- stripe_account_id is deliberately NOT updated here. The guard above
+    -- already refuses a different one, so assigning it could only ever be a
+    -- no-op -- and leaving the assignment in place would quietly restore the
+    -- rebind the moment somebody relaxed that guard.
+    account_type      = excluded.account_type,`,
+    () => `  on conflict (company_entity_id) do update set
+    stripe_account_id = excluded.stripe_account_id,
+    account_type      = excluded.account_type,`);
+}
+if (mutation === 'connect-unclaimed') {
+  // The claim always succeeds, so two concurrent setups both create.
+  sql = sql.replace(
+    /create or replace function public\.stripe_claim_connect_setup\([\s\S]*?\n\$\$;/,
+    () => [
+      'create or replace function public.stripe_claim_connect_setup(p_company uuid, p_user uuid default null)',
+      'returns table (outcome text, stripe_account_id text)',
+      "language sql security definer set search_path to 'public'",
+      'as $$ select \'claimed\'::text, null::text $$;',
+    ].join('\n'));
 }
 if (mutation === 'sync-open-to-anon') {
   sql = sql.replace(
@@ -522,6 +565,122 @@ await test('a webhook delivery is recorded once and only once', async () => {
     [acctA, companyA]);
   assert.equal(first.v, true, 'the first delivery is handled');
   assert.equal(second.v, false, "Stripe's retry of the same event is not handled twice");
+});
+
+await test('a failed delivery can be re-claimed; a handled one never is', async () => {
+  // The endpoint returns 500 on a transient handler failure precisely so
+  // Stripe will send the event again. With an insert-or-nothing claim that
+  // retry was reported as a duplicate and the handler never ran -- so an
+  // invoice.paid could be lost forever while the endpoint had explicitly
+  // ASKED for the redelivery. This is that loop closed.
+  const claimEvent = () => one(
+    `select public.stripe_record_webhook_event('evt_retry','connect','invoice.paid',$1,$2,now()) as v`,
+    [acctA, companyA]);
+
+  assert.equal((await claimEvent()).v, true, 'first delivery is handled');
+  assert.equal((await claimEvent()).v, false, 'a retry while it is in flight is NOT handled twice');
+
+  await q(`select public.stripe_finish_webhook_event('evt_retry','error','boom')`);
+  assert.equal((await claimEvent()).v, true,
+    "after a transient failure, Stripe's retry must actually re-run the handler");
+
+  await q(`select public.stripe_finish_webhook_event('evt_retry','processed')`);
+  assert.equal((await claimEvent()).v, false,
+    'a processed event is terminal -- re-running it is the double-processing the claim prevents');
+
+  await q(`select public.stripe_finish_webhook_event('evt_retry','ignored')`);
+  assert.equal((await claimEvent()).v, false, 'so is an ignored one');
+});
+
+await test('an unresolved event becomes re-claimable, because it can become resolvable', async () => {
+  await one(`select public.stripe_record_webhook_event('evt_unres','connect','invoice.paid',$1,null,now()) as v`, [acctA]);
+  await q(`select public.stripe_finish_webhook_event('evt_unres','unresolved','no company')`);
+  const again = await one(
+    `select public.stripe_record_webhook_event('evt_unres','connect','invoice.paid',$1,$2,now()) as v`,
+    [acctA, companyA]);
+  assert.equal(again.v, true,
+    'a tenant finishing onboarding a minute later makes the same event resolvable');
+  const row = await one(`select company_entity_id from public.stripe_webhook_events where stripe_event_id='evt_unres'`);
+  assert.equal(row.company_entity_id, companyA, 'the retry may resolve a company the first attempt could not');
+});
+
+await test('a claim stuck in flight is re-claimable only once stale', async () => {
+  await one(`select public.stripe_record_webhook_event('evt_stuck','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA]);
+  assert.equal((await one(`select public.stripe_record_webhook_event('evt_stuck','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA])).v,
+    false, 'a fresh in-flight claim still blocks');
+  await q(`update public.stripe_webhook_events set received_at = now() - interval '11 minutes'
+            where stripe_event_id='evt_stuck'`);
+  assert.equal((await one(`select public.stripe_record_webhook_event('evt_stuck','connect','invoice.paid',$1,$2,now()) as v`, [acctA, companyA])).v,
+    true, 'an edge function killed mid-handler must not claim the event forever');
+});
+
+// ── 7b. One company, one connected account ──────────────────────────────────
+if (mutation !== 'connect-rebind-allowed') {
+  await refused(
+    () => syncAccount(companyA, 'acct_A_SECOND_0000002'),
+    /already bound to/,
+    'moving a company onto a second Stripe account (two tabs, two accounts)');
+} else {
+  await test('MUTANT: the same-company rebind guard is gone (this run must fail)', async () => {
+    // Without the guard the rebind is stopped only by the composite FK from
+    // the invoices already written against the first account -- so it fails
+    // with a raw constraint violation, and a company that had not invoiced
+    // anybody yet would be rebound silently. This asserts the readable
+    // refusal, which is what the guard is for.
+    await assert.rejects(() => syncAccount(companyA, 'acct_A_SECOND_0000002'),
+      /already bound to/,
+      'without the explicit guard, a company with no invoices yet is rebound with no error at all');
+  });
+}
+
+await test('creating a connected account is claimed per company', async () => {
+  const fresh = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','fresh','Fresh Co')`, [fresh]);
+
+  const first = await one('select * from public.stripe_claim_connect_setup($1,null)', [fresh]);
+  assert.equal(first.outcome, 'claimed');
+
+  const second = await one('select * from public.stripe_claim_connect_setup($1,null)', [fresh]);
+  assert.equal(second.outcome, 'in_flight',
+    'the second tab must be refused, not allowed to open a second merchant account');
+
+  // Stripe returned an account and the process died before the mirror write.
+  await q(`select public.stripe_note_connect_setup_account($1,'acct_FRESH_000000001')`, [fresh]);
+  const retry = await one('select * from public.stripe_claim_connect_setup($1,null)', [fresh]);
+  assert.equal(retry.outcome, 'adopt');
+  assert.equal(retry.stripe_account_id, 'acct_FRESH_000000001',
+    'a retry adopts the account Stripe already made rather than creating another');
+
+  // Even once stale, a claim carrying an account id is adopted, never retaken.
+  await q(`update public.stripe_connect_setup_claims
+              set claimed_at = now() - interval '11 minutes' where company_entity_id=$1`, [fresh]);
+  const stale = await one('select * from public.stripe_claim_connect_setup($1,null)', [fresh]);
+  assert.equal(stale.outcome, 'adopt',
+    'staleness must not turn a real Stripe account into a second one');
+
+  await syncAccount(fresh, 'acct_FRESH_000000001');
+  await q('select public.stripe_release_connect_setup($1)', [fresh]);
+  const bound = await one('select * from public.stripe_claim_connect_setup($1,null)', [fresh]);
+  assert.equal(bound.outcome, 'already_bound');
+});
+
+await test('a stale claim with NO account recorded is retaken', async () => {
+  const fresh2 = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','fresh2','Fresh Two')`, [fresh2]);
+  await q('select * from public.stripe_claim_connect_setup($1,null)', [fresh2]);
+  await q(`update public.stripe_connect_setup_claims
+              set claimed_at = now() - interval '11 minutes' where company_entity_id=$1`, [fresh2]);
+  const retaken = await one('select * from public.stripe_claim_connect_setup($1,null)', [fresh2]);
+  assert.equal(retaken.outcome, 'claimed',
+    'nothing was created, so a dead attempt must not block setup forever');
+});
+
+await test('the setup claim table is service-role only', async () => {
+  await as(blake, async () => {
+    await assert.rejects(() => q('select 1 from public.stripe_connect_setup_claims'), /permission denied/);
+  });
 });
 
 // ── 8. The idempotency ledger ───────────────────────────────────────────────

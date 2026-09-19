@@ -102,6 +102,7 @@ on:
       - 'supabase/functions/stripe-billing/**'
       - 'v2/invoicing.html'
       - 'v2/billing.html'
+      - 'v2/invoice-request.js'
       # The splitter is tested against the real verify file, so a change to
       # the file must re-run that test.
       - 'supabase/verify_v2_schema.sql'

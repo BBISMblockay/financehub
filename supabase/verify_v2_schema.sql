@@ -4181,7 +4181,7 @@ select 'Stripe mirror tables exist and are locked down' as check_name,
    then 'MISSING: run 20260919120000_stripe_billing_and_connect.sql'
  when exists(select 1 from (values ('billing_subscriptions'),('billing_invoices'),
      ('stripe_connect_accounts'),('stripe_invoice_customers'),('stripe_invoices'),
-     ('stripe_invoice_lines'),('stripe_webhook_events')) as t(name)
+     ('stripe_invoice_lines'),('stripe_webhook_events'),('stripe_connect_setup_claims')) as t(name)
    where not (select relrowsecurity from pg_class where oid = to_regclass('public.'||t.name)))
    then 'CRITICAL: a Stripe table has RLS disabled'
  -- The mirror is read-only to clients BY CONSTRUCTION. A write policy here
@@ -4216,7 +4216,10 @@ select 'Stripe sync functions are service-role only' as check_name,
      'stripe_record_webhook_event(text,text,text,text,uuid,timestamptz)',
      'stripe_begin_checkout(uuid,text)',
      'stripe_begin_invoice_request(uuid,uuid,text,text,uuid,text)',
-     'stripe_complete_invoice_request(uuid,text,text,text)']) as f(sig)
+     'stripe_complete_invoice_request(uuid,text,text,text)',
+     'stripe_claim_connect_setup(uuid,uuid)',
+     'stripe_note_connect_setup_account(uuid,text)',
+     'stripe_release_connect_setup(uuid)']) as f(sig)
    where has_function_privilege('anon', 'public.'||f.sig, 'execute')
       or has_function_privilege('authenticated', 'public.'||f.sig, 'execute'))
    then 'CRITICAL: a Stripe sync function is callable by anon or authenticated'

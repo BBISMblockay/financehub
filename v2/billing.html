@@ -173,6 +173,22 @@
     incomplete_expired: 'bcn-pill',
   };
 
+  // Mirrors supabase/functions/stripe-billing/subscription-state.mjs, which is
+  // what the edge function refuses on. Kept in sync by
+  // scripts/tests/stripe-edge-logic.test.mjs, which asserts the two agree on
+  // every status -- a page offering what the server refuses is how the
+  // double-subscription bug read to a user.
+  const LIVE_STATUSES = ['active', 'trialing', 'past_due', 'unpaid'];
+  function planAction(sub, planKey) {
+    const live = !!sub && LIVE_STATUSES.includes(sub.status);
+    if (live) {
+      return sub.plan_key === planKey
+        ? { kind: 'current' }
+        : { kind: 'portal', label: 'Change plan in Stripe' };
+    }
+    return { kind: 'checkout', label: 'Subscribe' };
+  }
+
   function renderCurrent() {
     const host = el('current');
     el('btnPortal').hidden = !_sub?.stripe_customer_id;
@@ -230,20 +246,32 @@
     }
     el('planCard').hidden = false;
     host.innerHTML = _plans.map((p) => {
-      const current = _sub?.plan_key === p.plan_key
-        && ['active', 'trialing'].includes(_sub?.status);
-      return `<div class="bil-plan ${current ? 'bil-plan--current' : ''}">
+      // planAction is the SAME rule the edge function refuses on, so a button
+      // can never offer what the server will reject. It used to say "Switch to
+      // this plan" and call Checkout -- but Stripe Checkout in subscription
+      // mode CREATES a subscription, it never switches one, so completing that
+      // switch left the old plan running and billed for both.
+      const action = planAction(_sub, p.plan_key);
+      return `<div class="bil-plan ${action.kind === 'current' ? 'bil-plan--current' : ''}">
         <div class="bil-plan-name">${esc(p.title)}</div>
         <div class="bil-plan-price">${p.unit_amount_cents == null
             ? 'Contact us' : money(p.unit_amount_cents, p.currency)}
           <span class="bil-sub">/${esc(p.billing_interval)}${p.seat_based ? ' · seat' : ''}</span></div>
         <div class="bil-plan-desc">${esc(p.description || '')}</div>
-        ${current
+        ${action.kind === 'current'
           ? '<span class="bcn-pill bcn-pill--accent">Current plan</span>'
-          : `<button class="bcn-btn bcn-btn--primary" data-plan="${esc(p.plan_key)}">
-               ${_sub?.stripe_subscription_id ? 'Switch to this plan' : 'Subscribe'}</button>`}
+          : action.kind === 'portal'
+            ? `<button class="bcn-btn bcn-btn--ghost" data-portal="1">${esc(action.label)}</button>`
+            : `<button class="bcn-btn bcn-btn--primary" data-plan="${esc(p.plan_key)}">${esc(action.label)}</button>`}
       </div>`;
     }).join('');
+
+    if (_plans.some((p) => planAction(_sub, p.plan_key).kind === 'portal')) {
+      host.insertAdjacentHTML('afterend',
+        '<div class="bil-note" style="margin-top:10px">Plan changes go through Stripe\'s billing '
+        + 'portal, which applies its own proration rules. Starting a second checkout here would '
+        + 'create a second subscription rather than replacing this one.</div>');
+    }
   }
 
   async function renderInvoices() {
@@ -276,6 +304,14 @@
             ? `<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener" href="${esc(r.hosted_invoice_url)}">Open</a>`
             : '')}</td>
       </tr>`).join('')}</tbody>`;
+  }
+
+  async function openPortal() {
+    try {
+      setStatus('Opening the Stripe billing portal…', 'info');
+      const { url } = await callFn({ action: 'portal' });
+      window.location.href = url;
+    } catch (e) { setStatus(e.message, 'neg', 12000); }
   }
 
   async function load() {
@@ -329,6 +365,7 @@
     await load();
 
     el('plans').addEventListener('click', async (e) => {
+      if (e.target.closest('[data-portal]')) { openPortal(); return; }
       const b = e.target.closest('[data-plan]');
       if (!b) return;
       try {
@@ -342,13 +379,7 @@
       }
     });
 
-    el('btnPortal').addEventListener('click', async () => {
-      try {
-        setStatus('Opening the Stripe billing portal…', 'info');
-        const { url } = await callFn({ action: 'portal' });
-        window.location.href = url;
-      } catch (e) { setStatus(e.message, 'neg', 12000); }
-    });
+    el('btnPortal').addEventListener('click', openPortal);
 
     el('btnSync').addEventListener('click', async () => {
       try {
