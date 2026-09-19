@@ -37,6 +37,18 @@ export const PLATFORM_EVENTS = {
 };
 
 export const CONNECT_EVENTS = {
+  // Note `checkout.session.completed` appears in BOTH tables and means two
+  // different things, which is exactly why the endpoint is decided by the
+  // signing secret before this table is consulted. On the platform it is a
+  // tenant subscribing to SILO. Here it is a wholesale applicant saving a card
+  // against the TENANT's own customer -- no money moves either way, but
+  // attributing one as the other would file a client's payment method against
+  // a SILO subscription.
+  'checkout.session.completed': 'connect_setup',
+  // The applicant walked away. Releases the account's claim so a later attempt
+  // can start a fresh session -- without it one abandoned tab blocks the card
+  // step until the session's own expiry is noticed by the next caller.
+  'checkout.session.expired': 'connect_setup_expired',
   'account.updated': 'connect_account',
   'account.application.deauthorized': 'connect_deauthorized',
   'customer.created': 'connect_customer',

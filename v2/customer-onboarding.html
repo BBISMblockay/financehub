@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Wholesale account application</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <style>
+    /* Chrome-less on purpose, like company-onboarding.html: the person filling
+       this in has no SILO login and never will, so there is no sidebar to
+       render and nothing for SiloChrome to mount against. */
+    .co-wrap { min-height: 100vh; background: var(--bcn-canvas, #f4f5f7); padding: 24px 16px 64px; }
+    .co-card { width: 100%; max-width: 720px; margin: 0 auto; background: var(--bcn-surface, #fff);
+               border: 1px solid var(--bcn-border, #e2e5ea); border-radius: 14px;
+               padding: 32px 28px; box-shadow: 0 8px 28px rgba(2,6,23,.07); }
+    .co-logo { width: 40px; height: 40px; background: var(--bcn-band, #0f1117); border-radius: 10px;
+               display: flex; align-items: center; justify-content: center; color: #fff;
+               font-weight: 700; font-size: 18px; margin-bottom: 20px; }
+    .co-title { font-size: 19px; font-weight: 600; color: var(--bcn-ink, #111827); margin-bottom: 4px; }
+    .co-sub { font-size: 13px; color: var(--bcn-ink-3, #6b7280); margin-bottom: 24px; line-height: 1.5; }
+    .co-section { border-top: 1px solid var(--bcn-border, #e2e5ea); margin-top: 26px; padding-top: 22px; }
+    .co-section:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+    .co-section-title { font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+                        letter-spacing: .08em; text-transform: uppercase;
+                        color: var(--bcn-ink-3, #6b7280); margin-bottom: 14px; }
+    .co-field { margin-bottom: 16px; }
+    .co-field .bcn-label { display: block; margin-bottom: 6px; }
+    .co-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .co-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+    @media (max-width: 560px) { .co-row, .co-row-3 { grid-template-columns: 1fr; } }
+    .co-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px;
+                color: var(--bcn-ink-2, #374151); line-height: 1.5; margin-bottom: 14px; }
+    .co-check input { margin-top: 2px; flex: none; }
+    .co-hint { font-size: 12px; color: var(--bcn-ink-3, #6b7280); margin-top: 6px; line-height: 1.45; }
+    .co-consent { font-size: 12.5px; line-height: 1.6; color: var(--bcn-ink-2, #374151);
+                  background: var(--bcn-canvas, #f4f5f7); border: 1px solid var(--bcn-border, #e2e5ea);
+                  border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+    .co-actions { margin-top: 26px; display: flex; gap: 10px; align-items: center; }
+    .co-card-saved { font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+                     border: 1px solid var(--bcn-pos, #059669); border-radius: 8px;
+                     padding: 12px 14px; color: var(--bcn-ink, #111827);
+                     background: rgba(5,150,105,.06); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="co-wrap">
+    <div class="co-card">
+      <div class="co-logo">S</div>
+
+      <div class="bcn-status" id="status" hidden></div>
+
+      <!-- ── Gate: an invalid or spent link never shows the form ──────────── -->
+      <div id="gate" hidden>
+        <div class="co-title" id="gateTitle">This link is not valid</div>
+        <div class="co-sub" id="gateBody">
+          Ask your contact for a new application link.
+        </div>
+      </div>
+
+      <!-- ── Step 1: the application ──────────────────────────────────────── -->
+      <form id="form" hidden autocomplete="on">
+        <div class="co-title">Wholesale account application</div>
+        <div class="co-sub" id="formSub">Tell us about your business.</div>
+
+        <div class="co-section">
+          <div class="co-section-title">1 · Business information</div>
+          <div class="co-field">
+            <label class="bcn-label" for="legal_name">Legal business name *</label>
+            <input class="bcn-field" id="legal_name" name="organization" required />
+          </div>
+          <div class="co-row">
+            <div class="co-field">
+              <label class="bcn-label" for="dba_name">DBA / store name</label>
+              <input class="bcn-field" id="dba_name" />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="website">Website</label>
+              <input class="bcn-field" id="website" inputmode="url" placeholder="https://" />
+            </div>
+          </div>
+          <div class="co-row">
+            <div class="co-field">
+              <label class="bcn-label" for="federal_ein">Federal EIN / Tax ID</label>
+              <input class="bcn-field bcn-field--mono" id="federal_ein" autocomplete="off" />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="resale_tax_id">Resale certificate / sales tax ID</label>
+              <input class="bcn-field bcn-field--mono" id="resale_tax_id" autocomplete="off" />
+            </div>
+          </div>
+          <div class="co-field">
+            <label class="bcn-label" for="certificate">Resale certificate / seller's permit</label>
+            <input class="bcn-field" type="file" id="certificate"
+                   accept="application/pdf,image/jpeg,image/png,image/heic" />
+            <div class="co-hint">PDF, JPG, PNG or HEIC. Uploaded when you submit.</div>
+          </div>
+        </div>
+
+        <div class="co-section">
+          <div class="co-section-title">2 · Primary contact</div>
+          <div class="co-row">
+            <div class="co-field">
+              <label class="bcn-label" for="first_name">First name *</label>
+              <input class="bcn-field" id="first_name" autocomplete="given-name" required />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="last_name">Last name *</label>
+              <input class="bcn-field" id="last_name" autocomplete="family-name" required />
+            </div>
+          </div>
+          <div class="co-row">
+            <div class="co-field">
+              <label class="bcn-label" for="title">Title / position</label>
+              <input class="bcn-field" id="title" autocomplete="organization-title" />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="contact_email">Email *</label>
+              <input class="bcn-field" id="contact_email" type="email" autocomplete="email" required />
+            </div>
+          </div>
+          <div class="co-field">
+            <label class="bcn-label" for="contact_phone">Phone</label>
+            <input class="bcn-field" id="contact_phone" type="tel" autocomplete="tel" />
+          </div>
+        </div>
+
+        <div class="co-section">
+          <div class="co-section-title">3 · Store / business location</div>
+          <div class="co-field">
+            <label class="bcn-label" for="biz_recipient">Store name</label>
+            <input class="bcn-field" id="biz_recipient" />
+          </div>
+          <div class="co-field">
+            <label class="bcn-label" for="biz_street1">Street address *</label>
+            <input class="bcn-field" id="biz_street1" autocomplete="address-line1" required />
+            <input class="bcn-field" id="biz_street2" style="margin-top:8px"
+                   autocomplete="address-line2" placeholder="Suite, unit (optional)" />
+          </div>
+          <div class="co-row-3">
+            <div class="co-field">
+              <label class="bcn-label" for="biz_city">City *</label>
+              <input class="bcn-field" id="biz_city" autocomplete="address-level2" required />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="biz_region">State / province</label>
+              <input class="bcn-field" id="biz_region" autocomplete="address-level1" />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="biz_postal">ZIP / postal</label>
+              <input class="bcn-field" id="biz_postal" autocomplete="postal-code" />
+            </div>
+          </div>
+          <div class="co-row">
+            <div class="co-field">
+              <label class="bcn-label" for="biz_country">Country *</label>
+              <input class="bcn-field" id="biz_country" autocomplete="country-name" value="US" required />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="biz_phone">Store phone</label>
+              <input class="bcn-field" id="biz_phone" type="tel" />
+            </div>
+          </div>
+        </div>
+
+        <div class="co-section">
+          <div class="co-section-title">4 · Shipping</div>
+          <label class="co-check">
+            <input type="checkbox" id="ship_same" checked />
+            <span>Same as store / business address</span>
+          </label>
+          <div id="ship_fields" hidden>
+            <div class="co-row">
+              <div class="co-field">
+                <label class="bcn-label" for="ship_recipient">Shipping company / recipient</label>
+                <input class="bcn-field" id="ship_recipient" />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="ship_attention">Receiving contact</label>
+                <input class="bcn-field" id="ship_attention" />
+              </div>
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="ship_street1">Shipping address</label>
+              <input class="bcn-field" id="ship_street1" />
+              <input class="bcn-field" id="ship_street2" style="margin-top:8px"
+                     placeholder="Suite, unit (optional)" />
+            </div>
+            <div class="co-row-3">
+              <div class="co-field">
+                <label class="bcn-label" for="ship_city">City</label>
+                <input class="bcn-field" id="ship_city" />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="ship_region">State / province</label>
+                <input class="bcn-field" id="ship_region" />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="ship_postal">ZIP / postal</label>
+                <input class="bcn-field" id="ship_postal" />
+              </div>
+            </div>
+            <div class="co-row">
+              <div class="co-field">
+                <label class="bcn-label" for="ship_country">Country</label>
+                <input class="bcn-field" id="ship_country" value="US" />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="ship_phone">Receiving phone</label>
+                <input class="bcn-field" id="ship_phone" type="tel" />
+              </div>
+            </div>
+          </div>
+          <!-- The receiving contact stays with the ADDRESS rather than moving to
+               the contacts list: it is part of the shipping label, not a person
+               anyone will email. -->
+          <div class="co-hint" id="ship_attention_same_wrap">
+            <label class="bcn-label" for="ship_attention_same"
+                   style="display:block;margin:10px 0 6px">Receiving contact</label>
+            <input class="bcn-field" id="ship_attention_same" placeholder="Who receives deliveries" />
+          </div>
+        </div>
+
+        <div class="co-section">
+          <div class="co-section-title">5 · Billing</div>
+          <label class="co-check">
+            <input type="checkbox" id="bill_same_biz" checked />
+            <span>Same as business address</span>
+          </label>
+          <label class="co-check">
+            <input type="checkbox" id="bill_same_ship" />
+            <span>Same as shipping address</span>
+          </label>
+          <div id="bill_fields" hidden>
+            <div class="co-field">
+              <label class="bcn-label" for="bill_street1">Billing address</label>
+              <input class="bcn-field" id="bill_street1" />
+              <input class="bcn-field" id="bill_street2" style="margin-top:8px"
+                     placeholder="Suite, unit (optional)" />
+            </div>
+            <div class="co-row-3">
+              <div class="co-field">
+                <label class="bcn-label" for="bill_city">City</label>
+                <input class="bcn-field" id="bill_city" />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="bill_region">State / province</label>
+                <input class="bcn-field" id="bill_region" />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="bill_postal">ZIP / postal</label>
+                <input class="bcn-field" id="bill_postal" />
+              </div>
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="bill_country">Country</label>
+              <input class="bcn-field" id="bill_country" value="US" />
+            </div>
+          </div>
+          <div class="co-field" style="margin-top:14px">
+            <label class="bcn-label" for="requested_terms">Payment terms you're requesting</label>
+            <input class="bcn-field" id="requested_terms" placeholder="e.g. Net 30" />
+            <div class="co-hint">
+              A request, not an agreement — terms are confirmed when your account is approved.
+            </div>
+          </div>
+          <div class="co-field">
+            <label class="bcn-label" for="applicant_notes">Anything else we should know</label>
+            <textarea class="bcn-field" id="applicant_notes" rows="3"></textarea>
+          </div>
+        </div>
+
+        <div class="co-actions">
+          <button class="bcn-btn bcn-btn--primary" type="submit" id="submitBtn">
+            Submit application
+          </button>
+        </div>
+      </form>
+
+      <!-- ── Step 2: the card ─────────────────────────────────────────────── -->
+      <div id="cardStep" hidden>
+        <div class="co-title">Save a card for your account</div>
+        <div class="co-sub">
+          Your application is in. The last step is a payment method for invoices on this
+          account. Card details are entered on Stripe's own secure page — they never
+          touch our systems.
+        </div>
+
+        <div class="co-consent" id="consentText"></div>
+        <label class="co-check">
+          <input type="checkbox" id="consentBox" />
+          <span>I authorise the charges described above.</span>
+        </label>
+
+        <div class="co-actions">
+          <button class="bcn-btn bcn-btn--primary" id="cardBtn" disabled>
+            Continue to secure card entry
+          </button>
+          <button class="bcn-btn bcn-btn--ghost" id="skipBtn" type="button">I'll do this later</button>
+        </div>
+      </div>
+
+      <!-- ── Done ─────────────────────────────────────────────────────────── -->
+      <div id="done" hidden>
+        <div class="co-title">Thank you — we have everything we need</div>
+        <div class="co-sub" id="doneSub">
+          Your application is with our team. We'll be in touch once it's reviewed.
+        </div>
+        <div class="co-card-saved" id="savedCard" hidden></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  const cfg = window.__SILO_CONFIG__ || {};
+  const FN = `${(cfg.SUPABASE_URL || '').replace(/\/$/, '')}/functions/v1/customer-onboarding`;
+  const ANON = cfg.SUPABASE_ANON_KEY || '';
+
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const el = $('status');
+    el.className = `bcn-status bcn-status--${type}`;
+    el.textContent = msg;
+    el.hidden = false;
+    if (ms) setTimeout(() => { el.hidden = true; }, ms);
+  }
+
+  // The token lives in the URL. It is the ONLY authorization this page has, and
+  // it is never stored anywhere — a copy in localStorage would outlive the
+  // session on a shared or borrowed computer.
+  const params = new URLSearchParams(location.search);
+  let token = params.get('token') || '';
+
+  async function call(action, extra = {}) {
+    const res = await fetch(FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: ANON },
+      body: JSON.stringify({ action, token, ...extra }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+    return body;
+  }
+
+  function gate(title, body) {
+    $('gate').hidden = false;
+    $('gateTitle').textContent = title;
+    $('gateBody').textContent = body;
+    $('form').hidden = true;
+    $('cardStep').hidden = true;
+  }
+
+  // ── Section visibility ────────────────────────────────────────────────────
+  function syncShipping() {
+    const same = $('ship_same').checked;
+    $('ship_fields').hidden = same;
+    $('ship_attention_same_wrap').hidden = !same;
+    // Billing cannot claim "same as shipping" when shipping is itself a
+    // pointer at business: that would be a two-hop chain the applicant did not
+    // intend, and the clearer statement is "same as business".
+    if (same && $('bill_same_ship').checked) {
+      $('bill_same_ship').checked = false;
+      $('bill_same_biz').checked = true;
+      syncBilling();
+    }
+  }
+
+  function syncBilling() {
+    const biz = $('bill_same_biz').checked;
+    const ship = $('bill_same_ship').checked;
+    $('bill_fields').hidden = biz || ship;
+  }
+
+  $('ship_same').addEventListener('change', syncShipping);
+  $('bill_same_biz').addEventListener('change', () => {
+    if ($('bill_same_biz').checked) $('bill_same_ship').checked = false;
+    syncBilling();
+  });
+  $('bill_same_ship').addEventListener('change', () => {
+    if ($('bill_same_ship').checked) {
+      $('bill_same_biz').checked = false;
+      // Only meaningful when there IS a separate shipping address.
+      if ($('ship_same').checked) {
+        $('ship_same').checked = false;
+        syncShipping();
+      }
+    }
+    syncBilling();
+  });
+
+  function val(id) { return ($(id)?.value || '').trim(); }
+
+  function buildForm() {
+    const addresses = [{
+      address_type: 'business',
+      recipient_name: val('biz_recipient'),
+      street1: val('biz_street1'), street2: val('biz_street2'),
+      city: val('biz_city'), region: val('biz_region'),
+      postal_code: val('biz_postal'), country: val('biz_country'),
+      phone: val('biz_phone'),
+    }];
+
+    if ($('ship_same').checked) {
+      addresses.push({
+        address_type: 'shipping',
+        same_as_address_type: 'business',
+        attention_name: val('ship_attention_same'),
+      });
+    } else {
+      addresses.push({
+        address_type: 'shipping',
+        recipient_name: val('ship_recipient'), attention_name: val('ship_attention'),
+        street1: val('ship_street1'), street2: val('ship_street2'),
+        city: val('ship_city'), region: val('ship_region'),
+        postal_code: val('ship_postal'), country: val('ship_country'),
+        phone: val('ship_phone'),
+      });
+    }
+
+    if ($('bill_same_biz').checked) {
+      addresses.push({ address_type: 'billing', same_as_address_type: 'business' });
+    } else if ($('bill_same_ship').checked) {
+      addresses.push({ address_type: 'billing', same_as_address_type: 'shipping' });
+    } else {
+      addresses.push({
+        address_type: 'billing',
+        street1: val('bill_street1'), street2: val('bill_street2'),
+        city: val('bill_city'), region: val('bill_region'),
+        postal_code: val('bill_postal'), country: val('bill_country'),
+      });
+    }
+
+    return {
+      legal_name: val('legal_name'),
+      dba_name: val('dba_name'),
+      website: val('website'),
+      federal_ein: val('federal_ein'),
+      resale_tax_id: val('resale_tax_id'),
+      requested_payment_terms: val('requested_terms'),
+      applicant_notes: val('applicant_notes'),
+      addresses,
+      contacts: [{
+        contact_type: 'primary',
+        first_name: val('first_name'), last_name: val('last_name'),
+        title: val('title'), email: val('contact_email'), phone: val('contact_phone'),
+      }],
+    };
+  }
+
+  // ── Certificate upload ────────────────────────────────────────────────────
+  // Uploaded through a signed URL the function mints: the applicant is
+  // anonymous and cannot write to a private bucket under any policy.
+  async function uploadCertificate(purposeToken) {
+    const file = $('certificate').files?.[0];
+    if (!file) return;
+    const saved = token;
+    try {
+      token = purposeToken;
+      const { signed_url } = await call('certificate_url', {
+        content_type: file.type, purpose: 'card_setup',
+      });
+      const put = await fetch(signed_url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      // The certificate is only RECORDED once the object is confirmed to
+      // exist. Until this call, finance sees no certificate rather than a
+      // broken link to one — which is the honest state if the PUT above
+      // failed, or if this call never happens because the tab was closed.
+      const done = await call('certificate_done', {
+        content_type: file.type, purpose: 'card_setup',
+      });
+      if (!done.ok) throw new Error('The upload did not complete');
+    } catch (e) {
+      // The application itself is already saved. Losing the certificate is
+      // recoverable by email; losing the application would not be, so this
+      // never fails the submission.
+      setStatus(
+        `Your application was received, but the certificate did not upload (${e.message}). ` +
+        `You can email it to us instead.`, 'info');
+    } finally {
+      token = saved;
+    }
+  }
+
+  // ── Submit ────────────────────────────────────────────────────────────────
+  $('form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    $('submitBtn').disabled = true;
+    setStatus('Submitting your application…', 'info');
+    try {
+      const out = await call('submit', { form: buildForm() });
+      const continuation = out.continuation_token;
+      await uploadCertificate(continuation);
+      // From here on the page runs on the CONTINUATION token: the original
+      // link is spent, and reloading with it will correctly say so.
+      token = continuation;
+      $('form').hidden = true;
+      // A certificate upload that failed already wrote its own message; don't
+      // clear it on the way to the card step.
+      if (!$('status').textContent.includes('certificate')) $('status').hidden = true;
+      await showCardStep();
+    } catch (e) {
+      setStatus(e.message, 'neg');
+      $('submitBtn').disabled = false;
+    }
+  });
+
+  // ── Card step ─────────────────────────────────────────────────────────────
+  let consentText = '';
+
+  async function showCardStep() {
+    $('cardStep').hidden = false;
+    $('consentText').textContent = consentText;
+  }
+
+  $('consentBox').addEventListener('change', () => {
+    $('cardBtn').disabled = !$('consentBox').checked;
+  });
+
+  $('cardBtn').addEventListener('click', async () => {
+    $('cardBtn').disabled = true;
+    setStatus('Opening secure card entry…', 'info');
+    try {
+      await call('consent', { accepted: true });
+      const out = await call('start_card_setup');
+      if (out.already_captured) return finish(true);
+      if (!out.url) throw new Error('Stripe did not return a card entry page');
+      location.href = out.url;
+    } catch (e) {
+      setStatus(e.message, 'neg');
+      $('cardBtn').disabled = false;
+    }
+  });
+
+  $('skipBtn').addEventListener('click', () => finish(false));
+
+  async function finish(hasCard) {
+    $('cardStep').hidden = true;
+    $('done').hidden = false;
+    if (!hasCard) {
+      $('doneSub').textContent =
+        'Your application is with our team. We\'ll send a secure link for your card separately.';
+      return;
+    }
+    try {
+      const s = await call('status');
+      if (s.card) {
+        $('savedCard').hidden = false;
+        $('savedCard').textContent =
+          `Card on file · ${(s.card.brand || 'card').toUpperCase()} ****${s.card.last4 || ''}`;
+      }
+    } catch { /* the card is saved either way; the label is cosmetic */ }
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  (async () => {
+    if (!cfg.SUPABASE_URL || !ANON) {
+      return gate('Missing Supabase config', 'This page is not configured. Contact your administrator.');
+    }
+    if (!token) {
+      return gate('This link is not valid', 'Ask your contact for a new application link.');
+    }
+
+    // Returning from Stripe: the URL carries the CONTINUATION token, so the
+    // status poll works without anything having been stored.
+    const cardParam = params.get('card');
+    if (cardParam) {
+      try {
+        const s = await call('status');
+        if (s.card_setup_status === 'succeeded') return finish(true);
+        // Stripe's success_url fires before the webhook necessarily lands, so
+        // "saved" plus a not-yet-succeeded status is a timing gap, not a
+        // failure. Say so rather than telling someone their card did not save.
+        if (cardParam === 'saved') {
+          $('done').hidden = false;
+          $('doneSub').textContent =
+            'Your card was submitted and is being confirmed. Nothing else is needed from you.';
+          return;
+        }
+        consentText = s.consent_text || consentText;
+      } catch (e) {
+        return gate('This link is no longer valid', e.message);
+      }
+      // 'cancelled': fall through so they can try the card step again.
+    }
+
+    try {
+      const info = await call('peek');
+      consentText = info.consent_text || '';
+      $('formSub').textContent =
+        `${info.company_title} invited ${info.email} to open a wholesale account.`;
+      if (info.legal_name) $('legal_name').value = info.legal_name;
+      $('contact_email').value = info.email || '';
+      $('form').hidden = false;
+      syncShipping();
+      syncBilling();
+    } catch (e) {
+      // A spent onboarding token may still be a live CARD-SETUP one: that is
+      // exactly what someone reloading after submitting has in their URL.
+      try {
+        const s = await call('status');
+        if (s.card_setup_status === 'succeeded') return finish(true);
+        consentText = s.consent_text || '';
+        return showCardStep();
+      } catch {
+        return gate('This link is no longer valid', e.message);
+      }
+    }
+  })();
+})();
+</script>
+</body>
+</html>

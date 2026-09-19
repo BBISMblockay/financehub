@@ -222,3 +222,45 @@ X is therefore not a competitor, and Y proceeds under Trace D's ordering
 among the remaining `active` records (none). The version reviewed in cycle 2
 treated every `active` comment independently, so Y would have seen
 5658148625 as live and blocked or handed off instead.
+
+---
+
+## Observed: the wake wiring, measured on PR #732 (2026-09-19)
+
+The skill treats `subscribe_pr_activity` as unproven and tells a run to rely
+on the `send_later` check-in as the primary mechanism until a real wake has
+been seen. **It has now been seen, and the subscription is the one that fired
+every time.** Both were armed at 22:30:30; the hourly check-in was never
+reached during the whole loop, which ran to completion on PR events alone.
+
+| Event | Fired at | Delivered | Lag |
+|---|---|---|---|
+| `subscription.created` | 22:30:20 | 22:30:20 | — |
+| `check_run.completed` (Unit, failure) | 22:30:32 | 22:30:34 | ~2s |
+| `check_run.completed` (Browser, failure) | 22:31:50 | 22:31:51 | ~1s |
+| `issue_comment.created` (cycle 1 `running`) | 22:32:03 | 22:32:05 | ~2s |
+| `issue_comment.edited` (cycle 1 → `complete`) | 22:37:41 | 22:37:42 | ~1s |
+| `issue_comment.created` (cycle 2 `running`) | 22:51:51 | 22:51:53 | ~2s |
+| `issue_comment.edited` (cycle 2 → `complete`) | 22:55:2x | 22:55:30 | ~seconds |
+
+Three things worth keeping:
+
+1. **`issue_comment.edited` is delivered.** This is what makes the
+   edits-in-place reviewer workable at all — the `running` → `complete`
+   transition arrives as its own wake rather than having to be polled for. A
+   run that only handled `issue_comment.created` would see every cycle start
+   and no cycle finish.
+2. **The notification body is TRUNCATED.** Cycle 1's arrived cut off
+   mid-finding ("…finance sees `has_tax_profile`/an uploaded timestamp and
+   gets …[truncated]"). The raw body must be re-read from the API before
+   acting, which the skill already requires for a different reason (the
+   marker is an HTML comment, invisible in the rendered view). Two reasons,
+   one rule.
+3. **Check-run events deliver the conclusion, not the cause.** Each carried
+   `conclusion: failure` and a `details_url`; establishing *whose* failure it
+   was took `get_job_logs` plus running the suites at three commits. Budget
+   for that, and do not let the event's framing ("the following CI check
+   failed on the PR") imply the PR caused it.
+
+Keep arming both. The check-in remains the thing that survives a dropped
+webhook, and its cost when events do work is one silent re-arm.

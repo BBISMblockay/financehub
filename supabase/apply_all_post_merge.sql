@@ -18917,3 +18917,26 @@ $c$select (select count(*) from v_po_header_summary
 -- trigger loop that drops before creating. The regression suite applies it
 -- twice on every run for exactly that reason.
 \i migrations/20260919120000_stripe_billing_and_connect.sql
+
+-- ── Customer accounts: SILO's first native customer master (2026-09-19) ────
+-- Wholesale (and other) customers onboarded through a PUBLIC, token-gated
+-- form. Note this is the first party table in the platform -- the accounting
+-- foundation is a chart of accounts and balances and has no customers or
+-- vendors -- so it is `customer_accounts` with an account_type rather than a
+-- wholesale table with a boolean.
+--
+-- It LINKS to ar_customers, quickbooks_customers and stripe_invoice_customers
+-- and writes to none of them: all three are mirrors owned by their syncs.
+--
+-- Two separations to preserve when editing: tax identifiers live in their own
+-- narrower table so ordinary customer-directory access does not expose an EIN,
+-- and approved terms / credit limit / price tier are written only by
+-- approve_customer_account(), never by a submission.
+--
+-- REQUIRES 20260919120000 (stripe_connect_accounts, the sync functions and
+-- can_manage_client_invoices), so it must stay after it in this file.
+--
+-- Idempotent: create-if-not-exists, create-or-replace, drop-policy/constraint-
+-- if-exists before each create, an on-conflict-do-nothing bucket seed, and
+-- trigger/grant loops that drop before creating.
+\i migrations/20260919140000_customer_account_onboarding.sql

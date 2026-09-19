@@ -186,6 +186,23 @@ export async function handleStripeWebhook(req: Request): Promise<Response> {
   }
 }
 
+/**
+ * Did Stripe REACH this request and refuse it, or did the attempt not land?
+ *
+ * Only the first is terminal. A 402/404/400 will refuse identically on the
+ * eighth delivery; a 429, a 5xx, or a connection that died says nothing about
+ * the request's validity and is exactly what Stripe's redelivery exists for.
+ * An error carrying no status at all (a DNS failure, an aborted socket) is
+ * treated as transient, because assuming otherwise is the direction that loses
+ * work silently.
+ */
+function isTerminalStripeError(e: unknown): boolean {
+  const status = (e as any)?.statusCode;
+  if (typeof status !== 'number') return false;
+  if (status === 429) return false;
+  return status >= 400 && status < 500;
+}
+
 async function handle(route: any, event: any, company: string) {
   const account: string | null = route.accountId;
   const opts = account ? { stripeAccount: account } : undefined;
@@ -265,6 +282,146 @@ async function handle(route: any, event: any, company: string) {
       await rpc('stripe_sync_invoice_customer', {
         p_company: company, p_account: account, p_payload: customer, p_synced_at: syncedAt,
       });
+      return;
+    }
+    case 'connect_setup': {
+      // A completed Checkout on a CONNECTED account. Re-fetched rather than
+      // read from the payload, like every other handler here.
+      const session = await stripe.checkout.sessions.retrieve(route.objectId, opts);
+      // A connected account can run Checkout for its own reasons -- a payment,
+      // a subscription of its own. Only `setup` is SILO's, and acting on
+      // anything else would attach a payment method to a customer_accounts row
+      // on the strength of an event that was never about it.
+      if (session.mode !== 'setup') return;
+
+      // ── Ownership BEFORE any mutation ────────────────────────────────────
+      // The tenant owns their Connect account outright and can create a
+      // setup-mode Checkout from their own Stripe dashboard or another
+      // integration. Those land on this same endpoint and resolve to this same
+      // company, so "it is a setup session for a company we know" is NOT
+      // evidence the session is ours. Establishing that first is what stops
+      // SILO re-pointing the invoice default on a customer it was never asked
+      // about -- and it is checked before the next Stripe read, so a foreign
+      // session costs one API call, not four.
+      const { data: ownerRows, error: ownerErr } = await db.rpc(
+        'customer_card_setup_session_owner',
+        { p_company: company, p_session_id: session.id },
+      );
+      if (ownerErr) throw new Error(`customer_card_setup_session_owner: ${ownerErr.message}`);
+      const owner = (Array.isArray(ownerRows) ? ownerRows[0] : ownerRows) as any;
+      if (!owner?.customer_account_id) {
+        // Not a session this feature created. Recorded as handled: a retry
+        // would reach the same conclusion eight times over.
+        console.error('connect setup session is not SILO-owned', session.id);
+        return;
+      }
+
+      const setupIntentId = typeof session.setup_intent === 'string'
+        ? session.setup_intent
+        : session.setup_intent?.id;
+      if (!setupIntentId) return;
+
+      // The SetupIntent, not the session, carries the PaymentMethod. Fetched
+      // under the same connected account: a SetupIntent id from one account
+      // does not resolve under another, so this is also the check that the
+      // delivery and the object agree.
+      const intent = await stripe.setupIntents.retrieve(setupIntentId, opts);
+      const customerId = typeof intent.customer === 'string'
+        ? intent.customer : intent.customer?.id ?? null;
+      const paymentMethodId = typeof intent.payment_method === 'string'
+        ? intent.payment_method : intent.payment_method?.id ?? null;
+      if (!customerId || !paymentMethodId) return;
+
+      // The session is ours, but the intent must also name the Stripe customer
+      // this account is bound to. A mismatch means the account was re-pointed
+      // mid-flight, or the session was reused; either way, writing a payment
+      // method here attaches somebody's card to somebody else's account.
+      if (owner.stripe_customer_id !== customerId) {
+        console.error('connect setup customer mismatch', session.id,
+          owner.stripe_customer_id, customerId);
+        return;
+      }
+
+      // Display metadata only. Stripe's own card object, never anything typed.
+      let brand: string | null = null;
+      let last4: string | null = null;
+      let expMonth: number | null = null;
+      let expYear: number | null = null;
+      try {
+        const pm = await stripe.paymentMethods.retrieve(paymentMethodId, opts);
+        brand = pm.card?.brand ?? null;
+        last4 = pm.card?.last4 ?? null;
+        expMonth = pm.card?.exp_month ?? null;
+        expYear = pm.card?.exp_year ?? null;
+      } catch (e) {
+        // The card is saved either way; losing the last four costs a label.
+        console.error('payment method read failed', paymentMethodId, (e as Error)?.message);
+      }
+
+      // Record the card FIRST, as not-default. This is also the second
+      // ownership check (the function re-validates company and customer on its
+      // own), and recording before the default attempt means a card that is
+      // attached at Stripe is never absent from SILO just because the
+      // follow-up call failed.
+      const { data: recorded, error: recErr } = await db.rpc('record_customer_card_setup', {
+        p_company: company,
+        p_session_id: session.id,
+        p_setup_intent_id: setupIntentId,
+        p_customer_id: customerId,
+        p_payment_method_id: paymentMethodId,
+        p_brand: brand,
+        p_last4: last4,
+        p_exp_month: expMonth,
+        p_exp_year: expYear,
+        p_is_default: false,
+      });
+      if (recErr) throw new Error(`record_customer_card_setup: ${recErr.message}`);
+      if (recorded && (recorded as any).ok === false) {
+        console.error('card setup not recorded', session.id, (recorded as any).reason);
+        return;
+      }
+
+      // ── Attached is not the same as default ──────────────────────────────
+      // Checkout ATTACHES the method to the Customer. It does NOT make it the
+      // customer's invoice default, so an invoice created later would have no
+      // payment method to charge and would sit open while everyone believed a
+      // card was on file.
+      try {
+        await stripe.customers.update(
+          customerId,
+          { invoice_settings: { default_payment_method: paymentMethodId } },
+          opts,
+        );
+        const { error: defErr } = await db.rpc('mark_customer_card_default', {
+          p_company: company, p_session_id: session.id,
+        });
+        if (defErr) throw new Error(`mark_customer_card_default: ${defErr.message}`);
+      } catch (e) {
+        // A TERMINAL refusal (Stripe reached the request and rejected it) is
+        // recorded and left: retrying it eight times changes nothing, and the
+        // row already says the card is saved but not default, which the
+        // customer list shows and docs/ops/customer-onboarding.md says how to
+        // remedy.
+        //
+        // Anything else -- a 5xx, a rate limit, a dropped connection -- is
+        // TRANSIENT, and swallowing it is how a card ends up permanently
+        // unusable by invoice automation: the account reads 'succeeded', so
+        // start_card_setup answers `already_captured` and nothing ever retries.
+        // Rethrowing hands it back to the webhook's own retry ledger, and
+        // every step above is idempotent, so the redelivery is safe.
+        if (!isTerminalStripeError(e)) throw e;
+        console.error('default_payment_method update refused', customerId,
+          (e as Error)?.message);
+      }
+      return;
+    }
+    case 'connect_setup_expired': {
+      const session = await stripe.checkout.sessions.retrieve(route.objectId, opts);
+      if (session.mode !== 'setup') return;
+      const { error } = await db.rpc('release_customer_card_setup', {
+        p_company: company, p_session_id: session.id,
+      });
+      if (error) throw new Error(`release_customer_card_setup: ${error.message}`);
       return;
     }
     case 'connect_invoice': {

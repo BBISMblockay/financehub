@@ -1469,3 +1469,48 @@ required, and two Stripe webhook endpoints have to be registered. See
 Regressions: `scripts/tests/stripe-billing-database.test.mjs` (42 assertions,
 eight mutations) and `scripts/tests/stripe-edge-logic.test.mjs`, both in
 `sync-tests.yml`.
+
+## Customer accounts — `20260919140000_customer_account_onboarding.sql`
+
+SILO's first **native customer master**. The four customer-shaped things that
+existed before it are all mirrors or the wrong party: `ar_customers` is derived
+from a Google Sheet by name and has no address or tax fields, `quickbooks_customers`
+and `stripe_invoice_customers` are read-only mirrors with no client write policy,
+and `factories` is the supplier directory. The accounting foundation has a chart
+of accounts and no parties at all.
+
+So `customer_accounts` carries an `account_type` (`wholesale` today) rather than
+being a wholesale table with a boolean, and it **links out** to all three mirrors
+without ever writing into them.
+
+Three separations are the design, and each has a mutation covering it:
+
+- **Tax data is not directory data.** `customer_account_tax_profiles` (EIN,
+  resale id, certificate path) is gated by `can_manage_client_invoices()`, while
+  the directory is readable by any active member. The `customer-account-files`
+  storage policy keys its `EXISTS` on the tax profile, so the certificate
+  inherits the narrow gate rather than the directory's.
+- **Requested terms are not approved terms.** `requested_payment_terms` is
+  applicant-supplied; `approved_payment_terms` / `credit_limit` / `price_tier`
+  are written only by `approve_customer_account()`.
+- **"Same as" is a pointer, not a copy.** CHECK constraints bound the chain to
+  `billing → shipping → business`, so no cycle is representable and
+  `customer_account_addresses_resolved_v` is two joins rather than a recursive CTE.
+
+Onboarding is public and token-gated (`customer_account_invites`, RLS deny-all,
+RPC-only, like `org_invites`). The 14-day onboarding token is **consumed** at
+submission, which issues a 2-hour `card_setup` continuation in the same
+transaction — the link that lives in an inbox is not the link that can open a
+payment-method capture.
+
+### Deploying
+
+The migration alone does nothing. Deploy `customer-onboarding`, **redeploy
+`stripe-webhook`** (it gained `connect_setup` routing for setup-mode Checkout),
+add `checkout.session.completed` and `checkout.session.expired` to the **connect**
+webhook endpoint in Stripe, then uncomment the Customers row in `v2/nav-config.js`.
+See [docs/ops/customer-onboarding.md](../docs/ops/customer-onboarding.md).
+
+Regressions: `scripts/tests/customer-onboarding-database.test.mjs` (60
+assertions, 13 mutations) and `scripts/tests/customer-onboarding.test.mjs` (31
+scenarios, 10 mutations), both in `sync-tests.yml`.

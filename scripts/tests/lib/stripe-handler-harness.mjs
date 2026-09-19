@@ -24,7 +24,7 @@ const ROOT = new URL('../../../', import.meta.url);
  * written rather than about a call having happened.
  */
 export function fakeSupabase({
-  tables = {}, rpcs = {}, user = null, authError = false, gates = {},
+  tables = {}, rpcs = {}, user = null, authError = false, gates = {}, storage = {},
 } = {}) {
   const calls = [];
   const store = new Map(Object.entries(tables).map(([t, rows]) => [t, rows.map((r) => ({ ...r }))]));
@@ -74,7 +74,50 @@ export function fakeSupabase({
     from: (table) => ({
       select: (columns, opts) => builder(table, 'select').select(columns, opts),
       update: (patch) => builder(table, 'update', patch),
+      insert: (rows) => {
+        const list = Array.isArray(rows) ? rows : [rows];
+        for (const r of list) rowsOf(table).push({ ...r });
+        calls.push({ query: table, op: 'insert', payload: list });
+        return Promise.resolve({ data: list, error: null });
+      },
+      // Enough of PostgREST's upsert to exercise the tax-profile write: match
+      // on the declared conflict column, merge if present, insert if not.
+      upsert: (rows, opts = {}) => {
+        const list = Array.isArray(rows) ? rows : [rows];
+        const key = opts.onConflict;
+        for (const r of list) {
+          const hit = key ? rowsOf(table).find((x) => x[key] === r[key]) : null;
+          if (hit) Object.assign(hit, r); else rowsOf(table).push({ ...r });
+        }
+        calls.push({ query: table, op: 'upsert', payload: list, onConflict: key });
+        return Promise.resolve({ data: list, error: null });
+      },
     }),
+    storage: {
+      from: (bucket) => ({
+        // `storage[bucket + ':objects']` is the list of object names the
+        // bucket is pretending to hold, so a test can stage "the PUT stored
+        // nothing" as well as the happy path.
+        async list(prefix, opts) {
+          calls.push({ storage: bucket, op: 'list', prefix, opts });
+          const objects = storage[`${bucket}:objects`] ?? [];
+          const search = opts?.search;
+          const rows = objects
+            .filter((n) => !search || n === search)
+            .map((n) => ({ name: n }));
+          return { data: rows, error: null };
+        },
+        async createSignedUploadUrl(path, opts) {
+          calls.push({ storage: bucket, op: 'createSignedUploadUrl', path, opts });
+          const scripted = storage[`${bucket}:${path}`] ?? storage[bucket];
+          if (scripted instanceof Error) return { data: null, error: { message: scripted.message } };
+          return {
+            data: { signedUrl: `https://storage.test/${bucket}/${path}?t=sig`, token: 'upload-token' },
+            error: null,
+          };
+        },
+      }),
+    },
     async rpc(name, args) {
       calls.push({ rpc: name, args });
       if (!(name in rpcs)) throw new Error(`fake-supabase: unstubbed rpc ${name}`);
@@ -133,7 +176,16 @@ export function fakeStripe(script = {}) {
         voidInvoice: m('invoices.voidInvoice'), markUncollectible: m('invoices.markUncollectible'),
       },
       invoiceItems: { create: m('invoiceItems.create') },
-      customers: { create: m('customers.create'), retrieve: m('customers.retrieve') },
+      customers: {
+        create: m('customers.create'), retrieve: m('customers.retrieve'),
+        update: m('customers.update'),
+      },
+      // The setup-mode capture path: Checkout attaches the method to the
+      // Customer, the SetupIntent is what names it, and making it the invoice
+      // default is a third, separate call. All three are doubled so the
+      // "attached but not default" state can be exercised rather than assumed.
+      setupIntents: { retrieve: m('setupIntents.retrieve') },
+      paymentMethods: { retrieve: m('paymentMethods.retrieve') },
       accounts: { create: m('accounts.create'), retrieve: m('accounts.retrieve') },
       accountLinks: { create: m('accountLinks.create') },
       billingPortal: { sessions: { create: m('billingPortal.sessions.create') } },
@@ -149,6 +201,7 @@ const HANDLERS = {
   'stripe-connect': 'handleStripeConnect',
   'stripe-invoice': 'handleStripeInvoice',
   'stripe-billing': 'handleStripeBilling',
+  'customer-onboarding': 'handleCustomerOnboarding',
 };
 
 /**

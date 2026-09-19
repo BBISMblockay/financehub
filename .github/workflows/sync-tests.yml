@@ -103,6 +103,11 @@ on:
       - 'v2/invoicing.html'
       - 'v2/billing.html'
       - 'v2/invoice-request.js'
+      - 'supabase/migrations/*customer_account_onboarding.sql'
+      - 'supabase/functions/customer-onboarding/**'
+      - 'scripts/tests/customer-onboarding-bootstrap.sql'
+      - 'v2/customers.html'
+      - 'v2/customer-onboarding.html'
       # The splitter is tested against the real verify file, so a change to
       # the file must re-run that test.
       - 'supabase/verify_v2_schema.sql'
@@ -324,6 +329,28 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      # The onboarding function is PUBLIC: no JWT, no RLS behind it (it holds
+      # the service-role key), and it can create a Stripe customer and a
+      # payment-method capture session. Every guard it has is orchestration.
+      - name: Customer onboarding handler and setup-capture webhook path
+        run: node scripts/tests/customer-onboarding.test.mjs
+
+      - name: Each customer onboarding guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in body-account note-ignored unknown-status-restarts attempt-not-bumped \
+                   no-reclaim consent-from-page consent-not-checked webhook-any-mode \
+                   webhook-default-fatal webhook-trusts-session webhook-no-owner-check \
+                   webhook-owner-any-customer webhook-transient-swallowed \
+                   cert-recorded-early cert-trusts-caller; do
+            echo "--- $m ---"
+            if CUSTOMER_ONBOARDING_MUTATION="$m" node scripts/tests/customer-onboarding.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Remote schema verify splits the real file correctly
         run: node scripts/tests/verify-schema-remote.test.mjs
 
@@ -344,7 +371,7 @@ jobs:
         run: |
           npx --yes deno@2.9.6 check --config supabase/functions/plaid-scheduled-sync/deno.json supabase/functions/plaid-scheduled-sync/index.ts
           npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
-          for fn in stripe-webhook stripe-connect stripe-invoice stripe-billing; do
+          for fn in stripe-webhook stripe-connect stripe-invoice stripe-billing customer-onboarding; do
             npx --yes deno@2.9.6 check --config "supabase/functions/$fn/deno.json" "supabase/functions/$fn/index.ts"
           done
 
@@ -534,6 +561,31 @@ jobs:
                    checkout-takeover-rotates checkout-note-silent; do
             echo "--- $m ---"
             if STRIPE_MUTATION="$m" node scripts/tests/stripe-billing-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # The onboarding schema as real roles: the tax profile must be NARROWER
+      # than the customer directory (an EIN is not a ship-to address), the token
+      # table must stay RPC-only, and a submission must not be able to grant
+      # itself terms. Also runs this feature's own verify_v2_schema checks, so a
+      # check that cannot return 'ok' against a correct schema is caught here
+      # rather than by a permanently red daily drift run.
+      - name: Customer account onboarding schema
+        run: node scripts/tests/customer-onboarding-database.test.mjs
+
+      - name: Each customer onboarding schema guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in tax-open invites-readable submit-takes-terms submit-after-approval \
+                   token-not-consumed claim-unguarded claim-steals-session release-no-bump \
+                   webhook-any-company webhook-any-customer rebind-allowed \
+                   storage-bucket-only public-rpc-granted table-writable owner-any-company \
+                   activity-every-call; do
+            echo "--- $m ---"
+            if CUSTOMER_DB_MUTATION="$m" node scripts/tests/customer-onboarding-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

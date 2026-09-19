@@ -107,6 +107,20 @@
     // sidebar destination. The page/Stripe function retain their finance
     // authorization; workspace navigation is never the security boundary.
 
+    // ── Customers: HIDDEN UNTIL ACTIVATION (2026-09-19) ─────────────────────
+    // The internal page works on RPCs alone once the migration is applied --
+    // but its primary action is minting an application link, and that link
+    // opens /v2/customer-onboarding.html, which is backed by the
+    // customer-onboarding Edge Function. Merging does not deploy, so until it
+    // is deployed the main thing this page does produces a link that cannot
+    // work. Same reasoning as Invoicing above, and the same activation: deploy
+    // customer-onboarding AND redeploy stripe-webhook (it gained the
+    // connect_setup routing), add checkout.session.completed and
+    // checkout.session.expired to the CONNECT webhook endpoint in Stripe, then
+    // uncomment this line. Gate when restored: FINANCE_DEPTS, mirroring
+    // can_manage_client_invoices(), which is what every RPC on the page checks.
+    // { departments: FINANCE_DEPTS, id: 'finance/customers', section: 'Accounting', sectionStandard: 'Operations', label: 'Customers', href: '/v2/customers.html', profiles: ['grandfathered', 'standard'] },
+
     // Requests (AP intake/approval + mail handling) was split out of
     // Accounting once that section reached nine items and stopped reading as
     // a section at all. Mail Intake/Mailroom fold into the same section
