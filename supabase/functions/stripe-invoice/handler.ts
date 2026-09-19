@@ -131,8 +131,9 @@ async function createCustomer(
     return { stripe_customer_id: claim.stripe_object_id, repeated: true };
   }
 
+  let customer: any = null;
   try {
-    const customer = await stripe.customers.create(
+    customer = await stripe.customers.create(
       {
         name: name || undefined,
         email: email || undefined,
@@ -148,7 +149,18 @@ async function createCustomer(
     await completeRequest(requestId, 'succeeded', customer.id);
     return { stripe_customer_id: customer.id, repeated: false };
   } catch (e) {
-    await completeRequest(requestId, 'failed', null, (e as Error)?.message);
+    // The same three-way decision createInvoice makes, and for the same
+    // reason: `customers.create` can commit at Stripe and lose its answer, and
+    // recording that as a plain `failed` tells the browser nothing exists --
+    // so it mints a fresh request id, hence a fresh `silo-customer-<id>` key,
+    // hence a SECOND customer for the same person, splitting their invoice
+    // history. A 4xx reached Stripe and was refused, so that stays reclaimable.
+    await completeRequest(
+      requestId,
+      customer?.id ? 'failed' : createOutcome(e),
+      customer?.id ?? null,
+      (e as Error)?.message,
+    );
     throw e;
   }
 }

@@ -312,7 +312,8 @@ jobs:
                    webhook-ignores-finish connect-body-company connect-note-after-sync \
                    connect-release-on-error connect-no-idempotency invoice-lines-after-create \
                    invoice-trusts-stripe-id billing-body-price billing-trusts-mirror \
-                   invoice-failure-always-clean billing-seats-count-every-member; do
+                   invoice-failure-always-clean billing-seats-count-every-member \
+                   billing-checkout-unserialized invoice-customer-always-clean; do
             echo "--- $m ---"
             if STRIPE_HANDLER_MUTATION="$m" node scripts/tests/stripe-handlers.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
@@ -526,7 +527,8 @@ jobs:
                    ledger-amnesia platform-takes-account lines-upserted sync-open-to-anon \
                    placeholder-claims-now webhook-no-reclaim connect-rebind-allowed \
                    connect-unclaimed lease-reads-terminal failed-always-fresh \
-                   line-price-strict subscription-any-identity; do
+                   line-price-strict subscription-any-identity \
+                   checkout-claim-unguarded checkout-release-unscoped; do
             echo "--- $m ---"
             if STRIPE_MUTATION="$m" node scripts/tests/stripe-billing-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

@@ -298,6 +298,126 @@ create index if not exists idx_billing_invoices_company
 comment on table public.billing_invoices is
   'What SILO charged a tenant, mirrored from the platform Stripe account. Read-only to clients; hosted_invoice_url / invoice_pdf_url are Stripe-hosted and are the receipt.';
 
+-- One in-flight subscription Checkout per company.
+--
+-- The preflight in stripe-billing closes the STALE-MIRROR window: it asks
+-- Stripe directly rather than believing the cache. It does not close the
+-- CONCURRENCY window, because a read followed by a create is check-then-act --
+-- two owner-admins, or one person in two tabs, can both read "no live
+-- subscription" and both reach checkout.sessions.create. Complete both and
+-- Stripe holds two live subscriptions, the tenant is charged twice, and this
+-- one-row mirror can only ever show one of them.
+--
+-- Durable rather than an advisory lock for the same reason as
+-- stripe_connect_setup_claims: the critical section spans an HTTP call.
+--
+-- The recovery rule is different from Connect's, and better, because Stripe
+-- can be ASKED: a claim holding a session id is never stolen on a timer --
+-- the caller retrieves that session and lets its own status decide (open ->
+-- hand back the same URL, complete -> a subscription exists, expired ->
+-- release and start a fresh attempt). Only a claim that never recorded a
+-- session -- an edge function killed between the claim and Stripe's answer --
+-- falls back to the ten-minute takeover.
+--
+-- `attempt_id` is what makes a Stripe idempotency key safe here. A key scoped
+-- to the COMPANY would be wrong: two deliberate attempts an hour apart are two
+-- legitimate sessions, and Stripe would replay the first, expired one. A key
+-- scoped to the attempt collapses exactly the retries of one attempt.
+create table if not exists public.billing_checkout_claims (
+  company_entity_id uuid primary key references public.entities(id) on delete cascade,
+  attempt_id        uuid not null default gen_random_uuid(),
+  stripe_session_id text,
+  claimed_by        uuid references auth.users(id) on delete set null,
+  claimed_at        timestamptz not null default now()
+);
+
+alter table public.billing_checkout_claims enable row level security;
+revoke all on public.billing_checkout_claims from anon, authenticated;
+-- No policy and no grant: service role only, like stripe_connect_setup_claims.
+
+comment on table public.billing_checkout_claims is
+  'One in-flight subscription Checkout per company. The preflight in stripe-billing closes the stale-mirror window; this closes the concurrency window, where two requests both read "no live subscription" and both create a session. A claim holding a session id is resolved against Stripe (open/complete/expired) rather than on a timer; only a claim that never recorded one is taken over after ten minutes. attempt_id scopes the Stripe idempotency key to ONE attempt, since a company-scoped key would replay an expired session.';
+
+-- Returns one of:
+--   claimed   -- you hold the claim; create a session with this attempt_id
+--   existing  -- an attempt already made a session; resolve THAT against Stripe
+--   in_flight -- somebody else is mid-creation and has not got a session yet
+create or replace function public.stripe_claim_checkout(
+  p_company uuid,
+  p_user    uuid default null
+)
+returns table (outcome text, attempt_id uuid, stripe_session_id text)
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_claimed  boolean;
+  v_existing public.billing_checkout_claims;
+begin
+  insert into public.billing_checkout_claims (company_entity_id, claimed_by)
+  values (p_company, p_user)
+  on conflict (company_entity_id) do update
+    set claimed_by        = excluded.claimed_by,
+        claimed_at        = now(),
+        attempt_id        = gen_random_uuid(),
+        stripe_session_id = null
+    -- A claim that recorded a session is NEVER stolen on a timer: that session
+    -- may still be open, or may already have been paid. Stripe decides, in the
+    -- caller. Only a claim that never got that far goes stale.
+    where public.billing_checkout_claims.stripe_session_id is null
+      and public.billing_checkout_claims.claimed_at < now() - interval '10 minutes';
+  get diagnostics v_claimed = row_count;
+
+  select * into v_existing
+    from public.billing_checkout_claims where company_entity_id = p_company;
+
+  if v_claimed then
+    return query select 'claimed'::text, v_existing.attempt_id, null::text;
+  elsif v_existing.stripe_session_id is not null then
+    return query select 'existing'::text, v_existing.attempt_id, v_existing.stripe_session_id;
+  else
+    return query select 'in_flight'::text, null::uuid, null::text;
+  end if;
+end;
+$$;
+
+-- Written the instant Stripe returns a session, so a crash before the URL
+-- reaches the browser leaves something the next attempt can resolve rather
+-- than a claim that looks abandoned.
+create or replace function public.stripe_note_checkout_session(
+  p_company uuid,
+  p_attempt uuid,
+  p_session text
+)
+returns void
+language sql
+security definer
+set search_path to 'public'
+as $$
+  update public.billing_checkout_claims
+     set stripe_session_id = p_session
+   where company_entity_id = p_company
+     and attempt_id = p_attempt;
+$$;
+
+-- Scoped to the session it observed, ALWAYS. An unscoped release would let a
+-- late webhook for a long-finished session drop the claim a second attempt is
+-- holding right now, which puts the concurrency window straight back.
+create or replace function public.stripe_release_checkout(
+  p_company uuid,
+  p_session text
+)
+returns void
+language sql
+security definer
+set search_path to 'public'
+as $$
+  delete from public.billing_checkout_claims
+   where company_entity_id = p_company
+     and stripe_session_id = p_session;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 2. B. Stripe Connect -- the tenant's own merchant account
 -- ---------------------------------------------------------------------------
@@ -1620,6 +1740,9 @@ begin
     'stripe_record_webhook_event(text,text,text,text,uuid,timestamptz)',
     'stripe_finish_webhook_event(text,text,text)',
     'stripe_begin_checkout(uuid,text)',
+    'stripe_claim_checkout(uuid,uuid)',
+    'stripe_note_checkout_session(uuid,uuid,text)',
+    'stripe_release_checkout(uuid,text)',
     'stripe_sync_subscription(uuid,jsonb,timestamptz)',
     'stripe_sync_billing_invoice(uuid,jsonb,timestamptz)',
     'stripe_sync_connect_account(uuid,jsonb,timestamptz)',

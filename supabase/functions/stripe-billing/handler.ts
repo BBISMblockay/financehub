@@ -189,6 +189,49 @@ async function checkout(company: string, profile: any, userId: string, body: any
     quantity = Math.max(1, count ?? 1);
   }
 
+  // Everything above closes the STALE-MIRROR window -- it asks Stripe rather
+  // than believing the cache. It does not close the CONCURRENCY window: a read
+  // followed by a create is check-then-act, so two owner-admins (or one person
+  // in two tabs) can both get this far and both create a session. Complete
+  // both and Stripe holds two live subscriptions and the tenant is charged
+  // twice, while this one-row mirror can only show one of them.
+  //
+  // So one in-flight attempt per company, claimed atomically in the database.
+  const claim = await claimCheckout(company, userId);
+
+  if (claim.outcome === 'in_flight') {
+    throw new Error(
+      'Another subscription checkout for this company is already being started. Wait a moment '
+      + 'and reload Billing rather than starting a second one — two completed checkouts would '
+      + 'create two subscriptions and charge twice.');
+  }
+
+  if (claim.outcome === 'existing') {
+    // Stripe is the authority on what that session became, so ask it rather
+    // than guessing from a timer.
+    const prior = await retrieveSession(claim.stripe_session_id);
+    if (prior?.status === 'open' && prior.url) {
+      // The same attempt, handed back. Not a second session.
+      return { url: prior.url, plan_key: plan.plan_key, quantity, resumed: true };
+    }
+    await db.rpc('stripe_release_checkout', {
+      p_company: company, p_session: claim.stripe_session_id,
+    });
+    if (prior?.status === 'complete') {
+      throw new Error(
+        'A checkout for this company has already been completed at Stripe — its webhook is '
+        + 'still in flight. Nothing was charged twice; reload Billing in a moment, and change '
+        + 'the plan through Manage billing.');
+    }
+    // Expired, or gone. Start a genuinely new attempt.
+    const retry = await claimCheckout(company, userId);
+    if (retry.outcome !== 'claimed') {
+      throw new Error('Could not start a checkout just now — reload Billing and try again.');
+    }
+    claim.outcome = 'claimed';
+    claim.attempt_id = retry.attempt_id;
+  }
+
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     customer,
@@ -199,12 +242,43 @@ async function checkout(company: string, profile: any, userId: string, body: any
     subscription_data: {
       metadata: { silo_company_entity_id: company, silo_started_by: userId },
     },
-    // Not an idempotency key: two deliberate checkout attempts an hour apart
-    // are two legitimate sessions, and a stale session URL is worse than a
-    // fresh one (Checkout sessions expire).
+  }, {
+    // Scoped to the ATTEMPT, never to the company. A company-scoped key would
+    // replay the first, long-expired session on every future attempt; an
+    // attempt-scoped one collapses only the retries of this one.
+    idempotencyKey: `silo-checkout-${claim.attempt_id}`,
+  });
+
+  // Recorded before the URL is handed back, so a crash here leaves something
+  // the next attempt can resolve against Stripe rather than a claim that looks
+  // abandoned but is not.
+  await db.rpc('stripe_note_checkout_session', {
+    p_company: company, p_attempt: claim.attempt_id, p_session: session.id,
   });
 
   return { url: session.url, plan_key: plan.plan_key, quantity };
+}
+
+async function claimCheckout(company: string, userId: string) {
+  const { data, error } = await db.rpc('stripe_claim_checkout', {
+    p_company: company, p_user: userId,
+  });
+  // A claim that cannot be recorded is not a claim. Failing open here would
+  // restore the exact race the table exists to close.
+  if (error) throw new Error('Could not claim a checkout attempt: ' + error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.outcome) throw new Error('Could not claim a checkout attempt');
+  return row as { outcome: string; attempt_id: string; stripe_session_id: string };
+}
+
+async function retrieveSession(id: string) {
+  // A session Stripe no longer knows about is indistinguishable, for our
+  // purposes, from an expired one: either way this attempt is over.
+  try {
+    return await stripe.checkout.sessions.retrieve(id);
+  } catch (_) {
+    return null;
+  }
 }
 
 async function portal(company: string) {

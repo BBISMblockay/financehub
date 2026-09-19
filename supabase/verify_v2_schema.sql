@@ -4254,6 +4254,19 @@ select 'Stripe sync accepts what Stripe actually sends' as check_name,
    where c.conrelid='public.stripe_invoice_requests'::regclass and c.contype='c'
      and pg_get_constraintdef(c.oid) like '%ambiguous%')
    then 'CRITICAL: the ledger cannot record a lost answer -- a retry would bill the customer twice'
+ -- One in-flight subscription Checkout per company. Without this, the billing
+ -- function's preflight is check-then-act: two requests both read "no live
+ -- subscription", both create a session, and a tenant who completes both is
+ -- charged twice against a mirror that can only show one subscription.
+ when to_regclass('public.billing_checkout_claims') is null
+   then 'CRITICAL: checkout creation is unserialized -- two requests can open two subscriptions'
+ when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in ('stripe_claim_checkout','stripe_note_checkout_session',
+                            'stripe_release_checkout')) < 3
+   then 'CRITICAL: the checkout claim is missing one of its three functions'
+ when has_table_privilege('authenticated','public.billing_checkout_claims','select')
+   then 'CRITICAL: a client can read the checkout claim table -- service role only'
  else 'ok' end as status;
 
 -- An invoice that names one company and another company's Stripe account is

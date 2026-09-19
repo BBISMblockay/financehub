@@ -201,6 +201,11 @@ async function handle(route: any, event: any, company: string) {
       // is what the billing page reads. Fetch it rather than mapping the
       // session, which carries none of that.
       const session = await stripe.checkout.sessions.retrieve(route.objectId);
+      // This attempt is over either way -- paid or expired -- so the company's
+      // in-flight claim is released. Scoped to THIS session id, so a late
+      // delivery for a finished session can never drop the claim a second
+      // attempt is holding right now.
+      await rpc('stripe_release_checkout', { p_company: company, p_session: session.id });
       const subId = typeof session.subscription === 'string'
         ? session.subscription : session.subscription?.id;
       if (!subId) return;

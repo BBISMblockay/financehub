@@ -43,6 +43,8 @@
 //   STRIPE_MUTATION=failed-always-fresh  (a failure that created a draft is re-claimable)
 //   STRIPE_MUTATION=line-price-strict    (the decimal-string unit price read strictly again)
 //   STRIPE_MUTATION=subscription-any-identity (a stale sub's terminal event overwrites the live one)
+//   STRIPE_MUTATION=checkout-claim-unguarded  (two requests may both claim a checkout)
+//   STRIPE_MUTATION=checkout-release-unscoped (a release ignores which session it saw)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -57,7 +59,7 @@ assert.ok([
   'ledger-amnesia', 'platform-takes-account', 'lines-upserted', 'sync-open-to-anon',
   'placeholder-claims-now', 'webhook-no-reclaim', 'connect-rebind-allowed', 'connect-unclaimed',
   'lease-reads-terminal', 'failed-always-fresh', 'line-price-strict',
-  'subscription-any-identity',
+  'subscription-any-identity', 'checkout-claim-unguarded', 'checkout-release-unscoped',
 ].includes(mutation), `Unknown stripe mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -199,6 +201,20 @@ if (mutation === 'lease-reads-terminal') {
 if (mutation === 'failed-always-fresh') {
   sql = sql.replace("  if r.status = 'failed' and r.stripe_object_id is null then",
                     () => "  if r.status = 'failed' then");
+}
+if (mutation === 'checkout-claim-unguarded') {
+  // The claim degrades to "always yours", which is what no claim at all looks
+  // like from the caller: both concurrent requests are told to create.
+  sql = sql.replace(
+    `    where public.billing_checkout_claims.stripe_session_id is null
+      and public.billing_checkout_claims.claimed_at < now() - interval '10 minutes';`,
+    () => ';');
+}
+if (mutation === 'checkout-release-unscoped') {
+  sql = sql.replace(`  delete from public.billing_checkout_claims
+   where company_entity_id = p_company
+     and stripe_session_id = p_session;`,
+    () => `  delete from public.billing_checkout_claims where company_entity_id = p_company;`);
 }
 if (mutation === 'line-price-strict') {
   sql = sql.replace("public.stripe_decimal_cents(l,'unit_amount_excluding_tax')",
@@ -892,6 +908,101 @@ await test('a line with no inline price mirrors instead of aborting the whole in
     'the line AMOUNT is carried separately and is what the total comes from');
 });
 
+
+// ── One in-flight Checkout per company ──────────────────────────────────────
+// The preflight in stripe-billing asks Stripe rather than believing the
+// mirror, which closes the stale-mirror window. It does not close the
+// concurrency window: read-then-create is check-then-act, and two requests can
+// both read "no live subscription" and both create a session. Two completed
+// sessions are two subscriptions and two charges.
+const claimCheckout = (co, user) => one(
+  'select * from public.stripe_claim_checkout($1,$2)', [co, user]);
+
+await test('only one of two concurrent checkout attempts may create a session', async () => {
+  const co = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','race','Race Co')`, [co]);
+
+  const first = await claimCheckout(co, blake);
+  const second = await claimCheckout(co, finance);
+  assert.equal(first.outcome, 'claimed');
+  assert.ok(first.attempt_id, 'the claim carries the attempt the Stripe key is scoped to');
+  assert.equal(second.outcome, 'in_flight',
+    'the second request must be refused, not handed a second session');
+  assert.equal(second.attempt_id, null);
+});
+
+await test('an attempt that made a session hands back THAT session, not a new one', async () => {
+  const co = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','resume','Resume Co')`, [co]);
+
+  const claim = await claimCheckout(co, blake);
+  await q('select public.stripe_note_checkout_session($1,$2,$3)',
+    [co, claim.attempt_id, 'cs_test_1']);
+
+  const next = await claimCheckout(co, blake);
+  assert.equal(next.outcome, 'existing');
+  assert.equal(next.stripe_session_id, 'cs_test_1',
+    'the caller resolves this against Stripe -- open, complete or expired -- rather than guessing');
+
+  // And a claim holding a session is NOT stolen on a timer, however old: that
+  // session may be open, or may already have been paid. Only Stripe knows.
+  await q(`update public.billing_checkout_claims
+              set claimed_at = now() - interval '2 hours' where company_entity_id = $1`, [co]);
+  const stale = await claimCheckout(co, finance);
+  assert.equal(stale.outcome, 'existing',
+    'age is not evidence that a session was abandoned');
+  assert.equal(stale.stripe_session_id, 'cs_test_1');
+});
+
+await test('a claim that never reached Stripe is taken over after ten minutes', async () => {
+  const co = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','killed','Killed Co')`, [co]);
+
+  const first = await claimCheckout(co, blake);
+  assert.equal(first.outcome, 'claimed');
+  assert.equal((await claimCheckout(co, finance)).outcome, 'in_flight');
+
+  // An edge function killed between the claim and Stripe's answer: no session
+  // was ever recorded, so nothing can be resolved and the claim must not
+  // block the company forever.
+  await q(`update public.billing_checkout_claims
+              set claimed_at = now() - interval '11 minutes' where company_entity_id = $1`, [co]);
+  const taken = await claimCheckout(co, finance);
+  assert.equal(taken.outcome, 'claimed');
+  assert.notEqual(taken.attempt_id, first.attempt_id,
+    'a new attempt takes a NEW id, or it would replay the dead attempt\'s Stripe key');
+});
+
+await test('a release names the session it saw, so it cannot drop a live claim', async () => {
+  const co = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','release','Release Co')`, [co]);
+
+  const first = await claimCheckout(co, blake);
+  await q('select public.stripe_note_checkout_session($1,$2,$3)', [co, first.attempt_id, 'cs_old']);
+  await q('select public.stripe_release_checkout($1,$2)', [co, 'cs_old']);
+  assert.equal((await claimCheckout(co, blake)).outcome, 'claimed',
+    'releasing the session it saw frees the company for a fresh attempt');
+
+  // A webhook for the long-finished cs_old arrives late, while a second
+  // attempt is mid-flight. Unscoped, it would drop that live claim and put the
+  // race straight back.
+  const second = await one('select * from public.billing_checkout_claims where company_entity_id=$1', [co]);
+  await q('select public.stripe_note_checkout_session($1,$2,$3)', [co, second.attempt_id, 'cs_new']);
+  await q('select public.stripe_release_checkout($1,$2)', [co, 'cs_old']);
+  const survived = await claimCheckout(co, finance);
+  assert.equal(survived.outcome, 'existing');
+  assert.equal(survived.stripe_session_id, 'cs_new',
+    'a stale release must not free a claim it never saw');
+});
+
+await refused(
+  () => as(blake, () => q('select * from public.billing_checkout_claims')),
+  /permission denied/,
+  'a client reading the checkout claim table');
 
 // ── verify_v2_schema.sql's own Stripe checks, executed ──────────────────────
 // A check nobody runs is a check that cannot go red. These are extracted by

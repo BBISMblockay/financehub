@@ -121,8 +121,16 @@ Both point at the same URL:
 `https://<project>.supabase.co/functions/v1/stripe-webhook`
 
 * **Account events** — `checkout.session.completed`,
-  `customer.subscription.*`, `invoice.finalized`, `invoice.paid`,
-  `invoice.payment_failed`, `invoice.voided`.
+  **`checkout.session.expired`**, `customer.subscription.*`,
+  `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`,
+  `invoice.voided`.
+
+  `checkout.session.expired` is not optional bookkeeping. One in-flight
+  subscription Checkout is allowed per company (`billing_checkout_claims`),
+  and an abandoned session's expiry is what releases that claim. Without the
+  event the claim is still released — the next attempt resolves the session
+  against Stripe and finds it expired — but only when somebody tries again,
+  so the first person to retry sees a delay rather than a URL.
 * **Connect events** (tick "Listen to events on Connected accounts") —
   `account.updated`, `account.application.deauthorized`, `customer.created`,
   `customer.updated`, `customer.deleted`, `invoice.*`.
@@ -303,6 +311,10 @@ Everything below needs live Stripe credentials and has not been exercised:
   period as a fallback, so a mismatch should degrade rather than write NULL —
   but that fallback has only been tested against a synthetic payload.
 * Checkout → `checkout.session.completed` → subscription mirror, end to end.
+* The checkout claim against real sessions: that a resumed `open` session's URL
+  still works when handed back, and that Stripe reports `expired` on the
+  timetable assumed here. Both are exercised by opening Checkout, abandoning
+  it, and reopening Billing.
 * Connect onboarding on a real account, including the expired-link
   (`?stripe=refresh`) path and the adopt-after-crash path.
 * **The same 24-hour boundary on invoice create.** An `ambiguous` ledger row

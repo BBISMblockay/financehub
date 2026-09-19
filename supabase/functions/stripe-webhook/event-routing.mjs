@@ -21,6 +21,10 @@
 
 export const PLATFORM_EVENTS = {
   'checkout.session.completed': 'checkout',
+  // An abandoned checkout must release the company's in-flight claim too, or
+  // one abandoned tab blocks every later attempt until the session's own
+  // expiry is noticed by the next caller.
+  'checkout.session.expired': 'checkout',
   'customer.subscription.created': 'subscription',
   'customer.subscription.updated': 'subscription',
   'customer.subscription.deleted': 'subscription',
