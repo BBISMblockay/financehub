@@ -298,6 +298,27 @@ jobs:
       - name: Stripe event routing and invoice amounts
         run: node scripts/tests/stripe-edge-logic.test.mjs
 
+      # The four handlers EXECUTED. `deno check` proves types, not behaviour,
+      # and the database suite proves the SQL they call rather than the calling
+      # -- which is the exact gap that shipped a dead-zone reference here
+      # before, inside an orchestrator whose core had 91 passing assertions.
+      - name: Stripe Edge Function handlers
+        run: node scripts/tests/stripe-handlers.test.mjs
+
+      - name: Each Stripe handler guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in webhook-trusts-payload webhook-swallows-failure connect-body-company \
+                   connect-note-after-sync connect-release-on-error invoice-lines-after-create \
+                   invoice-trusts-stripe-id billing-body-price; do
+            echo "--- $m ---"
+            if STRIPE_HANDLER_MUTATION="$m" node scripts/tests/stripe-handlers.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Remote schema verify splits the real file correctly
         run: node scripts/tests/verify-schema-remote.test.mjs
 

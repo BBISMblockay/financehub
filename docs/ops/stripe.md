@@ -36,6 +36,50 @@ The consequence that matters operationally: **SILO stores no per-tenant Stripe
 credential anywhere.** `stripe_connect_accounts.stripe_account_id` is the whole
 record, and it is useless without SILO's platform key.
 
+## Activation sequence
+
+Merging #728 lands the code and restores the shared navigation. It does **not**
+turn Stripe on, and the two menu links stay commented out in
+`v2/nav-config.js` until it is genuinely ready — a live link to a page whose
+backend does not exist opens something that cannot work and cannot say why.
+
+| # | Step | Who |
+|---|---|---|
+| 1 | Handler tests for all four Edge Functions | done — `scripts/tests/stripe-handlers.test.mjs` |
+| 2 | A third independent review on the updated head | Blake requests |
+| 3 | Billing and Invoicing kept out of the nav | done — commented in `v2/nav-config.js` |
+| 4 | Merge #728 (restores the shared navigation) | Blake |
+| 5 | Apply the migration, deploy the four functions, configure Stripe in **test mode** | Blake |
+| 6 | Both walkthroughs below, against test-mode Stripe | Blake |
+| 7 | Uncomment the two nav lines — a tiny activation PR | |
+| 8 | Swap the test keys for live keys | Blake |
+
+Steps 4 and 5 are deliberately separate: the merge is safe because nothing
+reads these tables and no existing code path changed, while activation is the
+point where untested-against-reality code meets real money.
+
+### The two walkthroughs (step 6)
+
+Neither has ever been run. Both need a Stripe **test-mode** key.
+
+**A. Subscription.** Seed a plan against a test price → open `/v2/billing.html`
+→ Subscribe → complete Checkout with `4242 4242 4242 4242` → confirm
+`billing_subscriptions` shows `active` with the right plan and period, and
+`billing_invoices` has the first invoice. Then: does the page offer *Change
+plan in Stripe* rather than *Subscribe*? Does a second Checkout get refused?
+Cancel in the portal and confirm the mirror follows.
+
+**B. Connect invoicing.** Connect a test Standard account → confirm
+`charges_enabled` turns true only after onboarding actually completes (leave it
+half-finished once, deliberately, and check the page says so) → create a
+customer → create a draft invoice → send it → pay it on Stripe's hosted page →
+confirm the mirror reaches `paid`. Then the recovery paths: reload the tab
+mid-create and confirm the same invoice comes back rather than a second one,
+and void an invoice and confirm the mirror follows.
+
+Anything that behaves differently from this document is the document being
+wrong — it was written from the API as recalled, not as measured.
+
 ## Setup
 
 ### 1. Secrets (Supabase → Edge Functions → Secrets)

@@ -799,11 +799,17 @@ than this section.
   Standard account (the money settles to them, SILO holds no funds and stores no key for them).
   Every table is a read-only mirror of Stripe with no client write policy at all; one webhook
   function receives both surfaces and tells them apart by which signing secret verified the
-  delivery. **In the nav**: `Invoicing` under Accounting (`FINANCE_DEPTS`, mirroring
-  `can_manage_client_invoices()`) and `Billing` under Settings beside Integrations
-  (`ADMIN_ROLES`, mirroring `billing_subscriptions`' `is_admin_user()` select gate) — both
-  restored alongside `v2/nav-config.js` itself, which `631ff17` had deleted from the repo on
-  2026-09-19 while every Pattern 1 page still loaded it. **Nothing has run against live Stripe** — the
+  delivery. **Deliberately NOT in the nav yet**: the `Invoicing` and `Billing` rows exist in
+  `v2/nav-config.js` as commented lines, because a live link to a page whose backend is not
+  deployed opens something that cannot work and cannot say why. Uncommenting them is the
+  activation PR (step 7 of the sequence in `docs/ops/stripe.md`), after the test-mode
+  walkthroughs. Gates when restored: `FINANCE_DEPTS` for Invoicing (mirroring
+  `can_manage_client_invoices()`), `ADMIN_ROLES` for Billing. Both rows landed alongside the
+  restore of `v2/nav-config.js` itself, which `631ff17` had deleted while every Pattern 1 page
+  still loaded it. **The four Edge Function handlers live in `handler.ts` with a two-line
+  `index.ts`** — the plaid-finance split — so `scripts/tests/stripe-handlers.test.mjs` can
+  execute them under node with fake Stripe and Supabase; `deno check` proves types, not
+  behaviour. **Nothing has run against live Stripe** — the
   functions are undeployed and the secrets unset, so `deployment-drift-check.yml` is red for them
   until somebody follows `docs/ops/stripe.md`
 - **Ask SILO** (`/v2/silo-chat.html`) — agentic chat with taught notes (`silo_chat_notes`) and a
