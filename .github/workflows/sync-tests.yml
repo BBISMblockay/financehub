@@ -494,8 +494,15 @@ jobs:
       - name: Each Stripe guard, removed one at a time, must break it
         run: |
           set -u
+          # Keep this list in step with the STRIPE_MUTATION allowlist at the top
+          # of the suite. A mutation that CI never runs is coverage that does
+          # not exist -- the first four below were added after the list was
+          # written and went three commits without being executed here, while
+          # the PR said twelve mutations ran.
           for m in mirror-writable gate-is-admin stale-wins account-rebind \
-                   ledger-amnesia platform-takes-account lines-upserted sync-open-to-anon; do
+                   ledger-amnesia platform-takes-account lines-upserted sync-open-to-anon \
+                   placeholder-claims-now webhook-no-reclaim connect-rebind-allowed \
+                   connect-unclaimed; do
             echo "--- $m ---"
             if STRIPE_MUTATION="$m" node scripts/tests/stripe-billing-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

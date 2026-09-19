@@ -331,4 +331,31 @@ test('blocked storage degrades instead of refusing to work', () => {
   assert.equal(api.pending('k'), null);
 });
 
+// ── The mutations CI actually runs ──────────────────────────────────────────
+
+test('every declared mutation is executed by the workflow', () => {
+  // A mutation that CI never runs is coverage that does not exist. Four of
+  // these went three commits without being executed, while the PR body said
+  // twelve mutations ran -- the job was green because it was running eight.
+  // Asserting the two lists match is cheaper than remembering.
+  const suite = readFileSync(
+    new URL('./stripe-billing-database.test.mjs', import.meta.url), 'utf8');
+  const declaredBlock = suite.slice(
+    suite.indexOf('assert.ok(['), suite.indexOf('].includes(mutation)'));
+  const declared = new Set(
+    [...declaredBlock.matchAll(/'([a-z][a-z-]+)'/g)].map((m) => m[1]));
+
+  const workflow = readFileSync(
+    new URL('../../.github/workflows/sync-tests.yml', import.meta.url), 'utf8');
+  const start = workflow.indexOf('for m in mirror-writable');
+  assert.ok(start > 0, 'the Stripe mutation loop must exist in sync-tests.yml');
+  const loop = workflow.slice(start, workflow.indexOf('; do', start));
+  const run = new Set(
+    loop.replace('for m in', '').split(/[\s\\]+/).map((x) => x.trim()).filter(Boolean));
+
+  assert.deepEqual([...declared].sort(), [...run].sort(),
+    'the suite\'s STRIPE_MUTATION allowlist and the workflow loop must be the same set');
+  assert.ok(declared.size >= 12, `expected at least 12 mutations, found ${declared.size}`);
+});
+
 console.log(`\n${passed} assertions passed`);
