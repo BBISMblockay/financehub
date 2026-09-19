@@ -268,9 +268,14 @@ async function startCardSetup(body: any) {
 
   // The tenant's own connected account. Read from the account's company, never
   // from the request.
+  // Only the account id is read. `charges_enabled` is deliberately NOT a gate
+  // here: setup mode saves a payment method and moves no money, so a tenant
+  // still finishing Stripe onboarding can collect a card from a customer
+  // already signing up. Selecting a capability flag and then ignoring it reads
+  // like a check that is not there, so it is not selected at all.
   const { data: connected, error: connErr } = await db
     .from('stripe_connect_accounts')
-    .select('stripe_account_id, charges_enabled')
+    .select('stripe_account_id')
     .eq('company_entity_id', tok.company)
     .maybeSingle();
   if (connErr) throw new Error(`stripe_connect_accounts: ${connErr.message}`);
@@ -396,12 +401,20 @@ async function startCardSetup(body: any) {
     {
       mode: 'setup',
       customer: customerId!,
-      currency: 'usd',
+      // No `currency`: it is optional in setup mode with a card, and asserting
+      // USD here would be SILO guessing on behalf of a tenant whose Connect
+      // account may be denominated in something else. Omitting it lets the
+      // account's own currency stand.
       payment_method_types: ['card'],
-      // off_session tells Stripe the saved method is intended for later
-      // merchant-initiated charges, which is what the consent text authorises.
+      // `setup_intent_data` accepts description / metadata / on_behalf_of and
+      // NOTHING ELSE -- Stripe rejects an unknown parameter outright, so a
+      // `usage: 'off_session'` here (the first version of this call) would have
+      // made every card-setup attempt fail at Stripe. It was also redundant:
+      // a SetupIntent's `usage` already defaults to off_session, which is the
+      // behaviour the consent text authorises. `deno check` against the pinned
+      // types is what caught it; the fake Stripe in the handler suite could
+      // not, which is why that suite now pins the accepted keys.
       setup_intent_data: {
-        usage: 'off_session',
         metadata: {
           silo_company_entity_id: tok.company,
           silo_customer_account_id: tok.accountId,

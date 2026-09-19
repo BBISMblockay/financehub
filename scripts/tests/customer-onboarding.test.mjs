@@ -458,6 +458,28 @@ await test('a completed session reports captured rather than creating another', 
   assert.ok(!stripe.pathsCalled().includes('checkout.sessions.create'));
 });
 
+await test('the setup session sends only parameters Stripe accepts', async () => {
+  const db = baseDb({ rpcs: setupRpcs() });
+  const stripe = setupStripe();
+  const call = await onboarding({ db, stripe });
+  await call({ body: { action: 'start_card_setup', token: TOKEN } });
+
+  const create = stripe.calls.find((c) => c.path === 'checkout.sessions.create');
+  assert.equal(create.args[0].mode, 'setup');
+  // Stripe REJECTS an unknown parameter rather than ignoring it, so an extra
+  // key here is not cosmetic -- it fails every card-setup attempt at Stripe.
+  // The first version sent `usage: 'off_session'`, which this API does not
+  // accept (and which a SetupIntent defaults to anyway); the fake Stripe
+  // below cannot notice that, so the accepted keys are pinned by name and
+  // `deno check` against the pinned types is the other half of the guard.
+  assert.deepEqual(Object.keys(create.args[0].setup_intent_data).sort(),
+    ['metadata'],
+    'setup_intent_data accepts only description / metadata / on_behalf_of');
+  assert.equal(create.args[0].setup_intent_data.metadata.silo_customer_account_id, ACCOUNT);
+  assert.equal(create.args[1].stripeAccount, 'acct_tenant',
+    'the session belongs in the TENANT\'s connected account');
+});
+
 await test('the Stripe customer is keyed on the ACCOUNT, so a retry cannot make a second one', async () => {
   const db = baseDb({ rpcs: setupRpcs() });
   const stripe = setupStripe();
