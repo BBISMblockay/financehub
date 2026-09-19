@@ -211,6 +211,14 @@ anything older, and a BEFORE UPDATE trigger drops a stale write from any writer
 that goes round the functions. If you see this, that chain is broken — do not
 "fix" it by re-syncing, find which writer bypassed it.
 
+**"An invoice failed — can I just try again?"** Only if nothing was created.
+`stripe_invoice_requests` records the Stripe id alongside a failure whenever the
+draft already existed when the later step failed, and a request in that state is
+**closed for creation**: the page surfaces the draft and asks you to finish or
+void it in Stripe. Retrying would mint a new request id, therefore a new Stripe
+idempotency key, and Stripe would not collapse it either — that is a second real
+invoice. A failure with no id recorded is freely retryable.
+
 **"The client says they were invoiced twice."** Check
 `stripe_invoice_requests`: two rows means two deliberate creates, one row means
 the guard worked and something else made the second invoice (the client's own
@@ -236,6 +244,14 @@ one, in either direction (another company's account, or a second account of its
 own). It is a deliberate service-role act, because the first account keeps its
 invoices and customers and its webhooks would otherwise resolve to nobody.
 
+**"Subscribe is offered but they already subscribed."** The mirror can lag: the
+first Checkout completed at Stripe, its webhook has not landed, the redirect was
+lost, and the local row is still the `incomplete` placeholder. `stripe-billing`
+therefore **asks Stripe directly** before opening a second Checkout for a
+customer it already knows, and reconciles the mirror when it finds one. A
+refusal naming "a live subscription at Stripe that SILO had not yet recorded" is
+this guard working; reload Billing.
+
 **"A tenant wants to change plan."** Send them to **Manage billing** — the
 Stripe billing portal, which applies Stripe's own proration. `stripe-billing`
 **refuses** a Checkout session for a company whose subscription is `active`,
@@ -257,6 +273,13 @@ a request at 150s). `processed` and `ignored` are terminal and are never
 re-run. Until 2026-09-19 the claim was insert-or-nothing, so the 500 asked
 Stripe to retry and the retry was then discarded as a duplicate: an
 `invoice.paid` could be lost for good.
+
+**A delivery answered 409 is a LEASE, not a failure.** An attempt holds that
+event and has not reported back; Stripe retries, and once the ten-minute lease
+expires the retry claims it. The alternative — answering 200 — is what loses an
+event when a handler fails *and* its status write fails in the same outage: the
+row stays `received`, Stripe is told the work is done, and nothing reclaims it.
+A 500 reading `status write failed` is the same situation from the other side.
 
 **An `unresolved` event does not self-heal.** It is recorded and returns 200,
 so Stripe will not send it again on its own. If the cause was timing — the
@@ -281,7 +304,15 @@ Everything below needs live Stripe credentials and has not been exercised:
   but that fallback has only been tested against a synthetic payload.
 * Checkout → `checkout.session.completed` → subscription mirror, end to end.
 * Connect onboarding on a real account, including the expired-link
-  (`?stripe=refresh`) path.
+  (`?stripe=refresh`) path and the adopt-after-crash path.
+* **The 24-hour boundary on Connect create.** `accounts.create` carries a
+  company-scoped Stripe idempotency key, so a lost response followed by a retry
+  returns the same account rather than opening a second merchant identity.
+  Stripe replays that response for 24 hours. A lost response whose retry lands
+  more than 24 hours later could still duplicate, and nothing here can close
+  that — Stripe's account listing cannot be searched by metadata. Recorded
+  rather than papered over; in practice the ten-minute claim puts the retry
+  minutes away, not days.
 * Any tax behaviour. Stripe Tax is **not** enabled by these functions; invoices
   carry whatever tax settings the client's own Stripe account applies, and
   `stripe_invoices.tax_cents` is mirrored, never computed here.
