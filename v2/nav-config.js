@@ -1,0 +1,324 @@
+/* ========================================================================
+   SILO nav profiles — visibility only (no route guards, no data logic).
+   Load before silo-chrome.js on Beacon pages.
+   ======================================================================== */
+(function (global) {
+  const BASEBALLISM_KEY = 'baseballism';
+
+  /** @typedef {{ id: string, title?: string, entity_key?: string, meta?: object }} SiloCompany */
+
+  /**
+   * @param {SiloCompany | null | undefined} company
+   * @returns {'grandfathered' | 'standard'}
+   */
+  function resolveNavProfile(company) {
+    // No company resolved yet => 'standard', NOT 'grandfathered'. This used to
+    // return 'grandfathered', and it was the one place SILO fell back to
+    // Baseballism's configuration on missing tenant context. It matters because
+    // getActiveCompany() reads sessionStorage, which is per-TAB, while the auth
+    // session lives in localStorage -- so any user landing on a v2 page from a
+    // bookmark or deep link is fully authenticated with NO cached company. A
+    // second tenant's user in that state was served Baseballism's sidebar,
+    // BBISM Receivables and all. No data leaked (RLS still scopes every query,
+    // and the links render empty pages), but "another company's menu" is not
+    // something a prospect should ever see, and the fallback is exactly the
+    // silent-default-to-Baseballism pattern this codebase tries not to have.
+    //
+    // Failing to 'standard' is the same stance the grant-based nav unlocks
+    // already take: the first paint shows the SMALLER menu, and silo-chrome.js
+    // re-renders once it has resolved the real company (mount() calls
+    // ensureActiveCompany). A grandfathered user on a deep link therefore sees
+    // the standard menu for one frame instead of permanently seeing a menu that
+    // belongs to someone else's company.
+    if (!company) return 'standard';
+    const metaProfile = company.meta && company.meta.nav_profile;
+    if (metaProfile === 'grandfathered' || metaProfile === 'standard') return metaProfile;
+    if (company.entity_key === BASEBALLISM_KEY) return 'grandfathered';
+    return 'standard';
+  }
+
+  // Departments that see finance-sensitive links. Employee-facing forms
+  // (Payment Request) are NOT gated — everyone submits those. Nav hiding is
+  // UX only; the data itself is gated by department-aware RLS.
+  const ACCOUNTING_PAGES = [
+    ['finance/card-coding','Transactions','transactions.html'],
+    ['finance/accounting-export','Sales & journals','accounting-export.html'],
+    ['finance/qbo-reports','Reports','qbo-reports.html'],
+    ['finance/schedules','Schedules','schedules.html'],
+    ['finance/fixed-assets','Fixed assets','fixed-assets.html'],
+    ['finance/books','Books & setup','accounting-books.html'],
+    ['finance/cash-forecast','Cash forecast','cash-forecast.html'],
+  ];
+
+  const FINANCE_DEPTS = ['exec', 'finance'];
+
+  // profiles.role values that see exec-only links (e.g. Ask SILO during its
+  // soft launch). Same simplified profile-role check used client-side for
+  // silo_chat_notes write access (review-templates.html, silo-chat.html) --
+  // UX only, not a security boundary; membership owner_admin isn't checked
+  // here the way the real is_exec_or_owner() RLS gate checks it.
+  const EXEC_ROLES = ['owner', 'executive'];
+
+  // profiles.role values that see admin-only links (e.g. Integrations,
+  // which reads connection secrets gated server-side by is_admin_user() --
+  // see 20260814000000_lock_connection_secrets_to_admin.sql). UX only, same
+  // caveat as EXEC_ROLES: the real boundary is RLS, not this list.
+  const ADMIN_ROLES = ['owner', 'admin', 'executive'];
+
+  /**
+   * profiles: which nav profiles include this link
+   * departments: user departments that see this link (absent = everyone;
+   *              a null/unresolved department shows everything, an unlisted
+   *              one hides the link)
+   * roles: profiles.role values that see this link (absent = everyone;
+   *        a null/unresolved role shows everything, same fail-open
+   *        behavior as departments -- avoids hiding links before the
+   *        profile fetch lands)
+   * grantTable: name of a table where a caller-visible row
+   *             (select ... where user_id = auth.uid()) also unlocks this
+   *             link even if `roles` doesn't match -- e.g. silo_chat_managers,
+   *             so someone granted Ask SILO access via backend.html sees the
+   *             link without needing an exec/owner profiles.role. Resolved
+   *             async (silo-chrome.js) since it needs a DB round trip, same
+   *             timing as departments; unlike departments this fails CLOSED
+   *             (no extra visibility) if the check errors or hasn't run yet
+   *             -- `roles` already decided "no" and this can only add a "yes".
+   * sectionStandard: optional section label for standard profile
+   * labelStandard: optional link label for standard profile
+   */
+  const NAV_ITEMS = [
+    { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
+    // Standard-profile only, and admin-only within that. Baseballism is years
+    // past needing it, and a permanent "Setup" row on a fully configured
+    // company is the kind of clutter nobody removes later. A new tenant's
+    // owner lands here straight out of company creation; the row is how they
+    // find their way back. It stays visible after every step is green --
+    // hiding it on completion would mean the one page that explains WHY the
+    // sales pages are empty disappears exactly when someone goes looking.
+    { roles: ADMIN_ROLES, id: 'start/setup', section: 'Start', label: 'Setup', href: '/v2/setup-checklist.html', profiles: ['standard'] },
+
+
+    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
+    // ── Stripe Invoicing: HIDDEN UNTIL ACTIVATION (2026-09-19, Blake) ────────
+    // The page and its backend merge together, but Stripe is not usable until
+    // the migration is applied, four Edge Functions are deployed, three
+    // secrets and two webhook endpoints are configured and billing_plans is
+    // seeded -- so a live link here would open a page that cannot do anything
+    // and cannot say why. Activation is its own small PR that uncomments this
+    // line and the Billing one below, after the test-mode walkthrough in
+    // docs/ops/stripe.md. The page stays reachable by URL for that
+    // walkthrough. Gate when restored: FINANCE_DEPTS, mirroring
+    // can_manage_client_invoices().
+    // { departments: FINANCE_DEPTS, id: 'finance/invoicing', section: 'Accounting', sectionStandard: 'Operations', label: 'Invoicing', href: '/v2/invoicing.html', profiles: ['grandfathered', 'standard'] },
+
+    // Requests (AP intake/approval + mail handling) was split out of
+    // Accounting once that section reached nine items and stopped reading as
+    // a section at all. Mail Intake/Mailroom fold into the same section
+    // rather than getting a third one of their own -- both are "things that
+    // came in and need routing," and four items reads as one section fine.
+    // The nav is an accordion with one section open at a time, so this costs
+    // no height -- opening Requests collapses Accounting.
+    //
+    // sectionStandard stays 'Operations' on purpose. A section name absent
+    // from STANDARD_SECTION_ORDER is DROPPED for standard-profile companies,
+    // so renaming it here without adding it there would make these links
+    // vanish for every company but this one. Standard profile already reads
+    // all four of these as one 'Operations' bucket, so this change is
+    // grandfathered-only.
+    // WPV Receivables removed 2026-08-16 — stale Google Sheets flow, page retired.
+    { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
+    // Payment Request 2 pulled from the menu 2026-09-19 (Blake) while it is
+    // still beta. The page and its tests are untouched and it stays reachable
+    // at /v2/purchase_request2.html -- uncommenting this line is the whole of
+    // putting it back.
+    // { id: 'finance/payment-request-2', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request 2 · Beta', href: '/v2/purchase_request2.html', profiles: ['grandfathered', 'standard'] },
+    // logistics added alongside FINANCE_DEPTS so that department can still
+    // see Request Manager to track payment requests they submitted --
+    // RLS (payment_requests_active_select) already lets anyone see their
+    // own created_by rows regardless of department; this just keeps the
+    // nav link (and dept-guard.js on the page itself) from hiding it.
+    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/mail-intake', section: 'Requests', sectionStandard: 'Operations', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Operations', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
+    // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
+
+    { id: 'planning/calendar', section: 'Planning', label: 'Org Calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/scenarios', section: 'Planning', label: 'Planning scenarios', href: '/v2/planning-scenarios.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/launch-calendar', section: 'Planning', label: 'Launch calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] },
+    { id: 'planning/tasks', section: 'Planning', label: 'Task Manager', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
+
+    { id: 'team/reviews', section: 'Team', label: 'Performance Reviews', href: '/v2/reviews.html', profiles: ['grandfathered'] },
+    { id: 'team/my-review', section: 'Team', label: 'My Reviews', href: '/v2/my-review.html', profiles: ['grandfathered'] },
+    // Ungated on purpose: any manager can submit a request for their own
+    // reports; the Finance Queue tab inside the page self-hides for
+    // non-finance via an RPC check (current_user_can_manage_comp_requests()),
+    // same "nav shows it to everyone, the page/RLS narrows what's actually
+    // usable" shape as Payment Request / Request Manager above.
+    { id: 'team/comp-requests', section: 'Team', label: 'Compensation', href: '/v2/comp-requests.html', profiles: ['grandfathered'] },
+
+    { id: 'purchasing/po-builder', section: 'Purchasing', label: 'PO Builder', href: '/v2/po-builder.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'purchasing/po-costing', section: 'Purchasing', label: 'PO Landed Cost', href: '/v2/po-costing.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'purchasing/factories', section: 'Purchasing', label: 'Factories', href: '/pages/factories.html', profiles: ['grandfathered', 'standard'] },
+
+    { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
+
+    // 'Reports' was one flat drawer of 10 links and was the section every new
+    // BI page landed in. Split into Sales and Marketing so each stays
+    // readable in the accordion; the `id` prefixes stay `reports/` because
+    // they are the `active` keys every page passes to SiloChrome.mount() and
+    // renaming them would silently un-highlight the sidebar on all 9 pages.
+    { id: 'reports/sales-overview', section: 'Sales', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/daily-trend', section: 'Sales', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
+    { id: 'reports/top-sellers', section: 'Sales', label: 'Top Sellers', href: '/v2/bi-top-sellers.html', profiles: ['grandfathered'] },
+    { id: 'reports/product-types', section: 'Sales', label: 'Product Type Performance', href: '/v2/bi-product-types.html', profiles: ['grandfathered'] },
+    { id: 'reports/product-search', section: 'Sales', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
+    { id: 'reports/sales-report', section: 'Sales', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
+
+    // Three Marketing entries, ordered by how they are used rather than
+    // alphabetically: the report you produce, the dashboard you watch, the
+    // tool you dig with.
+    //
+    // 'Week over Week' was renamed to 'Marketing Report' because the page
+    // stopped being weekly -- it reads day / week / month-to-date / year-to-
+    // date -- and its own <h1> already said Marketing Report. A nav label that
+    // disagrees with the page heading makes people think they clicked wrong.
+    //
+    // The other two drop their 'Marketing' prefix: the section header above
+    // them already says MARKETING, so repeating it three times crowded out the
+    // word that actually distinguishes each one.
+    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
+    // SEO overview over the search_console_*_daily tables (2026-09-10). Soft
+    // launch: exec-only in the sidebar while the first reports are reviewed
+    // -- the same EXEC_ROLES gate Ask SILO and the v3 workspace carry, and
+    // for the same reason (who sees it first, not who may read it; RLS is
+    // the boundary). Widen `roles` (or drop it) once the overview is trusted.
+    { roles: EXEC_ROLES, id: 'reports/seo-overview', section: 'Marketing', label: 'SEO', href: '/v2/seo-overview.html', profiles: ['grandfathered'] },
+
+    // Deliberately left in its own 'Reports' section by the Sales/Marketing
+    // split above, not moved and not promoted, because it is still in soft
+    // launch. Section matters here beyond labelling: 'Reports' is absent
+    // from STANDARD_SECTION_ORDER, so a standard-profile company drops this
+    // link entirely regardless of role -- moving it to a listed section
+    // would surface it to standard-profile execs. Give it a top-level row
+    // when the launch opens up, not before.
+    // Soft launch: exec-only for now. Everyone can already use the page and
+    // read taught notes if they have the URL (nothing behind it needs
+    // restricting) -- this just controls who sees it in the sidebar first.
+    // Widen `roles` (or drop it) once ready for the whole team.
+    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    // The v3 reporting workspace: dashboards, the saved-report library, and
+    // the report builder. Three rows rather than one because they are three
+    // different intents -- open a board, find a definition, build a new one
+    // -- and burying two of them inside the third is what made them
+    // undiscoverable while this was URL-only.
+    //
+    // The soft-launch gate is UNCHANGED from the commented-out row this
+    // replaces: EXEC_ROLES, and 'Reports' is absent from
+    // STANDARD_SECTION_ORDER so a standard-profile company drops all three
+    // regardless of role. Nobody who could not already reach these pages can
+    // now, and RLS is the real boundary either way -- these rows control who
+    // DISCOVERS them. Widening to the whole team is deleting `roles`, one
+    // edit per row, exactly as Ask SILO's row above is written.
+    //
+    // Deliberately NOT moved here: Accounting Export, PO Builder, Planning
+    // Scenarios and the rest. They are operational workflows that happen to
+    // contain numbers, not reports, and consolidating them into a generic
+    // canvas would cost their specialised behaviour for a tidier menu.
+    { roles: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', label: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    { roles: EXEC_ROLES, id: 'reports/library', section: 'Reports', label: 'Saved reports', href: '/v3/dashboards.html?tab=reports', profiles: ['grandfathered', 'standard'] },
+    { roles: EXEC_ROLES, id: 'reports/builder', section: 'Reports', label: 'Report builder', href: '/v3/report-builder.html', profiles: ['grandfathered', 'standard'] },
+    // Hidden from nav for now -- redo_returns only covers a small, recent
+    // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
+    // and there's no historical backfill yet). Page itself still works at
+    // /v2/returns-overview.html; re-add this row once that's sorted out.
+    // { id: 'reports/returns-overview', section: 'Sales', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
+
+
+    // Admin-only: this page displays connection secrets (webhook/API keys,
+    // OAuth tokens), now RLS-gated to is_admin_user() -- see
+    // 20260814000000_lock_connection_secrets_to_admin.sql. Nav hiding is
+    // UX only; ADMIN_ROLES is a client-side approximation of that gate.
+    { roles: ADMIN_ROLES, id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
+
+    // ── SILO Billing: HIDDEN UNTIL ACTIVATION (2026-09-19, Blake) ───────────
+    // Same activation PR as Invoicing above. Gate when restored: ADMIN_ROLES,
+    // approximating billing_subscriptions' is_admin_user() select gate;
+    // changing the plan needs owner_admin, which stripe-billing enforces
+    // server-side. Settings rather than Accounting: account administration,
+    // not part of anybody's close.
+    // { roles: ADMIN_ROLES, id: 'finance/billing', section: 'Settings', label: 'Billing', href: '/v2/billing.html', profiles: ['grandfathered', 'standard'] },
+  ];
+
+  // Standard-profile section order. A section missing from this list is
+  // DROPPED for standard-profile companies (the grandfathered branch below
+  // appends leftovers; this one does not) -- 'Sales' and 'Marketing' are
+  // listed here purely so a future standard-profile report doesn't vanish
+  // silently. No standard-profile item uses either section today.
+  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Marketing', 'Settings'];
+
+  /**
+   * @param {'grandfathered' | 'standard'} profile
+   * @returns {{ section: string, items: typeof NAV_ITEMS }[]}
+   */
+  function navSectionsForProfile(profile, department, role, grantIds) {
+    const dept = department ? String(department).toLowerCase() : null;
+    const userRole = role ? String(role).toLowerCase() : null;
+    const visible = NAV_ITEMS.filter((item) =>
+      item.profiles.includes(profile)
+      && (!item.departments || !dept || item.departments.includes(dept))
+      && (!item.roles || !userRole || item.roles.includes(userRole)
+          || (grantIds && grantIds.has && grantIds.has(item.id))));
+    const bySection = new Map();
+
+    for (const item of visible) {
+      const sectionName = profile === 'standard' && item.sectionStandard ? item.sectionStandard : item.section;
+      if (!bySection.has(sectionName)) bySection.set(sectionName, []);
+      bySection.get(sectionName).push({
+        ...item,
+        label: profile === 'standard' && item.labelStandard ? item.labelStandard : item.label,
+      });
+    }
+
+    const order = profile === 'standard'
+      ? STANDARD_SECTION_ORDER
+      : [...bySection.keys()];
+
+    const sections = [];
+    for (const name of order) {
+      const items = bySection.get(name);
+      if (items && items.length) sections.push({ section: name, items });
+    }
+
+    if (profile === 'grandfathered') {
+      for (const [name, items] of bySection.entries()) {
+        if (!sections.some((s) => s.section === name)) sections.push({ section: name, items });
+      }
+    }
+
+    return sections;
+  }
+
+  /**
+   * @param {SiloCompany | null | undefined} company
+   */
+  function navSectionsForCompany(company, department, role, grantIds) {
+    return navSectionsForProfile(resolveNavProfile(company), department, role, grantIds);
+  }
+
+  global.SiloNav = {
+    ACCOUNTING_PAGES,
+    resolveNavProfile,
+    navSectionsForProfile,
+    navSectionsForCompany,
+    NAV_ITEMS,
+  };
+})(window);

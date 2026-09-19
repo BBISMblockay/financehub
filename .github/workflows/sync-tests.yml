@@ -95,6 +95,14 @@ on:
       - 'scripts/forecast-candidate-backtest.mjs'
       - 'scripts/sql/forecast_candidate_backtest.sql'
       - 'supabase/migrations/*forecast_candidate_ledger.sql'
+      - 'supabase/migrations/*stripe_billing_and_connect.sql'
+      - 'supabase/functions/stripe-webhook/**'
+      - 'supabase/functions/stripe-invoice/**'
+      - 'supabase/functions/stripe-connect/**'
+      - 'supabase/functions/stripe-billing/**'
+      - 'v2/invoicing.html'
+      - 'v2/billing.html'
+      - 'v2/invoice-request.js'
       # The splitter is tested against the real verify file, so a change to
       # the file must re-run that test.
       - 'supabase/verify_v2_schema.sql'
@@ -281,6 +289,41 @@ jobs:
       - name: Demand candidate runner planning and parameter binding
         run: node scripts/tests/forecast-candidate.test.mjs
 
+      # Two Stripe surfaces deliver the SAME event types and are told apart
+      # only by which signing secret verified the delivery -- get that backwards
+      # and a client's own sales are filed as SILO subscription revenue. Also
+      # pins the one arithmetic step between a person and a real customer's
+      # card: "1,250.00" -> 125000 minor units, refusing what it cannot
+      # represent exactly rather than rounding a price nobody agreed to.
+      - name: Stripe event routing and invoice amounts
+        run: node scripts/tests/stripe-edge-logic.test.mjs
+
+      # The four handlers EXECUTED. `deno check` proves types, not behaviour,
+      # and the database suite proves the SQL they call rather than the calling
+      # -- which is the exact gap that shipped a dead-zone reference here
+      # before, inside an orchestrator whose core had 91 passing assertions.
+      - name: Stripe Edge Function handlers
+        run: node scripts/tests/stripe-handlers.test.mjs
+
+      - name: Each Stripe handler guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in webhook-trusts-payload webhook-swallows-failure webhook-lease-is-200 \
+                   webhook-ignores-finish connect-body-company connect-note-after-sync \
+                   connect-release-on-error connect-no-idempotency invoice-lines-after-create \
+                   invoice-trusts-stripe-id billing-body-price billing-trusts-mirror \
+                   invoice-failure-always-clean billing-seats-count-every-member \
+                   billing-checkout-unserialized invoice-customer-always-clean \
+                   billing-resume-ignores-plan billing-note-unchecked billing-replay-unread \
+                   billing-lookup-fails-open; do
+            echo "--- $m ---"
+            if STRIPE_HANDLER_MUTATION="$m" node scripts/tests/stripe-handlers.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Remote schema verify splits the real file correctly
         run: node scripts/tests/verify-schema-remote.test.mjs
 
@@ -301,6 +344,9 @@ jobs:
         run: |
           npx --yes deno@2.9.6 check --config supabase/functions/plaid-scheduled-sync/deno.json supabase/functions/plaid-scheduled-sync/index.ts
           npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
+          for fn in stripe-webhook stripe-connect stripe-invoice stripe-billing; do
+            npx --yes deno@2.9.6 check --config "supabase/functions/$fn/deno.json" "supabase/functions/$fn/index.ts"
+          done
 
   onboarding-concurrency:
     name: Onboarding concurrency (real PostgreSQL)
@@ -458,3 +504,38 @@ jobs:
       # anything has matured.
       - name: Execute forecast competition, selection and buy-report regressions
         run: node scripts/tests/forecast-method-competition.test.mjs
+
+      # Stripe, twice: SILO's subscription revenue and the clients' own
+      # invoicing. What earns the job is not that the tables exist -- it is
+      # that no client can write a mirror of an external money system, that
+      # the two Stripe surfaces cannot be crossed, that an out-of-order webhook
+      # cannot un-pay an invoice, and that a retried request does not invoice a
+      # real customer twice.
+      - name: Execute Stripe billing, Connect and tenancy regressions
+        run: node scripts/tests/stripe-billing-database.test.mjs
+
+      # Each guard, removed one at a time, must turn the suite red. A guard
+      # whose removal changes nothing is not a guard, and the four that matter
+      # here are invisible in a diff: every wrong version looks reasonable.
+      - name: Each Stripe guard, removed one at a time, must break it
+        run: |
+          set -u
+          # Keep this list in step with the STRIPE_MUTATION allowlist at the top
+          # of the suite. A mutation that CI never runs is coverage that does
+          # not exist -- the first four below were added after the list was
+          # written and went three commits without being executed here, while
+          # the PR said twelve mutations ran.
+          for m in mirror-writable gate-is-admin stale-wins account-rebind \
+                   ledger-amnesia platform-takes-account lines-upserted sync-open-to-anon \
+                   placeholder-claims-now webhook-no-reclaim connect-rebind-allowed \
+                   connect-unclaimed lease-reads-terminal failed-always-fresh \
+                   line-price-strict subscription-any-identity \
+                   checkout-claim-unguarded checkout-release-unscoped \
+                   checkout-takeover-rotates checkout-note-silent; do
+            echo "--- $m ---"
+            if STRIPE_MUTATION="$m" node scripts/tests/stripe-billing-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done

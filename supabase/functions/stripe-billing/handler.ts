@@ -1,0 +1,437 @@
+// stripe-billing -- JWT-auth: what a tenant company pays SILO.
+//
+// This is the OTHER Stripe, and the one that is easy to confuse with
+// stripe-invoice: here SILO is the merchant and the company is the customer,
+// so every call uses the platform key with NO Stripe-Account header. Nothing
+// in this file touches a connected account.
+//
+// Actions:
+//   checkout -- a Stripe Checkout session for a plan from billing_plans.
+//   portal   -- a Stripe Billing Portal session (change card, change plan,
+//               cancel, download receipts).
+//   sync     -- re-fetch the subscription and its recent invoices.
+//
+// WHY CHECKOUT AND THE PORTAL RATHER THAN A PRICING UI IN SILO: card details
+// never reach SILO's origin, so SILO stays out of PCI scope entirely, and
+// "cancel my plan" is Stripe's screen with Stripe's rules rather than a
+// cancel button whose edge cases (proration, mid-period, reactivation) SILO
+// would have to reimplement and get wrong.
+//
+// Gate: is_owner_admin_of_active_company(). Committing the company to a
+// recurring charge -- or cancelling one -- is an owner's act, not an admin's.
+//
+// The customer id is recorded BEFORE the browser leaves for Stripe
+// (stripe_begin_checkout), because the subscription webhook is attributed by
+// customer id and it can arrive before the user comes back.
+//
+// Secret: STRIPE_SECRET_KEY. Link base: SILO_SITE_URL.
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import Stripe from 'npm:stripe@17.7.0';
+import { checkoutDecision, LIVE_STATUSES } from './subscription-state.mjs';
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY') ?? '';
+const SITE_URL = Deno.env.get('SILO_SITE_URL') ?? 'https://silo-baseballism.com';
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Content-Type': 'application/json',
+};
+
+const db = createClient(SUPABASE_URL, SERVICE_KEY);
+const stripe = new Stripe(STRIPE_KEY, { httpClient: Stripe.createFetchHttpClient() });
+
+function reply(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: CORS });
+}
+
+export async function handleStripeBilling(req: Request): Promise<Response> {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
+  if (!STRIPE_KEY) return reply({ error: 'STRIPE_SECRET_KEY is not configured' }, 500);
+
+  const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  const { data: { user }, error: authErr } = await db.auth.getUser(jwt);
+  if (authErr || !user) return reply({ error: 'Unauthorized' }, 401);
+
+  const { data: profile } = await db
+    .from('profiles').select('active_company_id, is_active, email, name').eq('id', user.id).single();
+  if (!profile?.is_active) return reply({ error: 'Account is not active' }, 403);
+  const company = profile.active_company_id;
+  if (!company) return reply({ error: 'No active company' }, 400);
+
+  const caller = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+  });
+  const { data: isOwnerAdmin } = await caller.rpc('is_owner_admin_of_active_company');
+  if (!isOwnerAdmin) {
+    return reply({ error: 'Only an owner-admin can change the company subscription' }, 403);
+  }
+
+  const body = await req.json().catch(() => ({}));
+
+  try {
+    switch (body?.action) {
+      case 'checkout': return reply(await checkout(company, profile, user.id, body));
+      case 'portal':   return reply(await portal(company));
+      case 'sync':     return reply(await sync(company));
+      default:         return reply({ error: `Unknown action ${body?.action}` }, 400);
+    }
+  } catch (e) {
+    const message = (e as Error)?.message ?? String(e);
+    console.error('stripe-billing failed', body?.action, message);
+    return reply({ error: message }, 502);
+  }
+}
+
+async function customerFor(company: string, profile: any): Promise<string> {
+  const { data: existing } = await db
+    .from('billing_subscriptions')
+    .select('stripe_customer_id')
+    .eq('company_entity_id', company)
+    .maybeSingle();
+  if (existing?.stripe_customer_id) return existing.stripe_customer_id;
+
+  const { data: entity } = await db
+    .from('entities').select('title').eq('id', company).maybeSingle();
+
+  const customer = await stripe.customers.create({
+    name: entity?.title ?? undefined,
+    email: profile.email ?? undefined,
+    metadata: { silo_company_entity_id: company },
+  }, { idempotencyKey: `silo-billing-customer-${company}` });
+
+  // Recorded before the session is created, not after: the subscription
+  // webhook is attributed BY this id, and it can land before the browser
+  // returns from Checkout. Written through the RPC, which refuses to bind a
+  // customer already claimed by another company.
+  const { error } = await db.rpc('stripe_begin_checkout', {
+    p_company: company, p_customer: customer.id,
+  });
+  if (error) throw new Error(`stripe_begin_checkout: ${error.message}`);
+  return customer.id;
+}
+
+async function checkout(company: string, profile: any, userId: string, body: any) {
+  const planKey = String(body?.plan_key ?? '').trim();
+  if (!planKey) throw new Error('plan_key is required');
+
+  // The price comes from billing_plans, never from the request. A
+  // client-supplied price id is a client-chosen price.
+  const { data: plan } = await db
+    .from('billing_plans')
+    .select('plan_key, stripe_price_id, seat_based, is_active')
+    .eq('plan_key', planKey)
+    .maybeSingle();
+  if (!plan?.is_active) throw new Error(`Plan ${planKey} is not available`);
+
+  // Checkout in subscription mode CREATES a subscription -- it never switches
+  // one. Opening a second for a live subscriber leaves the first running and
+  // bills for both, while billing_subscriptions holds one row per company and
+  // would show only whichever synced last. Refused here, at the boundary,
+  // rather than only in the page that offers the button.
+  const { data: current } = await db
+    .from('billing_subscriptions')
+    .select('status, plan_key, stripe_subscription_id, stripe_customer_id')
+    .eq('company_entity_id', company)
+    .maybeSingle();
+
+  const decision = checkoutDecision(current);
+  if (!decision.allowed) throw new Error(decision.reason);
+
+  // The mirror said no live subscription. That is the answer to trust ONLY if
+  // the mirror is current, and the case where it is not is precisely the
+  // dangerous one: the first Checkout completed at Stripe, its webhook has not
+  // landed, the redirect was lost, and the row is still the `incomplete`
+  // placeholder. Reopening Billing then offers Subscribe again.
+  //
+  // So when a customer already exists, Stripe is asked directly before a
+  // second Checkout is opened. Stripe is the record; the mirror is a cache,
+  // and this is the one read where believing the cache costs money.
+  if (current?.stripe_customer_id) {
+    const remote = await stripe.subscriptions.list({
+      customer: current.stripe_customer_id, status: 'all', limit: 10,
+    });
+    const live = remote.data.find((s) => LIVE_STATUSES.has(s.status));
+    if (live) {
+      // Reconcile while we are here, so the page stops offering it too.
+      await db.rpc('stripe_sync_subscription', {
+        p_company: company,
+        p_payload: JSON.parse(JSON.stringify(live)),
+        p_synced_at: new Date().toISOString(),
+      });
+      throw new Error(
+        'This company already has a live subscription at Stripe (' + live.status + ') that SILO '
+        + 'had not yet recorded — the webhook is still in flight. Nothing was charged twice; '
+        + 'reload Billing to see it, and change the plan through Manage billing.');
+    }
+  }
+
+  const customer = await customerFor(company, profile);
+
+  let quantity = 1;
+  if (plan.seat_based) {
+    // Seats are MEASURED, not asked for: the number of active members of this
+    // company. Letting the page send it would let a company buy one seat and
+    // invite thirty.
+    // ACTIVE members, not members. `is_active` lives on profiles and
+    // deactivation deliberately does not remove memberships (see the founding
+    // rules in CLAUDE.md), so counting membership rows bills the tenant for
+    // people who cannot sign in.
+    const { count } = await db
+      .from('entity_memberships')
+      .select('user_id, profiles!inner(is_active)', { count: 'exact', head: true })
+      .eq('entity_id', company)
+      .eq('profiles.is_active', true);
+    quantity = Math.max(1, count ?? 1);
+  }
+
+  // Everything above closes the STALE-MIRROR window -- it asks Stripe rather
+  // than believing the cache. It does not close the CONCURRENCY window: a read
+  // followed by a create is check-then-act, so two owner-admins (or one person
+  // in two tabs) can both get this far and both create a session. Complete
+  // both and Stripe holds two live subscriptions and the tenant is charged
+  // twice, while this one-row mirror can only show one of them.
+  //
+  // So one in-flight attempt per company, claimed atomically in the database.
+  // `fingerprint` is what the session is FOR: a resume is only a resume when
+  // the plan and seat count still match.
+  const fingerprint = `${plan.stripe_price_id}:${quantity}`;
+  let claim = await claimCheckout(company, userId);
+
+  if (claim.outcome === 'in_flight') {
+    throw new Error(
+      'Another subscription checkout for this company is already being started. Wait a moment '
+      + 'and reload Billing rather than starting a second one — two completed checkouts would '
+      + 'create two subscriptions and charge twice.');
+  }
+
+  if (claim.outcome === 'existing') {
+    // Stripe is the authority on what that session became, so ask it rather
+    // than guessing from a timer.
+    const prior = await retrieveSession(claim.stripe_session_id);
+
+    if (prior?.status === 'open' && prior.url) {
+      if (claim.plan_fingerprint === fingerprint) {
+        // The same attempt, handed back. Not a second session.
+        return { url: prior.url, plan_key: plan.plan_key, quantity, resumed: true };
+      }
+      // A DIFFERENT plan or seat count. Handing back the old URL would charge
+      // for a plan nobody chose while this response names the new one. The old
+      // session is expired at Stripe first -- releasing without expiring would
+      // leave two payable URLs in one person's hands, which is the same double
+      // subscription by another route.
+      const expired = await expireSession(claim.stripe_session_id);
+      if (!expired) {
+        throw new Error(
+          'A checkout for a different plan is still open for this company and could not be '
+          + 'cancelled at Stripe just now. Finish or abandon it in the Stripe tab you already '
+          + 'have open, then try again — starting a second one could subscribe you twice.');
+      }
+      claim = await restart(company, userId, claim);
+    } else if (prior?.status === 'complete') {
+      await releaseCheckout(company, claim.stripe_session_id);
+      throw new Error(
+        'A checkout for this company has already been completed at Stripe — its webhook is '
+        + 'still in flight. Nothing was charged twice; reload Billing in a moment, and change '
+        + 'the plan through Manage billing.');
+    } else {
+      // Expired, or gone. Start a genuinely new attempt.
+      await releaseCheckout(company, claim.stripe_session_id);
+      claim = await restart(company, userId, claim);
+    }
+  }
+
+  // `claimed` and `takeover` both create -- and a takeover deliberately reuses
+  // the DEAD attempt's id, so the key below replays whatever that attempt left
+  // at Stripe instead of opening a second session.
+  let session = await createSession(company, userId, plan, customer, quantity, claim.attempt_id);
+
+  // A freshly created session is always `open`. Anything else means Stripe
+  // REPLAYED an earlier response under the same key -- which is exactly what a
+  // takeover is for, and now has to be read.
+  if (session.status && session.status !== 'open') {
+    if (session.status === 'complete') {
+      throw new Error(
+        'The previous checkout for this company was already completed at Stripe — its webhook '
+        + 'is still in flight. Nothing was charged twice; reload Billing in a moment.');
+    }
+    // The replayed session is expired: that attempt really is dead, which is
+    // only now established. Rotating before this point would have been the
+    // double-charge.
+    const attempt = await rotateAttempt(company, claim.attempt_id);
+    session = await createSession(company, userId, plan, customer, quantity, attempt);
+    claim = { ...claim, attempt_id: attempt };
+  }
+
+  // Recorded BEFORE the URL is handed back, and a failure here is fatal: a
+  // session nothing has recorded is a session the next attempt cannot resolve,
+  // and handing out its URL anyway is how a lost write becomes a second
+  // subscription. The claim stays held, so the ten-minute takeover -- which
+  // replays this same key -- is what recovers it.
+  const { data: noted, error: noteErr } = await db.rpc('stripe_note_checkout_session', {
+    p_company: company, p_attempt: claim.attempt_id,
+    p_session: session.id, p_fingerprint: fingerprint,
+  });
+  if (noteErr || noted === false) {
+    throw new Error(
+      'The checkout was created at Stripe but SILO could not record it, so the link is not '
+      + 'being handed out — paying it would leave SILO unable to see the subscription. '
+      + 'Try again in a few minutes; the same checkout will be resumed, not duplicated.');
+  }
+
+  return { url: session.url, plan_key: plan.plan_key, quantity };
+}
+
+function createSession(
+  company: string, userId: string, plan: any, customer: string,
+  quantity: number, attemptId: string,
+) {
+  return stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer,
+    line_items: [{ price: plan.stripe_price_id, quantity }],
+    success_url: `${SITE_URL}/v2/billing.html?checkout=done`,
+    cancel_url: `${SITE_URL}/v2/billing.html?checkout=cancelled`,
+    client_reference_id: company,
+    subscription_data: {
+      metadata: { silo_company_entity_id: company, silo_started_by: userId },
+    },
+  }, {
+    // Scoped to the ATTEMPT, never to the company. A company-scoped key would
+    // replay the first, long-expired session on every future attempt; an
+    // attempt-scoped one collapses only the retries of this one -- including
+    // the retry a takeover performs on a dead attempt's behalf.
+    idempotencyKey: `silo-checkout-${attemptId}`,
+  });
+}
+
+async function claimCheckout(company: string, userId: string) {
+  const { data, error } = await db.rpc('stripe_claim_checkout', {
+    p_company: company, p_user: userId,
+  });
+  // A claim that cannot be recorded is not a claim. Failing open here would
+  // restore the exact race the table exists to close.
+  if (error) throw new Error('Could not claim a checkout attempt: ' + error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.outcome) throw new Error('Could not claim a checkout attempt');
+  return row as {
+    outcome: string; attempt_id: string; stripe_session_id: string; plan_fingerprint: string;
+  };
+}
+
+// Only ever called once the previous attempt has been established dead or
+// cancelled -- never on a timer, and never on a session that might still be
+// paid.
+async function restart(company: string, userId: string, prior: any) {
+  const attempt = await rotateAttempt(company, prior.attempt_id);
+  if (attempt) return { ...prior, outcome: 'claimed', attempt_id: attempt };
+  const retry = await claimCheckout(company, userId);
+  if (retry.outcome === 'in_flight') {
+    throw new Error('Could not start a checkout just now — reload Billing and try again.');
+  }
+  return retry;
+}
+
+async function rotateAttempt(company: string, attemptId: string) {
+  const { data, error } = await db.rpc('stripe_rotate_checkout_attempt', {
+    p_company: company, p_attempt: attemptId,
+  });
+  if (error) throw new Error('Could not start a new checkout attempt: ' + error.message);
+  return data as string;
+}
+
+function releaseCheckout(company: string, session: string) {
+  return db.rpc('stripe_release_checkout', { p_company: company, p_session: session });
+}
+
+// Null means Stripe DEFINITIVELY does not have this session. It never means
+// "the lookup failed".
+//
+// Swallowing every error here was a fail-open in the one path added to close a
+// double-charge: the caller reads null as "expired or gone", releases the
+// claim and creates a second session -- so a network blip, a 429 or a Stripe
+// 5xx would hand out a second payable URL beside one that is still open. The
+// only safe reading of "I could not ask" is to refuse, exactly as an ambiguous
+// create keeps its key rather than starting over.
+async function retrieveSession(id: string) {
+  try {
+    return await stripe.checkout.sessions.retrieve(id);
+  } catch (e) {
+    const status = Number((e as any)?.statusCode ?? (e as any)?.status ?? NaN);
+    if (status === 404 || (e as any)?.code === 'resource_missing') return null;
+    throw new Error(
+      'SILO could not check the checkout already open for this company, so it will not start a '
+      + 'second one — that could subscribe you twice. Try again in a moment.');
+  }
+}
+
+async function expireSession(id: string) {
+  // Cancelling the old session is what makes "start a different plan" safe:
+  // an abandoned-but-open URL is still payable, and two payable URLs are two
+  // subscriptions. Failure is reported, never swallowed.
+  try {
+    await stripe.checkout.sessions.expire(id);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function portal(company: string) {
+  const { data: sub } = await db
+    .from('billing_subscriptions')
+    .select('stripe_customer_id')
+    .eq('company_entity_id', company)
+    .maybeSingle();
+  if (!sub?.stripe_customer_id) {
+    throw new Error('This company has no Stripe customer yet — subscribe first');
+  }
+  const session = await stripe.billingPortal.sessions.create({
+    customer: sub.stripe_customer_id,
+    return_url: `${SITE_URL}/v2/billing.html`,
+  });
+  return { url: session.url };
+}
+
+async function sync(company: string) {
+  const { data: row } = await db
+    .from('billing_subscriptions')
+    .select('stripe_customer_id, stripe_subscription_id')
+    .eq('company_entity_id', company)
+    .maybeSingle();
+  if (!row?.stripe_customer_id) return { synced: false, reason: 'no customer' };
+
+  // Listed rather than retrieved by the stored id: the stored id can be stale
+  // (a subscription cancelled and a new one started in the portal), and the
+  // customer id is the stable handle.
+  const subs = await stripe.subscriptions.list({
+    customer: row.stripe_customer_id, status: 'all', limit: 5,
+  });
+  const active = subs.data.find((s) => ['active', 'trialing', 'past_due', 'unpaid'].includes(s.status))
+    ?? subs.data[0];
+
+  if (active) {
+    const { error } = await db.rpc('stripe_sync_subscription', {
+      p_company: company,
+      p_payload: JSON.parse(JSON.stringify(active)),
+      p_synced_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(`stripe_sync_subscription: ${error.message}`);
+  }
+
+  const invoices = await stripe.invoices.list({ customer: row.stripe_customer_id, limit: 24 });
+  for (const invoice of invoices.data) {
+    const { error } = await db.rpc('stripe_sync_billing_invoice', {
+      p_company: company,
+      p_payload: JSON.parse(JSON.stringify(invoice)),
+      p_synced_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(`stripe_sync_billing_invoice: ${error.message}`);
+  }
+
+  return { synced: true, subscription: active?.status ?? null, invoices: invoices.data.length };
+}

@@ -104,6 +104,8 @@
     .int-card-icon--ads     { background: #2563eb; }
     .int-card-icon--redo    { background: #ef4444; }
     .int-card-icon--qbo     { background: #2ca01c; }
+    .int-card-icon--stripe  { background: #635bff; }
+    .int-muted { font-size: 11px; color: var(--bcn-ink-3); margin-top: 1px; }
     .int-card-header-text { min-width: 0; flex: 1; }
     .int-card-header-text h2 {
       margin: 0;
@@ -739,6 +741,31 @@
         </div>
           </div>
         </section>
+
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--stripe" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 7H9.5a2.5 2.5 0 0 0 0 5h5a2.5 2.5 0 0 1 0 5H7"/><path d="M12 3v18"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Stripe</h2>
+              <p>Two separate things that share a vendor. <strong>Invoicing</strong> bills <em>your</em> customers through <em>your own</em> Stripe account — the money settles to you and never passes through SILO. <strong>Billing</strong> is what this company pays for SILO itself. Neither is managed here; both live on their own pages, and card details never touch SILO. See <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/stripe.md">docs/ops/stripe.md</a>.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="stripe" aria-label="Collapse Stripe">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
+            <div class="int-table-wrap">
+              <table class="int-table">
+                <thead>
+                  <tr><th>Surface</th><th>State</th><th></th></tr>
+                </thead>
+                <tbody id="stripe-rows">
+                  <tr><td colspan="3"><div class="empty-state">Loading…</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -845,6 +872,7 @@
       loadAdConnections();
       loadRedoConnection();
       loadQboConnection();
+      loadStripe();
 
       // Handle OAuth redirect-back (Shopify + ad platforms share the params;
       // ad-platform callbacks add &platform=)
@@ -2249,6 +2277,59 @@
     // Nothing here writes to the general ledger.
     let _qboRow = null;
     let _qboAccountCount = null;
+
+
+    // ── Stripe ───────────────────────────────────────────────────────────
+    // Read-only here on purpose: connecting a merchant account is an
+    // owner-admin act with legal consequences, and it belongs on the page that
+    // explains it rather than in a settings list. This card answers one
+    // question -- is it working -- and links onward.
+    async function loadStripe() {
+      const tbody = document.getElementById('stripe-rows');
+      const [connect, sub] = await Promise.all([
+        db.from('stripe_connect_status_v').select('*').maybeSingle(),
+        db.from('billing_subscriptions_v')
+          .select('status, plan_title, current_period_end, collection_issue').maybeSingle(),
+      ]);
+
+      // A 42P01 means the migration has not been applied yet; the card says so
+      // rather than rendering an empty state that reads as "not connected".
+      if (connect.error?.code === '42P01') {
+        tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">'
+          + '<strong>Not installed</strong>The Stripe migration has not been applied to this project'
+          + '</div></td></tr>';
+        return;
+      }
+
+      const c = connect.data;
+      const s = sub.data;
+
+      const invoicingState = !c
+        ? '<span class="bcn-pill">Not connected</span>'
+        : (c.charges_enabled
+          ? '<span class="bcn-pill bcn-pill--pos">Ready</span>'
+          : '<span class="bcn-pill bcn-pill--neg">Onboarding unfinished</span>');
+
+      // No subscription row is a real state, not an error: a company can be
+      // using SILO under an arrangement that was never put through Stripe.
+      const billingState = !s?.status
+        ? '<span class="bcn-pill">No subscription on file</span>'
+        : `<span class="bcn-pill ${['active', 'trialing'].includes(s.status)
+            ? 'bcn-pill--pos' : 'bcn-pill--neg'}">${escHtml(s.status)}</span>`
+          + (s.plan_title ? ` <span class="int-muted">${escHtml(s.plan_title)}</span>` : '');
+
+      tbody.innerHTML = `
+        <tr>
+          <td><strong>Invoicing</strong><div class="int-muted">Your customers, your Stripe account</div></td>
+          <td>${invoicingState}</td>
+          <td style="text-align:right"><a class="bcn-btn bcn-btn--ghost" href="/v2/invoicing.html">Open Invoicing →</a></td>
+        </tr>
+        <tr>
+          <td><strong>SILO subscription</strong><div class="int-muted">What this company pays for SILO</div></td>
+          <td>${billingState}</td>
+          <td style="text-align:right"><a class="bcn-btn bcn-btn--ghost" href="/v2/billing.html">Open Billing →</a></td>
+        </tr>`;
+    }
 
     async function loadQboConnection() {
       if (!_co?.id) return;

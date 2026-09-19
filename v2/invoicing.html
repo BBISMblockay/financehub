@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Invoicing</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
+    .inv-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+
+    .inv-card { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+    .inv-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .inv-title { font-weight: 650; font-size: 14px; }
+    .inv-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+
+    .inv-scroll { overflow: auto; max-height: 56vh; }
+    .inv-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 12px; }
+    .inv-table th { position: sticky; top: 0; z-index: 2; background: var(--bcn-sunken);
+      text-align: left; font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
+    .inv-table td { padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); vertical-align: top; }
+    .inv-num { text-align: right; font-family: var(--bcn-mono);
+      white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .inv-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    .inv-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .inv-actions .bcn-btn { padding: 3px 8px; font-size: 11px; }
+
+    .inv-setup { border: 1px solid var(--bcn-border); border-radius: 12px; padding: 16px 18px;
+      margin-bottom: 14px; background: var(--bcn-surface); }
+    .inv-setup h2 { font-size: 15px; margin: 0 0 6px; }
+    .inv-setup p { margin: 0 0 10px; font-size: 13px; color: var(--bcn-ink-2); max-width: 70ch; line-height: 1.55; }
+    .inv-setup--warn { border-left: 3px solid var(--bcn-warn); }
+    .inv-setup--ok { border-left: 3px solid var(--bcn-pos); }
+    .inv-reqs { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+
+    dialog { border: 1px solid var(--bcn-border); border-radius: 14px; padding: 0;
+      max-width: 720px; width: 94vw; }
+    .inv-dlg-head { padding: 14px 16px; border-bottom: 1px solid var(--bcn-border); font-weight: 650; }
+    .inv-dlg-body { padding: 16px; display: grid; gap: 12px; max-height: 68vh; overflow: auto; }
+    .inv-dlg-foot { padding: 12px 16px; border-top: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .inv-field { display: flex; flex-direction: column; gap: 4px; }
+    .inv-field label { font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .inv-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .inv-row > * { flex: 1; min-width: 150px; }
+    .inv-line { display: grid; grid-template-columns: 1fr 80px 120px 110px 28px; gap: 8px; align-items: center; }
+    .inv-line-total { font-family: var(--bcn-mono); font-size: 12px; text-align: right;
+      color: var(--bcn-ink-2); font-variant-numeric: tabular-nums; }
+    .inv-total { font-family: var(--bcn-mono); font-size: 15px; font-weight: 650; }
+    .inv-x { background: none; border: 0; cursor: pointer; color: var(--bcn-ink-3); font-size: 16px; line-height: 1; }
+    .inv-x:hover { color: var(--bcn-neg); }
+    .inv-note { font-size: 11px; color: var(--bcn-ink-3); line-height: 1.5; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="invoice-request.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Invoicing</div>
+          <div class="bcn-header-sub">Bill your customers through your own Stripe account. Money settles to you — SILO never holds it.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--ghost" id="btnNewCustomer">New customer</button>
+          <button class="bcn-btn bcn-btn--primary" id="btnNewInvoice">New invoice</button>
+        </div>
+      </header>
+
+      <div class="inv-page">
+        <div class="bcn-status" id="status" hidden></div>
+        <div id="setup"></div>
+
+        <div class="inv-card">
+          <div class="inv-card-head">
+            <div>
+              <div class="inv-title">Invoices</div>
+              <div class="inv-sub">Stripe is the record. What you see here is what Stripe confirmed.</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select class="bcn-field" id="statusFilter" style="width:160px">
+                <option value="">All statuses</option>
+                <option value="draft">Draft</option>
+                <option value="open">Open</option>
+                <option value="paid">Paid</option>
+                <option value="void">Void</option>
+                <option value="uncollectible">Uncollectible</option>
+              </select>
+              <div class="inv-sub" id="invoiceCount"></div>
+            </div>
+          </div>
+          <div class="inv-scroll">
+            <table class="inv-table" id="tblInvoices">
+              <tbody><tr><td class="inv-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="inv-card">
+          <div class="inv-card-head">
+            <div>
+              <div class="inv-title">Customers</div>
+              <div class="inv-sub">Mirrored from your Stripe account.</div>
+            </div>
+            <div class="inv-sub" id="customerCount"></div>
+          </div>
+          <div class="inv-scroll" style="max-height:30vh">
+            <table class="inv-table" id="tblCustomers">
+              <tbody><tr><td class="inv-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="dlgCustomer">
+    <form method="dialog">
+      <div class="inv-dlg-head">New customer</div>
+      <div class="inv-dlg-body">
+        <div class="inv-row">
+          <div class="inv-field">
+            <label for="custName">Name</label>
+            <input class="bcn-field" id="custName" placeholder="Acme Sporting Goods" />
+          </div>
+          <div class="inv-field">
+            <label for="custEmail">Email</label>
+            <input class="bcn-field" id="custEmail" type="email" placeholder="ap@acme.com" />
+          </div>
+        </div>
+        <div class="inv-field">
+          <label for="custPhone">Phone (optional)</label>
+          <input class="bcn-field" id="custPhone" />
+        </div>
+        <div class="inv-note">The email is where Stripe sends the invoice. A customer with no email can be invoiced, but you will have to send them the link yourself.</div>
+      </div>
+      <div class="inv-dlg-foot">
+        <span class="inv-note" id="custMsg"></span>
+        <span>
+          <button class="bcn-btn" value="cancel">Cancel</button>
+          <button class="bcn-btn bcn-btn--primary" value="save">Create in Stripe</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgInvoice">
+    <form method="dialog">
+      <div class="inv-dlg-head">New invoice</div>
+      <div class="inv-dlg-body">
+        <div class="inv-row">
+          <div class="inv-field">
+            <label for="invCustomer">Customer</label>
+            <select class="bcn-field" id="invCustomer"></select>
+          </div>
+          <div class="inv-field" style="max-width:130px">
+            <label for="invCurrency">Currency</label>
+            <input class="bcn-field bcn-field--mono" id="invCurrency" value="usd" maxlength="3" />
+          </div>
+          <div class="inv-field" style="max-width:150px">
+            <label for="invDueDays">Due in (days)</label>
+            <input class="bcn-field bcn-field--mono" id="invDueDays" type="number" min="0" max="365" step="1" value="30" />
+          </div>
+        </div>
+
+        <div class="inv-field">
+          <label>Lines</label>
+          <div id="invLines" style="display:grid;gap:8px"></div>
+          <div>
+            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddLine" style="margin-top:6px">+ Add line</button>
+          </div>
+        </div>
+
+        <div class="inv-field">
+          <label for="invMemo">Memo (shown on the invoice)</label>
+          <input class="bcn-field" id="invMemo" placeholder="Spring 2026 wholesale order" />
+        </div>
+
+        <div class="inv-note">
+          Creating makes a <strong>draft</strong> in your Stripe account. Nothing is emailed until you send it,
+          and a draft can still be edited or deleted in Stripe. Once finalized it can only be voided.
+        </div>
+      </div>
+      <div class="inv-dlg-foot">
+        <div><span class="inv-sub">Total</span> <span class="inv-total" id="invTotal">—</span></div>
+        <span>
+          <button class="bcn-btn" value="cancel">Cancel</button>
+          <button class="bcn-btn bcn-btn--primary" value="save">Create draft</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let _co = null;
+  let _connect = null;        // what Stripe says about the connected account
+  let _customers = [];
+  let _invoices = [];
+  // The idempotency key is NOT held here. It lives in sessionStorage via
+  // SiloInvoiceRequest, because the retry that actually happens is a RELOAD --
+  // the invoice commits at Stripe, the response is lost, the person reloads
+  // and fills the form in again. A key held in a variable dies with the
+  // document and the second attempt creates a second real invoice for
+  // somebody's customer. See v2/invoice-request.js.
+  const REQ = window.SiloInvoiceRequest;
+  const reqKey = (kind) => `silo:stripe:${kind}-request:${_co?.id || 'nocompany'}`;
+
+  const el = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // Minor units -> a formatted amount, WITHOUT assuming two decimal places.
+  // Intl knows each currency's exponent, so JPY 500 prints as ¥500 rather than
+  // ¥5.00 -- the same reason the database stores cents and a currency instead
+  // of a numeric(14,2).
+  function money(cents, currency) {
+    const code = (currency || 'usd').toUpperCase();
+    let fmt;
+    try { fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: code }); }
+    catch { return `${(Number(cents) || 0)} ${code}`; }
+    const digits = fmt.resolvedOptions().maximumFractionDigits ?? 2;
+    return fmt.format((Number(cents) || 0) / Math.pow(10, digits));
+  }
+
+  const dateText = (v) => (v ? new Date(v).toLocaleDateString(undefined,
+    { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  async function callFn(name, payload) {
+    const { data: sess } = await sb.auth.getSession();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${sess?.session?.access_token || ''}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body?.error || `${name} failed (${res.status})`);
+    return body;
+  }
+
+  // ── Connection state ──────────────────────────────────────────────────
+  // Read from the status view, which every member can see, rather than from
+  // stripe_connect_accounts, which is admin-gated -- otherwise a finance user
+  // who is not an admin gets an empty page with no explanation.
+  async function loadConnection() {
+    const { data } = await sb.from('stripe_connect_status_v').select('*').maybeSingle();
+    _connect = data || null;
+  }
+
+  function renderSetup() {
+    const host = el('setup');
+    if (_connect?.charges_enabled) {
+      host.innerHTML = '';
+      return;
+    }
+    if (!_connect) {
+      host.innerHTML = `
+        <div class="inv-setup inv-setup--warn">
+          <h2>Connect your Stripe account</h2>
+          <p>Invoicing runs on <strong>your own</strong> Stripe account, not SILO's. You keep the Stripe
+             dashboard, the payouts go to your bank, and SILO never holds your money or your card data.
+             An owner-admin has to connect it once.</p>
+          <button class="bcn-btn bcn-btn--primary" id="btnConnect">Connect Stripe →</button>
+          <span class="inv-note" style="margin-left:10px">Takes you to Stripe's hosted onboarding.</span>
+        </div>`;
+    } else {
+      const due = (_connect.currently_due || []).length;
+      host.innerHTML = `
+        <div class="inv-setup inv-setup--warn">
+          <h2>Stripe onboarding is not finished</h2>
+          <p>Stripe has the account but will not let it take payments yet
+             ${_connect.is_restricted ? '(the account is currently restricted)' : ''}.
+             Finish the remaining steps and invoices can be sent.</p>
+          <button class="bcn-btn bcn-btn--primary" id="btnConnect">Continue on Stripe →</button>
+          <button class="bcn-btn bcn-btn--ghost" id="btnRefreshConnect">Re-check</button>
+          ${due
+            ? `<div class="inv-reqs" style="margin-top:8px">Stripe is waiting on: ${esc((_connect.currently_due || []).join(', '))}</div>`
+            // stripe_connect_status_v deliberately carries no requirements --
+            // they can name a person and a document, so they are admin-only.
+            // Say where the list comes from instead of rendering nothing,
+            // which read as "Stripe is waiting on nothing in particular".
+            : `<div class="inv-reqs" style="margin-top:8px">Re-check to see what Stripe is still waiting on.</div>`}
+        </div>`;
+    }
+    el('btnConnect')?.addEventListener('click', startConnect);
+    el('btnRefreshConnect')?.addEventListener('click', refreshConnect);
+  }
+
+  async function startConnect() {
+    try {
+      setStatus('Opening Stripe onboarding…', 'info');
+      const { url } = await callFn('stripe-connect', { action: 'start' });
+      window.location.href = url;
+    } catch (e) { setStatus(e.message, 'neg', 12000); }
+  }
+
+  async function refreshConnect() {
+    try {
+      setStatus('Asking Stripe…', 'info');
+      const res = await callFn('stripe-connect', { action: 'refresh' });
+      // Rendered from what Stripe just said, including the outstanding
+      // requirements, which the status view deliberately does not carry.
+      _connect = res.connected
+        ? { ...res, is_restricted: !!res.disabled_reason }
+        : null;
+      renderSetup();
+      setStatus(res.charges_enabled
+        ? 'Stripe is ready — you can send invoices.'
+        : 'Stripe still has outstanding requirements.', res.charges_enabled ? 'pos' : 'info', 8000);
+    } catch (e) { setStatus(e.message, 'neg', 12000); }
+  }
+
+  // ── Data ──────────────────────────────────────────────────────────────
+  async function loadCustomers() {
+    let q = sb.from('stripe_invoice_customers')
+      .select('id, stripe_customer_id, name, email, currency, delinquent')
+      .order('created_at', { ascending: false });
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Customer load failed: ' + error.message, 'neg', 8000); return; }
+    _customers = data || [];
+  }
+
+  async function loadInvoices() {
+    let q = sb.from('stripe_invoices_v')
+      .select(`id, stripe_invoice_id, number, status, currency, total_cents, amount_due_cents,
+               amount_remaining_cents, due_date, customer_display_name, customer_display_email,
+               customer_name, customer_email, hosted_invoice_url, invoice_pdf_url, is_overdue,
+               created_at, line_count`)
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { setStatus('Invoice load failed: ' + error.message, 'neg', 8000); return; }
+    _invoices = data || [];
+  }
+
+  const STATUS_PILL = {
+    draft: 'bcn-pill',
+    open: 'bcn-pill bcn-pill--accent',
+    paid: 'bcn-pill bcn-pill--pos',
+    void: 'bcn-pill',
+    uncollectible: 'bcn-pill bcn-pill--neg',
+  };
+
+  function renderInvoices() {
+    const filter = el('statusFilter').value;
+    const rows = filter ? _invoices.filter((r) => r.status === filter) : _invoices;
+    const t = el('tblInvoices');
+    el('invoiceCount').textContent = `${rows.length} of ${_invoices.length}`;
+
+    if (!rows.length) {
+      t.innerHTML = `<tbody><tr><td class="inv-empty">${
+        _invoices.length ? 'Nothing at that status.' : 'No invoices yet.'}</td></tr></tbody>`;
+      return;
+    }
+
+    t.innerHTML = `
+      <thead><tr>
+        <th>Invoice</th><th>Customer</th><th>Status</th>
+        <th class="inv-num">Total</th><th class="inv-num">Outstanding</th>
+        <th>Due</th><th></th>
+      </tr></thead>
+      <tbody>${rows.map((r) => {
+        const name = r.customer_display_name || r.customer_name
+          || r.customer_display_email || r.customer_email || '—';
+        // An overdue invoice is called overdue here and nowhere else: the view
+        // derives it (due date passed AND money still outstanding), so a paid
+        // invoice past its due date is never flagged.
+        const overdue = r.is_overdue
+          ? ' <span class="bcn-pill bcn-pill--neg">overdue</span>' : '';
+        return `<tr>
+          <td><span class="bcn-mono">${esc(r.number || 'draft')}</span>
+              <div class="inv-sub">${r.line_count} line${r.line_count === 1 ? '' : 's'}</div></td>
+          <td>${esc(name)}</td>
+          <td><span class="${STATUS_PILL[r.status] || 'bcn-pill'}">${esc(r.status)}</span>${overdue}</td>
+          <td class="inv-num">${money(r.total_cents, r.currency)}</td>
+          <td class="inv-num">${r.status === 'draft' ? '—' : money(r.amount_remaining_cents, r.currency)}</td>
+          <td>${r.status === 'draft' ? '—' : dateText(r.due_date)}</td>
+          <td><div class="inv-actions">${actionsFor(r)}</div></td>
+        </tr>`;
+      }).join('')}</tbody>`;
+  }
+
+  function actionsFor(r) {
+    const out = [];
+    if (r.status === 'draft') {
+      out.push(`<button class="bcn-btn bcn-btn--primary" data-act="send" data-id="${r.id}">Send</button>`);
+      out.push(`<button class="bcn-btn bcn-btn--ghost" data-act="finalize" data-id="${r.id}">Finalize</button>`);
+    }
+    if (r.status === 'open') {
+      out.push(`<button class="bcn-btn bcn-btn--primary" data-act="send" data-id="${r.id}">Resend</button>`);
+      out.push(`<button class="bcn-btn bcn-btn--ghost" data-act="void" data-id="${r.id}">Void</button>`);
+      out.push(`<button class="bcn-btn bcn-btn--ghost" data-act="uncollectible" data-id="${r.id}">Write off</button>`);
+    }
+    if (r.hosted_invoice_url) {
+      out.push(`<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener"
+                   href="${esc(r.hosted_invoice_url)}">Open</a>`);
+    }
+    out.push(`<button class="bcn-btn bcn-btn--ghost" data-act="sync" data-id="${r.id}">Sync</button>`);
+    return out.join('');
+  }
+
+  const CONFIRM = {
+    finalize: 'Finalize this invoice? A finalized invoice cannot be edited or deleted in Stripe — only voided.',
+    send: 'Email this invoice to the customer now?',
+    void: 'Void this invoice? It stays on the books as voided and can never be paid.',
+    uncollectible: 'Mark this invoice uncollectible? Use this for a debt you have given up on, not for a mistake — void a mistake.',
+  };
+
+  async function invoiceAction(act, id) {
+    if (CONFIRM[act] && !window.confirm(CONFIRM[act])) return;
+    try {
+      setStatus('Talking to Stripe…', 'info');
+      const res = await callFn('stripe-invoice', { action: act, invoice_id: id });
+      await loadInvoices();
+      renderInvoices();
+      setStatus(`Done — the invoice is now ${res.status}.`, 'pos', 6000);
+    } catch (e) { setStatus(e.message, 'neg', 12000); }
+  }
+
+  function renderCustomers() {
+    const t = el('tblCustomers');
+    el('customerCount').textContent = `${_customers.length}`;
+    if (!_customers.length) {
+      t.innerHTML = '<tbody><tr><td class="inv-empty">No customers yet.</td></tr></tbody>';
+      return;
+    }
+    t.innerHTML = `
+      <thead><tr><th>Name</th><th>Email</th><th>Stripe id</th><th></th></tr></thead>
+      <tbody>${_customers.map((c) => `<tr>
+        <td>${esc(c.name || '—')}${c.delinquent ? ' <span class="bcn-pill bcn-pill--neg">past due</span>' : ''}</td>
+        <td>${esc(c.email || '—')}</td>
+        <td><span class="bcn-mono inv-sub">${esc(c.stripe_customer_id)}</span></td>
+        <td class="inv-num"><button class="bcn-btn bcn-btn--ghost"
+              data-invoice-for="${esc(c.stripe_customer_id)}">Invoice</button></td>
+      </tr>`).join('')}</tbody>`;
+  }
+
+  // ── New invoice dialog ────────────────────────────────────────────────
+  function lineRow() {
+    const row = document.createElement('div');
+    row.className = 'inv-line';
+    row.innerHTML = `
+      <input class="bcn-field" data-f="description" placeholder="Description" />
+      <input class="bcn-field bcn-field--mono" data-f="quantity" type="number" min="1" step="1" value="1" />
+      <input class="bcn-field bcn-field--mono" data-f="unit_amount" placeholder="0.00" inputmode="decimal" />
+      <div class="inv-line-total" data-f="total">—</div>
+      <button type="button" class="inv-x" title="Remove line">&times;</button>`;
+    row.querySelector('.inv-x').addEventListener('click', () => {
+      row.remove();
+      if (!el('invLines').children.length) el('invLines').appendChild(lineRow());
+      updateTotal();
+    });
+    row.addEventListener('input', updateTotal);
+    return row;
+  }
+
+  // Display only. The authoritative conversion from "1,250.00" to minor units
+  // happens server-side in invoice-lines.mjs -- doing it twice would be two
+  // definitions of the price, and the one on screen is not the one charged.
+  function lineCents(row, currency) {
+    const raw = String(row.querySelector('[data-f="unit_amount"]').value || '').replace(/,/g, '').trim();
+    const qty = Number(row.querySelector('[data-f="quantity"]').value || 0);
+    if (!/^\d+(\.\d+)?$/.test(raw) || !Number.isInteger(qty) || qty <= 0) return null;
+    let digits = 2;
+    try {
+      digits = new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() })
+        .resolvedOptions().maximumFractionDigits ?? 2;
+    } catch { return null; }
+    const scaled = Math.round(Number(raw) * Math.pow(10, digits));
+    return scaled * qty;
+  }
+
+  function updateTotal() {
+    const currency = (el('invCurrency').value || 'usd').toLowerCase();
+    let total = 0; let complete = true;
+    for (const row of el('invLines').children) {
+      const cents = lineCents(row, currency);
+      row.querySelector('[data-f="total"]').textContent = cents == null ? '—' : money(cents, currency);
+      if (cents == null) complete = false; else total += cents;
+    }
+    // "—" rather than a running subtotal of the valid lines: a partial total
+    // beside an incomplete line reads as the invoice total and is not one.
+    el('invTotal').textContent = complete && total > 0 ? money(total, currency) : '—';
+  }
+
+  function openInvoiceDialog(customerId) {
+    if (!_connect?.charges_enabled) {
+      setStatus('Finish Stripe onboarding before creating invoices.', 'neg', 8000);
+      return;
+    }
+    if (!_customers.length) {
+      setStatus('Add a customer first.', 'info', 6000);
+      return;
+    }
+    el('invCustomer').innerHTML = _customers.map((c) =>
+      `<option value="${esc(c.stripe_customer_id)}">${esc(c.name || c.email || c.stripe_customer_id)}</option>`).join('');
+    if (customerId) el('invCustomer').value = customerId;
+    el('invCurrency').value = _connect?.default_currency || 'usd';
+    el('invMemo').value = '';
+    el('invLines').innerHTML = '';
+    el('invLines').appendChild(lineRow());
+    updateTotal();
+    el('dlgInvoice').showModal();
+  }
+
+  function invoiceForm() {
+    return {
+      customer: el('invCustomer').value,
+      currency: (el('invCurrency').value || 'usd').toLowerCase(),
+      dueDays: Number(el('invDueDays').value || 30),
+      memo: el('invMemo').value,
+      lines: [...el('invLines').children].map((row) => ({
+        description: row.querySelector('[data-f="description"]').value,
+        quantity: Number(row.querySelector('[data-f="quantity"]').value || 1),
+        unit_amount: row.querySelector('[data-f="unit_amount"]').value,
+      })),
+    };
+  }
+
+  // What became of a request id we wrote down but never saw finish. The row is
+  // readable by anyone who may invoice (same RLS as the invoices themselves),
+  // so the page can ask rather than guess.
+  async function serverStatusOf(requestId) {
+    const { data, error } = await sb
+      .from('stripe_invoice_requests')
+      .select('status, stripe_object_id')
+      .eq('request_id', requestId)
+      .maybeSingle();
+    // A read failure is NOT 'unknown': unknown means "no such request, the key
+    // is free", and treating a network blip as that would mint a fresh key and
+    // create a second invoice -- the exact bug this resolves. Stay pending.
+    if (error) return { status: 'pending', object_id: null };
+    if (!data) return { status: 'unknown', object_id: null };
+    return { status: data.status, object_id: data.stripe_object_id };
+  }
+
+  async function resolvePending(kind, signature) {
+    const marker = REQ.pending(reqKey(kind));
+    if (!marker) return { action: 'fresh' };
+    const { status, object_id } = await serverStatusOf(marker.request_id);
+    const decision = REQ.decide(marker, signature, status, object_id);
+    if (decision.action === 'completed' || decision.action === 'fresh') {
+      REQ.clear(reqKey(kind));
+    }
+    return decision;
+  }
+
+  async function submitInvoice() {
+    const form = invoiceForm();
+    const signature = REQ.formSignature(form);
+
+    // An outstanding attempt is resolved BEFORE another one starts.
+    const prior = await resolvePending('invoice', signature);
+    if (prior.action === 'completed') {
+      await loadInvoices();
+      renderInvoices();
+      setStatus(prior.partial
+        ? 'An earlier attempt already created this invoice at Stripe and then failed partway '
+          + 'through. It is in the list below — check it and either finish it there or void it. '
+          + 'Creating it again here would make a second real invoice.'
+        : 'That invoice was already created — the earlier attempt did reach Stripe, '
+          + 'even though the answer never came back. Showing it rather than making a second one.',
+        prior.partial ? 'neg' : 'pos', 16000);
+      return;
+    }
+    if (prior.action === 'blocked') {
+      setStatus('An earlier invoice is still being created and this form no longer matches it. '
+        + 'Refresh before creating a different one — sending this now could bill your customer twice.',
+        'neg', 15000);
+      el('dlgInvoice').showModal();
+      return;
+    }
+
+    // Written down before the call, so a reload can resume it.
+    const { request_id, resumed, durable } = REQ.begin(reqKey('invoice'), signature);
+
+    try {
+      setStatus(resumed
+        ? 'Resuming the earlier attempt rather than starting a new one…'
+        : 'Creating the draft in Stripe…', 'info');
+      const res = await callFn('stripe-invoice', {
+        action: 'create_invoice',
+        request_id,
+        customer_id: form.customer,
+        currency: form.currency,
+        due_days: form.dueDays,
+        memo: form.memo,
+        lines: form.lines,
+      });
+      REQ.clear(reqKey('invoice'));
+      await loadInvoices();
+      renderInvoices();
+      setStatus(res.repeated
+        ? 'That invoice had already been created — showing the original rather than making a second one.'
+        : 'Draft created. Nothing has been emailed yet.'
+          + (durable ? '' : ' (This browser is blocking site storage, so a reload cannot resume a'
+            + ' lost response — check the list before retrying.)'), 'pos', 9000);
+    } catch (e) {
+      // The key is deliberately LEFT in storage: the attempt may have reached
+      // Stripe, and the next try must carry the same id rather than create a
+      // second invoice.
+      setStatus(e.message, 'neg', 14000);
+      el('dlgInvoice').showModal();
+    }
+  }
+
+  async function submitCustomer() {
+    // Same mechanism as the invoice. A duplicate customer costs nobody money,
+    // but two code paths doing idempotency differently is how the next one
+    // gets it wrong.
+    const signature = REQ.formSignature({
+      customer: el('custName').value, currency: '', dueDays: null,
+      memo: el('custEmail').value, lines: [],
+    });
+    const prior = await resolvePending('customer', signature);
+    if (prior.action === 'completed') {
+      await loadCustomers();
+      renderCustomers();
+      setStatus('That customer already exists — the earlier attempt reached Stripe.', 'pos', 9000);
+      return;
+    }
+    if (prior.action === 'blocked') {
+      setStatus('An earlier customer is still being created. Refresh before adding a different one.',
+        'neg', 12000);
+      return;
+    }
+
+    const { request_id } = REQ.begin(reqKey('customer'), signature);
+    try {
+      setStatus('Creating the customer in Stripe…', 'info');
+      await callFn('stripe-invoice', {
+        action: 'create_customer',
+        request_id,
+        name: el('custName').value,
+        email: el('custEmail').value,
+        phone: el('custPhone').value,
+      });
+      REQ.clear(reqKey('customer'));
+      await loadCustomers();
+      renderCustomers();
+      setStatus('Customer created.', 'pos', 6000);
+    } catch (e) {
+      setStatus(e.message, 'neg', 12000);
+      el('dlgCustomer').showModal();
+    }
+  }
+
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app', active: 'finance/invoicing',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Finance', 'Invoicing'], supabaseClient: sb,
+      });
+    }
+
+    await loadConnection();
+
+    // Coming back from Stripe's hosted onboarding. The return_url is reached
+    // whether or not onboarding actually completed -- Stripe documents this --
+    // so the only honest thing to do on arrival is ASK Stripe, which is what
+    // refresh does.
+    const params = new URLSearchParams(location.search);
+    if (params.get('stripe') === 'return' || params.get('stripe') === 'refresh') {
+      await refreshConnect();
+      history.replaceState({}, '', location.pathname);
+    }
+
+    renderSetup();
+    await Promise.all([loadCustomers(), loadInvoices()]);
+    renderCustomers();
+    renderInvoices();
+
+    // A key written down by an attempt this page never saw finish. Resolving
+    // it HERE, on load, is what turns "the screen went blank and I don't know
+    // if it sent" into an answer -- before somebody retypes the invoice.
+    const outstanding = REQ.pending(reqKey('invoice'));
+    if (outstanding) {
+      const { status, object_id } = await serverStatusOf(outstanding.request_id);
+      if (status === 'succeeded') {
+        REQ.clear(reqKey('invoice'));
+        setStatus('An invoice you started earlier did reach Stripe, even though the page never '
+          + 'got the answer. It is in the list below — do not create it again.', 'pos', 0);
+      } else if (status === 'failed' && object_id) {
+        // Failed, but Stripe had already made the draft. Clearing the marker
+        // silently here is what let the next click mint a new key and create a
+        // second one.
+        REQ.clear(reqKey('invoice'));
+        setStatus('An invoice you started earlier was created at Stripe and then failed partway '
+          + 'through. It is in the list below — finish or void it there rather than creating it '
+          + 'again.', 'neg', 0);
+      } else if (status === 'ambiguous') {
+        // Kept, not cleared: the retry has to replay the same key so Stripe
+        // can collapse it onto whatever it may already have created.
+        setStatus('An invoice you started earlier did not report back, and Stripe may or may not '
+          + 'have created it. Open New invoice with the same details — SILO will resume that same '
+          + 'attempt rather than creating a second one.', 'neg', 0);
+      } else if (status === 'unknown' || status === 'failed') {
+        REQ.clear(reqKey('invoice'));
+      } else {
+        // Do NOT tell them to reopen the form "to resume it": a claim this
+        // young is still held, and stripe_begin_invoice_request answers
+        // in_flight for ten minutes, so the documented step would error.
+        setStatus('An invoice you started earlier has not reported back yet. Wait a few minutes and '
+          + 'reload before trying again — it may still be completing, and starting over now would '
+          + 'risk a second invoice.', 'info', 0);
+      }
+    }
+
+    el('statusFilter').addEventListener('change', renderInvoices);
+    el('btnAddLine').addEventListener('click', () => { el('invLines').appendChild(lineRow()); });
+    el('invCurrency').addEventListener('input', updateTotal);
+    el('btnNewInvoice').addEventListener('click', () => openInvoiceDialog(null));
+    el('btnNewCustomer').addEventListener('click', () => {
+      el('custName').value = ''; el('custEmail').value = ''; el('custPhone').value = '';
+      el('dlgCustomer').showModal();
+    });
+    el('dlgInvoice').addEventListener('close', () => {
+      if (el('dlgInvoice').returnValue === 'save') submitInvoice();
+    });
+    el('dlgCustomer').addEventListener('close', () => {
+      if (el('dlgCustomer').returnValue === 'save') submitCustomer();
+    });
+    el('tblInvoices').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]');
+      if (b) invoiceAction(b.dataset.act, b.dataset.id);
+    });
+    el('tblCustomers').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-invoice-for]');
+      if (b) openInvoiceDialog(b.dataset.invoiceFor);
+    });
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>
