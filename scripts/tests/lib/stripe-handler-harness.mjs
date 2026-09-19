@@ -122,7 +122,10 @@ export function fakeStripe(script = {}) {
   const Stripe = function StripeCtor() {
     return {
       webhooks: { constructEventAsync: m('webhooks.constructEventAsync') },
-      checkout: { sessions: { retrieve: m('checkout.sessions.retrieve'), create: m('checkout.sessions.create') } },
+      checkout: { sessions: {
+        retrieve: m('checkout.sessions.retrieve'), create: m('checkout.sessions.create'),
+        expire: m('checkout.sessions.expire'),
+      } },
       subscriptions: { retrieve: m('subscriptions.retrieve'), list: m('subscriptions.list') },
       invoices: {
         retrieve: m('invoices.retrieve'), list: m('invoices.list'), create: m('invoices.create'),

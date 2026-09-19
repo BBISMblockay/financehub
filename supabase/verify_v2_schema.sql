@@ -4263,8 +4263,15 @@ select 'Stripe sync accepts what Stripe actually sends' as check_name,
  when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public'
           and p.proname in ('stripe_claim_checkout','stripe_note_checkout_session',
-                            'stripe_release_checkout')) < 3
-   then 'CRITICAL: the checkout claim is missing one of its three functions'
+                            'stripe_release_checkout','stripe_rotate_checkout_attempt')) < 4
+   then 'CRITICAL: the checkout claim is missing one of its four functions'
+ -- A resume that does not check WHAT the session was for hands back the old
+ -- plan's URL when somebody switches plans, and charges for a plan nobody
+ -- picked. The column is the only place that fact is kept.
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='billing_checkout_claims'
+     and column_name='plan_fingerprint')
+   then 'CRITICAL: a checkout claim cannot tell which plan its session was for'
  when has_table_privilege('authenticated','public.billing_checkout_claims','select')
    then 'CRITICAL: a client can read the checkout claim table -- service role only'
  else 'ok' end as status;

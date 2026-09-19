@@ -22,6 +22,9 @@
 //   STRIPE_HANDLER_MUTATION=billing-seats-count-every-member (disabled accounts billed as seats)
 //   STRIPE_HANDLER_MUTATION=billing-checkout-unserialized (checkout creation is check-then-act again)
 //   STRIPE_HANDLER_MUTATION=invoice-customer-always-clean (a lost customer answer reads as "nothing created")
+//   STRIPE_HANDLER_MUTATION=billing-resume-ignores-plan (an open session is resumed for any plan)
+//   STRIPE_HANDLER_MUTATION=billing-note-unchecked      (a failed session record is ignored)
+//   STRIPE_HANDLER_MUTATION=billing-replay-unread       (a replayed session is handed back as new)
 //   STRIPE_HANDLER_MUTATION=invoice-trusts-stripe-id (a Stripe id from the body is acted on)
 //   STRIPE_HANDLER_MUTATION=billing-body-price      (the price comes from the request)
 // Added after the cycle-3 review:
@@ -88,6 +91,12 @@ const MUTATIONS = {
     "  const claim = { outcome: 'claimed', attempt_id: 'unserialized', stripe_session_id: '' } as any;"),
   'invoice-customer-always-clean': (s) => s.replace(
     "      customer?.id ? 'failed' : createOutcome(e),", "      'failed',"),
+  'billing-resume-ignores-plan': (s) => s.replace(
+    '      if (claim.plan_fingerprint === fingerprint) {', '      if (true) {'),
+  'billing-note-unchecked': (s) => s.replace(
+    '  if (noteErr || noted === false) {', '  if (false) {'),
+  'billing-replay-unread': (s) => s.replace(
+    "  if (session.status && session.status !== 'open') {", '  if (false) {'),
   'billing-body-price': (s) => s.replace(
     '    line_items: [{ price: plan.stripe_price_id, quantity }],',
     '    line_items: [{ price: body?.price_id ?? plan.stripe_price_id, quantity }],'),
@@ -574,26 +583,49 @@ await test('invoice: an action names a SILO row, never a Stripe id from the body
 // The three claim RPCs, backed by one shared object so two fixtures can model
 // two concurrent requests hitting the same row -- which is the only way to
 // test a race at this level.
-function checkoutClaims() {
+function checkoutClaims(opts = {}) {
   const rows = new Map();
   let n = 0;
-  return {
+  const api = {
     stripe_claim_checkout: ({ p_company }) => {
       const cur = rows.get(p_company);
       if (!cur) {
         const attempt_id = `att-${++n}`;
-        rows.set(p_company, { attempt_id, session: null });
-        return [{ outcome: 'claimed', attempt_id, stripe_session_id: null }];
+        rows.set(p_company, { attempt_id, session: null, fingerprint: null, at: Date.now() });
+        return [{ outcome: 'claimed', attempt_id, stripe_session_id: null, plan_fingerprint: null }];
       }
       if (cur.session) {
-        return [{ outcome: 'existing', attempt_id: cur.attempt_id, stripe_session_id: cur.session }];
+        return [{
+          outcome: 'existing', attempt_id: cur.attempt_id,
+          stripe_session_id: cur.session, plan_fingerprint: cur.fingerprint,
+        }];
       }
-      return [{ outcome: 'in_flight', attempt_id: null, stripe_session_id: null }];
+      if (cur.stale) {
+        // A takeover KEEPS the attempt id: the dead attempt may have made a
+        // session Stripe will replay under that same key.
+        cur.stale = false;
+        return [{
+          outcome: 'takeover', attempt_id: cur.attempt_id,
+          stripe_session_id: null, plan_fingerprint: null,
+        }];
+      }
+      return [{ outcome: 'in_flight', attempt_id: null, stripe_session_id: null, plan_fingerprint: null }];
     },
-    stripe_note_checkout_session: ({ p_company, p_session }) => {
+    stripe_note_checkout_session: ({ p_company, p_attempt, p_session, p_fingerprint }) => {
+      if (opts.noteFails) return false;
       const cur = rows.get(p_company);
-      if (cur) cur.session = p_session;
-      return null;
+      if (!cur || cur.attempt_id !== p_attempt) return false;
+      cur.session = p_session;
+      cur.fingerprint = p_fingerprint;
+      return true;
+    },
+    stripe_rotate_checkout_attempt: ({ p_company, p_attempt }) => {
+      const cur = rows.get(p_company);
+      if (!cur || cur.attempt_id !== p_attempt) return null;
+      cur.attempt_id = `att-${++n}`;
+      cur.session = null;
+      cur.fingerprint = null;
+      return cur.attempt_id;
     },
     stripe_release_checkout: ({ p_company, p_session }) => {
       const cur = rows.get(p_company);
@@ -601,7 +633,17 @@ function checkoutClaims() {
       return null;
     },
   };
+  api._rows = rows;
+  return api;
 }
+
+// The three RPCs only -- `_rows` is test scaffolding, not a stub.
+const claimRpcs = (c) => ({
+  stripe_claim_checkout: c.stripe_claim_checkout,
+  stripe_note_checkout_session: c.stripe_note_checkout_session,
+  stripe_rotate_checkout_attempt: c.stripe_rotate_checkout_attempt,
+  stripe_release_checkout: c.stripe_release_checkout,
+});
 
 async function billingFixture(over = {}) {
   const db = fakeSupabase({
@@ -609,7 +651,7 @@ async function billingFixture(over = {}) {
     tables: {
       profiles: [{ ...profileRow, ...(over.profile ?? {}) }],
       entities: [{ id: COMPANY, title: 'Baseballism' }],
-      billing_plans: [{ plan_key: 'growth', stripe_price_id: 'price_growth', seat_based: over.seatBased ?? false, is_active: true }],
+      billing_plans: over.plans ?? [{ plan_key: 'growth', stripe_price_id: 'price_growth', seat_based: over.seatBased ?? false, is_active: true }],
       billing_subscriptions: over.subscription ? [{ company_entity_id: COMPANY, ...over.subscription }] : [],
       // `profiles.is_active` as a key models PostgREST's embedded filter
       // (`profiles!inner(is_active)` + eq on `profiles.is_active`), which is
@@ -624,7 +666,7 @@ async function billingFixture(over = {}) {
     gates: { is_owner_admin_of_active_company: over.ownerAdmin ?? true },
     rpcs: {
       stripe_begin_checkout: null, stripe_sync_subscription: null, stripe_sync_billing_invoice: null,
-      ...(over.claims ?? checkoutClaims()),
+      ...claimRpcs(over.claims ?? checkoutClaims()),
       ...over.rpcs,
     },
   });
@@ -722,6 +764,125 @@ await test('billing: an attempt still open hands back the SAME session', async (
   assert.equal(again.body.resumed, true);
   assert.equal(b.stripe.pathsCalled().includes('checkout.sessions.create'), false,
     'resuming an open session is not creating a second one');
+});
+
+await test('billing: a takeover replays the dead attempt\'s key, never a new one', async () => {
+  // The crash this exists for: Stripe created a session and the answer was
+  // lost before it could be recorded. Ten minutes later the claim is taken
+  // over -- and it MUST reuse the dead attempt's id, because the Stripe
+  // idempotency key is derived from it. A fresh id is a fresh key, and a fresh
+  // key opens a second payable session.
+  const claims = checkoutClaims();
+  const a = await billingFixture({ claims });
+  claims.stripe_claim_checkout({ p_company: COMPANY });          // the dead attempt
+  const dead = claims._rows.get(COMPANY).attempt_id;
+  claims._rows.get(COMPANY).stale = true;                        // ten minutes pass
+
+  const out = await a.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(out.status, 200);
+  const create = a.stripe.calls.find((c) => c.path === 'checkout.sessions.create');
+  assert.equal(create.args[1].idempotencyKey, `silo-checkout-${dead}`,
+    'the takeover must replay the dead attempt\'s key so Stripe returns ITS session');
+});
+
+await test('billing: a replayed session that is dead rotates; one that is paid refuses', async () => {
+  // What comes back under a replayed key has to be READ. A freshly created
+  // session is always open, so anything else is Stripe handing back an earlier
+  // response -- expired means that attempt really is dead and a new one is now
+  // safe; complete means the customer already paid and a second session would
+  // charge them twice.
+  const claims = checkoutClaims();
+  const expired = await billingFixture({
+    claims,
+    stripe: {
+      'checkout.sessions.create': (args, calls) =>
+        calls.filter((c) => c.path === 'checkout.sessions.create').length === 1
+          ? { id: 'cs_old', status: 'expired', url: 'https://dead' }
+          : { id: 'cs_fresh', status: 'open', url: 'https://live' },
+    },
+  });
+  claims.stripe_claim_checkout({ p_company: COMPANY });
+  claims._rows.get(COMPANY).stale = true;
+  const out = await expired.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.url, 'https://live', 'a dead replay must not be handed to the customer');
+  assert.ok(expired.db.calls.some((c) => c.rpc === 'stripe_rotate_checkout_attempt'));
+
+  const paid = checkoutClaims();
+  const f = await billingFixture({
+    claims: paid,
+    stripe: { 'checkout.sessions.create': { id: 'cs_paid', status: 'complete' } },
+  });
+  paid.stripe_claim_checkout({ p_company: COMPANY });
+  paid._rows.get(COMPANY).stale = true;
+  const refused = await f.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(refused.status, 502);
+  assert.match(refused.body.error, /already completed/);
+});
+
+await test('billing: a session that cannot be recorded is not handed out', async () => {
+  // Returning the URL anyway leaves a payable session nothing here knows
+  // about, which is how a lost write becomes a subscription SILO cannot see.
+  const f = await billingFixture({ claims: checkoutClaims({ noteFails: true }) });
+  const out = await f.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(out.status, 502);
+  assert.match(out.body.error, /could not record it/);
+  assert.equal(out.body.url, undefined);
+});
+
+await test('billing: a different plan is never resumed on the old plan\'s session', async () => {
+  // Start Growth, back out, choose Scale. Handing back the Growth URL while
+  // this response says Scale charges for a plan nobody picked.
+  const claims = checkoutClaims();
+  const a = await billingFixture({ claims });
+  await a.request({ body: { action: 'checkout', plan_key: 'growth' } });
+
+  const b = await billingFixture({
+    claims,
+    plans: [
+      { plan_key: 'growth', stripe_price_id: 'price_growth', seat_based: false, is_active: true },
+      { plan_key: 'scale', stripe_price_id: 'price_scale', seat_based: false, is_active: true },
+    ],
+    stripe: {
+      'checkout.sessions.retrieve': { id: 'cs_1', status: 'open', url: 'https://growth-url' },
+      'checkout.sessions.expire': { id: 'cs_1', status: 'expired' },
+      'checkout.sessions.create': { id: 'cs_2', url: 'https://scale-url' },
+    },
+  });
+  const out = await b.request({ body: { action: 'checkout', plan_key: 'scale' } });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.plan_key, 'scale');
+  assert.equal(out.body.url, 'https://scale-url', 'the URL must match the plan the answer names');
+  assert.equal(out.body.resumed, undefined);
+  assert.ok(b.stripe.pathsCalled().includes('checkout.sessions.expire'),
+    'the abandoned Growth session must be cancelled -- an open URL is still payable');
+  const create = b.stripe.calls.find((c) => c.path === 'checkout.sessions.create');
+  assert.match(create.args[1].idempotencyKey, /^silo-checkout-att-2$/,
+    'a different plan is a different attempt, so it needs its own key');
+});
+
+await test('billing: if the old session cannot be cancelled, the new one is refused', async () => {
+  // Two payable URLs in one person's hands is the same double subscription by
+  // another route, so this fails closed rather than creating the second.
+  const claims = checkoutClaims();
+  const a = await billingFixture({ claims });
+  await a.request({ body: { action: 'checkout', plan_key: 'growth' } });
+
+  const b = await billingFixture({
+    claims,
+    plans: [
+      { plan_key: 'growth', stripe_price_id: 'price_growth', seat_based: false, is_active: true },
+      { plan_key: 'scale', stripe_price_id: 'price_scale', seat_based: false, is_active: true },
+    ],
+    stripe: {
+      'checkout.sessions.retrieve': { id: 'cs_1', status: 'open', url: 'https://growth-url' },
+      'checkout.sessions.expire': new Error('stripe unavailable'),
+    },
+  });
+  const out = await b.request({ body: { action: 'checkout', plan_key: 'scale' } });
+  assert.equal(out.status, 502);
+  assert.match(out.body.error, /could not be cancelled/);
+  assert.equal(b.stripe.pathsCalled().includes('checkout.sessions.create'), false);
 });
 
 await test('billing: a completed attempt is refused, not repeated', async () => {

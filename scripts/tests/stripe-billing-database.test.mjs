@@ -45,6 +45,8 @@
 //   STRIPE_MUTATION=subscription-any-identity (a stale sub's terminal event overwrites the live one)
 //   STRIPE_MUTATION=checkout-claim-unguarded  (two requests may both claim a checkout)
 //   STRIPE_MUTATION=checkout-release-unscoped (a release ignores which session it saw)
+//   STRIPE_MUTATION=checkout-takeover-rotates  (a takeover mints a new attempt id)
+//   STRIPE_MUTATION=checkout-note-silent       (a note that lands nowhere reports success)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -60,6 +62,7 @@ assert.ok([
   'placeholder-claims-now', 'webhook-no-reclaim', 'connect-rebind-allowed', 'connect-unclaimed',
   'lease-reads-terminal', 'failed-always-fresh', 'line-price-strict',
   'subscription-any-identity', 'checkout-claim-unguarded', 'checkout-release-unscoped',
+  'checkout-takeover-rotates', 'checkout-note-silent',
 ].includes(mutation), `Unknown stripe mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -90,6 +93,15 @@ const companyA = randomUUID();
 const companyB = randomUUID();
 
 await db.exec(await readFile(new URL('./stripe-db-bootstrap.sql', import.meta.url), 'utf8'));
+// Mutations that rewrite the migration TEXT (the rest run after it is applied).
+const PRE_APPLY = new Set([
+  'gate-is-admin', 'stale-wins', 'account-rebind', 'platform-takes-account', 'lines-upserted',
+  'sync-open-to-anon', 'placeholder-claims-now', 'webhook-no-reclaim', 'connect-rebind-allowed',
+  'connect-unclaimed', 'lease-reads-terminal', 'failed-always-fresh', 'line-price-strict',
+  'subscription-any-identity', 'checkout-claim-unguarded', 'checkout-release-unscoped',
+  'checkout-takeover-rotates', 'checkout-note-silent',
+]);
+
 
 await q(`insert into auth.users(id,email) values
   ($1,'blake@baseballism.com'),($2,'finance@baseballism.com'),
@@ -110,8 +122,9 @@ await q(`insert into public.entity_memberships(entity_id,user_id,role) values
   [companyA, companyB, blake, finance, ops, viewer, rival]);
 
 // ── Apply the migration under test ──────────────────────────────────────────
-let sql = await readFile(
+const sqlAsWritten = await readFile(
   new URL('supabase/migrations/20260919120000_stripe_billing_and_connect.sql', root), 'utf8');
+let sql = sqlAsWritten;
 
 if (mutation === 'gate-is-admin') {
   // The tempting simplification: reuse the gate 47 other policies already use.
@@ -207,8 +220,20 @@ if (mutation === 'checkout-claim-unguarded') {
   // like from the caller: both concurrent requests are told to create.
   sql = sql.replace(
     `    where public.billing_checkout_claims.stripe_session_id is null
-      and public.billing_checkout_claims.claimed_at < now() - interval '10 minutes';`,
-    () => ';');
+      and public.billing_checkout_claims.claimed_at < now() - interval '10 minutes'
+  returning (xmax = 0) into v_inserted;`,
+    () => '  returning (xmax = 0) into v_inserted;');
+}
+if (mutation === 'checkout-takeover-rotates') {
+  // The original bug: a takeover diverges from the dead attempt's Stripe key.
+  sql = sql.replace(`    set claimed_by = excluded.claimed_by,
+        claimed_at = now()`,
+    () => `    set claimed_by = excluded.claimed_by,
+        claimed_at = now(),
+        attempt_id = gen_random_uuid()`);
+}
+if (mutation === 'checkout-note-silent') {
+  sql = sql.replace('  return v_rows = 1;', () => '  return true;');
 }
 if (mutation === 'checkout-release-unscoped') {
   sql = sql.replace(`  delete from public.billing_checkout_claims
@@ -228,6 +253,13 @@ if (mutation === 'sync-open-to-anon') {
   sql = sql.replace(
     "execute format('revoke all on function public.%s from public, anon, authenticated', f);", '');
 }
+
+// A pre-apply mutation that matched nothing is worse than no mutation: the
+// suite passes, the CI loop reports "the guard survived deletion", and the
+// real cause is a string that drifted. This caught `checkout-claim-unguarded`
+// the moment its target gained a RETURNING clause.
+assert.ok(!mutation || PRE_APPLY.has(mutation) === (sql !== sqlAsWritten),
+  `mutation ${mutation} changed nothing -- its target string has drifted`);
 
 await db.exec(sql);
 
@@ -938,8 +970,8 @@ await test('an attempt that made a session hands back THAT session, not a new on
            values ($1,'finance_hub','company','resume','Resume Co')`, [co]);
 
   const claim = await claimCheckout(co, blake);
-  await q('select public.stripe_note_checkout_session($1,$2,$3)',
-    [co, claim.attempt_id, 'cs_test_1']);
+  await q('select public.stripe_note_checkout_session($1,$2,$3,$4)',
+    [co, claim.attempt_id, 'cs_test_1', 'price_growth:1']);
 
   const next = await claimCheckout(co, blake);
   assert.equal(next.outcome, 'existing');
@@ -956,7 +988,7 @@ await test('an attempt that made a session hands back THAT session, not a new on
   assert.equal(stale.stripe_session_id, 'cs_test_1');
 });
 
-await test('a claim that never reached Stripe is taken over after ten minutes', async () => {
+await test('a takeover REUSES the dead attempt\'s id, so Stripe replays its session', async () => {
   const co = randomUUID();
   await q(`insert into public.entities(id,module,entity_type,entity_key,title)
            values ($1,'finance_hub','company','killed','Killed Co')`, [co]);
@@ -965,15 +997,67 @@ await test('a claim that never reached Stripe is taken over after ten minutes', 
   assert.equal(first.outcome, 'claimed');
   assert.equal((await claimCheckout(co, finance)).outcome, 'in_flight');
 
-  // An edge function killed between the claim and Stripe's answer: no session
-  // was ever recorded, so nothing can be resolved and the claim must not
-  // block the company forever.
+  // An edge function killed between the claim and Stripe's answer. Stripe may
+  // well have created a session -- we simply never heard. The claim must not
+  // block the company forever, so it is taken over; but the attempt id is
+  // PRESERVED, because the Stripe idempotency key is derived from it and
+  // replaying that key returns the session the dead attempt made. Minting a
+  // fresh id here mints a fresh key, and a fresh key opens a SECOND session
+  // the customer can also pay -- which is the double subscription this whole
+  // table exists to prevent. The first version of this test asserted the
+  // opposite, and was wrong.
   await q(`update public.billing_checkout_claims
               set claimed_at = now() - interval '11 minutes' where company_entity_id = $1`, [co]);
   const taken = await claimCheckout(co, finance);
-  assert.equal(taken.outcome, 'claimed');
-  assert.notEqual(taken.attempt_id, first.attempt_id,
-    'a new attempt takes a NEW id, or it would replay the dead attempt\'s Stripe key');
+  assert.equal(taken.outcome, 'takeover',
+    'a takeover is distinguishable from a first claim -- the caller must read a replay');
+  assert.equal(taken.attempt_id, first.attempt_id,
+    'the key must replay, not diverge');
+});
+
+await test('a new attempt is minted only once the old one is established dead', async () => {
+  const co = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','rotate','Rotate Co')`, [co]);
+
+  const first = await claimCheckout(co, blake);
+  await q('select public.stripe_note_checkout_session($1,$2,$3,$4)',
+    [co, first.attempt_id, 'cs_dead', 'price_growth:3']);
+
+  // Rotation is the ONLY way to a new attempt id, and the caller reaches it
+  // only after Stripe has said the previous session is expired or gone.
+  const rotated = await one('select public.stripe_rotate_checkout_attempt($1,$2) as id',
+    [co, first.attempt_id]);
+  assert.ok(rotated.id);
+  assert.notEqual(rotated.id, first.attempt_id);
+  const after = await claimCheckout(co, blake);
+  assert.equal(after.stripe_session_id, null, 'rotating clears the dead session');
+  assert.equal(after.plan_fingerprint, null);
+
+  // And a rotation naming a stale attempt does nothing, so a late caller
+  // cannot reset an attempt somebody else is holding.
+  assert.equal((await one('select public.stripe_rotate_checkout_attempt($1,$2) as id',
+    [co, first.attempt_id])).id, null);
+});
+
+await test('a claim remembers what its session was FOR', async () => {
+  const co = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','fingerprint','Fingerprint Co')`, [co]);
+
+  const claim = await claimCheckout(co, blake);
+  const noted = await one('select public.stripe_note_checkout_session($1,$2,$3,$4) as ok',
+    [co, claim.attempt_id, 'cs_growth', 'price_growth:3']);
+  assert.equal(noted.ok, true, 'the caller needs to know the write landed');
+
+  const resumed = await claimCheckout(co, blake);
+  assert.equal(resumed.plan_fingerprint, 'price_growth:3',
+    'without this, choosing a different plan hands back the old plan\'s URL');
+
+  // A note naming an attempt that is no longer current must report failure
+  // rather than silently doing nothing -- the caller fails closed on it.
+  assert.equal((await one('select public.stripe_note_checkout_session($1,$2,$3,$4) as ok',
+    [co, randomUUID(), 'cs_other', 'x'])).ok, false);
 });
 
 await test('a release names the session it saw, so it cannot drop a live claim', async () => {
@@ -982,7 +1066,8 @@ await test('a release names the session it saw, so it cannot drop a live claim',
            values ($1,'finance_hub','company','release','Release Co')`, [co]);
 
   const first = await claimCheckout(co, blake);
-  await q('select public.stripe_note_checkout_session($1,$2,$3)', [co, first.attempt_id, 'cs_old']);
+  await q('select public.stripe_note_checkout_session($1,$2,$3,$4)',
+    [co, first.attempt_id, 'cs_old', 'price_growth:1']);
   await q('select public.stripe_release_checkout($1,$2)', [co, 'cs_old']);
   assert.equal((await claimCheckout(co, blake)).outcome, 'claimed',
     'releasing the session it saw frees the company for a fresh attempt');
@@ -991,7 +1076,8 @@ await test('a release names the session it saw, so it cannot drop a live claim',
   // attempt is mid-flight. Unscoped, it would drop that live claim and put the
   // race straight back.
   const second = await one('select * from public.billing_checkout_claims where company_entity_id=$1', [co]);
-  await q('select public.stripe_note_checkout_session($1,$2,$3)', [co, second.attempt_id, 'cs_new']);
+  await q('select public.stripe_note_checkout_session($1,$2,$3,$4)',
+    [co, second.attempt_id, 'cs_new', 'price_growth:1']);
   await q('select public.stripe_release_checkout($1,$2)', [co, 'cs_old']);
   const survived = await claimCheckout(co, finance);
   assert.equal(survived.outcome, 'existing');

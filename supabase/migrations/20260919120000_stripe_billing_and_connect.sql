@@ -327,6 +327,11 @@ create table if not exists public.billing_checkout_claims (
   company_entity_id uuid primary key references public.entities(id) on delete cascade,
   attempt_id        uuid not null default gen_random_uuid(),
   stripe_session_id text,
+  -- What that session was FOR: price and quantity. A resume is only a resume
+  -- when it matches. Without it, starting Growth, backing out and choosing
+  -- Scale hands back the Growth URL while the response says Scale -- the
+  -- customer is charged for a plan they did not pick.
+  plan_fingerprint  text,
   claimed_by        uuid references auth.users(id) on delete set null,
   claimed_at        timestamptz not null default now()
 );
@@ -339,46 +344,84 @@ comment on table public.billing_checkout_claims is
   'One in-flight subscription Checkout per company. The preflight in stripe-billing closes the stale-mirror window; this closes the concurrency window, where two requests both read "no live subscription" and both create a session. A claim holding a session id is resolved against Stripe (open/complete/expired) rather than on a timer; only a claim that never recorded one is taken over after ten minutes. attempt_id scopes the Stripe idempotency key to ONE attempt, since a company-scoped key would replay an expired session.';
 
 -- Returns one of:
---   claimed   -- you hold the claim; create a session with this attempt_id
---   existing  -- an attempt already made a session; resolve THAT against Stripe
+--   claimed   -- a first attempt for this company; create with this attempt_id
+--   takeover  -- a stale attempt that never recorded a session. THE ATTEMPT ID
+--                IS PRESERVED, and that is the whole point: the dead attempt
+--                may have created a session at Stripe whose answer was lost, so
+--                replaying its idempotency key returns THAT session instead of
+--                opening a second one. Minting a fresh id here is precisely the
+--                double-charge this table exists to prevent -- the first version
+--                did exactly that, with a test asserting it.
+--   existing  -- an attempt recorded a session; resolve THAT against Stripe
 --   in_flight -- somebody else is mid-creation and has not got a session yet
 create or replace function public.stripe_claim_checkout(
   p_company uuid,
   p_user    uuid default null
 )
-returns table (outcome text, attempt_id uuid, stripe_session_id text)
+returns table (outcome text, attempt_id uuid, stripe_session_id text, plan_fingerprint text)
 language plpgsql
 security definer
 set search_path to 'public'
 as $$
 declare
-  v_claimed  boolean;
+  v_taken    boolean;
+  v_inserted boolean;
   v_existing public.billing_checkout_claims;
 begin
   insert into public.billing_checkout_claims (company_entity_id, claimed_by)
   values (p_company, p_user)
   on conflict (company_entity_id) do update
-    set claimed_by        = excluded.claimed_by,
-        claimed_at        = now(),
-        attempt_id        = gen_random_uuid(),
-        stripe_session_id = null
+    -- The attempt_id is deliberately NOT reset: see above.
+    set claimed_by = excluded.claimed_by,
+        claimed_at = now()
     -- A claim that recorded a session is NEVER stolen on a timer: that session
     -- may still be open, or may already have been paid. Stripe decides, in the
     -- caller. Only a claim that never got that far goes stale.
     where public.billing_checkout_claims.stripe_session_id is null
-      and public.billing_checkout_claims.claimed_at < now() - interval '10 minutes';
-  get diagnostics v_claimed = row_count;
+      and public.billing_checkout_claims.claimed_at < now() - interval '10 minutes'
+  returning (xmax = 0) into v_inserted;
+  get diagnostics v_taken = row_count;
 
   select * into v_existing
     from public.billing_checkout_claims where company_entity_id = p_company;
 
-  if v_claimed then
-    return query select 'claimed'::text, v_existing.attempt_id, null::text;
+  if v_taken and v_inserted then
+    return query select 'claimed'::text, v_existing.attempt_id, null::text, null::text;
+  elsif v_taken then
+    return query select 'takeover'::text, v_existing.attempt_id, null::text, null::text;
   elsif v_existing.stripe_session_id is not null then
-    return query select 'existing'::text, v_existing.attempt_id, v_existing.stripe_session_id;
+    return query select 'existing'::text, v_existing.attempt_id,
+                        v_existing.stripe_session_id, v_existing.plan_fingerprint;
   else
-    return query select 'in_flight'::text, null::uuid, null::text;
+    return query select 'in_flight'::text, null::uuid, null::text, null::text;
   end if;
+end;
+$$;
+
+-- A genuinely new attempt, used only once the caller has ESTABLISHED that the
+-- previous one is dead -- Stripe replayed a session that is expired or gone.
+-- Until that is established, rotating is the double-charge above.
+create or replace function public.stripe_rotate_checkout_attempt(
+  p_company uuid,
+  p_attempt uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_new uuid;
+begin
+  update public.billing_checkout_claims
+     set attempt_id        = gen_random_uuid(),
+         stripe_session_id = null,
+         plan_fingerprint  = null,
+         claimed_at        = now()
+   where company_entity_id = p_company
+     and attempt_id = p_attempt
+  returning attempt_id into v_new;
+  return v_new;
 end;
 $$;
 
@@ -386,19 +429,29 @@ $$;
 -- reaches the browser leaves something the next attempt can resolve rather
 -- than a claim that looks abandoned.
 create or replace function public.stripe_note_checkout_session(
-  p_company uuid,
-  p_attempt uuid,
-  p_session text
+  p_company     uuid,
+  p_attempt     uuid,
+  p_session     text,
+  p_fingerprint text default null
 )
-returns void
-language sql
+returns boolean
+language plpgsql
 security definer
 set search_path to 'public'
 as $$
+declare
+  v_rows integer;
+begin
   update public.billing_checkout_claims
-     set stripe_session_id = p_session
+     set stripe_session_id = p_session,
+         plan_fingerprint  = p_fingerprint
    where company_entity_id = p_company
      and attempt_id = p_attempt;
+  get diagnostics v_rows = row_count;
+  -- Returns whether it landed, so the caller can fail closed rather than hand
+  -- out a URL for a session nothing has recorded.
+  return v_rows = 1;
+end;
 $$;
 
 -- Scoped to the session it observed, ALWAYS. An unscoped release would let a
@@ -1741,7 +1794,8 @@ begin
     'stripe_finish_webhook_event(text,text,text)',
     'stripe_begin_checkout(uuid,text)',
     'stripe_claim_checkout(uuid,uuid)',
-    'stripe_note_checkout_session(uuid,uuid,text)',
+    'stripe_note_checkout_session(uuid,uuid,text,text)',
+    'stripe_rotate_checkout_attempt(uuid,uuid)',
     'stripe_release_checkout(uuid,text)',
     'stripe_sync_subscription(uuid,jsonb,timestamptz)',
     'stripe_sync_billing_invoice(uuid,jsonb,timestamptz)',

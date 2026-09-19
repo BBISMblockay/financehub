@@ -197,7 +197,10 @@ async function checkout(company: string, profile: any, userId: string, body: any
   // twice, while this one-row mirror can only show one of them.
   //
   // So one in-flight attempt per company, claimed atomically in the database.
-  const claim = await claimCheckout(company, userId);
+  // `fingerprint` is what the session is FOR: a resume is only a resume when
+  // the plan and seat count still match.
+  const fingerprint = `${plan.stripe_price_id}:${quantity}`;
+  let claim = await claimCheckout(company, userId);
 
   if (claim.outcome === 'in_flight') {
     throw new Error(
@@ -210,29 +213,84 @@ async function checkout(company: string, profile: any, userId: string, body: any
     // Stripe is the authority on what that session became, so ask it rather
     // than guessing from a timer.
     const prior = await retrieveSession(claim.stripe_session_id);
+
     if (prior?.status === 'open' && prior.url) {
-      // The same attempt, handed back. Not a second session.
-      return { url: prior.url, plan_key: plan.plan_key, quantity, resumed: true };
-    }
-    await db.rpc('stripe_release_checkout', {
-      p_company: company, p_session: claim.stripe_session_id,
-    });
-    if (prior?.status === 'complete') {
+      if (claim.plan_fingerprint === fingerprint) {
+        // The same attempt, handed back. Not a second session.
+        return { url: prior.url, plan_key: plan.plan_key, quantity, resumed: true };
+      }
+      // A DIFFERENT plan or seat count. Handing back the old URL would charge
+      // for a plan nobody chose while this response names the new one. The old
+      // session is expired at Stripe first -- releasing without expiring would
+      // leave two payable URLs in one person's hands, which is the same double
+      // subscription by another route.
+      const expired = await expireSession(claim.stripe_session_id);
+      if (!expired) {
+        throw new Error(
+          'A checkout for a different plan is still open for this company and could not be '
+          + 'cancelled at Stripe just now. Finish or abandon it in the Stripe tab you already '
+          + 'have open, then try again — starting a second one could subscribe you twice.');
+      }
+      claim = await restart(company, userId, claim);
+    } else if (prior?.status === 'complete') {
+      await releaseCheckout(company, claim.stripe_session_id);
       throw new Error(
         'A checkout for this company has already been completed at Stripe — its webhook is '
         + 'still in flight. Nothing was charged twice; reload Billing in a moment, and change '
         + 'the plan through Manage billing.');
+    } else {
+      // Expired, or gone. Start a genuinely new attempt.
+      await releaseCheckout(company, claim.stripe_session_id);
+      claim = await restart(company, userId, claim);
     }
-    // Expired, or gone. Start a genuinely new attempt.
-    const retry = await claimCheckout(company, userId);
-    if (retry.outcome !== 'claimed') {
-      throw new Error('Could not start a checkout just now — reload Billing and try again.');
-    }
-    claim.outcome = 'claimed';
-    claim.attempt_id = retry.attempt_id;
   }
 
-  const session = await stripe.checkout.sessions.create({
+  // `claimed` and `takeover` both create -- and a takeover deliberately reuses
+  // the DEAD attempt's id, so the key below replays whatever that attempt left
+  // at Stripe instead of opening a second session.
+  let session = await createSession(company, userId, plan, customer, quantity, claim.attempt_id);
+
+  // A freshly created session is always `open`. Anything else means Stripe
+  // REPLAYED an earlier response under the same key -- which is exactly what a
+  // takeover is for, and now has to be read.
+  if (session.status && session.status !== 'open') {
+    if (session.status === 'complete') {
+      throw new Error(
+        'The previous checkout for this company was already completed at Stripe — its webhook '
+        + 'is still in flight. Nothing was charged twice; reload Billing in a moment.');
+    }
+    // The replayed session is expired: that attempt really is dead, which is
+    // only now established. Rotating before this point would have been the
+    // double-charge.
+    const attempt = await rotateAttempt(company, claim.attempt_id);
+    session = await createSession(company, userId, plan, customer, quantity, attempt);
+    claim = { ...claim, attempt_id: attempt };
+  }
+
+  // Recorded BEFORE the URL is handed back, and a failure here is fatal: a
+  // session nothing has recorded is a session the next attempt cannot resolve,
+  // and handing out its URL anyway is how a lost write becomes a second
+  // subscription. The claim stays held, so the ten-minute takeover -- which
+  // replays this same key -- is what recovers it.
+  const { data: noted, error: noteErr } = await db.rpc('stripe_note_checkout_session', {
+    p_company: company, p_attempt: claim.attempt_id,
+    p_session: session.id, p_fingerprint: fingerprint,
+  });
+  if (noteErr || noted === false) {
+    throw new Error(
+      'The checkout was created at Stripe but SILO could not record it, so the link is not '
+      + 'being handed out — paying it would leave SILO unable to see the subscription. '
+      + 'Try again in a few minutes; the same checkout will be resumed, not duplicated.');
+  }
+
+  return { url: session.url, plan_key: plan.plan_key, quantity };
+}
+
+function createSession(
+  company: string, userId: string, plan: any, customer: string,
+  quantity: number, attemptId: string,
+) {
+  return stripe.checkout.sessions.create({
     mode: 'subscription',
     customer,
     line_items: [{ price: plan.stripe_price_id, quantity }],
@@ -245,18 +303,10 @@ async function checkout(company: string, profile: any, userId: string, body: any
   }, {
     // Scoped to the ATTEMPT, never to the company. A company-scoped key would
     // replay the first, long-expired session on every future attempt; an
-    // attempt-scoped one collapses only the retries of this one.
-    idempotencyKey: `silo-checkout-${claim.attempt_id}`,
+    // attempt-scoped one collapses only the retries of this one -- including
+    // the retry a takeover performs on a dead attempt's behalf.
+    idempotencyKey: `silo-checkout-${attemptId}`,
   });
-
-  // Recorded before the URL is handed back, so a crash here leaves something
-  // the next attempt can resolve against Stripe rather than a claim that looks
-  // abandoned but is not.
-  await db.rpc('stripe_note_checkout_session', {
-    p_company: company, p_attempt: claim.attempt_id, p_session: session.id,
-  });
-
-  return { url: session.url, plan_key: plan.plan_key, quantity };
 }
 
 async function claimCheckout(company: string, userId: string) {
@@ -268,7 +318,34 @@ async function claimCheckout(company: string, userId: string) {
   if (error) throw new Error('Could not claim a checkout attempt: ' + error.message);
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.outcome) throw new Error('Could not claim a checkout attempt');
-  return row as { outcome: string; attempt_id: string; stripe_session_id: string };
+  return row as {
+    outcome: string; attempt_id: string; stripe_session_id: string; plan_fingerprint: string;
+  };
+}
+
+// Only ever called once the previous attempt has been established dead or
+// cancelled -- never on a timer, and never on a session that might still be
+// paid.
+async function restart(company: string, userId: string, prior: any) {
+  const attempt = await rotateAttempt(company, prior.attempt_id);
+  if (attempt) return { ...prior, outcome: 'claimed', attempt_id: attempt };
+  const retry = await claimCheckout(company, userId);
+  if (retry.outcome === 'in_flight') {
+    throw new Error('Could not start a checkout just now — reload Billing and try again.');
+  }
+  return retry;
+}
+
+async function rotateAttempt(company: string, attemptId: string) {
+  const { data, error } = await db.rpc('stripe_rotate_checkout_attempt', {
+    p_company: company, p_attempt: attemptId,
+  });
+  if (error) throw new Error('Could not start a new checkout attempt: ' + error.message);
+  return data as string;
+}
+
+function releaseCheckout(company: string, session: string) {
+  return db.rpc('stripe_release_checkout', { p_company: company, p_session: session });
 }
 
 async function retrieveSession(id: string) {
@@ -278,6 +355,18 @@ async function retrieveSession(id: string) {
     return await stripe.checkout.sessions.retrieve(id);
   } catch (_) {
     return null;
+  }
+}
+
+async function expireSession(id: string) {
+  // Cancelling the old session is what makes "start a different plan" safe:
+  // an abandoned-but-open URL is still payable, and two payable URLs are two
+  // subscriptions. Failure is reported, never swallowed.
+  try {
+    await stripe.checkout.sessions.expire(id);
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 
