@@ -194,9 +194,15 @@
     el('btnPortal').hidden = !_sub?.stripe_customer_id;
 
     if (!_sub || !_sub.stripe_subscription_id) {
+      // Only point at the plan list when there IS one. Saying "pick a plan
+      // below" above an empty page is how this read as broken rather than as
+      // unconfigured -- the reader is told to do something impossible and
+      // given no reason why.
       host.innerHTML = `<div class="bil-note">
         <strong>No active SILO subscription for this company.</strong><br/>
-        Pick a plan below. Checkout opens on Stripe; nothing is charged until it completes.
+        ${_plans.length
+          ? 'Pick a plan below. Checkout opens on Stripe; nothing is charged until it completes.'
+          : 'No plans are available to choose from yet — see below.'}
       </div>`;
       el('subSynced').textContent = '';
       return;
@@ -241,7 +247,18 @@
   function renderPlans() {
     const host = el('plans');
     if (!_plans.length) {
-      el('planCard').hidden = true;
+      // `billing_plans` is GLOBAL and has no client write policy -- a plan is
+      // a migration or a service-role write. So an empty catalogue is never
+      // something this page or this user can fix, and hiding the card left
+      // that unsayable: the page just stopped, with the panel above still
+      // saying "pick a plan below".
+      el('planCard').hidden = false;
+      host.innerHTML = `<div class="bil-note">
+        <strong>No subscription plans are configured yet.</strong><br/>
+        SILO's plan catalogue is global and is set centrally, so there is nothing to choose
+        here until a plan is seeded with a Stripe price. This is configuration, not an error
+        with this company's account — and nothing can be billed while it is empty.
+      </div>`;
       return;
     }
     el('planCard').hidden = false;
@@ -386,7 +403,14 @@
         setStatus('Asking Stripe…', 'info');
         await callFn({ action: 'sync' });
         await load();
-        setStatus('Up to date.', 'pos', 5000);
+        // "Up to date." was said whatever came back, so a company with NO
+        // subscription was told, in green, that it was up to date. The toast
+        // now reports what Stripe actually had.
+        if (_sub?.stripe_subscription_id) {
+          setStatus(`Synced — subscription is ${_sub.status || 'unknown'}.`, 'pos', 5000);
+        } else {
+          setStatus('Synced. Stripe has no subscription for this company.', 'info', 8000);
+        }
       } catch (e) { setStatus(e.message, 'neg', 12000); }
     });
   })().catch((e) => {
