@@ -86,7 +86,7 @@
   /**
    * What to do about a stored marker, given what the server says became of it.
    *
-   *   serverStatus: 'succeeded' | 'pending' | 'failed' | 'unknown'
+   *   serverStatus: 'succeeded' | 'pending' | 'failed' | 'ambiguous' | 'unknown'
    *     'unknown' means no row came back — the create never reached the
    *     database, so nothing was made and the key is free.
    *
@@ -121,11 +121,21 @@
         : { action: 'fresh' };
     }
     if (serverStatus === 'unknown') return { action: 'fresh' };
-    // still pending
+    // Still pending, or ambiguous -- the server could not tell whether Stripe
+    // committed. Both resume the key, which is what lets Stripe collapse the
+    // retry onto the first invoice instead of issuing a second one, and both
+    // take the SAME signature test: reusing a key under edited content asks
+    // Stripe for an invoice nobody typed, so an edited form is blocked until
+    // the earlier attempt is resolved rather than quietly replayed.
+    const ambiguous = serverStatus === 'ambiguous';
     if (marker.signature === currentSignature) {
-      return { action: 'reuse', request_id: marker.request_id };
+      return ambiguous
+        ? { action: 'reuse', request_id: marker.request_id, ambiguous: true }
+        : { action: 'reuse', request_id: marker.request_id };
     }
-    return { action: 'blocked', request_id: marker.request_id };
+    return ambiguous
+      ? { action: 'blocked', request_id: marker.request_id, ambiguous: true }
+      : { action: 'blocked', request_id: marker.request_id };
   }
 
   /**

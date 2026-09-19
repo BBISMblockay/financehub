@@ -18,6 +18,8 @@
 //   STRIPE_HANDLER_MUTATION=connect-note-after-sync (account id recorded after the mirror write)
 //   STRIPE_HANDLER_MUTATION=connect-release-on-error (the claim is released when sync fails)
 //   STRIPE_HANDLER_MUTATION=invoice-lines-after-create (lines validated after the draft exists)
+//   STRIPE_HANDLER_MUTATION=invoice-failure-always-clean (a lost answer reads as "nothing created")
+//   STRIPE_HANDLER_MUTATION=billing-seats-count-every-member (disabled accounts billed as seats)
 //   STRIPE_HANDLER_MUTATION=invoice-trusts-stripe-id (a Stripe id from the body is acted on)
 //   STRIPE_HANDLER_MUTATION=billing-body-price      (the price comes from the request)
 // Added after the cycle-3 review:
@@ -75,6 +77,10 @@ const MUTATIONS = {
   'billing-trusts-mirror': (s) => s.replace(
     /  if \(current\?\.stripe_customer_id\) \{\n    const remote = await stripe\.subscriptions\.list\([\s\S]*?\n  \}\n\n  const customer = await customerFor/,
     '  const customer = await customerFor'),
+  'invoice-failure-always-clean': (s) => s.replace(
+    "      invoice?.id ? 'failed' : createOutcome(e),", "      'failed',"),
+  'billing-seats-count-every-member': (s) => s.replace(
+    "      .eq('profiles.is_active', true);", "      ;"),
   'billing-body-price': (s) => s.replace(
     '    line_items: [{ price: plan.stripe_price_id, quantity }],',
     '    line_items: [{ price: body?.price_id ?? plan.stripe_price_id, quantity }],'),
@@ -482,6 +488,35 @@ await test('invoice: a half-built draft is still mirrored, never left invisible'
     'it exists in the client\'s Stripe either way -- an orphan nobody can see is one nobody can void');
 });
 
+await test('invoice: a lost answer keeps its key so Stripe can collapse the retry', async () => {
+  // `invoices.create` failing does not mean nothing was created. A timeout, a
+  // reset or a 5xx can all land after Stripe committed, and recording that as
+  // a plain `failed` told the browser nothing existed -- so it minted a fresh
+  // request id, hence a fresh Stripe idempotency key, hence A SECOND REAL
+  // DRAFT for the client's customer. This is the exact retry the ledger exists
+  // for: the person reloads because the screen went blank.
+  const lost = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+  const f = await invoiceFixture({ stripe: { 'invoices.create': lost } });
+  const out = await f.request({ body: { action: 'create_invoice', request_id: REQ_ID, customer_id: 'cus_1', lines: GOOD_LINES } });
+  assert.equal(out.status, 502);
+  const complete = f.db.calls.find((c) => c.rpc === 'stripe_complete_invoice_request');
+  assert.equal(complete.args.p_status, 'ambiguous');
+  assert.equal(complete.args.p_object_id, null);
+  // (What the browser then DOES with 'ambiguous' is pinned in
+  // stripe-edge-logic.test.mjs, which loads v2/invoice-request.js.)
+});
+
+await test('invoice: a rejected request is re-claimable, since nothing was created', async () => {
+  // The other half of the same decision. A 4xx reached Stripe and was refused,
+  // so a clean restart is correct -- treating every failure as ambiguous would
+  // strand people behind a key that can never succeed.
+  const rejected = Object.assign(new Error('No such customer'), { statusCode: 400 });
+  const f = await invoiceFixture({ stripe: { 'invoices.create': rejected } });
+  await f.request({ body: { action: 'create_invoice', request_id: REQ_ID, customer_id: 'cus_1', lines: GOOD_LINES } });
+  const complete = f.db.calls.find((c) => c.rpc === 'stripe_complete_invoice_request');
+  assert.equal(complete.args.p_status, 'failed');
+});
+
 await test('invoice: an action names a SILO row, never a Stripe id from the body', async () => {
   const f = await invoiceFixture();
   // The body carries BOTH a legitimate row id and a Stripe id for somebody
@@ -514,8 +549,15 @@ async function billingFixture(over = {}) {
       entities: [{ id: COMPANY, title: 'Baseballism' }],
       billing_plans: [{ plan_key: 'growth', stripe_price_id: 'price_growth', seat_based: over.seatBased ?? false, is_active: true }],
       billing_subscriptions: over.subscription ? [{ company_entity_id: COMPANY, ...over.subscription }] : [],
-      entity_memberships: (over.members ?? 3) > 0
-        ? Array.from({ length: over.members ?? 3 }, (_, i) => ({ entity_id: COMPANY, user_id: `u${i}` })) : [],
+      // `profiles.is_active` as a key models PostgREST's embedded filter
+      // (`profiles!inner(is_active)` + eq on `profiles.is_active`), which is
+      // how the seat count excludes members who cannot sign in.
+      entity_memberships: [
+        ...Array.from({ length: over.members ?? 3 }, (_, i) => (
+          { entity_id: COMPANY, user_id: `u${i}`, 'profiles.is_active': true })),
+        ...Array.from({ length: over.inactiveMembers ?? 0 }, (_, i) => (
+          { entity_id: COMPANY, user_id: `x${i}`, 'profiles.is_active': false })),
+      ],
     },
     gates: { is_owner_admin_of_active_company: over.ownerAdmin ?? true },
     rpcs: { stripe_begin_checkout: null, stripe_sync_subscription: null, stripe_sync_billing_invoice: null, ...over.rpcs },
@@ -535,6 +577,21 @@ await test('billing: only an owner-admin may change the subscription', async () 
   const out = await f.request({ body: { action: 'checkout', plan_key: 'growth' } });
   assert.equal(out.status, 403);
   assert.equal(f.stripe.calls.length, 0);
+});
+
+await test('billing: seats count ACTIVE members, not membership rows', async () => {
+  // Deactivation does not remove memberships -- that is deliberate, and it is
+  // why counting membership rows bills the tenant for people who cannot sign
+  // in. Three active and four disabled must be three seats.
+  const f = await billingFixture({ seatBased: true, members: 3, inactiveMembers: 4 });
+  const out = await f.request({ body: { action: 'checkout', plan_key: 'growth' } });
+  assert.equal(out.status, 200);
+  const seats = f.stripe.calls.find((c) => c.path === 'checkout.sessions.create').args[0]
+    .line_items[0].quantity;
+  assert.equal(seats, 3, 'a disabled account is not a seat');
+  const seatQuery = f.db.calls.find((c) => c.query === 'entity_memberships');
+  assert.ok(seatQuery.filters.some(([, col, val]) => col === 'profiles.is_active' && val === true),
+    'the count must be scoped in the QUERY -- filtering after the fact would still bill the row');
 });
 
 await test('billing: a live subscriber cannot open a second Checkout', async () => {

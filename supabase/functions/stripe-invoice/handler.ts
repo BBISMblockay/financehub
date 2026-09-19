@@ -36,6 +36,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17.7.0';
 import {
   InvoiceInputError, normalizeInvoiceLines, fingerprintInvoice,
+  createOutcome,
 } from './invoice-lines.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -231,7 +232,18 @@ async function createInvoice(
     };
   } catch (e) {
     const message = (e as Error)?.message ?? String(e);
-    await completeRequest(requestId, 'failed', invoice?.id ?? null, message);
+    // A draft we KNOW exists is recorded against its id. Otherwise the
+    // question is whether Stripe committed one we never heard about: a 4xx
+    // says it did not, anything else says we cannot tell -- and "cannot tell"
+    // must keep this request id alive, because the retry's Stripe idempotency
+    // key is derived from it and is the only thing that stops a second real
+    // draft reaching the client's customer.
+    await completeRequest(
+      requestId,
+      invoice?.id ? 'failed' : createOutcome(e),
+      invoice?.id ?? null,
+      message,
+    );
     // A draft that was created before the failure is MIRRORED anyway rather
     // than left invisible: it exists in the client's Stripe either way, and an
     // orphan nobody can see is one nobody can void.

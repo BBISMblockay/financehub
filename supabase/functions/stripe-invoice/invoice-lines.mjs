@@ -147,3 +147,27 @@ export function fingerprintInvoice({ customer, currency, dueDays, lines, memo })
   ];
   return parts.join('\u0002');
 }
+
+/**
+ * Did this failure leave anything behind at Stripe?
+ *
+ * `invoices.create` can fail two ways and they demand opposite recoveries.
+ * Stripe REJECTED the request (4xx: a bad parameter, a disabled account) --
+ * nothing was created, so the next attempt should start clean. Or the answer
+ * was lost (a timeout, a reset, a 5xx) -- Stripe may well have committed the
+ * invoice, and a clean restart mints a new request id, hence a new Stripe
+ * idempotency key, hence A SECOND REAL DRAFT for the client's customer.
+ *
+ * So an ambiguous failure keeps its request id. The retry replays the SAME
+ * `silo-invoice-<request_id>` key and Stripe returns the original object
+ * instead of making another one.
+ *
+ * Unknown is treated as ambiguous on purpose: the cost of re-using a key that
+ * created nothing is one wasted key, and the cost of the opposite mistake is
+ * an invoice a real customer receives twice.
+ */
+export function createOutcome(err) {
+  const status = Number(err?.statusCode ?? err?.status ?? NaN);
+  if (Number.isFinite(status) && status >= 400 && status < 500) return 'failed';
+  return 'ambiguous';
+}

@@ -41,6 +41,8 @@
 // Added after the cycle-3 review:
 //   STRIPE_MUTATION=lease-reads-terminal (a leased delivery reports as finished)
 //   STRIPE_MUTATION=failed-always-fresh  (a failure that created a draft is re-claimable)
+//   STRIPE_MUTATION=line-price-strict    (the decimal-string unit price read strictly again)
+//   STRIPE_MUTATION=subscription-any-identity (a stale sub's terminal event overwrites the live one)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -54,7 +56,8 @@ assert.ok([
   '', 'mirror-writable', 'gate-is-admin', 'stale-wins', 'account-rebind',
   'ledger-amnesia', 'platform-takes-account', 'lines-upserted', 'sync-open-to-anon',
   'placeholder-claims-now', 'webhook-no-reclaim', 'connect-rebind-allowed', 'connect-unclaimed',
-  'lease-reads-terminal', 'failed-always-fresh',
+  'lease-reads-terminal', 'failed-always-fresh', 'line-price-strict',
+  'subscription-any-identity',
 ].includes(mutation), `Unknown stripe mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -196,6 +199,14 @@ if (mutation === 'lease-reads-terminal') {
 if (mutation === 'failed-always-fresh') {
   sql = sql.replace("  if r.status = 'failed' and r.stripe_object_id is null then",
                     () => "  if r.status = 'failed' then");
+}
+if (mutation === 'line-price-strict') {
+  sql = sql.replace("public.stripe_decimal_cents(l,'unit_amount_excluding_tax')",
+                    () => "public.stripe_cents(l,'unit_amount_excluding_tax')");
+}
+if (mutation === 'subscription-any-identity') {
+  sql = sql.replace(/  if v_stored_sub is not null\n(?:.*\n)*?  then\n    return;\n  end if;\n/,
+                    () => '');
 }
 if (mutation === 'sync-open-to-anon') {
   sql = sql.replace(
@@ -853,6 +864,79 @@ await test('an open invoice past its due date IS overdue', async () => {
   });
 });
 
+await test('a line with no inline price mirrors instead of aborting the whole invoice', async () => {
+  // Stripe sends `unit_amount_excluding_tax` as a DECIMAL STRING, and a line
+  // has no inline `price.unit_amount` whenever the price is metered or tiered,
+  // or the item was added in the Stripe dashboard. Read strictly, that string
+  // RAISED -- inside the line loop, so the whole stripe_sync_invoice call
+  // aborted, the webhook answered 500, and Stripe retried a legitimate invoice
+  // for three days while no mirror row ever appeared. Every other fixture in
+  // this file supplies price.unit_amount, which is exactly why nothing caught
+  // it.
+  const id = (await syncInvoice(companyA, acctA, invoicePayload('in_nolineprice', {
+    lines: { data: [
+      { id: 'il_m1', description: 'Metered API calls', quantity: 4200, amount: 84000,
+        unit_amount_excluding_tax: '20', currency: 'usd' },
+      { id: 'il_m2', description: 'Dashboard item', quantity: 1, amount: 15000,
+        unit_amount_excluding_tax: '150.5', currency: 'usd' },
+    ] },
+  }), t1)).id;
+  const lines = await q(
+    'select * from public.stripe_invoice_lines where invoice_id=$1 order by stripe_line_id', [id]);
+  assert.equal(lines.length, 2, 'the invoice must mirror, not raise');
+  assert.equal(Number(lines[0].unit_amount_cents), 20,
+    'a decimal string is a unit price, not a reason to fail');
+  assert.equal(lines[1].unit_amount_cents, null,
+    'a fractional minor unit is unrepresentable -- null (unknown), never a rounded guess');
+  assert.equal(Number(lines[1].amount_cents), 15000,
+    'the line AMOUNT is carried separately and is what the total comes from');
+});
+
+
+// ── verify_v2_schema.sql's own Stripe checks, executed ──────────────────────
+// A check nobody runs is a check that cannot go red. These are extracted by
+// their markers and run against this database, so a typo -- or a check that
+// reads 'ok' whatever the schema says -- fails here rather than sitting green
+// in the daily drift run.
+const verifyStatements = async () => {
+  const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+  const start = verify.indexOf("-- ── Stripe: billing (SILO's revenue)");
+  const end = verify.indexOf('-- ── Company onboarding (20260918120000)');
+  assert.ok(start > 0 && end > start, 'the Stripe checks must sit above the onboarding marker');
+  const out = verify.slice(start, end).split(/;\s*\n/)
+    .filter((x) => /^\s*(--[^\n]*\n)*\s*select/i.test(x));
+  assert.equal(out.length, 4, 'four Stripe checks');
+  return out;
+};
+
+await test("verify_v2_schema.sql's Stripe checks pass against the migrated schema", async () => {
+  for (const stmt of await verifyStatements()) {
+    const row = await one(stmt + ';');
+    assert.equal(row.status, 'ok', `${row.check_name}: ${row.status}`);
+  }
+});
+
+await test('the Stripe verify checks go red when what they guard breaks', async () => {
+  const statements = await verifyStatements();
+  const check = async (i) => (await one(statements[i] + ';')).status;
+
+  // The strict reader is the production bug: restore it and the check must
+  // notice, because the function's EXISTENCE never was the failure.
+  await db.exec(`create or replace function public.stripe_decimal_cents(p_payload jsonb, p_key text)
+                 returns bigint language sql immutable as
+                 $x$ select public.stripe_cents(p_payload, p_key) $x$;`);
+  // Red by either route: the probe returns CRITICAL, or the strict function
+  // raises and the check itself errors. Both fail the daily drift run, which
+  // goes red on a non-ok cell AND on a statement that will not execute -- and
+  // a raise here is the same raise production would hit on the next metered
+  // invoice, so it is not a softer signal.
+  const red = await check(2).then((x) => x, (e) => `RAISED: ${e.message}`);
+  assert.match(red, /^CRITICAL|^RAISED/,
+    'a decimal-string unit price that raises must not read as ok');
+  await db.exec(sql);
+  assert.equal(await check(2), 'ok', 're-applying the migration must restore it');
+});
+
 // ── 10. The subscription side ───────────────────────────────────────────────
 await q(`insert into public.billing_plans (plan_key,title,stripe_price_id,unit_amount_cents,billing_interval,sort_order)
          values ('growth','Growth','price_growth',49900,'month',1)
@@ -903,6 +987,37 @@ await test('the checkout placeholder never outranks the first real sync', async 
   assert.equal(synced.status, 'active',
     'a real sync must land whatever time its fetch began -- the placeholder claims no sync time');
   assert.equal(synced.plan_key, 'growth');
+});
+
+await test('a superseded subscription cannot bury the live one', async () => {
+  // One row per company, so this mirror holds ONE subscription -- but a tenant
+  // who cancels and resubscribes has two at Stripe, and the old one's
+  // `customer.subscription.deleted` can arrive (or be re-delivered) after the
+  // new one synced. Ordered by fetch time alone, that terminal event lands
+  // last and a paying customer reads `canceled` until somebody presses Sync.
+  const co = randomUUID();
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title)
+           values ($1,'finance_hub','company','resub','Resub Co')`, [co]);
+  const item = { data: [{ quantity: 1, price: { id: 'price_growth', currency: 'usd', unit_amount: 49900 } }] };
+
+  await q('select public.stripe_sync_subscription($1,$2,$3)', [co, JSON.stringify({
+    id: 'sub_new', customer: 'cus_resub', status: 'active', items: item }), t1]);
+  await q('select public.stripe_sync_subscription($1,$2,$3)', [co, JSON.stringify({
+    id: 'sub_old', customer: 'cus_resub', status: 'canceled', items: item }), t2]);
+
+  const row = await one(
+    'select stripe_subscription_id, status from public.billing_subscriptions where company_entity_id=$1', [co]);
+  assert.equal(row.stripe_subscription_id, 'sub_new');
+  assert.equal(row.status, 'active',
+    'a terminal event for a DIFFERENT subscription is about one this row no longer describes');
+
+  // The identity guard must not freeze the row: the LIVE subscription's own
+  // cancellation still has to land, or a cancelled tenant reads as paying.
+  await q('select public.stripe_sync_subscription($1,$2,$3)', [co, JSON.stringify({
+    id: 'sub_new', customer: 'cus_resub', status: 'canceled', items: item }), t2]);
+  assert.equal((await one(
+    'select status from public.billing_subscriptions where company_entity_id=$1', [co])).status,
+    'canceled', 'the subscription on file can always cancel itself');
 });
 
 await test('a past_due subscription records WHY money is not arriving', async () => {

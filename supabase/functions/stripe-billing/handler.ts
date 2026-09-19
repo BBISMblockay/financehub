@@ -177,10 +177,15 @@ async function checkout(company: string, profile: any, userId: string, body: any
     // Seats are MEASURED, not asked for: the number of active members of this
     // company. Letting the page send it would let a company buy one seat and
     // invite thirty.
+    // ACTIVE members, not members. `is_active` lives on profiles and
+    // deactivation deliberately does not remove memberships (see the founding
+    // rules in CLAUDE.md), so counting membership rows bills the tenant for
+    // people who cannot sign in.
     const { count } = await db
       .from('entity_memberships')
-      .select('user_id', { count: 'exact', head: true })
-      .eq('entity_id', company);
+      .select('user_id, profiles!inner(is_active)', { count: 'exact', head: true })
+      .eq('entity_id', company)
+      .eq('profiles.is_active', true);
     quantity = Math.max(1, count ?? 1);
   }
 

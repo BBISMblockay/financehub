@@ -311,7 +311,13 @@
              Finish the remaining steps and invoices can be sent.</p>
           <button class="bcn-btn bcn-btn--primary" id="btnConnect">Continue on Stripe →</button>
           <button class="bcn-btn bcn-btn--ghost" id="btnRefreshConnect">Re-check</button>
-          ${due ? `<div class="inv-reqs" style="margin-top:8px">Stripe is waiting on: ${esc((_connect.currently_due || []).join(', '))}</div>` : ''}
+          ${due
+            ? `<div class="inv-reqs" style="margin-top:8px">Stripe is waiting on: ${esc((_connect.currently_due || []).join(', '))}</div>`
+            // stripe_connect_status_v deliberately carries no requirements --
+            // they can name a person and a document, so they are admin-only.
+            // Say where the list comes from instead of rendering nothing,
+            // which read as "Stripe is waiting on nothing in particular".
+            : `<div class="inv-reqs" style="margin-top:8px">Re-check to see what Stripe is still waiting on.</div>`}
         </div>`;
     }
     el('btnConnect')?.addEventListener('click', startConnect);
@@ -732,11 +738,21 @@
         setStatus('An invoice you started earlier was created at Stripe and then failed partway '
           + 'through. It is in the list below — finish or void it there rather than creating it '
           + 'again.', 'neg', 0);
+      } else if (status === 'ambiguous') {
+        // Kept, not cleared: the retry has to replay the same key so Stripe
+        // can collapse it onto whatever it may already have created.
+        setStatus('An invoice you started earlier did not report back, and Stripe may or may not '
+          + 'have created it. Open New invoice with the same details — SILO will resume that same '
+          + 'attempt rather than creating a second one.', 'neg', 0);
       } else if (status === 'unknown' || status === 'failed') {
         REQ.clear(reqKey('invoice'));
       } else {
-        setStatus('An invoice you started earlier has not finished. Open New invoice with the same '
-          + 'details to resume it rather than creating a second one.', 'info', 0);
+        // Do NOT tell them to reopen the form "to resume it": a claim this
+        // young is still held, and stripe_begin_invoice_request answers
+        // in_flight for ten minutes, so the documented step would error.
+        setStatus('An invoice you started earlier has not reported back yet. Wait a few minutes and '
+          + 'reload before trying again — it may still be completing, and starting over now would '
+          + 'risk a second invoice.', 'info', 0);
       }
     }
 

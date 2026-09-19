@@ -172,6 +172,42 @@ begin
 end;
 $$;
 
+-- The PERMISSIVE sibling of stripe_cents, and the difference is deliberate.
+--
+-- stripe_cents guards a figure the mirror publishes as fact: an absent key is
+-- null (unknown), and anything non-numeric RAISES, because a zeroed
+-- amount_due reads as "nothing owed". That strictness is right there and
+-- catastrophic here. `unit_amount_excluding_tax` arrives as a DECIMAL STRING,
+-- not a number, so passing it to stripe_cents raised -- and it is read inside
+-- stripe_sync_invoice's line loop, so one invoice line without an inline
+-- `price.unit_amount` (a metered or tiered price, or an item added in the
+-- Stripe dashboard) aborted the whole sync. The webhook then answered 500 and
+-- Stripe retried for three days against a row that would never land.
+--
+-- So this one never raises. It accepts a number or a numeric string, and
+-- returns NULL for anything it cannot represent exactly as an integer minor
+-- unit -- including a fractional one. Null here means "this line's unit price
+-- is not resolved", which is true and harmless: the line's `amount` is carried
+-- separately and is what the invoice totals from.
+create or replace function public.stripe_decimal_cents(p_payload jsonb, p_key text)
+returns bigint
+language plpgsql
+immutable
+as $$
+declare
+  v jsonb := p_payload -> p_key;
+  t text;
+  n numeric;
+begin
+  if v is null or jsonb_typeof(v) = 'null' then return null; end if;
+  t := v #>> '{}';
+  if t is null or t !~ '^-?[0-9]+(\.[0-9]+)?$' then return null; end if;
+  n := t::numeric;
+  if n <> trunc(n) then return null; end if;
+  return n::bigint;
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 1. A. SILO subscription billing (platform Stripe account)
 -- ---------------------------------------------------------------------------
@@ -436,7 +472,16 @@ create table if not exists public.stripe_invoice_requests (
   stripe_account_id    text not null,
   action               text not null check (action in ('create_customer','create_invoice')),
   status               text not null default 'pending'
-                         check (status in ('pending','succeeded','failed')),
+                         -- `ambiguous` is the state that makes the Stripe
+                         -- idempotency key usable: the create call failed
+                         -- without telling us whether Stripe committed (a
+                         -- timeout, a reset), so the caller must retry with
+                         -- the SAME request id -- which is what the Stripe key
+                         -- is derived from, so Stripe collapses it onto the
+                         -- original invoice. Recorded as `failed` instead, the
+                         -- browser read it as "nothing was created", minted a
+                         -- fresh uuid, and therefore a fresh Stripe key.
+                         check (status in ('pending','succeeded','failed','ambiguous')),
   stripe_object_id     text,
   error_message        text,
   payload_fingerprint  text,
@@ -835,14 +880,34 @@ declare
   v_customer  text  := coalesce(p_payload->>'customer', p_payload->'customer'->>'id');
   v_status    text  := p_payload->>'status';
   v_existing  timestamptz;
+  v_stored_sub    text;
+  v_stored_status text;
 begin
   if p_company is null or p_payload->>'id' is null then
     raise exception 'stripe_sync_subscription: company and payload id are required';
   end if;
 
-  select stripe_synced_at into v_existing
+  select stripe_synced_at, stripe_subscription_id, status
+    into v_existing, v_stored_sub, v_stored_status
     from public.billing_subscriptions where company_entity_id = p_company;
   if v_existing is not null and v_existing > p_synced_at then return; end if;
+
+  -- One row per company, so this mirror holds ONE subscription -- and fetch
+  -- time alone does not decide which. A tenant who cancels and resubscribes
+  -- has two subscriptions at Stripe, and the older one's
+  -- `customer.subscription.deleted` can be delivered (or re-delivered) after
+  -- the new one synced. Ordered only by time, that terminal event lands last
+  -- and the company reads `canceled` while paying, until somebody presses
+  -- Sync. Identity has to be part of the test: a terminal update for a
+  -- DIFFERENT subscription than the one on file is about a subscription this
+  -- row no longer describes.
+  if v_stored_sub is not null
+     and v_stored_sub <> p_payload->>'id'
+     and v_status in ('canceled','incomplete_expired')
+     and v_stored_status in ('active','trialing','past_due','unpaid')
+  then
+    return;
+  end if;
 
   insert into public.billing_subscriptions (
     company_entity_id, stripe_customer_id, stripe_subscription_id, plan_key,
@@ -1016,7 +1081,9 @@ begin
   select stripe_account_id into v_bound
     from public.stripe_connect_accounts where company_entity_id = p_company;
   if v_bound is not null and v_bound <> v_account then
-    raise exception 'stripe_sync_connect_account: this company is already bound to %s, refusing to rebind it to %s',
+    -- `%`, not `%s`: PL/pgSQL's placeholder is bare, and the C-style one
+    -- printed every account id with a stray trailing "s".
+    raise exception 'stripe_sync_connect_account: this company is already bound to %, refusing to rebind it to %',
       v_bound, v_account;
   end if;
 
@@ -1381,7 +1448,10 @@ begin
     nullif(l->>'description',''),
     nullif(l->>'quantity','')::numeric,
     coalesce(public.stripe_cents(l->'price','unit_amount'),
-             public.stripe_cents(l,'unit_amount_excluding_tax')),
+             -- Permissive on purpose: this field is a decimal STRING, and the
+             -- strict reader raised on it -- aborting the sync for every line
+             -- without an inline price. See stripe_decimal_cents.
+             public.stripe_decimal_cents(l,'unit_amount_excluding_tax')),
     coalesce(public.stripe_cents(l,'amount'), 0),
     lower(coalesce(l->>'currency', v_currency)),
     public.stripe_epoch(nullif(l->'period'->>'start','')::bigint),
@@ -1473,6 +1543,17 @@ begin
   if r.status = 'pending' and r.created_at < now() - interval '10 minutes' then
     update public.stripe_invoice_requests
        set created_at = now(), error_message = null
+     where request_id = p_request_id;
+    return query select false, 'pending'::text, null::text;
+    return;
+  end if;
+
+  -- An ambiguous attempt is re-claimed and KEEPS its id: the retry must carry
+  -- the same Stripe idempotency key so Stripe returns the original object
+  -- rather than making a second one.
+  if r.status = 'ambiguous' then
+    update public.stripe_invoice_requests
+       set status = 'pending', error_message = null, completed_at = null
      where request_id = p_request_id;
     return query select false, 'pending'::text, null::text;
     return;

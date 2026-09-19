@@ -305,6 +305,12 @@ Everything below needs live Stripe credentials and has not been exercised:
 * Checkout → `checkout.session.completed` → subscription mirror, end to end.
 * Connect onboarding on a real account, including the expired-link
   (`?stripe=refresh`) path and the adopt-after-crash path.
+* **The same 24-hour boundary on invoice create.** An `ambiguous` ledger row
+  keeps its request id so the retry replays the same Stripe idempotency key,
+  but Stripe only replays that response for 24 hours. A lost answer whose
+  retry lands a day later can still produce a second draft. The row stays
+  `ambiguous` until somebody retries, and the page names the invoice list as
+  the place to check first, which is the only real defence past that window.
 * **The 24-hour boundary on Connect create.** `accounts.create` carries a
   company-scoped Stripe idempotency key, so a lost response followed by a retry
   returns the same account rather than opening a second merchant identity.
@@ -313,6 +319,19 @@ Everything below needs live Stripe credentials and has not been exercised:
   that — Stripe's account listing cannot be searched by metadata. Recorded
   rather than papered over; in practice the ten-minute claim puts the retry
   minutes away, not days.
+* **The real shape of an invoice line.** `stripe_decimal_cents` reads
+  `unit_amount_excluding_tax` as a decimal string because that is what Stripe
+  documents, and the suite pins `"20"` and `"150.5"`. A live metered or tiered
+  price has not been mirrored, so the decimal places Stripe actually sends on
+  one are unconfirmed — a value that is not an exact minor unit mirrors as
+  null (unknown) rather than raising, which is the safe direction but is still
+  a gap in the mirror.
+* **Which failures `invoices.create` reports as 4xx.** The ledger distinguishes
+  "Stripe refused it" (re-claimable) from "we never heard" (keep the key) by
+  HTTP status, and the suite drives that with synthetic errors. A real
+  timeout's shape under `npm:stripe@17.7.0` — whether it surfaces a status at
+  all — has not been observed.
+
 * Any tax behaviour. Stripe Tax is **not** enabled by these functions; invoices
   carry whatever tax settings the client's own Stripe account applies, and
   `stripe_invoices.tax_cents` is mirrored, never computed here.

@@ -4225,6 +4225,37 @@ select 'Stripe sync functions are service-role only' as check_name,
    then 'CRITICAL: a Stripe sync function is callable by anon or authenticated'
  else 'ok' end as status;
 
+-- Two shapes Stripe sends that a strict reader turns into an outage.
+--
+-- A line whose price is metered, tiered, or added in the Stripe dashboard has
+-- no inline `price.unit_amount`; the fallback field is a DECIMAL STRING, and
+-- reading it strictly RAISED inside the line loop -- aborting the whole
+-- invoice sync, so the webhook answered 500 and Stripe retried a legitimate
+-- invoice for three days with no mirror row ever appearing. Asserted by
+-- BEHAVIOUR on the exact three inputs (like normalize_merchant's check), not
+-- by the function's existence, since existence never was the failure.
+--
+-- And `ambiguous`: the invoice-request ledger state for "Stripe may have
+-- committed and we never heard". Without it, a lost answer is recorded as a
+-- plain failure, the browser mints a fresh idempotency key and a real customer
+-- receives a second invoice.
+select 'Stripe sync accepts what Stripe actually sends' as check_name,
+ case
+ when to_regclass('public.stripe_invoices') is null then 'MISSING: Stripe migration'
+ when to_regproc('public.stripe_decimal_cents') is null
+   then 'CRITICAL: the decimal-string unit price reader is missing -- metered lines abort the sync'
+ when public.stripe_decimal_cents('{"u":"20"}'::jsonb,'u') is distinct from 20::bigint
+   then 'CRITICAL: a decimal STRING unit price must mirror, not raise'
+ when public.stripe_decimal_cents('{"u":"150.5"}'::jsonb,'u') is not null
+   then 'CRITICAL: a fractional minor unit must be null (unknown), never a rounded guess'
+ when public.stripe_decimal_cents('{"u":1999}'::jsonb,'u') is distinct from 1999::bigint
+   then 'CRITICAL: a plain number unit price must still be read'
+ when not exists(select 1 from pg_constraint c
+   where c.conrelid='public.stripe_invoice_requests'::regclass and c.contype='c'
+     and pg_get_constraintdef(c.oid) like '%ambiguous%')
+   then 'CRITICAL: the ledger cannot record a lost answer -- a retry would bill the customer twice'
+ else 'ok' end as status;
+
 -- An invoice that names one company and another company's Stripe account is
 -- the single cross-tenant mistake an edge-function bug could make silently.
 -- The composite FK is what makes it unrepresentable, and the staleness trigger

@@ -34,6 +34,7 @@ import {
 } from '../../supabase/functions/stripe-webhook/event-routing.mjs';
 import {
   toMinorUnits, normalizeInvoiceLines, fingerprintInvoice, InvoiceInputError,
+  createOutcome,
 } from '../../supabase/functions/stripe-invoice/invoice-lines.mjs';
 import {
   LIVE_STATUSES, isLive, checkoutDecision, planAction,
@@ -280,6 +281,39 @@ test('the same form resumes the same key -- a reload does not mint a new one', (
   assert.equal(second.resumed, true);
 });
 
+test('an answer that never came back resumes the key; a rejection starts clean', () => {
+  const { api } = loadRequestModule();
+  // 'ambiguous' means Stripe may have committed an invoice we never heard
+  // about. Reusing the key is what lets Stripe's own idempotency collapse the
+  // retry onto that invoice instead of issuing a second one to a real
+  // customer. 'failed' with no object means Stripe refused the request, so
+  // nothing exists and a clean restart is correct -- treating the two the same
+  // way is wrong in one direction or the other whichever way you pick.
+  const marker = { request_id: 'req-1', signature: 'sig' };
+  const lost = api.decide(marker, 'sig', 'ambiguous', null);
+  assert.equal(lost.action, 'reuse');
+  assert.equal(lost.request_id, 'req-1');
+  assert.equal(lost.ambiguous, true);
+  // An EDITED form does not get to replay the key: that would ask Stripe for
+  // an invoice nobody typed. Same rule as a pending attempt.
+  assert.equal(api.decide(marker, 'edited', 'ambiguous', null).action, 'blocked');
+  assert.equal(api.decide(marker, 'sig', 'failed', null).action, 'fresh');
+  assert.equal(api.decide(marker, 'sig', 'failed', 'in_1').action, 'completed');
+});
+
+test('a create failure is classified by whether Stripe could have committed it', () => {
+  // 4xx: the request reached Stripe and was refused, so nothing was created.
+  assert.equal(createOutcome({ statusCode: 400 }), 'failed');
+  assert.equal(createOutcome({ statusCode: 404 }), 'failed');
+  // 5xx, a socket error, an abort, an error carrying nothing at all: Stripe
+  // may have committed. Unknown counts as ambiguous on purpose -- a wasted key
+  // costs nothing, a duplicate invoice reaches a customer.
+  for (const e of [{ statusCode: 500 }, { statusCode: 503 }, { code: 'ECONNRESET' },
+                   new Error('aborted'), {}, null]) {
+    assert.equal(createOutcome(e), 'ambiguous', JSON.stringify(e));
+  }
+});
+
 test('an edited form takes a new key -- a different invoice is a different request', () => {
   const { api } = loadRequestModule();
   const a = api.begin('k', 'sig-a');
@@ -366,6 +400,22 @@ function mutationsRunBy(workflow, firstName) {
   return new Set(loop.replace('for m in', '').split(/[\s\\]+/).map((x) => x.trim()).filter(Boolean));
 }
 
+test('every handler mutation names the function it mutates', () => {
+  // `only()` applies a mutation ONLY to the handler whose name the key starts
+  // with, so a key under the wrong prefix is silently never applied -- it
+  // passes as a clean run and reads as a guard that survived deletion.
+  // `billing-seats-count-every-member` shipped as `seats-count-every-member`
+  // and did exactly that.
+  const keys = mutationsDeclaredIn('./stripe-handlers.test.mjs', 'const MUTATIONS = {', '\n};',
+    /^ {2}'([a-z][a-z0-9-]+)':/gm);
+  const fns = ['webhook', 'connect', 'invoice', 'billing'];
+  for (const k of keys) {
+    assert.ok(fns.some((f) => k.startsWith(`${f}-`)),
+      `mutation '${k}' starts with no handler name -- it would never be applied`);
+  }
+  assert.ok(keys.size >= 12, `expected at least 12 handler mutations, found ${keys.size}`);
+});
+
 test('every declared HANDLER mutation is executed by the workflow', () => {
   // Same pin as the database loop below, for the same reason and after the
   // same mistake: four database mutations once sat in the allowlist and in no
@@ -393,7 +443,6 @@ test('every declared mutation is executed by the workflow', () => {
 
   assert.deepEqual([...declared].sort(), [...run].sort(),
     'the suite\'s STRIPE_MUTATION allowlist and the workflow loop must be the same set');
-  assert.ok(declared.size >= 12, `expected at least 12 mutations, found ${declared.size}`);
 });
 
 console.log(`\n${passed} assertions passed`);
