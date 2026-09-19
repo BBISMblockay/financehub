@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Payment Request 2</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="payment-request2.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.8"></script>
+  <script src="nav-config.js"></script>
+  <script src="silo-chrome.js"></script>
+</head>
+<body>
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+    <div class="pr2-page">
+      <header class="bcn-header pr2-heading">
+        <div><span class="bcn-pill bcn-pill--accent">Payment Request 2 · Beta</span><h1>New payment request</h1><p>Start with a document. Review what matters.</p></div>
+        <a class="bcn-btn bcn-btn--ghost" href="purchase_request.html">Standard form ↗</a>
+      </header>
+      <div id="status" class="bcn-status bcn-status--info" role="status" aria-live="polite">Checking your account…</div>
+      <section id="signedOut" class="bcn-card pr2-message" hidden><h2>Sign in to continue</h2><p>Use your SILO account to create a payment request.</p><a class="bcn-btn bcn-btn--primary" href="../pages/login.html">Sign in</a></section>
+      <div id="app" hidden>
+        <ol class="pr2-steps" aria-label="Request progress"><li id="stepDocument">1 <span>Add document or start manually</span></li><li id="stepReview" aria-current="step">2 <span>Review request</span></li><li>3 <span>AP review</span></li></ol>
+        <section id="draftShelf" class="bcn-card pr2-draft-shelf" hidden><h2>Continue a draft on this device</h2><div id="draftList"></div></section>
+        <div class="pr2-layout">
+          <div class="pr2-left">
+            <section id="dropzone" class="bcn-card pr2-drop" role="button" tabindex="0" aria-label="Add invoices or supporting documents">
+              <span class="pr2-upload-icon" aria-hidden="true">↥</span>
+              <strong>Drop an invoice or receipt here</strong><span>or choose files</span>
+              <small>Read PDFs and images up to 4 MB · Attach other documents up to 10 MB each</small>
+            </section>
+            <input id="fileInput" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" hidden />
+            <div class="pr2-start-actions"><button id="startPo" class="bcn-btn bcn-btn--ghost" type="button">Start from a PO</button><button id="startManual" class="bcn-btn bcn-btn--ghost" type="button">Enter manually</button></div>
+            <section id="extractionPanel" class="bcn-card pr2-suggestions" hidden aria-live="polite"><h2>Document suggestions</h2><p id="extractionText"></p><ul id="extractionWarnings"></ul><button id="applySuggestions" type="button" class="bcn-btn bcn-btn--primary" hidden>Fill empty fields</button><small>Existing entries stay as you entered them. Check every suggestion against the document.</small></section>
+            <form id="requestForm">
+              <fieldset id="editFields" class="bcn-card pr2-review">
+                <legend class="pr2-sr-only">Review your payment request</legend>
+                <div class="pr2-card-heading"><h2>Review your request</h2><span id="draftBadge" class="bcn-pill">Not submitted</span></div>
+                <div class="pr2-fields">
+                  <div class="pr2-vendor"><label class="bcn-label" for="vendor_name">Vendor / payee <span aria-hidden="true">*</span></label><input class="bcn-field" id="vendor_name" name="vendor_name" list="vendorOptions" maxlength="300" placeholder="Who should be paid?" required /><datalist id="vendorOptions"></datalist><small id="vendorHint">Choose an existing name or enter a new payee.</small></div>
+                  <div><label class="bcn-label" for="amount_due">Amount requested <span aria-hidden="true">*</span></label><div class="pr2-money"><input class="bcn-field bcn-field--mono" id="amount_due" name="amount_due" inputmode="decimal" placeholder="0.00" required maxlength="14" /><select class="bcn-field" id="currency" name="currency" aria-label="Currency" required><option value="">Currency</option><option>USD</option><option>CAD</option><option>EUR</option><option>GBP</option><option value="OTHER">Other</option></select></div><small id="amountHint">For a deposit or partial payment, enter only the amount requested.</small></div>
+                  <div class="pr2-full"><label class="bcn-label" for="request_type">Request type <span aria-hidden="true">*</span></label><select class="bcn-field" id="request_type" name="request_type" required><option value="">Choose a request type</option><option value="invoice_vendor_payment">Invoice / vendor payment</option><option value="inventory_deposit">Inventory deposit</option><option value="inventory_balance">Inventory balance</option><option value="inventory_freight">Inventory freight</option><option value="employee_reimbursement">Employee reimbursement</option><option value="customer_refund">Customer refund</option></select><small id="typeHint">The request goes to AP for review.</small></div>
+                  <div><label class="bcn-label" for="invoice_number">Invoice / receipt reference</label><input class="bcn-field" id="invoice_number" name="invoice_number" maxlength="200" placeholder="Read from document, when available" /></div>
+                  <div><label class="bcn-label" for="due_date">Due date</label><input class="bcn-field" type="date" id="due_date" name="due_date" /></div>
+                </div>
+                <details id="poDetails" class="pr2-po"><summary>Related purchase orders <span id="poCount">Optional</span></summary><div id="poChips" class="pr2-chips"></div><label class="bcn-label" for="poSearch">Find a purchase order</label><input id="poSearch" class="bcn-field" type="search" placeholder="Search PO or factory" /><div id="poList" class="pr2-po-list"></div><small id="poHelp">Loading available purchase orders…</small><label class="bcn-label" for="manualPo">Other PO references</label><input id="manualPo" class="bcn-field" maxlength="1000" placeholder="Comma-separated references, if not listed" /></details>
+                <div id="freightNotice" class="bcn-status bcn-status--info" hidden><p id="freightText"></p><div id="costingLinks" class="pr2-chips"></div></div>
+                <label class="bcn-label" for="location_name">Location / department</label><input class="bcn-field" id="location_name" name="location_name" list="locationOptions" maxlength="300" placeholder="Optional — store, department or location" /><datalist id="locationOptions"></datalist>
+                <details class="pr2-extra"><summary>Additional references &amp; notes <small>Flex ID · Notes</small></summary><label class="bcn-label" for="flex_id">Flex ID</label><input class="bcn-field" id="flex_id" name="flex_id" maxlength="200" /><label class="bcn-label" for="notes_comments">Notes for AP</label><textarea class="bcn-field" id="notes_comments" name="notes_comments" rows="3" maxlength="10000" placeholder="Explain anything AP needs to know, including a partial payment."></textarea></details>
+                <details class="pr2-requester"><summary>Requested by <span id="requesterLabel"></span><small>Edit</small></summary><label class="bcn-label" for="requester_email">Requester email <span aria-hidden="true">*</span></label><input class="bcn-field" type="email" id="requester_email" name="requester_email" maxlength="320" required /></details>
+              </fieldset>
+              <section id="duplicatePanel" class="bcn-card pr2-checks" aria-live="polite"><strong>Check for an existing request</strong><p id="duplicateText">Enter a payee and amount, then check before submitting.</p><button id="checkDuplicates" type="button" class="bcn-btn bcn-btn--ghost">Check now</button><ul id="duplicateList"></ul><label id="duplicateAckWrap" class="pr2-check" hidden><input id="duplicateAck" type="checkbox" /> I reviewed these possible matches; this is a separate request.</label><small>Checks only requests you can access. AP still reviews for duplicates.</small></section>
+              <label class="pr2-check pr2-human"><input id="reviewed" type="checkbox" required /> I checked the payee, amount, currency and document details.</label>
+              <footer class="bcn-card pr2-actions"><div><strong>Next: AP review</strong><small>Submission does not send a payment.</small><small id="saveState">Drafts stay on this device until you submit.</small></div><div class="pr2-buttons"><button id="saveDraft" type="button" class="bcn-btn bcn-btn--ghost">Save draft on device</button><button id="submitBtn" type="submit" class="bcn-btn bcn-btn--primary">Submit to AP</button></div></footer>
+            </form>
+          </div>
+          <aside class="bcn-card pr2-source"><div class="pr2-card-heading"><h2>Original document</h2><a id="openDocument" target="_blank" rel="noopener noreferrer" hidden>Open ↗</a></div><label for="sourceSelect" class="pr2-sr-only">Document to preview and read</label><select id="sourceSelect" class="bcn-field"><option value="">No document selected</option></select><div id="preview" class="pr2-preview"><p>Your document appears here while you review the request.</p></div><button id="readDocument" class="bcn-btn bcn-btn--ghost" type="button" disabled>Read selected document</button><p class="pr2-document-note">Reading sends this document to SILO’s AI provider for suggested fields. You review before submitting.</p><div id="attachmentList" class="pr2-attachments"></div><button id="addDocuments" class="bcn-btn bcn-btn--ghost" type="button">+ Supporting documents</button></aside>
+        </div>
+      </div>
+      <section id="success" class="bcn-card pr2-message" hidden><span class="bcn-pill bcn-pill--pos">Sent to AP</span><h2>Your request is in review</h2><p id="successText"></p><p>Reference: <strong id="successId" class="bcn-mono"></strong></p><a href="purchase_request2.html" class="bcn-btn bcn-btn--primary">Start another request</a></section>
+    </div>
+  </main>
+</div>
+<script type="module" src="payment-request2.js"></script>
+</body>
+</html>

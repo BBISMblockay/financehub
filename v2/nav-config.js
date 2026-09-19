@@ -119,6 +119,7 @@
     // grandfathered-only.
     // WPV Receivables removed 2026-08-16 — stale Google Sheets flow, page retired.
     { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/payment-request-2', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request 2 · Beta', href: '/v2/purchase_request2.html', profiles: ['grandfathered', 'standard'] },
     // logistics added alongside FINANCE_DEPTS so that department can still
     // see Request Manager to track payment requests they submitted --
     // RLS (payment_requests_active_select) already lets anyone see their
