@@ -1,12 +1,14 @@
 import { REQUEST_TYPES, ACTIVE_PO_STATUSES, FIELD_NAMES, normalizeName, money, validateFields, applySuggestions, clearSourceSuggestions, duplicateMatches, documentMime } from './payment-request2-core.js';
 import { saveDraft, listDrafts } from './payment-request2-drafts.js';
+import { readDocumentOnDevice } from './payment-request2-reader-browser.js';
+import { interpretMissing } from './payment-request2-reader.js';
 import { submitRequest } from './payment-request2-submit.js';
 
 const $ = id => document.getElementById(id);
 const cfg = window.__SILO_CONFIG__ || {};
 let db, user, company, scope, draft, busy = false, invalidSession = false;
 let vendors = [], pos = [], locations = [], selectedPos = new Set(), duplicateState = null;
-let previewUrl = null, readGeneration = 0, checkingGeneration = 0, dirty = false;
+let previewUrl = null, readGeneration = 0, checkingGeneration = 0, dirty = false, readingController;
 const feedback = (message, tone = 'info') => {
   $('status').className = `bcn-status bcn-status--${tone}`;
   $('status').textContent = message; $('status').hidden = !message;
@@ -33,7 +35,7 @@ function changed() {
 function lockUI() {
   const frozen = !!draft?.payload;
   $('editFields').disabled = busy || frozen || invalidSession;
-  for (const id of ['sourceSelect', 'readDocument', 'addDocuments', 'fileInput', 'saveDraft', 'startPo', 'startManual', 'applySuggestions', 'checkDuplicates', 'reviewed']) {
+  for (const id of ['sourceSelect', 'readDocument', 'addDocuments', 'fileInput', 'saveDraft', 'startPo', 'startManual', 'applySuggestions', 'assistMissing', 'aiConsent', 'checkDuplicates', 'reviewed']) {
     $(id).disabled = busy || frozen || invalidSession;
   }
   $('submitBtn').disabled = busy || invalidSession;
@@ -131,7 +133,7 @@ function changeSource(id) {
     capture();
     for (const name of draft.appliedPos || []) selectedPos.delete(name);
     draft.appliedPos = []; renderPOs();
-    draft.fields = clearSourceSuggestions(draft.fields, draft.applied); draft.applied = {}; draft.suggestion = null;
+    draft.fields = clearSourceSuggestions(draft.fields, draft.applied); draft.applied = {}; draft.suggestion = null; draft.localRead = null; $('aiConsent').checked = false;
     for (const key of FIELD_NAMES) $(key).value = draft.fields[key] || '';
     draft.primaryId = id; changed();
   }
@@ -184,8 +186,11 @@ async function addFiles(files) {
 function renderSuggestions() {
   const s = draft.suggestion; $('extractionPanel').hidden = !s; $('applySuggestions').hidden = !s;
   $('extractionWarnings').replaceChildren();
+  $('localText').textContent = draft.localRead?.text || '';
+  $('localTextDetails').hidden = !draft.localRead;
+  $('aiHelp').hidden = !draft.localRead || draft.localRead.multipleInvoices || !['vendor_name', 'amount_due', 'currency', 'invoice_number'].some(key => s?.[key] == null);
   if (!s) return;
-  $('extractionText').textContent = 'Suggestions are ready. Fill empty fields, then compare the request with your document.';
+  $('extractionText').textContent = draft.localRead ? `${draft.localRead.method === 'ocr' ? 'Text read from the scan' : 'PDF text read'} on this device${draft.aiAssisted ? '; AI helped with missing details' : '; no AI used'}. Review the suggestions before filling fields.` : 'Saved document suggestions. Review before filling fields.';
   for (const warning of s.warnings || []) $('extractionWarnings').append(element('li', warning));
   if (s.currency && s.currency !== 'USD') $('extractionWarnings').append(element('li', `This document is in ${s.currency}. This workflow records USD only; ask AP to resolve the currency.`));
   const unmatched = (s.po_references || []).filter(ref => !pos.some(p => p.po_name.toLowerCase() === ref.toLowerCase()));
@@ -194,34 +199,36 @@ function renderSuggestions() {
 async function readDocument() {
   if (busy || draft.payload || !readablePrimary()) return;
   busy = true; lockUI(); const generation = ++readGeneration, sourceId = draft.primaryId;
+  readingController = new AbortController();
   try {
-    await assertContext();
-    feedback('Reading this document… Your existing entries will be preserved.');
     const file = draft.files.find(f => f.id === sourceId);
-    const bytes = new Uint8Array(await file.blob.arrayBuffer()); let binary = '';
-    for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    const { data, error } = await db.functions.invoke('payment-request-extract', { body: { company_id: company.id, media_type: documentMime(file), data: btoa(binary) } });
+    const result = await readDocumentOnDevice(file, { signal: readingController.signal, progress: feedback });
     if (generation !== readGeneration || draft.primaryId !== sourceId || invalidSession) return;
-    if (error || data?.error) {
-      let message = data?.error;
-      if (!message && error?.context?.json) { try { message = (await error.context.json()).error; } catch { /* network response may not be JSON */ } }
-      throw Error(message || 'Document reading is unavailable. Your file is still attached; enter the details manually.');
-    }
-    if (data?.company_id !== company.id || !data.suggestion) throw Error('Document result could not be verified. Enter the details manually.');
-    await assertContext();
-    draft.suggestion = data.suggestion; renderSuggestions(); dirty = true;
-    feedback('Document read. Review its suggestions and fill the empty fields.');
+    draft.localRead = result; draft.suggestion = result.suggestion; draft.aiAssisted = false;
+    $('aiConsent').checked = false; changed(); renderSuggestions();
+    feedback('Document read on this device. Review the suggested details; fill anything missing manually.');
+  } catch (error) { feedback(error.message, 'neg'); }
+  finally { readingController = null; busy = false; lockUI(); }
+}
+async function assistMissing() {
+  if (busy || draft.payload || !draft.localRead) return;
+  if (!$('aiConsent').checked) { feedback('Check the permission to share extracted text, or continue manually.'); return; }
+  busy = true; lockUI(); const generation = ++readGeneration, sourceId = draft.primaryId;
+  try {
+    await assertContext(); feedback('Checking missing details…');
+    const result = await interpretMissing(draft.localRead, { consent: true, companyId: company.id, invoke: (...args) => db.functions.invoke(...args) });
+    if (generation !== readGeneration || draft.primaryId !== sourceId || invalidSession) return;
+    await assertContext(); draft.suggestion = result; draft.aiAssisted = true;
+    changed(); renderSuggestions(); feedback('Additional suggestions are ready. Check them against your document.');
   } catch (error) { feedback(error.message, 'neg'); }
   finally { busy = false; lockUI(); }
 }
+
 function useSuggestions() {
   if (busy || draft.payload || !draft.suggestion) return;
   capture(); const s = draft.suggestion;
   const result = applySuggestions(draft.fields, s);
   draft.fields = result.fields; draft.applied = { ...draft.applied, ...result.applied };
-  // Currency is a separate explicit confirmation; never silently turn CAD into USD.
-  draft.fields.currency = ['USD', 'CAD', 'EUR', 'GBP'].includes(s.currency) ? s.currency : s.currency ? 'OTHER' : '';
-  draft.applied.currency = draft.fields.currency;
   for (const key of FIELD_NAMES) $(key).value = draft.fields[key] || '';
   if (!draft.poNames.length) for (const ref of s.po_references || []) {
     const matches = pos.filter(p => p.po_name.toLowerCase() === ref.toLowerCase());
@@ -317,14 +324,14 @@ function bind() {
   $('dropzone').addEventListener('dragleave', () => $('dropzone').classList.remove('is-over'));
   $('dropzone').addEventListener('drop', e => { e.preventDefault(); $('dropzone').classList.remove('is-over'); void addFiles(e.dataTransfer.files); });
   $('sourceSelect').addEventListener('change', e => changeSource(e.target.value));
-  $('readDocument').addEventListener('click', readDocument); $('applySuggestions').addEventListener('click', useSuggestions);
+  $('readDocument').addEventListener('click', readDocument); $('assistMissing').addEventListener('click', assistMissing); $('applySuggestions').addEventListener('click', useSuggestions);
   $('checkDuplicates').addEventListener('click', async () => { try { await checkDuplicates(); } catch (error) { feedback(error.message, 'neg'); } });
   $('startManual').addEventListener('click', () => $('vendor_name').focus());
   $('startPo').addEventListener('click', () => { $('poDetails').open = true; $('poSearch').focus(); });
   window.addEventListener('beforeunload', e => { if (dirty || busy) { e.preventDefault(); e.returnValue = ''; } });
   db.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_OUT' || session?.user?.id && session.user.id !== user.id) {
-      invalidSession = true; readGeneration++; checkingGeneration++; lockUI();
+      invalidSession = true; readingController?.abort(); readGeneration++; checkingGeneration++; lockUI();
       $('app').hidden = true; $('success').hidden = true; $('signedOut').hidden = false;
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       feedback('Your sign-in changed. Reload before continuing. Saved drafts remain associated with their original user and company.');
@@ -345,7 +352,8 @@ async function boot() {
     const { data: settings, error: settingsError } = await db.from('company_settings').select('default_currency').eq('company_entity_id', company.id).maybeSingle();
     if (settingsError) throw Error('Could not verify the company currency. Reload before creating a request.');
     if (settings && settings.default_currency !== 'USD') throw Error('Payment Request 2 currently supports USD companies only. Ask AP about your company’s payment workflow.');
-    window.SiloChrome.mount({ appEl: '#silo-app', active: 'finance/payment-request-2', user: { email: user.email, role: 'MEMBER' }, crumbs: ['Requests', 'Payment Request 2'], supabaseClient: db });
+    if (!window.SiloChrome) $('silo-app').classList.add('pr2-standalone');
+    window.SiloChrome?.mount({ appEl: '#silo-app', active: 'finance/payment-request-2', user: { email: user.email, role: 'MEMBER' }, crumbs: ['Requests', 'Payment Request 2'], supabaseClient: db });
     $('app').hidden = false; bind(); renderDraft(); feedback('');
     await loadLookups(); await showDraftShelf();
   } catch (error) { feedback(error.message || 'Could not load this page. Please retry.', 'neg'); }

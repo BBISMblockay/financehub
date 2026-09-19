@@ -1,0 +1,1 @@
+{"name":"silo-payment-draft-storage-tests","private":true,"type":"module","dependencies":{"fake-indexeddb":"6.2.4"}}

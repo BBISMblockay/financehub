@@ -50,12 +50,13 @@ export function requestPayload(draft, userId, companyId) {
 // Model output can fill only known empty fields. No IDs, state or approval data.
 export function applySuggestions(fields, suggestion) {
   const next = { ...fields }, applied = {};
-  for (const key of ['vendor_name', 'request_type', 'amount_due', 'invoice_number', 'due_date', 'location_name']) {
+  for (const key of ['vendor_name', 'request_type', 'amount_due', 'invoice_number', 'due_date', 'location_name', 'currency']) {
     if (String(next[key] ?? '').trim()) continue;
     const value = suggestion[key];
     if (value === null || value === undefined || value === '') continue;
     if (key === 'amount_due' && money(value) === null) continue;
     if (key === 'request_type' && !Object.hasOwn(REQUEST_TYPES, value)) continue;
+    if (key === 'currency' && !['USD', 'CAD', 'EUR', 'GBP'].includes(value)) continue;
     if (key === 'due_date' && !validDate(value)) continue;
     if (typeof value !== 'string' && typeof value !== 'number') continue;
     next[key] = String(value).slice(0, 500);

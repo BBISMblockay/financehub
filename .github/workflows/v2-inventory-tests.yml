@@ -82,6 +82,19 @@ jobs:
       - name: Payment request document boundary
         run: node --test supabase/functions/payment-request-extract/handler.test.mjs
 
+  payment-draft-storage:
+    name: Payment draft storage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated IndexedDB test implementation
+        run: npm ci --prefix v2/tests/draft-storage --ignore-scripts --no-audit --no-fund
+      - name: Check completed-request content cleanup and retry retention
+        run: node v2/tests/draft-storage/storage.test.mjs
+
   payment-extract-typecheck:
     name: Payment extraction Edge imports
     runs-on: ubuntu-latest

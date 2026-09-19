@@ -35,9 +35,10 @@ export async function submitRequest({ db, draft, userId, companyId, assertContex
   draft.requestSaved = true;
   await checkpoint(draft);
   if (!['new', 'in_review', 'needs_info'].includes(row.workflow_status)) {
-    draft.status = 'submitted';
+    if (draft.status === 'submitted') return { requestId: draft.id, filesComplete: true, message: 'Your completed request is already with AP.' };
+    draft.status = 'needs_ap_help';
     await checkpoint(draft);
-    return { requestId: draft.id, filesComplete: false, message: 'AP has already moved this request forward. Contact AP about any remaining documents.' };
+    return { requestId: draft.id, filesComplete: false, message: 'AP has already moved this request forward. Contact AP about any remaining documents. They remain in the saved draft on this device.' };
   }
   for (const [index, attachment] of draft.files.entries()) {
     await assertContext();
