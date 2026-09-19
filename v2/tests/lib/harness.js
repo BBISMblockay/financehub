@@ -495,4 +495,4 @@ async function startSuite(options = {}) {
   return { base, context, open, close };
 }
 
-module.exports = { startSuite, REPO_ROOT };
+module.exports = { startSuite, REPO_ROOT, fakeSupabaseScript, CONFIG_STUB };

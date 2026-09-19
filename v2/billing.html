@@ -43,64 +43,64 @@
     .bil-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
     .bil-note { font-size: 12px; color: var(--bcn-ink-3); line-height: 1.55; max-width: 76ch; }
   </style>
+  <link rel="stylesheet" href="payments-ui.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
+  <script src="payments-ui.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main payments-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Billing</div>
-          <div class="bcn-header-sub">What this company pays for SILO. Cards and receipts are handled by Stripe.</div>
+          <div class="bcn-header-sub">Your SILO subscription.</div>
         </div>
         <div class="bcn-header-actions">
-          <button class="bcn-btn bcn-btn--ghost" id="btnSync">Refresh from Stripe</button>
-          <button class="bcn-btn bcn-btn--primary" id="btnPortal" hidden>Manage billing</button>
+          <button class="bcn-btn bcn-btn--ghost" id="btnSync" aria-label="Refresh from Stripe" title="Refresh from Stripe"><span data-pay-icon="refresh"></span></button>
+          <button class="bcn-btn bcn-btn--primary" id="btnPortal" hidden>Manage billing <span data-pay-icon="arrow"></span></button>
         </div>
       </header>
 
       <div class="bil-page">
-        <div class="bcn-status" id="status" hidden></div>
+        <div class="bcn-status" id="status" role="status" hidden></div>
 
-        <div class="bil-card">
+        <div class="bcn-card bil-card bil-hero">
           <div class="bil-card-head">
-            <div class="bil-title">Current subscription</div>
+            <div class="bil-title">Your plan</div>
             <div class="bil-sub" id="subSynced"></div>
           </div>
           <div class="bil-body" id="current"><div class="bil-empty">Loading…</div></div>
         </div>
 
-        <div class="bil-card" id="planCard">
+        <div class="bcn-card bil-card" id="planCard">
           <div class="bil-card-head">
             <div>
               <div class="bil-title">Plans</div>
-              <div class="bil-sub">Checkout and cancellation happen on Stripe's own pages.</div>
+              <div class="bil-sub">Secure checkout with Stripe.</div>
             </div>
           </div>
           <div class="bil-body"><div class="bil-plans" id="plans"></div></div>
         </div>
 
-        <div class="bil-card">
+        <div class="bcn-card bil-card">
           <div class="bil-card-head">
-            <div class="bil-title">Invoice history</div>
+            <div class="bil-title"><span data-pay-icon="invoice"></span> Invoice history</div>
             <div class="bil-sub" id="invCount"></div>
           </div>
-          <table class="bil-table" id="tblInvoices">
+          <div class="pay-scroll" tabindex="0" role="region" aria-label="Invoice history"><table class="bil-table" id="tblInvoices">
             <tbody><tr><td class="bil-empty">Loading…</td></tr></tbody>
-          </table>
+          </table></div>
         </div>
 
-        <details class="bil-note">
-          <summary>Stripe &amp; billing</summary>
-          Card details stay on Stripe (Checkout / Billing Portal). A past-due subscription is shown here; access is not auto-disabled in SILO.
-        </details>
+        <div class="pay-footnote"><span data-pay-icon="lock"></span> Card details stay with Stripe.</div>
+        <details class="pay-disclosure"><summary>Billing &amp; access</summary><p>Manage cards, plan changes and cancellation in Stripe. A past-due subscription does not automatically switch off SILO access; we follow up with you.</p></details>
       </div>
     </main>
   </div>
@@ -122,6 +122,8 @@
   let _plans = [];
 
   const el = (id) => document.getElementById(id);
+  const { icon, decorate } = window.SiloPaymentsUI;
+  decorate();
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -193,9 +195,12 @@
     el('btnPortal').hidden = !_sub?.stripe_customer_id;
 
     if (!_sub || !_sub.stripe_subscription_id) {
-      host.innerHTML = `<div class="bil-note">
-        <strong>No active SILO subscription for this company.</strong><br/>
-        Pick a plan below. Checkout opens on Stripe; nothing is charged until it completes.
+      host.innerHTML = `<div class="bil-hero-plan">
+        <span class="pay-symbol">${icon('card')}</span>
+        <div><div class="bil-hero-name">Make room for growth.</div>
+        <div class="bil-hero-message">No subscription on file.</div></div>
+      </div><div class="bil-hero-message">
+        ${_plans.length ? 'Choose a plan below to get started.' : 'Plans are not configured yet. Contact your SILO administrator.'}
       </div>`;
       el('subSynced').textContent = '';
       return;
@@ -206,29 +211,27 @@
     // subscription set to cancel at period end has a date that is the LAST day
     // of service, and calling that "renews on" is the kind of wrong that gets
     // noticed the morning after access was expected to continue.
-    const endLabel = s.cancel_at_period_end ? 'Ends' : 'Renews';
+    const endLabel = s.cancel_at_period_end ? 'Ends' : LIVE_STATUSES.includes(s.status) ? 'Renews' : 'Period ended';
 
     host.innerHTML = `
+      <div class="bil-hero-main">
+        <div class="bil-hero-plan"><span class="pay-symbol">${icon('card')}</span>
+          <div><div class="bil-fact-label">SILO subscription</div>
+          <div class="bil-hero-name">${esc(s.plan_title || s.plan_key || 'Subscription')}</div></div>
+        </div>
+        <span class="${STATUS_PILL[s.status] || 'bcn-pill'}">${esc((s.status || 'unknown').replace(/_/g, ' '))}</span>
+      </div>
+      <div class="bil-hero-price">${money(s.unit_amount_cents == null ? null : s.unit_amount_cents * (s.quantity || 1), s.currency)}
+        ${s.billing_interval ? `<small>/ ${esc(s.billing_interval)}</small>` : ''}</div>
+      ${s.collection_issue ? '<p class="bil-hero-message bil-hero-message--warn">Payment needs attention. Open Manage billing to update it.</p>' : ''}
       <div class="bil-current">
-        <div class="bil-fact">
-          <span class="bil-fact-label">Plan</span>
-          <span class="bil-fact-value">${esc(s.plan_title || s.plan_key || '—')}</span>
-          ${s.billing_interval ? `<span class="bil-fact-note">billed ${esc(s.billing_interval)}ly</span>` : ''}
-        </div>
-        <div class="bil-fact">
-          <span class="bil-fact-label">Status</span>
-          <span><span class="${STATUS_PILL[s.status] || 'bcn-pill'}">${esc(s.status || 'unknown')}</span></span>
-          ${s.collection_issue
-            ? `<span class="bil-fact-note">Payment is not going through — open Manage billing.</span>` : ''}
-        </div>
         <div class="bil-fact">
           <span class="bil-fact-label">${endLabel}</span>
           <span class="bil-fact-value">${dateText(s.current_period_end)}</span>
         </div>
         <div class="bil-fact">
-          <span class="bil-fact-label">Amount</span>
-          <span class="bil-fact-value">${money(
-            s.unit_amount_cents == null ? null : s.unit_amount_cents * (s.quantity || 1), s.currency)}</span>
+          <span class="bil-fact-label">Billing cycle</span>
+          <span class="bil-fact-value">${esc(s.billing_interval || '—')}</span>
           ${s.seat_based ? `<span class="bil-fact-note">${s.quantity || 1} seats</span>` : ''}
         </div>
       </div>`;
@@ -243,8 +246,11 @@
       el('planCard').hidden = true;
       return;
     }
-    el('planCard').hidden = false;
-    host.innerHTML = _plans.map((p) => {
+    // The current plan already has a full card above. Keep alternatives and
+    // their existing portal-vs-checkout decisions, without duplicating it.
+    const available = _plans.filter((p) => planAction(_sub, p.plan_key).kind !== 'current');
+    el('planCard').hidden = !available.length;
+    host.innerHTML = available.map((p) => {
       // planAction is the SAME rule the edge function refuses on, so a button
       // can never offer what the server will reject. It used to say "Switch to
       // this plan" and call Checkout -- but Stripe Checkout in subscription
@@ -265,12 +271,8 @@
       </div>`;
     }).join('');
 
-    if (_plans.some((p) => planAction(_sub, p.plan_key).kind === 'portal')) {
-      host.insertAdjacentHTML('afterend',
-        '<div class="bil-note" style="margin-top:10px">Plan changes go through Stripe\'s billing '
-        + 'portal, which applies its own proration rules. Starting a second checkout here would '
-        + 'create a second subscription rather than replacing this one.</div>');
-    }
+    // Portal policy is explained once in Billing & access, not appended on
+    // every sync (which used to grow a duplicate paragraph each time).
   }
 
   async function renderInvoices() {
@@ -290,7 +292,7 @@
     }
     t.innerHTML = `
       <thead><tr><th>Invoice</th><th>Period</th><th>Status</th>
-        <th class="bil-num">Amount</th><th class="bil-num">Paid</th><th></th></tr></thead>
+        <th class="bil-num">Amount</th><th class="bil-num">Paid</th><th><span class="pay-sr-only">Document</span></th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td class="bcn-mono">${esc(r.number || '—')}</td>
         <td>${dateText(r.period_start)}</td>
@@ -298,9 +300,9 @@
         <td class="bil-num">${money(r.amount_due_cents, r.currency)}</td>
         <td class="bil-num">${money(r.amount_paid_cents, r.currency)}</td>
         <td class="bil-num">${r.invoice_pdf_url
-          ? `<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener" href="${esc(r.invoice_pdf_url)}">PDF</a>`
+          ? `<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener" href="${esc(r.invoice_pdf_url)}" aria-label="Download invoice ${esc(r.number || '')} PDF" title="Download PDF">${icon('download')}</a>`
           : (r.hosted_invoice_url
-            ? `<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener" href="${esc(r.hosted_invoice_url)}">Open</a>`
+            ? `<a class="bcn-btn bcn-btn--ghost" target="_blank" rel="noopener" href="${esc(r.hosted_invoice_url)}" aria-label="Open invoice ${esc(r.number || '')} in Stripe" title="Open in Stripe">${icon('arrow')}</a>`
             : '')}</td>
       </tr>`).join('')}</tbody>`;
   }
@@ -316,13 +318,15 @@
   async function load() {
     let sq = sb.from('billing_subscriptions_v').select('*');
     if (_co?.id) sq = sq.eq('company_entity_id', _co.id);
-    const { data: sub } = await sq.maybeSingle();
+    const { data: sub, error: subError } = await sq.maybeSingle();
+    if (subError) throw new Error('Subscription unavailable: ' + subError.message);
     _sub = sub || null;
 
-    const { data: plans } = await sb.from('billing_plans')
+    const { data: plans, error: planError } = await sb.from('billing_plans')
       .select('plan_key, title, description, unit_amount_cents, currency, billing_interval, seat_based')
       .eq('is_active', true)
       .order('sort_order');
+    if (planError) throw new Error('Plans unavailable: ' + planError.message);
     _plans = plans || [];
 
     renderCurrent();

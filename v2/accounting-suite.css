@@ -57,6 +57,11 @@
 .accounting-workspace .bcn-header-title {display:block;font-size:18px;font-weight:650;line-height:1.3;letter-spacing:-.025em;margin:0;}
 .accounting-workspace .bcn-header-sub {font-size:12px;font-weight:400;letter-spacing:0;line-height:1.4;margin-top:3px;max-width:80ch;color:var(--bcn-ink-2);}
 .accounting-workspace .bcn-header-actions {align-items:center;flex-wrap:wrap;}
+.accounting-workspace .bcn-header-actions > .accounting-action {display:inline-flex;align-items:center;justify-content:center;gap:6px;border-color:transparent;background:transparent;box-shadow:none;color:var(--bcn-ink-2);padding:6px 9px;}
+.accounting-workspace .bcn-header-actions > .accounting-action:hover {background:var(--bcn-accent-soft);color:var(--bcn-accent);}
+.accounting-action svg {width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+.accounting-workspace #ccTabs .bcn-tab {color:var(--bcn-ink-2);}
+.accounting-workspace #ccTabs .bcn-tab--active {color:var(--bcn-accent);}
 .accounting-workspace .bcn-btn {border-radius:6px;min-height:30px;font-family:var(--bcn-font);font-size:12px;}
 .accounting-workspace .bcn-field {border-radius:6px;min-height:30px;font-size:12px;}
 .accounting-workspace :is(.qr-page,.sc-page,.fa-page,.cf-page) {padding:12px 18px 28px;}
