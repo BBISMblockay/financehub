@@ -67,3 +67,19 @@ No migration or permission broadening is required.
 
 - Confirmed the downloaded Tesseract browser ESM uses `default.createWorker`; the adapter uses that actual export. Export contract checked in Node with `self` stubbed, separately from the real Node OCR test.
 - Deno entry-point check attempted; the existing pinned Supabase import at esm.sh was refused by this environment's network. CI retains the typecheck job.
+
+## PR #727 cycle 1 correction preflight
+
+Review comment 5740303808 contains three valid findings. Tests before implementation: local bare-dollar reading -> fill-empty action -> valid USD payload; text PDF with a logo survives unavailable OCR and embedded values win over supplemental OCR; completed submission leaves only a content-free IndexedDB tombstone while failed uploads retain recoverable files. Add IndexedDB migration/stale-tab checks so older completed records are scrubbed and cannot be resurrected by an old draft. Existing AP, tenant and provider boundaries remain unchanged.
+
+
+### Cycle 1 resolutions and verification
+
+- Finding 1: currency now uses the same fill-empty helper as other fields. Existing/default USD stays intact for bare-dollar reads; only an empty field with an explicit supported currency is marked as auto-filled. Existing foreign-source submission refusal stays in place.
+- Finding 2: embedded text remains primary evidence. A text invoice with an invoice reference and amount due skips decorative-image OCR; incomplete mixed pages may use OCR as a supplement. Failed supplemental OCR keeps embedded text with a warning. OCR cannot replace embedded fields or resolve conflicting embedded amounts silently. Different invoice references across text/scan sources still suppress suggestions.
+- Finding 3: completed checkpoints write a minimal revision tombstone, not the draft payload, document Blobs or extracted plaintext. IndexedDB version 2 also scrubs previously submitted records. Stale tabs cannot resurrect completed content. Partial uploads and AP-forwarded requests with unfinished documents remain recoverable/visible; a completed retry stays scrubbed even after AP advances its status.
+- Regression results: all 12 v2 unit suites pass (18 reader checks plus existing 18 submission checks); 8 authenticated extraction checks pass; 5 IndexedDB integration scenarios pass using pinned fake-indexeddb 6.2.4. The storage scenarios execute real saveDraft/listDrafts and submitRequest against the test IndexedDB implementation and inspect persisted records.
+- Mutation checks independently reintroduced currency clearing, unnecessary decorative-image OCR and full completed-draft persistence; each made the corresponding regression fail. Original fixes restored. JS syntax, workflow YAML parse and diff whitespace checks pass.
+- Added a separate CI storage job with its own pinned package/lockfile; the existing unit gate remains dependency-free.
+- Browser gate attempted again: local Chromium executable remains absent. The independent cycle-1 review reports the same Browser CI failures on the base branch due to deleted shared chrome; these remain out of scope. Browser worker/CDN verification is still outstanding. Existing Edge imports passed CI on the reviewed head; Edge code is unchanged by this correction batch.
+- No Supabase migration, production write or deployment. The local IndexedDB upgrade happens when a user next opens the released page; old tabs may need closing to allow the upgrade.

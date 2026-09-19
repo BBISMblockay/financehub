@@ -229,9 +229,6 @@ function useSuggestions() {
   capture(); const s = draft.suggestion;
   const result = applySuggestions(draft.fields, s);
   draft.fields = result.fields; draft.applied = { ...draft.applied, ...result.applied };
-  // Currency is a separate explicit confirmation; never silently turn CAD into USD.
-  draft.fields.currency = ['USD', 'CAD', 'EUR', 'GBP'].includes(s.currency) ? s.currency : s.currency ? 'OTHER' : '';
-  draft.applied.currency = draft.fields.currency;
   for (const key of FIELD_NAMES) $(key).value = draft.fields[key] || '';
   if (!draft.poNames.length) for (const ref of s.po_references || []) {
     const matches = pos.filter(p => p.po_name.toLowerCase() === ref.toLowerCase());

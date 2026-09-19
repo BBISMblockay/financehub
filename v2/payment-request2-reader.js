@@ -59,13 +59,37 @@ export function textFromPdfItems(items) {
   return text.trim();
 }
 
+// Embedded PDF text is primary evidence; OCR may fill gaps, not replace it.
+function combineEvidence(primaryText, scannedText, readWarnings) {
+  const primary = suggestFromText(primaryText), scanned = suggestFromText(scannedText);
+  const p = primary.suggestion, o = scanned.suggestion;
+  const multipleInvoices = primary.multipleInvoices || scanned.multipleInvoices || !!(p.invoice_number && o.invoice_number && p.invoice_number !== o.invoice_number);
+  const suggestion = { ...p, warnings: unique([...p.warnings, ...o.warnings, ...readWarnings]), po_references: unique([...p.po_references, ...o.po_references]) };
+  const evidence = { ...scanned.evidence, ...primary.evidence };
+  for (const key of ['vendor_name', 'invoice_number', 'amount_due', 'invoice_total', 'due_date', 'currency', 'request_type', 'location_name']) {
+    const primaryConflict = p.warnings.some(w => w.startsWith(`Check ${key.replaceAll('_', ' ')}:`)) || (key === 'currency' && unique(primaryText.match(/\b(?:USD|CAD|EUR|GBP|AUD|NZD|JPY|CNY|CHF)\b/g) || []).length > 1);
+    if (p[key] === null && !primaryConflict) suggestion[key] = o[key];
+    else if (p[key] !== null && o[key] !== null && p[key] !== o[key]) suggestion.warnings.push(`The scan differs for ${key.replaceAll('_', ' ')}. The embedded PDF value was kept; check the original.`);
+  }
+  if (suggestion.currency) suggestion.warnings = suggestion.warnings.filter(w => !w.startsWith('Confirm the currency;'));
+  if (multipleInvoices) {
+    for (const key of Object.keys(suggestion)) if (!['warnings', 'po_references'].includes(key)) suggestion[key] = null;
+    suggestion.po_references = []; Object.keys(evidence).forEach(key => delete evidence[key]);
+    suggestion.warnings.push('More than one invoice reference was found. Enter each payment separately; no fields were suggested.');
+  }
+  return { suggestion, evidence, multipleInvoices };
+}
+
 // IO is injected so tests drive this exact ordering without contacting a provider.
 export async function readLocally(file, { openPdf, recognize, signal, progress = () => {} }) {
   const check = () => { if (signal?.aborted) throw Error('Reading stopped. Your document is still attached.'); };
   check();
   if (!file.blob?.size || file.blob.size > 4 * 1024 * 1024) throw Error('Read a PDF or image under 4 MB. You can still enter details manually.');
-  let text = '', scannedPages = 0, pdf;
-  const append = chunk => { if (text.length + (text ? 2 : 0) + chunk.length > MAX_TEXT) throw Error('This document has too much text to suggest details safely. Enter one invoice at a time.'); text += (text ? '\n\n' : '') + chunk; };
+  let text = '', primaryText = '', scannedText = '', scannedPages = 0, pdf;
+  const readWarnings = [];
+  const append = (chunk, scanned = false) => { if (!chunk.trim()) return; if (text.length + (text ? 2 : 0) + chunk.length > MAX_TEXT) throw Error('This document has too much text to suggest details safely. Enter one invoice at a time.'); text += (text ? '\n\n' : '') + chunk;
+    if (scanned) scannedText += (scannedText ? '\n\n' : '') + chunk; else primaryText += (primaryText ? '\n\n' : '') + chunk;
+  };
   try {
     if (/\.pdf$/i.test(file.name)) {
       progress('Reading PDF text on this device…'); pdf = await openPdf(file.blob, signal); check();
@@ -74,19 +98,30 @@ export async function readLocally(file, { openPdf, recognize, signal, progress =
         check(); const page = await pdf.getPage(n);
         try {
           const embedded = textFromPdfItems((await page.getTextContent()).items); check();
-          // Image operators also trigger OCR: mixed pages can have an embedded
-          // header but the payable details only in an image.
-          const scan = needsOCR(embedded) || await page.hasImages();
-          if (scan) { progress(`Reading scanned page ${n} of ${pdf.numPages} on this device…`); append(await recognize(await page.image(), signal)); scannedPages++; }
-          else append(embedded);
+          append(embedded);
+          const { suggestion } = suggestFromText(embedded);
+          const hasPaymentDetails = suggestion.invoice_number && suggestion.amount_due !== null;
+          const scan = !hasPaymentDetails && (needsOCR(embedded) || await page.hasImages());
+          if (scan) {
+            progress(`Reading scanned page ${n} of ${pdf.numPages} on this device…`);
+            let scanned;
+            try { scanned = await recognize(await page.image(), signal); check(); }
+            catch (error) {
+              check();
+              if (!embedded.trim()) throw error;
+              readWarnings.push(`Image text on page ${n} could not be read. Embedded PDF text is still available; check any missing details manually.`);
+            }
+            if (scanned !== undefined) { append(scanned, true); scannedPages++; }
+          }
+
         } finally { page.cleanup?.(); }
       }
     } else if (/\.(png|jpe?g|webp)$/i.test(file.name)) {
-      progress('Reading image text on this device…'); append(await recognize(file.blob, signal)); scannedPages++;
+      progress('Reading image text on this device…'); append(await recognize(file.blob, signal), true); scannedPages++;
     } else throw Error('Automatic fill supports PDFs and images. Enter this document manually.');
     check();
     if (!text.trim()) throw Error('No readable text was found. Try a clearer image or enter the details manually.');
-    const result = suggestFromText(text);
+    const result = combineEvidence(primaryText, scannedText, readWarnings);
     return { ...result, text, method: scannedPages ? 'ocr' : 'pdf-text', scannedPages };
   } finally { await pdf?.destroy(); }
 }
