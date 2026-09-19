@@ -111,11 +111,21 @@ stale. It is nullable, and null renders as "Contact us" rather than as free.
 
 ### 5. Nav
 
-Both pages are Pattern 1 and expect `finance/billing` and `finance/invoicing`
-nav keys. **`v2/nav-config.js` is currently absent from the repository** (it was
-deleted on `main` in `631ff17` on 2026-09-19), so no nav row could be added with
-this change. The pages are reachable by URL and work; they will want a row under
-Finance once that file is back.
+Both pages are Pattern 1 and carry nav rows in `v2/nav-config.js`:
+
+* **Invoicing** — section `Accounting` (`Operations` on a standard profile),
+  gated `departments: FINANCE_DEPTS`, which mirrors
+  `can_manage_client_invoices()`. Nav gating is UX only — RLS is the boundary —
+  but it keeps the link off menus whose owner would find the page empty.
+* **Billing** — section `Settings`, beside Integrations, gated
+  `roles: ADMIN_ROLES`, mirroring `billing_subscriptions`' `is_admin_user()`
+  select gate. Settings rather than Accounting because it is account
+  administration, not part of anybody's close. Changing the plan additionally
+  needs `owner_admin`, which `stripe-billing` enforces server-side.
+
+Note `v2/nav-config.js` had been deleted from the repository by `631ff17`
+(2026-09-19) while every Pattern 1 page still loaded it, so no page rendered a
+sidebar; it was restored in the same PR as these rows.
 
 ## How a client gets paid
 
