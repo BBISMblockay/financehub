@@ -582,7 +582,8 @@ jobs:
           for m in tax-open invites-readable submit-takes-terms submit-after-approval \
                    token-not-consumed claim-unguarded claim-steals-session release-no-bump \
                    webhook-any-company webhook-any-customer rebind-allowed \
-                   storage-bucket-only public-rpc-granted table-writable owner-any-company; do
+                   storage-bucket-only public-rpc-granted table-writable owner-any-company \
+                   activity-every-call; do
             echo "--- $m ---"
             if CUSTOMER_DB_MUTATION="$m" node scripts/tests/customer-onboarding-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

@@ -1171,7 +1171,8 @@ begin
   end if;
 
   -- Repeat completions are idempotent: the same session completing twice
-  -- writes the same row twice and changes nothing.
+  -- writes the same values and changes nothing -- including the activity log,
+  -- which is written on the transition only (see below).
   update public.customer_accounts
      set card_setup_status = 'succeeded',
          card_setup_intent_id = p_setup_intent_id,
@@ -1186,10 +1187,23 @@ begin
                 else default_payment_method_set_at end
    where id = v_account.id;
 
-  insert into public.customer_account_activity
-    (company_entity_id, customer_account_id, event, detail)
-  values (v_account.company_entity_id, v_account.id, 'card_captured',
-          coalesce(p_brand, '') || ' ****' || coalesce(p_last4, ''));
+  -- The activity row is written on the TRANSITION into a captured card, never
+  -- on every call. `v_account` is the locked pre-update state, so this is the
+  -- account as it was before the update above.
+  --
+  -- It matters because of how the caller now handles a failure to set the
+  -- invoice default: a transient one is rethrown so Stripe redelivers, and the
+  -- redelivery re-runs this function. Unconditional, that logs one
+  -- `card_captured` per delivery -- several audit entries for a single card,
+  -- which misrepresents the one thing the log exists to state. (Stripe's own
+  -- retry of an already-processed event is stopped earlier by the webhook
+  -- dedupe, so this path only opens once a delivery is deliberately failed.)
+  if v_account.card_setup_status is distinct from 'succeeded' then
+    insert into public.customer_account_activity
+      (company_entity_id, customer_account_id, event, detail)
+    values (v_account.company_entity_id, v_account.id, 'card_captured',
+            coalesce(p_brand, '') || ' ****' || coalesce(p_last4, ''));
+  end if;
 
   return json_build_object('ok', true, 'customer_account_id', v_account.id);
 end;

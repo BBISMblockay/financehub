@@ -41,6 +41,8 @@
 // Added after the cycle-1 independent review:
 //   CUSTOMER_DB_MUTATION=table-writable   (blanket client UPDATE on customer_accounts restored)
 //   CUSTOMER_DB_MUTATION=owner-any-company (the session-owner lookup ignores the company)
+// Added after the cycle-2 independent review:
+//   CUSTOMER_DB_MUTATION=activity-every-call (the capture is logged on every delivery)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -56,7 +58,7 @@ assert.ok([
   'token-not-consumed', 'claim-unguarded', 'claim-steals-session', 'release-no-bump',
   'webhook-any-company',
   'webhook-any-customer', 'rebind-allowed', 'storage-bucket-only', 'public-rpc-granted',
-  'table-writable', 'owner-any-company',
+  'table-writable', 'owner-any-company', 'activity-every-call',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -211,6 +213,11 @@ if (mutation === 'table-writable') {
   sql = sql.replace(
     /revoke insert, update, delete on public\.customer_accounts from authenticated;[\s\S]*?on public\.customer_accounts to authenticated;/,
     'grant insert, update, delete on public.customer_accounts to authenticated;');
+}
+if (mutation === 'activity-every-call') {
+  sql = sql.replace(
+    "  if v_account.card_setup_status is distinct from 'succeeded' then",
+    '  if true then');
 }
 if (mutation === 'owner-any-company') {
   sql = sql.replace("     and ca.company_entity_id = p_company;", "     ;");
@@ -763,6 +770,47 @@ await test('a repeated completion of the same session changes nothing', async ()
     'the capture time must not move on a redelivery');
   assert.equal(String(after.default_payment_method_set_at),
     String(before.default_payment_method_set_at));
+});
+
+await test('one card is ONE card_captured entry, however many deliveries arrive', async () => {
+  // The handler rethrows a transient failure to set the invoice default so
+  // Stripe redelivers -- and the redelivery re-runs this function. Logging on
+  // every call would put several capture entries in the audit trail for a
+  // single card, which misrepresents the one thing that trail exists to state.
+  //
+  // Two shapes, because they arrive by different routes: a plain duplicate
+  // completion, and the redelivery that the deliberate 500 provokes.
+  for (let i = 0; i < 3; i += 1) {
+    await q(`select public.record_customer_card_setup(
+      $1,'cs_second','seti_1','cus_real','pm_1','visa','4242',4,2030,$2)`,
+      [companyA, i % 2 === 0]);
+  }
+  const rows = await q(
+    `select count(*)::int n from public.customer_account_activity
+      where customer_account_id = $1 and event = 'card_captured'`, [cardAccount]);
+  assert.equal(rows[0].n, 1,
+    'the capture is logged on the TRANSITION, not once per webhook delivery');
+});
+
+await test('a genuinely new capture after an abandoned session IS logged', async () => {
+  // The guard must be "did it transition", not "has it ever been captured" --
+  // a card captured again after a release is a real, separate event.
+  const again = await invite('recapture@dugout.test');
+  await q(`select public.submit_customer_account($1,$2::jsonb)`,
+    [again.token, JSON.stringify(FORM)]);
+  await q(`select public.record_customer_account_consent($1,'2026-09-19.v1','...')`,
+    [again.customer_account_id]);
+  await q(`select * from public.claim_customer_card_setup($1)`, [again.customer_account_id]);
+  await q(`select public.note_customer_card_setup_session($1,'cs_recap')`,
+    [again.customer_account_id]);
+  await q(`select public.bind_customer_account_stripe_customer($1,'cus_recap')`,
+    [again.customer_account_id]);
+  await q(`select public.record_customer_card_setup(
+    $1,'cs_recap','seti_r','cus_recap','pm_r','visa','1111',1,2031,true)`, [companyA]);
+  const n = await one(`select count(*)::int n from public.customer_account_activity
+                        where customer_account_id=$1 and event='card_captured'`,
+    [again.customer_account_id]);
+  assert.equal(n.n, 1);
 });
 
 await test('a late expiry cannot undo a card that was already saved', async () => {
