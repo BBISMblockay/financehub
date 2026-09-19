@@ -35,6 +35,7 @@ on:
       - 'v2/*.js'
       - 'v2/*.css'
       - 'v2/tests/**'
+      - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
       # lives inside it). Without this path a login-only change runs nothing,
@@ -47,6 +48,7 @@ on:
       - 'v2/*.js'
       - 'v2/*.css'
       - 'v2/tests/**'
+      - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
       # lives inside it). Without this path a login-only change runs nothing,
@@ -77,6 +79,19 @@ jobs:
       # checkout; if that ever stops being true, this job fails and says so.
       - name: Run unit suites
         run: node v2/tests/run.js --unit
+      - name: Payment request document boundary
+        run: node --test supabase/functions/payment-request-extract/handler.test.mjs
+
+  payment-extract-typecheck:
+    name: Payment extraction Edge imports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check deployed entry point
+        run: npx --yes deno@2.9.6 check --no-config --node-modules-dir=none supabase/functions/payment-request-extract/index.ts
 
   browser:
     name: Browser

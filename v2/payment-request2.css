@@ -1,0 +1,72 @@
+.pr2-page { max-width: 1440px; margin: 0 auto; padding: 26px; color: var(--bcn-ink); font: 16px/1.5 var(--bcn-font); }
+.pr2-page [hidden] { display: none !important; }
+.pr2-page h1 { font-size: 30px; letter-spacing: -.7px; margin: 10px 0 4px; }
+.pr2-page h2 { font-size: 18px; margin: 0; }
+.pr2-page p { margin: 5px 0 12px; }
+.pr2-page small { display: block; color: var(--bcn-ink-2); font-size: 13px; line-height: 1.45; }
+.pr2-page .bcn-label { font-size: 14px; margin: 0 0 5px; }
+.pr2-page .bcn-field { width: 100%; min-width: 0; min-height: 42px; font-size: 15px; }
+.pr2-page .bcn-btn { min-height: 42px; font-size: 14px; white-space: normal; }
+.pr2-page .bcn-status { margin: 14px 0; }
+.pr2-heading { align-items: center; gap: 16px; }
+.pr2-heading p { color: var(--bcn-ink-2); }
+.pr2-steps { display: flex; gap: 24px; list-style: none; padding: 12px 0 20px; margin: 0; color: var(--bcn-ink-2); font-size: 14px; }
+.pr2-steps li { display: flex; gap: 9px; align-items: center; }
+.pr2-steps [aria-current] { color: var(--bcn-accent); font-weight: 700; }
+.pr2-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
+.pr2-left { min-width: 0; }
+.pr2-drop { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 5px; border: 1px dashed var(--bcn-accent); padding: 24px 16px; cursor: pointer; }
+.pr2-drop:hover, .pr2-drop.is-over { background: var(--bcn-bg); outline: 2px solid var(--bcn-accent); }
+.pr2-upload-icon { color: var(--bcn-accent); font-size: 27px; line-height: 1; }
+.pr2-start-actions { display: flex; gap: 8px; margin: 9px 0 18px; }
+.pr2-review { min-width: 0; margin: 0; padding: 22px; border: 1px solid var(--bcn-border); }
+.pr2-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.pr2-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.pr2-fields small { margin-top: 6px; }
+.pr2-full { grid-column: 1 / -1; }
+.pr2-money { display: grid; grid-template-columns: minmax(0, 1fr) 90px; gap: 6px; }
+.pr2-money input { font-size: 20px !important; }
+.pr2-page summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 13px 0; }
+.pr2-page summary small { display: inline; margin-left: 8px; font-weight: 400; }
+.pr2-po { margin: 16px 0; border-top: 1px solid var(--bcn-border); border-bottom: 1px solid var(--bcn-border); }
+.pr2-po summary span { font-weight: 400; color: var(--bcn-ink-2); float: right; }
+.pr2-po[open] { padding-bottom: 16px; }
+.pr2-po-list { max-height: 190px; overflow: auto; margin: 10px 0; }
+.pr2-po-list label { display: flex; gap: 9px; align-items: start; padding: 8px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--bcn-border); }
+.pr2-po-list input { margin-top: 5px; }
+.pr2-po-list span { min-width: 0; overflow-wrap: anywhere; }
+.pr2-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.pr2-chips button { border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink); padding: 6px 10px; border-radius: 16px; cursor: pointer; font-family: var(--bcn-mono); font-size: 13px; }
+.pr2-chips a { font-size: 14px; margin-right: 8px; }
+.pr2-extra { border-top: 1px solid var(--bcn-border); margin-top: 20px; }
+.pr2-extra textarea, .pr2-extra input { margin-bottom: 12px; }
+.pr2-requester { border-top: 1px solid var(--bcn-border); margin-top: 12px; }
+.pr2-requester summary span { font-weight: 400; overflow-wrap: anywhere; margin-left: 6px; }
+.pr2-checks { padding: 16px 20px; margin: 14px 0; }
+.pr2-checks p, .pr2-checks li { font-size: 14px; }
+.pr2-check { display: flex; align-items: start; gap: 10px; font-size: 14px; }
+.pr2-check input { margin-top: 4px; width: 17px; height: 17px; flex-shrink: 0; }
+.pr2-human { padding: 10px 4px 20px; }
+.pr2-actions { padding: 18px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 30px; }
+.pr2-actions strong { font-size: 15px; }
+.pr2-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.pr2-source { padding: 20px; position: sticky; top: 15px; min-width: 0; }
+.pr2-source .pr2-card-heading { margin-bottom: 12px; }
+.pr2-source a { font-size: 14px; }
+.pr2-preview { margin: 12px 0; height: 480px; background: var(--bcn-bg); border: 1px solid var(--bcn-border); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pr2-preview img { width: 100%; height: 100%; object-fit: contain; }
+.pr2-preview iframe { border: 0; height: 100%; width: 100%; background: white; }
+.pr2-preview p { text-align: center; padding: 20px; font-size: 14px; color: var(--bcn-ink-2); }
+.pr2-document-note { font-size: 13px; color: var(--bcn-ink-2); margin-top: 10px !important; }
+.pr2-attachments > div { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--bcn-border); font-size: 13px; }
+.pr2-attachments span { overflow-wrap: anywhere; }
+.pr2-attachments button { border: 0; background: transparent; color: var(--bcn-accent); cursor: pointer; min-height: 32px; }
+.pr2-suggestions { padding: 18px; margin-bottom: 18px; border-left: 3px solid var(--bcn-warn); }
+.pr2-suggestions p, .pr2-suggestions li { font-size: 14px; }
+.pr2-suggestions small { margin-top: 10px; }
+.pr2-draft-shelf, .pr2-message { padding: 22px; margin: 18px 0; }
+.pr2-draft-shelf button { margin: 10px 8px 0 0; }
+.pr2-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.pr2-page :focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 3px; }
+@media (max-width: 1100px) { .pr2-layout { grid-template-columns: minmax(0, 1.3fr) minmax(260px, 1fr); gap: 14px; } .pr2-page { padding: 18px; } .pr2-fields { grid-template-columns: 1fr; gap: 14px; } }
+@media (max-width: 780px) { .pr2-layout { grid-template-columns: 1fr; } .pr2-source { position: static; } .pr2-preview { height: 250px; } .pr2-steps { gap: 12px; font-size: 12px; } .pr2-page { padding: 14px; } .pr2-review { padding: 16px; } .pr2-heading { flex-wrap: wrap; } .pr2-page h1 { font-size: 26px; } .pr2-page .bcn-field { font-size: 16px; } .pr2-actions { padding: 15px; } .pr2-buttons { width: 100%; } .pr2-buttons .bcn-btn { flex: 1; } }
