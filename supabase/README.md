@@ -1572,3 +1572,48 @@ navigation suites), and `scripts/tests/workspace-settings-concurrency.test.mjs`
 (two real PostgreSQL connections; skips loudly without a server, and CI sets
 `SILO_PG_REQUIRED=1` so an absent one fails rather than passing quietly). All
 three in `sync-tests.yml`.
+
+## entities: remove client UPDATE — `20260920130000_entities_update_lockdown.sql`
+
+Found by the verify check that shipped with `20260920120000`, the first time it
+ran against production. Not caused by it — the check is simply the first thing
+that ever looked.
+
+`entities` carried two permissive UPDATE policies, `entities_update_member` and
+`entities_update_access`, both resolving to `is_entity_member(id)` — which has
+no role filter. RLS cannot scope to columns, so **any member of a company, a
+`viewer` included, could rewrite its own row entirely from the browser**:
+`title`, `entity_key`, `meta`, `entity_type`.
+
+**Bounded to the caller's own tenant.** `is_entity_member` is false for every
+other company's row, and isolation everywhere else keys on
+`company_entity_id`, not on anything writable here. So this is privilege
+escalation *inside* a company — a viewer performing an owner's act — not a
+cross-tenant read or write. It is not the `entity_memberships` hole
+`20260917220000` closed, which handed out `owner_admin` of an arbitrary
+company.
+
+What it reached: `entity_key` and `meta.nav_profile` are what
+`resolveNavProfile()` reads to decide **whose menu** a company is served, so a
+member could serve themselves the grandfathered sidebar (no data follows —
+RLS still scopes every query); `title` had just been made owner-only through
+`set_workspace_company_name()`, which was the right path and not the only one;
+and `entity_type` away from `'company'` breaks the caller's own company
+resolution.
+
+Nothing legitimate used the policies. Every write runs through a SECURITY
+DEFINER function (`handle_new_user`, `redeem_platform_invite`,
+`set_workspace_company_name`) or the service role, and neither is affected by
+a policy or a grant on `authenticated`. The only client references are reads.
+The grant is revoked as well as the policies dropped, so a future permissive
+policy added in good faith cannot reopen it alone.
+
+`entities_insert_active_user` is deliberately left alone — a row with no
+membership can never become anyone's active company, so it is litter rather
+than escalation, and narrowing INSERT is its own decision.
+
+Regressions: `scripts/tests/entities-update-lockdown.test.mjs` (7 assertions,
+2 mutations). It **builds the production policies first and asserts the hole
+exists**, so closing it proves something; and because either layer alone
+refuses the write, the two are pinned structurally against `pg_policy` and
+`has_table_privilege` rather than through behaviour.
