@@ -152,7 +152,10 @@
     {
       name: 'Confirm your company settings',
       why: 'Your business timezone decides what every daily report calls "yesterday". Your reporting currency is checked against QuickBooks when you connect your books.',
-      href: '/v2/profile.html',
+      // /v2/profile.html is the signed-in PERSON's profile and has never held
+      // these settings; the Company tab of Workspace settings is where they
+      // actually are, and where they can now be changed.
+      href: '/v2/settings-company.html',
       cta: 'Review',
       probe: settings,
       state: () => {
@@ -163,7 +166,10 @@
     {
       name: 'Invite your teammates',
       why: 'An invite creates their account in your company only. They never see, and are never seen by, any other company in SILO.',
-      href: '/v2/backend.html',
+      // Workspace settings' Team tab, not the Backend hub: inviting somebody
+      // to this company is workspace scope, and the hub also carries
+      // platform-scope controls.
+      href: '/v2/settings-team.html',
       cta: 'Invite',
       probe: members,
       state: () => {

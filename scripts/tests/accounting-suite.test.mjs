@@ -35,7 +35,11 @@ const mountNav=(active)=>{
 test('all accounting destinations are one click away and the current page is identified',()=>{
   for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast']){
     const m=mountNav(active);
-    assert.equal(m.links.length,7);assert.equal(m.links.filter(l=>l.attributes['aria-current']==='page').length,1);
+    // 8, not 7: Invoicing joined ACCOUNTING_PAGES and this count was not
+    // updated with it, so the suite had been red on main. Kept as a literal
+    // rather than pages().length -- the point is that every destination is one
+    // click away, and comparing the list to itself would assert nothing.
+    assert.equal(m.links.length,8);assert.equal(m.links.filter(l=>l.attributes['aria-current']==='page').length,1);
     assert.ok(m.links.every(l=>l.href.startsWith('/v2/')));
     const first=m.nav;m.remount();assert.equal(first,m.nav);
     assert.equal(m.window.SiloAccounting.contains('inventory/overview'),false);

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Team</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="workspace-settings.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main workspace-settings">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Team</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Who is in this workspace, and what they can do here.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--ghost" id="btnReload">Reload</button>
+        </div>
+      </header>
+
+      <div class="ws-page">
+        <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+        <div class="ws-card" id="inviteCard">
+          <div class="ws-card-head">
+            <div class="ws-title">Invite a teammate</div>
+            <div class="ws-sub">They join this workspace only.</div>
+          </div>
+          <div class="ws-body">
+            <div class="ws-grid">
+              <label class="ws-field"><span class="ws-label">Email</span>
+                <input id="invEmail" class="bcn-field" type="email" placeholder="teammate@company.com" /></label>
+              <label class="ws-field"><span class="ws-label">Workspace role</span>
+                <select id="invRole" class="bcn-field">
+                  <option value="user">Member</option>
+                  <option value="admin">Admin</option>
+                  <option value="owner">Owner</option>
+                </select></label>
+              <label class="ws-field"><span class="ws-label">Department</span>
+                <select id="invDept" class="bcn-field">
+                  <option value="ops">ops</option><option value="finance">finance</option>
+                  <option value="logistics">logistics</option><option value="marketing">marketing</option>
+                  <option value="retail">retail</option><option value="exec">exec</option>
+                </select></label>
+            </div>
+            <div class="ws-actions" style="margin-top:14px;">
+              <button class="bcn-btn bcn-btn--primary" id="btnInvite">Create invite</button>
+              <span class="ws-you" id="inviteHint"></span>
+            </div>
+            <div id="linkBox" hidden style="margin-top:12px;">
+              <div class="ws-label">Invite link — copy it now, it is shown once</div>
+              <div class="ws-actions" style="margin-top:6px;">
+                <input id="inviteLink" class="bcn-field" readonly style="flex:1;min-width:260px;" />
+                <button class="bcn-btn" id="btnCopy">Copy</button>
+                <button class="bcn-btn" id="btnEmail">Email it</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Members</div>
+            <div class="ws-sub" id="memberCount"></div>
+          </div>
+          <table class="ws-table" id="tblMembers">
+            <thead><tr>
+              <th>Person</th><th>Workspace role</th><th>Department</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody><tr><td colspan="5" class="ws-empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Pending invitations</div>
+            <div class="ws-sub" id="inviteCount"></div>
+          </div>
+          <table class="ws-table" id="tblInvites">
+            <thead><tr><th>Email</th><th>Role</th><th>Department</th><th>Expires</th><th></th></tr></thead>
+            <tbody><tr><td colspan="5" class="ws-empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+
+        <p class="ws-note">
+          A workspace role decides what somebody can do <em>here</em>. Removing a member removes them
+          from this workspace only — it does not touch any other company they belong to.
+          Departments, notes and Ask SILO access live in the
+          <a href="/v2/backend.html">Backend hub</a>.
+        </p>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // The four membership roles, in the vocabulary entity_memberships already
+  // uses. No new role system: these are the values every gate reads.
+  const ROLES = [
+    ['owner_admin', 'Owner'],
+    ['admin', 'Admin'],
+    ['member', 'Member'],
+    ['viewer', 'Viewer'],
+  ];
+  const roleLabel = (r) => (ROLES.find(([v]) => v === r) || [null, r || '—'])[1];
+
+  let _co = null, _me = null, _isAdmin = false, _isOwner = false, _lastInvite = null;
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const n = el('status');
+    n.className = `bcn-status bcn-status--${type}`;
+    n.textContent = msg;
+    n.hidden = false;
+    if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  async function loadMembers() {
+    // Two reads, no new RPC: entity_memberships is readable by members of the
+    // company (memberships_select_member) and profiles by anyone sharing the
+    // active company (profiles_select_active_company). Both are already the
+    // tenant boundary, so this list can never show another company's people.
+    const { data: memberships, error } = await db.from('entity_memberships')
+      .select('user_id, role').eq('entity_id', _co.id);
+    if (error) throw error;
+    const ids = (memberships || []).map((m) => m.user_id);
+    const { data: profiles } = ids.length
+      ? await db.from('profiles').select('id, name, email, department, is_active').in('id', ids)
+      : { data: [] };
+    const byId = new Map((profiles || []).map((p) => [p.id, p]));
+
+    const owners = (memberships || []).filter((m) => m.role === 'owner_admin').length;
+    const rows = (memberships || []).map((m) => ({ ...m, profile: byId.get(m.user_id) || null }))
+      .sort((a, b) => String(a.profile?.email || '').localeCompare(String(b.profile?.email || '')));
+
+    el('memberCount').textContent = rows.length + (rows.length === 1 ? ' member' : ' members');
+    const body = el('tblMembers').querySelector('tbody');
+    if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="ws-empty">No members.</td></tr>'; return; }
+
+    body.innerHTML = rows.map((r) => {
+      const p = r.profile;
+      const isSelf = r.user_id === _me.id;
+      // Who may change what mirrors the RPCs exactly, so the UI never offers a
+      // control the server will refuse: only an owner touches an owner, and the
+      // last owner cannot be demoted or removed at all.
+      const lastOwner = r.role === 'owner_admin' && owners <= 1;
+      const mayEdit = _isAdmin && !lastOwner && (r.role !== 'owner_admin' || _isOwner);
+      const mayRemove = mayEdit && !isSelf;
+      const select = mayEdit
+        ? `<select class="bcn-field" data-role-for="${esc(r.user_id)}">`
+          + ROLES.map(([v, l]) => `<option value="${v}"${v === r.role ? ' selected' : ''}`
+            + `${v === 'owner_admin' && !_isOwner ? ' disabled' : ''}>${l}</option>`).join('')
+          + '</select>'
+        : esc(roleLabel(r.role));
+      return `<tr>
+        <td><div>${esc(p?.name || p?.email || r.user_id)}</div>
+            <div class="ws-you">${esc(p?.email || '')}${isSelf ? ' · you' : ''}</div></td>
+        <td>${select}</td>
+        <td>${esc(p?.department || '—')}</td>
+        <td>${p && p.is_active === false ? 'Deactivated' : 'Active'}</td>
+        <td style="text-align:right;">${mayRemove
+          ? `<button class="bcn-btn bcn-btn--danger" data-remove="${esc(r.user_id)}"
+               data-label="${esc(p?.email || r.user_id)}">Remove</button>`
+          : `<span class="ws-you">${lastOwner ? 'last owner' : (isSelf ? '—' : '')}</span>`}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function loadInvites() {
+    const body = el('tblInvites').querySelector('tbody');
+    if (!_isAdmin) {
+      el('inviteCount').textContent = '';
+      body.innerHTML = '<tr><td colspan="5" class="ws-empty">Only an admin can see pending invitations.</td></tr>';
+      return;
+    }
+    const { data, error } = await db.rpc('list_org_invites');
+    if (error) { body.innerHTML = `<tr><td colspan="5" class="ws-empty">${esc(error.message)}</td></tr>`; return; }
+    const rows = data || [];
+    el('inviteCount').textContent = rows.length ? `${rows.length} pending` : 'none pending';
+    body.innerHTML = rows.length ? rows.map((i) => `<tr>
+        <td>${esc(i.email)}</td><td>${esc(i.role)}</td><td>${esc(i.department)}</td>
+        <td>${i.expires_at ? new Date(i.expires_at).toLocaleDateString() : '—'}</td>
+        <td style="text-align:right;">
+          <button class="bcn-btn" data-resend="${esc(i.email)}" data-role="${esc(i.role)}"
+            data-dept="${esc(i.department)}">Resend</button>
+          <button class="bcn-btn bcn-btn--danger" data-revoke="${esc(i.id)}">Revoke</button>
+        </td></tr>`).join('')
+      : '<tr><td colspan="5" class="ws-empty">No pending invitations.</td></tr>';
+  }
+
+  async function reload() {
+    try { await loadMembers(); await loadInvites(); }
+    catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
+  }
+
+  async function createInvite(email, role, department, resent) {
+    // Resending IS creating: create_org_invite revokes any live invite for the
+    // same email first, so exactly one link is ever valid. A stored token is a
+    // sha256 hash, so the old link genuinely cannot be re-sent -- the honest
+    // "resend" is a fresh one.
+    const { data, error } = await db.rpc('create_org_invite', {
+      p_email: email, p_role: role, p_department: department,
+    });
+    if (error) throw error;
+    const link = `${location.origin}/pages/login.html?invite=${encodeURIComponent(data.token)}`;
+    _lastInvite = { email: data.email, token: data.token, invite_id: data.invite_id, link };
+    el('inviteLink').value = link;
+    el('linkBox').hidden = false;
+    setStatus(`${resent ? 'New link for' : 'Invited'} ${data.email}. Copy the link, or email it.`, 'pos', 12000);
+    await loadInvites();
+  }
+
+  async function emailInvite() {
+    if (!_lastInvite) return;
+    setStatus('Sending…', 'info');
+    // Same contract backend.html has used since org invites shipped: the raw
+    // token proves which invite this is, and the function can only ever email
+    // the address stored on that invite row.
+    try {
+      const { data, error } = await db.functions.invoke('org-invite-send', {
+        body: { invite_id: _lastInvite.invite_id, token: _lastInvite.token },
+      });
+      if (error) throw error;
+      if (!data?.email_sent) throw new Error('email service not configured');
+      setStatus(`Emailed ${_lastInvite.email}.`, 'pos', 8000);
+    } catch (e) {
+      // The link is already on screen; a failed send is not a failed invite.
+      setStatus(`Could not send the email (${e?.message || e}). The link above still works.`, 'neg', 15000);
+    }
+  }
+
+  (async function boot() {
+    const sess = await db.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname);
+      return;
+    }
+    _me = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(db) || null;
+    const { data: profile } = await db.from('profiles').select('email, role').eq('id', _me.id).maybeSingle();
+
+    window.SiloChrome?.mount({
+      appEl: '#silo-app', active: 'settings/team',
+      user: { email: profile?.email || _me.email || '', role: profile?.role || '' },
+      crumbs: ['Settings', 'Team'], supabaseClient: db,
+    });
+
+    if (!_co) { setStatus('No active company for this session.', 'neg'); return; }
+
+    // Read from the caller's OWN membership row plus their profile role --
+    // the same two facts is_admin() combines, and both already readable here.
+    // Deliberately not an is_admin() RPC call: no client depends on that
+    // function's EXECUTE grant today, and this decides only what the page
+    // OFFERS. Every action is re-checked server-side, and a wrong guess here
+    // surfaces as the RPC's own refusal, not as a silent no-op.
+    const { data: mine } = await db.from('entity_memberships')
+      .select('role').eq('entity_id', _co.id).eq('user_id', _me.id).maybeSingle();
+    const profileRole = String(profile?.role || '').toLowerCase();
+    _isOwner = mine?.role === 'owner_admin';
+    _isAdmin = _isOwner || mine?.role === 'admin'
+      || (!mine && ['owner', 'admin', 'executive'].includes(profileRole));
+
+    if (!_isAdmin) {
+      el('inviteCard').hidden = true;
+      setStatus('You can see who is in this workspace. Changing roles or inviting needs admin access.', 'info');
+    }
+    if (!_isOwner) {
+      el('invRole').querySelector('option[value="owner"]').disabled = true;
+      el('inviteHint').textContent = 'Only an owner can invite another owner.';
+    }
+
+    await reload();
+
+    el('btnReload').addEventListener('click', reload);
+    el('btnCopy').addEventListener('click', () => {
+      el('inviteLink').select();
+      navigator.clipboard?.writeText(el('inviteLink').value);
+      setStatus('Link copied.', 'pos', 4000);
+    });
+    el('btnEmail').addEventListener('click', emailInvite);
+
+    el('btnInvite').addEventListener('click', async () => {
+      const email = el('invEmail').value.trim();
+      if (!email) { setStatus('An email address is required.', 'neg', 6000); return; }
+      el('btnInvite').disabled = true;
+      try {
+        await createInvite(email, el('invRole').value, el('invDept').value, false);
+        el('invEmail').value = '';
+      } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
+      finally { el('btnInvite').disabled = false; }
+    });
+
+    el('tblInvites').addEventListener('click', async (ev) => {
+      const resend = ev.target.closest('[data-resend]');
+      const revoke = ev.target.closest('[data-revoke]');
+      try {
+        if (resend) {
+          ev.target.disabled = true;
+          await createInvite(resend.dataset.resend, resend.dataset.role, resend.dataset.dept, true);
+        } else if (revoke) {
+          if (!confirm('Revoke this invitation? The link stops working immediately.')) return;
+          const { error } = await db.rpc('revoke_org_invite', { p_invite_id: revoke.dataset.revoke });
+          if (error) throw error;
+          setStatus('Invitation revoked.', 'pos', 6000);
+          await loadInvites();
+        }
+      } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
+    });
+
+    el('tblMembers').addEventListener('change', async (ev) => {
+      const sel = ev.target.closest('[data-role-for]');
+      if (!sel) return;
+      sel.disabled = true;
+      try {
+        const { data, error } = await db.rpc('set_workspace_member_role', {
+          p_user_id: sel.dataset.roleFor, p_role: sel.value,
+        });
+        if (error) throw error;
+        setStatus(data?.global_role_updated
+          ? 'Role updated.'
+          : 'Role updated here. Their role in their other workspaces is unchanged.', 'pos', 8000);
+      } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
+      finally { sel.disabled = false; await loadMembers(); }
+    });
+
+    el('tblMembers').addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('[data-remove]');
+      if (!btn) return;
+      if (!confirm(`Remove ${btn.dataset.label} from this workspace?\n\n`
+        + 'They lose access to this company only. Any pending invitation for them here is revoked.')) return;
+      btn.disabled = true;
+      try {
+        const { data, error } = await db.rpc('remove_workspace_member', { p_user_id: btn.dataset.remove });
+        if (error) throw error;
+        setStatus(data?.deactivated
+          ? 'Removed. They belong to no other workspace, so their account was deactivated.'
+          : 'Removed from this workspace. Their other workspaces are unchanged.', 'pos', 10000);
+      } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
+      finally { await reload(); }
+    });
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

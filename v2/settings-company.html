@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Company settings</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="workspace-settings.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main workspace-settings">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Company</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Your workspace's name and operating settings.</div>
+        </div>
+      </header>
+
+      <div class="ws-page">
+        <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Company profile</div>
+            <div class="ws-sub" id="companyKey"></div>
+          </div>
+          <div class="ws-body">
+            <div class="ws-grid">
+              <label class="ws-field">
+                <span class="ws-label">Company name</span>
+                <input id="fldName" class="bcn-field" type="text" maxlength="120" autocomplete="organization" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Business timezone</span>
+                <select id="fldTimezone" class="bcn-field"></select>
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Reporting currency</span>
+                <input id="fldCurrency" class="bcn-field" type="text" maxlength="3" spellcheck="false" />
+              </label>
+            </div>
+            <p class="ws-note" style="margin-top:14px;">
+              The business timezone is what “today” and “yesterday” mean everywhere in SILO.
+              Only timezones SILO honours end to end are offered — a timezone stored but ignored
+              reads as configured and is not.
+            </p>
+            <p class="ws-note" id="currencyNote" hidden></p>
+            <div class="ws-actions" style="margin-top:14px;">
+              <button class="bcn-btn bcn-btn--primary" id="btnSave" disabled>Save changes</button>
+              <span class="ws-you" id="saveHint"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head"><div class="ws-title">Logo</div></div>
+          <div class="ws-body">
+            <p class="ws-note">
+              SILO has no per-company logo field today — the product is branded SILO throughout and
+              nothing reads a company image. This is where it would live; it is named here rather
+              than left as an empty control that appears to save something.
+            </p>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head"><div class="ws-title">Workspace</div></div>
+          <div class="ws-body">
+            <dl class="ws-grid">
+              <div class="ws-field"><span class="ws-label">Members</span><span id="factMembers">—</span></div>
+              <div class="ws-field"><span class="ws-label">Created</span><span id="factCreated">—</span></div>
+              <div class="ws-field"><span class="ws-label">Your role here</span><span id="factRole">—</span></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const el = (id) => document.getElementById(id);
+  let _co = null, _canEdit = false, _loaded = null;
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const n = el('status');
+    n.className = `bcn-status bcn-status--${type}`;
+    n.textContent = msg;
+    n.hidden = false;
+    if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  // Read-only is the DEFAULT here, not an error state: any member may look at
+  // their company's settings, and only a membership owner_admin may change
+  // them (company_settings' own UPDATE policy, is_owner_admin_of_active_company).
+  // Disabling the inputs makes that visible before somebody types into them.
+  function applyPermission() {
+    for (const id of ['fldName', 'fldTimezone', 'fldCurrency']) el(id).disabled = !_canEdit;
+    el('btnSave').disabled = true;
+    el('saveHint').textContent = _canEdit
+      ? '' : 'Only a workspace owner can change these settings.';
+  }
+
+  function dirty() {
+    if (!_loaded) return false;
+    return el('fldName').value.trim() !== _loaded.title
+      || el('fldTimezone').value !== _loaded.business_timezone
+      || el('fldCurrency').value.trim().toUpperCase() !== _loaded.default_currency;
+  }
+
+  async function load() {
+    const [{ data: settings }, { data: tzs }, { data: entity }, { count: members }] = await Promise.all([
+      db.from('company_settings').select('business_timezone, default_currency')
+        .eq('company_entity_id', _co.id).maybeSingle(),
+      db.from('supported_business_timezones').select('tz_name, note').eq('is_supported', true).order('tz_name'),
+      db.from('entities').select('title, entity_key, created_at').eq('id', _co.id).maybeSingle(),
+      db.from('entity_memberships').select('user_id', { count: 'exact', head: true }).eq('entity_id', _co.id),
+    ]);
+
+    _loaded = {
+      title: entity?.title || '',
+      business_timezone: settings?.business_timezone || '',
+      default_currency: settings?.default_currency || '',
+    };
+
+    el('fldName').value = _loaded.title;
+    el('fldCurrency').value = _loaded.default_currency;
+    el('companyKey').textContent = entity?.entity_key || '';
+    el('factMembers').textContent = members == null ? '—' : String(members);
+    el('factCreated').textContent = entity?.created_at
+      ? new Date(entity.created_at).toLocaleDateString() : '—';
+
+    const sel = el('fldTimezone');
+    sel.innerHTML = '';
+    const offered = (tzs || []).map((t) => t.tz_name);
+    // A stored timezone missing from the supported list is shown, FLAGGED,
+    // rather than silently collapsing the field onto the first option --
+    // which would read as a change nobody made.
+    if (_loaded.business_timezone && !offered.includes(_loaded.business_timezone)) {
+      offered.unshift(_loaded.business_timezone);
+    }
+    for (const tz of offered) {
+      const o = document.createElement('option');
+      o.value = tz;
+      o.textContent = tz + ((tzs || []).some((t) => t.tz_name === tz) ? '' : ' (no longer supported)');
+      sel.append(o);
+    }
+    sel.value = _loaded.business_timezone;
+    if (!settings) setStatus('This workspace has no settings row yet.', 'info');
+  }
+
+  async function save() {
+    const name = el('fldName').value.trim();
+    const tz = el('fldTimezone').value;
+    const currency = el('fldCurrency').value.trim().toUpperCase();
+    if (!name) { setStatus('A company name is required.', 'neg', 8000); return; }
+    if (!/^[A-Z]{3}$/.test(currency)) { setStatus('Currency must be a three-letter code, e.g. USD.', 'neg', 8000); return; }
+
+    el('btnSave').disabled = true;
+    setStatus('Saving…', 'info');
+    try {
+      // Through an RPC, not a table UPDATE: `entities` has no update policy,
+      // and giving it one would hand the browser entity_key and meta too.
+      if (name !== _loaded.title) {
+        const { error } = await db.rpc('set_workspace_company_name', { p_title: name });
+        if (error) throw error;
+      }
+      if (tz !== _loaded.business_timezone || currency !== _loaded.default_currency) {
+        const { data, error } = await db.from('company_settings')
+          .update({ business_timezone: tz, default_currency: currency })
+          .eq('company_entity_id', _co.id)
+          .select('company_entity_id');
+        if (error) throw error;
+        // An RLS refusal on UPDATE is a SUCCESS WITH ZERO ROWS, not an error.
+        // Saying "saved" here is how a settings page lies.
+        if (!data || !data.length) {
+          throw new Error('Those settings were not saved — your account may no longer have owner access here.');
+        }
+      }
+      await load();
+      setStatus('Saved.', 'pos', 5000);
+    } catch (e) {
+      // The currency guard raises from a trigger when the books already say
+      // otherwise; pass its own words through rather than paraphrasing.
+      setStatus(e?.message || String(e), 'neg', 15000);
+    } finally {
+      el('btnSave').disabled = !dirty();
+    }
+  }
+
+  (async function boot() {
+    const sess = await db.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(db) || null;
+
+    const { data: profile } = await db.from('profiles')
+      .select('email, role').eq('id', user.id).maybeSingle();
+
+    window.SiloChrome?.mount({
+      appEl: '#silo-app', active: 'settings/company',
+      user: { email: profile?.email || user.email || '', role: profile?.role || '' },
+      crumbs: ['Settings', 'Company'], supabaseClient: db,
+    });
+
+    if (!_co) { setStatus('No active company for this session.', 'neg'); return; }
+
+    const { data: membership } = await db.from('entity_memberships')
+      .select('role').eq('entity_id', _co.id).eq('user_id', user.id).maybeSingle();
+    el('factRole').textContent = membership?.role || 'not a member';
+
+    // The client-side answer to "may I edit" is the same fact
+    // is_owner_admin_of_active_company() reads, taken from the membership row
+    // already fetched above. It is never the boundary: company_settings'
+    // UPDATE policy is, and save() treats an RLS refusal (zero rows, not an
+    // error) as a failure rather than reporting "Saved".
+    _canEdit = membership?.role === 'owner_admin';
+
+    await load();
+    applyPermission();
+
+    for (const id of ['fldName', 'fldTimezone', 'fldCurrency']) {
+      el(id).addEventListener('input', () => { el('btnSave').disabled = !_canEdit || !dirty(); });
+      el(id).addEventListener('change', () => { el('btnSave').disabled = !_canEdit || !dirty(); });
+    }
+    el('btnSave').addEventListener('click', save);
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

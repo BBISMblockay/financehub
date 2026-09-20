@@ -6,12 +6,14 @@
   <title>SILO · Integrations</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="nav-config.js"></script>
+  <script src="workspace-settings.js"></script>
   <script src="silo-chrome.js"></script>
   <script src="shopify-scopes.js"></script>
   <style>
@@ -515,10 +517,11 @@
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main workspace-settings">
       <header class="bcn-header">
         <div style="flex:1;min-width:0;">
           <div class="bcn-header-title"><h1>Integrations</h1></div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Connections for this workspace.</div>
         </div>
       </header>
 
@@ -850,6 +853,19 @@
         .eq('id', session.user.id)
         .single();
 
+      // The shell mounts BEFORE the admin check, not after. This page is a tab
+      // of Workspace settings now, and a member who opens it from the tab
+      // strip used to get a bare refusal on a page with no sidebar and no
+      // strip -- no way back to the settings area they were just in. The
+      // refusal still refuses; it now refuses inside the product.
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'settings/integrations',
+        user: { email: profile?.email || session.user.email, role: profile?.role },
+        crumbs: ['Settings', 'Integrations'],
+        supabaseClient: db,
+      });
+
       if (profile?.role !== 'owner' && profile?.role !== 'admin') {
         setStatus('Integrations settings require admin access.', 'neg');
         return;
@@ -859,14 +875,6 @@
       // login.html (sessionStorage empty on deep links / reopened tabs) by
       // reading the server-side profiles.active_company_id.
       _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
-
-      window.SiloChrome.mount({
-        appEl: '#silo-app',
-        active: 'settings/integrations',
-        user: { email: profile?.email || session.user.email, role: profile?.role },
-        crumbs: ['Settings', 'Integrations'],
-        supabaseClient: db,
-      });
 
       loadConnections();
       loadAdConnections();

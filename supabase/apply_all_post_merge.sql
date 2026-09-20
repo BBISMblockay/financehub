@@ -18940,3 +18940,21 @@ $c$select (select count(*) from v_po_header_summary
 -- if-exists before each create, an on-conflict-do-nothing bucket seed, and
 -- trigger/grant loops that drop before creating.
 \i migrations/20260919140000_customer_account_onboarding.sql
+
+-- ── Workspace Settings administration (2026-09-20) ────────────────────────
+-- Four SECURITY DEFINER functions behind the Workspace Settings Team and
+-- Company tabs, plus the Silo Admin company list.
+--
+-- They exist because entity_memberships and entities take NO client writes
+-- (20260917220000), and because the one existing way to change a role,
+-- admin_update_profile(), also writes the GLOBAL profiles.role -- which
+-- several gates read with no reference to which company you are in, so an
+-- admin of one company could change what somebody may do in another.
+--
+-- REQUIRES 20260918120000 (is_owner_admin_of_active_company, platform_admins,
+-- is_platform_admin, company_settings) and 20260919120000
+-- (billing_subscriptions, joined by platform_list_companies), so it must stay
+-- after both in this file.
+--
+-- Idempotent: create-or-replace only.
+\i migrations/20260920120000_workspace_settings_admin.sql

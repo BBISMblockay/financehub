@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Silo Admin</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+  <style>
+    /* This page borrows Workspace Settings' card furniture and NOT its tab
+       strip: Silo Admin is a different scope, and putting it inside a
+       customer-facing settings area is exactly the mixing this separates. */
+    .plat-warn { border-left: 3px solid var(--bcn-warn); }
+    .plat-gate { padding: 64px 20px; text-align: center; color: var(--bcn-ink-2); max-width: 60ch; margin: 0 auto; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main workspace-settings">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Silo Admin</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Platform scope — every tenant, not this workspace.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--ghost" id="btnReload" hidden>Reload</button>
+        </div>
+      </header>
+
+      <div class="ws-page">
+        <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+        <div class="plat-gate" id="gate" hidden>
+          <p><strong>This area is for SILO platform administrators.</strong></p>
+          <p>Owning a company does not grant platform access, and nothing here can be unlocked from
+          the product — membership of <code>platform_admins</code> takes a migration or a
+          service-role write. If you are looking for your own company's settings, they are in
+          <a href="/v2/settings-company.html">Workspace settings</a>.</p>
+        </div>
+
+        <div id="admin" hidden>
+          <div class="ws-card" style="max-width:none;">
+            <div class="ws-card-head">
+              <div class="ws-title">Companies</div>
+              <div class="ws-sub" id="companyCount"></div>
+            </div>
+            <table class="ws-table" id="tblCompanies">
+              <thead><tr>
+                <th>Company</th><th>Members</th><th>Owners</th><th>Settings</th>
+                <th>Subscription</th><th>Last sync</th><th>Created</th>
+              </tr></thead>
+              <tbody><tr><td colspan="7" class="ws-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+
+          <div class="ws-card" style="max-width:none;">
+            <div class="ws-card-head">
+              <div class="ws-title">Onboard a new company</div>
+              <div class="ws-sub">Founding is invite-gated</div>
+            </div>
+            <div class="ws-body">
+              <p class="ws-note" style="margin-bottom:14px;">
+                Mints a link that lets someone found their own SILO company. They become its owner;
+                nothing of your companies is visible to them, and nothing of theirs to you. This is
+                a different act from inviting a teammate, which adds someone to an existing
+                workspace.
+              </p>
+              <div class="ws-grid">
+                <label class="ws-field"><span class="ws-label">Founder email</span>
+                  <input id="pfEmail" class="bcn-field" type="email" placeholder="founder@theircompany.com" /></label>
+                <label class="ws-field"><span class="ws-label">Company name (optional)</span>
+                  <input id="pfCompany" class="bcn-field" type="text" placeholder="their company name" /></label>
+              </div>
+              <div class="ws-actions" style="margin-top:14px;">
+                <button class="bcn-btn bcn-btn--primary" id="pfCreate">Create invite</button>
+              </div>
+              <div id="pfLinkBox" hidden style="margin-top:12px;">
+                <div class="ws-label">Company-creation link — copy it now, it is shown once</div>
+                <div class="ws-actions" style="margin-top:6px;">
+                  <input id="pfLink" class="bcn-field" readonly style="flex:1;min-width:260px;" />
+                  <button class="bcn-btn" id="pfCopy">Copy</button>
+                </div>
+              </div>
+            </div>
+            <table class="ws-table" id="tblPlatformInvites">
+              <thead><tr><th>Email</th><th>Company</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+              <tbody><tr><td colspan="5" class="ws-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+
+          <div class="ws-card" style="max-width:none;">
+            <div class="ws-card-head"><div class="ws-title">Support &amp; troubleshooting</div></div>
+            <div class="ws-body">
+              <p class="ws-note">
+                These are scoped to whichever company you are currently signed into, not to the
+                platform — every query behind them runs under your own RLS.
+              </p>
+              <ul class="ws-note" style="margin-top:8px;padding-left:18px;line-height:1.9;">
+                <li><a href="/v2/backend.html">Backend hub</a> — profiles, departments, Ask SILO grants and this company's sync/mail ops status.</li>
+                <li><a href="/v2/integrations.html">Integrations</a> — this company's connections and their last run.</li>
+                <li><a href="/v2/setup-checklist.html">Setup checklist</a> — what a new tenant still has to do.</li>
+              </ul>
+              <p class="ws-note" style="margin-top:12px;">
+                Plan and subscription changes are made in Stripe, which owns proration and
+                cancellation; SILO mirrors what Stripe reports and never authors a subscription row.
+                Schema and edge-function drift is reported daily by
+                <code>deployment-drift-check.yml</code>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const day = (v) => (v ? new Date(v).toLocaleDateString() : '—');
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const n = el('status');
+    n.className = `bcn-status bcn-status--${type}`;
+    n.textContent = msg; n.hidden = false;
+    if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  async function loadCompanies() {
+    const { data, error } = await db.rpc('platform_list_companies');
+    const body = el('tblCompanies').querySelector('tbody');
+    if (error) { body.innerHTML = `<tr><td colspan="7" class="ws-empty">${esc(error.message)}</td></tr>`; return; }
+    const rows = data || [];
+    el('companyCount').textContent = rows.length + (rows.length === 1 ? ' company' : ' companies');
+    body.innerHTML = rows.length ? rows.map((c) => {
+      // A company with no owner_admin cannot edit its own settings or manage
+      // its subscription, and nothing in the product can put one back. That is
+      // a platform-level problem, so it is flagged here rather than counted.
+      const noOwner = Number(c.owner_admin_count || 0) === 0;
+      return `<tr${noOwner ? ' class="plat-warn"' : ''}>
+        <td><div>${esc(c.title || '(untitled)')}</div><div class="ws-you">${esc(c.entity_key || '')}</div></td>
+        <td>${esc(c.member_count)} <span class="ws-you">(${esc(c.active_member_count)} active)</span></td>
+        <td>${noOwner ? '<strong>none</strong>' : esc(c.owner_admin_count)}</td>
+        <td>${c.business_timezone ? esc(c.business_timezone) + ' · ' + esc(c.default_currency)
+          : '<span class="ws-you">no settings row</span>'}</td>
+        <td>${c.subscription_status
+          ? esc(c.subscription_status) + (c.plan_key ? ' · ' + esc(c.plan_key) : '')
+          : '<span class="ws-you">none</span>'}</td>
+        <td>${c.last_sync_at ? day(c.last_sync_at) : '<span class="ws-you">never</span>'}</td>
+        <td>${day(c.created_at)}</td></tr>`;
+    }).join('') : '<tr><td colspan="7" class="ws-empty">No companies.</td></tr>';
+  }
+
+  async function loadInvites() {
+    const { data, error } = await db.rpc('list_platform_invites');
+    const body = el('tblPlatformInvites').querySelector('tbody');
+    if (error) { body.innerHTML = `<tr><td colspan="5" class="ws-empty">${esc(error.message)}</td></tr>`; return; }
+    const rows = data || [];
+    body.innerHTML = rows.length ? rows.map((i) => `<tr>
+      <td>${esc(i.email)}</td><td>${esc(i.company_title || i.suggested_company || '—')}</td><td>${esc(i.status)}</td>
+      <td>${day(i.expires_at)}</td>
+      <td style="text-align:right;">${i.status === 'pending'
+        ? `<button class="bcn-btn bcn-btn--danger" data-revoke="${esc(i.id)}">Revoke</button>` : ''}</td>
+      </tr>`).join('') : '<tr><td colspan="5" class="ws-empty">No platform invitations.</td></tr>';
+  }
+
+  (async function boot() {
+    const sess = await db.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname);
+      return;
+    }
+    const user = sess.data.session.user;
+    await cfg.ensureActiveCompany?.(db);
+    const { data: profile } = await db.from('profiles').select('email, role').eq('id', user.id).maybeSingle();
+
+    window.SiloChrome?.mount({
+      appEl: '#silo-app', active: 'platform/admin',
+      user: { email: profile?.email || user.email || '', role: profile?.role || '' },
+      crumbs: ['Platform', 'Silo Admin'], supabaseClient: db,
+    });
+
+    // This decides what is DRAWN. It is not the boundary: is_platform_admin()
+    // is re-checked inside every RPC below, all of which are SECURITY DEFINER,
+    // so reaching this URL without the grant renders nothing and returns
+    // nothing.
+    const { data: isPlatform } = await db.rpc('is_platform_admin');
+    if (isPlatform !== true) { el('gate').hidden = false; return; }
+
+    el('admin').hidden = false;
+    el('btnReload').hidden = false;
+    await Promise.all([loadCompanies(), loadInvites()]);
+
+    el('btnReload').addEventListener('click', () => Promise.all([loadCompanies(), loadInvites()]));
+
+    el('pfCreate').addEventListener('click', async () => {
+      const email = el('pfEmail').value.trim();
+      if (!email) { setStatus('A founder email is required.', 'neg', 6000); return; }
+      el('pfCreate').disabled = true;
+      try {
+        const { data, error } = await db.rpc('create_platform_invite', {
+          p_email: email, p_company_name: el('pfCompany').value.trim() || null,
+        });
+        if (error) throw error;
+        el('pfLink').value = `${location.origin}/v2/company-onboarding.html?invite=`
+          + encodeURIComponent(data.token);
+        el('pfLinkBox').hidden = false;
+        el('pfEmail').value = ''; el('pfCompany').value = '';
+        setStatus(`Invite created for ${data.email}. Copy the link — it is shown once.`, 'pos', 15000);
+        await loadInvites();
+      } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
+      finally { el('pfCreate').disabled = false; }
+    });
+
+    el('pfCopy').addEventListener('click', () => {
+      el('pfLink').select();
+      navigator.clipboard?.writeText(el('pfLink').value);
+      setStatus('Link copied.', 'pos', 4000);
+    });
+
+    el('tblPlatformInvites').addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('[data-revoke]');
+      if (!btn) return;
+      if (!confirm('Revoke this company-creation invitation?')) return;
+      try {
+        const { error } = await db.rpc('revoke_platform_invite', { p_invite_id: btn.dataset.revoke });
+        if (error) throw error;
+        setStatus('Invitation revoked.', 'pos', 6000);
+        await loadInvites();
+      } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
+    });
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

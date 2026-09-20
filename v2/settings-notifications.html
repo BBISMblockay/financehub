@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Notifications</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="workspace-settings.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main workspace-settings">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Notifications</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Who this workspace emails, and why.</div>
+        </div>
+      </header>
+
+      <div class="ws-page">
+        <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Company recipients</div>
+            <div class="ws-sub">Derived, not configured</div>
+          </div>
+          <div class="ws-body">
+            <p class="ws-note" style="margin-bottom:14px;">
+              SILO has no per-company notification recipient list. Every notification that goes to a
+              <em>team</em> rather than to one named person is addressed by <strong>department</strong>,
+              resolved when it sends. This is that resolution, read live — change it by changing
+              someone's department in <a href="/v2/settings-team.html">Team</a>, not here.
+            </p>
+            <table class="ws-table" id="tblRecipients">
+              <thead><tr><th>Notification</th><th>Goes to</th><th>Currently</th></tr></thead>
+              <tbody><tr><td colspan="3" class="ws-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head"><div class="ws-title">Direct notifications</div></div>
+          <div class="ws-body">
+            <p class="ws-note">
+              These are addressed to a specific person by the record itself, so there is nothing to
+              configure at company level:
+            </p>
+            <ul class="ws-note" style="margin-top:8px;padding-left:18px;line-height:1.8;">
+              <li><strong>Payment request receipts and paid notices</strong> — the person who submitted the request.</li>
+              <li><strong>Compensation decisions</strong> — the manager who raised the request.</li>
+              <li><strong>Mail routing</strong> — the assignee, or the submitter once it is done.</li>
+              <li><strong>Sample updates</strong> — the assignee when one is set (email, plus a Slack DM where Slack is configured).</li>
+              <li><strong>Performance reviews</strong> — the employee, then their manager on signature.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head"><div class="ws-title">Sender</div></div>
+          <div class="ws-body">
+            <dl class="ws-grid">
+              <!-- Labelled as the FALLBACK, not as the current sender. Ten edge
+                   functions read `SILO_MAIL_FROM` and fall back to this literal,
+                   and that secret is readable only inside the function -- so a
+                   deployment that has set it sends from an address this page
+                   cannot see. Printing the constant as a fact would make the one
+                   screen someone checks notification configuration on the one
+                   screen that is confidently wrong. -->
+              <div class="ws-field"><span class="ws-label">From address</span>
+                <span id="factSender">Not readable from here</span>
+                <span class="ws-you">falls back to SILO &lt;noreply@silo-baseballism.com&gt;</span></div>
+              <div class="ws-field"><span class="ws-label">Delivery</span><span>Resend</span></div>
+            </dl>
+            <p class="ws-note" style="margin-top:12px;">
+              The sender is an edge-function secret (<code>SILO_MAIL_FROM</code>), set per deployment
+              rather than per company, and it is not changed from here. It is a secret, so this page
+              cannot read the value actually in effect — it can only name what every sending function
+              falls back to when it is unset. Check the deployed secret to confirm which is live.
+              Custom per-customer sending domains are not offered.
+            </p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let _co = null;
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const n = el('status');
+    n.className = `bcn-status bcn-status--${type}`;
+    n.textContent = msg; n.hidden = false;
+    if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  // Each row names the edge function that actually sends, and the department
+  // IT selects on -- not a restatement from memory. comp-request-notify emails
+  // the finance DEPARTMENT only, deliberately narrower than who may act on a
+  // request; sample-notify falls back to logistics when no assignee is set.
+  const RULES = [
+    { label: 'New compensation request', who: 'finance department', depts: ['finance'],
+      fn: 'comp-request-notify' },
+    { label: 'Sample requested or received (no assignee)', who: 'logistics department', depts: ['logistics'],
+      fn: 'sample-notify' },
+  ];
+
+  async function load() {
+    // Members of the active company only: profiles_select_active_company is
+    // the tenant boundary and this read carries no exception to it.
+    const { data: memberships, error } = await db.from('entity_memberships')
+      .select('user_id').eq('entity_id', _co.id);
+    if (error) throw error;
+    const ids = (memberships || []).map((m) => m.user_id);
+    const { data: profiles } = ids.length
+      ? await db.from('profiles').select('name, email, department, is_active').in('id', ids)
+      : { data: [] };
+    const active = (profiles || []).filter((p) => p.is_active !== false);
+
+    el('tblRecipients').querySelector('tbody').innerHTML = RULES.map((r) => {
+      const hits = active.filter((p) => r.depts.includes(String(p.department || '').toLowerCase()));
+      // "Nobody" is a real and actionable answer here, so it is stated rather
+      // than rendered as an empty cell that reads like a loading failure.
+      const list = hits.length
+        ? hits.map((p) => esc(p.email || p.name)).join('<br>')
+        : '<span class="ws-you">nobody in this workspace — this notification reaches no one</span>';
+      return `<tr><td>${esc(r.label)}<div class="ws-you">${esc(r.fn)}</div></td>
+        <td>${esc(r.who)}</td><td>${list}</td></tr>`;
+    }).join('');
+  }
+
+  (async function boot() {
+    const sess = await db.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(db) || null;
+    const { data: profile } = await db.from('profiles').select('email, role').eq('id', user.id).maybeSingle();
+
+    window.SiloChrome?.mount({
+      appEl: '#silo-app', active: 'settings/notifications',
+      user: { email: profile?.email || user.email || '', role: profile?.role || '' },
+      crumbs: ['Settings', 'Notifications'], supabaseClient: db,
+    });
+
+    if (!_co) { setStatus('No active company for this session.', 'neg'); return; }
+    await load();
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

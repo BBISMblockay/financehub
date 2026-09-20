@@ -1514,3 +1514,61 @@ See [docs/ops/customer-onboarding.md](../docs/ops/customer-onboarding.md).
 Regressions: `scripts/tests/customer-onboarding-database.test.mjs` (60
 assertions, 13 mutations) and `scripts/tests/customer-onboarding.test.mjs` (31
 scenarios, 10 mutations), both in `sync-tests.yml`.
+
+## Workspace Settings administration — `20260920120000_workspace_settings_admin.sql`
+
+Four SECURITY DEFINER functions behind the Workspace Settings area
+(`/v2/settings-company.html`, `/v2/settings-team.html`) and Silo Admin
+(`/v2/platform-admin.html`). No new tables, no new role vocabulary: the roles
+are `entity_memberships`' own `owner_admin` / `admin` / `member` / `viewer`.
+
+- **`set_workspace_member_role(user, role)`** — the reason this migration
+  exists. Changing a role previously meant `admin_update_profile()`, which
+  writes the **global** `profiles.role` as well as the membership. That column
+  is not per-company and gates read it alone —
+  `can_manage_journal_entries()` admits on `p.role` / `p.department` with no
+  reference to the active company — so an admin of company B could change what
+  somebody may do inside company A. This writes the membership always and the
+  global profile **only when the target belongs to no other organization**, the
+  same rule `accept_org_invite` and `redeem_platform_invite` already follow.
+  Only an owner grants or removes `owner_admin`, and a workspace can never be
+  left without one (nothing in the product could put one back). **That last
+  check is check-then-act across two DIFFERENT rows** — the target membership
+  is locked, the owner count is not — so this and `remove_workspace_member`
+  take **one shared per-company `pg_advisory_xact_lock`** before counting, the
+  same mechanism and reasoning as the per-company currency lock in
+  `20260918120000`. One key across both, not one per function: self-demotion is
+  allowed on purpose, so two owners can each step back with no overlapping row
+  lock at all, and a per-function key would still leave "one owner demoted
+  while another is removed" open. Measured rather than argued — without it, two
+  real connections leave the workspace with **zero** owners.
+- **`remove_workspace_member(user)`** — removing somebody from *one* workspace
+  had no implementation. The nearest thing, `admin_update_profile(p_is_active
+  => false)`, sets a global flag and locks the person out of every company they
+  belong to. This deletes one membership, revokes their pending invite here (a
+  live link in an inbox is a way straight back in), repoints their
+  `active_company_id`, and deactivates only a profile left with no membership
+  anywhere — which would otherwise be an "unclaimed" profile any admin of any
+  company may adopt. Refuses self-removal and the last owner.
+- **`set_workspace_company_name(title)`** — `entities` carries one policy,
+  `entities_select_member`, and no UPDATE policy at all, so a company could not
+  be renamed from the product. An UPDATE policy would be the wrong fix: RLS
+  cannot scope to columns, so it would also hand the browser `entity_key` and
+  `meta` (which holds `nav_profile`). A definer function writing one column is
+  column-scoped by construction.
+- **`platform_list_companies()`** — every tenant, for Silo Admin.
+  `is_platform_admin()` only, deliberately not `is_admin_user()` (which passes
+  for any membership `admin`) and not "any owner_admin". Returns operational
+  facts — member and owner counts, declared settings, plan status, last
+  successful sync — and no tenant business data.
+
+Verify: the `Workspace membership administration` check in
+`verify_v2_schema.sql`, which also fails if a client write grant is ever
+restored on `entity_memberships` — these functions are the only write path.
+
+Regressions: `scripts/tests/workspace-settings-database.test.mjs` (16
+assertions, 7 mutations), `scripts/tests/workspace-settings.test.mjs` (7
+navigation suites), and `scripts/tests/workspace-settings-concurrency.test.mjs`
+(two real PostgreSQL connections; skips loudly without a server, and CI sets
+`SILO_PG_REQUIRED=1` so an absent one fails rather than passing quietly). All
+three in `sync-tests.yml`.
