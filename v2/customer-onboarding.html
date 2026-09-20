@@ -793,6 +793,27 @@
   $('form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
 
+    /* Enter in a text field triggers HTML's implicit submission, which
+       activates the form's default submit button -- and `hidden` does not
+       disable a button, so the Submit control living on step 5 was reachable
+       from every earlier step. Measured before this guard: fill Business and
+       Contact, type the business address, press Enter in City, and the whole
+       application posted from step 3. The sweep passed because every REQUIRED
+       field was filled by then (country defaults to US), so the applicant
+       never saw Delivery & billing or Review, shipping and billing were
+       committed as "same as business", requested terms went blank -- and the
+       single-use invite was consumed, so they could not go back and correct
+       any of it.
+
+       Enter therefore means "next" everywhere except the last step, which is
+       what it appears to mean to the person pressing it. The only submission
+       that reaches the API is an explicit one from Review. */
+    if (step < LAST) {
+      const bad = firstInvalid(step);
+      if (bad) return bad.reportValidity();
+      return showStep(step + 1);
+    }
+
     /* A sweep of every step, not just this one. The wizard is linear so the
        earlier steps were each validated on the way through, but an autofill
        or a browser restore can empty a field behind you -- and refusing to

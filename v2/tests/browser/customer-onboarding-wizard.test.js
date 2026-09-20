@@ -191,7 +191,12 @@ const PEEK = {
   await t('Edit jumps to the step that owns the section', async () => {
     await page.click('.co-review-group:nth-child(2) .co-review-edit');
     r.eq(await visibleStep(), 2, 'Edit on the contact block did not open the contact step');
-    await page.click('#nextBtn');
+    /* Enter during an Edit round-trip is the second way into the premature
+       submit: every required field is already valid by now, so nothing else
+       would have stopped it. */
+    await page.press('#first_name', 'Enter');
+    r.eq(submissions.length, 0, 'Enter on an edited step submitted the application');
+    r.eq(await visibleStep(), 3, 'Enter did not advance to the next step');
     await page.click('#nextBtn');
     await page.click('#nextBtn');
     r.eq(await visibleStep(), 5);
@@ -253,6 +258,36 @@ const PEEK = {
     await page.waitForSelector('#done:not([hidden])');
     const seen = await page.evaluate(() => true);
     r.truthy(seen, 'the done panel never rendered');
+  });
+
+  await t('Enter on an earlier step advances, and never submits the application', async () => {
+    /* HTML implicit submission activates the form's default submit button on
+       Enter in a text input, and `hidden` does not disable a button -- so the
+       Submit control on step 5 was reachable from step 3. Measured before the
+       guard: this exact sequence posted the whole application, consuming the
+       single-use invite, with shipping and billing silently committed as
+       "same as business" and Review never seen. */
+    const fresh = await suite.context.newPage();
+    fresh.setDefaultTimeout(5000);
+    await fresh.goto(`${suite.base}/v2/customer-onboarding.html?token=onboarding-token-0123456789`);
+    await fresh.waitForSelector('#form:not([hidden])');
+    const before = submissions.length;
+    await fresh.fill('#legal_name', 'Enter Test LLC');
+    await fresh.click('#nextBtn');
+    await fresh.fill('#first_name', 'Dana');
+    await fresh.fill('#last_name', 'Reed');
+    await fresh.click('#nextBtn');
+    await fresh.fill('#biz_street1', '100 Main St');
+    await fresh.fill('#biz_city', 'Portland');
+    await fresh.press('#biz_city', 'Enter');
+    await fresh.waitForTimeout(400);
+    r.eq(submissions.length, before, 'Enter on the Location step submitted the application');
+    const step = await fresh.evaluate(() => {
+      const on = [...document.querySelectorAll('.co-step')].filter((x) => !x.hidden);
+      return on.length === 1 ? Number(on[0].dataset.step) : -1;
+    });
+    r.eq(step, 4, 'Enter did not advance to Delivery & billing');
+    await fresh.close();
   });
 
   console.log('\n── the phone case this reshape exists for ──');
