@@ -32,9 +32,16 @@
     body { margin: 0; background: var(--bcn-bg); }
     .co-wrap { min-height: 100vh; min-height: 100dvh; padding: 22px 16px 40px;
                display: flex; flex-direction: column; align-items: center; }
+    /* `clip`, never `hidden`. Both clip to the radius, but `overflow: hidden`
+       makes this card a SCROLL CONTAINER, and a position:sticky descendant
+       sticks within its nearest scroll container -- so the action bar stopped
+       sticking to the viewport and sat wherever the step ended. Measured on
+       the Delivery & billing step at 390x780: the bar rendered 807px below
+       the fold, on the exact steps the sticky bar exists for. `clip` creates
+       no scroll container, so sticky keeps resolving against the viewport. */
     .co-card { width: 100%; max-width: 680px; background: var(--bcn-surface);
                border: 1px solid var(--bcn-border); border-radius: 10px;
-               display: flex; flex-direction: column; overflow: hidden; }
+               display: flex; flex-direction: column; overflow: clip; }
 
     /* ── Brand header ──────────────────────────────────────────────────────
        The applicant is applying to the TENANT, not to SILO. The monogram is

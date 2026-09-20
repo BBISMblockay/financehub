@@ -13,6 +13,12 @@
  */
 
 .silo-main { min-width: 0; overflow: hidden; }
+/* The page header stays put while the register scrolls under it. beacon.css
+   does not make .bcn-header sticky and accounting-suite.css only sets its
+   padding, so this rule is the whole behaviour -- it was lost once already
+   when these styles moved out of the page's inline <style> block. */
+.bcn-header { position: sticky; top: 0; z-index: 30;
+              background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
 .cu-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 12px 18px 28px; }
 
 /* ── Summary tiles ────────────────────────────────────────────────────────

@@ -276,6 +276,33 @@ const PEEK = {
     r.truthy(m.barBottom <= m.viewportHeight + 1,
       `the action bar sits ${m.barBottom - m.viewportHeight}px below the fold`);
     r.eq(m.railLabels, 1, 'all five rail labels are showing on a phone');
+
+    /* The bar must stick on a step TALLER than the screen -- which is the
+       only case it exists for, and the one step 1 does not exercise because
+       it happens to fit. Asserting it here instead of above is the
+       difference between a real check and one that passes by luck: with
+       `overflow: hidden` on the card (a scroll container, so sticky resolves
+       against it rather than the viewport) this rendered 807px below the
+       fold and the check above still passed. */
+    await phone.fill('#legal_name', 'Test Wholesale LLC');
+    await phone.click('#nextBtn');
+    await phone.fill('#first_name', 'Dana');
+    await phone.fill('#last_name', 'Reed');
+    await phone.click('#nextBtn');
+    await phone.fill('#biz_street1', '100 Main St');
+    await phone.fill('#biz_city', 'Portland');
+    await phone.click('#nextBtn');
+    await phone.uncheck('#ship_same');
+    await phone.uncheck('#bill_same_biz');
+    const tall = await phone.evaluate(() => {
+      window.scrollTo(0, 0);
+      const bar = document.querySelector('.co-actions').getBoundingClientRect();
+      return { page: document.documentElement.scrollHeight, vh: window.innerHeight,
+               bottom: bar.bottom };
+    });
+    r.truthy(tall.page > tall.vh, 'the step under test was not taller than the screen');
+    r.truthy(tall.bottom <= tall.vh + 1,
+      `the action bar is ${Math.round(tall.bottom - tall.vh)}px below the fold on a long step`);
     await phone.close();
   });
 
