@@ -126,6 +126,7 @@ Now the majority of `v2/` — 33 pages. Anything in `v2/` that loads `silo-chrom
 `integrations`, `inventory`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`,
 `marketing-overview`, `my-review`, `planning-scenarios`, `po-builder`, `po-costing`, `po-report`,
 `product-concepts`, `products`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
+`settings-company`, `settings-team`, `settings-notifications`, `platform-admin`,
 `review-editor`, `review-templates`, `reviews`, `sales-verification`, `seo-overview`, `setup-checklist`, `silo-chat`, `tasks`.
 
 Asset load order (must follow exactly):
@@ -477,6 +478,29 @@ silo_business_timezone()                          -- active company's tz, Pacifi
 is_owner_admin_of_active_company()                -- membership-level, unlike is_admin_user()
 ```
 
+### RPC functions (Workspace Settings / Silo Admin — 20260920120000)
+```
+set_workspace_member_role(p_user_id, p_role)  -- is_admin() + active company. Writes
+                                              -- entity_memberships ALWAYS; writes the global
+                                              -- profiles.role ONLY when the target belongs to no
+                                              -- other org, because that column is not per-company
+                                              -- and gates read it alone. Only an owner grants or
+                                              -- removes owner_admin; a workspace can never be left
+                                              -- without one
+remove_workspace_member(p_user_id)            -- removes ONE membership, not the global is_active
+                                              -- flag (which locks a person out of every company).
+                                              -- Revokes their pending invite here, repoints
+                                              -- active_company_id, deactivates only a profile left
+                                              -- with no membership anywhere. Refuses self-removal
+set_workspace_company_name(p_title)           -- renames the active company. A definer function
+                                              -- rather than an UPDATE policy on `entities`: RLS
+                                              -- cannot scope to columns, and the policy would also
+                                              -- hand the browser entity_key and meta (nav_profile)
+platform_list_companies()                     -- every tenant, for Silo Admin. is_platform_admin()
+                                              -- only -- NOT is_admin_user(), which passes for any
+                                              -- membership 'admin'. Operational facts only
+```
+
 ### Storage buckets
 **Access is scoped through the PARENT ROW, not the bucket (fixed 2026-09-04, `20260904120000`).** Until then all 27 policies on `storage.objects` gated on `bucket_id` alone -- `using (bucket_id = 'payment-request-files')` -- so any authenticated user of any company could read or delete all 375 payment-request attachments and 51 mailroom scans. Private buys nothing on its own: private means the CDN will not serve the file anonymously, RLS decides who may. Every private bucket writes its parent row's id as the FIRST path segment (`<payment_request_id>/<file>`), so the policy is a plain `EXISTS` against the parent table and the object inherits that table's RLS -- no SECURITY DEFINER, no second definition of who may see what. Keyed on the PARENT row, never the `*_files` metadata row, because the object is uploaded BEFORE its metadata row exists and keying on metadata would make a failed-insert upload permanently undeletable. A PUBLIC bucket keeps public reads on purpose (served at `/object/public/...` with no RLS evaluated at all, so a SELECT policy there cannot hide anything); only its writes are scoped. `docs/ops/storage-isolation.md` has the table and the impersonation test. **When adding a bucket, put the parent id first in the path and write the policy as an EXISTS -- do not copy an existing policy body**, which is how `schedule-item-files` shipped with three policies NAMED "by company" and no company clause in any of them.
 - `payment-request-files` — private, payment request attachments
@@ -650,7 +674,10 @@ deploys, applies a migration, or touches production data — those stay Blake's.
 3. Mount SiloChrome after auth succeeds
 4. Add the page to `NAV_ITEMS` in **`v2/nav-config.js`** (not `silo-chrome.js` — that only renders what
    `SiloNav` defines). Set `profiles` (`grandfathered` / `standard`), plus `departments` / `roles` /
-   `grantTable` if the link should be gated. Nav gating is UX only — the real boundary is RLS
+   `grantTable` if the link should be gated. Nav gating is UX only — the real boundary is RLS.
+   `requiresGrant: true` (with `grantTable`) makes the grant the ONLY way in — unlike `roles`, which
+   fails OPEN while the profile fetch is in flight; use it for anything outside the workspace's own
+   scope, as the `platform/admin` row does
 5. Create a stub redirect at `v2/[oldname].html` if you are replacing an existing page's URL
 
 ### Adding a new DB table
@@ -802,12 +829,16 @@ than this section.
   Standard account (the money settles to them, SILO holds no funds and stores no key for them).
   Every table is a read-only mirror of Stripe with no client write policy at all; one webhook
   function receives both surfaces and tells them apart by which signing secret verified the
-  delivery. **Deliberately NOT in the nav yet**: the `Invoicing` and `Billing` rows exist in
-  `v2/nav-config.js` as commented lines, because a live link to a page whose backend is not
-  deployed opens something that cannot work and cannot say why. Uncommenting them is the
-  activation PR (step 7 of the sequence in `docs/ops/stripe.md`), after the test-mode
-  walkthroughs. Gates when restored: `FINANCE_DEPTS` for Invoicing (mirroring
-  `can_manage_client_invoices()`), `ADMIN_ROLES` for Billing. Both rows landed alongside the
+  delivery. **Invoicing is still NOT in the nav**: its row sits in `v2/nav-config.js` as a
+  commented line, because a live link to a page whose backend is not deployed opens something that
+  cannot work and cannot say why. Uncommenting it is the activation PR (step 7 of the sequence in
+  `docs/ops/stripe.md`), after the test-mode walkthroughs; gate when restored is `FINANCE_DEPTS`,
+  mirroring `can_manage_client_invoices()`. **Billing is now the Billing tab of Workspace Settings**
+  (2026-09-20) and so is reachable by an admin — the page is unchanged, `stripe-billing` is still
+  undeployed, and until it is deployed the tab renders its own error rather than a plan. That was a
+  deliberate trade: the settings area is coherent or it is not, and a tab that says what is wrong
+  beats a settings area missing the one thing every customer looks for. Deploying `stripe-billing`
+  remains the fix. Both rows landed alongside the
   restore of `v2/nav-config.js` itself, which `631ff17` had deleted while every Pattern 1 page
   still loaded it. **The four Edge Function handlers live in `handler.ts` with a two-line
   `index.ts`** — the plaid-finance split — so `scripts/tests/stripe-handlers.test.mjs` can
@@ -829,6 +860,24 @@ than this section.
   Stripe, then uncomment the row. Runbook: `docs/ops/customer-onboarding.md`. Vendor onboarding
   (W-9, remit-to, bank/ACH) is deliberately out of scope — a more sensitive record wanting its own
   gate, and `payment_requests` still identifies vendors by four loose text columns
+- **Workspace Settings** (`/v2/settings-company.html`, `settings-team`, `integrations`, `billing`,
+  `settings-notifications`, 2026-09-20) — the customer-facing settings area, drawn as ONE tab strip
+  (`v2/workspace-settings.{js,css}` + `SiloNav.WORKSPACE_SETTINGS_PAGES`) in exactly the shape the
+  Accounting Suite uses: real links across real pages, not a single-page shell. **Integrations and
+  Billing ARE their existing pages** at their existing URLs — they gained the strip and nothing
+  else, so there is no second implementation of either and no bookmark moved. One sidebar row
+  (`settings/workspace`) replaces the per-page rows; `silo-chrome.js` collapses any settings tab
+  onto it, same as the accounting mapping. Company (name/timezone/currency) and Team (members,
+  roles, invites) are new; Notifications is READ-ONLY and derived — SILO has no per-company
+  recipient list, team notifications are addressed by department and resolved at send time, so the
+  page shows that resolution rather than inventing settings. **Logo is named as absent, not drawn
+  as an empty control.** Sender behaviour is untouched
+- **Silo Admin** (`/v2/platform-admin.html`, 2026-09-20) — platform scope, deliberately NOT a tab of
+  Workspace Settings. Holds the "found a new company" control that used to sit inside
+  `v2/backend.html` (which is now workspace-scoped, with a gated pointer here), every tenant via
+  `platform_list_companies()`, and platform invite management. **A company owner is not a platform
+  admin**: the nav row is `requiresGrant` + `grantTable: 'platform_admins'` so it appears only once
+  that row is read back, and every RPC behind the page re-checks `is_platform_admin()`
 - **Ask SILO** (`/v2/silo-chat.html`) — agentic chat with taught notes (`silo_chat_notes`) and a
   dedicated access grant (`silo_chat_managers`); exec-only in the sidebar during soft launch
 - **Nav profiles** (`v2/nav-config.js`) — grandfathered vs standard menus, plus department/role/grant

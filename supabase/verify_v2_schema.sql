@@ -4259,6 +4259,47 @@ select 'Customer address pointer constraints' as check_name,
    then 'MISSING: customer_account_addresses_resolved_v'
  else 'ok' end as status;
 
+-- ── Workspace Settings administration (20260920120000) ────────────────────
+-- Four SECURITY DEFINER functions that exist BECAUSE entity_memberships and
+-- entities take no client writes. If Supabase's default privileges hand any of
+-- them to anon, an unauthenticated caller reaches a definer function that
+-- edits membership -- which is the authorization primitive everything else
+-- reads. 20260904330000 is the precedent: a drop-and-create silently re-granted
+-- anon EXECUTE on the SQL-runner RPC.
+select 'Workspace membership administration' as check_name,
+ case
+ when (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname in ('set_workspace_member_role',
+     'remove_workspace_member','set_workspace_company_name','platform_list_companies')) <> 4
+   then 'MISSING: the workspace settings migration'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname in ('set_workspace_member_role',
+     'remove_workspace_member','set_workspace_company_name','platform_list_companies')
+     and not p.prosecdef)
+   then 'CRITICAL: a workspace administration function is not SECURITY DEFINER'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname in ('set_workspace_member_role',
+     'remove_workspace_member','set_workspace_company_name','platform_list_companies')
+     and has_function_privilege('anon', p.oid, 'execute'))
+   then 'CRITICAL: anon can execute a workspace administration function'
+ -- The platform list is the one read that crosses every tenant. is_admin_user()
+ -- passes for any membership admin, so it would be no gate at all here.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='platform_list_companies') not like '%is_platform_admin%'
+   then 'CRITICAL: platform_list_companies is not gated by is_platform_admin()'
+ -- These functions are the ONLY write path. A client grant restored on
+ -- entity_memberships would make them beside the point (20260917220000).
+ when has_table_privilege('authenticated', 'public.entity_memberships', 'insert')
+   or has_table_privilege('authenticated', 'public.entity_memberships', 'update')
+   or has_table_privilege('authenticated', 'public.entity_memberships', 'delete')
+   then 'CRITICAL: authenticated can write entity_memberships directly'
+ -- Renaming goes through a definer function precisely so a browser never holds
+ -- entity_key or meta; an UPDATE policy on entities would hand it both.
+ when has_table_privilege('authenticated', 'public.entities', 'update')
+   and exists(select 1 from pg_policy where polrelid='public.entities'::regclass and polcmd in ('w','*'))
+   then 'CRITICAL: entities is client-writable, so a rename can also rewrite entity_key/meta'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further

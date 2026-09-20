@@ -34,6 +34,18 @@ on:
       - 'supabase/functions/shopify-oauth-start/**'
       - 'supabase/migrations/*company_onboarding.sql'
       - 'pages/login.html'
+      # Workspace Settings: the tab shell, the pages it collapses, and the
+      # membership RPCs behind the Team tab.
+      - 'v2/workspace-settings.*'
+      - 'v2/settings-company.html'
+      - 'v2/settings-team.html'
+      - 'v2/settings-notifications.html'
+      - 'v2/platform-admin.html'
+      - 'v2/nav-config.js'
+      - 'v2/silo-chrome.js'
+      - 'v2/integrations.html'
+      - 'v2/billing.html'
+      - 'supabase/migrations/*workspace_settings_admin.sql'
       # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
       # function directory, so a change there must run these tests. Without
       # this path the allowlist could be edited and nothing would run.
@@ -179,6 +191,11 @@ jobs:
       # Baseballism's menu.
       - name: Nav profile fails closed on an unresolved company
         run: node --test scripts/tests/nav-profile.test.mjs
+
+      # One settings area, no duplicate Billing/Integrations routes, and a
+      # platform link that a company owner can never see.
+      - name: Workspace settings navigation and platform separation
+        run: node --test scripts/tests/workspace-settings.test.mjs
 
       # Making an env var mandatory in a script silently breaks every workflow
       # that runs it without one, and a workflow_dispatch-only job proves itself
@@ -466,6 +483,28 @@ jobs:
       # signup-founds-org | retry-creates-new | tz-anything-goes | invite-any-admin
       - name: Execute company-onboarding regressions
         run: node scripts/tests/company-onboarding-database.test.mjs
+
+      # The Team tab's two verbs, both of which replace something quietly
+      # wrong: changing a role used to write the GLOBAL profiles.role (which
+      # several gates read with no reference to which company you are in), and
+      # removing somebody from ONE workspace had no implementation at all --
+      # the nearest thing set a global is_active flag.
+      - name: Execute workspace membership administration regressions
+        run: node scripts/tests/workspace-settings-database.test.mjs
+
+      - name: Each workspace membership guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in role-writes-global-always allow-last-owner-demote strip-removal-guards \
+                   allow-self-remove admin-grants-owner platform-list-any-admin \
+                   remove-keeps-invite; do
+            echo "--- $m ---"
+            if WS_MUTATION="$m" node scripts/tests/workspace-settings-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
 
       # SECURITY DEFINER functions bypass RLS entirely, so their EXECUTE grant
       # is the whole tenant boundary -- and Supabase grants EXECUTE to anon by

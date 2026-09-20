@@ -51,6 +51,26 @@
     ['finance/cash-forecast','Cash forecast','cash-forecast.html'],
   ];
 
+  // ── Workspace Settings ────────────────────────────────────────────────
+  // The customer-facing settings area, drawn as one tab strip by
+  // workspace-settings.js exactly as ACCOUNTING_PAGES is drawn by
+  // accounting-suite.js. These are REAL pages at their own URLs, not panels in
+  // a single-page shell: /v2/integrations.html and /v2/billing.html are the
+  // pages that already existed, so every bookmark and every link into them
+  // keeps working and there is no second implementation of either.
+  //
+  // Nothing here is a permission boundary. Each page carries its own gate
+  // (is_admin_user() for connection secrets, is_owner_admin_of_active_company()
+  // for company settings, is_admin() for the team RPCs) and RLS is what
+  // actually decides.
+  const WORKSPACE_SETTINGS_PAGES = [
+    ['settings/company','Company','settings-company.html'],
+    ['settings/team','Team','settings-team.html'],
+    ['settings/integrations','Integrations','integrations.html'],
+    ['settings/billing','Billing','billing.html'],
+    ['settings/notifications','Notifications','settings-notifications.html'],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -84,6 +104,10 @@
    *             timing as departments; unlike departments this fails CLOSED
    *             (no extra visibility) if the check errors or hasn't run yet
    *             -- `roles` already decided "no" and this can only add a "yes".
+   * requiresGrant: with grantTable, makes the grant the ONLY way in: the link
+   *             is hidden until the row is read back, and no role, department
+   *             or unresolved-profile fail-open can show it. Use for anything
+   *             outside the workspace's own scope (platform_admins).
    * sectionStandard: optional section label for standard profile
    * labelStandard: optional link label for standard profile
    */
@@ -250,20 +274,38 @@
     // { id: 'reports/returns-overview', section: 'Sales', label: 'Returns & Exchanges', href: '/v2/returns-overview.html', profiles: ['grandfathered'] },
 
 
-    // Admin-only: this page displays connection secrets (webhook/API keys,
-    // OAuth tokens), now RLS-gated to is_admin_user() -- see
-    // 20260814000000_lock_connection_secrets_to_admin.sql. Nav hiding is
-    // UX only; ADMIN_ROLES is a client-side approximation of that gate.
-    { roles: ADMIN_ROLES, id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
+    // ONE Settings destination, not one row per settings page. Integrations
+    // and Billing are TABS of it now (WORKSPACE_SETTINGS_PAGES above), and a
+    // sidebar row per tab beside a tab strip is two navigations for one place
+    // -- the same reason the seven accounting pages collapse to a single
+    // 'Accounting' row. /v2/integrations.html and /v2/billing.html are
+    // unchanged URLs, so every existing bookmark and in-app link still lands
+    // on the same page; it simply now carries the strip and highlights this
+    // row. silo-chrome.js maps any WORKSPACE_SETTINGS_PAGES id onto this one.
+    //
+    // Admin-only for discovery, the same approximation the Integrations row
+    // carried before: that page displays connection secrets, RLS-gated to
+    // is_admin_user() (20260814000000_lock_connection_secrets_to_admin.sql),
+    // and each tab re-checks its own gate server-side. The landing tab is
+    // Company because it is the one every workspace has something to say
+    // about on day one.
+    { roles: ADMIN_ROLES, id: 'settings/workspace', section: 'Settings', label: 'Workspace settings', href: '/v2/settings-company.html', profiles: ['grandfathered', 'standard'] },
 
-    // ── SILO Billing: HIDDEN UNTIL ACTIVATION (2026-09-19, Blake) ───────────
-    // Subscription Billing stays in Settings, not the Accounting workspace.
-    // Gate when restored: ADMIN_ROLES,
-    // approximating billing_subscriptions' is_admin_user() select gate;
-    // changing the plan needs owner_admin, which stripe-billing enforces
-    // server-side. Settings rather than Accounting: account administration,
-    // not part of anybody's close.
-    // { roles: ADMIN_ROLES, id: 'finance/billing', section: 'Settings', label: 'Billing', href: '/v2/billing.html', profiles: ['grandfathered', 'standard'] },
+    // ── Silo Admin: PLATFORM scope, not workspace scope ────────────────────
+    // A company owner is not a platform admin. `requiresGrant` makes this row
+    // visible ONLY once a platform_admins row for the caller has actually been
+    // read back -- unlike `roles`, which fails OPEN while the profile fetch is
+    // in flight, and would flash a platform link at every user on every deep
+    // link. The page and every RPC behind it re-check is_platform_admin()
+    // server-side; this row only decides who DISCOVERS it.
+    { requiresGrant: true, grantTable: 'platform_admins', id: 'platform/admin', section: 'Platform', label: 'Silo Admin', href: '/v2/platform-admin.html', profiles: ['grandfathered', 'standard'] },
+
+    // Billing has no sidebar row of its own by design -- it is the Billing tab
+    // of Workspace settings above. (It previously sat here commented out
+    // pending the Stripe deploy; the page is unchanged and the deploy is still
+    // step 7 of docs/ops/stripe.md. Changing the plan needs owner_admin, which
+    // stripe-billing enforces server-side.) Settings rather than Accounting:
+    // account administration, not part of anybody's close.
   ];
 
   // Standard-profile section order. A section missing from this list is
@@ -271,7 +313,7 @@
   // appends leftovers; this one does not) -- 'Sales' and 'Marketing' are
   // listed here purely so a future standard-profile report doesn't vanish
   // silently. No standard-profile item uses either section today.
-  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Marketing', 'Settings'];
+  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Marketing', 'Settings', 'Platform'];
 
   /**
    * @param {'grandfathered' | 'standard'} profile
@@ -280,11 +322,13 @@
   function navSectionsForProfile(profile, department, role, grantIds) {
     const dept = department ? String(department).toLowerCase() : null;
     const userRole = role ? String(role).toLowerCase() : null;
+    const hasGrant = (id) => !!(grantIds && grantIds.has && grantIds.has(id));
     const visible = NAV_ITEMS.filter((item) =>
       item.profiles.includes(profile)
+      && (!item.requiresGrant || hasGrant(item.id))
       && (!item.departments || !dept || item.departments.includes(dept))
       && (!item.roles || !userRole || item.roles.includes(userRole)
-          || (grantIds && grantIds.has && grantIds.has(item.id))));
+          || hasGrant(item.id)));
     const bySection = new Map();
 
     for (const item of visible) {
@@ -324,6 +368,7 @@
 
   global.SiloNav = {
     ACCOUNTING_PAGES,
+    WORKSPACE_SETTINGS_PAGES,
     resolveNavProfile,
     navSectionsForProfile,
     navSectionsForCompany,

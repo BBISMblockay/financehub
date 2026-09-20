@@ -264,33 +264,23 @@
 
       <section class="side-grid">
         <div>
-          <!-- Platform-admin only, unhidden by is_platform_admin(). This founds a
-               NEW company, which is a different act from the org invite below:
-               that one adds someone to THIS company. Kept visually separate for
-               that reason -- the two were never going to be one control. -->
+          <!-- Founding a NEW company is PLATFORM scope, not this workspace's.
+               The control moved to /v2/platform-admin.html so that a page about
+               this company's people stops also being the place tenants are
+               created; what is left here is a pointer, shown only when
+               is_platform_admin() says so. That RPC is re-checked inside
+               create_platform_invite either way -- unhiding this in devtools
+               buys a link, not an invite. -->
           <section class="panel" id="platformInvitePanel" style="display:none;">
             <div class="panel-head">
               <div>
                 <div class="section-title">Platform</div>
-                <div class="panel-title">Create a new company</div>
-                <div class="panel-sub">Mints a link that lets someone found their own SILO company. They become its owner; nothing of this company is visible to them, and nothing of theirs to you.</div>
+                <div class="panel-title">Silo Admin</div>
+                <div class="panel-sub">Creating a company, and every other platform-wide control, now lives in Silo Admin. This page stays scoped to the company you are signed into.</div>
               </div>
-            </div>
-            <div class="toolbar-row">
-              <input id="pfEmail" class="input" type="email" placeholder="founder@theircompany.com" />
-              <input id="pfCompany" class="input" type="text" placeholder="their company name (optional)" />
-              <button id="pfCreateBtn" class="btn btn-primary">Create invite</button>
-            </div>
-            <div id="pfLinkBox" class="px-4 py-3 text-xs border-t" style="border-color:var(--line); display:none;">
-              <div class="muted2" style="margin-bottom:.35rem;">Company-creation link — copy it now, it is only shown once:</div>
-              <div class="flex items-center gap-2">
-                <input id="pfLink" class="input mono" readonly style="flex:1;" />
-                <button id="pfCopyBtn" class="btn">Copy</button>
+              <div class="panel-actions">
+                <a class="btn btn-primary" href="/v2/platform-admin.html">Open Silo Admin</a>
               </div>
-            </div>
-            <div class="px-4 py-3 text-xs" id="pfMsg"></div>
-            <div class="px-4 pb-4">
-              <table class="w-full text-xs"><tbody id="pfTbody"></tbody></table>
             </div>
           </section>
 
@@ -805,57 +795,10 @@
       renderInvites();
     }
 
-    // ====== Platform invites (found a NEW company) ======
-    // There is no emailing step here on purpose: this is a low-volume,
-    // high-consequence link that Blake sends by hand, and adding an edge
-    // function for it would be a deploy to maintain for a handful of sends a
-    // year. The org invite below is the one that needed automating.
-    async function loadPlatformInvites(){
-      const tbody = el("pfTbody");
-      if (!tbody) return;
-      const { data, error } = await supabaseClient.rpc("list_platform_invites");
-      if (error){
-        tbody.innerHTML = `<tr><td class="muted2">Could not load: ${escapeHtml(error.message)}</td></tr>`;
-        return;
-      }
-      const rows = data || [];
-      if (!rows.length){ tbody.innerHTML = `<tr><td class="muted2">No company invites yet.</td></tr>`; return; }
-      tbody.innerHTML = rows.map(i => `
-        <tr>
-          <td class="mono">${escapeHtml(i.email || "")}</td>
-          <td>${escapeHtml(i.company_title || i.suggested_company || "—")}</td>
-          <td>${escapeHtml(i.status || "")}</td>
-          <td>${i.status === "pending" ? `<button class="btn" data-action="revoke-platform" data-id="${escapeHtml(i.id)}">Revoke</button>` : ""}</td>
-        </tr>`).join("");
-      tbody.querySelectorAll("[data-action='revoke-platform']").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          const { error: e } = await supabaseClient.rpc("revoke_platform_invite", { p_invite_id: btn.dataset.id });
-          if (e) { el("pfMsg").textContent = `Revoke failed: ${e.message}`; return; }
-          await loadPlatformInvites();
-        });
-      });
-    }
-
-    async function createPlatformInvite(){
-      const msg = el("pfMsg");
-      const email = String(el("pfEmail")?.value || "").trim();
-      if (!email){ if (msg) msg.textContent = "Enter the founder's email."; return; }
-      if (msg) msg.textContent = "Creating…";
-      const { data, error } = await supabaseClient.rpc("create_platform_invite", {
-        p_email: email,
-        p_company_name: String(el("pfCompany")?.value || "").trim() || null
-      });
-      if (error){ if (msg) msg.textContent = `Failed: ${error.message}`; return; }
-      el("pfLink").value = `${window.location.origin}/v2/company-onboarding.html?invite=${encodeURIComponent(data?.token || "")}`;
-      el("pfLinkBox").style.display = "";
-      el("pfEmail").value = ""; el("pfCompany").value = "";
-      if (msg) msg.textContent = `Invite created for ${data?.email || email}. Send them the link below — it is not emailed automatically.`;
-      await loadPlatformInvites();
-    }
-
-    // The panel is hidden unless the RPC says so. This is UX, not the boundary:
-    // create_platform_invite re-checks is_platform_admin() server-side, so
-    // unhiding the panel in devtools buys nothing.
+    // ====== Platform scope: pointer only ======
+    // The create/list/revoke controls moved to /v2/platform-admin.html. This
+    // just reveals the link for a platform admin; every RPC behind that page
+    // re-checks is_platform_admin() server-side.
     async function initPlatformInvites(){
       try {
         const { data, error } = await supabaseClient.rpc("is_platform_admin");
@@ -863,12 +806,6 @@
       } catch (_) { return; }
       const panel = el("platformInvitePanel");
       if (panel) panel.style.display = "";
-      el("pfCreateBtn")?.addEventListener("click", createPlatformInvite);
-      el("pfCopyBtn")?.addEventListener("click", () => {
-        el("pfLink")?.select();
-        try { document.execCommand("copy"); } catch (_) {}
-      });
-      await loadPlatformInvites();
     }
 
     async function createInvite(){

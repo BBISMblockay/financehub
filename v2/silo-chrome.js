@@ -125,7 +125,13 @@
       if (!uid) return new Set();
       const ids = new Set();
       for (const item of grantItems) {
-        const { data } = await sb.from(item.grantTable).select('id').eq('user_id', uid).maybeSingle();
+        // 'user_id' rather than 'id': it is the column every grant table is
+        // keyed on and the only one all of them have -- platform_admins has
+        // no 'id' at all, and selecting one there errors into the catch
+        // below, which reads as "no grant" and hides the link forever.
+        // limit(1) because silo_chat_managers is one row per company, so a
+        // user granted in two companies would otherwise fail maybeSingle().
+        const { data } = await sb.from(item.grantTable).select('user_id').eq('user_id', uid).limit(1).maybeSingle();
         if (data) ids.add(item.id);
       }
       try { sessionStorage.setItem(SS_GRANTS, JSON.stringify([...ids])); } catch {}
@@ -448,7 +454,11 @@
     document.documentElement.setAttribute('data-theme', theme);
 
     opts.avatarUrl = opts.avatarUrl || getCachedAvatarUrl();
-    const navActive = window.SiloAccounting?.contains(opts.active) ? 'finance/accounting' : opts.active;
+    // A suite page highlights its ONE sidebar row, not a row per tab: the
+    // strip is the navigation within the suite. Same mapping for both suites.
+    let navActive = opts.active;
+    if (window.SiloAccounting?.contains(navActive)) navActive = 'finance/accounting';
+    else if (window.SiloWorkspaceSettings?.contains(navActive)) navActive = 'settings/workspace';
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
@@ -460,6 +470,7 @@
       mainEl.prepend(util);
       updateThemeIcon();
       window.SiloAccounting?.mount(mainEl, opts.active);
+      window.SiloWorkspaceSettings?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render
@@ -499,7 +510,9 @@
       resolveGrantIds(opts.supabaseClient).then((grantIds) => {
         if (!grantIds || !grantIds.size) return;
         const navEl = sidebar.querySelector('#siloSbNav');
-        if (navEl) navEl.innerHTML = renderNavSections(opts.active, getCachedDepartment(), opts.user && opts.user.role, grantIds);
+        // navActive, not opts.active: a suite page's own id is not a sidebar
+        // id, so repainting with it left no row highlighted at all.
+        if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), opts.user && opts.user.role, grantIds);
       });
     }
 

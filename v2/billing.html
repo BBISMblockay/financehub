@@ -44,11 +44,13 @@
     .bil-note { font-size: 12px; color: var(--bcn-ink-3); line-height: 1.55; max-width: 76ch; }
   </style>
   <link rel="stylesheet" href="payments-ui.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
+  <script src="workspace-settings.js"></script>
   <script src="silo-chrome.js"></script>
   <script src="payments-ui.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -56,11 +58,11 @@
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main payments-workspace">
+    <main class="silo-main payments-workspace workspace-settings">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Billing</div>
-          <div class="bcn-header-sub bcn-header-sub--trimmed">Your SILO subscription.</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">This workspace's SILO subscription.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--ghost" id="btnSync" aria-label="Refresh from Stripe" title="Refresh from Stripe"><span data-pay-icon="refresh"></span></button>
@@ -346,9 +348,9 @@
 
     if (window.SiloChrome) {
       window.SiloChrome.mount({
-        appEl: '#silo-app', active: 'finance/billing',
+        appEl: '#silo-app', active: 'settings/billing',
         user: { email: user?.email || '', role: 'admin' },
-        crumbs: ['Finance', 'Billing'], supabaseClient: sb,
+        crumbs: ['Settings', 'Billing'], supabaseClient: sb,
       });
     }
 

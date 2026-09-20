@@ -1,0 +1,49 @@
+/* The Workspace Settings tab strip. Scoped so no other module inherits it.
+
+   Visually the accounting strip: one tab row is one tab row, and a settings
+   area that looked different from the accounting area would read as a
+   different product. Kept as its own file rather than shared selectors so a
+   change to one strip cannot silently restyle the other. */
+.workspace-settings-nav {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;
+  background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
+.workspace-settings-label {font-size:12px;font-weight:650;color:var(--bcn-ink);}
+.workspace-settings-links {display:flex;align-items:stretch;gap:18px;overflow-x:auto;min-width:0;}
+.workspace-settings-nav a {position:relative;display:inline-flex;align-items:center;gap:7px;font-size:12px;
+  padding:10px 0 9px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);
+  border-bottom:2px solid transparent;}
+.workspace-settings-nav a svg {flex:none;opacity:.75;}
+.workspace-settings-nav a[aria-current="page"] {color:var(--bcn-accent);border-bottom-color:var(--bcn-accent);font-weight:650;}
+.workspace-settings-nav a[aria-current="page"] svg {opacity:1;}
+.workspace-settings-nav a:hover {color:var(--bcn-ink);}
+.workspace-settings-nav a:hover svg {opacity:1;}
+.workspace-settings-nav a:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:-2px;}
+@media(max-width:760px) {
+  .workspace-settings-nav {padding:0 12px;gap:14px;}
+  .workspace-settings-label {display:none;}
+  .workspace-settings-links {gap:18px;width:100%;}
+}
+
+/* Shared page furniture for the settings tabs that are NEW pages (Company,
+   Team, Notifications). Integrations and Billing keep their own layouts
+   untouched -- adapting their headers to the strip is the whole change there. */
+.workspace-settings .ws-page {flex:1;min-height:0;overflow:auto;background:var(--bcn-bg);padding:16px 20px 64px;}
+.workspace-settings .ws-card {background:var(--bcn-surface);border:1px solid var(--bcn-border);
+  border-radius:10px;overflow:hidden;margin-bottom:14px;max-width:980px;}
+.workspace-settings .ws-card-head {padding:10px 14px;border-bottom:1px solid var(--bcn-border);
+  display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.workspace-settings .ws-title {font-weight:650;font-size:14px;}
+.workspace-settings .ws-sub {font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3);}
+.workspace-settings .ws-body {padding:16px;}
+.workspace-settings .ws-note {font-size:12px;color:var(--bcn-ink-3);line-height:1.55;max-width:76ch;}
+.workspace-settings .ws-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;}
+.workspace-settings .ws-field {display:flex;flex-direction:column;gap:5px;}
+.workspace-settings .ws-label {font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--bcn-ink-3);}
+.workspace-settings .ws-table {width:100%;border-collapse:collapse;font-size:12px;}
+.workspace-settings .ws-table th {text-align:left;background:var(--bcn-sunken);font-family:var(--bcn-mono);
+  font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--bcn-ink-3);
+  padding:7px 10px;border-bottom:1px solid var(--bcn-border);}
+.workspace-settings .ws-table td {padding:7px 10px;border-bottom:1px solid var(--bcn-border);vertical-align:middle;}
+.workspace-settings .ws-empty {padding:26px;text-align:center;color:var(--bcn-ink-3);font-size:13px;}
+.workspace-settings .ws-actions {display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.workspace-settings .ws-you {font-family:var(--bcn-mono);font-size:10px;color:var(--bcn-ink-3);}
