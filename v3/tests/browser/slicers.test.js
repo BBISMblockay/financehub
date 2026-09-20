@@ -255,6 +255,31 @@ const isoToday = () => { const d = new Date(); const p = (n) => String(n).padSta
   await page.waitForTimeout(900);
   ok('a one-filter bar is left open', await page.isVisible('#slicerFields'));
 
+  await seed(`db.silo_chat_saved_reports.push({id:'COMPANY',title:'Company dates',source:'system',company_entity_id:null,
+    parameters:[{key:'date_from',type:'date',label:'From',default:'today-60d',date_basis:'company'},
+                {key:'date_to',type:'date',label:'Through',default:'today-1d',date_basis:'company'}],
+    queries_run:['select {{date_from}} as from_day, {{date_to}} as to_day']});
+    db.dashboards[0].filter_state={}; db.dashboard_widgets.length=0;
+    db.dashboard_widgets.push({id:'CW',dashboard_id:'D1',report_id:'COMPANY',query_index:0,title:'Company dates',
+      visual_type:'table',visual_config:{},layout:{x:0,y:0,w:6,h:4},sort_order:0});`);
+  await page.reload();
+  await page.waitForFunction(() => window.__siloDashboard);
+  await page.waitForTimeout(600);
+  ok('a 60-day default remains a rolling option',await page.inputValue('[data-param="date_from"]')==='today-60d');
+  ok('company-relative dates do not show a browser-local date',
+    (await page.textContent('#filterChips')).includes('Company calendar'));
+  calls=await page.evaluate(()=>window.__FAKE_DB__.rpcCalls.map(c=>c.args.query));
+  ok('the actual RPC carries company-relative SQL',calls.some(q=>q.includes('public.silo_business_today()')&&q.includes('- 60')));
+  await page.selectOption('[data-param="date_from"]','__custom');
+  await page.fill('[data-param-date="date_from"]','2024-02-29');
+  await page.locator('[data-param-date="date_from"]').dispatchEvent('change');
+  await page.waitForTimeout(500);
+  calls=await page.evaluate(()=>window.__FAKE_DB__.rpcCalls.map(c=>c.args.query));
+  ok('an explicit company date is still an exact override',calls.some(q=>q.includes("date '2024-02-29'")));
+  await page.selectOption('[data-param="date_from"]','today-60d');
+  await page.waitForTimeout(500);
+  await page.reload(); await page.waitForFunction(()=>window.__siloDashboard); await page.waitForTimeout(500);
+  ok('reload preserves the rolling token, not a frozen date',await page.inputValue('[data-param="date_from"]')==='today-60d');
   ok('no page errors throughout', errors.length === 0, errors.slice(0, 4).join('\n        '));
 
   console.log(`\n${checks - fails}/${checks} checks passed\n`);

@@ -103,5 +103,8 @@ test('...and every one of them resolves to a real date today', () => {
   for (const p of FB.DATE_PRESETS) truthy(P.resolveDateExpr(p.value), p.value);
 });
 
+test('company dates keep rolling single controls instead of browser-calendar ranges', () => {
+  eq(FB.groupDeclarations([d('date_from','date',{date_basis:'company'}),d('date_to','date',{date_basis:'company'})]).map(x=>x.kind),['single','single']);
+});
 const r = R.summary();
 process.exit(r.fail ? 1 : 0);

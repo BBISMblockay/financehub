@@ -290,5 +290,19 @@ test('Total Sales and Net Sales are named in full, and differently', () => {
 test('an unknown column has no canonical label -- the generic titler handles it', () =>
   eq(M.label('qty_arriving_by_cutoff'), null));
 
+test('canned MER uses online revenue and refuses incomplete source days', () => {
+  const rows=[{mer:10,online_net_sales:100,ad_spend:10},{mer:20,online_net_sales:400,ad_spend:20}];
+  eq(M.aggregate(rows,'mer','number',{}).value,500/30);
+  rows.push({mer:null,online_net_sales:null,ad_spend:10});
+  eq(M.aggregate(rows,'mer','number',{}).value,null);
+});
+test('channel AOV pools merchandise subtotal over orders', () => {
+  eq(M.aggregate([{aov:10,merch_revenue:100,orders:10},{aov:20,merch_revenue:20,orders:1}],'aov','currency',{}).value,120/11);
+});
+test('cover and attribution ratios are never added across products/platforms', () => {
+  for (const field of ['weeks_of_cover','weeks_on_hand','claimed_roas','real_online_roas','claim_ratio','cost_per_conversion']) {
+    eq(M.aggregate([{[field]:2},{[field]:10}],field,'number',{}).value,null,field);
+  }
+});
 const r = R.summary();
 process.exit(r.fail ? 1 : 0);
