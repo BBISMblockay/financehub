@@ -1617,3 +1617,75 @@ Regressions: `scripts/tests/entities-update-lockdown.test.mjs` (7 assertions,
 exists**, so closing it proves something; and because either layer alone
 refuses the write, the two are pinned structurally against `pg_policy` and
 `has_table_privilege` rather than through behaviour.
+
+## Entity admin gate scoped to the entity — `20260920160000_entity_admin_gate_company_scope.sql`
+
+Found by impersonating the newly invited BlockayOps admin against production
+(2026-09-20), as the last step of the Workspace Settings acceptance walkthrough.
+Operational isolation held — 0 Baseballism payment requests, POs or launches,
+and `profiles` correctly returned only the two BlockayOps members — but
+`entities` returned **all three tenants**.
+
+```sql
+is_owner_admin(): exists (select 1 from entity_memberships m
+                          where m.user_id = auth.uid()
+                            and m.role in ('owner','admin'));
+```
+
+No `entity_id` predicate. It asks "do I hold an owner/admin membership
+**anywhere**" and then answers true for **every** company. `20260913054723`
+diagnosed this exact root cause and fixed it for `profiles`; the function
+stayed in place for everything else, and this is the rest of it.
+
+**Two reachable consequences.** It gated `entities_select_access` through
+`can_access_entity()`, so any admin could list every tenant with its
+`entity_key` — disclosure of who else uses SILO, and 28 of 29 Baseballism
+profiles are membership `admin`. And it was the **entire qual** of
+`entities_delete_admin_only`, with DELETE still granted to `authenticated`
+(`20260920130000` revoked UPDATE only).
+
+**On the delete, precisely.** Deleting Baseballism would in fact fail: ~70
+child FKs are `NO ACTION` and populated (`profiles`, `po_headers`,
+`sales_by_day`), so the statement aborts atomically. That is accidental
+protection, not design. A tenant founded last week has no rows in those tables
+and ~70 *other* FKs are `CASCADE` — `company_settings`, `entity_memberships`,
+`shopify_connections`, `billing_subscriptions`, `stripe_connect_accounts`,
+every `customer_account*`. Not verified by deleting anything: entity triggers
+reach `notify-slack` through `pg_net`, which is not transactional, so even a
+rolled-back probe would fire.
+
+**The same stale vocabulary fails the other way too.** Per-company roles are
+`owner_admin | admin | member | viewer` since `20260714232106`, and `'owner'`
+matches no production row (measured: 33 `admin`, 3 `owner_admin`, 2 `member`).
+So `is_entity_admin` — correctly scoped, and the sibling policy on all four
+affected tables — excluded **every owner_admin from their own company**. Both
+gates are corrected to `('owner_admin','admin')`.
+
+**What changed.** `can_access_entity()` loses the wide branch (its remaining
+branches are all row-specific). The four policies built on the wide gate are
+retired; each table already carried a correctly scoped `is_entity_admin(...)`
+sibling, so they were pure widening duplicates — and policies are OR'd, so
+fixing the function alone would not have closed it. The author/uploader clauses
+on `entity_comments` and `files` are *not* duplicates and are preserved on
+their own. `is_owner_admin()` is then dropped rather than corrected: a
+zero-argument "am I an admin" helper cannot be scoped to a row, so the next
+caller would reintroduce the hole. Scoped callers have `is_entity_admin(uuid)`;
+"owner of the company I am active in" has `is_owner_admin_of_active_company()`.
+
+**INSERT and DELETE are revoked** on `entities`. `20260920130000` revoked
+UPDATE for the reason that a company is not a row a browser edits; DELETE is
+the same argument with a worse outcome, and INSERT is the same argument
+pointing the other way — `entities_insert_active_user` admitted any active
+user, which would let a browser found a tenant outside the platform-invite flow
+`20260918120000` exists to enforce. Safe because every legitimate writer is
+SECURITY DEFINER and so is unaffected by a table grant (`redeem_platform_invite`,
+`handle_new_user`, `set_workspace_company_name`), and no client code writes this
+table at all.
+
+Verified by `scripts/tests/entity-admin-gate-scope.test.mjs` — 12 assertions,
+six mutations. The fixture builds the wide gate and all four policies before
+applying the migration, and its delete assertions use a *young* tenant, because
+asserting against Baseballism would pass whether or not the fix is present.
+`verify_v2_schema.sql` gains **Entity admin gate is company-scoped**, confirmed
+CRITICAL against production before the migration was applied.
+
