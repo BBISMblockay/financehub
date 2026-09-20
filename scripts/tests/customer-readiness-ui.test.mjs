@@ -38,3 +38,12 @@ test('standard home hides Baseballism team workflows and links Customers', async
   assert.match(html, /href="\/v2\/customers\.html">Customers<\/a>/);
   assert.match(html, /data-nav-profile="grandfathered">\s*<div class="fin-card-head"><h2>Team<\/h2>/);
 });
+
+test('standard dashboard hub hides report authoring while keeping Ask SILO', async () => {
+  const html = await read('v3/dashboards.html');
+  assert.match(html, /navProfile === 'standard'/);
+  assert.match(html, /el\('btnNewReport'\)\.hidden = true/);
+  assert.match(html, /el\('tabReports'\)\.hidden = true/);
+  assert.match(html, /crumbs: navProfile === 'standard' \? \['Insights', 'Dashboards'\]/);
+  assert.match(html, /href="\/v2\/silo-chat\.html">Ask SILO<\/a>/);
+});
