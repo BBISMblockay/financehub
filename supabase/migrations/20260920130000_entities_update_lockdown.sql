@@ -1,0 +1,80 @@
+-- =============================================================================
+-- entities: remove client UPDATE.
+--
+-- Found 2026-09-20, by the verify check added alongside
+-- 20260920120000_workspace_settings_admin.sql, the first time that migration
+-- was applied to production. Not caused by it -- the check is simply the first
+-- thing that ever looked.
+--
+-- MEASURED ON PRODUCTION (pg_policy, 2026-09-20). `entities` carries TWO
+-- permissive UPDATE policies:
+--
+--   entities_update_member  using/with check  is_entity_member(id)
+--   entities_update_access  using/with check  can_access_entity(id)
+--
+-- and `is_entity_member` has no role filter at all:
+--
+--   select exists (select 1 from public.entity_memberships
+--                   where entity_id = p_entity_id and user_id = auth.uid())
+--
+-- `can_access_entity` ORs that same function in, so the two are one rule with
+-- two names. RLS cannot scope to columns, so ANY member of a company -- a
+-- `viewer` included -- can rewrite its own company row entirely from the
+-- browser: `title`, `entity_key`, `meta`, `entity_type`, `module`, `source`.
+--
+-- WHAT THAT IS AND IS NOT. It is bounded to the caller's OWN tenant:
+-- is_entity_member is false for every other company's row, and tenant
+-- isolation everywhere else keys on `company_entity_id`, not on anything
+-- writable here. So this is privilege escalation INSIDE a tenant -- a viewer
+-- performing an owner's act -- and not cross-tenant read or write. It is not
+-- the entity_memberships hole 20260917220000 closed, which handed out
+-- owner_admin of an arbitrary company.
+--
+-- What it does reach, in order of how much it matters:
+--   * `entity_key` and `meta.nav_profile` are exactly what
+--     resolveNavProfile() reads to decide WHOSE MENU a company is served.
+--     A member setting entity_key = 'baseballism' serves themselves the
+--     grandfathered sidebar. No data follows the menu -- RLS still scopes
+--     every query -- but "another company's menu" is the precise thing
+--     v2/nav-config.js's own comment says should never happen.
+--   * `title` is the company name, which 20260920120000 had just made
+--     owner-only through set_workspace_company_name(). That function is the
+--     right path and was, until this migration, not the only one.
+--   * `entity_type` away from 'company' breaks the caller's own company
+--     resolution. Self-inflicted, but nothing should permit it.
+--
+-- NOTHING LEGITIMATE USES THESE POLICIES. Every write to `entities` in the
+-- system runs through a SECURITY DEFINER function -- `handle_new_user`,
+-- `redeem_platform_invite`, `set_workspace_company_name` -- or the
+-- service-role client. Definer functions execute as the function owner and
+-- service-role bypasses RLS, so neither is affected by a policy or a grant on
+-- `authenticated`. Verified 2026-09-20: no file under v2/, v3/, pages/,
+-- scripts/ (outside test fixtures, which connect as superuser), server/ or
+-- supabase/functions/ issues an UPDATE against this table. The only client
+-- references are READS -- pages/config.js resolving the active company, and
+-- v2/settings-company.html reading title/entity_key/created_at.
+--
+-- THE GRANT REVOKE, not just the policy drops, for the same reason
+-- 20260917220000 revoked rather than only dropping: `entities` is where a
+-- company's identity lives, a browser session has no business writing it under
+-- any policy, and with the grant gone a future permissive policy added in good
+-- faith cannot reopen this on its own.
+--
+-- DELIBERATELY NOT TOUCHED: `entities_insert_active_user`, which lets any
+-- active user insert a row with created_by = auth.uid(). That is litter rather
+-- than escalation -- a row with no membership cannot be made anyone's active
+-- company, since set_active_company() validates membership first -- and
+-- narrowing INSERT is a separate decision with its own blast radius. Named
+-- here so the omission reads as chosen rather than missed.
+--
+-- Reversible: recreating the two policies and re-granting update restores the
+-- previous state exactly. Do not.
+--
+-- Idempotent: drop-if-exists plus revokes.
+-- =============================================================================
+
+drop policy if exists entities_update_member on public.entities;
+drop policy if exists entities_update_access on public.entities;
+
+revoke update on public.entities from authenticated;
+revoke update on public.entities from anon;

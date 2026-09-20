@@ -18958,3 +18958,17 @@ $c$select (select count(*) from v_po_header_summary
 --
 -- Idempotent: create-or-replace only.
 \i migrations/20260920120000_workspace_settings_admin.sql
+
+-- ── entities: remove client UPDATE (2026-09-20) ───────────────────────────
+-- Any member of a company -- a viewer included -- could rewrite its own row's
+-- title, entity_key, meta and entity_type from the browser, going round
+-- set_workspace_company_name entirely. entity_key and meta.nav_profile are
+-- what resolveNavProfile() reads to decide whose menu a company is served.
+--
+-- Bounded to the caller's own tenant, so it is escalation inside a company
+-- rather than a cross-tenant read. Nothing legitimate used the policies: every
+-- write to this table is a SECURITY DEFINER function or the service role,
+-- neither of which a policy or a grant on `authenticated` affects.
+--
+-- Idempotent: drop-if-exists plus revokes.
+\i migrations/20260920130000_entities_update_lockdown.sql
